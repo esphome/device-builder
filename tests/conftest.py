@@ -220,6 +220,14 @@ def make_remote_build_controller(
     db.settings = MagicMock()
     db.settings.config_dir = config_dir
     db.create_background_task = asyncio.create_task
+    # ``register_peer_link_session`` calls ``firmware.queue_status_snapshot()``
+    # to push an initial idle / running / depth signal to a
+    # freshly-connected offloader (cold-connect gap fix). The
+    # default MagicMock auto-attribute returns a MagicMock that
+    # doesn't unpack as a 3-tuple, so pin a sane "fresh queue is
+    # idle" shape here — same value the production firmware
+    # controller returns on a never-built queue.
+    db.firmware.queue_status_snapshot = MagicMock(return_value=(True, False, 0))
     if bus is not None:
         db.bus = bus
     return RemoteBuildController(db)

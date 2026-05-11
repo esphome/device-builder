@@ -70,7 +70,6 @@ from esphome_device_builder.models import (
     JobLifecycleData,
     JobStatus,
     JobType,
-    PeerQueueStatusSnapshotEntry,
 )
 
 from .._storage_fixtures import write_storage_json
@@ -223,97 +222,59 @@ def _write_build_artifacts_on_disk(tmp_path: Path, *, configuration: str) -> dic
     return images
 
 
-def _seed_idle_queue_status(instances: PairedInstances) -> None:
-    """Pretend the receiver broadcast a single idle ``queue_status`` snapshot.
-
-    The 7a-3 install routing reads
-    :attr:`RemoteBuildController._peer_queue_status` through
-    :meth:`build_scheduler_snapshot` and refuses to pick REMOTE
-    for any pin without an idle entry — the scheduler's
-    "no signal that the receiver can accept work" gate. In
-    production the receiver's
-    :meth:`FirmwareController.queue_status_snapshot` fires on
-    queue idle/run transitions and the offloader's
-    :meth:`_on_offloader_queue_status_changed` listener
-    populates the cache. The harness's receiver-side firmware
-    controller is a :class:`MagicMock`, so the live broadcast
-    never fires; seed the offloader cache directly with the
-    shape the scheduler expects.
-    """
-    instances.offloader._peer_queue_status[instances.pin_sha256] = PeerQueueStatusSnapshotEntry(
-        receiver_hostname="127.0.0.1",
-        receiver_port=instances.receiver_server.port or 0,
-        pin_sha256=instances.pin_sha256,
-        idle=True,
-        running=False,
-        queue_depth=0,
-    )
-
-
 @pytest.mark.asyncio
-async def test_paired_offloader_scheduler_picks_remote_for_idle_receiver(
+async def test_cold_connect_offloader_observes_initial_queue_status_then_picks_remote(
     paired_instances: PairedInstances,
 ) -> None:
-    """The live paired-instances RAM state resolves to ``BuildPath.REMOTE``.
+    """Cold-connect offloader gets an idle entry via the receiver's auto-push.
 
-    Pins the 7a-3 install routing's RAM-canonical contract:
+    The bug this test pins: previously the receiver only
+    broadcast ``queue_status`` on its own firmware queue
+    transitions (``_on_firmware_queue_transition``). A
+    cold-connected offloader that paired before the receiver
+    built anything never observed an idle entry, and the 7a-3
+    install scheduler's ``pick_build_path`` requires an entry
+    in ``_peer_queue_status`` to consider a pairing eligible —
+    so ``firmware/install`` silently fell back to LOCAL on
+    every paired receiver. The fix has the receiver send a
+    one-shot ``queue_status`` to a freshly-registered session
+    inside :meth:`register_peer_link_session`.
 
-    * :meth:`RemoteBuildController.build_scheduler_snapshot`
-      reads ``_pairings`` (APPROVED + paired_at-sorted),
-      ``_open_peer_links`` (live peer-link session set), and
-      ``_peer_queue_status`` (per-pin idle/running cache) into
-      one :class:`BuildSchedulerInputs`.
-    * :func:`helpers.build_scheduler.pick_build_path` returns
-      ``BuildPath.REMOTE`` with the pin matching the harness's
-      live receiver.
+    The previous shape of this test pre-seeded
+    ``offloader._peer_queue_status[pin]`` to model the
+    transition-driven path, masking the cold-connect gap. The
+    new test asserts the offloader observes the idle entry by
+    waiting on its ``OFFLOADER_QUEUE_STATUS_CHANGED`` event
+    (fired by the receive loop after parsing the receiver's
+    one-shot frame) — no manual seeding. A regression that
+    removes the initial push or otherwise breaks the cold-
+    connect path will surface here.
 
-    The unit tests in ``test_remote_build_controller.py`` cover
-    ``build_scheduler_snapshot`` against a stub controller's
-    pre-seeded dicts. The e2e value here is pinning that a
-    real-handshake / real-approve / real-peer-link-session
-    lifecycle lands the RAM state in the shape the scheduler
-    expects — without an explicit gate in between, a future
-    regression on any of those three mutation sites would slip
-    past the unit suite (which doesn't drive the live
-    transitions) but surface here.
+    Once the cache entry has landed,
+    :func:`build_scheduler_snapshot` + :func:`pick_build_path`
+    resolve to ``BuildPath.REMOTE`` against the same pin.
     """
+    queue_status_landed = capture_events(
+        paired_instances.offloader_bus, EventType.OFFLOADER_QUEUE_STATUS_CHANGED
+    )
     await paired_instances.wait_until_session_opened()
-    _seed_idle_queue_status(paired_instances)
+    # Wait for the offloader to observe the receiver's initial
+    # ``queue_status`` push. Cold-connect contract:
+    # the offloader's ``_peer_queue_status`` must populate from
+    # the wire without any local-side seeding.
+    await asyncio.wait_for(queue_status_landed.received.wait(), timeout=2.0)
+    payload = queue_status_landed[-1]
+    assert payload["pin_sha256"] == paired_instances.pin_sha256
+    assert payload["idle"] is True
+    assert payload["running"] is False
+    assert payload["queue_depth"] == 0
 
+    # Now that the offloader-side cache reflects the receiver's
+    # signal, the scheduler routes REMOTE.
     snapshot = paired_instances.offloader.build_scheduler_snapshot()
     decision = pick_build_path(snapshot)
-
     assert decision.path is BuildPath.REMOTE
     assert decision.pin_sha256 == paired_instances.pin_sha256
-
-
-@pytest.mark.asyncio
-async def test_paired_offloader_scheduler_falls_back_local_without_queue_snapshot(
-    paired_instances: PairedInstances,
-) -> None:
-    """No idle queue snapshot → scheduler falls back to LOCAL.
-
-    Same APPROVED + live-session state as the previous test but
-    no ``_peer_queue_status`` entry. The scheduler's "missing
-    entry disqualifies the pairing" rule is what's pinned here —
-    the design's safe-fallback stance, asserted against the
-    live paired state to catch a future regression that pre-
-    seeds the snapshot from the pairing row (which would
-    silently route to a receiver whose queue depth we have no
-    signal on).
-    """
-    await paired_instances.wait_until_session_opened()
-    # Deliberately don't seed _peer_queue_status — production
-    # populates it from the receiver's queue_status broadcast,
-    # which the harness's MagicMock firmware controller never
-    # fires.
-    assert paired_instances.pin_sha256 not in paired_instances.offloader._peer_queue_status
-
-    snapshot = paired_instances.offloader.build_scheduler_snapshot()
-    decision = pick_build_path(snapshot)
-
-    assert decision.path is BuildPath.LOCAL
-    assert decision.pin_sha256 is None
 
 
 @pytest.mark.asyncio

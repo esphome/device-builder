@@ -1784,19 +1784,82 @@ class RemoteBuildController:
         self._peer_link_sessions[session.dashboard_id] = session
         if existing is not None and existing is not session:
             await existing.terminate(TerminateReason.SUPERSEDED)
+        # Send the receiver's current queue_status to the just-
+        # connected offloader. The transition-driven broadcast
+        # (``_on_firmware_queue_transition`` → ``_broadcast_queue_status``)
+        # only fires when the receiver's local firmware queue
+        # mutates — a cold-connected offloader that pairs before
+        # the receiver builds anything would otherwise never
+        # observe an idle entry, and the 7a-3 install scheduler's
+        # ``pick_build_path`` requires an entry in
+        # ``_peer_queue_status`` to consider a pairing eligible
+        # (the "no signal that the receiver can accept work"
+        # gate). Without this initial push the offloader's
+        # ``firmware/install`` silently falls back to LOCAL on
+        # every paired receiver until the receiver happens to
+        # build something locally — the exact bug that surfaced
+        # in production after #568 landed.
+        if self._db.firmware is not None:
+            try:
+                idle, running, queue_depth = self._db.firmware.queue_status_snapshot()
+            except Exception:
+                # Best-effort: a snapshot read failure mustn't
+                # poison session registration. The transition-
+                # driven broadcast (``_on_firmware_queue_transition``)
+                # will still catch up the offloader on the next
+                # queue change. Mirrors the swallow-and-log stance
+                # of :meth:`_broadcast_queue_status`.
+                _LOGGER.exception(
+                    "firmware.queue_status_snapshot() raised on session register; "
+                    "skipping initial queue_status push to %s",
+                    session.dashboard_id,
+                )
+            else:
+                self._db.create_background_task(
+                    self._send_initial_queue_status(session, idle, running, queue_depth)
+                )
         # Fire AFTER the dict insert so any subscriber lookup of
         # ``_peer_link_sessions[dashboard_id]`` from inside the
-        # listener observes the just-registered session. The
-        # 5b ``queue_status`` broadcast path can layer onto this
-        # hook to send the initial snapshot to a freshly-
-        # connected offloader without a lookup-then-push race
-        # window (today 5b only pushes on firmware queue
-        # transitions; a follow-up subscribing to this event
-        # closes the cold-connect gap).
+        # listener observes the just-registered session.
         if self._db.bus is not None:
             self._db.bus.fire(
                 EventType.RECEIVER_PEER_LINK_SESSION_OPENED,
                 ReceiverPeerLinkSessionOpenedData(dashboard_id=session.dashboard_id),
+            )
+
+    async def _send_initial_queue_status(
+        self,
+        session: PeerLinkSession,
+        idle: bool,
+        running: bool,
+        queue_depth: int,
+    ) -> None:
+        """Push a one-shot ``queue_status`` frame to a freshly-connected session.
+
+        Mirror of :meth:`_broadcast_queue_status` but addressed
+        to a single session — invoked from
+        :meth:`register_peer_link_session` so the offloader gets
+        an idle / running signal on cold-connect rather than
+        waiting for the receiver's next firmware queue
+        transition. Best-effort: a session that has already
+        torn down between the registry insert and this send
+        no-ops cleanly (``send_app_frame`` is gated on the
+        session's ``_closing`` flag) and the offloader's next
+        reconnect tries again.
+        """
+        payload = QueueStatusFrameData(
+            type="queue_status",
+            idle=idle,
+            running=running,
+            queue_depth=queue_depth,
+        )
+        try:
+            await session.send_app_frame(dict(payload))
+        except Exception:
+            _LOGGER.exception(
+                "initial queue_status to session %s raised; "
+                "offloader will catch up on the next queue transition",
+                session.dashboard_id,
             )
 
     def unregister_peer_link_session(self, session: PeerLinkSession) -> None:
