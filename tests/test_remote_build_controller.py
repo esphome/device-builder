@@ -2689,26 +2689,35 @@ async def test_record_pair_request_fires_event(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_record_pair_request_refreshes_existing_pending_row(tmp_path: Path) -> None:
-    """Re-pair from same dashboard_id while PENDING refreshes pin / label / paired_at in place."""
+    """Re-pair from same dashboard_id + same pubkey refreshes label / peer_ip / paired_at.
+
+    The legitimate retry case: the offloader resent ``pair_request``
+    before the admin clicked Approve, possibly with an updated
+    label (operator edited it offloader-side) or from a different
+    network address (DHCP renewal, NIC swap). Same X25519 keypair
+    means same identity, so the entry is refreshed in place rather
+    than rejected. The pubkey-mismatch case (impersonation attempt)
+    has its own test below.
+    """
     controller = _make_controller(config_dir=tmp_path)
     controller._db.bus = MagicMock()
+    pubkey = b"\x11" * 32
+    pin = hashlib.sha256(pubkey).hexdigest()
     initial = _stored_peer(
         dashboard_id="alpha",
-        pin_sha256="oldpin",
-        static_x25519_pub=b"\x11" * 32,
+        pin_sha256=pin,
+        static_x25519_pub=pubkey,
         label="old",
         paired_at=1.0,
     )
     _seed_pending_peer(controller, initial)
     await controller.set_pairing_window(open=True, client="receiver-tab")
     controller._db.bus.fire.reset_mock()
-    new_pubkey = b"\xcc" * 32
-    new_pin = hashlib.sha256(new_pubkey).hexdigest()
 
     response = await controller.record_pair_request(
         dashboard_id="alpha",
-        pin_sha256=new_pin,
-        static_x25519_pub=new_pubkey,
+        pin_sha256=pin,
+        static_x25519_pub=pubkey,
         label="renamed",
         peer_ip="10.0.0.1",
     )
@@ -2716,8 +2725,8 @@ async def test_record_pair_request_refreshes_existing_pending_row(tmp_path: Path
     assert response == "pending"
     # PENDING refresh updates the in-memory dict, not disk.
     refreshed = controller._pending_peers["alpha"]
-    assert refreshed.pin_sha256 == new_pin
-    assert refreshed.static_x25519_pub == new_pubkey
+    assert refreshed.pin_sha256 == pin
+    assert refreshed.static_x25519_pub == pubkey
     assert refreshed.label == "renamed"
     assert refreshed.paired_at > 1.0
     # ``peer_ip`` refreshes too — the offloader could be on a
@@ -2727,6 +2736,86 @@ async def test_record_pair_request_refreshes_existing_pending_row(tmp_path: Path
     assert refreshed.peer_ip == "10.0.0.1"
     # APPROVED dict stays empty — refresh is PENDING-only.
     assert controller._approved_peers == {}
+
+
+@pytest.mark.asyncio
+async def test_record_pair_request_pending_pubkey_mismatch_returns_rejected(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Different pubkey under an existing PENDING ``dashboard_id`` is refused.
+
+    Security: closes the silent-overwrite path a LAN-adjacent
+    attacker could exploit to swap their X25519 pubkey into an
+    operator's active PENDING row by replaying the legitimate
+    offloader's broadcast ``dashboard_id`` off mDNS. Pre-fix the
+    second ``pair_request`` overwrote the row in place; if the
+    operator then clicked Approve without re-comparing the
+    fingerprint against the OOB-known one, the attacker landed
+    in the APPROVED registry and could ``submit_job`` (full
+    code-exec on the receiver-side).
+
+    No known practical exploitation today — operators are
+    expected to OOB-verify the fingerprint at approve time, and
+    that check is what catches the swap. This is defense-in-depth:
+    after this fix the overwrite simply can't happen, so the
+    operator-vigilance gate is no longer load-bearing for that
+    particular impersonation chain. The DoS variant — flickering
+    the row to confuse approval — is closed unconditionally.
+
+    Same-pubkey retries still refresh (covered above); only the
+    pubkey-divergent case is rejected.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+    legit_pubkey = b"\x11" * 32
+    legit_pin = hashlib.sha256(legit_pubkey).hexdigest()
+    initial = _stored_peer(
+        dashboard_id="alpha",
+        pin_sha256=legit_pin,
+        static_x25519_pub=legit_pubkey,
+        label="legit",
+        paired_at=1.0,
+        peer_ip="10.0.0.1",
+    )
+    _seed_pending_peer(controller, initial)
+    await controller.set_pairing_window(open=True, client="receiver-tab")
+    controller._db.bus.fire.reset_mock()
+
+    attacker_pubkey = b"\xff" * 32
+    attacker_pin = hashlib.sha256(attacker_pubkey).hexdigest()
+    with caplog.at_level("WARNING", logger="esphome_device_builder.controllers.remote_build"):
+        response = await controller.record_pair_request(
+            dashboard_id="alpha",
+            pin_sha256=attacker_pin,
+            static_x25519_pub=attacker_pubkey,
+            label="attacker",
+            peer_ip="10.0.0.99",
+        )
+
+    assert response == "rejected"
+    # Original PENDING row stays untouched. This is the
+    # security-critical invariant: the operator's view of the
+    # legitimate pair_request can't be silently mutated by an
+    # adversary.
+    untouched = controller._pending_peers["alpha"]
+    assert untouched.static_x25519_pub == legit_pubkey
+    assert untouched.pin_sha256 == legit_pin
+    assert untouched.label == "legit"
+    assert untouched.paired_at == 1.0
+    assert untouched.peer_ip == "10.0.0.1"
+
+    # No bus event fired on the rejection. Firing one would
+    # advertise the attempt back to an attacker (who would then
+    # know they can spam the conflict event to noise up the
+    # inbox at zero cost). A server-side WARNING log captures
+    # the event for forensics without giving the attacker a
+    # signal.
+    controller._db.bus.fire.assert_not_called()
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert any("different X25519 pubkey" in r.getMessage() for r in warnings), (
+        "expected a WARNING log line on the pubkey-mismatch refusal"
+    )
 
 
 @pytest.mark.asyncio

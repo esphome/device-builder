@@ -4709,6 +4709,69 @@ class RemoteBuildController:
         if not self.is_pairing_window_open():
             return IntentResponse.NO_PAIRING_WINDOW
 
+        # Security: refuse to overwrite a PENDING entry's pubkey.
+        # The retry case the comment below describes is legitimate
+        # only when the *same* offloader sends a second
+        # ``pair_request`` — same X25519 keypair, possibly different
+        # label / peer_ip / paired_at. A different pubkey under the
+        # same dashboard_id is one of:
+        #   1. A second peer claiming the same dashboard_id (the
+        #      offloader-generated ``dashboard_id`` has 22 chars of
+        #      base64url entropy; collision is astronomical and
+        #      indistinguishable from impersonation regardless).
+        #   2. The offloader rotating its identity mid-pair-request.
+        #      Identity rotation preserves ``dashboard_id`` (see
+        #      ``rotate_identity`` in ``helpers/dashboard_identity.py``),
+        #      so the rotated-then-retried case is theoretically
+        #      reachable; rejecting forces the operator to abandon
+        #      the stale PENDING row and start over with a fresh
+        #      pair_request, which is the right user-visible outcome.
+        #   3. A LAN-adjacent attacker that read the legitimate
+        #      offloader's broadcast ``dashboard_id`` off mDNS and
+        #      sent a ``pair_request`` with their own pubkey.
+        #
+        # Pre-fix, case (3) silently overwrote the operator's PENDING
+        # row with the attacker's pubkey. Two damage modes:
+        #   * Pairing DoS: an attacker flickers the row between
+        #     legitimate and attacker pubkeys, the inbox keeps
+        #     re-rendering, the operator can't reliably approve
+        #     the right row.
+        #   * Approve-without-verifying impersonation: if the
+        #     operator clicks Approve based on muscle memory
+        #     without re-comparing the on-screen fingerprint to
+        #     their OOB-known one, they approve the attacker's
+        #     pubkey. Paired peers can ``submit_job``, which the
+        #     receiver compiles and serves binaries back for.
+        #
+        # **No practical attack is exploited in the wild today** —
+        # the OOB fingerprint check that operators perform during
+        # the approve step is the actual security gate, and a
+        # vigilant operator catches the swap. This fix is
+        # defense-in-depth: closing the silent-overwrite path
+        # turns the impersonation chain from "operator must
+        # OOB-verify carefully" into "attacker cannot inject a
+        # rival pubkey into an active PENDING row at all". The
+        # DoS variant — which doesn't depend on operator
+        # mistakes — is closed unconditionally.
+        #
+        # Same-pubkey retries still refresh ``label`` / ``peer_ip``
+        # / ``paired_at`` (the legitimate retry case below). The
+        # check is RAM-only; no disk hop, no UI event (firing a
+        # conflict event would only advertise the attempt to an
+        # attacker and let them noise up the inbox by triggering
+        # it on demand — refusing silently is strictly better).
+        existing = self._pending_peers.get(dashboard_id)
+        if existing is not None and existing.static_x25519_pub != static_x25519_pub:
+            _LOGGER.warning(
+                "pair_request from %s claims dashboard_id=%s but presented "
+                "a different X25519 pubkey than the existing PENDING entry "
+                "from %s; refusing the overwrite",
+                peer_ip,
+                dashboard_id,
+                existing.peer_ip,
+            )
+            return IntentResponse.REJECTED
+
         # Add or refresh the in-memory PENDING entry. The dict is
         # keyed on dashboard_id so a re-pair while still pending
         # (offloader retried before admin clicked) overwrites the
