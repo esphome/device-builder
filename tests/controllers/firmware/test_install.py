@@ -405,3 +405,70 @@ async def test_install_falls_back_to_local_when_remote_build_controller_absent(
     job = await controller.install(configuration="kitchen.yaml")
 
     assert job.source is JobSource.LOCAL
+
+
+@pytest.mark.asyncio
+async def test_install_bulk_routes_each_config_through_the_scheduler(
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """
+    ``install_bulk`` resolves the install source per-config.
+
+    Every entry in the bulk call goes through
+    ``_resolve_install_source``, so a bulk request lands all
+    eligible jobs as REMOTE when a paired receiver is healthy
+    + idle (and stays LOCAL when none is available). Pins the
+    per-config shape so a future refactor that hoists the
+    scheduler call to call-time-once-and-share doesn't
+    silently drop the per-job ``source_label`` stamp.
+    """
+    controller = firmware_controller_factory(with_queue=True)
+    pairing = _make_pairing(label="desktop")
+    _stub_remote_build(
+        controller,
+        pairings=[pairing],
+        open_pins=frozenset({_PIN}),
+        idle_pins=frozenset({_PIN}),
+    )
+    (tmp_path / "kitchen.yaml").write_text("")
+    (tmp_path / "garage.yaml").write_text("")
+    (tmp_path / "office.yaml").write_text("")
+
+    jobs = await controller.install_bulk(
+        configurations=["kitchen.yaml", "garage.yaml", "office.yaml"]
+    )
+
+    assert [j.source for j in jobs] == [JobSource.REMOTE] * 3
+    assert all(j.source_pin_sha256 == _PIN for j in jobs)
+    assert all(j.source_label == "desktop" for j in jobs)
+
+
+@pytest.mark.asyncio
+async def test_install_bulk_with_serial_port_forces_every_config_local(
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """
+    A serial-port bulk install routes every config to LOCAL.
+
+    Per-port gate is checked first; the scheduler isn't even
+    consulted when the port is serial. Pins the gate's order
+    so a future refactor that lifts the port check out of the
+    resolver doesn't silently send wired-flash jobs to a
+    remote receiver.
+    """
+    controller = firmware_controller_factory(with_queue=True)
+    pairing = _make_pairing()
+    _stub_remote_build(
+        controller,
+        pairings=[pairing],
+        open_pins=frozenset({_PIN}),
+        idle_pins=frozenset({_PIN}),
+    )
+    (tmp_path / "kitchen.yaml").write_text("")
+    (tmp_path / "garage.yaml").write_text("")
+
+    jobs = await controller.install_bulk(
+        configurations=["kitchen.yaml", "garage.yaml"], port="/dev/ttyUSB0"
+    )
+
+    assert [j.source for j in jobs] == [JobSource.LOCAL, JobSource.LOCAL]

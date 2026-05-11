@@ -54,6 +54,7 @@ from .constants import (
     _MAX_AUX_TERMINAL_JOBS,
     _MAX_PRIMARY_TERMINAL_JOBS,
     _PRIMARY_JOB_TYPES,
+    ESPHOME_SUBPROCESS_ENV,
 )
 from .helpers import (
     _find_esphome_cmd,
@@ -66,7 +67,7 @@ from .helpers import (
     _validate_port,
     _verify_esphome_importable,
 )
-from .remote_runner import run_remote_compile_job
+from .remote_runner import run_remote_job
 
 if TYPE_CHECKING:
     from ...device_builder import DeviceBuilder
@@ -944,20 +945,12 @@ class FirmwareController:
             cmd = self._build_command(job.job_type, config_path, job.port, cache_args, job.new_name)
             _LOGGER.debug("Running: %s", " ".join(cmd))
 
-            # Force ANSI color output even though stdout isn't a TTY.
-            # `PLATFORMIO_FORCE_ANSI` covers PlatformIO's own output;
-            # `FORCE_COLOR` / `CLICOLOR_FORCE` cover everything that
-            # uses click for output (esphome itself, esptool, etc.);
-            # `PYTHONUNBUFFERED` keeps Python subprocesses flushing
-            # progress lines (especially `\r`-terminated ones) instead
-            # of buffering them until a `\n` arrives.
-            env = {
-                **os.environ,
-                "PLATFORMIO_FORCE_ANSI": "true",
-                "FORCE_COLOR": "1",
-                "CLICOLOR_FORCE": "1",
-                "PYTHONUNBUFFERED": "1",
-            }
+            # Force ANSI colour through even when stdout isn't a TTY.
+            # Shared with the source-routed remote runner's local
+            # upload step (7a-3) so output streams look identical
+            # regardless of which CPU produced the bytes — see
+            # :data:`ESPHOME_SUBPROCESS_ENV` for the rationale.
+            env = {**os.environ, **ESPHOME_SUBPROCESS_ENV}
             has_error_in_output = False
             # Captured at append time because the in-flight trim can
             # elide the offending line before the post-exit handler
@@ -1128,7 +1121,7 @@ class FirmwareController:
         sequence regardless of which branch produced the
         terminal status.
         """
-        await run_remote_compile_job(self, job)
+        await run_remote_job(self, job)
 
     @asynccontextmanager
     async def _tracked_subprocess(

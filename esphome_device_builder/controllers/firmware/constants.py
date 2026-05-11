@@ -74,6 +74,28 @@ _NO_ESPHOME_MODULE_MARKER = "No module named 'esphome'"
 #     progress bar is a single coarse 0-100 indicator.
 #   * ESPHome OTA upload:            ``Uploading: [====] 100% Done...``
 #     Anchored to the ``Uploading:`` prefix.
+# Force ANSI colour through even when stdout isn't a TTY. The local
+# subprocess path and the source-routed remote runner's local upload
+# step (7a-3) share this — both spawn an ``esphome`` subprocess whose
+# output the dashboard pipes verbatim to the firmware-tasks UI, so a
+# divergence between the two would produce visually-different streams
+# for jobs subscribers can't tell apart by source. Pulling the dict
+# into a shared constant pins the parity at one source-of-truth.
+#
+# * ``PLATFORMIO_FORCE_ANSI`` covers PlatformIO's own output.
+# * ``FORCE_COLOR`` / ``CLICOLOR_FORCE`` cover everything that uses
+#   click (esphome itself, esptool, etc.).
+# * ``PYTHONUNBUFFERED`` keeps Python subprocesses flushing progress
+#   lines (especially ``\r``-terminated ones) instead of buffering
+#   them until a ``\n`` arrives.
+ESPHOME_SUBPROCESS_ENV: dict[str, str] = {
+    "PLATFORMIO_FORCE_ANSI": "true",
+    "FORCE_COLOR": "1",
+    "CLICOLOR_FORCE": "1",
+    "PYTHONUNBUFFERED": "1",
+}
+
+
 _PROGRESS_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^\s*\[\s*(\d{1,3})\s*%\s*\]"),
     re.compile(r"\(\s*(\d{1,3})\s*%\s*\)"),

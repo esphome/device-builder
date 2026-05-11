@@ -245,24 +245,31 @@ def extract_firmware_bin(tarball_bytes: bytes) -> bytes:
     returns to a Web Serial / esptool consumer.
 
     Raises :class:`UnpackArtifactsError` on any structural
-    problem so the runner finalises with a clean error
-    message rather than a tarfile traceback.
+    problem (missing entry, non-file member, malformed
+    tarball) or when ``firmware.bin``'s declared size exceeds
+    :data:`FIRMWARE_MAX_TOTAL_BYTES`. The size gate is a
+    decompression-bomb guard: gzip can compress huge
+    zero-filled / sparse data to a tiny on-the-wire payload,
+    so reading without a header-side bound would let a hostile
+    peer expand a few-KiB tarball into multi-GiB memory.
     """
     try:
         with tarfile.open(fileobj=io.BytesIO(tarball_bytes), mode="r:gz") as tar:
-            for member in tar:
-                if member.name == "firmware.bin":
-                    payload = tar.extractfile(member)
-                    if payload is None:
-                        msg = "firmware.bin in tarball is not a regular file"
-                        raise UnpackArtifactsError(msg)
-                    bytes_payload: bytes = payload.read()
-                    return bytes_payload
+            try:
+                member = tar.getmember("firmware.bin")
+            except KeyError as exc:
+                msg = "firmware.bin missing from receiver's tarball"
+                raise UnpackArtifactsError(msg) from exc
+            _check_member_size(member, total_so_far=0)
+            payload = tar.extractfile(member)
+            if payload is None:
+                msg = "firmware.bin in tarball is not a regular file"
+                raise UnpackArtifactsError(msg)
+            bytes_payload: bytes = payload.read()
+            return bytes_payload
     except tarfile.TarError as exc:
         msg = f"malformed tarball: {exc}"
         raise UnpackArtifactsError(msg) from exc
-    msg = "firmware.bin missing from receiver's tarball"
-    raise UnpackArtifactsError(msg)
 
 
 def read_artifacts_tarball(tarball: bytes) -> tuple[dict[str, Any], dict[str, bytes]]:
@@ -272,14 +279,21 @@ def read_artifacts_tarball(tarball: bytes) -> tuple[dict[str, Any], dict[str, by
     ``idedata`` is the parsed ``idedata.json`` object;
     ``files-by-basename`` excludes ``idedata.json``. Raises
     :class:`UnpackArtifactsError` on any structural problem
-    in the tarball.
+    in the tarball, or when the cumulative decompressed
+    payload would exceed :data:`FIRMWARE_MAX_TOTAL_BYTES`
+    (decompression-bomb guard — see
+    :func:`extract_firmware_bin` for the same rationale on the
+    per-member size check).
     """
     idedata: dict[str, Any] | None = None
     image_bytes_by_name: dict[str, bytes] = {}
+    total_bytes = 0
     try:
         with tarfile.open(fileobj=io.BytesIO(tarball), mode="r:gz") as tar:
             for member in tar:
+                _check_member_size(member, total_so_far=total_bytes)
                 payload = _read_tarball_member(tar, member)
+                total_bytes += len(payload)
                 if member.name == "idedata.json":
                     idedata = _parse_idedata(payload)
                 else:
@@ -291,6 +305,35 @@ def read_artifacts_tarball(tarball: bytes) -> tuple[dict[str, Any], dict[str, by
         msg = "artifacts tarball missing idedata.json"
         raise UnpackArtifactsError(msg)
     return idedata, image_bytes_by_name
+
+
+def _check_member_size(member: tarfile.TarInfo, *, total_so_far: int) -> None:
+    """
+    Reject a tarball member whose decompressed size would blow the cap.
+
+    Combines a per-member check (``member.size`` exceeds the
+    cap on its own) with a cumulative check
+    (``member.size + total_so_far`` would push the running
+    total past the cap). The receiver-side packer
+    (:func:`pack_build_artifacts`) enforces the same ceiling
+    on the way out, so a well-formed tarball never trips
+    this gate; a peer-controlled / malformed stream that
+    declares a multi-GiB member in the tar header bails
+    here before :meth:`tarfile.TarFile.extractfile` reads
+    a single byte.
+    """
+    if member.size > FIRMWARE_MAX_TOTAL_BYTES:
+        msg = (
+            f"tarball member {member.name!r} declares size {member.size} "
+            f"exceeding FIRMWARE_MAX_TOTAL_BYTES {FIRMWARE_MAX_TOTAL_BYTES}"
+        )
+        raise UnpackArtifactsError(msg)
+    if total_so_far + member.size > FIRMWARE_MAX_TOTAL_BYTES:
+        msg = (
+            f"tarball cumulative size {total_so_far + member.size} "
+            f"exceeds FIRMWARE_MAX_TOTAL_BYTES {FIRMWARE_MAX_TOTAL_BYTES}"
+        )
+        raise UnpackArtifactsError(msg)
 
 
 def _read_tarball_member(tar: tarfile.TarFile, member: tarfile.TarInfo) -> bytes:

@@ -344,7 +344,7 @@ async def test_remote_compile_translates_output_and_completes(
     _wire_remote_build(controller, client=client)
     job = _make_remote_job()
 
-    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     # Yield until the runner is parked waiting on the terminal future.
     # Two ticks: one to let the bundle build await resolve, one to let
     # the submit_job await resolve, then we can fire wire events.
@@ -391,7 +391,7 @@ async def test_remote_compile_progress_translates_to_local_progress_event(
     _, client = _wire_remote_build(controller)
     job = _make_remote_job()
 
-    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
 
     _fire_output(controller, job_id=job.job_id, line="[ 47%] Compiling .pio/build/foo.o\n")
@@ -426,7 +426,7 @@ async def test_remote_compile_ignores_events_for_other_jobs(
     _, client = _wire_remote_build(controller)
     job = _make_remote_job(job_id="ours")
 
-    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
 
     # Stray traffic from a sibling job — must not appear in our captures
@@ -460,7 +460,7 @@ async def test_remote_compile_failed_status_fires_job_failed(
     _, client = _wire_remote_build(controller)
     job = _make_remote_job()
 
-    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
     _fire_state(
         controller,
@@ -487,7 +487,7 @@ async def test_remote_compile_rejected_ack_fires_job_failed(
     _wire_remote_build(controller, client=client)
     job = _make_remote_job()
 
-    await remote_runner.run_remote_compile_job(controller, job)
+    await remote_runner.run_remote_job(controller, job)
 
     assert job.status == JobStatus.FAILED
     assert job.error is not None and "receiver queue full" in job.error
@@ -508,7 +508,7 @@ async def test_remote_compile_receiver_unreachable_fires_job_failed(
     )
     job = _make_remote_job()
 
-    await remote_runner.run_remote_compile_job(controller, job)
+    await remote_runner.run_remote_job(controller, job)
 
     assert job.status == JobStatus.FAILED
     assert job.error is not None and "session not connected" in job.error
@@ -539,7 +539,7 @@ async def test_remote_compile_unsupported_job_type_fails_locally(
         source_pin_sha256=_PIN,
     )
 
-    await remote_runner.run_remote_compile_job(controller, job)
+    await remote_runner.run_remote_job(controller, job)
 
     assert job.status == JobStatus.FAILED
     assert job.error is not None and "COMPILE" in job.error
@@ -570,7 +570,7 @@ async def test_remote_compile_local_cancel_translates_to_wire_cancel_job(
     _wire_remote_build(controller, client=client)
     job = _make_remote_job()
 
-    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
 
     _request_remote_cancel(controller, job)
@@ -610,7 +610,7 @@ async def test_remote_compile_cancel_beats_receiver_completed(
     _wire_remote_build(controller, client=client)
     job = _make_remote_job()
 
-    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
 
     # Register the cancel, then fire ``completed`` (instead of
@@ -646,7 +646,7 @@ async def test_remote_compile_receiver_initiated_cancel_finalises_as_cancelled(
     _, client = _wire_remote_build(controller)
     job = _make_remote_job()
 
-    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
     _fire_state(controller, job_id=job.job_id, status="cancelled")
     await asyncio.wait_for(runner, timeout=2.0)
@@ -685,7 +685,7 @@ async def test_remote_compile_cancel_during_bundle_build_finalises_as_cancelled(
         remote_runner, "build_yaml_bundle", AsyncMock(side_effect=FileNotFoundError)
     )
 
-    await remote_runner.run_remote_compile_job(controller, job)
+    await remote_runner.run_remote_job(controller, job)
 
     assert job.status == JobStatus.CANCELLED
     assert captured[EventType.JOB_FAILED] == []
@@ -711,7 +711,7 @@ async def test_remote_compile_bundle_file_missing_fires_job_failed(
     )
     job = _make_remote_job()
 
-    await remote_runner.run_remote_compile_job(controller, job)
+    await remote_runner.run_remote_job(controller, job)
 
     assert job.status == JobStatus.FAILED
     assert job.error is not None and "kitchen.yaml" in job.error
@@ -733,7 +733,7 @@ async def test_remote_compile_bundle_build_error_fires_job_failed(
     monkeypatch.setattr(remote_runner, "build_yaml_bundle", AsyncMock(side_effect=bundle_error))
     job = _make_remote_job()
 
-    await remote_runner.run_remote_compile_job(controller, job)
+    await remote_runner.run_remote_job(controller, job)
 
     assert job.status == JobStatus.FAILED
     assert job.error is not None and "syntax in kitchen.yaml" in job.error
@@ -762,7 +762,7 @@ async def test_remote_compile_missing_source_pin_fires_job_failed(
         # source_pin_sha256 deliberately empty
     )
 
-    await remote_runner.run_remote_compile_job(controller, job)
+    await remote_runner.run_remote_job(controller, job)
 
     assert job.status == JobStatus.FAILED
     assert job.error is not None and "source_pin_sha256" in job.error
@@ -783,7 +783,7 @@ async def test_remote_compile_no_remote_build_controller_fires_job_failed(
     controller._db.remote_build = None
     job = _make_remote_job()
 
-    await remote_runner.run_remote_compile_job(controller, job)
+    await remote_runner.run_remote_job(controller, job)
 
     assert job.status == JobStatus.FAILED
     assert job.error is not None and "not initialised" in job.error
@@ -802,7 +802,7 @@ async def test_remote_compile_submit_no_session_fires_job_failed(
     _wire_remote_build(controller, client=client)
     job = _make_remote_job()
 
-    await remote_runner.run_remote_compile_job(controller, job)
+    await remote_runner.run_remote_job(controller, job)
 
     assert job.status == JobStatus.FAILED
     assert job.error is not None and "session not open" in job.error
@@ -834,7 +834,7 @@ async def test_remote_compile_session_lost_mid_build_fires_job_failed(
     _wire_remote_build(controller, client=client)
     job = _make_remote_job()
 
-    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
 
     _fire_session_closed(
@@ -880,7 +880,7 @@ async def test_remote_compile_cancel_translation_handles_missing_session(
     controller._db.remote_build = remote_build
     job = _make_remote_job()
 
-    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(initial_client)
     _request_remote_cancel(controller, job)
     await asyncio.wait_for(runner, timeout=2.0)
@@ -902,7 +902,7 @@ async def test_remote_compile_cancel_translation_handles_session_drop_on_send(
     _wire_remote_build(controller, client=client)
     job = _make_remote_job()
 
-    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
     _request_remote_cancel(controller, job)
     await asyncio.wait_for(runner, timeout=2.0)
@@ -935,7 +935,7 @@ async def test_remote_compile_runner_task_cancelled_finalises_as_cancelled(
     _, client = _wire_remote_build(controller)
     job = _make_remote_job()
 
-    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
 
     runner.cancel()
@@ -966,7 +966,7 @@ async def test_execute_job_routes_remote_source_through_remote_runner(
     where they'd try to ``esphome compile`` a configuration
     that may not even be on disk in the offloader's
     ``config_dir``. Going through ``_execute_job`` (rather
-    than calling ``run_remote_compile_job`` directly) covers
+    than calling ``run_remote_job`` directly) covers
     that branch + the ``_execute_remote_job`` delegator
     method.
     """
@@ -1012,7 +1012,7 @@ async def test_submit_job_ack_echoes_caller_job_id(
     _wire_remote_build(controller, client=client)
     job = _make_remote_job(job_id="unique-echo-1234")
 
-    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
     _fire_state(controller, job_id=job.job_id, status="completed")
     await asyncio.wait_for(runner, timeout=2.0)
@@ -1047,7 +1047,7 @@ async def test_remote_compile_ignores_session_closed_for_other_pin(
     _, client = _wire_remote_build(controller)
     job = _make_remote_job()
 
-    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
 
     # Different pin — the listener must filter this out.
@@ -1104,7 +1104,7 @@ async def test_remote_compile_cancel_before_runner_registers_event_still_fires(
     # been called).
     controller._cancel_requested.add(job.job_id)
 
-    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     # The runner's bundle build + submit will still complete
     # (the cancel-aware ``_fail_locally`` short-circuit only
     # kicks in when one of those branches raises). The
@@ -1154,7 +1154,7 @@ async def test_firmware_cancel_handler_wakes_remote_runner_via_event(
     job.status = JobStatus.RUNNING
     controller._current_job = job
 
-    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
 
     # Drive through the real handler — the cancel-event
@@ -1195,7 +1195,7 @@ async def test_remote_compile_cancel_after_remote_build_torn_down_finalises_loca
     _, client = _wire_remote_build(controller)
     job = _make_remote_job()
 
-    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
 
     # Simulate the receiver-controller teardown race: clear
@@ -1302,7 +1302,7 @@ async def test_remote_install_completes_after_local_upload_succeeds(
     _wire_upload_subprocess(controller, exit_code=0)
     job = _make_remote_install_job()
 
-    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
     _fire_state(controller, job_id=job.job_id, status="completed")
     await asyncio.wait_for(runner, timeout=5.0)
@@ -1330,7 +1330,7 @@ async def test_remote_install_local_upload_failure_fires_job_failed(
     _wire_upload_subprocess(controller, exit_code=7)
     job = _make_remote_install_job()
 
-    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
     _fire_state(controller, job_id=job.job_id, status="completed")
     await asyncio.wait_for(runner, timeout=5.0)
@@ -1356,7 +1356,7 @@ async def test_remote_install_download_artifacts_failure_fires_job_failed(
     _wire_remote_build(controller, client=client)
     job = _make_remote_install_job()
 
-    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
     _fire_state(controller, job_id=job.job_id, status="completed")
     await asyncio.wait_for(runner, timeout=2.0)
@@ -1391,7 +1391,7 @@ async def test_remote_install_malformed_tarball_fires_job_failed(
     )
     job = _make_remote_install_job()
 
-    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
     _fire_state(controller, job_id=job.job_id, status="completed")
     await asyncio.wait_for(runner, timeout=2.0)
@@ -1449,7 +1449,7 @@ async def test_remote_install_cancel_during_local_upload_finalises_as_cancelled(
     controller._terminate_current_process = _terminate  # type: ignore[method-assign]
     job = _make_remote_install_job()
 
-    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
     _fire_state(controller, job_id=job.job_id, status="completed")
 
@@ -1497,7 +1497,7 @@ async def test_remote_upload_runs_the_same_local_flash_chain_as_install(
         source_pin_sha256=_PIN,
     )
 
-    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
     _fire_state(controller, job_id=job.job_id, status="completed")
     await asyncio.wait_for(runner, timeout=5.0)
