@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import logging.handlers
 from collections.abc import Generator
 
 import pytest

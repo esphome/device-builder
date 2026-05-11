@@ -142,7 +142,7 @@ _REGEN_FAILURE_TTL_SECONDS: float = 3600.0
 _YAML_SEARCH_PER_FILE_MATCH_CAP = 5
 
 
-class DevicesController:
+class DevicesController:  # noqa: PLR0904 (grandfathered; new public methods need a refactor first)
     """Manage device configurations, file watching, and CLI operations."""
 
     def __init__(self, device_builder: DeviceBuilder) -> None:

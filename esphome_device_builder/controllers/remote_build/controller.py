@@ -394,7 +394,7 @@ _CLEANUP_SWEEP_INTERVAL_SECONDS = 60 * 60
 _REBIND_PROBE_COOLDOWN_SECONDS = 30.0
 
 
-class RemoteBuildController:
+class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods need a refactor first)
     """
     Discover peer dashboards and own the receiver-side settings.
 

@@ -97,6 +97,14 @@ target-version = "py312"
 line-ending = "lf"
 
 [tool.ruff.lint]
+# PLR0904 (too-many-public-methods) is still in ruff's preview set;
+# enabling preview + explicit-preview-rules opts that single rule in
+# without pulling every other unstable rule along with it. The intent
+# is to catch *new* god-classes before they grow — the four pre-existing
+# offenders are grandfathered with inline ``# noqa: PLR0904`` so this
+# rule doesn't block existing work while they're refactored down.
+preview = true
+explicit-preview-rules = true
 ignore = [
   "D101", # missing docstring in public class (too noisy for now)
   "D102", # missing docstring in public method (too noisy for now)
@@ -107,6 +115,13 @@ ignore = [
   "D417", # false positives
   "PLR0913", # too many arguments — not a useful constraint here
   "PLR2004", # magic value comparison — too noisy for status codes / structural checks
+  # RUF001 / RUF002 flag U+00B5 (MICRO SIGN) as "ambiguous" against U+03BC
+  # (GREEK SMALL LETTER MU). U+00B5 is the canonical SI micro-prefix
+  # character (e.g. µs, µA, µHz) and is what ESPHome itself emits for
+  # unit_of_measurement; component-catalog code and unit-extraction tests
+  # need to handle that codepoint literally. False-positive for this codebase.
+  "RUF001", # ambiguous-unicode-character-string
+  "RUF002", # ambiguous-unicode-character-docstring
   "S101", # assert used for type checking
   "S104", # binding to all interfaces
 ]
@@ -123,6 +138,7 @@ select = [
   "N", # pep8-naming
   "PERF", # performance
   "PL", # pylint
+  "PLR0904", # too-many-public-methods (preview) — cap new god-classes at 20
   "RET", # flake8-return
   "RUF", # ruff-specific
   "S", # flake8-bandit

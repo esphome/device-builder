@@ -147,7 +147,7 @@ def _resolve_download_component(target_platform: str | None) -> str:
     return platform
 
 
-class FirmwareController:
+class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods need a refactor first)
     """
     Manage firmware build jobs with a persistent queue.
 

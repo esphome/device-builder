@@ -340,7 +340,7 @@ def device_name_from_service(service_name: str) -> str:
     return service_name.split(".", maxsplit=1)[0]
 
 
-class DeviceStateMonitor:
+class DeviceStateMonitor:  # noqa: PLR0904 (grandfathered; new public methods need a refactor first)
     """
     Drive device state from mDNS broadcasts plus periodic ICMP pings.
 
