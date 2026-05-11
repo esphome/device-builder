@@ -1291,6 +1291,7 @@ async def test_peer_link_opened_for_unknown_pin_is_silent_no_op(
 @pytest.mark.asyncio
 async def test_start_seeds_pairings_dict_from_disk(
     offloader_controller_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``start()`` loads APPROVED pairings off disk into ``_pairings``.
 
@@ -1299,7 +1300,22 @@ async def test_start_seeds_pairings_dict_from_disk(
     and assert the dict is populated. Pins the cold-start
     contract — APPROVED rows survive a controller restart so the
     user doesn't have to re-pair on every dashboard bounce.
+
+    ``_spawn_peer_link_client`` is monkeypatched to a no-op so
+    ``start()`` doesn't kick off real ``PeerLinkClient.run()``
+    tasks against the unreachable ``seeded.local`` hostname.
+    Pre-monkeypatch the test took ~5s of wall-clock waiting for
+    DNS-failure-driven reconnect backoff during pytest's
+    background-task teardown; the contract under test is
+    "pairings dict populates from disk" which doesn't depend on
+    the spawn side effect.
     """
+    monkeypatch.setattr(
+        RemoteBuildController,
+        "_spawn_peer_link_client",
+        lambda self, pairing: None,
+    )
+
     # Stand up an offloader, write a row through its store, flush.
     seeder = _make_offloader_controller(config_dir=offloader_controller_dir)
     seeder._db.bus = MagicMock()
