@@ -2450,10 +2450,18 @@ class RemoteBuildController:
         while True:
             await asyncio.sleep(_CLEANUP_SWEEP_INTERVAL_SECONDS)
             try:
+                # The spawn site in ``start`` already gates on
+                # ``self._db.firmware is not None``; re-checking
+                # here narrows the type for mypy and survives a
+                # future controller reshape that decouples spawn
+                # from start.
+                firmware = self._db.firmware
+                if firmware is None:
+                    continue
                 settings = await loop.run_in_executor(None, load_remote_build_settings, config_dir)
                 in_flight_keys = frozenset(
                     rbp
-                    for job in self._db.firmware._jobs.values()
+                    for job in firmware._jobs.values()
                     if job.status in (JobStatus.QUEUED, JobStatus.RUNNING)
                     and job.remote_peer
                     and (rbp := parse_from_configuration(job.configuration)) is not None

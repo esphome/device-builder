@@ -68,7 +68,7 @@ BUNDLE_SUFFIX = ".tar.gz"
 # :attr:`FirmwareJob.configuration` is serialised as a forward-
 # slash path on every platform (a Windows receiver still
 # stores ``.esphome/.remote_builds/...``).
-_REMOTE_BUILDS_PARTS: tuple[str, ...] = REMOTE_BUILDS_SUBDIR.as_posix().split("/")
+_REMOTE_BUILDS_PARTS: tuple[str, ...] = tuple(REMOTE_BUILDS_SUBDIR.as_posix().split("/"))
 
 
 @dataclass(frozen=True)

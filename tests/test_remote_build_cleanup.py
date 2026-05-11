@@ -141,6 +141,90 @@ def test_sweep_ignores_stray_files_under_root(tmp_path: Path) -> None:
     assert stray.is_file()
 
 
+def test_sweep_reclaims_cold_orphan_bundle(tmp_path: Path) -> None:
+    """An orphan .tar.gz (subtree missing) gets unlinked when cold + not in-flight.
+
+    Models the post-failure state where a previous sweep's
+    ``rmtree`` succeeded but the bundle ``unlink`` failed (or
+    where an operator hand-deleted the subtree but left the
+    tarball, or any other transient failure that left only the
+    bundle behind). Without this branch the orphan would
+    accumulate forever — the subtree-path of the sweep
+    requires ``is_dir()`` and never visits the bundle.
+    """
+    now = 1_000_000.0
+    key = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
+    bundle = key.bundle(tmp_path)
+    bundle.parent.mkdir(parents=True, exist_ok=True)
+    bundle.write_bytes(b"orphan bundle bytes")
+    age_seconds = 3600
+    os.utime(bundle, (now - age_seconds, now - age_seconds))
+
+    sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    assert not bundle.exists()
+
+
+def test_sweep_keeps_fresh_orphan_bundle(tmp_path: Path) -> None:
+    """A within-TTL orphan bundle survives the sweep."""
+    now = 1_000_000.0
+    key = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
+    bundle = key.bundle(tmp_path)
+    bundle.parent.mkdir(parents=True, exist_ok=True)
+    bundle.write_bytes(b"fresh orphan")
+    os.utime(bundle, (now - 60, now - 60))
+
+    sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    assert bundle.is_file()
+
+
+def test_sweep_skips_in_flight_orphan_bundle(tmp_path: Path) -> None:
+    """An orphan bundle whose key is in-flight is left alone.
+
+    Covers the racy edge: a ``submit_job`` mid-flow has written
+    the bundle but hasn't laid down the subtree yet; reclaiming
+    the bundle here would yank the input out from under the
+    in-flight extract.
+    """
+    now = 1_000_000.0
+    key = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
+    bundle = key.bundle(tmp_path)
+    bundle.parent.mkdir(parents=True, exist_ok=True)
+    bundle.write_bytes(b"in-flight bundle")
+    os.utime(bundle, (now - 3600, now - 3600))
+
+    sweep_remote_builds(
+        tmp_path,
+        ttl_seconds=600,
+        in_flight_keys=frozenset({key}),
+        now=now,
+    )
+    assert bundle.is_file()
+
+
+def test_sweep_does_not_unlink_bundle_when_subtree_still_exists(tmp_path: Path) -> None:
+    """A paired (subtree+bundle) pair flows through the subtree branch only.
+
+    Defends against the orphan branch firing in the
+    paired-cold case: that would double-unlink (subtree-path's
+    ``_delete_subtree_and_sibling`` deletes the bundle, and
+    then the orphan branch would try to unlink an
+    already-deleted file). The sibling-subtree-exists gate
+    inside the orphan path keeps the two branches disjoint.
+    """
+    now = 1_000_000.0
+    key = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
+    _populate(tmp_path, key, age_seconds=3600, now=now)
+
+    # Pre-condition: both subtree and bundle present.
+    assert key.subtree(tmp_path).is_dir()
+    assert key.bundle(tmp_path).is_file()
+
+    deleted = sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    assert deleted == 1
+    assert not key.subtree(tmp_path).exists()
+    assert not key.bundle(tmp_path).exists()
+
+
 def test_sweep_continues_after_subtree_rmtree_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

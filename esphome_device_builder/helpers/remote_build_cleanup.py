@@ -38,7 +38,7 @@ import shutil
 import time
 from pathlib import Path
 
-from .remote_build_layout import REMOTE_BUILDS_SUBDIR, RemoteBuildPath
+from .remote_build_layout import BUNDLE_SUFFIX, REMOTE_BUILDS_SUBDIR, RemoteBuildPath
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -94,23 +94,28 @@ def sweep_remote_builds(
             )
             continue
         for entry in _safe_iterdir(dashboard_dir):
-            if not entry.is_dir():
-                # Bare sibling tarballs are paired with their
-                # subtree below; an orphan tarball (subtree
-                # already deleted but the .tar.gz survived a
-                # previous half-failed sweep) gets reclaimed
-                # when its sibling-named subtree next appears
-                # OR by an offloader re-submitting the same
-                # device_name (which overwrites it).
-                continue
-            key = RemoteBuildPath(dashboard_id=dashboard_dir.name, device_name=entry.name)
-            if key in in_flight_keys:
-                _LOGGER.debug("remote-build cleanup: skipping in-flight %s", key)
-                continue
-            if not _is_cold(entry, cutoff):
-                continue
-            if _delete_subtree_and_sibling(key, config_dir):
-                deleted += 1
+            if entry.is_dir():
+                key = RemoteBuildPath(dashboard_id=dashboard_dir.name, device_name=entry.name)
+                if key in in_flight_keys:
+                    _LOGGER.debug("remote-build cleanup: skipping in-flight %s", key)
+                    continue
+                if not _is_cold(entry, cutoff):
+                    continue
+                if _delete_subtree_and_sibling(key, config_dir):
+                    deleted += 1
+            elif entry.is_file() and entry.name.endswith(BUNDLE_SUFFIX):
+                # Orphan bundle path: a ``.tar.gz`` whose sibling
+                # subtree is missing. Happens when the previous
+                # sweep's ``rmtree`` succeeded but the ``unlink``
+                # failed (logged as warning, sweep continued),
+                # when an operator hand-deleted the subtree, or
+                # any other transient failure that left only the
+                # tarball behind. Without this branch the orphan
+                # would accumulate forever — the subtree-path
+                # above never visits it because that branch
+                # requires ``is_dir()``. Pair with the same
+                # in-flight + cold gates the subtree path uses.
+                _reclaim_orphan_bundle(entry, dashboard_dir, in_flight_keys, cutoff)
         # An offloader that was paired once and never came back
         # leaves an otherwise-permanent empty dashboard_id dir;
         # prune here so the filesystem stays tidy without a
@@ -165,6 +170,46 @@ def _delete_subtree_and_sibling(key: RemoteBuildPath, config_dir: Path) -> bool:
         _LOGGER.warning("remote-build cleanup: unlink(%s) failed: %s", bundle, exc)
     _LOGGER.info("remote-build cleanup: removed cold subtree %s", subtree)
     return True
+
+
+def _reclaim_orphan_bundle(
+    bundle: Path,
+    dashboard_dir: Path,
+    in_flight_keys: frozenset[RemoteBuildPath],
+    cutoff: float,
+) -> None:
+    """Unlink *bundle* when its sibling subtree is missing + it's cold + not in-flight.
+
+    The "sibling subtree missing" gate is load-bearing: when
+    both exist the subtree-path branch above already handles
+    the bundle delete via :func:`_delete_subtree_and_sibling`,
+    so firing here would double-unlink. Restricting this branch
+    to true orphans keeps the two paths disjoint.
+
+    The in-flight gate covers the racy edge where a
+    ``submit_job`` mid-flow has written the bundle but hasn't
+    laid down the subtree yet; the sweep shouldn't reclaim the
+    bundle out from under the in-flight extract. The cold gate
+    avoids reclaiming a bundle whose subtree was just deleted
+    out-of-band and is about to be re-extracted on the next
+    submit.
+    """
+    device_name = bundle.name[: -len(BUNDLE_SUFFIX)]
+    sibling_subtree = dashboard_dir / device_name
+    if sibling_subtree.exists():
+        return
+    key = RemoteBuildPath(dashboard_id=dashboard_dir.name, device_name=device_name)
+    if key in in_flight_keys:
+        _LOGGER.debug("remote-build cleanup: skipping in-flight orphan bundle %s", bundle)
+        return
+    if not _is_cold(bundle, cutoff):
+        return
+    try:
+        bundle.unlink()
+    except OSError as exc:
+        _LOGGER.warning("remote-build cleanup: unlink orphan bundle(%s) failed: %s", bundle, exc)
+        return
+    _LOGGER.info("remote-build cleanup: removed orphan bundle %s", bundle)
 
 
 def _prune_empty_dir(directory: Path) -> None:
