@@ -498,26 +498,35 @@ async def _wait_for_offloader_idle(
     *,
     timeout: float = 2.0,
 ) -> None:
-    """Block until the offloader's ``_peer_queue_status`` reports idle for this pin.
+    """
+    Block until the offloader's ``_peer_queue_status`` reports idle for this pin.
 
     Event-driven: the caller installs *queue_status_events*
     (a :func:`capture_events` handle on
     ``OFFLOADER_QUEUE_STATUS_CHANGED``) before driving any
     lifecycle so no broadcast races the listener-attach. Each
-    iteration first checks the cache (an earlier broadcast may
-    already have landed before we re-enter), then clears the
-    capture's ``received`` flag and parks on
-    :func:`asyncio.wait_for` for the next event. The bounded
-    deadline turns a regression that breaks the broadcast into
-    a clean ``TimeoutError`` rather than the previous fixed-
-    iteration spin that could pass under CI load if the
-    background ``queue_status`` send/receive happened to take
-    more than a few event-loop turns (per Copilot review on
-    #576).
+    iteration clears the capture's ``received`` flag *first*
+    and then re-reads the cache — order matters: clearing
+    after the read would discard a signal that arrived
+    between the read and the clear, leaving the coroutine
+    parked on a ``wait_for`` that times out even though the
+    cache was already idle. The bounded deadline turns a
+    regression that breaks the broadcast into a clean
+    ``TimeoutError`` rather than the previous fixed-iteration
+    spin that could pass under CI load if the background
+    ``queue_status`` send/receive happened to take more than
+    a few event-loop turns (per Copilot review on #576).
     """
     pin_sha256 = paired_instances.pin_sha256
     deadline = asyncio.get_running_loop().time() + timeout
     while True:
+        # Clear before the cache read so an event landing in the
+        # cache-read → clear → wait window can't be dropped on the
+        # floor. Any concurrent ``bus.fire`` writes the cache AND
+        # re-sets the flag, so a clear-then-read sequence either
+        # observes the post-fire cache state below or wakes from
+        # the wait_for on the re-set flag.
+        queue_status_events.received.clear()
         entry = paired_instances.offloader._peer_queue_status.get(pin_sha256)
         if entry is not None and entry["idle"]:
             return
@@ -528,7 +537,6 @@ async def _wait_for_offloader_idle(
                 f"{timeout}s: {paired_instances.offloader._peer_queue_status.get(pin_sha256)!r}"
             )
             raise TimeoutError(msg)
-        queue_status_events.received.clear()
         await asyncio.wait_for(queue_status_events.received.wait(), timeout=remaining)
 
 

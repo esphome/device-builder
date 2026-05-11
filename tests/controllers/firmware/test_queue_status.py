@@ -237,20 +237,28 @@ def test_remote_runner_terminal_helpers_release_slot_before_fire(
     path.
     """
     controller = _make_controller_with_real_bus()
-    controller._current_job = _job()
+    # Save the job reference before ``_finalize_terminal``
+    # clears ``_current_job``; the post-fire assertions need
+    # to inspect the same FirmwareJob instance the helpers
+    # operated on.
+    job = _job()
+    controller._current_job = job
     controller._current_process = MagicMock()
     captured = _capture_snapshot_in_listener(controller, event_type)
 
     if fn_name == "_finalize_success":
-        remote_runner._finalize_success(controller, controller._current_job)
+        remote_runner._finalize_success(controller, job)
     else:
-        remote_runner._fail_locally(controller, controller._current_job, error="boom")
+        remote_runner._fail_locally(controller, job, error="boom")
 
     assert captured == [(True, False, 0)]
     assert controller._current_job is None
     assert controller._current_process is None
+    assert job.status is status
     if status is JobStatus.FAILED:
-        # The error text rides through to the model so the
-        # broadcast carries it.
-        # (``_finalize_success`` path doesn't set an error.)
-        pass
+        # ``_fail_locally`` stamps ``job.error`` before
+        # ``_finalize_terminal``; the JOB_FAILED listener that
+        # rides the broadcast sees the populated field.
+        assert job.error == "boom"
+    else:
+        assert job.error is None
