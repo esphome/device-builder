@@ -225,6 +225,70 @@ def test_sweep_does_not_unlink_bundle_when_subtree_still_exists(tmp_path: Path) 
     assert not key.bundle(tmp_path).exists()
 
 
+def test_sweep_skips_symlink_at_dashboard_level(tmp_path: Path) -> None:
+    """A symlink at the ``<dashboard_id>/`` level is left untouched.
+
+    Defense-in-depth: a symlink that resolves to a directory
+    elsewhere on the FS would otherwise pass the ``is_dir()``
+    gate and reach ``rmtree``, which refuses top-level symlinks
+    but emits a warning. The explicit ``is_symlink`` skip
+    catches it earlier so the warning never fires AND a
+    malicious operator-placed symlink pointing outside the
+    canonical layout can't even be considered.
+    """
+    now = 1_000_000.0
+    root = tmp_path / REMOTE_BUILDS_SUBDIR
+    root.mkdir(parents=True)
+    real_dir = tmp_path / "untouchable"
+    real_dir.mkdir()
+    (real_dir / "important.txt").write_text("hands off")
+    link = root / "alpha"
+    link.symlink_to(real_dir)
+
+    sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    # The symlink itself may or may not be removed by the
+    # ``rmdir`` parent-prune (rmdir refuses non-empty); the
+    # important assertion is that the target's contents are
+    # intact.
+    assert (real_dir / "important.txt").is_file()
+
+
+def test_sweep_skips_symlink_at_subtree_level(tmp_path: Path) -> None:
+    """A symlink under ``<dashboard_id>/`` is skipped, not deleted-through."""
+    now = 1_000_000.0
+    dashboard_dir = tmp_path / REMOTE_BUILDS_SUBDIR / "alpha"
+    dashboard_dir.mkdir(parents=True)
+    real_dir = tmp_path / "untouchable"
+    real_dir.mkdir()
+    (real_dir / "important.txt").write_text("hands off")
+    link = dashboard_dir / "kitchen"
+    link.symlink_to(real_dir)
+
+    sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    assert (real_dir / "important.txt").is_file()
+
+
+def test_sweep_leaves_bare_dot_tar_gz_alone(tmp_path: Path) -> None:
+    """A pathological bare ``.tar.gz`` entry doesn't trip the orphan branch.
+
+    ``device_name = bundle.name[: -len(BUNDLE_SUFFIX)]`` would
+    be empty for a file literally named ``.tar.gz``; the
+    explicit empty-name short-circuit in
+    ``_reclaim_orphan_bundle`` avoids spurious work and the
+    dashboard_dir-as-sibling false positive that would otherwise
+    follow.
+    """
+    now = 1_000_000.0
+    dashboard_dir = tmp_path / REMOTE_BUILDS_SUBDIR / "alpha"
+    dashboard_dir.mkdir(parents=True)
+    weird = dashboard_dir / ".tar.gz"
+    weird.write_bytes(b"weirdo")
+    os.utime(weird, (now - 3600, now - 3600))
+
+    sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    assert weird.is_file()
+
+
 def test_sweep_continues_after_subtree_rmtree_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -86,7 +86,16 @@ def sweep_remote_builds(
 
     deleted = 0
     for dashboard_dir in _safe_iterdir(root):
-        if not dashboard_dir.is_dir():
+        # Symlinks at any level are skipped outright. ``is_dir()``
+        # follows symlinks by default, so a symlink to a directory
+        # would pass the next check; ``rmtree`` on that symlink
+        # would then refuse (top-level symlink) and emit a warning.
+        # Refusing the symlink up-front keeps the sweep silent on
+        # foreign filesystem shapes and provides defense-in-depth
+        # against an operator (or attacker with write access to
+        # the remote-builds root) placing a symlink that points
+        # outside the canonical subtree.
+        if dashboard_dir.is_symlink() or not dashboard_dir.is_dir():
             _LOGGER.debug(
                 "remote-build cleanup: skipping non-directory under %s: %s",
                 root,
@@ -94,6 +103,9 @@ def sweep_remote_builds(
             )
             continue
         for entry in _safe_iterdir(dashboard_dir):
+            if entry.is_symlink():
+                _LOGGER.debug("remote-build cleanup: skipping symlink %s", entry)
+                continue
             if entry.is_dir():
                 key = RemoteBuildPath(dashboard_id=dashboard_dir.name, device_name=entry.name)
                 if key in in_flight_keys:
@@ -195,8 +207,20 @@ def _reclaim_orphan_bundle(
     submit.
     """
     device_name = bundle.name[: -len(BUNDLE_SUFFIX)]
+    # Empty device_name (a bare ``.tar.gz`` entry — pathological,
+    # shouldn't happen via the writer) lookups the dashboard_dir
+    # itself, which always exists, so this naturally falls
+    # through the "sibling exists" gate below and skips. Just
+    # short-circuit explicitly to avoid the spurious
+    # ``RemoteBuildPath(..., device_name="")`` allocation.
+    if not device_name:
+        return
     sibling_subtree = dashboard_dir / device_name
-    if sibling_subtree.exists():
+    # ``exists`` follows symlinks; ``is_symlink`` catches the
+    # case where the sibling is a symlink (broken or not) — we
+    # don't want to treat a symlink as "subtree present" because
+    # it could resolve outside the canonical layout.
+    if sibling_subtree.exists() or sibling_subtree.is_symlink():
         return
     key = RemoteBuildPath(dashboard_id=dashboard_dir.name, device_name=device_name)
     if key in in_flight_keys:
