@@ -37,5 +37,5 @@ source:
   type: esphome-devices
   remote_id: Anwio-BR30-E26-RGB-CCT-13W-Light-Bulb
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Anwio-BR30-E26-RGB-CCT-13W-Light-Bulb/index.md
-  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
-  content_hash: 2038cfea6f5068034141a521e83bdf998bcc42f6eb337a8e284e27336112ad23
+  upstream_revision: 7b98102863a3093e1d3c00c8bb77e71eeb43ad6e
+  content_hash: 89dbba60bad778bf9127cb4d8ffea107591c5c4385def31c65a1ecea1b0ac804

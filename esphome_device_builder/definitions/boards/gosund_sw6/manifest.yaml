@@ -69,5 +69,5 @@ source:
   type: esphome-devices
   remote_id: Gosund-SW6
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Gosund-SW6/index.md
-  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
+  upstream_revision: 7b98102863a3093e1d3c00c8bb77e71eeb43ad6e
   content_hash: ccbac45e84adb118ef72d34cec4b0846681e0831e8bb39da1958a67a2936194c

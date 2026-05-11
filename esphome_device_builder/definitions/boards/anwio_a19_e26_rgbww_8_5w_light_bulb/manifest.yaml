@@ -65,5 +65,5 @@ source:
   type: esphome-devices
   remote_id: Anwio-A19-E26-RGBWW-8.5W-Light-Bulb
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Anwio-A19-E26-RGBWW-8.5W-Light-Bulb/index.md
-  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
-  content_hash: 8b33eec52fc8b450b2019ba168472c5c5cd271d6d082bad79f4fca484f520143
+  upstream_revision: 7b98102863a3093e1d3c00c8bb77e71eeb43ad6e
+  content_hash: 21040773679ebc76ea0483d93b69f502fd5c0a8546364ffd1fcf6d61e520e948
