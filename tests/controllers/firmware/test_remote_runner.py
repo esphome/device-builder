@@ -939,3 +939,95 @@ async def test_submit_job_ack_echoes_caller_job_id(
 
     ack_call = client.submit_job.await_args
     assert ack_call.kwargs["job_id"] == "unique-echo-1234"
+
+
+# ---------------------------------------------------------------------------
+# Defensive filter coverage — stray cross-pin / teardown races
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_remote_compile_ignores_session_closed_for_other_pin(
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_bundle: AsyncMock,
+) -> None:
+    """
+    A ``OFFLOADER_PEER_LINK_CLOSED`` for an unrelated peer doesn't kill our job.
+
+    The peer-link-closed listener is shared across every
+    in-flight remote job on the bus. A close for a different
+    receiver's session must not finalise this job — only the
+    receiver matching ``job.source_pin_sha256`` should
+    trigger the lost-session failure path. Without the pin
+    filter, two paired offloaders building concurrently would
+    take each other's jobs down on every reconnect.
+    """
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = _capture_local_events(controller)
+    _wire_remote_build(controller)
+    job = _make_remote_job()
+
+    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    for _ in range(4):
+        await asyncio.sleep(0)
+
+    # Different pin — the listener must filter this out.
+    _fire_session_closed(controller, pin="b" * 64, reason="transport_error")
+    await asyncio.sleep(0)
+    assert not runner.done()
+    assert captured[EventType.JOB_FAILED] == []
+
+    # Now the real terminal lands and the runner finishes
+    # cleanly — proving the stray close didn't poison the
+    # wait loop.
+    _fire_state(controller, job_id=job.job_id, status="completed")
+    await asyncio.wait_for(runner, timeout=2.0)
+    assert job.status == JobStatus.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_remote_compile_cancel_after_remote_build_torn_down_finalises_locally(
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_bundle: AsyncMock,
+) -> None:
+    """
+    Cancel after ``_db.remote_build`` reset to ``None`` finalises CANCELLED locally.
+
+    Teardown race: ``DeviceBuilder`` clears its
+    ``remote_build`` controller during shutdown, but a
+    remote-runner task may still be parked on
+    ``_await_terminal`` for an unfinished job. If the user
+    (or shutdown logic) then flips ``_cancel_requested``,
+    the runner must not call into ``None._lookup_open_peer_link_client``.
+    The defensive ``remote_build is None`` branch short-
+    circuits to ``_finalize_cancelled`` so subscribers see a
+    clean CANCELLED event.
+    """
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = _capture_local_events(controller)
+    remote_build = _wire_remote_build(controller)
+    job = _make_remote_job()
+
+    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    # Wait until the runner is past ``submit_job`` and parked
+    # in the terminal wait. Polling for ``cancel_job`` would
+    # be wrong here (cancel hasn't fired yet); instead pin on
+    # the runner having called the initial lookup, which is
+    # the last sync event before ``_await_terminal`` parks.
+    while remote_build._lookup_open_peer_link_client.call_count == 0:
+        await asyncio.sleep(0)
+    # Couple more turns to let the submit ack resolve and the
+    # ``asyncio.wait`` get scheduled.
+    for _ in range(2):
+        await asyncio.sleep(0)
+
+    # Simulate the receiver-controller teardown race: clear
+    # ``remote_build`` mid-flight, then register the cancel.
+    controller._db.remote_build = None
+    controller._cancel_requested.add(job.job_id)
+
+    await asyncio.wait_for(runner, timeout=2.0)
+
+    assert job.status == JobStatus.CANCELLED
+    assert len(captured[EventType.JOB_CANCELLED]) == 1
+    assert job.job_id not in controller._cancel_requested
