@@ -130,7 +130,7 @@ Connections that arrive on the trusted ingress site (HA add-on supervisor proxy)
 |---------|------|----------|-------------|
 | `firmware/compile` | `{configuration}` | `FirmwareJob` | Queue compile job |
 | `firmware/upload` | `{configuration, port?: ""}` | `FirmwareJob` | Queue upload of existing binary. `port` defaults to `""` (no `--device` arg — CLI auto-detects). Also accepts `"OTA"`, a serial path (`/dev/ttyUSB0`, `COM3`), or an explicit IP / hostname for "install to a specific address" — the address-cache shortcut is bypassed when a target is named directly. |
-| `firmware/install` | `{configuration, port?: "OTA" \| serial \| ip \| hostname}` | `FirmwareJob` | Queue compile + upload. `port` defaults to `"OTA"` (let the CLI resolve the configured host). Same `port` semantics as `firmware/upload` for non-default values. |
+| `firmware/install` | `{configuration, port?: "OTA" \| serial \| ip \| hostname, force_local?: bool}` | `FirmwareJob` | Queue compile + upload. `port` defaults to `"OTA"` (let the CLI resolve the configured host). Same `port` semantics as `firmware/upload` for non-default values. `force_local` defaults to `false`; when `true` the scheduler decision is bypassed and the install runs LOCAL regardless of paired build servers — used by the install dialog's "Build locally instead" override link to opt out of REMOTE routing for a single install. |
 | `firmware/clean` | `{configuration}` | `FirmwareJob` | Queue build clean for one device |
 | `firmware/reset_build_env` | — | `FirmwareJob` | Queue full reset of `.esphome/` build dirs and PIO cache |
 | `firmware/compile_bulk` | `{configurations: string[]}` | `[FirmwareJob]` | Queue multiple compiles |
