@@ -324,7 +324,7 @@ async def test_submit_job_round_trip_carries_display_strings_to_receiver_job(
     rides through the same path; it isn't a wire-header field (the
     receiver looks it up locally off its approved-peer registry at
     job-create time), but it's part of the same display-string
-    triple a regression in any one of the three would break, so
+    triple; a regression in any one of the three would break it, so
     pin all three here.
 
     The unit tests cover each side in isolation
