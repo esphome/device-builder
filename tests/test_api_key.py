@@ -425,7 +425,7 @@ def isolated_storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     """
     monkeypatch.setattr(
         device_yaml,
-        "ext_storage_path",
+        "resolve_storage_path",
         lambda config: tmp_path / f"{config}.json",
     )
     monkeypatch.setattr(device_yaml.StorageJSON, "load", staticmethod(lambda _p: None))

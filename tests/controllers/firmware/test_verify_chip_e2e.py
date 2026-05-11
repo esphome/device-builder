@@ -166,7 +166,7 @@ def _redirect_ext_storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     def _ext(configuration: str) -> Path:
         return storage_dir / f"{configuration}.json"
 
-    monkeypatch.setattr(controller_module, "ext_storage_path", _ext)
+    monkeypatch.setattr(controller_module, "resolve_storage_path", _ext)
 
 
 def _patch_subprocess(

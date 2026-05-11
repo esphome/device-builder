@@ -176,7 +176,7 @@ def test_resolve_build_dir_returns_none_when_storage_missing(tmp_path: Path) -> 
     """
     with (
         patch(
-            "esphome_device_builder.helpers.build_size.ext_storage_path",
+            "esphome_device_builder.helpers.build_size.resolve_storage_path",
             return_value=tmp_path / "fake.json",
         ),
         patch(
@@ -199,7 +199,7 @@ def test_resolve_build_dir_returns_none_when_build_path_blank(tmp_path: Path) ->
 
     with (
         patch(
-            "esphome_device_builder.helpers.build_size.ext_storage_path",
+            "esphome_device_builder.helpers.build_size.resolve_storage_path",
             return_value=tmp_path / "fake.json",
         ),
         patch(
@@ -220,7 +220,7 @@ def test_resolve_build_dir_returns_path_when_storage_has_build_path(
 
     with (
         patch(
-            "esphome_device_builder.helpers.build_size.ext_storage_path",
+            "esphome_device_builder.helpers.build_size.resolve_storage_path",
             return_value=tmp_path / "fake.json",
         ),
         patch(
@@ -240,7 +240,7 @@ def _fake_storage_patches(tmp_path: Path, build_dir: Path):
 
     return (
         patch(
-            "esphome_device_builder.helpers.build_size.ext_storage_path",
+            "esphome_device_builder.helpers.build_size.resolve_storage_path",
             return_value=tmp_path / "fake.json",
         ),
         patch(
@@ -563,7 +563,7 @@ def test_find_stale_build_dirs_returns_only_divergent_filenames(tmp_path: Path) 
 
     with (
         patch(
-            "esphome_device_builder.helpers.build_size.ext_storage_path",
+            "esphome_device_builder.helpers.build_size.resolve_storage_path",
             side_effect=lambda f: tmp_path / f"{f}.json",
         ),
         patch(
@@ -606,7 +606,7 @@ def test_find_stale_build_dirs_handles_corrupt_metadata_file(tmp_path: Path) -> 
             side_effect=OSError("permission denied"),
         ),
         patch(
-            "esphome_device_builder.helpers.build_size.ext_storage_path",
+            "esphome_device_builder.helpers.build_size.resolve_storage_path",
             return_value=tmp_path / "fake.json",
         ),
         patch(
@@ -627,7 +627,7 @@ def test_refresh_build_size_if_stale_returns_none_when_no_storage(tmp_path: Path
 
     with (
         patch(
-            "esphome_device_builder.helpers.build_size.ext_storage_path",
+            "esphome_device_builder.helpers.build_size.resolve_storage_path",
             return_value=tmp_path / "fake.json",
         ),
         patch(
@@ -650,7 +650,7 @@ def test_resolve_build_dir_returns_none_when_storage_load_raises(tmp_path: Path)
     """
     with (
         patch(
-            "esphome_device_builder.helpers.build_size.ext_storage_path",
+            "esphome_device_builder.helpers.build_size.resolve_storage_path",
             return_value=tmp_path / "fake.json",
         ),
         patch(

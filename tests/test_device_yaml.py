@@ -1080,7 +1080,7 @@ def _redirect_ext_storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     def _ext(configuration: str) -> Path:
         return storage_dir / f"{configuration}.json"
 
-    monkeypatch.setattr("esphome_device_builder.helpers.device_yaml.ext_storage_path", _ext)
+    monkeypatch.setattr("esphome_device_builder.helpers.device_yaml.resolve_storage_path", _ext)
 
 
 @pytest.mark.usefixtures("_redirect_ext_storage")

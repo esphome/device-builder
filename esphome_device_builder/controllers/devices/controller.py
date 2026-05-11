@@ -23,7 +23,7 @@ import yaml
 from esphome import const
 from esphome.components.dashboard_import import import_config
 from esphome.helpers import write_file as atomic_write_file
-from esphome.storage_json import StorageJSON, ext_storage_path, ignored_devices_storage_path
+from esphome.storage_json import StorageJSON, ignored_devices_storage_path
 from esphome.zeroconf import AsyncEsphomeZeroconf
 
 from ...helpers.api import CommandError, api_command
@@ -42,6 +42,7 @@ from ...helpers.event_bus import Event, StreamControls, stream_events
 from ...helpers.json import JSONDecodeError, dumps_indent, loads
 from ...helpers.mac_addresses import derive_interface_macs
 from ...helpers.process import kill_quietly
+from ...helpers.storage_path import resolve_storage_path
 from ...helpers.subprocess import create_subprocess_exec, iter_lines_with_progress
 from ...helpers.yaml import (
     YamlUpsertNotSupportedError,
@@ -629,7 +630,7 @@ class DevicesController:
                 loaded_platforms=[],
                 no_mdns=False,
             )
-            storage_path = ext_storage_path(filename)
+            storage_path = resolve_storage_path(filename)
             storage_path.parent.mkdir(parents=True, exist_ok=True)
             storage.save(storage_path)
 
@@ -2986,7 +2987,7 @@ class DevicesController:
     @staticmethod
     def _persist_storage_version(configuration: str, version: str) -> None:
         """Write *version* to ``StorageJSON.esphome_version`` if it differs."""
-        storage_path = ext_storage_path(configuration)
+        storage_path = resolve_storage_path(configuration)
         storage = StorageJSON.load(storage_path)
         if storage is None:
             return
@@ -3183,7 +3184,7 @@ class DevicesController:
                 continue
             name, friendly_name, comment, _ = parse_esphome_meta(content)
             if not name or not friendly_name or comment is None:
-                storage = StorageJSON.load(ext_storage_path(path.name))
+                storage = StorageJSON.load(resolve_storage_path(path.name))
                 if storage is not None:
                     name = name or storage.name
                     friendly_name = friendly_name or storage.friendly_name

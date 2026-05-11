@@ -35,9 +35,10 @@ import asyncio
 import logging
 from pathlib import Path
 
-from esphome.storage_json import StorageJSON, ext_storage_path
+from esphome.storage_json import StorageJSON
 
 from .json import JSONDecodeError, loads
+from .storage_path import resolve_storage_path
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -84,7 +85,7 @@ def read_build_info_hash(yaml_path: Path) -> str | None:
     on a tmp_path sentinel so ``data_dir`` resolves into the same
     fixture tree the storage sidecar was written into.
     """
-    storage = StorageJSON.load(ext_storage_path(yaml_path.name))
+    storage = StorageJSON.load(resolve_storage_path(yaml_path.name))
     if storage is None or storage.build_path is None:
         return None
     build_info_path = Path(storage.build_path) / _BUILD_INFO_FILENAME

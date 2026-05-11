@@ -562,7 +562,7 @@ def stub_create_device_metadata_helpers(monkeypatch: pytest.MonkeyPatch, tmp_pat
     """
     storage_path = tmp_path / "storage.json"
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.ext_storage_path",
+        "esphome_device_builder.controllers.devices.controller.resolve_storage_path",
         lambda _filename: storage_path,
     )
     monkeypatch.setattr(
@@ -591,16 +591,16 @@ def redirect_storage_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
         return storage_dir / f"{configuration}.json"
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.ext_storage_path",
+        "esphome_device_builder.controllers.devices.controller.resolve_storage_path",
         _ext,
     )
     # ``_archive_single`` lives in ``controller.py`` but delegates to
     # ``_wipe_device_build_dir`` and ``_remove_device_sidecars`` over
-    # in ``helpers.py``. Both files import ``ext_storage_path``
+    # in ``helpers.py``. Both files import ``resolve_storage_path``
     # independently; rebinding only one leaves the other path running
     # against the real CORE.
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.helpers.ext_storage_path",
+        "esphome_device_builder.controllers.devices.helpers.resolve_storage_path",
         _ext,
     )
 

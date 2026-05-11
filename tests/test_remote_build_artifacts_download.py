@@ -744,8 +744,8 @@ def test_load_build_artifacts_rejects_non_dict_idedata(
         staticmethod(lambda _path: fake_storage),
     )
     monkeypatch.setattr(
-        "esphome_device_builder.helpers.build_artifacts._idedata_path_in",
-        lambda _data_dir, _storage: idedata_path,
+        "esphome_device_builder.helpers.build_artifacts.resolve_idedata_path",
+        lambda _configuration, *, name: idedata_path,
     )
 
     with pytest.raises(ValueError, match="not a JSON object"):

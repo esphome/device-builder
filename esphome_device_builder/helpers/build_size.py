@@ -55,9 +55,10 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from esphome.storage_json import StorageJSON, ext_storage_path
+from esphome.storage_json import StorageJSON
 
 from ..controllers.config import get_device_metadata, set_device_metadata
+from .storage_path import resolve_storage_path
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -102,7 +103,7 @@ def resolve_build_dir(filename: str) -> Path | None:
     Both legitimately mean "we have no build artifacts to size."
     """
     try:
-        storage = StorageJSON.load(ext_storage_path(filename))
+        storage = StorageJSON.load(resolve_storage_path(filename))
     except Exception:
         # ``StorageJSON.load`` returns ``None`` on a missing file
         # but raises on a corrupt one; treat both as "no build

@@ -13,13 +13,9 @@ import json
 from pathlib import Path
 
 import pytest
-from esphome.core import CORE
-from esphome.storage_json import StorageJSON, ext_storage_path
 
 from esphome_device_builder.helpers.build_artifacts import (
     _firmware_offset_for_platform,
-    _idedata_path_in,
-    _resolve_data_dir,
     load_build_artifacts,
 )
 
@@ -206,31 +202,3 @@ def test_load_build_artifacts_handles_non_dict_extra(tmp_path: Path) -> None:
 def test_firmware_offset_for_platform(platform: str, expected_offset: str) -> None:
     """ESP32 family → ``0x10000``; everything else → ``0x0``."""
     assert _firmware_offset_for_platform(platform) == expected_offset
-
-
-def test_resolve_data_dir_local_configuration_uses_core_data_dir(tmp_path: Path) -> None:
-    """A bare-basename configuration resolves to ``CORE.data_dir``."""
-    assert _resolve_data_dir("kitchen.yaml") == Path(CORE.data_dir)
-
-
-def test_resolve_data_dir_remote_build_configuration_uses_subtree(tmp_path: Path) -> None:
-    """A remote-build configuration resolves to its per-build subtree.
-
-    The receiver-side compile subprocess for that configuration
-    runs with ``ESPHOME_DATA_DIR`` pinned to the same subtree,
-    so the read path lands where the write path landed.
-    """
-    configuration = ".esphome/.remote_builds/dashboard-alpha/kitchen/kitchen.yaml"
-    assert _resolve_data_dir(configuration) == (
-        tmp_path / ".esphome" / ".remote_builds" / "dashboard-alpha" / "kitchen"
-    )
-
-
-def test_idedata_path_in_uses_supplied_data_dir(tmp_path: Path) -> None:
-    """Idedata path resolves under ``<data_dir> / idedata / <name>.json``."""
-    write_storage_json(tmp_path, "kitchen.yaml")
-    storage = StorageJSON.load(ext_storage_path("kitchen.yaml"))
-    assert storage is not None
-    data_dir = tmp_path / ".esphome"
-    resolved = _idedata_path_in(data_dir, storage)
-    assert resolved == data_dir / "idedata" / "kitchen.json"

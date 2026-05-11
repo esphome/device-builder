@@ -500,7 +500,7 @@ def test_load_device_from_storage_threads_ip_through(monkeypatch, tmp_path) -> N
     # ``StorageJSON.load`` so we exercise just the YAML + ip plumbing.
     monkeypatch.setattr(
         device_yaml,
-        "ext_storage_path",
+        "resolve_storage_path",
         lambda config: tmp_path / f"{config}.json",
     )
     monkeypatch.setattr(device_yaml.StorageJSON, "load", staticmethod(lambda _path: None))
@@ -526,7 +526,7 @@ def test_load_device_from_storage_address_falls_back_to_filename_local(  # type:
     """
     monkeypatch.setattr(
         device_yaml,
-        "ext_storage_path",
+        "resolve_storage_path",
         lambda config: tmp_path / f"{config}.json",
     )
     monkeypatch.setattr(device_yaml.StorageJSON, "load", staticmethod(lambda _p: None))
@@ -553,7 +553,7 @@ def test_load_device_from_storage_address_uses_filename_not_parsed_name(  # type
     """
     monkeypatch.setattr(
         device_yaml,
-        "ext_storage_path",
+        "resolve_storage_path",
         lambda config: tmp_path / f"{config}.json",
     )
     monkeypatch.setattr(device_yaml.StorageJSON, "load", staticmethod(lambda _p: None))
@@ -575,7 +575,7 @@ def test_load_device_from_storage_address_uses_storage_when_set(  # type: ignore
     """A real ``StorageJSON.address`` wins over the ``<name>.local`` fallback."""
     monkeypatch.setattr(
         device_yaml,
-        "ext_storage_path",
+        "resolve_storage_path",
         lambda config: tmp_path / f"{config}.json",
     )
 

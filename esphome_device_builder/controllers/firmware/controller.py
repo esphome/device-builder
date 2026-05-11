@@ -28,13 +28,14 @@ from esphome.components.esp32 import VARIANTS as ESP32_VARIANTS
 from esphome.components.libretiny.const import (
     FAMILY_COMPONENT as _LIBRETINY_FAMILY_COMPONENT,
 )
-from esphome.storage_json import StorageJSON, ext_storage_path
+from esphome.storage_json import StorageJSON
 
 from ...helpers.api import CommandError, api_command
 from ...helpers.build_scheduler import BuildPath, pick_build_path
 from ...helpers.event_bus import StreamControls, stream_events
 from ...helpers.process import terminate_subtree_with_grace
 from ...helpers.remote_build_layout import parse_from_configuration as parse_remote_build_path
+from ...helpers.storage_path import resolve_storage_path
 from ...helpers.subprocess import create_subprocess_exec, iter_lines_with_progress
 from ...models import (
     TERMINAL_JOB_EVENTS,
@@ -836,7 +837,7 @@ class FirmwareController:
         loop = asyncio.get_running_loop()
 
         def _get_types() -> list[dict]:
-            storage = StorageJSON.load(ext_storage_path(configuration))
+            storage = StorageJSON.load(resolve_storage_path(configuration))
             if storage is None:
                 return []
             try:
@@ -879,7 +880,7 @@ class FirmwareController:
         loop = asyncio.get_running_loop()
 
         def _read_binary() -> dict:
-            storage = StorageJSON.load(ext_storage_path(configuration))
+            storage = StorageJSON.load(resolve_storage_path(configuration))
             if storage is None or storage.firmware_bin_path is None:
                 msg = "No firmware binary — compile the device first"
                 raise FileNotFoundError(msg)
@@ -1354,7 +1355,7 @@ class FirmwareController:
 
         loop = asyncio.get_running_loop()
         storage = await loop.run_in_executor(
-            None, lambda: StorageJSON.load(ext_storage_path(job.configuration))
+            None, lambda: StorageJSON.load(resolve_storage_path(job.configuration))
         )
         if storage is None or not storage.target_platform:
             return  # never compiled or no platform recorded — nothing to verify

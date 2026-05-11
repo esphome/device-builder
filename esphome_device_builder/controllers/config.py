@@ -18,7 +18,7 @@ from esphome.const import __version__ as esphome_version
 from esphome.core import CORE
 from esphome.helpers import get_bool_env
 from esphome.helpers import write_file as atomic_write_file
-from esphome.storage_json import StorageJSON, ext_storage_path
+from esphome.storage_json import StorageJSON
 from esphome.util import get_serial_ports
 
 from ..constants import DEFAULT_INGRESS_PORT, DEFAULT_REMOTE_BUILD_PORT
@@ -31,6 +31,7 @@ from ..helpers.secrets_state import (
     PLACEHOLDER_WIFI_SSID,
     read_secrets_yaml,
 )
+from ..helpers.storage_path import resolve_storage_path
 from ..models import (
     ErrorCode,
     Label,
@@ -890,7 +891,7 @@ class ConfigController:
             # raises ``CommandError`` on traversal; the awaited future
             # propagates that out to the WS dispatcher unchanged.
             self._db.settings.rel_path(configuration)
-            storage = StorageJSON.load(ext_storage_path(configuration))
+            storage = StorageJSON.load(resolve_storage_path(configuration))
             if storage is None:
                 return None
             return {

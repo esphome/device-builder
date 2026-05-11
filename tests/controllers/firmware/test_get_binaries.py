@@ -49,7 +49,7 @@ def _redirect_ext_storage_path(monkeypatch: Any, tmp_path: Path) -> None:
     binding gets the tmpfs layout instead.
     """
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.firmware.controller.ext_storage_path",
+        "esphome_device_builder.controllers.firmware.controller.resolve_storage_path",
         lambda configuration: tmp_path / ".esphome" / "storage" / f"{configuration}.json",
     )
 

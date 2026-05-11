@@ -671,7 +671,7 @@ async def test_persist_storage_version_async_writes_through_executor(
     write_storage_json(tmp_path, "kitchen.yaml", overrides={"esphome_version": "2026.4.0"})
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.ext_storage_path",
+        "esphome_device_builder.controllers.devices.controller.resolve_storage_path",
         lambda configuration: storage_dir / f"{configuration}.json",
     )
 

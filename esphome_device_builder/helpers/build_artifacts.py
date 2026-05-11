@@ -52,11 +52,10 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
-from esphome.core import CORE
 from esphome.storage_json import StorageJSON
 
 from .json import loads as json_loads
-from .remote_build_layout import parse_from_configuration as parse_remote_build_path
+from .storage_path import resolve_idedata_path, resolve_storage_path
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -155,8 +154,7 @@ def load_build_artifacts(configuration: str) -> BuildArtifacts:
     declared it but the build target may not have emitted
     it).
     """
-    data_dir = _resolve_data_dir(configuration)
-    storage_path = _storage_path_in(data_dir, configuration)
+    storage_path = resolve_storage_path(configuration)
     storage = StorageJSON.load(storage_path)
     if storage is None:
         msg = f"StorageJSON sidecar missing for {configuration}: {storage_path}"
@@ -169,7 +167,7 @@ def load_build_artifacts(configuration: str) -> BuildArtifacts:
         msg = f"firmware_bin_path missing for {configuration}: {firmware_bin}"
         raise FileNotFoundError(msg)
 
-    idedata_path = _idedata_path_in(data_dir, storage)
+    idedata_path = resolve_idedata_path(configuration, name=storage.name)
     if not idedata_path.is_file():
         msg = f"idedata.json missing for {configuration}: {idedata_path}"
         raise FileNotFoundError(msg)
@@ -231,64 +229,6 @@ def load_build_artifacts(configuration: str) -> BuildArtifacts:
         flash_images.append(FlashArtifact(path=extra_path, offset=offset))
 
     return BuildArtifacts(flash_images=flash_images, idedata_bytes=idedata_bytes)
-
-
-def _resolve_data_dir(configuration: str) -> Path:
-    """Return the ``CORE.data_dir`` the compile of *configuration* wrote into.
-
-    For a receiver-side remote-build job (configuration parses
-    as a :class:`RemoteBuildPath`) the compile subprocess runs
-    with ``ESPHOME_DATA_DIR`` pinned to the per-build subtree —
-    so storage / idedata / build_path all land under
-    ``<config_dir>/.esphome/.remote_builds/<dashboard_id>/<device>/``
-    regardless of the dashboard process's own ``CORE.data_dir``.
-    This helper returns that per-build directory so the reader
-    looks where the writer landed; for everything else (a
-    locally-submitted job, an offloader-side handle) it falls
-    back to ``CORE.data_dir`` which honours the existing
-    deployment-mode logic (default / HA addon /
-    ``ESPHOME_DATA_DIR`` env override).
-
-    The receiver-side env override lives in
-    :meth:`FirmwareController._execute_job`; both writer and
-    reader route the same configuration string through
-    :func:`helpers.remote_build_layout.parse_from_configuration`
-    so they agree on the directory without an explicit handshake
-    on the wire.
-    """
-    remote_build_path = parse_remote_build_path(configuration)
-    if remote_build_path is not None:
-        return remote_build_path.data_dir(Path(CORE.config_path).parent)
-    return Path(CORE.data_dir)
-
-
-def _storage_path_in(data_dir: Path, configuration: str) -> Path:
-    """Return the storage sidecar path under *data_dir* for *configuration*.
-
-    Mirrors :func:`esphome.storage_json.storage_path` (which
-    keys on ``CORE.config_filename`` — the basename of
-    ``CORE.config_path``). For a receiver-side remote-build job
-    the YAML lives at ``<subtree>/<device_name>.yaml``, so
-    ``CORE.config_filename`` becomes ``<device_name>.yaml`` and
-    esphome writes ``<subtree>/storage/<device_name>.yaml.json``.
-    For local jobs the configuration is already a bare basename
-    (``kitchen.yaml``), so we use it directly. In both cases the
-    keyspace matches what esphome's compile path wrote.
-    """
-    return data_dir / "storage" / f"{Path(configuration).name}.json"
-
-
-def _idedata_path_in(data_dir: Path, storage: StorageJSON) -> Path:
-    """Locate the cached ``idedata/<name>.json`` for *storage*'s build.
-
-    Mirrors :func:`esphome.platformio_api._load_idedata`'s
-    path resolution: ``<data_dir>/idedata/<name>.json``.
-    ``data_dir`` is resolved by :func:`_resolve_data_dir` so
-    a receiver-side remote-build read lands under the per-build
-    subtree, and a local-build read falls back to the dashboard's
-    ``CORE.data_dir``.
-    """
-    return data_dir / "idedata" / f"{storage.name}.json"
 
 
 def _firmware_offset_for_platform(target_platform: str) -> str:

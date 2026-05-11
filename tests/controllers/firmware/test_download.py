@@ -48,7 +48,7 @@ def _redirect_ext_storage_path(monkeypatch: Any, tmp_path: Path) -> None:
     reads through).
     """
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.firmware.controller.ext_storage_path",
+        "esphome_device_builder.controllers.firmware.controller.resolve_storage_path",
         lambda configuration: tmp_path / ".esphome" / "storage" / f"{configuration}.json",
     )
 
@@ -206,7 +206,7 @@ async def test_download_validator_runs_before_ext_storage_path(
         return tmp_path / ".esphome" / "storage" / f"{configuration}.json"
 
     # Replace the autouse redirect with our spy for this test.
-    controller_module.ext_storage_path = _spy
+    controller_module.resolve_storage_path = _spy
 
     controller = firmware_controller_factory()
     with pytest.raises(CommandError) as excinfo:

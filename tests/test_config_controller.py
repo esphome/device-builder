@@ -655,7 +655,7 @@ async def test_get_info_returns_storage_metadata_dict(
     # redirect it onto our seeded sidecar so the handler's read lands
     # there without a real CORE setup.
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.config.ext_storage_path",
+        "esphome_device_builder.controllers.config.resolve_storage_path",
         lambda configuration: sidecar.parent / f"{configuration}.json",
     )
     controller = _make_controller(tmp_path)
@@ -700,7 +700,7 @@ async def test_get_info_returns_none_when_storage_missing(
     looking blank fields instead of the compile prompt.
     """
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.config.ext_storage_path",
+        "esphome_device_builder.controllers.config.resolve_storage_path",
         lambda configuration: tmp_path / "missing-storage.json",
     )
     controller = _make_controller(tmp_path)

@@ -18,7 +18,9 @@ from typing import TYPE_CHECKING, Any, cast
 
 from esphome import const, yaml_util
 from esphome.const import CONF_PACKAGES
-from esphome.storage_json import StorageJSON, ext_storage_path
+from esphome.storage_json import StorageJSON
+
+from .storage_path import resolve_storage_path
 
 # Prefer the central dispatcher landing in esphome/esphome#16300
 # so we depend on a stable upstream API rather than reaching into
@@ -774,7 +776,7 @@ def load_device_from_storage(
     doesn't wipe what mDNS / ping has already discovered.
     """
     filename = path.name
-    storage = StorageJSON.load(ext_storage_path(filename))
+    storage = StorageJSON.load(resolve_storage_path(filename))
 
     try:
         yaml_content = path.read_text(encoding="utf-8")
