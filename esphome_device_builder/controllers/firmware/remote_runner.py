@@ -33,7 +33,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from ...helpers.api import CommandError
 from ...helpers.config_bundle import BundleBuildError, build_yaml_bundle
@@ -102,17 +102,30 @@ async def run_remote_job(
       the local subprocess path is "compile-then-upload" vs
       "upload existing artifact", and here the receiver
       already did the compile half.
+    * :attr:`JobType.CLEAN` — submit_job(target="clean"). The
+      receiver re-extracts the bundle (uniform pipeline with
+      compile / upload) then runs ``esphome clean <yaml>``,
+      which wipes its ``<data_dir>/build/<device_name>/``.
+      No post-completion artifact fetch (nothing built to
+      flash); finalise as ``COMPLETED`` on receiver's
+      terminal frame. Fan-out from the offloader's local
+      ``firmware/clean`` queues one of these per connected
+      peer so receivers that built this device locally drop
+      their stale artifacts too.
 
-    Other job types (``CLEAN`` / ``RENAME`` / ``RESET_BUILD_ENV``)
-    are rejected at the top because the receiver-side
-    ``submit_job`` contract is compile-only and these don't
-    have a corresponding wire flow.
+    Other job types (``RENAME`` / ``RESET_BUILD_ENV``) are
+    rejected at the top because the receiver-side
+    ``submit_job`` contract doesn't carry a wire shape for
+    them yet.
     """
-    if job.job_type not in (JobType.COMPILE, JobType.UPLOAD, JobType.INSTALL):
+    if job.job_type not in (JobType.COMPILE, JobType.UPLOAD, JobType.INSTALL, JobType.CLEAN):
         _fail_locally(
             controller,
             job,
-            error=f"remote source supports COMPILE/UPLOAD/INSTALL only (got {job.job_type.value})",
+            error=(
+                "remote source supports COMPILE/UPLOAD/INSTALL/CLEAN only "
+                f"(got {job.job_type.value})"
+            ),
         )
         return
 
@@ -291,11 +304,20 @@ async def _dispatch_and_drive(  # noqa: PLR0911
                 device_friendly_name = device.friendly_name
                 break
 
+    # Wire ``target`` is keyed off ``job.job_type``: CLEAN
+    # dispatches as ``target="clean"`` so the receiver runs
+    # ``esphome clean`` after extract; everything else stays on
+    # ``target="compile"`` (the receiver only ever compiles —
+    # UPLOAD / INSTALL come back to flash locally via the
+    # post-completion artifact fetch below).
+    wire_target: Literal["compile", "clean"] = (
+        "clean" if job.job_type is JobType.CLEAN else "compile"
+    )
     try:
         ack = await client.submit_job(
             job_id=job.job_id,
             configuration_filename=job.configuration,
-            target="compile",
+            target=wire_target,
             bundle_bytes=bundle_bytes,
             device_name=device_name,
             device_friendly_name=device_friendly_name,
@@ -330,15 +352,16 @@ async def _dispatch_and_drive(  # noqa: PLR0911
         # left to do.
         return
 
-    # Receiver compiled successfully. For COMPILE jobs that's
-    # the whole job; for UPLOAD / INSTALL we still owe the
-    # local flash step using the receiver's bytes.
-    if job.job_type is JobType.COMPILE:
-        # Stamp ``exit_code=0`` because the remote compile
-        # didn't run a local subprocess. The legacy
-        # ``follow_job`` framing coerces ``None`` to a
-        # failure code (``1``), so a missing stamp would
-        # land a successful compile as a failure on the wire.
+    # Receiver finished its half successfully. For COMPILE
+    # and CLEAN that's the whole job; for UPLOAD / INSTALL we
+    # still owe the local flash step using the receiver's
+    # bytes.
+    if job.job_type in (JobType.COMPILE, JobType.CLEAN):
+        # Stamp ``exit_code=0`` because the remote work didn't
+        # run a local subprocess. The legacy ``follow_job``
+        # framing coerces ``None`` to a failure code (``1``),
+        # so a missing stamp would land a successful run as a
+        # failure on the wire.
         job.exit_code = 0
         _finalize_success(controller, job)
         return

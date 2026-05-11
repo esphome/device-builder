@@ -852,7 +852,7 @@ class SubmitJobFrameData(TypedDict):
     type: Literal["submit_job"]
     job_id: str
     configuration_filename: str
-    target: Literal["compile", "upload"]
+    target: Literal["compile", "upload", "clean"]
     total_bundle_bytes: int
     num_chunks: int
     bundle_sha256: str

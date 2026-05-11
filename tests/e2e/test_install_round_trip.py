@@ -680,3 +680,72 @@ async def test_failed_first_job_still_routes_remote_on_second_install(
     decision = pick_build_path(snapshot)
     assert decision.path is BuildPath.REMOTE
     assert decision.pin_sha256 == paired_instances.pin_sha256
+
+
+@pytest.mark.asyncio
+async def test_remote_clean_round_trip_lands_clean_job_and_fans_state_back(
+    paired_instances: PairedInstances,
+) -> None:
+    """``submit_job(target="clean")`` lands a JobType.CLEAN on the receiver + fans state back.
+
+    Pins the wire shape end-to-end for the fan-out side of
+    ``FirmwareController.clean``: the operator clicks "Clean
+    build files", the offloader-side runner sends
+    ``submit_job(target="clean")`` over the paired Noise
+    session for each connected peer, the receiver dispatches it
+    to its firmware queue as a ``JobType.CLEAN`` job, and the
+    lifecycle events fan back to the offloader through the same
+    :class:`JobFanout` plumbing as ``compile`` /
+    ``upload`` / ``install``.
+
+    The compile-target path is covered above; this test exists
+    so a regression that special-cases the receiver-side
+    dispatch on ``target=="compile"`` (rejecting clean by
+    accident, or routing it to the wrong ``JobType``) lands here
+    rather than silently shipping. **No** ``download_artifacts``
+    step — clean produces no firmware to flash. Single
+    ``JOB_COMPLETED`` is the whole terminal.
+    """
+    await paired_instances.wait_until_session_opened()
+    receiver_jobs = _wire_receiver_firmware_recorder(paired_instances)
+    state_changes = capture_events(
+        paired_instances.offloader_bus, EventType.OFFLOADER_JOB_STATE_CHANGED
+    )
+
+    handle = paired_instances.offloader._peer_link_clients[paired_instances.pin_sha256]
+    ack = await handle.client.submit_job(
+        job_id="off-clean-1",
+        configuration_filename="kitchen.yaml",
+        target="clean",
+        bundle_bytes=_build_real_bundle(),
+    )
+
+    # Receiver accepted the clean target on the same wire path
+    # compile uses.
+    assert ack["accepted"] is True
+    assert len(receiver_jobs) == 1
+    receiver_job = receiver_jobs[0]
+    assert receiver_job.job_type is JobType.CLEAN
+    assert receiver_job.remote_peer == paired_instances.offloader_dashboard_id
+    assert receiver_job.remote_job_id == "off-clean-1"
+
+    # Drive the receiver's queue lifecycle. The fan-out test
+    # helper bakes in the slot-release-then-fire ordering the
+    # 7a-3 fix established; reusing it here proves CLEAN gets
+    # the same idle snapshot the COMPLETED path emits for
+    # compile / install.
+    _drive_receiver_lifecycle(paired_instances, receiver_job, terminal=EventType.JOB_COMPLETED)
+
+    # Two state changes landed on the offloader's bus: running
+    # then completed, both carrying the offloader-supplied
+    # ``job_id`` and the live pin_sha256. JOB_QUEUED doesn't
+    # produce a state-change fan-out (the fan-out fires from
+    # JOB_STARTED onward); two events is the right count.
+    await asyncio.wait_for(state_changes.received.wait(), timeout=2.0)
+    assert len(state_changes) >= 2
+    statuses = [payload["status"] for payload in state_changes]
+    assert "running" in statuses
+    assert "completed" in statuses
+    for payload in state_changes:
+        assert payload["job_id"] == "off-clean-1"
+        assert payload["pin_sha256"] == paired_instances.pin_sha256

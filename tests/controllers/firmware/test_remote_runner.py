@@ -375,6 +375,59 @@ async def test_remote_compile_translates_output_and_completes(
 
 
 @pytest.mark.asyncio
+async def test_remote_clean_dispatches_with_clean_target_and_finalises_on_completed(
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_bundle: AsyncMock,
+) -> None:
+    """A REMOTE clean job dispatches as ``target="clean"`` and finalises on ``completed``.
+
+    Pins the fan-out contract: when ``FirmwareController.clean``
+    creates a per-peer remote clean job, the runner routes it
+    through ``submit_job`` with ``target="clean"`` (not the
+    default ``"compile"``) so the receiver runs ``esphome clean
+    <yaml>`` after extract instead of trying to build. No
+    download_artifacts step — clean produces no firmware to
+    flash. Receiver's ``completed`` terminal frame finalises the
+    job as COMPLETED with ``exit_code=0`` so the offloader's
+    ``follow_job`` framing doesn't coerce a successful clean to
+    a failure.
+    """
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = _capture_local_events(controller)
+    client = _make_client()
+    _wire_remote_build(controller, client=client)
+    job = FirmwareJob(
+        job_id="clean-1",
+        configuration="kitchen.yaml",
+        job_type=JobType.CLEAN,
+        source=JobSource.REMOTE,
+        source_pin_sha256=_PIN,
+    )
+
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
+    await _wait_until_dispatched(client)
+    _fire_state(controller, job_id=job.job_id, status="completed")
+    await asyncio.wait_for(runner, timeout=2.0)
+
+    assert job.status == JobStatus.COMPLETED
+    assert job.exit_code == 0
+    assert len(captured[EventType.JOB_COMPLETED]) == 1
+    assert captured[EventType.JOB_FAILED] == []
+    # Wire target is "clean", not the default "compile".
+    client.submit_job.assert_awaited_once_with(
+        job_id=job.job_id,
+        configuration_filename="kitchen.yaml",
+        target="clean",
+        bundle_bytes=b"FAKEBUNDLE",
+        device_name="",
+        device_friendly_name="",
+    )
+    # Crucially: no download_artifacts call — clean has nothing
+    # to fetch back.
+    client.download_artifacts.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_remote_compile_plumbs_device_names_from_local_scanner(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -573,13 +626,14 @@ async def test_remote_compile_unsupported_job_type_fails_locally(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
 ) -> None:
-    """REMOTE with a non-COMPILE/UPLOAD/INSTALL ``job_type`` is rejected at the runner's top.
+    """REMOTE with a job_type outside COMPILE/UPLOAD/INSTALL/CLEAN is rejected at the runner's top.
 
-    The receiver's ``submit_job`` contract is compile-only;
-    job types that don't have a corresponding wire flow
-    (``CLEAN``, ``RENAME``, ``RESET_BUILD_ENV``) must surface
-    a clear FAILED with an explanatory ``error`` rather than
-    running through the submit path with the wrong target.
+    The receiver's ``submit_job`` contract carries wire shapes
+    for ``target`` ∈ {compile, upload, clean}; job types that
+    don't have a corresponding wire flow (``RENAME``,
+    ``RESET_BUILD_ENV``) must surface a clear FAILED with an
+    explanatory ``error`` rather than running through the submit
+    path with the wrong target.
     """
     controller = firmware_controller_factory(with_terminate=True)
     _capture_local_events(controller)
@@ -587,7 +641,7 @@ async def test_remote_compile_unsupported_job_type_fails_locally(
     job = FirmwareJob(
         job_id="x",
         configuration="kitchen.yaml",
-        job_type=JobType.CLEAN,
+        job_type=JobType.RENAME,
         source=JobSource.REMOTE,
         source_pin_sha256=_PIN,
     )

@@ -51,6 +51,7 @@ from ...models import (
     JobType,
     StreamEvent,
 )
+from ...models.remote_build import PeerStatus
 from ..config import _load_metadata, metadata_transaction
 from .constants import (
     _ERROR_PATTERNS,
@@ -277,7 +278,34 @@ class FirmwareController:
     @api_command("firmware/clean")
     async def clean(self, *, configuration: str, **kwargs: Any) -> FirmwareJob:
         """
-        Queue a build clean job.
+        Queue a build clean job, plus one per connected paired receiver.
+
+        Returns the LOCAL clean job (the one the operator's WS
+        command is awaiting). N additional REMOTE clean jobs are
+        queued silently for fan-out to every currently-connected
+        approved peer; each shows up as its own
+        :class:`FirmwareJob` in the firmware-jobs list and drives
+        the same lifecycle events as remote installs do, so the
+        operator sees per-receiver clean progress in the
+        existing UI.
+
+        **Why fan out:** a stale receiver-side build dir is the
+        same class of problem a stale local build dir is. The
+        operator's "Clean build files" click expects every place
+        this device has been built to drop its artifacts, not
+        just the local one. Without the fan-out, a remote receiver
+        keeps caching the broken state and the next remote
+        compile picks up the same poisoned tree.
+
+        **Best-effort:** a peer that disconnects between this
+        ``clean`` call and the runner picking up its job lands on
+        the existing remote-session-lost FAILED path (the runner's
+        ``_dispatch_and_drive`` returns ``CommandError`` from
+        ``_lookup_open_peer_link_client``). The local job is
+        independent and runs regardless. A peer that isn't
+        connected at all just doesn't get a job queued — the next
+        time the operator clicks clean while that peer is
+        connected, it'll catch up.
 
         Rejects with ``CommandError(INVALID_ARGS)`` when an active
         compile / upload / install / rename job exists for the same
@@ -289,7 +317,10 @@ class FirmwareController:
         didn't intend to abandon is the worse failure mode. Make the
         user retry once the build settles instead. Two clean jobs
         for the same configuration still supersede each other (the
-        second one is the user's intent regardless).
+        second one is the user's intent regardless). The supersede
+        check applies only to the LOCAL job; remote clean jobs key
+        on ``(configuration, source_pin_sha256)`` and are independent
+        of in-flight local work.
         """
         await self._validate_configuration_boundary(configuration)
         if blocker := self._active_build_for(configuration):
@@ -299,8 +330,53 @@ class FirmwareController:
                 f"for {configuration}; wait for it to finish or "
                 f"cancel it before cleaning.",
             )
-        job = self._create_job(configuration, JobType.CLEAN)
-        return await self._enqueue(job)
+        local_job = self._create_job(configuration, JobType.CLEAN)
+        enqueued = await self._enqueue(local_job)
+        await self._fan_out_clean_to_connected_peers(configuration)
+        return enqueued
+
+    async def _fan_out_clean_to_connected_peers(self, configuration: str) -> None:
+        """Queue one REMOTE clean job per connected approved peer.
+
+        Reads the remote-build controller's RAM-canonical
+        ``(_pairings, _open_peer_links)`` state via
+        :meth:`RemoteBuildController.build_scheduler_snapshot`.
+        Approved + connected peers get a job each; everything else
+        is silently skipped (a PENDING row can't accept submits,
+        a disconnected approved row would just FAIL on the runner's
+        first ``_lookup_open_peer_link_client``).
+
+        Fan-out is silent on the WS reply — the operator's
+        ``firmware/clean`` call returns the local job; the remote
+        jobs surface through the existing
+        firmware-jobs subscribe-events stream the dashboard already
+        consumes for in-flight job lists. A regression that lost
+        the fan-out shows up as "I clicked Clean but my receiver
+        still has the old build".
+        """
+        remote_build = self._db.remote_build
+        if remote_build is None:
+            return
+        snapshot = remote_build.build_scheduler_snapshot()
+        # Iterate a list-snapshot of pairings.values() — the dict
+        # itself is mutable and a concurrent unpair on the same
+        # loop tick would otherwise raise ``RuntimeError: dictionary
+        # changed size during iteration``. The snapshot already
+        # ``dict(self._pairings)``-copies on construction, so this
+        # is a cheap safety belt.
+        for pairing in list(snapshot.pairings.values()):
+            if pairing.status is not PeerStatus.APPROVED:
+                continue
+            if pairing.pin_sha256 not in snapshot.open_peer_links:
+                continue
+            remote_job = self._create_job(
+                configuration,
+                JobType.CLEAN,
+                source=JobSource.REMOTE,
+                source_pin_sha256=pairing.pin_sha256,
+                source_label=pairing.label,
+            )
+            await self._enqueue(remote_job)
 
     def _active_build_for(self, configuration: str) -> FirmwareJob | None:
         """Return any in-flight build-producing job on *configuration*.

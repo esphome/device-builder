@@ -19,16 +19,66 @@ test catching it.
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
 from esphome_device_builder.helpers.api import CommandError
-from esphome_device_builder.models import ErrorCode, EventType, JobStatus, JobType
+from esphome_device_builder.helpers.build_scheduler import BuildSchedulerInputs
+from esphome_device_builder.models import ErrorCode, EventType, JobSource, JobStatus, JobType
+from esphome_device_builder.models.remote_build import PeerStatus, StoredPairing
 from tests.controllers.firmware.conftest import (
     CaptureEnqueueOrderFactory,
     EnqueueStep,
     FirmwareControllerFactory,
 )
+
+
+def _wire_remote_build_with_peers(
+    controller: object, *pairings_open: tuple[StoredPairing, bool]
+) -> MagicMock:
+    """Attach a ``remote_build`` stub whose snapshot lists *pairings*.
+
+    Each tuple in ``pairings_open`` is ``(pairing, is_connected)``;
+    the snapshot pins ``open_peer_links`` to the pin_sha256 of
+    every entry whose ``is_connected`` is true. Returns the
+    ``remote_build`` MagicMock so the test can also assert on
+    follow-up controller calls if needed.
+    """
+    remote_build = MagicMock()
+    remote_build.build_scheduler_snapshot.return_value = BuildSchedulerInputs(
+        remote_builds_enabled=True,
+        pairings={p.pin_sha256: p for (p, _) in pairings_open},
+        open_peer_links=frozenset(p.pin_sha256 for (p, ok) in pairings_open if ok),
+        peer_queue_status={},
+    )
+    # ``_db.remote_build`` is the controller's lookup site; replacing
+    # the default ``None`` here is the minimum wiring the fan-out
+    # path needs to enumerate connected approved peers.
+    controller._db.remote_build = remote_build  # type: ignore[attr-defined]
+    return remote_build
+
+
+def _pairing(
+    *,
+    pin_sha256: str,
+    label: str = "receiver",
+    status: PeerStatus = PeerStatus.APPROVED,
+) -> StoredPairing:
+    # ``StoredPairing.pin_sha256`` is validated against a 64-char
+    # min length (the wire format is lowercase hex SHA-256). The
+    # test fixture's short identifiers (``"a"`` etc.) need to
+    # be re-shaped to 64 chars before the dataclass accepts them.
+    padded_pin = pin_sha256.ljust(64, "0")
+    return StoredPairing(
+        receiver_hostname="receiver.local",
+        receiver_port=6055,
+        pin_sha256=padded_pin,
+        static_x25519_pub=b"\x00" * 32,
+        label=label,
+        paired_at=1.0,
+        status=status,
+    )
 
 
 @pytest.mark.asyncio
@@ -245,3 +295,119 @@ async def test_clean_succeeds_after_terminal_active_build(
     job = await controller.clean(configuration="kitchen.yaml")
 
     assert job.status == JobStatus.QUEUED
+
+
+# ---------------------------------------------------------------------------
+# Fan-out to connected paired receivers
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_clean_fans_out_to_connected_approved_peers(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """One ``clean`` click queues one LOCAL job + one REMOTE job per connected approved peer.
+
+    The fan-out is what makes "Clean build files" actually clean
+    every receiver this device might have been built on. Pre-fix
+    a stale receiver-side build dir kept poisoning the next
+    remote compile; this test pins that the operator's single
+    click queues the expected per-peer REMOTE clean jobs so the
+    receiver-side artifacts get dropped too.
+    """
+    (tmp_path / "kitchen.yaml").write_text("")
+    controller = firmware_controller_factory(with_queue=True)
+    _wire_remote_build_with_peers(
+        controller,
+        (_pairing(pin_sha256="a", label="desktop"), True),
+        (_pairing(pin_sha256="b", label="laptop"), True),
+    )
+
+    returned = await controller.clean(configuration="kitchen.yaml")
+
+    # The handler returns the LOCAL clean — that's what the WS
+    # client awaits — and the REMOTE jobs land silently in
+    # _jobs via the fan-out.
+    assert returned.source is JobSource.LOCAL
+    assert returned.job_type is JobType.CLEAN
+
+    clean_jobs = [j for j in controller._jobs.values() if j.job_type is JobType.CLEAN]
+    assert len(clean_jobs) == 3  # 1 local + 2 remote
+
+    remote_jobs = sorted(
+        (j for j in clean_jobs if j.source is JobSource.REMOTE),
+        key=lambda j: j.source_pin_sha256,
+    )
+    assert [j.source_pin_sha256 for j in remote_jobs] == [
+        "a".ljust(64, "0"),
+        "b".ljust(64, "0"),
+    ]
+    assert [j.source_label for j in remote_jobs] == ["desktop", "laptop"]
+    # Every fan-out job carries the same configuration the
+    # operator clicked clean on.
+    assert all(j.configuration == "kitchen.yaml" for j in clean_jobs)
+
+
+@pytest.mark.asyncio
+async def test_clean_skips_disconnected_or_pending_peers(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """Only APPROVED + currently-connected peers receive a fan-out job.
+
+    PENDING rows can't accept submits at all (the receiver-side
+    handler rejects them). Approved-but-disconnected rows would
+    immediately FAIL on the runner's
+    ``_lookup_open_peer_link_client`` step; queueing them just
+    spams the firmware-jobs UI with predictable failures. Skip
+    both — the next clean while the peer is online catches up.
+    """
+    (tmp_path / "kitchen.yaml").write_text("")
+    controller = firmware_controller_factory(with_queue=True)
+    _wire_remote_build_with_peers(
+        controller,
+        # APPROVED + connected: gets a job.
+        (_pairing(pin_sha256="c", label="online"), True),
+        # APPROVED + disconnected: skipped.
+        (_pairing(pin_sha256="d", label="offline"), False),
+        # PENDING (regardless of connection state): skipped.
+        (
+            _pairing(pin_sha256="e", label="pending", status=PeerStatus.PENDING),
+            True,
+        ),
+    )
+
+    await controller.clean(configuration="kitchen.yaml")
+
+    remote_pins = {
+        j.source_pin_sha256
+        for j in controller._jobs.values()
+        if j.source is JobSource.REMOTE and j.job_type is JobType.CLEAN
+    }
+    assert remote_pins == {"c".ljust(64, "0")}
+
+
+@pytest.mark.asyncio
+async def test_clean_with_no_remote_build_controller_skips_fan_out(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """Pre-``start()`` race where ``remote_build`` is still ``None`` cleans local only.
+
+    The firmware controller is constructed before
+    ``DeviceBuilder.start()`` wires up the remote-build
+    controller. A clean click that lands in that window must
+    still run the local job; the fan-out simply produces no
+    remote jobs. Mirrors the same defensive null-check that
+    ``_resolve_install_source`` uses.
+    """
+    (tmp_path / "kitchen.yaml").write_text("")
+    controller = firmware_controller_factory(with_queue=True)
+    # Default factory leaves ``_db.remote_build = None``.
+
+    returned = await controller.clean(configuration="kitchen.yaml")
+
+    assert returned.source is JobSource.LOCAL
+    # No REMOTE jobs queued.
+    assert not any(j.source is JobSource.REMOTE for j in controller._jobs.values())

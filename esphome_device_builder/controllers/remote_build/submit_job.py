@@ -155,14 +155,26 @@ _SUBMIT_JOB_CHUNK_SCHEMA = frame_schema(
 # canonical key shape.
 
 # Allowed values of :attr:`SubmitJobFrameData.target`.
-# ``Literal["compile", "upload"]`` on the TypedDict is the
-# type-time gate; this set is the runtime gate so a misbehaving
-# offloader sending ``target="install"`` (or anything else)
-# gets a clean reject rather than a downstream JobType
+# ``Literal["compile", "upload", "clean"]`` on the TypedDict is
+# the type-time gate; this set is the runtime gate so a
+# misbehaving offloader sending ``target="install"`` (or anything
+# else) gets a clean reject rather than a downstream JobType
 # construction failure.
+#
+# ``target="clean"`` rides the same submit_job pipeline as
+# compile / upload — receiver re-extracts the YAML to the
+# per-offloader subtree, then runs ``esphome clean`` against it,
+# which wipes ``<data_dir>/build/<device_name>/``. The receiver's
+# 6c TTL sweep eventually reclaims the subtree itself; an
+# explicit clean is about freeing the shared per-device build
+# tree, not the per-offloader sidecar. The offloader fans out
+# clean to every connected peer when the operator clicks "Clean
+# build files" so receivers that have built this device locally
+# also drop their stale artifacts.
 _TARGET_TO_JOB_TYPE: dict[str, JobType] = {
     "compile": JobType.COMPILE,
     "upload": JobType.UPLOAD,
+    "clean": JobType.CLEAN,
 }
 
 # Bundle-assembler error codes that map to a clean

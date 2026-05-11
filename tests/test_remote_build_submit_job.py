@@ -565,6 +565,60 @@ async def test_submit_job_happy_path_extracts_and_queues(
 
 
 @pytest.mark.asyncio
+async def test_submit_job_clean_target_creates_clean_job(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``target="clean"`` rides the same pipeline and creates a JobType.CLEAN job.
+
+    The fan-out from the offloader's "Clean build files" click
+    sends one ``submit_job(target="clean")`` per connected peer
+    so receivers that built this device locally drop their stale
+    ``<data_dir>/build/<device_name>/`` artifacts. The bundle is
+    shipped + extracted exactly like compile — re-extracting a
+    fresh copy of the YAML is wasteful for a clean (we're about
+    to delete the build dir anyway, not the subtree) but it
+    keeps the wire / dispatch code paths uniform with compile /
+    upload. The real cleanup is the ``esphome clean <yaml>`` run
+    that the firmware queue invokes after this dispatch lands
+    the ``JobType.CLEAN``.
+    """
+    firmware = _make_firmware_controller()
+    receiver = _make_receiver(tmp_path, firmware)
+    session = _make_session(dashboard_id="alpha-dashboard")
+    bundle = make_tar_bundle("kitchen.yaml", b"esphome:\n  name: kitchen\n")
+
+    expected_yaml = (
+        tmp_path / ".esphome" / ".remote_builds" / "alpha-dashboard" / "kitchen" / "kitchen.yaml"
+    )
+
+    def _stub_prepare(bundle_path: Path, target_dir: Path) -> Path:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        expected_yaml.parent.mkdir(parents=True, exist_ok=True)
+        expected_yaml.write_bytes(b"esphome:\n  name: kitchen\n")
+        return expected_yaml
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.submit_job.prepare_bundle_for_compile",
+        _stub_prepare,
+    )
+
+    await receiver.handle_submit_job(session, _header(target="clean", bundle=bundle))
+    for chunk in _frame_chunks("job-1", bundle):
+        await receiver.handle_submit_job_chunk(session, chunk)
+
+    payload = _ack_payload(session)
+    assert payload["accepted"] is True
+    assert payload["job_id"] == "job-1"
+    assert "reason" not in payload
+
+    assert len(firmware.created_jobs) == 1
+    job = firmware.created_jobs[0]
+    assert job.job_type is JobType.CLEAN
+    assert job.remote_peer == "alpha-dashboard"
+    firmware._enqueue.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_submit_job_carries_display_fields_through_to_firmware_job(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
