@@ -204,10 +204,28 @@ class RemoteBuildPath:
           silently mix builds.
 
         Pinning keeps every remote-build artefact under one
-        ``dashboard_id``-keyed directory. The 6c TTL sweep that
-        walks an offloader's subtrees can reclaim the whole
-        offloader (including the shared toolchain cache) by
-        walking ``<dashboard_data_dir>/.remote_builds/<dashboard_id>/``.
+        ``dashboard_id``-keyed directory.
+
+        Cleanup asymmetry vs the 6c TTL sweep
+        (:func:`helpers.remote_build_cleanup.sweep_remote_builds`):
+        the sweep walks ``config_dir / REMOTE_BUILDS_SUBDIR``
+        and reclaims cold per-device subtrees (the YAML
+        extract + bundle sibling). The shared per-dashboard
+        ``.esphome/`` lives under ``CORE.data_dir`` — a
+        *different* root on the HA addon (``/data`` vs
+        ``/config/esphome``) — and is not currently walked by
+        the sweep. That asymmetry is intentional for the
+        toolchain (``.platformio/``, multi-GB, the whole point
+        of per-dashboard scope is keeping it warm across
+        submits); per-device build dirs under ``build/<name>/``
+        and their ``storage/`` / ``idedata/`` sidecars are
+        currently orphaned when their per-device subtree gets
+        reclaimed. Tracking that as a follow-up — a future
+        cleanup pass keyed on "no devices remain under this
+        ``dashboard_id``" can walk
+        ``<dashboard_data_dir>/.remote_builds/<dashboard_id>/.esphome/``
+        and reclaim the entire offloader's build cache on
+        unpair / TTL expiry.
 
         Read side: :func:`helpers.build_artifacts.load_build_artifacts`
         derives ``data_dir`` back from the configuration string

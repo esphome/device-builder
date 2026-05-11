@@ -81,12 +81,14 @@ def test_resolve_storage_path_remote_build_uses_basename_keyspace(tmp_path: Path
     Mirrors esphome's :func:`storage_path` which keys on
     ``CORE.config_filename`` (the basename of
     ``CORE.config_path``) — a remote-build YAML at
-    ``<subtree>/kitchen.yaml`` writes its sidecar at
-    ``<subtree>/storage/kitchen.yaml.json``, not at
-    ``<subtree>/storage/.esphome/.remote_builds/...yaml.json``.
-    Pins the basename-keyed contract so a future refactor can't
-    silently regress the resolver into emitting the buggy
-    full-path key.
+    ``<per-dashboard-data-dir>/kitchen.yaml`` writes its sidecar
+    at ``<per-dashboard-data-dir>/storage/kitchen.yaml.json``,
+    where ``<per-dashboard-data-dir>`` is
+    ``<CORE.data_dir>/.remote_builds/<dashboard_id>/.esphome``.
+    The full configuration string (``.esphome/.remote_builds/<id>/<device>/<device>.yaml``)
+    is not re-embedded in the sidecar path — pins the
+    basename-keyed contract so a future refactor can't silently
+    regress the resolver into emitting the buggy full-path key.
     """
     configuration = ".esphome/.remote_builds/dashboard-alpha/kitchen/kitchen.yaml"
     assert resolve_storage_path(configuration) == (

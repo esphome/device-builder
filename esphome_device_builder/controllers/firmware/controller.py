@@ -1462,15 +1462,31 @@ class FirmwareController:
         local builds — same-basename collisions across paired
         offloaders silently mix builds. The override pins each
         offloader's remote builds to a per-dashboard subdirectory
-        of ``CORE.data_dir`` (``<config_dir>/.esphome/.remote_builds/<id>/.esphome``
+        of ``CORE.data_dir``
+        (``<config_dir>/.esphome/.remote_builds/<id>/.esphome``
         in default mode, ``/data/.remote_builds/<id>/.esphome``
-        on the HA addon). Anchoring on ``CORE.data_dir``
-        (not on ``settings.config_dir``) keeps the multi-GB
-        toolchain + build cache off the user's ``/config`` mount
-        on the HA addon, where it lives on the addon's
-        per-instance data volume instead. The 6c TTL sweep walks
-        :meth:`RemoteBuildPath.subtree` so the whole per-build
-        state reclaims in one ``shutil.rmtree``.
+        on the HA addon). Anchoring on ``CORE.data_dir`` (not on
+        ``settings.config_dir``) keeps the multi-GB toolchain +
+        build cache off the user's ``/config`` mount on the HA
+        addon, where it lives on the addon's per-instance data
+        volume instead.
+
+        Reclaim semantics (see
+        :meth:`RemoteBuildPath.data_dir` for the full notes):
+        the 6c TTL sweep
+        (:func:`helpers.remote_build_cleanup.sweep_remote_builds`)
+        still walks ``config_dir / REMOTE_BUILDS_SUBDIR`` and
+        reclaims cold per-device subtrees (the YAML extract +
+        bundle sibling) via :meth:`RemoteBuildPath.subtree`.
+        The shared per-dashboard ``.esphome/`` under
+        ``CORE.data_dir`` is intentionally not swept — that's
+        what keeps the toolchain warm across submits — at the
+        cost of per-device ``build/<name>/`` /
+        ``storage/<basename>.json`` / ``idedata/<name>.json``
+        becoming orphaned when their subtree gets reclaimed.
+        A future cleanup pass keyed on "no devices remain
+        under this dashboard_id" will reclaim the whole shared
+        tree on unpair / TTL expiry.
 
         Factored out of :meth:`_execute_job` so the receiver-side
         env override is unit-testable without standing up a real
