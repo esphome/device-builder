@@ -64,7 +64,7 @@ async def test_terminal_job_replays_full_history_and_returns(
     result_events = [(StreamEvent.RESULT, d) for d in client.events_for(StreamEvent.RESULT)]
     assert [d for _e, d in output_events] == ["line a\n", "line b\n", "line c\n"]
     assert len(result_events) == 1
-    assert result_events[0][1] == {"status": "completed", "exit_code": 0}
+    assert result_events[0][1] == {"status": "completed", "exit_code": 0, "error": None}
 
 
 async def test_history_lines_arrive_before_live_lines_in_order(
@@ -383,3 +383,82 @@ async def test_cancelled_terminal_event_returns_with_status(
     assert output_lines == ["pre-cancel\n"]
     assert len(result_events) == 1
     assert result_events[0]["status"] == "cancelled"
+
+
+async def test_failed_terminal_event_carries_job_error_text(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """``JOB_FAILED`` RESULT payload carries the human-readable ``error``.
+
+    The install dialog's red error banner falls back to a generic
+    "Install failed." copy when no specific text is available; without
+    the ``error`` field on the wire it can't distinguish a C++ build
+    failure (where clean / reset is the right hint) from a session-lost
+    failure (where neither helps and the operator just needs to retry).
+    Pin the wire shape so a future refactor that drops the field
+    surfaces here.
+    """
+    job = FirmwareJob(
+        job_id="abc",
+        configuration="kitchen.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.RUNNING,
+        output=["compiling main.cpp\n"],
+    )
+    controller = _make_controller_with_job(firmware_controller_factory, job)
+    client = FakeWebSocketClient(yield_per_event=True)
+    bus = controller._db.bus
+
+    async def follower() -> None:
+        await controller.follow_job(job_id="abc", client=client, message_id="m1")
+
+    follow_task = asyncio.create_task(follower())
+    await asyncio.sleep(0)
+
+    job.status = JobStatus.FAILED
+    job.error = "remote build: peer-link session lost (transport_error: …)"
+    job.exit_code = None
+    bus.fire(EventType.JOB_FAILED, {"job": job})
+
+    await asyncio.wait_for(follow_task, timeout=2.0)
+
+    result_events = client.events_for(StreamEvent.RESULT)
+    assert len(result_events) == 1
+    assert result_events[0] == {
+        "status": "failed",
+        "exit_code": None,
+        "error": "remote build: peer-link session lost (transport_error: …)",
+    }
+
+
+async def test_send_initial_replays_error_for_already_terminal_failed_job(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A follower that connects after the job already failed reads the error.
+
+    Covers the ``_send_initial`` branch that fires when ``follow_job``
+    is called on a job whose terminal-event already landed before the
+    subscription. The replay must include ``error`` so the late
+    follower's banner still gets the specific failure text.
+    """
+    job = FirmwareJob(
+        job_id="abc",
+        configuration="kitchen.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.FAILED,
+        output=["compile error: …\n"],
+        exit_code=1,
+        error="Process exited 1",
+    )
+    controller = _make_controller_with_job(firmware_controller_factory, job)
+    client = FakeWebSocketClient(yield_per_event=True)
+
+    await controller.follow_job(job_id="abc", client=client, message_id="m1")
+
+    result_events = client.events_for(StreamEvent.RESULT)
+    assert len(result_events) == 1
+    assert result_events[0] == {
+        "status": "failed",
+        "exit_code": 1,
+        "error": "Process exited 1",
+    }

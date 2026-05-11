@@ -616,6 +616,7 @@ class FirmwareController:
         is_terminal = job.status in TERMINAL_JOB_STATUSES
         terminal_status = job.status.value if is_terminal else ""
         terminal_exit_code = job.exit_code
+        terminal_error = job.error if is_terminal else None
 
         async def _send_initial(controls: StreamControls) -> None:
             for line in snapshot:
@@ -624,7 +625,24 @@ class FirmwareController:
                 await client.send_event(
                     message_id,
                     StreamEvent.RESULT,
-                    {"status": terminal_status, "exit_code": terminal_exit_code},
+                    {
+                        "status": terminal_status,
+                        "exit_code": terminal_exit_code,
+                        # ``error`` carries the human-readable
+                        # failure reason :func:`_fail_locally` /
+                        # ``_finalize_terminal`` stamped on the job
+                        # (e.g. ``"remote build: peer-link session
+                        # lost (transport_error: ...)"``). The
+                        # frontend install dialog surfaces this in
+                        # its red error banner; without the field
+                        # the banner falls back to a generic
+                        # "Install failed." that misattributes a
+                        # receiver-restart to a broken build env.
+                        # ``None`` for successful jobs and for
+                        # jobs from before the field was set;
+                        # frontend treats both equivalently.
+                        "error": terminal_error,
+                    },
                 )
                 # No live drain — already-terminal job has nothing
                 # more to deliver; end the stream so the helper
@@ -645,6 +663,7 @@ class FirmwareController:
                         {
                             "status": status_val,
                             "exit_code": getattr(ev_job, "exit_code", None),
+                            "error": getattr(ev_job, "error", None),
                         },
                     )
                     controls.end()
