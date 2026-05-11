@@ -1563,15 +1563,28 @@ class RemoteBuildController:
         :attr:`_peer_link_resolver`; leaves it ``None`` when
         the shared zeroconf isn't available (devices controller
         not constructed, monitor failed to bind, HA-addon mode
-        without zeroconf). Fail-soft: the next ``aiohttp``
-        connect falls back to the OS resolver in that case.
+        without zeroconf) **or** when the resolver constructor
+        itself raises (e.g. the upstream
+        :class:`aiohttp.resolver.AsyncResolver` ``__init__``
+        raises ``RuntimeError`` when ``aiodns`` isn't installed,
+        which can happen in lean env paths that drop the
+        transitive dep). Fail-soft: the next ``aiohttp`` connect
+        falls back to the OS resolver in either case, same
+        contract as :meth:`_start_discovery`.
         """
         if self._db.devices is None:
             return
         zeroconf = self._db.devices.zeroconf
         if zeroconf is None:
             return
-        self._peer_link_resolver = make_peer_link_resolver(zeroconf)
+        try:
+            self._peer_link_resolver = make_peer_link_resolver(zeroconf)
+        except Exception:
+            _LOGGER.exception(
+                "Could not build peer-link mDNS resolver; outbound peer-link connects "
+                "will fall back to the OS resolver"
+            )
+            self._peer_link_resolver = None
 
     def _start_discovery(self) -> None:
         """

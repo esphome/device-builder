@@ -1363,6 +1363,41 @@ async def test_start_leaves_peer_link_resolver_none_when_zeroconf_failed_to_bind
 
 
 @pytest.mark.asyncio
+async def test_start_swallows_peer_link_resolver_construction_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """
+    A constructor-side resolver failure leaves the controller in a no-resolver state.
+
+    The upstream :class:`aiohttp.resolver.AsyncResolver`
+    ``__init__`` raises ``RuntimeError("Resolver requires
+    aiodns library")`` when ``aiodns`` isn't installed; the
+    transitive dep is usually present but a lean env path could
+    legitimately drop it. The controller must keep startup
+    going (same contract as the zeroconf-down branch) — the
+    resolver stays ``None`` and outbound connects fall back to
+    the OS resolver.
+    """
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.controller.make_peer_link_resolver",
+        MagicMock(side_effect=RuntimeError("aiodns not installed")),
+    )
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.devices.zeroconf = MagicMock(spec=AsyncZeroconf)
+    with caplog.at_level(
+        "ERROR", logger="esphome_device_builder.controllers.remote_build.controller"
+    ):
+        await controller.start()
+    try:
+        assert controller._peer_link_resolver is None
+        assert any("Could not build peer-link mDNS resolver" in r.message for r in caplog.records)
+    finally:
+        await controller.stop()
+
+
+@pytest.mark.asyncio
 async def test_stop_swallows_peer_link_resolver_close_failures(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
