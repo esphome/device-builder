@@ -117,7 +117,7 @@ def catalog(session_component_catalog: ComponentCatalog) -> ComponentCatalog:
 def test_registry_indexes_known_boards(catalog: ComponentCatalog) -> None:
     """Tier-1 manifests register their featured components under the right ids."""
     assert "featured.sonoff-basic.relay" in catalog._featured_by_id
-    assert "featured.apollo-esk-1.pir_motion" in catalog._featured_by_id
+    assert "featured.apollo-esk-1.motion_module" in catalog._featured_by_id
     assert "featured.athom-smart-plug-v3.relay" in catalog._featured_by_id
 
 
@@ -149,7 +149,7 @@ async def test_get_component_suggestions(catalog: ComponentCatalog) -> None:
     # apollo-esk-1 starter kit moved to fixed pin assignments), so we
     # swap a synthetic record into the catalog for the duration of the
     # test to exercise the full materialisation path.
-    full_id = "featured.apollo-esk-1.pir_motion"
+    full_id = "featured.apollo-esk-1.motion_module"
     original = catalog._featured_by_id[full_id]
     patched = deepcopy(original)
     patched.featured.fields["pin"] = FieldPreset(value=4, suggestions=[4, 5])
@@ -251,11 +251,11 @@ async def test_get_components_featured_with_query_filter(
     page = await catalog.get_components(
         board_id="apollo-esk-1",
         category="featured",
-        query="pir",
+        query="motion",
     )
-    assert any("pir" in c.id.lower() for c in page.components)
+    assert any("motion" in c.id.lower() for c in page.components)
     assert all(
-        "pir" in c.name.lower() or "pir" in c.description.lower() or "pir" in c.id.lower()
+        "motion" in c.name.lower() or "motion" in c.description.lower() or "motion" in c.id.lower()
         for c in page.components
     )
 
@@ -292,7 +292,7 @@ async def test_get_components_response_categories_filter_featured_by_query(
     )
     assert all(c["id"] != "featured" for c in page.categories)
 
-    page = await catalog.get_components(board_id="apollo-esk-1", query="pir")
+    page = await catalog.get_components(board_id="apollo-esk-1", query="motion")
     featured = next(c for c in page.categories if c["id"] == "featured")
     assert int(featured["count"]) >= 1
 
@@ -337,7 +337,7 @@ async def test_apply_presets_suggestion_in_set(catalog: ComponentCatalog) -> Non
     # apollo-esk-1 starter kit moved to fixed pin assignments — so the
     # suggestion-logic tests build their fixture inline by overriding
     # the ``pin`` preset on a deepcopy of a real record.
-    record = deepcopy(catalog.get_featured_record("featured.apollo-esk-1.pir_motion"))
+    record = deepcopy(catalog.get_featured_record("featured.apollo-esk-1.motion_module"))
     assert record is not None
     record.featured.fields["pin"] = FieldPreset(value=4, suggestions=[4, 5])
     out = _apply_featured_presets(record, {"pin": 5})
@@ -348,7 +348,7 @@ async def test_apply_presets_suggestion_in_set(catalog: ComponentCatalog) -> Non
 async def test_apply_presets_suggestion_rejects_off_list(
     catalog: ComponentCatalog,
 ) -> None:
-    record = deepcopy(catalog.get_featured_record("featured.apollo-esk-1.pir_motion"))
+    record = deepcopy(catalog.get_featured_record("featured.apollo-esk-1.motion_module"))
     assert record is not None
     record.featured.fields["pin"] = FieldPreset(value=4, suggestions=[4, 5])
     with pytest.raises(ValueError, match="must be one of"):
@@ -366,7 +366,7 @@ async def test_apply_presets_suggestion_accepts_rich_pin_form(
     — and the rich dict rides through to the merger unchanged so the
     YAML keeps its full pin block.
     """
-    record = deepcopy(catalog.get_featured_record("featured.apollo-esk-1.pir_motion"))
+    record = deepcopy(catalog.get_featured_record("featured.apollo-esk-1.motion_module"))
     assert record is not None
     record.featured.fields["pin"] = FieldPreset(value=4, suggestions=[4, 5])
     rich_pin = {"number": 5, "mode": {"input": True}}
@@ -378,7 +378,7 @@ async def test_apply_presets_suggestion_rejects_rich_pin_off_list(
     catalog: ComponentCatalog,
 ) -> None:
     """Rich pin form whose ``number`` is off-list still raises."""
-    record = deepcopy(catalog.get_featured_record("featured.apollo-esk-1.pir_motion"))
+    record = deepcopy(catalog.get_featured_record("featured.apollo-esk-1.motion_module"))
     assert record is not None
     record.featured.fields["pin"] = FieldPreset(value=4, suggestions=[4, 5])
     with pytest.raises(ValueError, match="must be one of"):
@@ -402,7 +402,7 @@ async def test_apply_presets_suggestion_falls_back_to_value(
     catalog: ComponentCatalog,
 ) -> None:
     """Omitting a suggestion field falls back to the preset's initial value."""
-    record = deepcopy(catalog.get_featured_record("featured.apollo-esk-1.pir_motion"))
+    record = deepcopy(catalog.get_featured_record("featured.apollo-esk-1.motion_module"))
     assert record is not None
     record.featured.fields["pin"] = FieldPreset(value=4, suggestions=[4, 5])
     out = _apply_featured_presets(record, {})
@@ -440,7 +440,7 @@ async def test_apply_presets_drops_non_manifest_fields(
     (a light's ``gamma_correct: 2.8``, an output's ``frequency: 1kHz``,
     ...). Required keys still ride through as a safety net.
     """
-    record = catalog.get_featured_record("featured.apollo-esk-1.rgb_strip")
+    record = catalog.get_featured_record("featured.apollo-esk-1.rgb_leds")
     assert record is not None
     out = _apply_featured_presets(
         record,
@@ -449,7 +449,7 @@ async def test_apply_presets_drops_non_manifest_fields(
             "pin": 14,
             "num_leds": 10,
             "rgb_order": "GRB",
-            "name": "RGB LED Strip",
+            "name": "RGB LEDs",
             # Frontend default-fills the user never touched — these go.
             "gamma_correct": 2.8,
             "is_rgbw": False,
@@ -483,7 +483,7 @@ async def test_apply_presets_keeps_user_overridden_optional_field(
     the default is real user intent and must ride through, even when
     the manifest doesn't curate the key.
     """
-    record = catalog.get_featured_record("featured.apollo-esk-1.rgb_strip")
+    record = catalog.get_featured_record("featured.apollo-esk-1.rgb_leds")
     assert record is not None
     out = _apply_featured_presets(
         record,
@@ -515,7 +515,7 @@ async def test_apply_presets_strips_numeric_default_echo_across_types(
     stringified compare bridges the two so the unmodified default is
     still recognised as noise.
     """
-    record = catalog.get_featured_record("featured.apollo-esk-1.rgb_strip")
+    record = catalog.get_featured_record("featured.apollo-esk-1.rgb_leds")
     assert record is not None
     out = _apply_featured_presets(record, {"gamma_correct": 2.8})
     assert "gamma_correct" not in out
@@ -529,9 +529,9 @@ async def test_apply_presets_keeps_required_field_outside_manifest(
     # then submit one of the underlying component's required fields and
     # confirm it survives the filter rather than being treated as
     # incidental frontend padding.
-    record = deepcopy(catalog.get_featured_record("featured.apollo-esk-1.rgb_strip"))
+    record = deepcopy(catalog.get_featured_record("featured.apollo-esk-1.rgb_leds"))
     assert record is not None
-    record.featured.fields = {"id": FieldPreset(value="rgb_strip")}
+    record.featured.fields = {"id": FieldPreset(value="rgb_leds")}
     out = _apply_featured_presets(record, {"pin": 14, "num_leds": 10, "rgb_order": "GRB"})
     # ``pin``, ``num_leds`` and ``rgb_order`` are schema-required — kept
     # despite being absent from the manifest.
@@ -778,7 +778,7 @@ async def test_add_component_featured_drops_non_manifest_defaults(
 
     response = await ctrl.add_component(
         configuration="kit.yaml",
-        component_id="featured.apollo-esk-1.rgb_strip",
+        component_id="featured.apollo-esk-1.rgb_leds",
         fields={
             # Frontend default-fills:
             "gamma_correct": 2.8,
