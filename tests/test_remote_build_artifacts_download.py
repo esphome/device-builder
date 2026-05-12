@@ -33,9 +33,11 @@ from esphome_device_builder.controllers.remote_build.artifacts_download import (
     ArtifactsDownloadSender,
 )
 from esphome_device_builder.controllers.remote_build.artifacts_tarball import (
+    IDEDATA_MEMBER_NAME,
+    PLATFORMIO_INI_MEMBER_NAME,
+    STORAGE_MEMBER_NAME,
     PackedArtifacts,
     UnpackArtifactsError,
-    extract_firmware_bin,
     pack_build_artifacts,
     read_artifacts_tarball,
     unpack_artifacts_response,
@@ -43,12 +45,11 @@ from esphome_device_builder.controllers.remote_build.artifacts_tarball import (
 from esphome_device_builder.controllers.remote_build.peer_link_client import (
     DownloadArtifactsResult,
 )
-from esphome_device_builder.helpers.build_artifacts import (
-    BuildArtifacts,
-    FlashArtifact,
-    load_build_artifacts,
+from esphome_device_builder.helpers.build_artifacts import load_build_artifacts
+from esphome_device_builder.helpers.storage_path import (
+    resolve_idedata_path,
+    resolve_storage_path,
 )
-from esphome_device_builder.helpers.peer_link_bundle import FIRMWARE_MAX_TOTAL_BYTES
 from esphome_device_builder.models import (
     DownloadArtifactsFrameData,
     JobStatus,
@@ -329,123 +330,236 @@ async def test_download_artifacts_clears_inflight_on_reject(
 # ---------------------------------------------------------------------------
 
 
-def _make_build_artifacts(
+def _write_receiver_state(
     tmp_path: Path,
     *,
-    extra_offsets: list[tuple[str, str]] | None = None,
-) -> BuildArtifacts:
-    """Build a synthetic :class:`BuildArtifacts` on disk for round-trip tests.
+    configuration: str = "kitchen.yaml",
+    device_name: str = "kitchen",
+    target_platform: str = "ESP32",
+    extras: list[tuple[str, str]] | None = None,
+    extra_build_files: dict[str, bytes] | None = None,
+) -> dict[str, Path]:
+    """Lay down a minimal receiver-side build state on disk.
 
-    *extra_offsets* is a list of ``(basename, offset_hex)`` for
-    additional flash images (bootloader / partitions /
-    ota_data_initial). The matching idedata.json carries these
-    under ``extra.flash_images`` with absolute receiver-side
-    paths so the unpack can prove the basename rewrite.
+    Writes:
+
+    * ``<data_dir>/build/<device_name>/platformio.ini``
+    * ``<data_dir>/build/<device_name>/.pioenvs/<device_name>/firmware.bin``
+    * Any additional build-tree files in *extra_build_files*
+      (keys are paths relative to ``<build_path>/``).
+    * ``<data_dir>/storage/<basename>.json`` with the JSON
+      fields the new packer reads via ``StorageJSON.load``.
+    * ``<data_dir>/idedata/<device_name>.json`` with an
+      ``extra.flash_images`` entry per *extras*
+      (``(basename, offset_hex)``); receiver-absolute paths
+      under ``.pioenvs/<device_name>/<basename>`` so the
+      WS-adapter rewrite to basenames is observable.
+
+    Returns the key paths so individual tests can mutate them
+    (e.g. drop ``platformio.ini`` to drive the missing-file
+    branch).
+
+    Side-effects ``CORE.config_path`` so the dashboard's
+    ``resolve_storage_path`` / ``resolve_idedata_path`` /
+    ``resolve_data_dir`` all anchor on *tmp_path*'s ``.esphome``
+    subtree. The autouse ``_core_config_path_in_tmp`` fixture
+    already pins this, so we just rely on its anchor here.
     """
-    extras = extra_offsets or []
-    firmware_path = tmp_path / "firmware.bin"
-    firmware_path.write_bytes(b"FIRMWARE")
-    flash_images = [FlashArtifact(path=firmware_path, offset="0x10000")]
-    extra_entries: list[dict[str, str]] = []
-    for name, offset in extras:
-        path = tmp_path / name
-        path.write_bytes(name.encode("ascii"))
-        flash_images.append(FlashArtifact(path=path, offset=offset))
-        extra_entries.append({"path": str(path), "offset": offset})
-    idedata_payload = {"extra": {"flash_images": extra_entries}}
-    idedata_bytes = json.dumps(idedata_payload).encode("utf-8")
-    return BuildArtifacts(flash_images=flash_images, idedata_bytes=idedata_bytes)
+    data_dir = tmp_path / ".esphome"
+    build_path = data_dir / "build" / device_name
+    pioenvs = build_path / ".pioenvs" / device_name
+    pioenvs.mkdir(parents=True, exist_ok=True)
+    (build_path / "platformio.ini").write_bytes(b"[env:kitchen]\nplatform = espressif32\n")
+    firmware_bin = pioenvs / "firmware.bin"
+    firmware_bin.write_bytes(b"FIRMWARE")
 
+    extra_paths: list[dict[str, str]] = []
+    for basename, offset in extras or []:
+        path = pioenvs / basename
+        path.write_bytes(basename.encode("ascii"))
+        extra_paths.append({"path": str(path), "offset": offset})
 
-def test_pack_build_artifacts_layout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Tarball contains ``idedata.json`` first, then every flash image, flat."""
-    artifacts = _make_build_artifacts(
-        tmp_path,
-        extra_offsets=[("bootloader.bin", "0x1000"), ("partitions.bin", "0x8000")],
+    for rel_path, payload in (extra_build_files or {}).items():
+        abs_path = build_path / rel_path
+        abs_path.parent.mkdir(parents=True, exist_ok=True)
+        abs_path.write_bytes(payload)
+
+    storage_path = resolve_storage_path(configuration)
+    storage_path.parent.mkdir(parents=True, exist_ok=True)
+    storage_path.write_text(
+        json.dumps(
+            {
+                "storage_version": 1,
+                "name": device_name,
+                "esp_platform": target_platform,
+                "build_path": str(build_path),
+                "firmware_bin_path": str(firmware_bin),
+                "loaded_integrations": [],
+                "loaded_platforms": [],
+                "no_mdns": False,
+                "framework": "arduino",
+                "core_platform": target_platform.lower(),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
     )
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.artifacts_tarball.load_build_artifacts",
-        lambda _config: artifacts,
+
+    idedata_path = resolve_idedata_path(configuration, name=device_name)
+    idedata_path.parent.mkdir(parents=True, exist_ok=True)
+    idedata_path.write_text(
+        json.dumps(
+            {
+                "prog_path": str(pioenvs / "firmware.elf"),
+                "cc_path": (
+                    "/home/receiver/.platformio/packages/toolchain-xtensa32"
+                    "/bin/xtensa-esp32-elf-gcc"
+                ),
+                "extra": {"flash_images": extra_paths},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    return {
+        "build_path": build_path,
+        "firmware_bin": firmware_bin,
+        "storage_path": storage_path,
+        "idedata_path": idedata_path,
+        "platformio_ini": build_path / "platformio.ini",
+    }
+
+
+def _tar_member_names(tarball: bytes) -> list[str]:
+    with tarfile.open(fileobj=io.BytesIO(tarball), mode="r:gz") as tar:
+        return tar.getnames()
+
+
+def test_pack_build_artifacts_ships_metadata_and_per_platform_build_tree(
+    tmp_path: Path,
+) -> None:
+    """Tarball carries storage.json + idedata.json + platformio.ini at root, then BUILD_FILES."""
+    state = _write_receiver_state(
+        tmp_path,
+        extras=[("bootloader.bin", "0x1000"), ("partitions.bin", "0x8000")],
+        extra_build_files={
+            ".pioenvs/kitchen/firmware.elf": b"ELF",
+            ".pioenvs/kitchen/bootloader.bin": b"BOOT",
+            ".pioenvs/kitchen/partitions.bin": b"PART",
+            ".pioenvs/kitchen/ota_data_initial.bin": b"OTA",
+        },
     )
 
     packed = pack_build_artifacts("kitchen.yaml")
 
     assert packed.firmware_offset == "0x10000"
-    with tarfile.open(fileobj=io.BytesIO(packed.tarball), mode="r:gz") as tar:
-        names = tar.getnames()
-    assert names == ["idedata.json", "firmware.bin", "bootloader.bin", "partitions.bin"]
+    names = _tar_member_names(packed.tarball)
+    # Three metadata members at the top, in deterministic order.
+    assert names[:3] == [
+        STORAGE_MEMBER_NAME,
+        IDEDATA_MEMBER_NAME,
+        PLATFORMIO_INI_MEMBER_NAME,
+    ]
+    # The ESP32 BUILD_FILES list resolved at pack time.
+    assert ".pioenvs/kitchen/firmware.bin" in names
+    assert ".pioenvs/kitchen/firmware.elf" in names
+    assert ".pioenvs/kitchen/bootloader.bin" in names
+    assert ".pioenvs/kitchen/partitions.bin" in names
+    assert ".pioenvs/kitchen/ota_data_initial.bin" in names
+    # Nothing else snuck into the tarball.
+    assert state["build_path"].is_dir()  # tmp dir still around
 
 
-def test_pack_build_artifacts_rejects_oversized_idedata(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Idedata.json alone exceeding ``FIRMWARE_MAX_TOTAL_BYTES`` raises ``RuntimeError``."""
-    firmware_path = tmp_path / "firmware.bin"
-    firmware_path.write_bytes(b"FW")
-    artifacts = BuildArtifacts(
-        flash_images=[FlashArtifact(path=firmware_path, offset="0x10000")],
-        idedata_bytes=b"x" * (FIRMWARE_MAX_TOTAL_BYTES + 1),
+def test_pack_build_artifacts_skips_missing_build_files(tmp_path: Path) -> None:
+    """Per-platform BUILD_FILES entries that don't exist on disk are silently skipped.
+
+    The packer pre-declares every file the platform might
+    emit (e.g. ESP32 lists ``ota_data_initial.bin``) but a
+    given build doesn't always emit each one. Skipping them
+    is intentional — the missing-file branch is platform
+    behaviour, not a packer error.
+    """
+    _write_receiver_state(tmp_path)  # only firmware.bin under .pioenvs/
+
+    packed = pack_build_artifacts("kitchen.yaml")
+
+    names = _tar_member_names(packed.tarball)
+    assert ".pioenvs/kitchen/firmware.bin" in names
+    # firmware.elf / bootloader.bin / etc were never written, so they're absent.
+    assert ".pioenvs/kitchen/firmware.elf" not in names
+    assert ".pioenvs/kitchen/bootloader.bin" not in names
+
+
+def test_pack_build_artifacts_libretiny_ships_uf2(tmp_path: Path) -> None:
+    """Libretiny BUILD_FILES is resolved from the registry (.uf2 + .bin + .elf)."""
+    _write_receiver_state(
+        tmp_path,
+        device_name="bw15",
+        target_platform="BK72XX",
+        extra_build_files={
+            ".pioenvs/bw15/firmware.uf2": b"UF2",
+            ".pioenvs/bw15/firmware.elf": b"ELF",
+        },
     )
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.artifacts_tarball.load_build_artifacts",
-        lambda _config: artifacts,
-    )
 
-    with pytest.raises(RuntimeError, match=r"already exceeds FIRMWARE_MAX_TOTAL_BYTES"):
+    packed = pack_build_artifacts("kitchen.yaml")
+
+    # ESP32 prefix → 0x10000; libretiny falls through to 0x0.
+    assert packed.firmware_offset == "0x0"
+    names = _tar_member_names(packed.tarball)
+    assert ".pioenvs/bw15/firmware.uf2" in names
+    assert ".pioenvs/bw15/firmware.bin" in names
+    assert ".pioenvs/bw15/firmware.elf" in names
+
+
+def test_pack_build_artifacts_rejects_unknown_target_platform(tmp_path: Path) -> None:
+    """A target_platform without an artifact_platforms module raises RuntimeError."""
+    _write_receiver_state(tmp_path, target_platform="ABSURDIAN-X1")
+
+    with pytest.raises(RuntimeError, match=r"no artifact_platforms module"):
         pack_build_artifacts("kitchen.yaml")
 
 
-def test_pack_build_artifacts_rejects_oversized_compressed(
+def test_pack_build_artifacts_raises_when_storage_missing(tmp_path: Path) -> None:
+    """No StorageJSON sidecar on disk → FileNotFoundError (mapped to build_dir_missing)."""
+    # Don't call _write_receiver_state — the storage sidecar
+    # never gets written.
+    with pytest.raises(FileNotFoundError, match="StorageJSON sidecar missing"):
+        pack_build_artifacts("kitchen.yaml")
+
+
+def test_pack_build_artifacts_raises_when_idedata_missing(tmp_path: Path) -> None:
+    """No cached idedata.json → FileNotFoundError."""
+    state = _write_receiver_state(tmp_path)
+    state["idedata_path"].unlink()
+
+    with pytest.raises(FileNotFoundError, match="idedata cache missing"):
+        pack_build_artifacts("kitchen.yaml")
+
+
+def test_pack_build_artifacts_raises_when_platformio_ini_missing(tmp_path: Path) -> None:
+    """No platformio.ini → FileNotFoundError."""
+    state = _write_receiver_state(tmp_path)
+    state["platformio_ini"].unlink()
+
+    with pytest.raises(FileNotFoundError, match=r"platformio\.ini missing"):
+        pack_build_artifacts("kitchen.yaml")
+
+
+def test_pack_build_artifacts_rejects_oversized_uncompressed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Tarball that lands oversized after pack raises ``RuntimeError``.
-
-    Pins the post-render cap that catches the
-    incompressible-data + tar-header-overhead corner where
-    the uncompressed walking sum slips under the limit but
-    ``len(tarball)`` exceeds it. Constructs the corner case
-    with a synthetic ``BuildArtifacts`` whose uncompressed
-    total is tiny (passing the walking gates) but whose tar
-    headers + gzip framing inflate ``len(tarball)`` past a
-    monkey-patched cap.
-    """
-    firmware_path = tmp_path / "firmware.bin"
-    firmware_path.write_bytes(b"")  # 0 bytes — uncompressed walks pass with any cap >= 2
-    artifacts = BuildArtifacts(
-        flash_images=[FlashArtifact(path=firmware_path, offset="0x10000")],
-        idedata_bytes=b"{}",  # 2 bytes
-    )
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.artifacts_tarball.load_build_artifacts",
-        lambda _config: artifacts,
-    )
-    # Cap=10 lets uncompressed total (2 bytes idedata + 0
-    # bytes firmware) clear the two walking gates but the
-    # rendered tarball — gzip envelope (~20B) + two tar
-    # headers (1024B compressed to ~30B) — easily exceeds.
+    """Uncompressed walking sum exceeding the cap raises ``RuntimeError``."""
+    _write_receiver_state(tmp_path)
+    # Cap to a small value so the uncompressed walk trips on
+    # the first few members (storage.json + idedata.json
+    # together are well over 128 bytes once we serialise
+    # them).
     monkeypatch.setattr(
         "esphome_device_builder.controllers.remote_build.artifacts_tarball."
         "FIRMWARE_MAX_TOTAL_BYTES",
-        10,
-    )
-
-    with pytest.raises(RuntimeError, match=r"on the wire"):
-        pack_build_artifacts("kitchen.yaml")
-
-
-def test_pack_build_artifacts_rejects_oversized_cumulative(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Cumulative artifact bytes exceeding the cap raises ``RuntimeError``."""
-    firmware_path = tmp_path / "firmware.bin"
-    firmware_path.write_bytes(b"x" * (FIRMWARE_MAX_TOTAL_BYTES + 1))
-    artifacts = BuildArtifacts(
-        flash_images=[FlashArtifact(path=firmware_path, offset="0x10000")],
-        idedata_bytes=b"{}",
-    )
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.artifacts_tarball.load_build_artifacts",
-        lambda _config: artifacts,
+        16,
     )
 
     with pytest.raises(RuntimeError, match=r"would exceed FIRMWARE_MAX_TOTAL_BYTES"):
@@ -462,46 +576,16 @@ def test_artifacts_download_sender_discard_session_clears_inflight() -> None:
     assert "alpha" not in sender._inflight
 
 
-def test_pack_build_artifacts_rejects_duplicate_basename(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Two extras with the same basename trigger a ``RuntimeError``."""
-    firmware_path = tmp_path / "firmware.bin"
-    firmware_path.write_bytes(b"FW")
-    extra_a = tmp_path / "a" / "img.bin"
-    extra_a.parent.mkdir()
-    extra_a.write_bytes(b"A")
-    extra_b = tmp_path / "b" / "img.bin"
-    extra_b.parent.mkdir()
-    extra_b.write_bytes(b"B")
-    artifacts = BuildArtifacts(
-        flash_images=[
-            FlashArtifact(path=firmware_path, offset="0x10000"),
-            FlashArtifact(path=extra_a, offset="0x1000"),
-            FlashArtifact(path=extra_b, offset="0x8000"),
-        ],
-        idedata_bytes=b"{}",
-    )
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.artifacts_tarball.load_build_artifacts",
-        lambda _config: artifacts,
-    )
-
-    with pytest.raises(RuntimeError, match="duplicate flash image basename"):
-        pack_build_artifacts("kitchen.yaml")
-
-
-def test_unpack_artifacts_response_round_trip(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_unpack_artifacts_response_round_trip(tmp_path: Path) -> None:
     """Pack → unpack returns the same flash bytes + rewrites idedata paths to basenames."""
-    artifacts = _make_build_artifacts(
+    _write_receiver_state(
         tmp_path,
-        extra_offsets=[("bootloader.bin", "0x1000"), ("ota_data_initial.bin", "0xe000")],
-    )
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.artifacts_tarball.load_build_artifacts",
-        lambda _config: artifacts,
+        extras=[("bootloader.bin", "0x1000"), ("ota_data_initial.bin", "0xe000")],
+        extra_build_files={
+            ".pioenvs/kitchen/firmware.elf": b"ELF",
+            ".pioenvs/kitchen/bootloader.bin": b"BOOT",
+            ".pioenvs/kitchen/ota_data_initial.bin": b"OTA",
+        },
     )
 
     packed = pack_build_artifacts("kitchen.yaml")
@@ -520,6 +604,25 @@ def test_unpack_artifacts_response_round_trip(
     rewritten_paths = [entry["path"] for entry in response["idedata"]["extra"]["flash_images"]]
     assert rewritten_paths == ["bootloader.bin", "ota_data_initial.bin"]
     assert response["total_bytes"] == sum(image["size"] for image in response["images"])
+
+
+def test_unpack_artifacts_response_ignores_metadata_and_aux_members(tmp_path: Path) -> None:
+    """storage.json / platformio.ini / firmware.elf are filtered from the images set."""
+    _write_receiver_state(
+        tmp_path,
+        extra_build_files={".pioenvs/kitchen/firmware.elf": b"ELF"},
+    )
+
+    packed = pack_build_artifacts("kitchen.yaml")
+    response = unpack_artifacts_response(
+        DownloadArtifactsResult(tarball=packed.tarball, firmware_offset="0x10000"),
+        job_id="j",
+    )
+
+    image_names = [image["name"] for image in response["images"]]
+    # Only flash images (per idedata.extra.flash_images) plus firmware.bin appear.
+    # storage.json / platformio.ini / firmware.elf are absent.
+    assert image_names == ["firmware.bin"]
 
 
 def test_unpack_artifacts_response_missing_idedata_raises() -> None:
@@ -553,8 +656,18 @@ def test_unpack_artifacts_response_missing_firmware_raises() -> None:
         )
 
 
-def test_unpack_artifacts_response_unreferenced_file_raises() -> None:
-    """An extra file in the tarball not referenced by idedata raises."""
+def test_unpack_artifacts_response_ignores_unreferenced_aux_files() -> None:
+    """Aux files in the tarball that aren't in idedata.extra.flash_images are silently ignored.
+
+    The materialise-locally wire format legitimately ships
+    per-platform aux files (``firmware.elf`` for picotool
+    symbol resolution, ``firmware.uf2`` for libretiny/RP2040
+    ltchiptool flashing) that aren't in
+    ``idedata.extra.flash_images``. The WS-adapter
+    surfaces only the flash-image subset to the frontend;
+    leftovers in the basename map are dropped without
+    raising.
+    """
     idedata_bytes = json.dumps({"extra": {"flash_images": []}}).encode("utf-8")
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
@@ -564,15 +677,17 @@ def test_unpack_artifacts_response_unreferenced_file_raises() -> None:
         firmware_info = tarfile.TarInfo(name="firmware.bin")
         firmware_info.size = 4
         tar.addfile(firmware_info, io.BytesIO(b"FIRM"))
-        stray_info = tarfile.TarInfo(name="stray.bin")
+        stray_info = tarfile.TarInfo(name="firmware.elf")
         stray_info.size = 1
         tar.addfile(stray_info, io.BytesIO(b"X"))
 
-    with pytest.raises(UnpackArtifactsError, match="unexpected files not referenced"):
-        unpack_artifacts_response(
-            DownloadArtifactsResult(tarball=buf.getvalue(), firmware_offset="0x0"),
-            job_id="j",
-        )
+    response = unpack_artifacts_response(
+        DownloadArtifactsResult(tarball=buf.getvalue(), firmware_offset="0x10000"),
+        job_id="j",
+    )
+
+    # Only the manifest-referenced flash images surface; firmware.elf is dropped.
+    assert [image["name"] for image in response["images"]] == ["firmware.bin"]
 
 
 def test_unpack_artifacts_response_invalid_idedata_json_raises() -> None:
@@ -753,12 +868,12 @@ def test_load_build_artifacts_rejects_non_dict_idedata(
 
 
 # ---------------------------------------------------------------------------
-# extract_firmware_bin — runner-side single-image extractor
+# read_artifacts_tarball — cumulative size cap (decompression-bomb defence)
 # ---------------------------------------------------------------------------
 
 
 def _build_minimal_tarball(members: dict[str, bytes]) -> bytes:
-    """Build a gzipped tarball with *members* (basename → bytes)."""
+    """Build a gzipped tarball with *members* (full name → bytes)."""
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
         for name, payload in members.items():
@@ -766,106 +881,6 @@ def _build_minimal_tarball(members: dict[str, bytes]) -> bytes:
             info.size = len(payload)
             tar.addfile(info, io.BytesIO(payload))
     return buf.getvalue()
-
-
-def test_extract_firmware_bin_returns_firmware_bytes() -> None:
-    """The happy path: a tarball with ``firmware.bin`` returns its payload."""
-    expected = b"\xe9\x08\x02\x20RUNTIME-FIRMWARE-BYTES"
-    tarball = _build_minimal_tarball(
-        {"idedata.json": b"{}", "firmware.bin": expected, "extra.bin": b"x"},
-    )
-
-    assert extract_firmware_bin(tarball) == expected
-
-
-def test_extract_firmware_bin_raises_when_firmware_missing() -> None:
-    """No ``firmware.bin`` in the tarball → ``UnpackArtifactsError``."""
-    tarball = _build_minimal_tarball(
-        {"idedata.json": b"{}", "bootloader.bin": b"boot"},
-    )
-
-    with pytest.raises(UnpackArtifactsError, match=r"firmware\.bin missing"):
-        extract_firmware_bin(tarball)
-
-
-def test_extract_firmware_bin_raises_when_firmware_is_a_directory() -> None:
-    """
-    A directory entry named ``firmware.bin`` surfaces as ``UnpackArtifactsError``.
-
-    Defensive — the receiver-side packer never writes a
-    directory, so this is a wire-shape-drift / hostile-peer
-    case. ``isfile()`` rejects non-regular members before we
-    read any bytes.
-    """
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        info = tarfile.TarInfo(name="firmware.bin")
-        info.type = tarfile.DIRTYPE
-        tar.addfile(info)
-    tarball = buf.getvalue()
-
-    with pytest.raises(UnpackArtifactsError, match="not a regular file"):
-        extract_firmware_bin(tarball)
-
-
-def test_extract_firmware_bin_raises_when_firmware_is_a_symlink() -> None:
-    """
-    A symlink entry named ``firmware.bin`` surfaces as ``UnpackArtifactsError``.
-
-    Defence against a hostile peer: ``tarfile.extractfile()``
-    follows symlinks transparently and returns a readable
-    stream pointing at whatever the link target resolves to
-    on the receiver's filesystem. An ``is None`` guard alone
-    would let the bytes through; the explicit
-    ``member.isfile()`` check rejects every non-regular type
-    before the read.
-    """
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        info = tarfile.TarInfo(name="firmware.bin")
-        info.type = tarfile.SYMTYPE
-        info.linkname = "../../../etc/passwd"
-        tar.addfile(info)
-    tarball = buf.getvalue()
-
-    with pytest.raises(UnpackArtifactsError, match="not a regular file"):
-        extract_firmware_bin(tarball)
-
-
-def test_extract_firmware_bin_raises_on_malformed_tarball() -> None:
-    """A non-gzipped / non-tar payload surfaces as ``UnpackArtifactsError``."""
-    with pytest.raises(UnpackArtifactsError, match="malformed tarball"):
-        extract_firmware_bin(b"this is not a gzipped tarball")
-
-
-def test_extract_firmware_bin_rejects_oversized_member() -> None:
-    """
-    A tarball declaring a firmware.bin larger than the cap fails fast.
-
-    Decompression-bomb defence: gzip can shrink huge zero-
-    filled / sparse data to a tiny on-the-wire payload. The
-    header-size gate trips before ``extractfile`` reads a
-    single byte.
-    """
-    # Build a tarball whose header declares a huge size but
-    # whose actual payload is tiny — mimic the
-    # "decompression-bomb" shape: a TarInfo with an inflated
-    # ``size`` field followed by the matching payload.
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        oversized_payload = b"\x00" * (FIRMWARE_MAX_TOTAL_BYTES + 1)
-        info = tarfile.TarInfo(name="firmware.bin")
-        info.size = len(oversized_payload)
-        tar.addfile(info, io.BytesIO(oversized_payload))
-    tarball = buf.getvalue()
-
-    with pytest.raises(UnpackArtifactsError, match="exceeding FIRMWARE_MAX_TOTAL_BYTES"):
-        extract_firmware_bin(tarball)
-
-
-# ---------------------------------------------------------------------------
-# read_artifacts_tarball — cumulative size cap (decompression-bomb defence)
-# ---------------------------------------------------------------------------
 
 
 def test_read_artifacts_tarball_rejects_cumulative_size_over_cap(

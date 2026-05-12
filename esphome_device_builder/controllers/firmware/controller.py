@@ -65,7 +65,6 @@ from .helpers import (
     _find_esphome_cmd,
     _ingest_output_line,
     _is_no_module_named_esphome,
-    _is_serial_port,
     _mark_job_terminal,
     _names_touched_by_job,
     _trim_job_output,
@@ -247,10 +246,38 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     # ------------------------------------------------------------------
 
     @api_command("firmware/compile")
-    async def compile(self, *, configuration: str, **kwargs: Any) -> FirmwareJob:
-        """Queue a compile job."""
+    async def compile(
+        self,
+        *,
+        configuration: str,
+        force_local: bool = False,
+        **kwargs: Any,
+    ) -> FirmwareJob:
+        """Queue a compile job.
+
+        Routes through :func:`helpers.build_scheduler.pick_build_path`
+        same as :meth:`install`: a paired-connected receiver makes
+        the resulting job ``source=REMOTE`` so the remote runner
+        dispatches the compile to the build server and the
+        offloader-side materialiser stages the artifacts back
+        locally. The frontend's "Download firmware binary" button
+        reads from the staged tree via ``firmware/download``.
+
+        ``force_local`` opts out so a user can build locally
+        despite an available paired receiver.
+        """
         await self._validate_configuration_boundary(configuration)
-        job = self._create_job(configuration, JobType.COMPILE)
+        if force_local:
+            source, pin_sha256, label = JobSource.LOCAL, "", ""
+        else:
+            source, pin_sha256, label = self._resolve_install_source(configuration, port="OTA")
+        job = self._create_job(
+            configuration,
+            JobType.COMPILE,
+            source=source,
+            source_pin_sha256=pin_sha256,
+            source_label=label,
+        )
         return await self._enqueue(job)
 
     @api_command("firmware/upload")
@@ -576,12 +603,22 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         Per-device errors (most commonly the rename lock) skip that
         device and keep going so a single locked configuration in a
         bulk request doesn't abort the queue for everyone else.
+        Each job routes through :meth:`_resolve_install_source` so
+        paired-build auto-routing applies (mirrors
+        :meth:`compile` / :meth:`install_bulk`).
         """
         await self._validate_configurations_boundary(configurations)
         jobs: list[FirmwareJob] = []
         for config in configurations:
             try:
-                job = self._create_job(config, JobType.COMPILE)
+                source, pin_sha256, label = self._resolve_install_source(config, port="OTA")
+                job = self._create_job(
+                    config,
+                    JobType.COMPILE,
+                    source=source,
+                    source_pin_sha256=pin_sha256,
+                    source_label=label,
+                )
                 await self._enqueue(job)
             except CommandError as exc:
                 _LOGGER.info("Skipping %s in compile_bulk: %s", config, exc.message)
@@ -1826,42 +1863,12 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         return job
 
     def _resolve_install_source(self, configuration: str, port: str) -> tuple[JobSource, str, str]:
+        """Pick LOCAL or REMOTE for *configuration*; return ``(source, pin, label)``.
+
+        Pure sync helper. Returns LOCAL when remote-build isn't
+        wired up yet (firmware-queue restart-recovery can fire
+        before remote-build's ``start()``).
         """
-        Pick LOCAL or REMOTE for an install of *configuration*.
-
-        Calls :func:`helpers.build_scheduler.pick_build_path` with
-        a snapshot from the remote-build controller. Returns
-        ``(source, pin_sha256, label)`` — for LOCAL decisions
-        ``pin_sha256`` and ``label`` are empty strings.
-
-        Pure sync helper so the install handlers can call it
-        without an additional executor hop; the snapshot read
-        is RAM-only and the scheduler is a pure function.
-        Returns LOCAL whenever the remote-build controller
-        hasn't been wired up — :class:`DeviceBuilder`
-        initialises ``self.remote_build`` to ``None`` in
-        ``__init__`` and only sets the controller during
-        ``start()``, so a firmware-queue restart-recovery
-        path that fires before remote-build start would
-        otherwise reach into ``None``.
-
-        Serial *port* values also force LOCAL: the runner's
-        REMOTE flash step spawns ``esphome upload --file
-        <staged_firmware.bin>`` against the staged bytes,
-        which upstream wires through to a single FlashImage
-        at offset ``0x0`` (see
-        :func:`esphome.__main__.upload_using_esptool`). That
-        single-image shape works for OTA / web-server pushes
-        (where one binary is the entire upload) but corrupts
-        an ESP32 wired flash, which needs bootloader /
-        partitions / OTA-data at their own offsets stitched
-        from ``idedata.extra.flash_images``. Until the runner
-        can stage the full multi-image set in a way the
-        non-``--file`` path resolves cleanly, serial REMOTE
-        installs stay LOCAL.
-        """
-        if _is_serial_port(port):
-            return JobSource.LOCAL, "", ""
         offloader = self._db.remote_build_offloader
         if offloader is None:
             return JobSource.LOCAL, "", ""
@@ -1871,13 +1878,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         pairing = offloader.get_pairing(decision.pin_sha256)
         if pairing is None:
             # Scheduler picked a pin that's no longer paired (race
-            # against an ``unpair`` on the same loop tick); silent
-            # fallback to local. The scheduler's filters already
-            # reject non-APPROVED rows so this is a near-impossible
-            # window, but the typed return keeps the install handler
-            # from feeding an empty ``source_pin_sha256`` to the
-            # runner, which would land on the runner's missing-pin
-            # FAILED branch.
+            # vs an ``unpair`` on the same loop tick).
             return JobSource.LOCAL, "", ""
         return JobSource.REMOTE, pairing.pin_sha256, pairing.label
 

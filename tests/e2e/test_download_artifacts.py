@@ -134,8 +134,10 @@ def _write_build_artifacts_on_disk(tmp_path: Path) -> dict[str, bytes]:
     real-disk bytes round-tripped through the wire envelope
     verbatim.
     """
-    build_dir = tmp_path / "build"
-    build_dir.mkdir(parents=True, exist_ok=True)
+    build_dir = tmp_path / ".esphome" / "build" / "kitchen"
+    pioenvs = build_dir / ".pioenvs" / "kitchen"
+    pioenvs.mkdir(parents=True, exist_ok=True)
+    (build_dir / "platformio.ini").write_bytes(b"[env:e2e]\nplatform = espressif32\n")
     images: dict[str, bytes] = {
         "firmware.bin": b"firmware-bin-bytes",
         "bootloader.bin": b"bootloader-bytes",
@@ -143,13 +145,14 @@ def _write_build_artifacts_on_disk(tmp_path: Path) -> dict[str, bytes]:
     }
     image_paths: dict[str, Path] = {}
     for name, payload in images.items():
-        path = build_dir / name
+        path = pioenvs / name
         path.write_bytes(payload)
         image_paths[name] = path
 
     write_storage_json(
         tmp_path,
         "kitchen.yaml",
+        build_path=build_dir,
         firmware_bin_path=image_paths["firmware.bin"],
         # Sidecar's ``target_platform`` drives
         # ``_firmware_offset_for_platform``; force esp32 so the

@@ -192,8 +192,12 @@ def _write_build_artifacts_on_disk(tmp_path: Path, *, configuration: str) -> dic
         "the helper is e2e-specific and not meant for bare-basename inputs"
     )
     data_dir = remote_build_path.data_dir(Path(CORE.data_dir))
-    build_dir = data_dir / "build" / remote_build_path.device_name
-    build_dir.mkdir(parents=True, exist_ok=True)
+    device_name = remote_build_path.device_name
+    build_dir = data_dir / "build" / device_name
+    pioenvs = build_dir / ".pioenvs" / device_name
+    pioenvs.mkdir(parents=True, exist_ok=True)
+    # platformio.ini is now part of the packer's required set.
+    (build_dir / "platformio.ini").write_bytes(b"[env:e2e]\nplatform = espressif32\n")
     images: dict[str, bytes] = {
         "firmware.bin": b"firmware-bin-bytes",
         "bootloader.bin": b"bootloader-bytes",
@@ -201,7 +205,7 @@ def _write_build_artifacts_on_disk(tmp_path: Path, *, configuration: str) -> dic
     }
     image_paths: dict[str, Path] = {}
     for name, payload in images.items():
-        path = build_dir / name
+        path = pioenvs / name
         path.write_bytes(payload)
         image_paths[name] = path
 

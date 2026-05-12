@@ -30,13 +30,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import shutil
-import tempfile
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from ...helpers.api import CommandError
 from ...helpers.config_bundle import BundleBuildError, build_yaml_bundle
+from ...helpers.remote_artifacts_materialise import (
+    MaterialiseError,
+    materialise_remote_artifacts,
+)
 from ...helpers.subprocess import iter_lines_with_progress
 from ...models import (
     EventType,
@@ -47,7 +48,6 @@ from ...models import (
     OffloaderJobStateChangedData,
     OffloaderPeerLinkClosedData,
 )
-from ..remote_build.artifacts_tarball import UnpackArtifactsError, extract_firmware_bin
 from ..remote_build.peer_link_client import (
     DownloadArtifactsError,
     PeerLinkNoSessionError,
@@ -519,15 +519,19 @@ async def _fetch_and_run_local_upload(
 
     1. Fetch the artifact tarball via
        :meth:`PeerLinkClient.download_artifacts`.
-    2. Extract ``firmware.bin`` to a per-run tmpdir (the
-       only piece the OTA / web_server flash paths need; the
-       multi-image set required for ESP32 wired flash isn't
-       supported by transparent install — serial REMOTE installs
-       are rejected at the install handler).
-    3. Spawn ``esphome upload --device <port> --file
-       <staged>`` through :meth:`FirmwareController._tracked_subprocess`
-       so the cancel handler's SIGTERM lands on the subprocess
-       if the user clicks Stop mid-upload.
+    2. Materialise the tarball into ``<data_dir>/build/<name>/``
+       via :func:`helpers.remote_artifacts_materialise.materialise_remote_artifacts`.
+       After this returns the offloader's filesystem looks as
+       if a local compile produced the build — esphome's upload
+       dispatch resolves through ``CORE.firmware_bin`` /
+       ``CORE.relative_pioenvs_path`` / the cached idedata at
+       ``<data_dir>/idedata/<name>.json`` against the staged
+       tree.
+    3. Spawn ``esphome upload <yaml> --device <port>`` (no
+       ``--file``, no per-platform code on our side) through
+       :meth:`FirmwareController._tracked_subprocess` so the
+       cancel handler's SIGTERM lands on the subprocess if the
+       user clicks Stop mid-upload.
     4. Stream stdout through :func:`helpers._ingest_output_line`
        — same per-line bookkeeping (buffer / trim / fire
        ``JOB_OUTPUT`` + ``JOB_PROGRESS``) every local
@@ -535,10 +539,10 @@ async def _fetch_and_run_local_upload(
     5. Finalise based on exit code + cancel state, same shape
        the local subprocess path uses.
 
-    Wire / unpack failures and a non-zero upload exit fail
-    the job locally with ``JOB_FAILED`` (or ``JOB_CANCELLED``
-    via the cancel-aware ``_fail_locally`` when the user
-    raced a Stop).
+    Wire failures, materialise failures, and a non-zero upload
+    exit fail the job locally with ``JOB_FAILED`` (or
+    ``JOB_CANCELLED`` via the cancel-aware ``_fail_locally``
+    when the user raced a Stop).
     """
     _LOGGER.info(
         "Remote job %s: requesting build artefacts for configuration=%r from receiver",
@@ -570,29 +574,28 @@ async def _fetch_and_run_local_upload(
         )
         return
 
-    # Extract firmware.bin from the receiver's gzipped tarball.
-    # The receiver-side packer guarantees ``firmware.bin`` is
-    # always present (see ``ArtifactsDownloadSender``); a
-    # missing entry means the wire shape drifted, so surface
-    # as a clean error rather than letting the upload step
-    # silently flash whatever was at the tmpdir path.
+    # Materialise the receiver's tarball into the offloader's
+    # canonical build / storage / idedata paths so the upload
+    # subprocess can spawn against a tree that looks like a
+    # local compile produced it. Synchronous; runs in an executor
+    # because tarfile + multiple file writes are blocking.
     try:
-        firmware_bytes = await asyncio.get_running_loop().run_in_executor(
-            None, extract_firmware_bin, packed.tarball
+        await asyncio.get_running_loop().run_in_executor(
+            None, materialise_remote_artifacts, packed.tarball, job.configuration
         )
-    except UnpackArtifactsError as exc:
+    except MaterialiseError as exc:
         _fail_locally(
             controller,
             job,
-            error=f"remote build: tarball: {exc}",
+            error=f"remote build: materialise failed: {exc}",
         )
         return
 
     # Honour a cancel that arrived between the receiver's
-    # completed frame and us getting here — no point staging
-    # bytes or spawning a flash subprocess for a job the user
-    # already aborted. ``_fail_locally`` is cancel-aware and
-    # routes through ``_finalize_cancelled`` in this case.
+    # completed frame and us getting here — no point spawning
+    # a flash subprocess for a job the user already aborted.
+    # ``_fail_locally`` is cancel-aware and routes through
+    # ``_finalize_cancelled`` in this case.
     if job.job_id in controller._cancel_requested:
         controller._finalize_cancelled(job)
         return
@@ -618,41 +621,26 @@ async def _fetch_and_run_local_upload(
     # this phase boundary.
     _fire_job_progress(job, bus, 0)
 
-    # ``tempfile.TemporaryDirectory`` ctor calls
-    # :func:`os.mkdir` synchronously — blockbuster catches
-    # that on CI. Use :func:`tempfile.mkdtemp` via an executor
-    # and clean up by hand in the ``finally`` so the blocking
-    # syscalls (``os.mkdir`` / ``shutil.rmtree``) never run on
-    # the event loop.
-    tmpdir = await loop.run_in_executor(None, tempfile.mkdtemp, "", "esphome-remote-firmware-")
-    try:
-        firmware_path = Path(tmpdir) / "firmware.bin"
-        await loop.run_in_executor(None, firmware_path.write_bytes, firmware_bytes)
+    cache_args = controller._build_cache_args(job)
+    cmd = [
+        *controller._esphome_cmd,
+        "--dashboard",
+        *cache_args,
+        "upload",
+        str(yaml_path),
+        "--device",
+        job.port,
+    ]
+    _LOGGER.debug("Remote upload subprocess: %s", " ".join(cmd))
 
-        cache_args = controller._build_cache_args(job)
-        cmd = [
-            *controller._esphome_cmd,
-            "--dashboard",
-            *cache_args,
-            "upload",
-            str(yaml_path),
-            "--device",
-            job.port,
-            "--file",
-            str(firmware_path),
-        ]
-        _LOGGER.debug("Remote upload subprocess: %s", " ".join(cmd))
-
-        env = {**os.environ, **ESPHOME_SUBPROCESS_ENV}
-        exit_code = await _run_upload_subprocess(
-            controller=controller,
-            job=job,
-            bus=bus,
-            cmd=cmd,
-            env=env,
-        )
-    finally:
-        await loop.run_in_executor(None, shutil.rmtree, tmpdir, True)
+    env = {**os.environ, **ESPHOME_SUBPROCESS_ENV}
+    exit_code = await _run_upload_subprocess(
+        controller=controller,
+        job=job,
+        bus=bus,
+        cmd=cmd,
+        env=env,
+    )
 
     if exit_code is None:
         # ``_run_upload_subprocess`` already finalised the

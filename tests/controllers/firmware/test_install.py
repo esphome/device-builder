@@ -430,21 +430,16 @@ async def test_install_still_routes_remote_when_receiver_is_busy(
 
 
 @pytest.mark.asyncio
-async def test_install_forces_local_for_serial_port(
+async def test_install_serial_port_can_route_remote(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
-    """
-    Serial ``port`` forces LOCAL regardless of the scheduler.
+    """Serial ports are eligible for REMOTE source routing.
 
-    The runner's REMOTE flash step uses ``esphome upload
-    --file`` which routes through
-    ``upload_using_esptool`` as a single ``FlashImage`` at
-    offset ``0x0``. That works for OTA / web_server pushes
-    but corrupts an ESP32 wired flash (needs bootloader /
-    partitions / OTA-data at their own offsets stitched
-    from ``idedata.extra.flash_images``). Until the runner
-    can stage the full multi-image set, serial REMOTE
-    installs stay LOCAL.
+    With the materialise-locally runner the offloader stages
+    the receiver's full build tree and spawns ``esphome upload
+    <yaml> --device <port>`` (no ``--file``). That handles
+    multi-image ESP32 wired flash cleanly via esphome's normal
+    per-platform dispatch.
     """
     controller = firmware_controller_factory(with_queue=True)
     pairing = _make_pairing()
@@ -458,7 +453,8 @@ async def test_install_forces_local_for_serial_port(
 
     job = await controller.install(configuration="kitchen.yaml", port="/dev/ttyUSB0")
 
-    assert job.source is JobSource.LOCAL
+    assert job.source is JobSource.REMOTE
+    assert job.source_pin_sha256 == _PIN
 
 
 @pytest.mark.asyncio
@@ -571,18 +567,10 @@ async def test_install_bulk_routes_each_config_through_the_scheduler(
 
 
 @pytest.mark.asyncio
-async def test_install_bulk_with_serial_port_forces_every_config_local(
+async def test_install_bulk_serial_port_routes_every_config_remote(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
-    """
-    A serial-port bulk install routes every config to LOCAL.
-
-    Per-port gate is checked first; the scheduler isn't even
-    consulted when the port is serial. Pins the gate's order
-    so a future refactor that lifts the port check out of the
-    resolver doesn't silently send wired-flash jobs to a
-    remote receiver.
-    """
+    """Serial-port bulk install routes every config to REMOTE when a paired peer is open."""
     controller = firmware_controller_factory(with_queue=True)
     pairing = _make_pairing()
     _stub_remote_build(
@@ -598,4 +586,4 @@ async def test_install_bulk_with_serial_port_forces_every_config_local(
         configurations=["kitchen.yaml", "garage.yaml"], port="/dev/ttyUSB0"
     )
 
-    assert [j.source for j in jobs] == [JobSource.LOCAL, JobSource.LOCAL]
+    assert [j.source for j in jobs] == [JobSource.REMOTE, JobSource.REMOTE]
