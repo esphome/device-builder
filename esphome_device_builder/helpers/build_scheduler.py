@@ -7,7 +7,8 @@ returns a typed :class:`BuildPathDecision` telling the caller
 whether to spawn a local ``FirmwareJob`` or dispatch to a paired
 receiver. No controller refs, no I/O — the
 ``firmware/install`` WS handler gathers the state and threads
-it in. See the design doc for the eligibility / picking policy.
+it in. :func:`pick_build_path` itself documents the eligibility
+filter + two-tier idle / busy pick.
 """
 
 from __future__ import annotations
@@ -24,11 +25,13 @@ from ..models.remote_build import (
 
 
 class BuildPath(StrEnum):
-    """Where the bytes for a firmware build come from.
+    """
+    Where the bytes for a firmware build come from.
 
     StrEnum so the value flows through JSON / log strings
-    unchanged — :attr:`FirmwareJob.source` carries this
-    discriminator on the wire.
+    unchanged; mirrors :class:`JobSource`'s wire values
+    (``"local"`` / ``"remote"``) so a future migration to a
+    single shared enum is a rename, not a value change.
     """
 
     LOCAL = "local"
@@ -37,7 +40,8 @@ class BuildPath(StrEnum):
 
 @dataclass(frozen=True)
 class BuildSchedulerInputs:
-    """Immutable snapshot view :func:`pick_build_path` reads.
+    """
+    Immutable snapshot view :func:`pick_build_path` reads.
 
     :class:`Mapping` / :class:`frozenset` types so mypy rejects
     mutation; combined with ``frozen=True`` this gives the
@@ -53,7 +57,8 @@ class BuildSchedulerInputs:
 
 @dataclass(frozen=True)
 class BuildPathDecision:
-    """Result of :func:`pick_build_path`.
+    """
+    Result of :func:`pick_build_path`.
 
     ``pin_sha256`` is ``None`` when ``path == BuildPath.LOCAL``
     and the receiver's pin when ``path == BuildPath.REMOTE``.
