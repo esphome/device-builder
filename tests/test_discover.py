@@ -306,6 +306,16 @@ def test_main_suppresses_keyboard_interrupt() -> None:
     browse. Without the suppression, the shell would see a
     traceback on every clean exit.
     """
+
+    def _close_and_interrupt(coro: object) -> None:
+        # ``main()`` constructs ``_run(args)`` synchronously and
+        # passes the coroutine into ``asyncio.run``; a bare
+        # ``side_effect=KeyboardInterrupt`` would leak the
+        # never-awaited coro and trip the suite's
+        # ``coroutine '_run' was never awaited`` RuntimeWarning.
+        coro.close()  # type: ignore[attr-defined]
+        raise KeyboardInterrupt
+
     with (
         patch(
             "esphome_device_builder.discover.sys.argv",
@@ -313,7 +323,7 @@ def test_main_suppresses_keyboard_interrupt() -> None:
         ),
         patch(
             "esphome_device_builder.discover.asyncio.run",
-            side_effect=KeyboardInterrupt,
+            side_effect=_close_and_interrupt,
         ),
     ):
         # Doesn't raise — the ``contextlib.suppress`` swallows it.
@@ -328,12 +338,22 @@ def test_main_runs_to_completion_when_inner_returns() -> None:
     does, but the contract is that ``main`` doesn't add error
     paths beyond the Ctrl-C suppression).
     """
+
+    def _close_and_return(coro: object) -> None:
+        # Same coro-leak guard as ``_close_and_interrupt`` above —
+        # close the never-awaited ``_run(args)`` to keep the
+        # ``never awaited`` warning out of the suite.
+        coro.close()  # type: ignore[attr-defined]
+
     with (
         patch(
             "esphome_device_builder.discover.sys.argv",
             ["esphome-device-builder-discover"],
         ),
-        patch("esphome_device_builder.discover.asyncio.run", return_value=None) as mock_run,
+        patch(
+            "esphome_device_builder.discover.asyncio.run",
+            side_effect=_close_and_return,
+        ) as mock_run,
     ):
         main()
     mock_run.assert_called_once()
