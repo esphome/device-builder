@@ -9,6 +9,7 @@ every chunk.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 
 import pytest
 
@@ -31,3 +32,20 @@ def _silence_debug_logging() -> object:
         yield
     finally:
         logger.setLevel(original_level)
+
+
+@pytest.fixture(autouse=True)
+def blockbuster() -> Iterator[None]:
+    """Disable the blockbuster guard for benchmarks.
+
+    The package-wide ``tests/conftest.py`` enables blockbuster on
+    Linux CI to catch blocking syscalls inside the event loop on
+    request paths. Benchmarks that stand up real
+    :class:`DeviceBuilder` instances (the 128 MiB paired
+    round-trip) hit one-time sync I/O during ``start()``
+    (boards.json + components.json catalog loads); allowlisting
+    every frame would defeat the purpose, and the benchmarks
+    aren't request-path coverage anyway. Override the autouse to
+    yield without entering the blockbuster context.
+    """
+    yield None
