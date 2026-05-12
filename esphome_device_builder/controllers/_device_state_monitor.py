@@ -50,6 +50,7 @@ from ..helpers.subscriber_presence import SubscriberPresence
 from ..models import AdoptableDevice, Device, DeviceState, ReachabilitySource
 from ._dns_cache import DNSCache
 from ._reachability_tracker import MdnsCacheInfo, ReachabilityTracker
+from ._task_controller_base import TaskControllerBase
 
 _LOGGER = logging.getLogger(__name__)
 _ESPHOME_SERVICE_TYPE = "_esphomelib._tcp.local."
@@ -340,7 +341,7 @@ def device_name_from_service(service_name: str) -> str:
     return service_name.split(".", maxsplit=1)[0]
 
 
-class DeviceStateMonitor:  # noqa: PLR0904 (grandfathered; new public methods need a refactor first)
+class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; new public methods need a refactor first)
     """
     Drive device state from mDNS broadcasts plus periodic ICMP pings.
 
@@ -366,6 +367,7 @@ class DeviceStateMonitor:  # noqa: PLR0904 (grandfathered; new public methods ne
         get_devices_by_name: Callable[[str], list[Device]] | None = None,
         presence: SubscriberPresence | None = None,
     ) -> None:
+        super().__init__()
         self._get_devices = get_devices
         # ``get_devices_by_name`` is the O(1) name-keyed lookup that
         # the scanner exposes; mDNS / ping / MQTT observations key on
@@ -413,9 +415,8 @@ class DeviceStateMonitor:  # noqa: PLR0904 (grandfathered; new public methods ne
         # by ``service_type`` to the right per-type logic.
         self._mdns_browser: AsyncServiceBrowser | None = None
         self._ping_task: asyncio.Task | None = None
-        # Strong refs for fire-and-forget mDNS resolve tasks so the
-        # garbage collector can't reap them mid-await.
-        self._tasks: set[asyncio.Task] = set()
+        # ``self._tasks`` (fire-and-forget mDNS resolve refs) comes
+        # from :class:`TaskTracker`; see :meth:`_track_task`.
         # DNS resolutions for non-mDNS hostnames are cached here so the
         # ping sweep, OTA cache args, and device.ip tracking all share
         # the same TTL'd lookup result instead of re-resolving every
@@ -961,9 +962,7 @@ class DeviceStateMonitor:  # noqa: PLR0904 (grandfathered; new public methods ne
         if info.load_from_cache(zeroconf):
             self._apply_service_info(device_name, info)
             return
-        task = asyncio.create_task(self._resolve_and_apply(zeroconf, info, device_name))
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        self._track_task(self._resolve_and_apply(zeroconf, info, device_name))
 
     def revisit_importable(self, device_name: str) -> None:
         """
@@ -1085,9 +1084,7 @@ class DeviceStateMonitor:  # noqa: PLR0904 (grandfathered; new public methods ne
                 self._apply_service_info(device_name, info)
                 return
 
-            task = asyncio.create_task(self._resolve_and_apply(zeroconf, info, device_name))
-            self._tasks.add(task)
-            task.add_done_callback(self._tasks.discard)
+            self._track_task(self._resolve_and_apply(zeroconf, info, device_name))
 
         # ``DashboardImportDiscovery`` from upstream esphome owns the
         # TXT-record parsing for adoptable factory firmwares — its
@@ -1186,9 +1183,7 @@ class DeviceStateMonitor:  # noqa: PLR0904 (grandfathered; new public methods ne
         if info.load_from_cache(zeroconf):
             self._apply_http_service_info(device_name, info)
             return
-        task = asyncio.create_task(self._resolve_and_apply_http(zeroconf, info, device_name))
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        self._track_task(self._resolve_and_apply_http(zeroconf, info, device_name))
 
     async def _resolve_and_apply_http(
         self, zeroconf: Any, info: AsyncServiceInfo, device_name: str
