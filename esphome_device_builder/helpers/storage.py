@@ -40,6 +40,8 @@ Behaviour kept from HA:
 
 Typical use::
 
+    import orjson
+
     self._store: Store[OffloaderRemoteBuildSettings] = Store(
         config_dir / "_offloader_remote_build.json",
         encoder=lambda v: orjson.dumps(v.to_dict()),
@@ -188,10 +190,10 @@ class Store[T]:
         """Run one write under the lock; clear the captured data_func.
 
         ``data_func()`` runs on the event loop (typically a
-        fast in-RAM snapshot); ``encoder()`` + ``_atomic_write()``
-        run together in one executor hop so the encoder's
-        meaningful work + the synchronous file I/O don't pay
-        two hops.
+        fast in-RAM snapshot); ``encoder()`` +
+        :func:`atomic_io.atomic_write` run together in one
+        executor hop so the encoder's meaningful work + the
+        synchronous file I/O don't pay two hops.
         """
         async with self._write_lock:
             data_func = self._data_func
