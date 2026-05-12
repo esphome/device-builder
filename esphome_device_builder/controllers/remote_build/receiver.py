@@ -21,8 +21,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Callable, Coroutine, Hashable
-from contextlib import ExitStack
+from collections.abc import Callable, Hashable
 from functools import partial
 from typing import TYPE_CHECKING, Any, Literal, cast
 
@@ -33,7 +32,7 @@ from ...helpers.event_bus import Event
 from ...helpers.peer_link_frames import frame_schema, is_valid_frame
 from ...helpers.remote_build_cleanup import sweep_remote_builds
 from ...helpers.remote_build_layout import parse_from_configuration
-from ...helpers.storage import ShutdownCallback, Store
+from ...helpers.storage import Store
 from ...models import (
     MAX_CLEANUP_TTL_SECONDS,
     MIN_CLEANUP_TTL_SECONDS,
@@ -61,7 +60,7 @@ from ..config import (
     load_remote_build_settings,
     remote_build_settings_transaction,
 )
-from ._shared import drain_tasks
+from ._shared import _RemoteBuildBase, drain_tasks
 from ._storage_codecs import (
     RECEIVER_PEERS_FILE,
     decode_peers,
@@ -98,12 +97,11 @@ _CLEANUP_SWEEP_INTERVAL_SECONDS = 60 * 60
 _PEERS_SAVE_DELAY_SECONDS = 1.0
 
 
-class ReceiverController:  # noqa: PLR0904
+class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
     """Inbound side of remote-build: pair inbox, peer-link sessions, JOB_* fan-out."""
 
     def __init__(self, device_builder: DeviceBuilder) -> None:
-        self._db = device_builder
-        self._tasks: set[asyncio.Task[None]] = set()
+        super().__init__(device_builder)
         # True while ``rotate_identity`` is in flight. Second
         # caller gets ``ALREADY_EXISTS`` rather than queuing —
         # interleaved teardowns can leave no listener at all,
@@ -126,7 +124,6 @@ class ReceiverController:  # noqa: PLR0904
         self._submit_job_receiver: SubmitJobReceiver | None = None
         self._artifacts_download_sender: ArtifactsDownloadSender | None = None
         self._job_fanout: JobFanout | None = None
-        self._shutdown_callbacks: list[ShutdownCallback] = []
         self._peers_store: Store[ReceiverPeers] = Store(
             self._db.settings.config_dir / RECEIVER_PEERS_FILE,
             encoder=encode_peers,
@@ -134,7 +131,6 @@ class ReceiverController:  # noqa: PLR0904
             shutdown_register=self._shutdown_callbacks.append,
             name="receiver_peers",
         )
-        self._listeners = ExitStack()
 
     async def start(self) -> None:
         """Bring up the receiver-side handlers, seed RAM from disk."""
@@ -191,15 +187,6 @@ class ReceiverController:  # noqa: PLR0904
         for callback in self._shutdown_callbacks:
             await callback()
         self._approved_peers.clear()
-
-    def _track_task(
-        self, coro: Coroutine[Any, Any, None], *, name: str | None = None
-    ) -> asyncio.Task[None]:
-        """Schedule *coro* and hold a strong ref in :attr:`_tasks` until it settles."""
-        task = asyncio.create_task(coro, name=name)
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
-        return task
 
     async def _load_settings_async(self) -> RemoteBuildSettings:
         """Read the receiver-side settings sidecar off the executor.

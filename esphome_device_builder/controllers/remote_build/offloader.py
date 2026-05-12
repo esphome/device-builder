@@ -22,8 +22,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Coroutine, Iterator
-from contextlib import ExitStack, contextmanager
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import uuid4
@@ -39,7 +39,7 @@ from ...helpers.event_bus import Event
 from ...helpers.hostname import normalize_hostname
 from ...helpers.peer_link_identity import get_or_create_peer_link_identity
 from ...helpers.peer_link_resolver import PeerLinkDNSResolver, make_peer_link_resolver
-from ...helpers.storage import ShutdownCallback, Store
+from ...helpers.storage import Store
 from ...models import (
     PAIRING_VERSION_MAX_LEN,
     ErrorCode,
@@ -76,7 +76,7 @@ from ._models import (
     RebindProbeOutcome,
     RebindProbeResult,
 )
-from ._shared import drain_tasks
+from ._shared import _RemoteBuildBase, drain_tasks
 from ._storage_codecs import (
     OFFLOADER_PAIRINGS_FILE,
     decode_pairings,
@@ -161,15 +161,14 @@ _PAIRINGS_SAVE_DELAY_SECONDS = 1.0
 _REBIND_PROBE_COOLDOWN_SECONDS = 30.0
 
 
-class OffloaderController:  # noqa: PLR0904
+class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
     """Outbound side of remote-build: pair, peer-link, submit/cancel/download."""
 
     def __init__(self, device_builder: DeviceBuilder) -> None:
-        self._db = device_builder
+        super().__init__(device_builder)
         self._browser: AsyncServiceBrowser | None = None
         self._peer_link_resolver: PeerLinkDNSResolver | None = None
         self._peers: dict[str, RemoteBuildPeer] = {}
-        self._tasks: set[asyncio.Task[None]] = set()
         self._rebind_probe_until: dict[str, float] = {}
         self._own_instance_name: str | None = None
         self._pair_status_listeners: dict[str, asyncio.Task[None]] = {}
@@ -185,7 +184,6 @@ class OffloaderController:  # noqa: PLR0904
         self._offloader_alerts: dict[str, OffloaderAlertSnapshotEntry] = {}
         self._peer_queue_status: dict[str, PeerQueueStatusSnapshotEntry] = {}
         self._offloader_remote_jobs: dict[str, OffloaderRemoteJobSnapshotEntry] = {}
-        self._shutdown_callbacks: list[ShutdownCallback] = []
         self._pairings_store: Store[OffloaderRemoteBuildSettings] = Store(
             self._db.settings.config_dir / OFFLOADER_PAIRINGS_FILE,
             encoder=encode_pairings,
@@ -193,7 +191,6 @@ class OffloaderController:  # noqa: PLR0904
             shutdown_register=self._shutdown_callbacks.append,
             name="offloader_pairings",
         )
-        self._listeners = ExitStack()
 
     async def start(self) -> None:
         """Seed pairings from disk, cache identities, spawn peer-link clients."""
@@ -270,15 +267,6 @@ class OffloaderController:  # noqa: PLR0904
         self._rebind_probe_until.clear()
         self._peers.clear()
         await self._close_peer_link_resolver()
-
-    def _track_task(
-        self, coro: Coroutine[Any, Any, None], *, name: str | None = None
-    ) -> asyncio.Task[None]:
-        """Schedule *coro* and hold a strong ref in :attr:`_tasks` until it settles."""
-        task = asyncio.create_task(coro, name=name)
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
-        return task
 
     async def _load_offloader_identities_async(
         self,
