@@ -1,9 +1,11 @@
-"""Base class for controllers that schedule fire-and-forget background work.
+"""
+Base class for controllers that schedule fire-and-forget background work.
 
 The event loop keeps only a weak ref to each
-:class:`~asyncio.Task`; an unreferenced task can be GC'd mid-await.
-:class:`TaskControllerBase` provides the strong-ref set + schedule
-helper so subclasses don't repeat the idiom inline.
+:class:`~asyncio.Task`; an unreferenced task can be GC'd
+mid-await. :class:`TaskControllerBase` provides the strong-ref
+set + schedule helper so subclasses don't repeat the idiom
+inline.
 """
 
 from __future__ import annotations
@@ -14,7 +16,8 @@ from typing import Any
 
 
 class TaskControllerBase:
-    """Base for controllers that schedule fire-and-forget tasks.
+    """
+    Base for controllers that schedule fire-and-forget tasks.
 
     Subclasses call ``super().__init__()`` to initialise
     :attr:`_tasks`, then schedule via ``self._track_task(coro)``.
