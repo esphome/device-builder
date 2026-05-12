@@ -174,7 +174,7 @@ def test_materialise_libretiny_storage_preserves_uf2_basename(tmp_path: Path) ->
     with patch.object(CORE, "config_path", sentinel):
         offloader_storage_path = resolve_storage_path("kitchen.yaml")
     data = json.loads(offloader_storage_path.read_text())
-    assert data["firmware_bin_path"].endswith("/.pioenvs/bw15/firmware.uf2"), (
+    assert Path(data["firmware_bin_path"]).parts[-3:] == (".pioenvs", "bw15", "firmware.uf2"), (
         f"libretiny .uf2 should survive the round-trip, got {data['firmware_bin_path']!r}"
     )
 
