@@ -16,15 +16,12 @@ frames over Noise AEAD, the offloader-side
 :class:`BundleAssembler` reassemble + SHA-256 verify, and the
 final tarball unpack into the WS response shape.
 
-Payload size is 8 MiB — large enough to exercise multi-chunk
-streaming, gzip on incompressible bytes, AEAD per chunk, and
-SHA-256 over the wire stream, but small enough that CodSpeed's
-callgrind/simulation mode (which adds 10-50x walltime overhead
-counting CPU instructions) stays well under the per-test
-timeout. CodSpeed measures CPU instructions, which scale
-linearly with payload bytes on a streaming hot path, so a
-regression at 8 MiB tracks the same delta a 128 MiB benchmark
-would surface.
+Payload size is 32 KiB — small enough that the Python
+dispatch / framing / await machinery dominates the
+profile (rather than the C-extension crypto / gzip /
+SHA-256 internals where CodSpeed can't produce a useful
+flamegraph), while still exercising every wire step on
+the artifact-download path.
 
 ``max_rounds=1`` keeps walltime mode to one measurement; the
 simulation runner already runs each benchmark exactly once.
@@ -55,16 +52,12 @@ from esphome_device_builder.models import (
 )
 from tests.manual._mock_remote_e2e import MockPair, paired_dashboards
 
-_FIRMWARE_BLOB_BYTES = 8 * 1024 * 1024
+_FIRMWARE_BLOB_BYTES = 32 * 1024
 
 
 @pytest.fixture(scope="module")
 def _firmware_blob() -> bytes:
-    """Generate an incompressible 8 MiB payload once per session.
-
-    ``secrets.token_bytes`` lands on ``os.urandom``; module scope
-    so we don't pay the cost on every benchmark invocation.
-    """
+    """Generate an incompressible 32 KiB payload once per session."""
     return secrets.token_bytes(_FIRMWARE_BLOB_BYTES)
 
 
