@@ -210,13 +210,6 @@ def sync_deployed_hash_after_flash(controller: DevicesController, configuration:
 async def persist_storage_version_async(
     controller: DevicesController, configuration: str, version: str
 ) -> None:
-    """Update ``StorageJSON.esphome_version`` on disk if it differs.
-
-    The sync write is dispatched to a thread so the controller's
-    event loop isn't blocked on disk I/O. The controller's
-    ``_persist_storage_version`` static method is the actual
-    writer — kept as a static on the class so tests can call it
-    via ``DevicesController._persist_storage_version(...)``.
-    """
+    """Update ``StorageJSON.esphome_version`` on disk if it differs."""
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, controller._persist_storage_version, configuration, version)

@@ -283,17 +283,13 @@ async def test_regenerate_dedupes_same_tick_calls(
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """Two ``schedule_storage_regenerate`` calls in the same tick → one task.
+    """
+    Two ``schedule_storage_regenerate`` calls in the same tick → one task.
 
-    Pins the same-tick race the in-flight test below can't reach.
-    Before the fix, ``_regenerate_pending`` was only populated
-    inside the spawned coroutine; back-to-back sync calls landed
-    before the loop ran the body, so both saw an empty pending
-    set and queued duplicate tasks (the lock further down then
-    serialised the subprocess but each task still paid the
-    failure-stamp read + post-success reload). With the sync
-    ``.add()`` in ``schedule`` the second call's dedupe check
-    fires immediately and only the first call queues a task.
+    Pins the pre-yield window the in-flight test below can't
+    reach; the second sync call has to see
+    ``_regenerate_pending`` populated before the spawned
+    coroutine runs.
     """
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
 

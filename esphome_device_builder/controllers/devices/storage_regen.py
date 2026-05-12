@@ -18,11 +18,10 @@ keep the spawn rate bounded:
   ``expected_config_hash`` write.
 
 Three sets + one lock live on the controller (``_regenerate_pending``,
-``_regenerate_failed``, ``_regenerate_lock``). The functions here
+``_regenerate_failed``, ``_regenerate_lock``); the functions here
 reach in via the ``controller`` arg rather than holding their own
-state — ``_on_scan_change`` (in monitor_callbacks) reads
-``_regenerate_failed.discard()`` too, so the state is shared
-across modules and stays controller-owned.
+state, so the scan-change callback can clear ``_regenerate_failed``
+when a YAML edit invalidates the marker.
 """
 
 from __future__ import annotations
@@ -107,15 +106,9 @@ def schedule(controller: DevicesController, configuration: str) -> None:
         # changed since; rerunning would produce the same error.
         return
 
-    # Mark synchronously so two same-tick ``schedule()`` calls
-    # don't both pass the dedupe check above (the coroutine
-    # body that used to do the add only runs after the loop
-    # yields, leaving a race window where a second call would
-    # queue a duplicate task; the lock further down serialises
-    # the subprocess but both runs would still pay the
-    # failure-stamp read + reload). Discard in ``_run``'s
-    # finally below so a single in-flight regen still clears
-    # cleanly.
+    # Mark synchronously so a second same-tick call sees the
+    # marker before the coroutine yields. ``_run``'s finally
+    # discards on completion.
     controller._regenerate_pending.add(configuration)
     controller._db.create_background_task(_run(controller, configuration))
 
@@ -155,7 +148,8 @@ async def _run(controller: DevicesController, configuration: str) -> None:
 
 
 async def spawn_only_generate(controller: DevicesController, configuration: str) -> bool:
-    """Run ``esphome compile --only-generate`` once. Return True iff exit-0.
+    """
+    Run ``esphome compile --only-generate`` once. Return True iff exit-0.
 
     Both failure modes (spawn raised, or the subprocess exited
     non-zero) get logged at debug and produce ``False`` so the
@@ -188,7 +182,8 @@ async def spawn_only_generate(controller: DevicesController, configuration: str)
 
 
 async def already_failed_recently_async(controller: DevicesController, configuration: str) -> bool:
-    """Return True iff the persisted failure stamp is unchanged-and-fresh.
+    """
+    Return True iff the persisted failure stamp is unchanged-and-fresh.
 
     Both halves have to hold for the guard to fire:
 
@@ -240,7 +235,8 @@ async def already_failed_recently_async(controller: DevicesController, configura
 
 
 async def stamp_failure(controller: DevicesController, configuration: str) -> None:
-    """Persist the cross-restart "we already tried, gave up" marker — one executor hop.
+    """
+    Persist the cross-restart "we already tried, gave up" marker — one executor hop.
 
     Combines the YAML ``stat()`` and the sidecar write into a
     single closure handed to ``run_in_executor``. The earlier
@@ -271,7 +267,8 @@ async def stamp_failure(controller: DevicesController, configuration: str) -> No
 
 
 async def finalize_success(controller: DevicesController, configuration: str) -> None:
-    """Read the post-only-generate hash and clear the failure stamp — one executor hop.
+    """
+    Read the post-only-generate hash and clear the failure stamp — one executor hop.
 
     Used to be three separate awaits — read ``build_info.json``,
     write the hash, write the cleared regen stamp — totalling

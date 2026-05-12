@@ -125,7 +125,8 @@ async def subscribe(
 
 
 async def refresh_loop(controller: DevicesController, device_name: str) -> None:
-    """Schedule mDNS refreshes off the cached A record's expiry.
+    """
+    Schedule mDNS refreshes off the cached A record's expiry.
 
     Quiet when active source is ping (the regular sweep already
     runs every 60s) or MQTT (the discover-publish loop already
