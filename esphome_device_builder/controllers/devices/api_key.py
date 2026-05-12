@@ -18,15 +18,14 @@ _LOGGER = logging.getLogger(__name__)
 
 
 async def get_api_key(controller: DevicesController, configuration: str) -> dict[str, str]:
-    """Return the resolved Native API encryption key for *configuration*.
+    """
+    Return the resolved Native API encryption key for *configuration*.
 
-    Tries the in-process YAML loader first; on miss falls back to
-    ``esphome config --show-secrets`` to cover configs whose key
-    is constructed by an ESPHome preprocessor feature the
-    in-process loader doesn't reproduce (Jinja-templated
-    ``packages``, issue #437). Returns ``{"key": ""}`` when both
-    paths fail; the caller treats that as the "open the editor
-    and check" signal.
+    Tries the in-process YAML loader first, then falls back to
+    ``esphome config --show-secrets`` for configs whose key is
+    constructed by Jinja-templated ``packages`` (issue #437).
+    Returns ``{"key": ""}`` when both paths fail; the caller
+    treats that as the "open the editor and check" signal.
     """
     path = controller._db.settings.rel_path(configuration)
     loop = asyncio.get_running_loop()
@@ -39,17 +38,16 @@ async def get_api_key(controller: DevicesController, configuration: str) -> dict
 
 
 async def resolve_via_esphome_config(controller: DevicesController, configuration: str) -> str:
-    r"""Subprocess fallback for :func:`get_api_key`.
+    r"""
+    Subprocess fallback for :func:`get_api_key`.
 
     ``--show-secrets`` is required: without it ESPHome wraps each
     secret value in the ANSI conceal SGR (``\x1b[8m...\x1b[28m``)
     and ``yaml.safe_load`` would treat the wrapped string as the
-    key. Returns ``""`` on every failure (no esphome cmd,
-    subprocess error, non-zero exit, unparsable stdout, missing
-    api / encryption block).
+    key. Returns ``""`` on every failure path.
     """
-    # Bypass-init test controllers don't set ``_esphome_cmd``;
-    # production always does in ``start()``.
+    # Defensive ``getattr``: bypass-init test controllers skip
+    # ``__init__`` (which is what creates the attribute).
     esphome_cmd: list[str] | None = getattr(controller, "_esphome_cmd", None)
     if not esphome_cmd:
         return ""
