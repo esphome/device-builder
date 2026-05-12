@@ -1,25 +1,33 @@
 """
-End-to-end benchmark: 128 MB firmware-artifact download over loopback Noise WS.
+End-to-end benchmark: firmware-artifact download over loopback Noise WS.
 
 Stands up two paired :class:`DeviceBuilder` instances on
 ``127.0.0.1`` (the same shape
 :func:`tests.manual._mock_remote_e2e.paired_dashboards` uses for
-the wet-test scripts), lays down a 128 MiB random
+the wet-test scripts), lays down an incompressible random
 ``firmware.bin`` on the receiver, seeds a ``COMPLETED``
 :class:`FirmwareJob`, and times one offloader-side
 ``download_artifacts`` round-trip.
 
 The single timed call exercises every wire-path cost on a real
 Noise session: :func:`pack_build_artifacts` (gzipped tar render
-streaming an incompressible 128 MiB payload), per-chunk
-``artifacts_chunk`` frames over Noise AEAD, the offloader-side
+streaming the random payload), per-chunk ``artifacts_chunk``
+frames over Noise AEAD, the offloader-side
 :class:`BundleAssembler` reassemble + SHA-256 verify, and the
 final tarball unpack into the WS response shape.
 
-Single-round benchmark — at 128 MiB the wall-clock per round is
-high enough that re-running in CodSpeed walltime mode would
-dominate the test budget. ``max_rounds=1`` keeps it to one
-measurement; CodSpeed callgraph mode runs once regardless.
+Payload size is 8 MiB — large enough to exercise multi-chunk
+streaming, gzip on incompressible bytes, AEAD per chunk, and
+SHA-256 over the wire stream, but small enough that CodSpeed's
+callgrind/simulation mode (which adds 10-50x walltime overhead
+counting CPU instructions) stays well under the per-test
+timeout. CodSpeed measures CPU instructions, which scale
+linearly with payload bytes on a streaming hot path, so a
+regression at 8 MiB tracks the same delta a 128 MiB benchmark
+would surface.
+
+``max_rounds=1`` keeps walltime mode to one measurement; the
+simulation runner already runs each benchmark exactly once.
 """
 
 from __future__ import annotations
@@ -47,31 +55,21 @@ from esphome_device_builder.models import (
 )
 from tests.manual._mock_remote_e2e import MockPair, paired_dashboards
 
-_FIRMWARE_BLOB_BYTES = 128 * 1024 * 1024
+_FIRMWARE_BLOB_BYTES = 8 * 1024 * 1024
 
 
 @pytest.fixture(scope="module")
 def _firmware_blob() -> bytes:
-    """Generate an incompressible 128 MiB payload once per session.
+    """Generate an incompressible 8 MiB payload once per session.
 
-    ``secrets.token_bytes`` lands on ``os.urandom``; on macOS / Linux
-    that's ~100-300 ms for 128 MiB. Module scope so we don't pay
-    that cost on every benchmark invocation.
+    ``secrets.token_bytes`` lands on ``os.urandom``; module scope
+    so we don't pay the cost on every benchmark invocation.
     """
     return secrets.token_bytes(_FIRMWARE_BLOB_BYTES)
 
 
 def _stage_receiver_artifacts(blob: bytes, configuration: str = "kitchen.yaml") -> None:
-    """Lay down storage / idedata / firmware.bin / platformio.ini.
-
-    Anchors on ``CORE.data_dir`` (which
-    :func:`paired_dashboards` pins to the offloader's sentinel)
-    so the same paths :func:`resolve_storage_path` and
-    :func:`resolve_idedata_path` look at on the pack side are
-    where these files land. The receiver-side packer reads
-    through those same helpers, so both DeviceBuilders in this
-    one-process pair see one canonical artifact tree.
-    """
+    """Lay down storage / idedata / firmware.bin / platformio.ini."""
     name = "kitchen"
     data_dir = Path(CORE.data_dir)
     build_path = data_dir / "build" / name
@@ -152,13 +150,13 @@ def _benchmark_loop() -> Iterator[asyncio.AbstractEventLoop]:
 
 
 @pytest.mark.benchmark(max_rounds=1)
-def test_download_artifacts_128mb_over_loopback_noise(
+def test_download_artifacts_over_loopback_noise(
     benchmark: BenchmarkFixture,
     tmp_path: Path,
     _benchmark_loop: asyncio.AbstractEventLoop,
     _firmware_blob: bytes,
 ) -> None:
-    """One ``download_artifacts`` round-trip carrying a 128 MiB firmware.bin."""
+    """One ``download_artifacts`` round-trip carrying a multi-MiB firmware.bin."""
     loop = _benchmark_loop
     pair_cm = _bench_pair(tmp_path, _firmware_blob)
     pair = loop.run_until_complete(pair_cm.__aenter__())
