@@ -284,7 +284,7 @@ async def test_regenerate_dedupes_same_tick_calls(
     make_controller: MakeControllerFactory,
 ) -> None:
     """
-    Two ``schedule_storage_regenerate`` calls in the same tick → one task.
+    Two ``_schedule_storage_regenerate`` calls in the same tick → one task.
 
     Pins the pre-yield window the in-flight test below can't
     reach; the second sync call has to see
