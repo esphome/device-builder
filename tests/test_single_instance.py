@@ -14,12 +14,8 @@ These tests pin three contracts:
    ``lock_format_version``, ``device_builder_version``, and
    ``start_ts`` — operators / future dashboards reading the file
    must see a stable shape.
-2. **Second start contends** and gets ``exit_code = 1``, with the
-   running PID surfaced on stderr so the operator knows what
-   they're stepping on. Driven from a background thread that
-   opens its own fd — flock treats separate fds as independent
-   locks even in the same process (Linux + BSD flock), which
-   reproduces a cross-PID holder without paying spawn cost.
+2. **Second start contends** and gets ``exit_code = 1``, with
+   the running PID surfaced on stderr.
 3. **A stale lock file is harmless** — the next start re-acquires
    cleanly, so a previous crash doesn't permanently lock the user
    out.
@@ -63,15 +59,7 @@ _REQUIRES_FCNTL = pytest.mark.skipif(
 
 @contextmanager
 def _lock_held_by_thread(config_dir: Path) -> Generator[None]:
-    """
-    Hold the single-instance lock from a background thread.
-
-    flock on separate fds within one process is treated as
-    independent locks (Linux + BSD flock), so a thread that
-    enters ``ensure_single_execution`` blocks any subsequent
-    same-process acquire — exactly the contention shape the
-    cross-PID subprocess used to produce, minus the spawn cost.
-    """
+    """Hold the single-instance lock from a background thread."""
     started = threading.Event()
     release = threading.Event()
 
@@ -91,8 +79,6 @@ def _lock_held_by_thread(config_dir: Path) -> Generator[None]:
     finally:
         release.set()
         thread.join(timeout=5.0)
-        # Surface a stuck thread instead of letting the next test
-        # inherit a live lock holder.
         assert not thread.is_alive(), "lock-holder thread did not exit after release"
 
 
@@ -170,17 +156,7 @@ def test_windows_no_op_yields_success_without_touching_disk(
 def test_contention_with_running_instance_returns_exit_code_1(
     tmp_path: Path, capfd: pytest.CaptureFixture[str]
 ) -> None:
-    """
-    A second start while the lock is held surfaces ``exit_code=1``.
-
-    Drives the contention from a background thread that opens
-    its own fd to the lock file — flock treats separate fds as
-    separate locks even within one process, which is the same
-    shape a cross-PID holder would produce, minus the spawn
-    cost. The dashboard writes its own PID into the lock file,
-    so the diagnostic-PID assertion holds against
-    ``os.getpid()``.
-    """
+    """A second start while the lock is held surfaces ``exit_code=1``."""
     with _lock_held_by_thread(tmp_path):
         capfd.readouterr()
 
