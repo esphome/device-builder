@@ -177,13 +177,22 @@ class _CapturedEvents(list[dict]):
         self.received.set()
 
     async def wait_for_status(self, status: str, *, timeout: float = 2.0) -> dict:
-        """Return the first captured event whose ``status`` matches *status*."""
-        while True:
-            for entry in self:
-                if entry.get("status") == status:
-                    return entry
-            self.received.clear()
-            await asyncio.wait_for(self.received.wait(), timeout=timeout)
+        """Return the first captured event whose ``status`` matches *status*.
+
+        The *timeout* bounds the total wait, not each loop iteration,
+        so a stream of non-matching events can't push the deadline
+        forward indefinitely.
+        """
+
+        async def _poll() -> dict:
+            while True:
+                for entry in self:
+                    if entry.get("status") == status:
+                        return entry
+                self.received.clear()
+                await self.received.wait()
+
+        return await asyncio.wait_for(_poll(), timeout=timeout)
 
 
 def capture_events(bus: EventBus, event_type: EventType) -> _CapturedEvents:

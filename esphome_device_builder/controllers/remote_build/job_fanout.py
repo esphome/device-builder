@@ -195,7 +195,7 @@ class JobFanout:
             remote_job_id=job.remote_job_id,
             status="queued",
             error_message="",
-            log_label="JOB_QUEUED",
+            log_label=event.event_type.value,
             log_job_id=job.job_id,
         )
 
