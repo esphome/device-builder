@@ -78,8 +78,16 @@ _LOGGER = logging.getLogger(__name__)
 STORAGE_MEMBER_NAME = "storage.json"
 IDEDATA_MEMBER_NAME = "idedata.json"
 PLATFORMIO_INI_MEMBER_NAME = "platformio.ini"
+# Read by the offloader's ``read_build_info_hash`` to populate
+# ``expected_config_hash`` post-build (see #654).
+BUILD_INFO_MEMBER_NAME = "build_info.json"
 _METADATA_MEMBERS: frozenset[str] = frozenset(
-    {STORAGE_MEMBER_NAME, IDEDATA_MEMBER_NAME, PLATFORMIO_INI_MEMBER_NAME}
+    {
+        STORAGE_MEMBER_NAME,
+        IDEDATA_MEMBER_NAME,
+        PLATFORMIO_INI_MEMBER_NAME,
+        BUILD_INFO_MEMBER_NAME,
+    }
 )
 
 
@@ -175,11 +183,14 @@ def _collect_pack_members(
         msg = f"platformio.ini missing for {configuration}: {platformio_ini}"
         raise FileNotFoundError(msg)
 
+    build_info_path = build_path / BUILD_INFO_MEMBER_NAME
     members: list[tuple[str, Path]] = [
         (STORAGE_MEMBER_NAME, storage_path),
         (IDEDATA_MEMBER_NAME, idedata_cache_path),
         (PLATFORMIO_INI_MEMBER_NAME, platformio_ini),
     ]
+    if build_info_path.is_file():
+        members.append((BUILD_INFO_MEMBER_NAME, build_info_path))
     # Dedupe by basename, not full path: the WS-unpack adapter
     # keys flash images by basename, so a build emitting both
     # ``.pioenvs/<name>/firmware.factory.bin`` and

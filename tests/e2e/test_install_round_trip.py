@@ -66,6 +66,7 @@ from esphome_device_builder.helpers.build_scheduler import (
     BuildPath,
     pick_build_path,
 )
+from esphome_device_builder.helpers.config_hash import read_build_info_hash
 from esphome_device_builder.helpers.remote_artifacts_materialise import (
     materialise_remote_artifacts,
 )
@@ -213,6 +214,11 @@ def _write_build_artifacts_on_disk(tmp_path: Path, *, configuration: str) -> dic
         path = pioenvs / name
         path.write_bytes(payload)
         image_paths[name] = path
+
+    # Mirrors ESPHome's post-codegen build_info.json (#654).
+    (build_dir / "build_info.json").write_text(
+        json.dumps({"config_hash": 0x5A94A12D}), encoding="utf-8"
+    )
 
     # The receiver-side compile writes
     # ``<data_dir>/storage/<basename>.json`` (esphome's
@@ -525,6 +531,11 @@ async def test_remote_compile_materialises_for_local_firmware_download(
     assert (download_dir / "firmware.bin").read_bytes() == images["firmware.bin"]
     assert (download_dir / "bootloader.bin").read_bytes() == images["bootloader.bin"]
     assert (download_dir / "partitions.bin").read_bytes() == images["partitions.bin"]
+
+    # #654: read_build_info_hash resolves post-materialise.
+    assert (build_path / "build_info.json").is_file()
+    yaml_path = Path(CORE.config_path).parent / "kitchen.yaml"
+    assert read_build_info_hash(yaml_path) == "5a94a12d"
 
 
 def _drive_receiver_lifecycle(

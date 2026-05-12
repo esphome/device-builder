@@ -30,6 +30,7 @@ from esphome_device_builder.controllers.remote_build.artifacts_tarball import (
     STORAGE_MEMBER_NAME,
     pack_build_artifacts,
 )
+from esphome_device_builder.helpers.config_hash import read_build_info_hash
 from esphome_device_builder.helpers.remote_artifacts_materialise import (
     MaterialiseError,
     _force_idedata_cache_hit,
@@ -150,6 +151,40 @@ def test_materialise_stages_build_tree_and_sidecars(
     # they go to the offloader's cache locations.
     assert not (build_path / STORAGE_MEMBER_NAME).exists()
     assert not (build_path / IDEDATA_MEMBER_NAME).exists()
+
+
+def test_materialise_lands_build_info_json_for_hash_lookup(
+    paired_roots: tuple[Path, Path],
+) -> None:
+    """#654: build_info.json round-trips so ``read_build_info_hash`` resolves."""
+    receiver_root, offloader_root = paired_roots
+    config_hash_int = 0x5A94A12D
+    tarball = _pack_in_tmp(
+        receiver_root,
+        extra_build_files={
+            "build_info.json": f'{{"config_hash": {config_hash_int}}}\n'.encode(),
+        },
+    )
+    build_path = _materialise_in_tmp(tarball, offloader_root)
+
+    staged = build_path / "build_info.json"
+    assert staged.is_file()
+    assert json.loads(staged.read_text())["config_hash"] == config_hash_int
+
+    sentinel = offloader_root / "___DASHBOARD_SENTINEL___.yaml"
+    with patch.object(CORE, "config_path", sentinel):
+        yaml_path = offloader_root / "kitchen.yaml"
+        assert read_build_info_hash(yaml_path) == "5a94a12d"
+
+
+def test_materialise_handles_missing_build_info_json(
+    paired_roots: tuple[Path, Path],
+) -> None:
+    """Receiver without build_info.json: materialise completes, no file staged."""
+    receiver_root, offloader_root = paired_roots
+    tarball = _pack_in_tmp(receiver_root)
+    build_path = _materialise_in_tmp(tarball, offloader_root)
+    assert not (build_path / "build_info.json").exists()
 
 
 def test_materialise_storage_sidecar_carries_receiver_metadata(
