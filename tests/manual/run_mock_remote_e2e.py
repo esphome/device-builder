@@ -84,6 +84,14 @@ async def main() -> int:
             port=args.device,
         )
         print(f"Submitted install job_id={job.job_id} source={job.source.value}")
+        # Fail loud — the whole point of this script is exercising
+        # the REMOTE path. A silent local fallback would compile
+        # everything on the offloader and look like a green run.
+        if job.source.value != "remote":
+            raise RuntimeError(
+                f"scheduler picked source={job.source.value!r}; "
+                "the manual e2e requires the REMOTE path"
+            )
 
         terminal = await wait_for_job(pair.offloader, job.job_id)
         status = terminal.get("job").status.value if isinstance(terminal, dict) else "?"

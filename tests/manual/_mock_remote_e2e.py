@@ -47,10 +47,17 @@ class MockPair:
 
 
 def _make_settings(config_dir: Path) -> DashboardSettings:
-    """Build a minimal ``DashboardSettings`` rooted at *config_dir*."""
+    """Build a minimal ``DashboardSettings`` rooted at *config_dir*.
+
+    Pins the dashboard ports to 0 (OS-assigned) so two paired mock
+    instances can coexist on a host that already runs a real
+    device-builder dashboard.
+    """
     settings = DashboardSettings()
     settings.config_dir = config_dir
     settings.absolute_config_dir = config_dir.resolve()
+    settings.port = 0
+    settings.remote_build_port = 0
     return settings
 
 
@@ -128,8 +135,21 @@ async def paired_dashboards(
         pair_event.set()
 
     offloader.bus.add_listener(EventType.OFFLOADER_PAIR_STATUS_CHANGED, _on_pair_status)
+
+    queue_status_event = asyncio.Event()
+
+    def _on_queue_status(event: object) -> None:
+        queue_status_event.set()
+
+    offloader.bus.add_listener(EventType.OFFLOADER_QUEUE_STATUS_CHANGED, _on_queue_status)
+
     await receiver.remote_build_receiver.approve_peer(dashboard_id=pending_dashboard_id)
     await asyncio.wait_for(pair_event.wait(), timeout=5.0)
+    # The scheduler needs the receiver's queue_status push before it
+    # treats the pairing as eligible for REMOTE. Without this wait,
+    # firmware.compile / install can race the push and silently
+    # fall back to source=LOCAL.
+    await asyncio.wait_for(queue_status_event.wait(), timeout=5.0)
 
     pair = MockPair(
         offloader=offloader,

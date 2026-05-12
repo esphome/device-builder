@@ -373,6 +373,50 @@ async def test_install_force_local_bypasses_scheduler(
 
 
 @pytest.mark.asyncio
+async def test_compile_force_local_bypasses_scheduler(
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """``firmware/compile`` with ``force_local=True`` skips the remote-build route."""
+    controller = firmware_controller_factory(with_queue=True)
+    pairing = _make_pairing()
+    _stub_remote_build(
+        controller,
+        pairings=[pairing],
+        open_pins=frozenset({_PIN}),
+        idle_pins=frozenset({_PIN}),
+    )
+    (tmp_path / "kitchen.yaml").write_text("")
+
+    job = await controller.compile(configuration="kitchen.yaml", force_local=True)
+
+    assert job.source is JobSource.LOCAL
+    assert job.source_pin_sha256 == ""
+
+
+@pytest.mark.asyncio
+async def test_compile_bulk_force_local_bypasses_scheduler(
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """``firmware/compile_bulk`` with ``force_local=True`` keeps every job LOCAL."""
+    controller = firmware_controller_factory(with_queue=True)
+    pairing = _make_pairing()
+    _stub_remote_build(
+        controller,
+        pairings=[pairing],
+        open_pins=frozenset({_PIN}),
+        idle_pins=frozenset({_PIN}),
+    )
+    (tmp_path / "kitchen.yaml").write_text("")
+    (tmp_path / "garage.yaml").write_text("")
+
+    jobs = await controller.compile_bulk(
+        configurations=["kitchen.yaml", "garage.yaml"], force_local=True
+    )
+
+    assert [j.source for j in jobs] == [JobSource.LOCAL, JobSource.LOCAL]
+
+
+@pytest.mark.asyncio
 async def test_install_force_local_default_false_keeps_scheduler_behaviour(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:

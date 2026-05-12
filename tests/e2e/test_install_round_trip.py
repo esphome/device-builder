@@ -486,6 +486,17 @@ async def test_remote_compile_materialises_for_local_firmware_download(
         paired_instances.offloader_bus, EventType.OFFLOADER_JOB_STATE_CHANGED
     )
 
+    # Fail loud if the scheduler would have picked LOCAL — silent
+    # local fallback masks the whole point of this test.
+    queue_status = capture_events(
+        paired_instances.offloader_bus, EventType.OFFLOADER_QUEUE_STATUS_CHANGED
+    )
+    await asyncio.wait_for(queue_status.received.wait(), timeout=2.0)
+    decision = pick_build_path(paired_instances.offloader.build_scheduler_snapshot())
+    assert decision.path is BuildPath.REMOTE, (
+        f"scheduler picked {decision.path} — expected REMOTE for the e2e to be meaningful"
+    )
+
     handle = paired_instances.offloader._peer_link_clients[paired_instances.pin_sha256]
     ack = await handle.client.submit_job(
         job_id="off-compile-1",

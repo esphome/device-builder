@@ -226,7 +226,7 @@ def _download_type_files(storage: StorageJSON) -> list[str]:
         module = importlib.import_module(f"esphome.components.{component}")
         return [entry["file"] for entry in module.get_download_types(storage)]
     except Exception:
-        _LOGGER.warning(
+        _LOGGER.exception(
             "Could not determine download types for target_platform=%r",
             storage.target_platform,
         )

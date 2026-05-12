@@ -38,6 +38,7 @@ from esphome_device_builder.controllers.remote_build.artifacts_tarball import (
     STORAGE_MEMBER_NAME,
     PackedArtifacts,
     UnpackArtifactsError,
+    _download_type_files,
     pack_build_artifacts,
     read_artifacts_tarball,
     unpack_artifacts_response,
@@ -521,6 +522,39 @@ def test_pack_build_artifacts_rejects_unknown_target_platform(tmp_path: Path) ->
         pack_build_artifacts("kitchen.yaml")
 
 
+def test_pack_build_artifacts_raises_when_firmware_bin_path_unset(tmp_path: Path) -> None:
+    """StorageJSON with ``firmware_bin_path=None`` raises FileNotFoundError."""
+    state = _write_receiver_state(tmp_path)
+    data = json.loads(state["storage_path"].read_text())
+    data["firmware_bin_path"] = None
+    state["storage_path"].write_text(json.dumps(data) + "\n")
+
+    with pytest.raises(FileNotFoundError, match=r"firmware_bin_path unset"):
+        pack_build_artifacts("kitchen.yaml")
+
+
+def test_pack_build_artifacts_raises_when_build_path_unset(tmp_path: Path) -> None:
+    """StorageJSON with ``build_path=None`` raises FileNotFoundError."""
+    state = _write_receiver_state(tmp_path)
+    data = json.loads(state["storage_path"].read_text())
+    data["build_path"] = None
+    state["storage_path"].write_text(json.dumps(data) + "\n")
+
+    with pytest.raises(FileNotFoundError, match=r"build_path unset"):
+        pack_build_artifacts("kitchen.yaml")
+
+
+def test_pack_build_artifacts_raises_when_name_empty(tmp_path: Path) -> None:
+    """StorageJSON with an empty ``name`` raises FileNotFoundError."""
+    state = _write_receiver_state(tmp_path)
+    data = json.loads(state["storage_path"].read_text())
+    data["name"] = ""
+    state["storage_path"].write_text(json.dumps(data) + "\n")
+
+    with pytest.raises(FileNotFoundError, match=r"name unset / non-string"):
+        pack_build_artifacts("kitchen.yaml")
+
+
 def test_pack_build_artifacts_raises_when_storage_missing(tmp_path: Path) -> None:
     """No StorageJSON sidecar on disk → FileNotFoundError (mapped to build_dir_missing)."""
     # Don't call _write_receiver_state — the storage sidecar
@@ -545,6 +579,51 @@ def test_pack_build_artifacts_raises_when_platformio_ini_missing(tmp_path: Path)
 
     with pytest.raises(FileNotFoundError, match=r"platformio\.ini missing"):
         pack_build_artifacts("kitchen.yaml")
+
+
+def test_pack_build_artifacts_includes_get_download_types_files(tmp_path: Path) -> None:
+    """``get_download_types`` files (firmware.factory.bin etc.) ride in the tarball."""
+    _write_receiver_state(
+        tmp_path,
+        extra_build_files={
+            ".pioenvs/kitchen/firmware.factory.bin": b"FACTORY",
+            ".pioenvs/kitchen/firmware.ota.bin": b"OTA",
+        },
+    )
+
+    packed = pack_build_artifacts("kitchen.yaml")
+
+    names = _tar_member_names(packed.tarball)
+    assert ".pioenvs/kitchen/firmware.factory.bin" in names
+    assert ".pioenvs/kitchen/firmware.ota.bin" in names
+
+
+def test_download_type_files_empty_for_unknown_component() -> None:
+    """``_download_type_files`` returns ``[]`` when the platform has no mapped component."""
+    fake_storage = MagicMock()
+    fake_storage.target_platform = None
+    assert _download_type_files(fake_storage) == []
+
+
+def test_pack_build_artifacts_logs_download_types_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """If ``get_download_types`` raises, we log the traceback and ship without those files."""
+    _write_receiver_state(tmp_path)
+
+    def _raise(_storage: object) -> object:
+        raise RuntimeError("simulated component breakage")
+
+    import esphome.components.esp32  # noqa: PLC0415
+
+    monkeypatch.setattr(esphome.components.esp32, "get_download_types", _raise)
+
+    with caplog.at_level("ERROR"):
+        packed = pack_build_artifacts("kitchen.yaml")
+
+    assert packed.tarball  # pack succeeded with the static BUILD_FILES set
+    assert any("Could not determine download types" in r.message for r in caplog.records)
+    assert any(r.exc_info is not None for r in caplog.records)
 
 
 def test_pack_build_artifacts_rejects_firmware_bin_outside_build_files(
@@ -950,6 +1029,43 @@ def test_read_artifacts_tarball_rejects_cumulative_size_over_cap(
 
     with pytest.raises(UnpackArtifactsError, match="cumulative size"):
         read_artifacts_tarball(tarball)
+
+
+def test_read_artifacts_tarball_rejects_per_member_size_over_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A single member declaring more bytes than the cap is rejected."""
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.artifacts_tarball."
+        "FIRMWARE_MAX_TOTAL_BYTES",
+        128,
+    )
+    tarball = _build_minimal_tarball(
+        {"idedata.json": b'{"extra": {}}', "firmware.bin": b"x" * 200},
+    )
+
+    with pytest.raises(UnpackArtifactsError, match=r"exceeding FIRMWARE_MAX_TOTAL_BYTES"):
+        read_artifacts_tarball(tarball)
+
+
+def test_read_artifacts_tarball_rejects_duplicate_basename() -> None:
+    """Two tarball members sharing the same basename surface as UnpackArtifactsError."""
+    idedata_bytes = json.dumps({"extra": {"flash_images": []}}).encode("utf-8")
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        info = tarfile.TarInfo(name="idedata.json")
+        info.size = len(idedata_bytes)
+        tar.addfile(info, io.BytesIO(idedata_bytes))
+        firm = b"FIRM"
+        info = tarfile.TarInfo(name=".pioenvs/a/firmware.bin")
+        info.size = len(firm)
+        tar.addfile(info, io.BytesIO(firm))
+        info = tarfile.TarInfo(name=".pioenvs/b/firmware.bin")
+        info.size = len(firm)
+        tar.addfile(info, io.BytesIO(firm))
+
+    with pytest.raises(UnpackArtifactsError, match=r"duplicate basename"):
+        read_artifacts_tarball(buf.getvalue())
 
 
 def test_read_artifacts_tarball_surfaces_malformed_tarball_as_unpack_error() -> None:

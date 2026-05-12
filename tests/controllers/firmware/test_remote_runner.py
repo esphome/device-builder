@@ -1611,6 +1611,54 @@ async def test_remote_install_materialise_failure_fires_job_failed(
 
 
 @pytest.mark.asyncio
+async def test_remote_install_materialise_oserror_fires_job_failed(
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_bundle: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An OSError from materialise (disk full / permissions) lands as JOB_FAILED."""
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = _capture_local_events(controller)
+    client = _make_client()
+    _wire_remote_build(controller, client=client)
+    monkeypatch.setattr(
+        remote_runner,
+        "materialise_remote_artifacts",
+        MagicMock(side_effect=OSError("ENOSPC: disk full")),
+    )
+    job = _make_remote_install_job()
+
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
+    await _wait_until_dispatched(client)
+    _fire_state(controller, job_id=job.job_id, status="completed")
+    await asyncio.wait_for(runner, timeout=2.0)
+
+    assert job.status == JobStatus.FAILED
+    assert job.error is not None and "materialise IO error" in job.error
+    assert len(captured[EventType.JOB_FAILED]) == 1
+
+
+@pytest.mark.asyncio
+async def test_fetch_and_run_local_upload_pre_spawn_cancel_finalises_locally(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """Cancel landing after ``_fetch_and_materialise`` returns but before the spawn."""
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = _capture_local_events(controller)
+    client = _make_client()
+    job = _make_remote_install_job()
+    controller._cancel_requested.add(job.job_id)
+    controller._tracked_subprocess = MagicMock(  # type: ignore[method-assign]
+        side_effect=AssertionError("subprocess should not have spawned")
+    )
+
+    await remote_runner._fetch_and_run_local_upload(controller=controller, job=job, client=client)
+
+    assert job.status == JobStatus.CANCELLED
+    assert len(captured[EventType.JOB_CANCELLED]) == 1
+
+
+@pytest.mark.asyncio
 async def test_remote_install_cancel_during_local_upload_finalises_as_cancelled(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,

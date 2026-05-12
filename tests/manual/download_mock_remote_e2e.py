@@ -77,6 +77,11 @@ async def main() -> int:
 
         job = await pair.offloader.firmware.compile(configuration=yaml_path.name)
         print(f"Submitted compile job_id={job.job_id} source={job.source.value}")
+        if job.source.value != "remote":
+            raise RuntimeError(
+                f"scheduler picked source={job.source.value!r}; "
+                "the manual e2e requires the REMOTE path"
+            )
 
         terminal = await wait_for_job(pair.offloader, job.job_id)
         status = terminal.get("job").status.value if isinstance(terminal, dict) else "?"

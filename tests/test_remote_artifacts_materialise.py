@@ -32,6 +32,8 @@ from esphome_device_builder.controllers.remote_build.artifacts_tarball import (
 )
 from esphome_device_builder.helpers.remote_artifacts_materialise import (
     MaterialiseError,
+    _force_idedata_cache_hit,
+    _remap_to_offloader,
     materialise_remote_artifacts,
 )
 from esphome_device_builder.helpers.storage_path import (
@@ -406,8 +408,103 @@ def test_materialise_rejects_oversized_member(
         _materialise_in_tmp(tarball, tmp_path)
 
 
+def test_materialise_rejects_non_regular_storage_member(tmp_path: Path) -> None:
+    """A storage.json entry that's a symlink (not a regular file) is rejected."""
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        info = tarfile.TarInfo(name=STORAGE_MEMBER_NAME)
+        info.type = tarfile.SYMTYPE
+        info.linkname = "../../../etc/passwd"
+        tar.addfile(info)
+    with pytest.raises(MaterialiseError, match=r"not a regular file"):
+        _materialise_in_tmp(buf.getvalue(), tmp_path)
+
+
+def test_materialise_rejects_non_dict_storage(tmp_path: Path) -> None:
+    """storage.json that parses to a non-dict (e.g. ``null``) raises."""
+    tarball = _synthetic_tarball(storage=b"null")
+    with pytest.raises(MaterialiseError, match=r"is not a JSON object"):
+        _materialise_in_tmp(tarball, tmp_path)
+
+
+def test_materialise_rejects_non_json_idedata(tmp_path: Path) -> None:
+    """idedata.json that isn't parseable JSON raises."""
+    tarball = _synthetic_tarball(idedata=b"{not-json")
+    with pytest.raises(MaterialiseError, match=r"idedata.*not valid JSON"):
+        _materialise_in_tmp(tarball, tmp_path)
+
+
 def test_materialise_rejects_non_dict_idedata(tmp_path: Path) -> None:
     """idedata.json that parses to a non-dict raises MaterialiseError."""
     tarball = _synthetic_tarball(idedata=b"null")
     with pytest.raises(MaterialiseError, match=r"is not a JSON object"):
         _materialise_in_tmp(tarball, tmp_path)
+
+
+def test_remap_to_offloader_returns_input_when_not_under_build_path(tmp_path: Path) -> None:
+    """An absolute path that isn't under receiver_build_path passes through unchanged."""
+    receiver_build = tmp_path / "receiver_build"
+    offloader_build = tmp_path / "offloader_build"
+    outside = Path("/totally/unrelated/path.bin")
+    result = _remap_to_offloader(outside, receiver_build, offloader_build)
+    assert result == outside
+
+
+def test_materialise_rejects_cumulative_member_size(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two extract-side members whose sum breaches the cap raise on the second."""
+    monkeypatch.setattr(
+        "esphome_device_builder.helpers.remote_artifacts_materialise.FIRMWARE_MAX_TOTAL_BYTES",
+        500,
+    )
+    # storage / idedata read via _read_member_required (single-member
+    # cap only). The cumulative gate fires in _safe_extract_excluding
+    # across build-tree members; ship two that exceed the cap together.
+    tarball = _synthetic_tarball(
+        extra_members=[
+            (".pioenvs/kitchen/firmware.bin", b"x" * 300),
+            (".pioenvs/kitchen/firmware.elf", b"y" * 300),
+        ]
+    )
+    with pytest.raises(MaterialiseError, match=r"cumulative size"):
+        _materialise_in_tmp(tarball, tmp_path)
+
+
+def test_materialise_idedata_skips_non_dict_flash_image_entry(
+    paired_roots: tuple[Path, Path],
+) -> None:
+    """A non-dict entry in idedata.extra.flash_images is silently skipped."""
+    receiver_root, offloader_root = paired_roots
+    sentinel = receiver_root / "___DASHBOARD_SENTINEL___.yaml"
+    with patch.object(CORE, "config_path", sentinel):
+        _write_receiver_state(receiver_root)
+        # Inject a malformed flash_images entry alongside a valid one.
+        idedata_path = resolve_idedata_path("kitchen.yaml", name="kitchen")
+        data = json.loads(idedata_path.read_text())
+        data.setdefault("extra", {})["flash_images"] = [
+            "not-a-dict",
+            {"path": "/fake/receiver/build/firmware.bin"},
+        ]
+        idedata_path.write_text(json.dumps(data) + "\n")
+        packed = pack_build_artifacts("kitchen.yaml")
+
+    _materialise_in_tmp(packed.tarball, offloader_root)
+
+    sentinel = offloader_root / "___DASHBOARD_SENTINEL___.yaml"
+    with patch.object(CORE, "config_path", sentinel):
+        cached = resolve_idedata_path("kitchen.yaml", name="kitchen")
+    data = json.loads(cached.read_text())
+    # The non-dict survives untouched; the dict entry got remapped.
+    flash_images = data["extra"]["flash_images"]
+    assert flash_images[0] == "not-a-dict"
+    assert isinstance(flash_images[1], dict)
+
+
+def test_force_idedata_cache_hit_noop_when_files_missing(tmp_path: Path) -> None:
+    """``_force_idedata_cache_hit`` returns early when either side doesn't exist."""
+    # Neither file exists; helper must not raise.
+    _force_idedata_cache_hit(
+        platformio_ini=tmp_path / "missing.ini",
+        cached_idedata=tmp_path / "missing.json",
+    )
