@@ -511,7 +511,10 @@ async def test_remote_compile_materialises_for_local_firmware_download(
     )
     assert (build_path / ".pioenvs" / "kitchen" / "firmware.bin").is_file()
 
-    staged_storage = await asyncio.to_thread(StorageJSON.load, resolve_storage_path("kitchen.yaml"))
+    def _load_staged() -> StorageJSON | None:
+        return StorageJSON.load(resolve_storage_path("kitchen.yaml"))
+
+    staged_storage = await asyncio.to_thread(_load_staged)
     assert staged_storage is not None
     assert staged_storage.firmware_bin_path is not None
     download_dir = staged_storage.firmware_bin_path.parent

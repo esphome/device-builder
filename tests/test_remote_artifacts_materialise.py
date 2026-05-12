@@ -18,6 +18,7 @@ import io
 import json
 import tarfile
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -38,6 +39,11 @@ from esphome_device_builder.helpers.storage_path import (
 )
 from tests.test_remote_build_artifacts_download import _write_receiver_state
 
+_SENTINEL = object()
+# Placeholder ``build_path`` for synthetic tarballs the materialiser
+# rejects before extraction.
+_FAKE_BUILD_PATH = "/fake/receiver/build/path"
+
 
 def _pack_in_tmp(
     receiver_root: Path,
@@ -45,11 +51,7 @@ def _pack_in_tmp(
     configuration: str = "kitchen.yaml",
     **kwargs: object,
 ) -> bytes:
-    """Build a receiver-side state under *receiver_root* and pack it.
-
-    Pins ``CORE.config_path`` to *receiver_root*'s sentinel so the
-    packer's path helpers resolve into the receiver tmp tree.
-    """
+    """Build a receiver-side state under *receiver_root* and pack it."""
     sentinel = receiver_root / "___DASHBOARD_SENTINEL___.yaml"
     with patch.object(CORE, "config_path", sentinel):
         _write_receiver_state(receiver_root, configuration=configuration, **kwargs)  # type: ignore[arg-type]
@@ -63,15 +65,52 @@ def _materialise_in_tmp(
     *,
     configuration: str = "kitchen.yaml",
 ) -> Path:
-    """Materialise *tarball* into *offloader_root*'s .esphome subtree.
-
-    Pins ``CORE.config_path`` to *offloader_root*'s sentinel so
-    the materialiser's path helpers resolve into the offloader
-    tmp tree.
-    """
+    """Materialise *tarball* into *offloader_root*'s .esphome subtree."""
     sentinel = offloader_root / "___DASHBOARD_SENTINEL___.yaml"
     with patch.object(CORE, "config_path", sentinel):
         return materialise_remote_artifacts(tarball, configuration)
+
+
+def _synthetic_tarball(
+    *,
+    storage: Any = _SENTINEL,
+    idedata: Any = _SENTINEL,
+    extra_members: list[tuple[str, bytes]] | None = None,
+) -> bytes:
+    """Build a minimal tarball for materialiser error-path tests.
+
+    ``storage`` / ``idedata`` accept dict (JSON-encoded), bytes
+    (raw — for malformed-JSON cases), or ``None`` (omit the
+    member). Default is a valid storage shape + ``{}`` idedata.
+    """
+    if storage is _SENTINEL:
+        storage = {"storage_version": 1, "name": "kitchen", "build_path": _FAKE_BUILD_PATH}
+    if idedata is _SENTINEL:
+        idedata = {}
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        for name, value in ((STORAGE_MEMBER_NAME, storage), (IDEDATA_MEMBER_NAME, idedata)):
+            if value is None:
+                continue
+            payload = value if isinstance(value, bytes) else json.dumps(value).encode("utf-8")
+            info = tarfile.TarInfo(name=name)
+            info.size = len(payload)
+            tar.addfile(info, io.BytesIO(payload))
+        for member_name, member_payload in extra_members or []:
+            info = tarfile.TarInfo(name=member_name)
+            info.size = len(member_payload)
+            tar.addfile(info, io.BytesIO(member_payload))
+    return buf.getvalue()
+
+
+@pytest.fixture
+def paired_roots(tmp_path: Path) -> tuple[Path, Path]:
+    """Return ``(receiver_root, offloader_root)`` directories under tmp_path."""
+    receiver = tmp_path / "receiver"
+    receiver.mkdir()
+    offloader = tmp_path / "offloader"
+    offloader.mkdir()
+    return receiver, offloader
 
 
 # ---------------------------------------------------------------------------
@@ -79,13 +118,11 @@ def _materialise_in_tmp(
 # ---------------------------------------------------------------------------
 
 
-def test_materialise_stages_build_tree_and_sidecars(tmp_path: Path) -> None:
+def test_materialise_stages_build_tree_and_sidecars(
+    paired_roots: tuple[Path, Path],
+) -> None:
     """Build tree, storage sidecar, and idedata cache all land at the offloader's paths."""
-    receiver_root = tmp_path / "receiver"
-    receiver_root.mkdir()
-    offloader_root = tmp_path / "offloader"
-    offloader_root.mkdir()
-
+    receiver_root, offloader_root = paired_roots
     tarball = _pack_in_tmp(
         receiver_root,
         extras=[("bootloader.bin", "0x1000")],
@@ -107,13 +144,11 @@ def test_materialise_stages_build_tree_and_sidecars(tmp_path: Path) -> None:
     assert not (build_path / IDEDATA_MEMBER_NAME).exists()
 
 
-def test_materialise_storage_sidecar_carries_receiver_metadata(tmp_path: Path) -> None:
+def test_materialise_storage_sidecar_carries_receiver_metadata(
+    paired_roots: tuple[Path, Path],
+) -> None:
     """Receiver's target_platform / framework / name flow through unchanged."""
-    receiver_root = tmp_path / "receiver"
-    receiver_root.mkdir()
-    offloader_root = tmp_path / "offloader"
-    offloader_root.mkdir()
-
+    receiver_root, offloader_root = paired_roots
     tarball = _pack_in_tmp(receiver_root, target_platform="ESP32")
 
     sentinel = offloader_root / "___DASHBOARD_SENTINEL___.yaml"
@@ -134,20 +169,11 @@ def test_materialise_storage_sidecar_carries_receiver_metadata(tmp_path: Path) -
     )
 
 
-def test_materialise_libretiny_storage_preserves_uf2_basename(tmp_path: Path) -> None:
-    """A libretiny build's firmware_bin_path round-trips as firmware.uf2, not firmware.bin.
-
-    The receiver-side StorageJSON carries the platform-correct
-    basename (esphome/core/__init__.py:778 returns ``firmware.uf2``
-    for libretiny); the materialiser remaps only the build-dir
-    prefix, leaving the basename untouched. Pins that the
-    materialiser doesn't accidentally hardcode firmware.bin.
-    """
-    receiver_root = tmp_path / "receiver"
-    receiver_root.mkdir()
-    offloader_root = tmp_path / "offloader"
-    offloader_root.mkdir()
-
+def test_materialise_libretiny_storage_preserves_uf2_basename(
+    paired_roots: tuple[Path, Path],
+) -> None:
+    """Libretiny build's firmware_bin_path round-trips as firmware.uf2, not firmware.bin."""
+    receiver_root, offloader_root = paired_roots
     sentinel = receiver_root / "___DASHBOARD_SENTINEL___.yaml"
     with patch.object(CORE, "config_path", sentinel):
         # Manually craft a receiver state where firmware_bin_path
@@ -179,13 +205,11 @@ def test_materialise_libretiny_storage_preserves_uf2_basename(tmp_path: Path) ->
     )
 
 
-def test_materialise_idedata_remaps_prog_path_and_flash_images(tmp_path: Path) -> None:
+def test_materialise_idedata_remaps_prog_path_and_flash_images(
+    paired_roots: tuple[Path, Path],
+) -> None:
     """Idedata's prog_path + extra.flash_images[*].path all remap to the offloader tree."""
-    receiver_root = tmp_path / "receiver"
-    receiver_root.mkdir()
-    offloader_root = tmp_path / "offloader"
-    offloader_root.mkdir()
-
+    receiver_root, offloader_root = paired_roots
     tarball = _pack_in_tmp(
         receiver_root,
         extras=[("bootloader.bin", "0x1000"), ("partitions.bin", "0x8000")],
@@ -212,13 +236,12 @@ def test_materialise_idedata_remaps_prog_path_and_flash_images(tmp_path: Path) -
 
 
 def test_materialise_idedata_remaps_cc_path_to_offloader_pio_core(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    paired_roots: tuple[Path, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """cc_path's PIO core prefix swaps to the offloader's PLATFORMIO_CORE_DIR."""
-    receiver_root = tmp_path / "receiver"
-    receiver_root.mkdir()
-    offloader_root = tmp_path / "offloader"
-    offloader_root.mkdir()
+    receiver_root, offloader_root = paired_roots
     offloader_pio = tmp_path / "offloader_pio"
     monkeypatch.setenv("PLATFORMIO_CORE_DIR", str(offloader_pio))
 
@@ -239,13 +262,11 @@ def test_materialise_idedata_remaps_cc_path_to_offloader_pio_core(
     )
 
 
-def test_materialise_idedata_drops_unparseable_cc_path(tmp_path: Path) -> None:
+def test_materialise_idedata_drops_unparseable_cc_path(
+    paired_roots: tuple[Path, Path],
+) -> None:
     """cc_path without a 'packages/' segment is dropped from the staged idedata."""
-    receiver_root = tmp_path / "receiver"
-    receiver_root.mkdir()
-    offloader_root = tmp_path / "offloader"
-    offloader_root.mkdir()
-
+    receiver_root, offloader_root = paired_roots
     sentinel = receiver_root / "___DASHBOARD_SENTINEL___.yaml"
     with patch.object(CORE, "config_path", sentinel):
         _write_receiver_state(receiver_root)
@@ -264,18 +285,11 @@ def test_materialise_idedata_drops_unparseable_cc_path(tmp_path: Path) -> None:
     assert "cc_path" not in data
 
 
-def test_materialise_touches_mtimes_for_esphome_cache_hit(tmp_path: Path) -> None:
-    """platformio.ini.mtime ends up strictly older than the staged idedata's mtime.
-
-    Pins the contract that ``_load_idedata`` reads — the cache
-    check is ``platformio_ini.mtime >= cached.mtime``, so we
-    need the cached file to be newer to skip regeneration.
-    """
-    receiver_root = tmp_path / "receiver"
-    receiver_root.mkdir()
-    offloader_root = tmp_path / "offloader"
-    offloader_root.mkdir()
-
+def test_materialise_touches_mtimes_for_esphome_cache_hit(
+    paired_roots: tuple[Path, Path],
+) -> None:
+    """platformio.ini.mtime ends up strictly older than the staged idedata's mtime."""
+    receiver_root, offloader_root = paired_roots
     tarball = _pack_in_tmp(receiver_root)
     build_path = _materialise_in_tmp(tarball, offloader_root)
 
@@ -286,141 +300,71 @@ def test_materialise_touches_mtimes_for_esphome_cache_hit(tmp_path: Path) -> Non
     assert platformio_ini.stat().st_mtime < cached.stat().st_mtime
 
 
-def test_materialise_idempotent_under_rerun(tmp_path: Path) -> None:
-    """Re-running materialise over an existing staged tree overwrites cleanly."""
-    receiver_root = tmp_path / "receiver"
-    receiver_root.mkdir()
-    offloader_root = tmp_path / "offloader"
-    offloader_root.mkdir()
-
+def test_materialise_idempotent_under_rerun(paired_roots: tuple[Path, Path]) -> None:
+    """Re-running materialise wipes stale files from the build dir."""
+    receiver_root, offloader_root = paired_roots
     tarball = _pack_in_tmp(receiver_root)
     first = _materialise_in_tmp(tarball, offloader_root)
-    # Plant a stale file in the build tree before re-materialising
-    # to confirm extraction overwrites cleanly.
+    # Plant a stale file the second materialise should clear.
     stale = first / ".pioenvs" / "kitchen" / "stale.bin"
     stale.write_bytes(b"STALE")
+
     second = _materialise_in_tmp(tarball, offloader_root)
 
     assert first == second
-    # The materialised firmware.bin re-exists. (We don't assert on
-    # the stale file's removal — extract over existing files just
-    # rewrites the named members; leftover files aren't actively
-    # cleaned.)
     assert (second / ".pioenvs" / "kitchen" / "firmware.bin").is_file()
+    assert not stale.exists(), "stale file should be cleared by the pre-extract rmtree"
 
 
 # ---------------------------------------------------------------------------
 # Error paths
 # ---------------------------------------------------------------------------
 
-# Placeholder for a "build_path" field in synthetic tarballs that
-# the materialiser rejects before extraction.
-_FAKE_BUILD_PATH = "/fake/receiver/build/path"
-
 
 def test_materialise_rejects_missing_storage_member(tmp_path: Path) -> None:
     """A tarball without storage.json raises MaterialiseError with a clear message."""
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        info = tarfile.TarInfo(name=IDEDATA_MEMBER_NAME)
-        info.size = 2
-        tar.addfile(info, io.BytesIO(b"{}"))
-
+    tarball = _synthetic_tarball(storage=None)
     with pytest.raises(MaterialiseError, match=r"missing required member: 'storage\.json'"):
-        _materialise_in_tmp(buf.getvalue(), tmp_path)
+        _materialise_in_tmp(tarball, tmp_path)
 
 
 def test_materialise_rejects_missing_idedata_member(tmp_path: Path) -> None:
     """A tarball without idedata.json raises MaterialiseError."""
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        storage = json.dumps(
-            {"storage_version": 1, "name": "kitchen", "build_path": _FAKE_BUILD_PATH}
-        ).encode("utf-8")
-        info = tarfile.TarInfo(name=STORAGE_MEMBER_NAME)
-        info.size = len(storage)
-        tar.addfile(info, io.BytesIO(storage))
-
+    tarball = _synthetic_tarball(idedata=None)
     with pytest.raises(MaterialiseError, match=r"missing required member: 'idedata\.json'"):
-        _materialise_in_tmp(buf.getvalue(), tmp_path)
+        _materialise_in_tmp(tarball, tmp_path)
 
 
 def test_materialise_rejects_path_traversal(tmp_path: Path) -> None:
     """Members that resolve outside the build dir raise before extraction."""
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        storage = json.dumps(
-            {"storage_version": 1, "name": "kitchen", "build_path": _FAKE_BUILD_PATH}
-        ).encode("utf-8")
-        info = tarfile.TarInfo(name=STORAGE_MEMBER_NAME)
-        info.size = len(storage)
-        tar.addfile(info, io.BytesIO(storage))
-
-        idedata = b"{}"
-        info = tarfile.TarInfo(name=IDEDATA_MEMBER_NAME)
-        info.size = len(idedata)
-        tar.addfile(info, io.BytesIO(idedata))
-
-        # Member with a traversal-shaped path.
-        evil_payload = b"EVIL"
-        info = tarfile.TarInfo(name="../../../etc/passwd")
-        info.size = len(evil_payload)
-        tar.addfile(info, io.BytesIO(evil_payload))
-
+    tarball = _synthetic_tarball(extra_members=[("../../../etc/passwd", b"EVIL")])
     with pytest.raises(MaterialiseError, match=r"escapes destination"):
-        _materialise_in_tmp(buf.getvalue(), tmp_path)
+        _materialise_in_tmp(tarball, tmp_path)
 
 
 def test_materialise_rejects_traversal_in_storage_name(tmp_path: Path) -> None:
     """A storage.json ``name`` carrying path-separator chars is rejected."""
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        storage = json.dumps(
-            {"storage_version": 1, "name": "../sneaky", "build_path": _FAKE_BUILD_PATH}
-        ).encode("utf-8")
-        info = tarfile.TarInfo(name=STORAGE_MEMBER_NAME)
-        info.size = len(storage)
-        tar.addfile(info, io.BytesIO(storage))
-        info = tarfile.TarInfo(name=IDEDATA_MEMBER_NAME)
-        info.size = 2
-        tar.addfile(info, io.BytesIO(b"{}"))
-
+    tarball = _synthetic_tarball(
+        storage={"storage_version": 1, "name": "../sneaky", "build_path": _FAKE_BUILD_PATH},
+    )
     with pytest.raises(MaterialiseError, match=r"not safe for a path segment"):
-        _materialise_in_tmp(buf.getvalue(), tmp_path)
+        _materialise_in_tmp(tarball, tmp_path)
 
 
 def test_materialise_rejects_storage_missing_name(tmp_path: Path) -> None:
     """storage.json without a 'name' field raises before extraction starts."""
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        storage = json.dumps({"storage_version": 1, "build_path": _FAKE_BUILD_PATH}).encode("utf-8")
-        info = tarfile.TarInfo(name=STORAGE_MEMBER_NAME)
-        info.size = len(storage)
-        tar.addfile(info, io.BytesIO(storage))
-        idedata = b"{}"
-        info = tarfile.TarInfo(name=IDEDATA_MEMBER_NAME)
-        info.size = len(idedata)
-        tar.addfile(info, io.BytesIO(idedata))
-
+    tarball = _synthetic_tarball(
+        storage={"storage_version": 1, "build_path": _FAKE_BUILD_PATH},
+    )
     with pytest.raises(MaterialiseError, match=r"missing required name field"):
-        _materialise_in_tmp(buf.getvalue(), tmp_path)
+        _materialise_in_tmp(tarball, tmp_path)
 
 
 def test_materialise_rejects_storage_missing_build_path(tmp_path: Path) -> None:
     """storage.json without a 'build_path' field raises."""
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        storage = json.dumps({"storage_version": 1, "name": "kitchen"}).encode("utf-8")
-        info = tarfile.TarInfo(name=STORAGE_MEMBER_NAME)
-        info.size = len(storage)
-        tar.addfile(info, io.BytesIO(storage))
-        idedata = b"{}"
-        info = tarfile.TarInfo(name=IDEDATA_MEMBER_NAME)
-        info.size = len(idedata)
-        tar.addfile(info, io.BytesIO(idedata))
-
+    tarball = _synthetic_tarball(storage={"storage_version": 1, "name": "kitchen"})
     with pytest.raises(MaterialiseError, match=r"missing required build_path field"):
-        _materialise_in_tmp(buf.getvalue(), tmp_path)
+        _materialise_in_tmp(tarball, tmp_path)
 
 
 def test_materialise_rejects_malformed_tarball(tmp_path: Path) -> None:
@@ -431,33 +375,13 @@ def test_materialise_rejects_malformed_tarball(tmp_path: Path) -> None:
 
 def test_materialise_rejects_non_json_storage(tmp_path: Path) -> None:
     """storage.json that isn't parseable JSON raises MaterialiseError."""
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        info = tarfile.TarInfo(name=STORAGE_MEMBER_NAME)
-        info.size = 4
-        tar.addfile(info, io.BytesIO(b"{bad"))
-        info = tarfile.TarInfo(name=IDEDATA_MEMBER_NAME)
-        info.size = 2
-        tar.addfile(info, io.BytesIO(b"{}"))
-
+    tarball = _synthetic_tarball(storage=b"{bad")
     with pytest.raises(MaterialiseError, match=r"not valid JSON"):
-        _materialise_in_tmp(buf.getvalue(), tmp_path)
+        _materialise_in_tmp(tarball, tmp_path)
 
 
 def test_materialise_rejects_non_dict_idedata(tmp_path: Path) -> None:
     """idedata.json that parses to a non-dict raises MaterialiseError."""
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        storage = json.dumps(
-            {"storage_version": 1, "name": "kitchen", "build_path": _FAKE_BUILD_PATH}
-        ).encode("utf-8")
-        info = tarfile.TarInfo(name=STORAGE_MEMBER_NAME)
-        info.size = len(storage)
-        tar.addfile(info, io.BytesIO(storage))
-        # idedata parses but isn't a dict.
-        info = tarfile.TarInfo(name=IDEDATA_MEMBER_NAME)
-        info.size = 4
-        tar.addfile(info, io.BytesIO(b"null"))
-
+    tarball = _synthetic_tarball(idedata=b"null")
     with pytest.raises(MaterialiseError, match=r"is not a JSON object"):
-        _materialise_in_tmp(buf.getvalue(), tmp_path)
+        _materialise_in_tmp(tarball, tmp_path)

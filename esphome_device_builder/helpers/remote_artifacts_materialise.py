@@ -12,7 +12,6 @@ idedata cache (touched so ``_load_idedata``'s mtime gate hits).
 from __future__ import annotations
 
 import io
-import json
 import logging
 import os
 import re
@@ -20,7 +19,7 @@ import shutil
 import tarfile
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from esphome.storage_json import StorageJSON
 
@@ -29,6 +28,8 @@ from ..controllers.remote_build.artifacts_tarball import (
     PLATFORMIO_INI_MEMBER_NAME,
     STORAGE_MEMBER_NAME,
 )
+from .json import dumps_indent
+from .json import loads as json_loads
 from .storage_path import resolve_data_dir, resolve_idedata_path, resolve_storage_path
 
 _LOGGER = logging.getLogger(__name__)
@@ -46,6 +47,13 @@ class MaterialiseError(RuntimeError):
     """Raised when a tarball can't be materialised into a usable build tree."""
 
 
+class _ExtractedTarball(NamedTuple):
+    storage_bytes: bytes
+    idedata_bytes: bytes
+    receiver_build_path: Path
+    build_path: Path
+
+
 def materialise_remote_artifacts(tarball: bytes, configuration: str) -> Path:
     """
     Stage *tarball* into offloader-local form.
@@ -56,36 +64,49 @@ def materialise_remote_artifacts(tarball: bytes, configuration: str) -> Path:
     Returns the staged build path; callers that just need the
     side-effects (the runner) can discard it.
     """
-    # storage.json + idedata.json are cache-side files; we
-    # rewrite their paths before write so they don't extract
-    # into the build tree.
+    extracted = _open_and_extract_build_tree(tarball, configuration)
+    _stage_offloader_storage(
+        configuration=configuration,
+        receiver_storage_bytes=extracted.storage_bytes,
+        receiver_build_path=extracted.receiver_build_path,
+        offloader_build_path=extracted.build_path,
+    )
+    cached_idedata_path = _stage_offloader_idedata(
+        configuration=configuration,
+        idedata_bytes=extracted.idedata_bytes,
+        device_name=extracted.build_path.name,
+        receiver_build_path=extracted.receiver_build_path,
+        offloader_build_path=extracted.build_path,
+    )
+    _force_idedata_cache_hit(
+        platformio_ini=extracted.build_path / PLATFORMIO_INI_MEMBER_NAME,
+        cached_idedata=cached_idedata_path,
+    )
+    return extracted.build_path
+
+
+def _open_and_extract_build_tree(tarball: bytes, configuration: str) -> _ExtractedTarball:
+    """Open *tarball*, validate the storage shape, wipe + extract into the offloader build dir.
+
+    storage.json + idedata.json are cache-side files; their
+    bytes are returned for the caller to rewrite before write
+    rather than extracted into the build tree.
+    """
     try:
-        tar_io = io.BytesIO(tarball)
-        with tarfile.open(fileobj=tar_io, mode="r:gz") as tar:
+        with tarfile.open(fileobj=io.BytesIO(tarball), mode="r:gz") as tar:
             storage_bytes = _read_member_required(tar, STORAGE_MEMBER_NAME)
             idedata_bytes = _read_member_required(tar, IDEDATA_MEMBER_NAME)
             receiver_storage = _parse_storage_json(storage_bytes)
-            device_name = receiver_storage.get("name")
-            if not isinstance(device_name, str) or not device_name:
-                raise MaterialiseError("tarball storage.json missing required name field")
-            if not _SAFE_DEVICE_NAME_RE.fullmatch(device_name):
-                raise MaterialiseError(
-                    f"tarball storage.json name {device_name!r} not safe for a path segment"
-                )
-            receiver_build_path_str = receiver_storage.get("build_path")
-            if not isinstance(receiver_build_path_str, str):
-                raise MaterialiseError("tarball storage.json missing required build_path field")
-            receiver_build_path = Path(receiver_build_path_str)
+            device_name = _device_name_from_storage(receiver_storage)
+            receiver_build_path = _receiver_build_path_from_storage(receiver_storage)
 
-            data_dir = resolve_data_dir(configuration)
-            build_path = data_dir / "build" / device_name
+            build_path = resolve_data_dir(configuration) / "build" / device_name
             # Wipe before extract so a board swap on the same YAML
             # (esp32 → bk72xx) doesn't leave stale per-platform
             # artefacts that firmware/download could surface as
             # wrong bytes.
             shutil.rmtree(build_path, ignore_errors=True)
             build_path.mkdir(parents=True, exist_ok=True)
-
             _safe_extract_excluding(
                 tar,
                 build_path,
@@ -93,26 +114,32 @@ def materialise_remote_artifacts(tarball: bytes, configuration: str) -> Path:
             )
     except tarfile.TarError as err:
         raise MaterialiseError(f"tarball is malformed: {err}") from err
-
-    _stage_offloader_storage(
-        configuration=configuration,
-        receiver_storage_bytes=storage_bytes,
-        receiver_build_path=receiver_build_path,
-        offloader_build_path=build_path,
-    )
-    cached_idedata_path = _stage_offloader_idedata(
-        configuration=configuration,
+    return _ExtractedTarball(
+        storage_bytes=storage_bytes,
         idedata_bytes=idedata_bytes,
-        device_name=device_name,
         receiver_build_path=receiver_build_path,
-        offloader_build_path=build_path,
-    )
-    _force_idedata_cache_hit(
-        platformio_ini=build_path / PLATFORMIO_INI_MEMBER_NAME,
-        cached_idedata=cached_idedata_path,
+        build_path=build_path,
     )
 
-    return build_path
+
+def _device_name_from_storage(receiver_storage: dict[str, Any]) -> str:
+    """Pull and validate the device name from the shipped storage.json."""
+    device_name = receiver_storage.get("name")
+    if not isinstance(device_name, str) or not device_name:
+        raise MaterialiseError("tarball storage.json missing required name field")
+    if not _SAFE_DEVICE_NAME_RE.fullmatch(device_name):
+        raise MaterialiseError(
+            f"tarball storage.json name {device_name!r} not safe for a path segment"
+        )
+    return device_name
+
+
+def _receiver_build_path_from_storage(receiver_storage: dict[str, Any]) -> Path:
+    """Pull the receiver-absolute build_path from the shipped storage.json."""
+    receiver_build_path_str = receiver_storage.get("build_path")
+    if not isinstance(receiver_build_path_str, str):
+        raise MaterialiseError("tarball storage.json missing required build_path field")
+    return Path(receiver_build_path_str)
 
 
 def _read_member_required(tar: tarfile.TarFile, name: str) -> bytes:
@@ -151,7 +178,7 @@ def _safe_extract_excluding(tar: tarfile.TarFile, dest: Path, *, exclude: set[st
 def _parse_storage_json(payload: bytes) -> dict[str, Any]:
     """Parse the shipped storage.json into a dict for the pre-extract lookups."""
     try:
-        parsed = json.loads(payload)
+        parsed = json_loads(payload)
     except ValueError as err:
         raise MaterialiseError(f"tarball storage.json is not valid JSON: {err}") from err
     if not isinstance(parsed, dict):
@@ -194,51 +221,60 @@ def _stage_offloader_idedata(
     offloader_build_path: Path,
 ) -> Path:
     """Rewrite the receiver's idedata and save at the offloader's cache path."""
+    data = _parse_idedata_dict(idedata_bytes)
+    _remap_idedata_build_paths(data, receiver_build_path, offloader_build_path)
+    _remap_idedata_toolchain_path(data)
+
+    cached_path = resolve_idedata_path(configuration, name=device_name)
+    cached_path.parent.mkdir(parents=True, exist_ok=True)
+    cached_path.write_bytes(dumps_indent(data) + b"\n")
+    return cached_path
+
+
+def _parse_idedata_dict(payload: bytes) -> dict[str, Any]:
+    """Parse the shipped idedata.json or raise MaterialiseError."""
     try:
-        data = json.loads(idedata_bytes)
+        data = json_loads(payload)
     except ValueError as err:
         raise MaterialiseError(f"tarball idedata.json is not valid JSON: {err}") from err
     if not isinstance(data, dict):
         raise MaterialiseError("tarball idedata.json is not a JSON object")
+    return data
 
-    prog = data.get("prog_path")
-    if isinstance(prog, str):
-        data["prog_path"] = str(
-            _remap_to_offloader(Path(prog), receiver_build_path, offloader_build_path)
-        )
+
+def _remap_idedata_build_paths(
+    data: dict[str, Any],
+    receiver_build_path: Path,
+    offloader_build_path: Path,
+) -> None:
+    """Rewrite prog_path + extra.flash_images[*].path to the offloader's tree."""
+
+    def _remap(value: Any) -> str | None:
+        if not isinstance(value, str):
+            return None
+        return str(_remap_to_offloader(Path(value), receiver_build_path, offloader_build_path))
+
+    if (prog := _remap(data.get("prog_path"))) is not None:
+        data["prog_path"] = prog
     extra = data.get("extra")
-    if isinstance(extra, dict):
-        flash_images = extra.get("flash_images")
-        if isinstance(flash_images, list):
-            for image in flash_images:
-                if not isinstance(image, dict):
-                    continue
-                path_str = image.get("path")
-                if isinstance(path_str, str):
-                    image["path"] = str(
-                        _remap_to_offloader(
-                            Path(path_str),
-                            receiver_build_path,
-                            offloader_build_path,
-                        )
-                    )
+    flash_images = extra.get("flash_images") if isinstance(extra, dict) else None
+    for image in flash_images or []:
+        if not isinstance(image, dict):
+            continue
+        if (remapped := _remap(image.get("path"))) is not None:
+            image["path"] = remapped
 
-    # Remap cc_path's PIO core prefix so RP2040 BOOTSEL's
-    # picotool lookup resolves on the offloader; drop the field
-    # if the shape isn't recognisable (picotool falls through to
-    # PATH).
+
+def _remap_idedata_toolchain_path(data: dict[str, Any]) -> None:
+    """Swap cc_path's PIO core prefix; drop if unrecognised (picotool falls back to PATH)."""
     cc_path = data.get("cc_path")
-    if isinstance(cc_path, str):
-        remapped = _remap_pio_toolchain_path(cc_path)
-        if remapped is None:
-            data.pop("cc_path", None)
-        else:
-            data["cc_path"] = remapped
-
-    cached_path = resolve_idedata_path(configuration, name=device_name)
-    cached_path.parent.mkdir(parents=True, exist_ok=True)
-    cached_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    return cached_path
+    if not isinstance(cc_path, str):
+        return
+    remapped = _remap_pio_toolchain_path(cc_path)
+    if remapped is None:
+        data.pop("cc_path", None)
+    else:
+        data["cc_path"] = remapped
 
 
 def _force_idedata_cache_hit(*, platformio_ini: Path, cached_idedata: Path) -> None:

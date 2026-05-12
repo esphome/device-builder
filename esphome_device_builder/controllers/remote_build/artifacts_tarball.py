@@ -105,46 +105,13 @@ class PackedArtifacts:
 def pack_build_artifacts(configuration: str) -> PackedArtifacts:
     """Pack the build for *configuration* into the materialise-locally tarball.
 
-    Synchronous; meant to run inside an executor. Reads the
-    receiver's StorageJSON sidecar to discover the build path
-    and target platform, picks the build-tree inclusion list
-    from :mod:`controllers.remote_build.artifact_platforms`,
-    and tars three platform-independent metadata members
-    (``storage.json``, ``idedata.json``, ``platformio.ini``)
-    plus every existing per-platform build-tree file into one
-    gzipped stream.
-
-    Tarball layout matches the module docstring. The offloader
-    side has two consumers:
-
-    * :func:`helpers.remote_artifacts_materialise.materialise_remote_artifacts`
-      reads ``storage.json`` + ``idedata.json``, rewrites
-      receiver-absolute path fields, stages everything at the
-      offloader's canonical paths so ``esphome upload`` /
-      ``firmware/download`` resolve cleanly.
-    * :func:`unpack_artifacts_response` reads ``idedata.json``
-      + every flash image (keyed by basename, ignoring
-      ``storage.json`` / ``platformio.ini``) and returns the
-      multi-image response shape the browser-side Web Serial
-      flasher consumes.
-
-    Raises :class:`FileNotFoundError` when the StorageJSON
-    sidecar / its required path fields / the cached idedata /
-    ``platformio.ini`` aren't on disk. Raises
-    :class:`RuntimeError` on unknown ``target_platform`` (a
-    platform that doesn't have an
-    :mod:`controllers.remote_build.artifact_platforms` module
-    is treated as a structural drift between the dashboard's
-    inclusion lists and ESPHome's platform support) or when
-    the artifact set exceeds :data:`FIRMWARE_MAX_TOTAL_BYTES`.
-    Two cap checks: a per-member walking sum inside the tar loop
-    (short-circuits when an individual file would already push
-    the total past the limit) plus a final compressed-size check
-    on the rendered tarball (the offloader's BundleAssembler caps
-    on ``ArtifactsStartFrameData.total_bytes``, the wire-side
-    length, so the two sides must agree). The caller
-    (:meth:`ArtifactsDownloadSender.handle_download_artifacts`)
-    catches both and surfaces a structured reject reason.
+    Synchronous; meant to run inside an executor. Raises
+    :class:`FileNotFoundError` when the StorageJSON sidecar /
+    cached idedata / platformio.ini aren't on disk;
+    :class:`RuntimeError` on unknown ``target_platform`` or
+    when the artifact set exceeds :data:`FIRMWARE_MAX_TOTAL_BYTES`
+    (per-member walking sum + post-render check, the latter
+    matching the offloader-side BundleAssembler cap).
     """
     storage_path = resolve_storage_path(configuration)
     storage = StorageJSON.load(storage_path)
@@ -312,41 +279,47 @@ def read_artifacts_tarball(tarball: bytes) -> tuple[dict[str, Any], dict[str, by
     bound would let a hostile peer expand a few-KiB tarball
     into multi-GiB memory.
     """
-    idedata: dict[str, Any] | None = None
-    image_bytes_by_name: dict[str, bytes] = {}
-    # Track which full member path each basename came from so
-    # the duplicate-basename error message can name both.
-    basename_origin: dict[str, str] = {}
-    total_bytes = 0
     try:
         with tarfile.open(fileobj=io.BytesIO(tarball), mode="r:gz") as tar:
-            for member in tar:
-                _check_member_size(member, total_so_far=total_bytes)
-                payload = _read_tarball_member(tar, member)
-                total_bytes += len(payload)
-                if member.name == IDEDATA_MEMBER_NAME:
-                    idedata = _parse_idedata(payload)
-                    continue
-                if member.name in _METADATA_MEMBERS:
-                    # storage.json + platformio.ini are
-                    # materialiser-only; the WS-adapter doesn't
-                    # surface them.
-                    continue
-                basename = Path(member.name).name
-                if basename in image_bytes_by_name:
-                    msg = (
-                        f"duplicate basename {basename!r} in artifacts tarball: "
-                        f"{basename_origin[basename]!r} and {member.name!r}"
-                    )
-                    raise UnpackArtifactsError(msg)
-                image_bytes_by_name[basename] = payload
-                basename_origin[basename] = member.name
+            idedata, image_bytes_by_name = _walk_artifacts_members(tar)
     except tarfile.TarError as exc:
         msg = f"artifacts tarball is malformed: {exc}"
         raise UnpackArtifactsError(msg) from exc
     if idedata is None:
         msg = "artifacts tarball missing idedata.json"
         raise UnpackArtifactsError(msg)
+    return idedata, image_bytes_by_name
+
+
+def _walk_artifacts_members(
+    tar: tarfile.TarFile,
+) -> tuple[dict[str, Any] | None, dict[str, bytes]]:
+    """Walk *tar*'s members; return (idedata-or-None, basename → bytes)."""
+    idedata: dict[str, Any] | None = None
+    image_bytes_by_name: dict[str, bytes] = {}
+    # Origin path per basename so the duplicate-basename error
+    # message can name both members.
+    basename_origin: dict[str, str] = {}
+    total_bytes = 0
+    for member in tar:
+        _check_member_size(member, total_so_far=total_bytes)
+        payload = _read_tarball_member(tar, member)
+        total_bytes += len(payload)
+        if member.name == IDEDATA_MEMBER_NAME:
+            idedata = _parse_idedata(payload)
+            continue
+        if member.name in _METADATA_MEMBERS:
+            # storage.json + platformio.ini are materialiser-only.
+            continue
+        basename = Path(member.name).name
+        if basename in image_bytes_by_name:
+            msg = (
+                f"duplicate basename {basename!r} in artifacts tarball: "
+                f"{basename_origin[basename]!r} and {member.name!r}"
+            )
+            raise UnpackArtifactsError(msg)
+        image_bytes_by_name[basename] = payload
+        basename_origin[basename] = member.name
     return idedata, image_bytes_by_name
 
 
