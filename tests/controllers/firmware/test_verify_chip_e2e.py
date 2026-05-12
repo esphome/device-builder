@@ -829,7 +829,14 @@ async def test_tracked_subprocess_restores_prior_value_on_exception(
             "import sys\nsys.exit(0)\n",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
-        ):
+        ) as proc:
+            # Reap the subprocess before raising so the transport
+            # tears down inside the event loop's lifetime; without
+            # this, a later GC pass surfaces an unraisable
+            # ``BaseSubprocessTransport.__del__`` warning because
+            # the transport's deferred ``connection_lost`` call hits
+            # an already-closed loop.
+            await proc.wait()
             msg = "boom"
             raise RuntimeError(msg)
 
