@@ -311,6 +311,35 @@ def test_cache_args_no_devices_controller() -> None:
     assert controller._build_cache_args(job) == []
 
 
+def test_cache_args_rename_always_uses_cache_regardless_of_port() -> None:
+    """``rename`` runs an internal OTA install against the *old* address.
+
+    ``job.port`` on a rename row isn't a target — it's the value the
+    user picked for the post-rename re-install. The address-cache
+    shortcut applies to the inner OTA either way, so the rename
+    branch goes through ``get_address_cache_args`` directly and
+    bypasses the strict ``port == "OTA"`` gate that the
+    upload / install branches go through.
+    """
+    cache = ["--mdns-address-cache", "k.local=1.2.3.4"]
+    devices = MagicMock()
+    devices.get_address_cache_args.return_value = cache
+    # Side-effect deliberately returns [] so we'd notice if the
+    # rename branch leaked into the OTA-gated helper.
+    devices.get_ota_address_cache_args.side_effect = lambda *_args, **_kwargs: []
+    controller = _firmware_controller_with(devices)
+
+    job = FirmwareJob(
+        job_id="rename-1",
+        configuration="kitchen.yaml",
+        job_type=JobType.RENAME,
+        port="/dev/ttyUSB0",
+    )
+    assert controller._build_cache_args(job) == cache
+    devices.get_address_cache_args.assert_called_once_with("kitchen.yaml")
+    devices.get_ota_address_cache_args.assert_not_called()
+
+
 def test_command_places_cache_args_before_subcommand() -> None:
     """Esphome CLI parses ``--mdns-address-cache`` on the *top-level* parser.
 
