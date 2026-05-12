@@ -118,7 +118,17 @@ def main() -> None:
         help="Path to the ESPHome configuration directory",
     )
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="HTTP port to listen on")
-    parser.add_argument("--host", default=DEFAULT_HOST, help="Host/IP to bind to")
+    parser.add_argument(
+        "--host",
+        default=DEFAULT_HOST,
+        help=(
+            "Host/IP to bind to. Accepts an IP literal, a hostname, or a "
+            "local network interface name (e.g. ``eth0``) — the latter "
+            "binds to every IPv4 / IPv6 address currently assigned to "
+            "that interface. Useful in Docker host-network mode where "
+            "the container's LAN IP isn't known in advance"
+        ),
+    )
     parser.add_argument(
         "--username",
         default="",
@@ -145,7 +155,8 @@ def main() -> None:
         default="",
         help=(
             "Bind address for the HA Ingress site (defaults to all interfaces "
-            "inside the addon container)"
+            "inside the addon container). Accepts an IP literal or a local "
+            "network interface name (e.g. ``eth0``)"
         ),
     )
     parser.add_argument(
@@ -178,9 +189,12 @@ def main() -> None:
             "the LAN can reach the receiver — the peer-link's "
             "security is Noise + pre-shared pin, independent of bind "
             "address. Override (e.g. 127.0.0.1) only if you want to "
-            "restrict the receiver to a specific interface. Falls "
-            "back to $ESPHOME_REMOTE_BUILD_HOST when unset. Only "
-            "bound when remote-build is enabled in Settings"
+            "restrict the receiver to a specific interface. Accepts an "
+            "IP literal or a local network interface name (e.g. "
+            "``eth0``) — the latter binds to every IPv4 / IPv6 address "
+            "currently assigned to that interface. Falls back to "
+            "$ESPHOME_REMOTE_BUILD_HOST when unset. Only bound when "
+            "remote-build is enabled in Settings"
         ),
     )
     parser.add_argument(

@@ -72,7 +72,7 @@ def test_ha_addon_no_password_with_ingress_runs_ingress_only(
 
     captured: dict[str, object] = {}
 
-    def fake_run_app(app, *, host: str, port: int, **_: object) -> None:
+    def fake_run_app(app, *, host: list[str], port: int, **_: object) -> None:
         captured["host"] = host
         captured["port"] = port
         captured["trusted"] = bool(app.get("trusted_site"))
@@ -86,7 +86,10 @@ def test_ha_addon_no_password_with_ingress_runs_ingress_only(
 
     # Only the ingress site got bound — public port was suppressed.
     assert captured["port"] == 6053  # ingress_port
-    assert captured["host"] == "0.0.0.0"  # ingress_host fallback
+    # ``host`` is now always a list — ``resolve_bind_host`` wraps
+    # literals in a singleton so the bind code can fan out
+    # uniformly when the operator passes an interface name.
+    assert captured["host"] == ["0.0.0.0"]  # ingress_host fallback
     assert captured["trusted"] is True  # trusted=True (auth bypass)
 
     # The single create_app call was for the trusted ingress, with
@@ -146,7 +149,7 @@ def test_ha_addon_with_password_binds_public_site_normally(
 
     captured: dict[str, object] = {}
 
-    def fake_run_app(app, *, host: str, port: int, **_: object) -> None:
+    def fake_run_app(app, *, host: list[str], port: int, **_: object) -> None:
         captured["host"] = host
         captured["port"] = port
         captured["trusted"] = bool(app.get("trusted_site"))
@@ -156,7 +159,7 @@ def test_ha_addon_with_password_binds_public_site_normally(
 
     # Public port bound (auth gates it via using_password).
     assert captured["port"] == 6052
-    assert captured["host"] == "0.0.0.0"
+    assert captured["host"] == ["0.0.0.0"]
     assert captured["trusted"] is False
 
 
@@ -171,7 +174,7 @@ def test_non_ha_addon_binds_public_site_normally(make_settings: MakeSettingsFact
 
     captured: dict[str, object] = {}
 
-    def fake_run_app(app, *, host: str, port: int, **_: object) -> None:
+    def fake_run_app(app, *, host: list[str], port: int, **_: object) -> None:
         captured["host"] = host
         captured["port"] = port
 
@@ -181,7 +184,7 @@ def test_non_ha_addon_binds_public_site_normally(make_settings: MakeSettingsFact
     # Public port bound — non-add-on deployments get the legacy
     # default of "no auth required, user opts in via PASSWORD".
     assert captured["port"] == 6052
-    assert captured["host"] == "0.0.0.0"
+    assert captured["host"] == ["0.0.0.0"]
 
 
 async def test_start_and_stop_ingress_site_lifecycle(make_settings: MakeSettingsFactory) -> None:

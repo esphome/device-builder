@@ -91,7 +91,10 @@ class DashboardSettings:
     # ``127.0.0.1`` (desktop app loopback security model) while the
     # peer-link still needs to be LAN-reachable. Operators who want
     # to lock the receiver to a specific NIC can override via
-    # ``--remote-build-host`` / ``$ESPHOME_REMOTE_BUILD_HOST``.
+    # ``--remote-build-host`` / ``$ESPHOME_REMOTE_BUILD_HOST``. Accepts
+    # an IP literal or a local interface name (e.g. ``eth0``); the
+    # latter is resolved at bind time to every IPv4 / IPv6 address
+    # on the interface (see :func:`helpers.network_interfaces.resolve_bind_host`).
     remote_build_host: str = "0.0.0.0"
     # In dev mode the SPA shell is served with ``Cache-Control: no-cache``
     # so a re-deployed wheel isn't masked by a browser-cached

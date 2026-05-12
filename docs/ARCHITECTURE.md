@@ -285,6 +285,10 @@ Both gates apply only to requests that carry an `Origin` header. Browsers always
 
 Match is case-insensitive and port-tolerant: `dashboard.example.com` accepts `Dashboard.Example.com:8443`. IPv6 may be entered with or without brackets (`::1` and `[::1]` both work). Use `*` as the only entry to opt out of the Host restriction while still permitting cross-origin handshakes (handy when the Host varies per request).
 
+### Binding to a network interface name
+
+`--host`, `--ingress-host`, and `--remote-build-host` each accept either an IP literal (the usual `0.0.0.0` / `127.0.0.1` / a specific LAN IP) or a **local network interface name** (`eth0`, `wlan0`, `lo`, …). When the value matches an interface present on the host, the bind expands to every IPv4 / IPv6 address currently assigned to that interface.
+
 ## Discovery (mDNS)
 
 Two mDNS surfaces ride the same `AsyncEsphomeZeroconf` instance the device state monitor already owns. Sharing one Zeroconf singleton matters: opening a second responder fights for the same multicast socket and silently drops half the packets.

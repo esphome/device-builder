@@ -24,6 +24,7 @@ dependencies = [
   "cryptography>=42.0.2",
   "mashumaro>=3.13",
   "orjson>=3.9.0",
+  "psutil>=5.9.0",
   "pyyaml>=6.0",
   # ESPHome already ships ruamel.yaml as a transitive dependency,
   # but the automations editor's parse / upsert path imports it

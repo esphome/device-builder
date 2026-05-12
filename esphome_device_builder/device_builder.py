@@ -50,6 +50,7 @@ from .helpers.dashboard_advertise import DashboardAdvertiser
 from .helpers.dashboard_identity import get_or_create_identity as get_or_create_dashboard_identity
 from .helpers.event_bus import Event, EventBus, StreamControls, stream_events
 from .helpers.json import cors_middleware
+from .helpers.network_interfaces import resolve_bind_host
 from .helpers.peer_link_identity import PeerLinkIdentityStore
 from .helpers.subscriber_presence import SubscriberPresence
 from .models import EventType
@@ -768,15 +769,16 @@ class DeviceBuilder:
         ingress_app = self.create_app(trusted=True, with_lifecycle=False)
         runner = web.AppRunner(ingress_app)
         await runner.setup()
-        host = self.settings.ingress_host or "0.0.0.0"
-        site = web.TCPSite(runner, host, self.settings.ingress_port)
-        await site.start()
+        hosts = resolve_bind_host(self.settings.ingress_host or "0.0.0.0")
+        for host in hosts:
+            site = web.TCPSite(runner, host, self.settings.ingress_port)
+            await site.start()
+            _LOGGER.info(
+                "Ingress site listening on %s:%d (trusted, bypasses auth)",
+                host,
+                self.settings.ingress_port,
+            )
         self._ingress_runner = runner
-        _LOGGER.info(
-            "Ingress site listening on %s:%d (trusted, bypasses auth)",
-            host,
-            self.settings.ingress_port,
-        )
 
     async def _stop_ingress_site(self, _: web.Application) -> None:
         if self._ingress_runner is not None:
@@ -1113,13 +1115,14 @@ class DeviceBuilder:
             # (default 6055) cross-platform. The ephemeral-port test
             # path masks this risk because the OS picks a fresh port
             # each rebuild; production deploys with a fixed port.
-            site = web.TCPSite(
-                runner,
-                self.settings.remote_build_host,
-                configured_port,
-                reuse_address=True,
-            )
-            await site.start()
+            for host in resolve_bind_host(self.settings.remote_build_host):
+                site = web.TCPSite(
+                    runner,
+                    host,
+                    configured_port,
+                    reuse_address=True,
+                )
+                await site.start()
         except Exception:
             if runner is not None:
                 with contextlib.suppress(Exception):
@@ -1191,7 +1194,7 @@ class DeviceBuilder:
             app = self.create_app(trusted=True, with_ingress_site=False)
             web.run_app(
                 app,
-                host=settings.ingress_host or "0.0.0.0",
+                host=resolve_bind_host(settings.ingress_host or "0.0.0.0"),
                 port=settings.ingress_port,
                 shutdown_timeout=_SHUTDOWN_TIMEOUT_SECONDS,
             )
@@ -1199,7 +1202,7 @@ class DeviceBuilder:
         app = self.create_app()
         web.run_app(
             app,
-            host=settings.host,
+            host=resolve_bind_host(settings.host),
             port=settings.port,
             shutdown_timeout=_SHUTDOWN_TIMEOUT_SECONDS,
         )
