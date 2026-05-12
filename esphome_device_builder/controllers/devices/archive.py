@@ -54,12 +54,14 @@ async def archive_single(controller: DevicesController, configuration: str) -> N
                 "permanently delete the existing archive first."
             )
             raise FileExistsError(msg)
-        # Wipe build dir first (same shape as delete), then
-        # move the YAML, then clear the build-artifact
-        # sidecars while keeping stable identity fields so an
-        # unarchive of this same YAML restores its
-        # user-visible state. See the docstring for the
-        # keep / clear split.
+        # Wipe build dir + StorageJSON first (deliberate divergence from
+        # the upstream dashboard, which preserved StorageJSON on archive).
+        # Our ``ext_storage_path`` is per-filename keyed, so a future
+        # same-name device would otherwise inherit the archived device's
+        # stale firmware_bin_path / loaded_integrations / target_platform
+        # until recompiled. ``_archive_clear_device_sidecars`` keeps the
+        # stable identity fields (board_id, friendly_name, comment) so
+        # unarchive of the same YAML restores the user-visible state.
         _wipe_device_build_dir(configuration)
         shutil.move(str(config_path), str(target))
         _archive_clear_device_sidecars(config_dir, configuration)
