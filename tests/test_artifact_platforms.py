@@ -102,6 +102,12 @@ def test_lookup_returns_empty_for_unknown_platform() -> None:
     assert build_files_for_platform("nonexistent_platform") == ()
 
 
+@pytest.mark.parametrize("variant", ["ESP32S3", "ESP32C3", "ESP32H2", "ESP32S2", "ESP32C6"])
+def test_esp32_chip_variants_fold_to_esp32_module(variant: str) -> None:
+    """Every ESP32 chip variant resolves to the esp32 BUILD_FILES tuple."""
+    assert build_files_for_platform(variant) is esp32.BUILD_FILES
+
+
 def test_esp32_includes_multi_image_bootloader_set() -> None:
     """ESP32 wired flash needs bootloader + partitions + ota_data + firmware."""
     rendered = [f.format(name="kitchen") for f in esp32.BUILD_FILES]

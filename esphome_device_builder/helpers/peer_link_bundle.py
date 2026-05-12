@@ -65,15 +65,15 @@ BUNDLE_CHUNK_SIZE_BYTES = 32 * 1024
 # a bundle. May be revisited based on production bundle sizes.
 BUNDLE_MAX_TOTAL_BYTES = 4 * 1024 * 1024
 
-# Hard cap on the assembled firmware binary. Typical
-# ESP32 firmware is 800 KiB - 1.5 MiB; ESP32-S3 with PSRAM
-# can reach ~4 MiB; future variants may grow further. 16 MiB
-# is well above the realistic ceiling but bounded enough that
-# a misbehaving receiver can't pin arbitrary memory pretending
-# to send firmware. Same buffer-size rationale as
-# :data:`BUNDLE_MAX_TOTAL_BYTES`, just with the larger cap
-# the firmware-binary direction needs.
-FIRMWARE_MAX_TOTAL_BYTES = 16 * 1024 * 1024
+# Hard cap on the assembled firmware tarball. The materialise
+# pipeline ships the receiver's full build subtree (firmware
+# binaries + ``firmware.elf`` for picotool symbol resolution +
+# the StorageJSON / idedata / platformio.ini metadata). A real
+# ESP32-S3 build's ``firmware.elf`` alone runs ~22 MiB with
+# debug symbols, so the wire ceiling needs headroom above the
+# flashable image's size. 64 MiB is the bound; still finite so
+# a misbehaving receiver can't pin arbitrary memory.
+FIRMWARE_MAX_TOTAL_BYTES = 64 * 1024 * 1024
 
 
 class BundleAssemblerErrorCode(StrEnum):
