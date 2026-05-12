@@ -17,6 +17,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import sys
 import tarfile
 import time
 from pathlib import Path
@@ -198,8 +199,11 @@ def test_materialise_stages_validated_yaml_for_esphome_fast_path(
     with patch.object(CORE, "config_path", sentinel):
         staged = resolve_compiled_config_path("kitchen.yaml")
     assert staged.read_bytes() == cache_body
-    # 0600 because the cache resolves !secret inline.
-    assert (staged.stat().st_mode & 0o777) == 0o600
+    # 0600 because the cache resolves !secret inline. POSIX mode bits
+    # are inapplicable on Windows -- the offloader's chmod call is a
+    # no-op there, so skip the assertion rather than fight ACL shape.
+    if sys.platform != "win32":
+        assert (staged.stat().st_mode & 0o777) == 0o600
 
 
 def test_materialise_handles_missing_validated_yaml(
