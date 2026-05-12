@@ -32,7 +32,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-import esphome_device_builder.controllers.devices.controller as ctrl_mod
+import esphome_device_builder.controllers.devices.api_key as api_key_mod
 from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices.controller import StorageJSON
 from esphome_device_builder.helpers.event_bus import Event
@@ -333,7 +333,7 @@ async def test_get_api_key_falls_back_to_esphome_config_subprocess(
         return fake_proc
 
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(ctrl_mod, "create_subprocess_exec", _fake_create_subprocess)
+        mp.setattr(api_key_mod, "create_subprocess_exec", _fake_create_subprocess)
         result = await controller.get_api_key(configuration="kitchen.yaml")
 
     assert result == {"key": "ZGFzaGJvYXJkLWtleS1mcm9tLWVzcGhvbWUtY29uZmln"}
@@ -367,7 +367,7 @@ async def test_get_api_key_subprocess_returns_empty_on_nonzero_exit(
         return fake_proc
 
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(ctrl_mod, "create_subprocess_exec", _fake_create_subprocess)
+        mp.setattr(api_key_mod, "create_subprocess_exec", _fake_create_subprocess)
         result = await controller.get_api_key(configuration="kitchen.yaml")
 
     assert result == {"key": ""}
@@ -399,7 +399,7 @@ async def test_get_api_key_subprocess_returns_empty_on_unparsable_yaml(
         return fake_proc
 
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(ctrl_mod, "create_subprocess_exec", _fake_create_subprocess)
+        mp.setattr(api_key_mod, "create_subprocess_exec", _fake_create_subprocess)
         result = await controller.get_api_key(configuration="kitchen.yaml")
 
     assert result == {"key": ""}
@@ -427,7 +427,7 @@ async def test_get_api_key_subprocess_returns_empty_on_oserror(
         raise OSError("simulated subprocess startup failure")
 
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(ctrl_mod, "create_subprocess_exec", _boom)
+        mp.setattr(api_key_mod, "create_subprocess_exec", _boom)
         result = await controller.get_api_key(configuration="kitchen.yaml")
 
     assert result == {"key": ""}
@@ -453,7 +453,7 @@ async def test_get_api_key_skips_subprocess_when_fast_path_finds_key(
     spawn_spy = AsyncMock()
 
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(ctrl_mod, "create_subprocess_exec", spawn_spy)
+        mp.setattr(api_key_mod, "create_subprocess_exec", spawn_spy)
         result = await controller.get_api_key(configuration="kitchen.yaml")
 
     assert result == {"key": "a/c+inline-key=="}
@@ -485,7 +485,7 @@ async def test_get_api_key_fallback_skipped_when_esphome_cmd_unset(
     spawn_spy = AsyncMock()
 
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(ctrl_mod, "create_subprocess_exec", spawn_spy)
+        mp.setattr(api_key_mod, "create_subprocess_exec", spawn_spy)
         result = await controller.get_api_key(configuration="kitchen.yaml")
 
     assert result == {"key": ""}

@@ -9,6 +9,9 @@ resolving after the subpackage split. Submodules:
 - ``helpers`` — pure free functions (``_remove_device_sidecars``,
   ``_apply_featured_presets``, ``_build_address_cache_args``,
   ``friendly_name_slugify`` re-export).
+- ``api_key`` — Native API encryption-key resolver
+  (in-process YAML loader fast path + ``esphome config``
+  subprocess fallback).
 - ``archive`` — archive / unarchive / delete helpers + the
   bulk-fan-out runner.
 - ``firmware_sync`` — firmware-job → device-state sync helpers
