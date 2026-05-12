@@ -312,29 +312,32 @@ async def test_download_artifacts_pack_oversize_surfaces_unavailable(
 ) -> None:
     """Receiver-side ``RuntimeError`` from the packer rejects ``pack_failed`` → UNAVAILABLE.
 
-    Pins the soft-reject round-trip for the wire-size guard in
-    :func:`pack_build_artifacts._render_tarball`: when the
-    gzipped tarball would exceed
-    :data:`FIRMWARE_MAX_TOTAL_BYTES`, the packer raises
-    ``RuntimeError``; the receiver-side
+    Pins the soft-reject wire-surface mapping for any
+    ``RuntimeError`` raised by
+    :func:`pack_build_artifacts <controllers.remote_build.artifacts_tarball.pack_build_artifacts>`:
+    the receiver-side
     :meth:`ArtifactsDownloadSender.handle_download_artifacts`
     catches anything except ``FileNotFoundError`` and replies
     with a single ``artifacts_end{accepted: false, reason:
-    "pack_failed"}`` frame. The offloader-side WS layer maps
+    "pack_failed"}`` frame; the offloader-side WS layer maps
     that reason to :attr:`ErrorCode.UNAVAILABLE` via
-    :data:`_DOWNLOAD_ARTIFACTS_REASON_TO_ERROR_CODE`, so the
-    user sees a "remote build artifacts unavailable" surface
-    rather than a stack-trace toast.
+    :data:`_DOWNLOAD_ARTIFACTS_REASON_TO_ERROR_CODE`. The
+    end-to-end contract is the same regardless of which size
+    branch in
+    :func:`_render_tarball <controllers.remote_build.artifacts_tarball._render_tarball>`
+    fires; capping :data:`FIRMWARE_MAX_TOTAL_BYTES` to 10
+    triggers the per-member uncompressed pre-check with the
+    e2e fixture payloads. The unit test
+    ``test_render_tarball_rejects_oversized_on_the_wire`` pins
+    the post-render guard specifically.
     """
     await paired_instances.wait_until_session_opened()
     job = _seed_firmware_job(paired_instances)
     _write_build_artifacts_on_disk(tmp_path)
-    # Force the post-render wire-size guard by capping below
-    # the rendered tarball. With the e2e fixture's tiny test
-    # payloads the gzipped tarball is well over 10 bytes; the
-    # per-member uncompressed pre-check would also trip here,
-    # but either branch surfaces the same ``pack_failed``
-    # reason — the user-visible contract is identical.
+    # Cap below the smallest fixture file so the per-member
+    # uncompressed pre-check trips inside the packer. The wire
+    # shape we pin here (``pack_failed`` → UNAVAILABLE) is the
+    # same for any RuntimeError the packer raises.
     monkeypatch.setattr(
         "esphome_device_builder.controllers.remote_build.artifacts_tarball."
         "FIRMWARE_MAX_TOTAL_BYTES",
