@@ -83,8 +83,8 @@ async def test_validate_configurations_boundary_raises_on_bad_entry(
     Bulk handlers reject the whole batch on bad input rather than
     silently dropping the offending entry — a typo in one of N
     configurations is something the caller wants to know about,
-    not have masked by partial success. Rename-lock conflicts in
-    phase 2 stay skip-and-continue (transient state, not bad
+    not have masked by partial success. Rename-lock conflicts at
+    enqueue time stay skip-and-continue (transient state, not bad
     input).
     """
     controller = firmware_controller_factory()

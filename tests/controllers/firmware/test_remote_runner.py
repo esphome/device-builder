@@ -1,7 +1,7 @@
 """
 Tests for the source-routed firmware runner branch.
 
-Exercises ``FirmwareController._execute_remote_job`` (7a-2b)
+Exercises ``FirmwareController._execute_remote_job``
 end-to-end against a real :class:`EventBus`. The test scaffolding
 substitutes the bundle build + peer-link client surfaces with
 :class:`AsyncMock` shims so the runner's wire-event translation

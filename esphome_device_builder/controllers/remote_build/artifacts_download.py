@@ -92,7 +92,7 @@ _LOGGER = logging.getLogger(__name__)
 # Reject reason codes carried on
 # :class:`ArtifactsEndFrameData.reason` when ``accepted=False``.
 # Same idiom as :data:`controllers.remote_build.submit_job._REASON_*` —
-# the offloader-side submitter (6b) maps these to user-facing
+# the offloader-side submitter maps these to user-facing
 # error messages. Only soft-rejects appear here; protocol
 # violations (malformed frame shape) skip the ``artifacts_end``
 # path entirely and terminate the session with

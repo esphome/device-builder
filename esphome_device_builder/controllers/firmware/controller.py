@@ -504,10 +504,10 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         peer-link-connected, the resulting job carries
         ``source=REMOTE`` + ``source_pin_sha256=<pin>`` +
         ``source_label=<receiver_label>`` so the source-routed
-        runner (7a-2b) dispatches the compile to that receiver
-        and stages the resulting artifacts back for the local
-        flash step. Otherwise the job stays ``source=LOCAL``
-        and runs through the existing in-process subprocess
+        runner dispatches the compile to that receiver and stages
+        the resulting artifacts back for the local flash step.
+        Otherwise the job stays ``source=LOCAL`` and runs through
+        the existing in-process subprocess
         pipeline. Silent fallback by design — the user doesn't
         choose a build location; the scheduler routes
         transparently.
@@ -1840,10 +1840,10 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         friendly name).
 
         ``source`` / ``source_pin_sha256`` / ``source_label`` are
-        the offloader-side dispatch-origin fields (7a-2a):
-        ``LOCAL`` for jobs the offloader compiles itself, ``REMOTE``
-        for jobs the offloader dispatches to a paired receiver via
-        the source-routed runner (7a-2b). ``source_pin_sha256``
+        the offloader-side dispatch-origin fields: ``LOCAL`` for
+        jobs the offloader compiles itself, ``REMOTE`` for jobs
+        the offloader dispatches to a paired receiver via the
+        source-routed runner. ``source_pin_sha256``
         identifies the receiver; ``source_label`` is the display
         name. Defaults make every existing call site continue to
         produce LOCAL jobs.
