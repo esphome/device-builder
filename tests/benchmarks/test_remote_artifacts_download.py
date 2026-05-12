@@ -30,7 +30,6 @@ simulation runner already runs each benchmark exactly once.
 from __future__ import annotations
 
 import asyncio
-import json
 import secrets
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
@@ -41,15 +40,13 @@ import pytest
 from esphome.core import CORE
 from pytest_codspeed import BenchmarkFixture
 
-from esphome_device_builder.helpers.storage_path import (
-    resolve_idedata_path,
-    resolve_storage_path,
-)
+from esphome_device_builder.helpers.storage_path import resolve_idedata_path
 from esphome_device_builder.models import (
     FirmwareJob,
     JobStatus,
     JobType,
 )
+from tests._storage_fixtures import write_storage_json
 from tests.manual._mock_remote_e2e import MockPair, paired_dashboards
 
 _FIRMWARE_BLOB_BYTES = 32 * 1024
@@ -73,26 +70,16 @@ def _stage_receiver_artifacts(blob: bytes, configuration: str = "kitchen.yaml") 
     firmware_bin.write_bytes(blob)
     (build_path / "platformio.ini").write_text("[env:e2e]\nplatform = espressif32\n")
 
-    storage_path = resolve_storage_path(configuration)
-    storage_path.parent.mkdir(parents=True, exist_ok=True)
-    storage_path.write_text(
-        json.dumps(
-            {
-                "storage_version": 1,
-                "name": name,
-                "esp_platform": "esp32",
-                "build_path": str(build_path),
-                "firmware_bin_path": str(firmware_bin),
-                "loaded_integrations": [],
-                "loaded_platforms": [],
-                "no_mdns": False,
-                "framework": "arduino",
-                "core_platform": "esp32",
-                "target_platform": "esp32",
-            }
-        )
-        + "\n",
-        encoding="utf-8",
+    # ``CORE.data_dir`` is ``<config_dir>/.esphome`` in default
+    # mode; the helper appends ``.esphome/storage/`` to its
+    # ``tmp_path`` arg, so passing the parent lines it up with
+    # ``resolve_storage_path``.
+    write_storage_json(
+        data_dir.parent,
+        configuration,
+        build_path=build_path,
+        firmware_bin_path=firmware_bin,
+        overrides={"target_platform": "esp32"},
     )
 
     idedata_path = resolve_idedata_path(configuration, name=name)
