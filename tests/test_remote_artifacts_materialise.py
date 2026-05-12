@@ -578,6 +578,28 @@ def test_materialise_rejects_cumulative_member_size(
         _materialise_in_tmp(tarball, tmp_path)
 
 
+def test_materialise_rejects_cumulative_metadata_size(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Metadata reads share one running cap so a hostile peer can't stuff each member.
+
+    storage.json + idedata.json each fit under the cap individually
+    but together breach it; the threaded running total catches the
+    breach on the second read.
+    """
+    monkeypatch.setattr(
+        "esphome_device_builder.helpers.remote_artifacts_materialise.FIRMWARE_MAX_TOTAL_BYTES",
+        500,
+    )
+    bloated = b"x" * 300
+    tarball = _synthetic_tarball(
+        storage=bloated,
+        idedata=bloated,
+    )
+    with pytest.raises(MaterialiseError, match=r"cumulative size"):
+        _materialise_in_tmp(tarball, tmp_path)
+
+
 def test_materialise_rejects_unreadable_storage_member(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
