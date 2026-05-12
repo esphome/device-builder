@@ -69,11 +69,13 @@ BUNDLE_MAX_TOTAL_BYTES = 4 * 1024 * 1024
 # pipeline ships the receiver's full build subtree (firmware
 # binaries + ``firmware.elf`` for picotool symbol resolution +
 # the StorageJSON / idedata / platformio.ini metadata). A real
-# ESP32-S3 build's ``firmware.elf`` alone runs ~22 MiB with
-# debug symbols, so the wire ceiling needs headroom above the
-# flashable image's size. 64 MiB is the bound; still finite so
-# a misbehaving receiver can't pin arbitrary memory.
-FIRMWARE_MAX_TOTAL_BYTES = 64 * 1024 * 1024
+# ESP32-S3 build's ``firmware.elf`` alone runs 22+ MiB with
+# debug symbols, and feature-heavy Apollo-style configs have
+# been observed pushing past 120 MiB once every flashable
+# image lands in the tarball. 256 MiB is the bound; finite
+# enough that a misbehaving receiver can't pin arbitrary
+# memory while leaving headroom for further firmware growth.
+FIRMWARE_MAX_TOTAL_BYTES = 256 * 1024 * 1024
 
 
 class BundleAssemblerErrorCode(StrEnum):
