@@ -19,6 +19,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+from collections.abc import Coroutine
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -307,13 +309,13 @@ def test_main_suppresses_keyboard_interrupt() -> None:
     traceback on every clean exit.
     """
 
-    def _close_and_interrupt(coro: object) -> None:
+    def _close_and_interrupt(coro: Coroutine[Any, Any, Any]) -> None:
         # ``main()`` constructs ``_run(args)`` synchronously and
         # passes the coroutine into ``asyncio.run``; a bare
         # ``side_effect=KeyboardInterrupt`` would leak the
         # never-awaited coro and trip the suite's
         # ``coroutine '_run' was never awaited`` RuntimeWarning.
-        coro.close()  # type: ignore[attr-defined]
+        coro.close()
         raise KeyboardInterrupt
 
     with (
@@ -339,11 +341,11 @@ def test_main_runs_to_completion_when_inner_returns() -> None:
     paths beyond the Ctrl-C suppression).
     """
 
-    def _close_and_return(coro: object) -> None:
+    def _close_and_return(coro: Coroutine[Any, Any, Any]) -> None:
         # Same coro-leak guard as ``_close_and_interrupt`` above —
         # close the never-awaited ``_run(args)`` to keep the
         # ``never awaited`` warning out of the suite.
-        coro.close()  # type: ignore[attr-defined]
+        coro.close()
 
     with (
         patch(
