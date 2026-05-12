@@ -487,12 +487,16 @@ async def test_remote_compile_materialises_for_local_firmware_download(
     )
 
     # Fail loud if the scheduler would have picked LOCAL — silent
-    # local fallback masks the whole point of this test.
-    queue_status = capture_events(
-        paired_instances.offloader_bus, EventType.OFFLOADER_QUEUE_STATUS_CHANGED
-    )
-    await asyncio.wait_for(queue_status.received.wait(), timeout=2.0)
+    # local fallback masks the whole point of this test. The
+    # receiver's queue_status push can land before or after the
+    # paired_instances fixture returns (event-vs-fixture race);
+    # poll the cache + scheduler decision instead of waiting on
+    # a one-shot event we might have missed.
+    deadline = asyncio.get_event_loop().time() + 2.0
     decision = pick_build_path(paired_instances.offloader.build_scheduler_snapshot())
+    while decision.path is not BuildPath.REMOTE and asyncio.get_event_loop().time() < deadline:
+        await asyncio.sleep(0.02)
+        decision = pick_build_path(paired_instances.offloader.build_scheduler_snapshot())
     assert decision.path is BuildPath.REMOTE, (
         f"scheduler picked {decision.path} — expected REMOTE for the e2e to be meaningful"
     )
