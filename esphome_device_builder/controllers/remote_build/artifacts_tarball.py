@@ -180,33 +180,40 @@ def _collect_pack_members(
         (IDEDATA_MEMBER_NAME, idedata_cache_path),
         (PLATFORMIO_INI_MEMBER_NAME, platformio_ini),
     ]
-    seen: set[str] = set()
-    for template in build_files:
-        rel = template.format(name=storage.name)
+    # Dedupe by basename, not full path: the WS-unpack adapter
+    # keys flash images by basename, so a build emitting both
+    # ``.pioenvs/<name>/firmware.factory.bin`` and
+    # ``build/firmware.factory.bin`` would otherwise produce a
+    # tarball the offloader's adapter rejects. First-wins
+    # ordering (BUILD_FILES list order) picks the canonical copy.
+    seen_basenames: set[str] = set()
+
+    def _maybe_add(rel: str) -> None:
         abs_path = build_path / rel
-        if abs_path.is_file() and rel not in seen:
-            members.append((rel, abs_path))
-            seen.add(rel)
+        if not abs_path.is_file():
+            return
+        basename = Path(rel).name
+        if basename in seen_basenames:
+            return
+        members.append((rel, abs_path))
+        seen_basenames.add(basename)
+
+    for template in build_files:
+        _maybe_add(template.format(name=storage.name))
 
     # Every file ``get_download_types`` lists for this platform
     # must travel too so the offloader's ``firmware/get_binaries``
     # + ``firmware/download`` surface matches the legacy
-    # esphome.dashboard set (factory.bin, ota.bin, libretiny's
-    # per-chip outputs from firmware.json, nRF52's zephyr.uf2 /
-    # zephyr.hex / etc.).
+    # esphome.dashboard set.
     firmware_bin = Path(storage.firmware_bin_path)
     pioenvs_rel = _relative_or_raise(firmware_bin.parent, build_path, configuration=configuration)
     for download_file in _download_type_files(storage):
-        rel = f"{pioenvs_rel}/{download_file}"
-        abs_path = build_path / rel
-        if abs_path.is_file() and rel not in seen:
-            members.append((rel, abs_path))
-            seen.add(rel)
+        _maybe_add(f"{pioenvs_rel}/{download_file}")
 
     # firmware_bin_path MUST be in the tarball — otherwise the
     # offloader stages a tree where firmware/download misses.
     firmware_bin_rel = _relative_or_raise(firmware_bin, build_path, configuration=configuration)
-    if firmware_bin_rel not in seen:
+    if firmware_bin.name not in seen_basenames:
         msg = (
             f"firmware_bin_path {firmware_bin_rel!r} not covered by BUILD_FILES "
             f"for target_platform={storage.target_platform!r}"

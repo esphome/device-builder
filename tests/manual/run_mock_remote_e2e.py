@@ -65,7 +65,7 @@ async def main() -> int:
 
     async with paired_dashboards(root_dir=workdir, yaml_source=yaml_path) as pair:
         print(f"Paired pin_sha256={pair.pin_sha256}")
-        print(f"Receiver dashboard_id={pair.offloader_dashboard_id}")
+        print(f"Offloader dashboard_id (as tracked by receiver)={pair.offloader_dashboard_id}")
 
         # Stream log lines as the receiver compiles + the offloader uploads.
         def _on_output(event: object) -> None:
