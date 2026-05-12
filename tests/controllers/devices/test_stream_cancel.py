@@ -258,17 +258,7 @@ async def test_stream_logs_command_includes_dashboard_flag(
 async def test_stream_logs_command_without_port_defaults_to_ota(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """No port given → ``--device OTA`` (don't let esphome fall into an interactive prompt).
-
-    Regression guard for #636 — the frontend's browser-serial log
-    dialog leaves ``port`` empty after a Stop → Start cycle, and
-    without a default the CLI saw multiple options
-    (``/dev/ttyACM0`` + ``/dev/ttyUSB0`` + OTA) and tried to
-    ``input()`` for the port choice. Our subprocess has no stdin
-    attached, so that crashed with ``EOFError``. Defaulting to OTA
-    mirrors the legacy dashboard's always-supply-a-target shape
-    and ``firmware/install``'s default.
-    """
+    """No port given → ``--device OTA`` (regression guard for #636)."""
     ctrl = _make_controller_with_settings(make_controller, tmp_path, ["esphome"])
     captured: list[list[str]] = []
 
