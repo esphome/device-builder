@@ -35,7 +35,7 @@ def _stub_controller(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Devices
     """
     storage_path = tmp_path / "ignored-devices.json"
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.ignored_devices_storage_path",
+        "esphome_device_builder.controllers.devices.importable.ignored_devices_storage_path",
         lambda: storage_path,
     )
     ctrl = DevicesController.__new__(DevicesController)

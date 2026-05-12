@@ -157,7 +157,7 @@ async def test_start_runs_full_initialisation_chain(
     # something real to process — otherwise it's silently a no-op
     # and we wouldn't observe the executor-dispatch call shape.
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.ignored_devices_storage_path",
+        "esphome_device_builder.controllers.devices.importable.ignored_devices_storage_path",
         lambda: tmp_path / "ignored-devices.json",
     )
     (tmp_path / "ignored-devices.json").write_bytes(

@@ -13,15 +13,12 @@ import contextlib
 import logging
 import os
 from collections.abc import Awaitable, Callable
-from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
-from esphome import const
-from esphome.components.dashboard_import import import_config
 from esphome.helpers import write_file as atomic_write_file
-from esphome.storage_json import StorageJSON, ignored_devices_storage_path
+from esphome.storage_json import StorageJSON
 from esphome.zeroconf import AsyncEsphomeZeroconf
 
 from ...helpers.api import CommandError, api_command
@@ -37,7 +34,6 @@ from ...helpers.device_yaml import (
     parse_platform_from_yaml,
 )
 from ...helpers.event_bus import Event
-from ...helpers.json import JSONDecodeError, dumps_indent, loads
 from ...helpers.mac_addresses import derive_interface_macs
 from ...helpers.process import kill_quietly
 from ...helpers.storage_path import resolve_storage_path
@@ -61,8 +57,6 @@ from ...models import (
     DeviceStateChangedData,
     ErrorCode,
     EventType,
-    ImportableDeviceAddedData,
-    ImportableDeviceRemovedData,
     JobLifecycleData,
     StreamEvent,
     UpdateDeviceResponse,
@@ -80,7 +74,7 @@ from ..config import (
     set_device_metadata,
 )
 from ..firmware.helpers import _find_esphome_cmd
-from . import archive, firmware_sync, reachability, storage_regen
+from . import archive, firmware_sync, importable, reachability, storage_regen
 from ._yaml_search import (
     DEFAULT_CONTEXT_LINES,
     MAX_CONTEXT_LINES,
@@ -1670,161 +1664,19 @@ class DevicesController:  # noqa: PLR0904 (grandfathered; new public methods nee
         **kwargs: Any,
     ) -> dict:
         """Import / adopt a discovered device."""
-        configuration = f"{name}.yaml"
-        path = self._db.settings.rel_path(configuration)
-        # Honour the network type the discovery TXT advertised — an
-        # ESP32-PoE / Olimex / etc. broadcasts ``network=ethernet``
-        # and the imported template needs to start from
-        # ``ethernet:`` rather than the Wi-Fi default.
-        #
-        # Prefer the direct ``name`` → ``import_result`` lookup since
-        # factory firmware broadcasts with a MAC suffix
-        # (``apollo-plt-1-983300``), which keeps each entry unique
-        # per physical device even when multiple identical products
-        # share the same ``package_import_url``. The frontend
-        # pre-fills the adoption dialog with the discovery row's
-        # broadcast name, so this matches in the common path.
-        # Fall back to a ``package_import_url`` match only when the
-        # user edited the name during adoption — at that point the
-        # ``import_result`` key no longer matches. The fallback is
-        # technically ambiguous between identical-product devices,
-        # but those share the same ``network`` value so picking
-        # whichever lands first is correct in practice.
-        # Final fallback to Wi-Fi when no row matches at all (older
-        # factory firmware that didn't advertise the field, or a
-        # discovery row that was already purged).
-        adoptable = self.import_result.get(name) or next(
-            (d for d in self.import_result.values() if d.package_import_url == package_import_url),
-            None,
+        return await importable.import_device(
+            self,
+            name=name,
+            project_name=project_name,
+            package_import_url=package_import_url,
+            friendly_name=friendly_name,
+            encryption=encryption,
         )
-        network = adoptable.network if adoptable and adoptable.network else const.CONF_WIFI
-        loop = asyncio.get_running_loop()
-        try:
-            await loop.run_in_executor(
-                None,
-                import_config,
-                path,
-                name,
-                friendly_name,
-                project_name,
-                package_import_url,
-                network,
-                encryption,
-            )
-        except FileExistsError as exc:
-            # ``import_config`` refuses to overwrite an existing YAML.
-            # Surface this as a user-facing error so the dialog can
-            # show "Configuration <file> already exists" instead of
-            # the WS layer's generic "Command failed".
-            msg = f"Configuration {configuration} already exists"
-            raise CommandError(ErrorCode.INVALID_ARGS, msg) from exc
-
-        # Validate the freshly-written YAML before announcing it.
-        # ``import_config`` produces a wizard-style YAML by
-        # construction, but a regression upstream — or a project
-        # whose ``packages:`` reference doesn't resolve cleanly
-        # against the current esphome / zeroconf state — would
-        # otherwise leave an unflashable YAML on disk that every
-        # downstream operation refuses. Hand the helper an
-        # ``on_error_cleanup`` so any non-success path (validation
-        # rejection, validator subprocess wedged, ...) unlinks
-        # the half-imported file before re-raising — without it
-        # a retry would trip ``FileExistsError`` on the leftover
-        # YAML. The window between ``import_config`` and the
-        # cleanup is short and the scanner only runs on poll (no
-        # inotify watcher), so no half-imported device leaks
-        # into ``devices/list``.
-        def _read() -> str:
-            return path.read_text(encoding="utf-8")
-
-        def _cleanup() -> None:
-            path.unlink(missing_ok=True)
-
-        try:
-            content = await loop.run_in_executor(None, _read)
-        except (OSError, UnicodeDecodeError):
-            # Transient FS error or non-UTF-8 bytes in what we
-            # just wrote via ``import_config``. Roll back either
-            # way so a retry doesn't see a leftover file.
-            await loop.run_in_executor(None, _cleanup)
-            raise
-        await self._validate_rewritten_yaml_or_raise(
-            configuration, content, action="import", on_error_cleanup=_cleanup
-        )
-
-        # Picking up the new YAML is best-effort — if the scanner
-        # hiccups (e.g. a transient stat error on a network mount),
-        # the next periodic scan will catch it. We've already written
-        # the YAML, so failing the whole command here would lie to
-        # the user and trip a follow-up FileExistsError if they retry.
-        try:
-            await self._scanner.scan()
-        except Exception:
-            _LOGGER.exception("Scan after import failed; will pick up on next poll")
-
-        # Drop the discovery banner entry: the device is now configured,
-        # so it shouldn't continue to show up under "Discovered". The
-        # importable cache key is the device's mDNS-advertised name,
-        # which usually matches the user-chosen YAML name but may
-        # differ (e.g. they edited the MAC suffix off). Match by
-        # ``package_import_url`` so we always find the right entry,
-        # and remember the cached name so we can use it for the
-        # zeroconf-cache lookup below — the device is broadcasting
-        # under that name, not the YAML name.
-        cached_names = [
-            n for n, d in self.import_result.items() if d.package_import_url == package_import_url
-        ]
-        for cached_name in cached_names:
-            self._on_importable_removed(cached_name)
-        mdns_name = cached_names[0] if cached_names else name
-
-        # Skip-the-wait state seed. We just adopted a device that was
-        # advertising on mDNS milliseconds ago, so the next ping sweep
-        # would only confirm what zeroconf already knew. Pull the
-        # cached IP out of zeroconf — keyed by the mDNS-advertised
-        # name, not the user's chosen YAML name — and apply both
-        # ONLINE and the address right away so the new card lands
-        # online instead of blinking through OFFLINE for ~10s.
-        self._state_monitor.apply(name, DeviceState.ONLINE, "mdns", claim=True)
-        cached = self._state_monitor.get_cached_addresses(f"{mdns_name}.local")
-        if cached:
-            self._state_monitor.apply_ip_addresses(name, cached)
-        # Eagerly probe the esphomelib service so the new card lands
-        # with version / config_hash / api_encryption populated, not
-        # just IP. The device on the network is still broadcasting
-        # under its factory-firmware ``mdns_name`` (the user may have
-        # picked a different YAML name during adoption), so look up
-        # the service under that name but apply the result against
-        # the configured device's chosen name. Cache hit returns
-        # synchronously; otherwise the probe runs as a fire-and-
-        # forget task whose results land via the same
-        # browser-callback path. The ``_on_scan_change`` handler
-        # also probes when the scan picked up the new YAML, but it
-        # uses the YAML name only — for adoption that name has no
-        # mDNS broadcast yet, so this explicit call covers the
-        # rename-during-adopt case.
-        self._state_monitor.probe_device(name, service_name=mdns_name)
-        return {"configuration": configuration}
 
     @api_command("devices/ignore")
     async def toggle_ignore(self, *, name: str, ignore: bool = True, **kwargs: Any) -> None:
         """Mark a discovered device as ignored / visible in the import list."""
-        if ignore:
-            self.ignored_devices.add(name)
-        else:
-            self.ignored_devices.discard(name)
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, self._save_ignored_devices)
-        # Mirror the new flag onto the cached AdoptableDevice and
-        # re-publish ADDED so subscribed frontends update the badge
-        # without waiting for a full re-discovery cycle.
-        existing = self.import_result.get(name)
-        if existing is not None and existing.ignored != ignore:
-            updated = replace(existing, ignored=ignore)
-            self.import_result[name] = updated
-            self._db.bus.fire(
-                EventType.IMPORTABLE_DEVICE_ADDED, ImportableDeviceAddedData(device=updated)
-            )
+        await importable.toggle_ignore(self, name=name, ignore=ignore)
 
     # ------------------------------------------------------------------
     # API commands — per-connection streams (validate, logs)
@@ -2417,34 +2269,14 @@ class DevicesController:  # noqa: PLR0904 (grandfathered; new public methods nee
             self._fire_device_updated(device)
 
     def _on_importable_added(self, device: AdoptableDevice) -> None:
-        """Stash a newly-discovered importable device and notify subscribers."""
-        # Keyed by device name so ``devices/list`` can dedupe against
-        # configured devices and ``devices/ignore`` can flip the flag
-        # by name without juggling the full mdns service-instance.
-        self.import_result[device.name] = device
-        self._db.bus.fire(
-            EventType.IMPORTABLE_DEVICE_ADDED, ImportableDeviceAddedData(device=device)
-        )
+        importable.on_importable_added(self, device)
 
     def _on_importable_removed(self, name: str) -> None:
-        """Forget an importable device that disappeared from mDNS."""
-        if self.import_result.pop(name, None) is None:
-            return
-        self._db.bus.fire(
-            EventType.IMPORTABLE_DEVICE_REMOVED, ImportableDeviceRemovedData(name=name)
-        )
+        importable.on_importable_removed(self, name)
 
     def get_importable_devices(self) -> list[AdoptableDevice]:
-        """
-        Snapshot of the current importable list (used for ``initial_state``).
-
-        Filters against the configured-name set on every call so an
-        adoption that landed without an mDNS Removed (the device kept
-        announcing on its old name) doesn't leak through into the
-        seed a fresh page load gets.
-        """
-        configured_names = {d.name for d in self._scanner.devices}
-        return [d for d in self.import_result.values() if d.name not in configured_names]
+        """Snapshot of the current importable list (used for ``initial_state``)."""
+        return importable.get_importable_devices(self)
 
     def _on_firmware_job_completed(self, event: Event[JobLifecycleData]) -> None:
         firmware_sync.on_job_completed(self, event)
@@ -2485,44 +2317,10 @@ class DevicesController:  # noqa: PLR0904 (grandfathered; new public methods nee
         )
 
     def _load_ignored_devices(self) -> None:
-        storage_path = ignored_devices_storage_path()
-        try:
-            raw = storage_path.read_bytes()
-        except FileNotFoundError:
-            return
-        try:
-            data = loads(raw)
-        except JSONDecodeError:
-            # A corrupt file shouldn't tank controller bootstrap —
-            # start with an empty ignored set and let the next
-            # toggle_ignore call rewrite it cleanly.
-            _LOGGER.warning(
-                "Ignored-devices file at %s is corrupt; starting with an empty set",
-                storage_path,
-            )
-            return
-        if not isinstance(data, dict):
-            _LOGGER.warning(
-                "Ignored-devices file at %s isn't a JSON object; starting with an empty set",
-                storage_path,
-            )
-            return
-        ignored = data.get("ignored_devices", [])
-        if not isinstance(ignored, list):
-            _LOGGER.warning(
-                "Ignored-devices file at %s has a non-list ``ignored_devices`` "
-                "field; resetting to an empty set",
-                storage_path,
-            )
-            self.ignored_devices = set()
-            return
-        self.ignored_devices = {name for name in ignored if isinstance(name, str)}
+        importable.load_ignored_devices(self)
 
     def _save_ignored_devices(self) -> None:
-        storage_path = ignored_devices_storage_path()
-        storage_path.write_bytes(
-            dumps_indent({"ignored_devices": sorted(self.ignored_devices)}),
-        )
+        importable.save_ignored_devices(self)
 
     async def _archive_single(self, configuration: str) -> None:
         await archive.archive_single(self, configuration)

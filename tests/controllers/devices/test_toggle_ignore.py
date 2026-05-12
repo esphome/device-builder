@@ -70,7 +70,7 @@ def _patch_ignored_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None
     """
     target = tmp_path / "ignored-devices.json"
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.ignored_devices_storage_path",
+        "esphome_device_builder.controllers.devices.importable.ignored_devices_storage_path",
         lambda: target,
     )
 
