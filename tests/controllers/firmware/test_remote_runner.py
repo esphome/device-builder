@@ -93,6 +93,10 @@ def _wire_remote_build(
     return remote_build, client
 
 
+def _make_packed_artifacts(tarball: bytes = b"FAKE-TARBALL") -> DownloadArtifactsResult:
+    return DownloadArtifactsResult(tarball=tarball, firmware_offset="0x10000")
+
+
 def _make_client(
     *,
     accepted: bool = True,
@@ -127,6 +131,12 @@ def _make_client(
         client.cancel_job = AsyncMock(side_effect=cancel_error)
     else:
         client.cancel_job = AsyncMock(return_value=cancel_return)
+    # Default so COMPILE / UPLOAD / INSTALL tests don't have to
+    # wire it per-test — the runner now goes through
+    # ``_fetch_and_materialise`` for every non-CLEAN COMPLETED
+    # job. Tests that want to inspect the call or simulate
+    # failure override this assignment.
+    client.download_artifacts = AsyncMock(return_value=_make_packed_artifacts())
     return client
 
 
@@ -1416,13 +1426,15 @@ def _wire_upload_subprocess(
     controller._build_cache_args = lambda _job: []
 
 
-def _make_packed_artifacts(tarball: bytes = b"FAKE-TARBALL") -> DownloadArtifactsResult:
-    return DownloadArtifactsResult(tarball=tarball, firmware_offset="0x10000")
-
-
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def patch_materialise(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
-    """Stub ``materialise_remote_artifacts`` so the runner skips real I/O."""
+    """Autouse: stub ``materialise_remote_artifacts`` so the runner skips real I/O.
+
+    Every test in this file exercises the runner; the runner now
+    materialises for every non-CLEAN COMPLETED job. Autouse keeps
+    per-test signatures uncluttered; tests that want to inspect
+    or override the stub still request the fixture by name.
+    """
     stub = MagicMock(return_value=Path("/fake/staged/build/path"))
     monkeypatch.setattr(remote_runner, "materialise_remote_artifacts", stub)
     return stub
@@ -1725,45 +1737,28 @@ async def test_run_upload_subprocess_cancel_landing_between_pre_check_and_spawn_
 
 
 @pytest.mark.asyncio
-async def test_fetch_and_run_local_upload_cancel_pre_spawn_skips_subprocess(
+async def test_fetch_and_materialise_cancel_post_staging_finalises_locally(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_materialise: MagicMock,
 ) -> None:
-    """
-    Cancel landing between extract + spawn skips the subprocess.
+    """Cancel landing during the wire / extract executor hops finalises the job locally.
 
-    The wire round-trip (``download_artifacts``) and the
-    in-executor tarball extract have already happened by the
-    time the check fires — those couldn't be cancelled
-    cleanly anyway. The check guards the staging + spawn
-    phase: a cancel that arrived between the executor hop
-    and the spawn finalises the job locally without writing
-    the tmpdir or starting ``esphome upload``.
-
-    Unit-tested directly because the outer runner routes
-    most cancel races through ``_await_terminal``'s in-loop
-    check — this defensive gate is only reachable via the
-    helper's own entry. Pinning it here keeps the branch
-    alive against a future refactor that introduces an
-    ``await`` between ``_await_terminal`` and this helper.
+    download_artifacts + materialise happen first (they can't be
+    cleanly cancelled mid-flight); the post-staging cancel check
+    then routes through ``_finalize_cancelled`` and returns
+    ``False`` so the caller skips the spawn.
     """
     controller = firmware_controller_factory(with_terminate=True)
     captured = _capture_local_events(controller)
     client = _make_client()
-    client.download_artifacts = AsyncMock(return_value=_make_packed_artifacts())
-
-    # Track spawn attempts: ``_tracked_subprocess`` is an
-    # async context manager on the controller; a successful
-    # cancel-pre-spawn skip means it's never invoked.
-    controller._tracked_subprocess = MagicMock(  # type: ignore[method-assign]
-        side_effect=AssertionError("subprocess should not have spawned")
-    )
-
     job = _make_remote_install_job()
     controller._cancel_requested.add(job.job_id)
 
-    await remote_runner._fetch_and_run_local_upload(controller=controller, job=job, client=client)
+    proceed = await remote_runner._fetch_and_materialise(
+        controller=controller, job=job, client=client
+    )
 
+    assert proceed is False
     assert job.status == JobStatus.CANCELLED
     assert len(captured[EventType.JOB_CANCELLED]) == 1
     client.download_artifacts.assert_awaited_once()

@@ -223,7 +223,7 @@ async def run_remote_job(
         controller._cancel_events.pop(job.job_id, None)
 
 
-async def _dispatch_and_drive(  # noqa: PLR0911
+async def _dispatch_and_drive(  # noqa: PLR0911, PLR0912
     *,
     controller: FirmwareController,
     job: FirmwareJob,
@@ -352,16 +352,19 @@ async def _dispatch_and_drive(  # noqa: PLR0911
         # left to do.
         return
 
-    # Receiver finished its half successfully. For COMPILE
-    # and CLEAN that's the whole job; for UPLOAD / INSTALL we
-    # still owe the local flash step using the receiver's
-    # bytes.
-    if job.job_type in (JobType.COMPILE, JobType.CLEAN):
-        # Stamp ``exit_code=0`` because the remote work didn't
-        # run a local subprocess. The legacy ``follow_job``
-        # framing coerces ``None`` to a failure code (``1``),
-        # so a missing stamp would land a successful run as a
-        # failure on the wire.
+    # Receiver finished its half. CLEAN is wipe-only (no
+    # artifacts to fetch); COMPILE needs the artifacts staged
+    # locally so firmware/download serves them; UPLOAD / INSTALL
+    # need that plus the local flash subprocess.
+    if job.job_type is JobType.CLEAN:
+        # ``exit_code=0`` stamp keeps the legacy follow_job
+        # framing from coercing ``None`` to a failure code.
+        job.exit_code = 0
+        _finalize_success(controller, job)
+        return
+    if not await _fetch_and_materialise(controller=controller, job=job, client=client):
+        return
+    if job.job_type is JobType.COMPILE:
         job.exit_code = 0
         _finalize_success(controller, job)
         return
@@ -503,46 +506,18 @@ async def _await_terminal(
     return status
 
 
-async def _fetch_and_run_local_upload(
+async def _fetch_and_materialise(
     *,
     controller: FirmwareController,
     job: FirmwareJob,
     client: PeerLinkClient,
-) -> None:
-    """
-    Pull the receiver's compile artifacts and flash the device locally.
+) -> bool:
+    """Download the receiver's tarball and materialise it on the offloader.
 
-    Called once the receiver returned ``completed`` for an
-    ``UPLOAD`` / ``INSTALL`` job. The transparent install
-    contract says the offloader owns the flash step — only
-    the *compile* hops to the receiver. So:
-
-    1. Fetch the artifact tarball via
-       :meth:`PeerLinkClient.download_artifacts`.
-    2. Materialise the tarball into ``<data_dir>/build/<name>/``
-       via :func:`helpers.remote_artifacts_materialise.materialise_remote_artifacts`.
-       After this returns the offloader's filesystem looks as
-       if a local compile produced the build — esphome's upload
-       dispatch resolves through ``CORE.firmware_bin`` /
-       ``CORE.relative_pioenvs_path`` / the cached idedata at
-       ``<data_dir>/idedata/<name>.json`` against the staged
-       tree.
-    3. Spawn ``esphome upload <yaml> --device <port>`` (no
-       ``--file``, no per-platform code on our side) through
-       :meth:`FirmwareController._tracked_subprocess` so the
-       cancel handler's SIGTERM lands on the subprocess if the
-       user clicks Stop mid-upload.
-    4. Stream stdout through :func:`helpers._ingest_output_line`
-       — same per-line bookkeeping (buffer / trim / fire
-       ``JOB_OUTPUT`` + ``JOB_PROGRESS``) every local
-       subscriber already consumes.
-    5. Finalise based on exit code + cancel state, same shape
-       the local subprocess path uses.
-
-    Wire failures, materialise failures, and a non-zero upload
-    exit fail the job locally with ``JOB_FAILED`` (or
-    ``JOB_CANCELLED`` via the cancel-aware ``_fail_locally``
-    when the user raced a Stop).
+    Returns ``True`` when staging succeeded and the caller
+    should continue, ``False`` when it already finalised the
+    job (download / materialise failure, or a cancel raced in
+    after the receiver completed).
     """
     _LOGGER.info(
         "Remote job %s: requesting build artefacts for configuration=%r from receiver",
@@ -556,14 +531,6 @@ async def _fetch_and_run_local_upload(
         SubmitJobSessionLostError,
         DownloadArtifactsError,
     ) as exc:
-        # Receiver-side WARNING logs carry the actionable
-        # detail (configuration, missing path, current status)
-        # for every soft-reject; point operators at the build
-        # server log either way. The previous shape only
-        # mentioned "missing path", which was misleading for
-        # non-``build_dir_missing`` rejects (``unknown_job`` /
-        # ``job_not_completed`` / session lost — none of which
-        # involve a path).
         _fail_locally(
             controller,
             job,
@@ -572,30 +539,47 @@ async def _fetch_and_run_local_upload(
                 f"(check the build server logs for details)"
             ),
         )
-        return
+        return False
 
-    # Materialise the receiver's tarball into the offloader's
-    # canonical build / storage / idedata paths so the upload
-    # subprocess can spawn against a tree that looks like a
-    # local compile produced it. Synchronous; runs in an executor
-    # because tarfile + multiple file writes are blocking.
     try:
         await asyncio.get_running_loop().run_in_executor(
             None, materialise_remote_artifacts, packed.tarball, job.configuration
         )
     except MaterialiseError as exc:
-        _fail_locally(
-            controller,
-            job,
-            error=f"remote build: materialise failed: {exc}",
-        )
-        return
+        _fail_locally(controller, job, error=f"remote build: materialise failed: {exc}")
+        return False
+    except OSError as exc:
+        # Disk full / permission denied / transient IO. Catch
+        # at this seam so the runner task doesn't crash; the
+        # MaterialiseError branch covers the wire-shape failures.
+        _fail_locally(controller, job, error=f"remote build: materialise IO error: {exc}")
+        return False
 
     # Honour a cancel that arrived between the receiver's
-    # completed frame and us getting here — no point spawning
-    # a flash subprocess for a job the user already aborted.
-    # ``_fail_locally`` is cancel-aware and routes through
-    # ``_finalize_cancelled`` in this case.
+    # completed frame and us getting here.
+    if job.job_id in controller._cancel_requested:
+        controller._finalize_cancelled(job)
+        return False
+    return True
+
+
+async def _fetch_and_run_local_upload(
+    *,
+    controller: FirmwareController,
+    job: FirmwareJob,
+    client: PeerLinkClient,
+) -> None:
+    """Flash the device locally after the receiver's COMPILE half is staged.
+
+    Pre-condition: :func:`_fetch_and_materialise` has already
+    pulled the tarball and staged it; the offloader's filesystem
+    now looks as if a local compile produced the build, so
+    ``esphome upload <yaml> --device <port>`` resolves through
+    esphome's per-platform dispatch (no ``--file`` needed).
+    """
+    # Cancel that landed after ``_fetch_and_materialise``'s
+    # own check returned True — same race window the old
+    # one-shot helper covered.
     if job.job_id in controller._cancel_requested:
         controller._finalize_cancelled(job)
         return
