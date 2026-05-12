@@ -13,7 +13,6 @@ import contextlib
 import logging
 import os
 import shutil
-import time
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from pathlib import Path
@@ -83,7 +82,7 @@ from ..config import (
     set_device_metadata,
 )
 from ..firmware.helpers import _find_esphome_cmd
-from . import firmware_sync
+from . import firmware_sync, storage_regen
 from ._yaml_search import (
     DEFAULT_CONTEXT_LINES,
     MAX_CONTEXT_LINES,
@@ -1483,245 +1482,19 @@ class DevicesController:  # noqa: PLR0904 (grandfathered; new public methods nee
         self._schedule_storage_regenerate(configuration)
 
     def _schedule_storage_regenerate(self, configuration: str) -> None:
-        """
-        Run ``esphome compile --only-generate <yaml>`` in the background.
-
-        ``--only-generate`` walks ESPHome's full config validation
-        pipeline (resolving ``!secret`` / ``!include`` / packages /
-        ``dashboard_import``) and writes the resulting StorageJSON
-        without doing a real build. That populates ``address``,
-        ``loaded_integrations``, ``target_platform``, etc. for devices
-        that have never been compiled (the typical "wr2-test was just
-        added and shows UNKNOWN forever" path) and refreshes them
-        whenever the YAML changes.
-
-        Three guards keep this from running away:
-        * ``_regenerate_pending`` skips duplicate schedules for a
-          configuration that's already in flight.
-        * ``_regenerate_failed`` skips YAMLs whose last attempt
-          failed; entries are cleared in ``_on_scan_change`` when the
-          file's cache key changes (i.e. the user actually edited it).
-        * ``regen_failed_mtime`` + ``regen_failed_at`` in the
-          metadata sidecar is the *cross-restart* version of the
-          same skip. The previous backend stamped the YAML's
-          mtime alongside ``time.time()``; a fresh start that
-          finds those two intact and within
-          ``_REGEN_FAILURE_TTL_SECONDS`` short-circuits without
-          spawning another ``esphome compile`` on the same broken
-          config. The check itself runs in an executor so the
-          per-device ``stat()`` and metadata read don't stall the
-          event loop on a fleet-wide cold start. Two retry
-          signals release the guard:
-
-          * The user edits the YAML — its mtime moves past the
-            stamp, so the equality check fails naturally.
-          * The TTL elapses — covers transient external problems
-            (git package server flaky, DNS hiccup) where the
-            user shouldn't have to touch the YAML to recover.
-        * ``_regenerate_lock`` serialises the subprocess itself so we
-          never spawn more than one esphome compile at a time.
-
-        Fire-and-forget: a follow-up ``_scanner.reload(configuration)``
-        on success picks up the new storage and re-emits a
-        ``DEVICE_UPDATED`` event so the frontend reflects the new
-        address / integrations.
-        """
-        if not self._esphome_cmd:
-            return  # ``start()`` hasn't run yet — skip the regenerate.
-        if configuration in self._regenerate_pending:
-            return  # already scheduled, don't queue a duplicate.
-        if configuration in self._regenerate_failed:
-            # Last attempt this session failed and the YAML hasn't
-            # changed since; rerunning would produce the same error.
-            return
-
-        async def _run() -> None:
-            self._regenerate_pending.add(configuration)
-            try:
-                # Cross-restart skip: the previous backend persisted
-                # the YAML's mtime + wall-clock when the regen
-                # failed. If the file hasn't been touched since
-                # *and* the failure stamp is still within the TTL,
-                # replay would fail the same way — turn it into a
-                # no-op. The check itself batches its disk reads
-                # into one executor hop.
-                if await self._regen_already_failed_recently_async(configuration):
-                    self._regenerate_failed.add(configuration)
-                    return
-                async with self._regenerate_lock:
-                    success = await self._spawn_only_generate(configuration)
-                if success:
-                    # ``--only-generate`` writes build_info.json
-                    # with the canonical config_hash before
-                    # exiting, same as a real compile. The single
-                    # executor hop below reads that hash and
-                    # writes the sidecar in one transaction, also
-                    # clearing the regen-failure stamp now that
-                    # the YAML generates cleanly.
-                    await self._finalize_regen_success(configuration)
-                    await self._scanner.reload(configuration)
-                else:
-                    self._regenerate_failed.add(configuration)
-                    await self._stamp_regen_failure(configuration)
-            finally:
-                self._regenerate_pending.discard(configuration)
-
-        self._db.create_background_task(_run())
+        storage_regen.schedule(self, configuration)
 
     async def _spawn_only_generate(self, configuration: str) -> bool:
-        """Run ``esphome compile --only-generate`` once. Return True iff exit-0.
-
-        Both failure modes (spawn raised, or the subprocess exited
-        non-zero) get logged at debug and produce ``False`` so the
-        caller takes the same persist-failure-stamp branch in
-        either case. Pulled out of ``_run()`` so the two failure
-        paths don't have to duplicate the marker-set + persist
-        sequence.
-        """
-        config_path = str(self._db.settings.rel_path(configuration))
-        cmd = [*self._esphome_cmd, "--dashboard", "compile", "--only-generate", config_path]
-        try:
-            proc = await create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            _, stderr = await proc.communicate()
-        except Exception:
-            _LOGGER.debug("Storage regenerate spawn failed for %s", configuration, exc_info=True)
-            return False
-        if proc.returncode != 0:
-            _LOGGER.debug(
-                "Storage regenerate for %s exited %s: %s",
-                configuration,
-                proc.returncode,
-                stderr.decode(errors="replace").strip()[:500],
-            )
-            return False
-        return True
+        return await storage_regen.spawn_only_generate(self, configuration)
 
     async def _regen_already_failed_recently_async(self, configuration: str) -> bool:
-        """Return True iff the persisted failure stamp is unchanged-and-fresh.
-
-        Both halves have to hold for the guard to fire:
-
-        * The YAML's current ``stat.st_mtime`` equals the cached
-          ``regen_failed_mtime`` — same file as last time (any
-          edit moves the mtime forward).
-        * Less than ``_REGEN_FAILURE_TTL_SECONDS`` has elapsed
-          since the cached ``regen_failed_at`` — covers transient
-          external causes (git package server, DNS, ESPHome
-          mid-flight) by allowing a re-check after the TTL.
-
-        Disk reads (``Path.stat``, the ``.device-builder.json``
-        parse) batch into a single executor job so a cold-start
-        fleet sweep neither stalls the event loop nor double-books
-        the default thread pool. A negative age (clock skew, NTP
-        step, future-dated stamp) clamps to zero; without that
-        clamp a bad sidecar value could lock out the regen
-        indefinitely.
-        """
-        loop = asyncio.get_running_loop()
-        config_dir = self._db.settings.config_dir
-        config_path = self._db.settings.rel_path(configuration)
-
-        def _read() -> tuple[float, dict[str, Any]] | None:
-            # One executor hop for both reads — paying for two
-            # parallel ``run_in_executor`` jobs would just consume
-            # two slots in the shared default thread pool for work
-            # that's already serial on disk anyway.
-            try:
-                mtime = config_path.stat().st_mtime
-            except OSError:
-                return None
-            return mtime, get_device_metadata(config_dir, configuration)
-
-        result = await loop.run_in_executor(None, _read)
-        if result is None:
-            return False
-        current_mtime, md = result
-        cached_mtime = md.get("regen_failed_mtime")
-        cached_at = md.get("regen_failed_at")
-        if not cached_mtime or not cached_at:
-            return False
-        try:
-            mtime_matches = float(cached_mtime) == current_mtime
-            age = max(0.0, time.time() - float(cached_at))
-        except (TypeError, ValueError):
-            return False
-        return mtime_matches and age < _REGEN_FAILURE_TTL_SECONDS
+        return await storage_regen.already_failed_recently_async(self, configuration)
 
     async def _stamp_regen_failure(self, configuration: str) -> None:
-        """Persist the cross-restart "we already tried, gave up" marker — one executor hop.
-
-        Combines the YAML ``stat()`` and the sidecar write into a
-        single closure handed to ``run_in_executor``. The earlier
-        standalone-stamp shape took two hops (one to stat, one to
-        write); on a fleet-wide cold-start each saved hop is a
-        thread-pool slot back to the pool.
-
-        The wall-clock half is sampled inside the closure too, so
-        the stamp captures the same instant the file's mtime was
-        observed instead of straddling a hop.
-        """
-        config_dir = self._db.settings.config_dir
-        config_path = self._db.settings.rel_path(configuration)
-
-        def _stamp() -> None:
-            try:
-                mtime = config_path.stat().st_mtime
-            except OSError:
-                return  # file vanished mid-regen; nothing useful to stamp
-            set_device_metadata(
-                config_dir,
-                configuration,
-                regen_failed_mtime=mtime,
-                regen_failed_at=time.time(),
-            )
-
-        await asyncio.get_running_loop().run_in_executor(None, _stamp)
+        await storage_regen.stamp_failure(self, configuration)
 
     async def _finalize_regen_success(self, configuration: str) -> None:
-        """Read the post-only-generate hash and clear the failure stamp — one executor hop.
-
-        Used to be three separate awaits — read ``build_info.json``,
-        write the hash, write the cleared regen stamp — totalling
-        three executor hops and two sidecar transactions. The
-        closure here folds them together: one ``read_build_info_hash``
-        call, one ``set_device_metadata`` transaction that writes
-        ``expected_config_hash`` and clears
-        ``regen_failed_mtime`` / ``regen_failed_at`` atomically.
-
-        See :meth:`_persist_expected_config_hash` for the rationale
-        on why the hash is read off ``build_info.json`` rather than
-        recomputed in-process — a missing / malformed file is
-        unexpected on this code path so the warning log lives there.
-        """
-        config_dir = self._db.settings.config_dir
-        yaml_path = self._db.settings.rel_path(configuration)
-
-        def _finalize() -> str | None:
-            new_hash = read_build_info_hash(yaml_path)
-            kwargs: dict[str, Any] = {
-                "regen_failed_mtime": 0.0,
-                "regen_failed_at": 0.0,
-            }
-            if new_hash:
-                kwargs["expected_config_hash"] = new_hash
-            set_device_metadata(config_dir, configuration, **kwargs)
-            return new_hash
-
-        new_hash = await asyncio.get_running_loop().run_in_executor(None, _finalize)
-        if not new_hash:
-            _LOGGER.warning(
-                "Could not read config_hash from build_info.json for %s — "
-                "the drawer's Local hash may stay stale until the next flash. "
-                "If this persists across compiles, check that ESPHome's "
-                "build_info.json schema hasn't changed.",
-                configuration,
-            )
-            return
-        _LOGGER.debug("Stored expected_config_hash for %s: %s", configuration, new_hash)
+        await storage_regen.finalize_success(self, configuration)
 
     @api_command("devices/get_api_key")
     async def get_api_key(self, *, configuration: str, **kwargs: Any) -> dict[str, str]:

@@ -97,7 +97,7 @@ async def test_regenerate_spawns_esphome_compile_only_generate(
         return _FakeProc(returncode=0)
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.create_subprocess_exec",
+        "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
         _fake_spawn,
     )
     persist_calls: list[str] = []
@@ -212,7 +212,7 @@ async def test_regenerate_marks_failed_on_nonzero_exit(
         return _FakeProc(returncode=1, stderr=b"YAML parse error at line 3")
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.create_subprocess_exec",
+        "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
         _fake_spawn,
     )
     persist_calls: list[str] = []
@@ -253,7 +253,7 @@ async def test_regenerate_marks_failed_on_spawn_oserror(
         raise OSError("esphome: command not found")
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.create_subprocess_exec",
+        "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
         _broken_spawn,
     )
     monkeypatch.setattr(
@@ -301,7 +301,7 @@ async def test_regenerate_pending_blocks_in_flight_dupe(
         return _FakeProc(returncode=0)
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.create_subprocess_exec",
+        "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
         _hold,
     )
     monkeypatch.setattr(
@@ -353,7 +353,7 @@ async def test_regenerate_persists_mtime_and_wallclock_on_failure(
         return _FakeProc(returncode=1, stderr=b"YAML parse error")
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.create_subprocess_exec",
+        "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
         _fake_spawn,
     )
     monkeypatch.setattr(
@@ -363,7 +363,7 @@ async def test_regenerate_persists_mtime_and_wallclock_on_failure(
     )
     # Pin wall-clock so the assertion isn't racy.
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.time.time",
+        "esphome_device_builder.controllers.devices.storage_regen.time.time",
         lambda: 1700000000.0,
     )
 
@@ -396,7 +396,7 @@ async def test_regenerate_persists_stamp_on_spawn_oserror(
         raise OSError("esphome: command not found")
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.create_subprocess_exec",
+        "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
         _broken_spawn,
     )
     monkeypatch.setattr(
@@ -405,7 +405,7 @@ async def test_regenerate_persists_stamp_on_spawn_oserror(
         AsyncMock(),
     )
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.time.time",
+        "esphome_device_builder.controllers.devices.storage_regen.time.time",
         lambda: 1700000050.0,
     )
 
@@ -447,7 +447,7 @@ async def test_regenerate_clears_failure_stamp_on_success(
         return _FakeProc(returncode=0)
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.create_subprocess_exec",
+        "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
         _fake_spawn,
     )
     monkeypatch.setattr(
@@ -491,7 +491,7 @@ async def test_regenerate_skips_when_stamp_fresh_and_mtime_matches(
     )
     # 60s after the stamp — well within the 1h TTL.
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.time.time",
+        "esphome_device_builder.controllers.devices.storage_regen.time.time",
         lambda: 1700000060.0,
     )
 
@@ -502,7 +502,7 @@ async def test_regenerate_skips_when_stamp_fresh_and_mtime_matches(
         return _FakeProc(returncode=0)
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.create_subprocess_exec",
+        "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
         _fake_spawn,
     )
 
@@ -542,7 +542,7 @@ async def test_regenerate_retries_when_stamp_older_than_ttl(
     )
     # Advance the clock just past the 1h TTL.
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.time.time",
+        "esphome_device_builder.controllers.devices.storage_regen.time.time",
         lambda: 1700000000.0 + 3700.0,
     )
 
@@ -553,7 +553,7 @@ async def test_regenerate_retries_when_stamp_older_than_ttl(
         return _FakeProc(returncode=0)
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.create_subprocess_exec",
+        "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
         _fake_spawn,
     )
     monkeypatch.setattr(
@@ -595,7 +595,7 @@ async def test_regenerate_runs_when_yaml_mtime_moves_past_stamp(
         regen_failed_at=1700000000.0,
     )
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.time.time",
+        "esphome_device_builder.controllers.devices.storage_regen.time.time",
         lambda: 1700000060.0,
     )
 
@@ -606,7 +606,7 @@ async def test_regenerate_runs_when_yaml_mtime_moves_past_stamp(
         return _FakeProc(returncode=0)
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.create_subprocess_exec",
+        "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
         _fake_spawn,
     )
     monkeypatch.setattr(
@@ -654,7 +654,7 @@ async def test_regenerate_runs_when_yaml_missing_for_stamp_check(
         return _FakeProc(returncode=1, stderr=b"missing")
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.create_subprocess_exec",
+        "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
         _fake_spawn,
     )
 
@@ -693,7 +693,7 @@ async def test_regenerate_clamps_negative_stamp_age(
         regen_failed_at=2_000_000_000.0,  # roughly year 2033
     )
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.time.time",
+        "esphome_device_builder.controllers.devices.storage_regen.time.time",
         lambda: 1700000000.0,
     )
 
@@ -704,7 +704,7 @@ async def test_regenerate_clamps_negative_stamp_age(
         return _FakeProc(returncode=0)
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.create_subprocess_exec",
+        "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
         _fake_spawn,
     )
 
@@ -746,7 +746,7 @@ async def test_regenerate_runs_when_only_one_stamp_half_present(
         return _FakeProc(returncode=0)
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.create_subprocess_exec",
+        "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
         _fake_spawn,
     )
     monkeypatch.setattr(
@@ -792,7 +792,7 @@ async def test_regenerate_runs_when_stamp_has_corrupt_value(
         return _FakeProc(returncode=0)
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.create_subprocess_exec",
+        "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
         _fake_spawn,
     )
     monkeypatch.setattr(
@@ -867,7 +867,7 @@ async def test_regenerate_persists_hash_and_clears_stamp_in_one_transaction(
         return _FakeProc(returncode=0)
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.create_subprocess_exec",
+        "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
         _fake_spawn,
     )
 
@@ -917,7 +917,7 @@ async def test_regenerate_success_clears_stamp_when_build_info_missing(
         return _FakeProc(returncode=0)
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.create_subprocess_exec",
+        "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
         _fake_spawn,
     )
 
