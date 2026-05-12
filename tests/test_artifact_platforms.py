@@ -92,24 +92,10 @@ def test_libretiny_family_shares_build_files() -> None:
     assert ln882x.BUILD_FILES is shared
 
 
-@pytest.mark.parametrize(
-    "lookup",
-    ["esp32", "ESP32", "Esp32", "esp32 ", " esp32"],
-)
+@pytest.mark.parametrize("lookup", ["esp32", "ESP32", "Esp32"])
 def test_lookup_is_case_insensitive_for_canonical_values(lookup: str) -> None:
-    """Upstream serialises ``target_platform.upper()`` so the registry must accept that.
-
-    The stripped form is also covered defensively; on-disk
-    sidecars come straight from ``StorageJSON`` and don't carry
-    leading/trailing whitespace, but a hand-edited sidecar
-    might. Strip + lowercase before lookup so the lookup behaves
-    the same regardless of canonicalisation drift.
-    """
-    result = build_files_for_platform(lookup.strip())
-    if lookup.strip().lower() == "esp32":
-        assert result, f"expected non-empty BUILD_FILES for {lookup!r}"
-    else:  # pragma: no cover - belt-and-braces
-        pass
+    """Upstream serialises ``target_platform.upper()`` so the registry must accept that."""
+    assert build_files_for_platform(lookup), f"expected non-empty BUILD_FILES for {lookup!r}"
 
 
 def test_lookup_returns_empty_for_unknown_platform() -> None:

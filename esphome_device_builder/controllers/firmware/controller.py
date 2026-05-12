@@ -270,7 +270,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         if force_local:
             source, pin_sha256, label = JobSource.LOCAL, "", ""
         else:
-            source, pin_sha256, label = self._resolve_install_source(configuration, port="OTA")
+            source, pin_sha256, label = self._resolve_install_source(configuration)
         job = self._create_job(
             configuration,
             JobType.COMPILE,
@@ -528,7 +528,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         if force_local:
             source, pin_sha256, label = JobSource.LOCAL, "", ""
         else:
-            source, pin_sha256, label = self._resolve_install_source(configuration, port)
+            source, pin_sha256, label = self._resolve_install_source(configuration)
         job = self._create_job(
             configuration,
             JobType.INSTALL,
@@ -597,21 +597,29 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         return await self._enqueue(job)
 
     @api_command("firmware/compile_bulk")
-    async def compile_bulk(self, *, configurations: list[str], **kwargs: Any) -> list[FirmwareJob]:
+    async def compile_bulk(
+        self,
+        *,
+        configurations: list[str],
+        force_local: bool = False,
+        **kwargs: Any,
+    ) -> list[FirmwareJob]:
         """Queue compile for multiple devices.
 
         Per-device errors (most commonly the rename lock) skip that
-        device and keep going so a single locked configuration in a
-        bulk request doesn't abort the queue for everyone else.
-        Each job routes through :meth:`_resolve_install_source` so
-        paired-build auto-routing applies (mirrors
-        :meth:`compile` / :meth:`install_bulk`).
+        device and keep going. Each job routes through
+        :meth:`_resolve_install_source` so paired-build auto-routing
+        applies (mirrors :meth:`compile` / :meth:`install_bulk`);
+        ``force_local=True`` keeps every job LOCAL.
         """
         await self._validate_configurations_boundary(configurations)
         jobs: list[FirmwareJob] = []
         for config in configurations:
             try:
-                source, pin_sha256, label = self._resolve_install_source(config, port="OTA")
+                if force_local:
+                    source, pin_sha256, label = JobSource.LOCAL, "", ""
+                else:
+                    source, pin_sha256, label = self._resolve_install_source(config)
                 job = self._create_job(
                     config,
                     JobType.COMPILE,
@@ -646,7 +654,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         jobs: list[FirmwareJob] = []
         for config in configurations:
             try:
-                source, pin_sha256, label = self._resolve_install_source(config, port)
+                source, pin_sha256, label = self._resolve_install_source(config)
                 job = self._create_job(
                     config,
                     JobType.INSTALL,
@@ -1862,7 +1870,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         self._jobs[job.job_id] = job
         return job
 
-    def _resolve_install_source(self, configuration: str, port: str) -> tuple[JobSource, str, str]:
+    def _resolve_install_source(self, configuration: str) -> tuple[JobSource, str, str]:
         """Pick LOCAL or REMOTE for *configuration*; return ``(source, pin, label)``.
 
         Pure sync helper. Returns LOCAL when remote-build isn't

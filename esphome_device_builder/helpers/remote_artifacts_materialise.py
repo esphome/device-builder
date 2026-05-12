@@ -1,4 +1,5 @@
-"""Materialise a remote-build artifact tarball into the offloader's local build dir.
+"""
+Materialise a remote-build artifact tarball into the offloader's local build dir.
 
 After :func:`materialise_remote_artifacts` returns, the offloader's
 filesystem looks as if a local compile produced the build:
@@ -14,6 +15,8 @@ import io
 import json
 import logging
 import os
+import re
+import shutil
 import tarfile
 import time
 from pathlib import Path
@@ -31,16 +34,27 @@ from .storage_path import resolve_data_dir, resolve_idedata_path, resolve_storag
 _LOGGER = logging.getLogger(__name__)
 
 
+# Defence-in-depth gate on the receiver-supplied device name.
+# Pairing requires explicit operator approval so the wire isn't
+# fully untrusted, but the name flows straight into a Path join
+# (``<data_dir>/build/<name>/``) and a forged value like ``..``
+# would land the build tree outside the data dir.
+_SAFE_DEVICE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+
+
 class MaterialiseError(RuntimeError):
     """Raised when a tarball can't be materialised into a usable build tree."""
 
 
 def materialise_remote_artifacts(tarball: bytes, configuration: str) -> Path:
-    """Stage *tarball* into offloader-local form, returning the build path.
+    """
+    Stage *tarball* into offloader-local form.
 
     The build-dir ``<name>`` segment comes from the shipped
     ``storage.json``'s ``name`` field (not the YAML filename stem)
     so renamed devices key the same as esphome's CORE does.
+    Returns the staged build path; callers that just need the
+    side-effects (the runner) can discard it.
     """
     # storage.json + idedata.json are cache-side files; we
     # rewrite their paths before write so they don't extract
@@ -54,6 +68,10 @@ def materialise_remote_artifacts(tarball: bytes, configuration: str) -> Path:
             device_name = receiver_storage.get("name")
             if not isinstance(device_name, str) or not device_name:
                 raise MaterialiseError("tarball storage.json missing required name field")
+            if not _SAFE_DEVICE_NAME_RE.fullmatch(device_name):
+                raise MaterialiseError(
+                    f"tarball storage.json name {device_name!r} not safe for a path segment"
+                )
             receiver_build_path_str = receiver_storage.get("build_path")
             if not isinstance(receiver_build_path_str, str):
                 raise MaterialiseError("tarball storage.json missing required build_path field")
@@ -61,6 +79,11 @@ def materialise_remote_artifacts(tarball: bytes, configuration: str) -> Path:
 
             data_dir = resolve_data_dir(configuration)
             build_path = data_dir / "build" / device_name
+            # Wipe before extract so a board swap on the same YAML
+            # (esp32 → bk72xx) doesn't leave stale per-platform
+            # artefacts that firmware/download could surface as
+            # wrong bytes.
+            shutil.rmtree(build_path, ignore_errors=True)
             build_path.mkdir(parents=True, exist_ok=True)
 
             _safe_extract_excluding(

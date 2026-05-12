@@ -371,6 +371,24 @@ def test_materialise_rejects_path_traversal(tmp_path: Path) -> None:
         _materialise_in_tmp(buf.getvalue(), tmp_path)
 
 
+def test_materialise_rejects_traversal_in_storage_name(tmp_path: Path) -> None:
+    """A storage.json ``name`` carrying path-separator chars is rejected."""
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        storage = json.dumps(
+            {"storage_version": 1, "name": "../sneaky", "build_path": _FAKE_BUILD_PATH}
+        ).encode("utf-8")
+        info = tarfile.TarInfo(name=STORAGE_MEMBER_NAME)
+        info.size = len(storage)
+        tar.addfile(info, io.BytesIO(storage))
+        info = tarfile.TarInfo(name=IDEDATA_MEMBER_NAME)
+        info.size = 2
+        tar.addfile(info, io.BytesIO(b"{}"))
+
+    with pytest.raises(MaterialiseError, match=r"not safe for a path segment"):
+        _materialise_in_tmp(buf.getvalue(), tmp_path)
+
+
 def test_materialise_rejects_storage_missing_name(tmp_path: Path) -> None:
     """storage.json without a 'name' field raises before extraction starts."""
     buf = io.BytesIO()

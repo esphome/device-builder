@@ -48,7 +48,6 @@ from __future__ import annotations
 
 import base64
 import io
-import logging
 import tarfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -64,8 +63,6 @@ from .artifact_platforms import build_files_for_platform
 
 if TYPE_CHECKING:
     from .peer_link_client import DownloadArtifactsResult
-
-_LOGGER = logging.getLogger(__name__)
 
 # Tarball member names that ride alongside the build tree. The
 # offloader-side materialiser pulls these out of the tarball and
@@ -140,17 +137,12 @@ def pack_build_artifacts(configuration: str) -> PackedArtifacts:
     is treated as a structural drift between the dashboard's
     inclusion lists and ESPHome's platform support) or when
     the artifact set exceeds :data:`FIRMWARE_MAX_TOTAL_BYTES`.
-    Two cap checks fire: the uncompressed walking sum (cheap,
-    lets us short-circuit before reading huge files), and a
-    final compressed-size check on the rendered tarball (the
-    offloader's :class:`BundleAssembler` caps on
-    ``ArtifactsStartFrameData.total_bytes``, the wire-side
-    length, so the receiver-side ceiling needs to match).
-    Compression usually shrinks the payload, so the
-    uncompressed gate fires first in practice; the
-    post-render check exists for the incompressible-data +
-    tar-header-overhead corner where ``len(tarball)`` could
-    technically exceed the uncompressed total. The caller
+    Two cap checks: a per-member walking sum inside the tar loop
+    (short-circuits when an individual file would already push
+    the total past the limit) plus a final compressed-size check
+    on the rendered tarball (the offloader's BundleAssembler caps
+    on ``ArtifactsStartFrameData.total_bytes``, the wire-side
+    length, so the two sides must agree). The caller
     (:meth:`ArtifactsDownloadSender.handle_download_artifacts`)
     catches both and surfaces a structured reject reason.
     """
