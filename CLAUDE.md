@@ -37,8 +37,7 @@ toggle in the official ESPHome container and Home Assistant add-on.
       """
       Render *component* and merge it into *existing* YAML.
 
-      For platform-style components the new ``- platform: ...`` list
-      item is appended under any existing ``<domain>:`` block.
+      Platform-style components append under the existing ``<domain>:``.
       """
   ```
 
@@ -58,9 +57,10 @@ toggle in the official ESPHome container and Home Assistant add-on.
     doesn't need to learn what *another* function does to read
     this one.
 
-  Three-line maximum is a hard cap for new code. If the contract
-  genuinely needs more, the function probably needs splitting
-  first.
+  Hard cap for new code: three lines between the `"""` markers
+  (blank lines count). The example above is at the cap. If the
+  contract genuinely needs more, the function probably needs
+  splitting first.
 
 - **Comments**: same bar. Default to writing no comments. Add
   one only when the *why* is non-obvious: a hidden constraint, a
