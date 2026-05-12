@@ -72,16 +72,16 @@ def test_target_platform_values_are_unique() -> None:
         seen[key] = module.__name__
 
 
-def test_build_files_templates_format_with_name() -> None:
-    """Every BUILD_FILES entry must accept ``{name}`` substitution."""
+def test_build_files_entries_are_relative_paths() -> None:
+    """Every BUILD_FILES entry is a relative path under .pioenvs/<name>/."""
     for module in _public_platform_modules():
         for entry in module.BUILD_FILES:
-            try:
-                entry.format(name="kitchen")
-            except (KeyError, IndexError, ValueError) as err:  # pragma: no cover
-                raise AssertionError(
-                    f"{module.__name__} BUILD_FILES entry {entry!r} doesn't format: {err}"
-                ) from err
+            assert not entry.startswith("/"), (
+                f"{module.__name__} BUILD_FILES carries an absolute path: {entry!r}"
+            )
+            assert not entry.startswith(".pioenvs/"), (
+                f"{module.__name__} BUILD_FILES still has the .pioenvs/<name>/ prefix: {entry!r}"
+            )
 
 
 def test_libretiny_family_shares_build_files() -> None:
@@ -118,21 +118,19 @@ def test_lookup_returns_empty_for_unknown_platform() -> None:
 
 def test_esp32_includes_multi_image_bootloader_set() -> None:
     """ESP32 wired flash needs bootloader + partitions + ota_data + firmware."""
-    rendered = [f.format(name="kitchen") for f in esp32.BUILD_FILES]
-    assert ".pioenvs/kitchen/firmware.bin" in rendered
-    assert ".pioenvs/kitchen/bootloader.bin" in rendered
-    assert ".pioenvs/kitchen/partitions.bin" in rendered
-    assert ".pioenvs/kitchen/ota_data_initial.bin" in rendered
+    assert "firmware.bin" in esp32.BUILD_FILES
+    assert "bootloader.bin" in esp32.BUILD_FILES
+    assert "partitions.bin" in esp32.BUILD_FILES
+    assert "ota_data_initial.bin" in esp32.BUILD_FILES
 
 
 def test_libretiny_includes_uf2_and_bin() -> None:
     """Libretiny ships both .uf2 (UART/ltchiptool) and .bin (OTA)."""
-    rendered = [f.format(name="bw15") for f in build_files_for_platform("bk72xx")]
-    assert ".pioenvs/bw15/firmware.uf2" in rendered
-    assert ".pioenvs/bw15/firmware.bin" in rendered
+    files = build_files_for_platform("bk72xx")
+    assert "firmware.uf2" in files
+    assert "firmware.bin" in files
 
 
 def test_nrf52_includes_zephyr_app_update() -> None:
     """nrf52 component reads app_update.bin from .pioenvs/<name>/zephyr/."""
-    rendered = [f.format(name="locker") for f in build_files_for_platform("nrf52")]
-    assert ".pioenvs/locker/zephyr/app_update.bin" in rendered
+    assert "zephyr/app_update.bin" in build_files_for_platform("nrf52")

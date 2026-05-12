@@ -167,8 +167,8 @@ def pack_build_artifacts(configuration: str) -> PackedArtifacts:
         raise FileNotFoundError(msg)
 
     target_platform = (storage.target_platform or "").lower()
-    build_templates = build_files_for_platform(target_platform)
-    if not build_templates:
+    build_files = build_files_for_platform(target_platform)
+    if not build_files:
         msg = (
             f"no artifact_platforms module for target_platform="
             f"{storage.target_platform!r} (configuration={configuration!r})"
@@ -187,22 +187,22 @@ def pack_build_artifacts(configuration: str) -> PackedArtifacts:
 
     firmware_offset = _firmware_offset_for_platform(storage.target_platform or "")
 
-    # Build the file list: three platform-independent metadata
-    # members at the top, then every existing build-tree file
-    # from the platform's BUILD_FILES. Files that don't exist
-    # on disk are silently skipped (a build that didn't emit
-    # ``ota_data_initial.bin`` shouldn't fail the pack).
+    # Platform-independent metadata at the top, then every
+    # existing per-platform BUILD_FILES entry under
+    # .pioenvs/<name>/. Missing files are skipped (a build that
+    # didn't emit ``ota_data_initial.bin`` shouldn't fail).
     metadata_members: list[tuple[str, Path]] = [
         (STORAGE_MEMBER_NAME, storage_path),
         (IDEDATA_MEMBER_NAME, idedata_cache_path),
         (PLATFORMIO_INI_MEMBER_NAME, platformio_ini),
     ]
+    pioenvs_prefix = f".pioenvs/{storage.name}"
+    pioenvs_dir = build_path / ".pioenvs" / storage.name
     build_members: list[tuple[str, Path]] = []
-    for template in build_templates:
-        rel_path = template.format(name=storage.name)
-        abs_path = build_path / rel_path
+    for rel in build_files:
+        abs_path = pioenvs_dir / rel
         if abs_path.is_file():
-            build_members.append((rel_path, abs_path))
+            build_members.append((f"{pioenvs_prefix}/{rel}", abs_path))
 
     buf = io.BytesIO()
     total_uncompressed = 0
