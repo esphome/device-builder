@@ -1,9 +1,6 @@
-"""Contract pin for the local ``esphome.upload_targets`` fallback.
+"""Contract pin for the local ``esphome.upload_targets`` fallback."""
 
-Delete this file when ``_upload_targets_fallback`` itself is
-deleted (after the ``esphome`` dep floor is past the release that
-ships ``esphome.upload_targets``).
-"""
+# TODO: delete with _upload_targets_fallback.
 
 from __future__ import annotations
 

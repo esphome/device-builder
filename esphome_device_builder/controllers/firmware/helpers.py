@@ -40,9 +40,10 @@ from .constants import (
 )
 
 try:
-    # esphome ≥ release that ships esphome/esphome#16346.
     from esphome.upload_targets import PortType, get_port_type
-except ImportError:
+except ModuleNotFoundError as exc:
+    if exc.name != "esphome.upload_targets":
+        raise
     from ._upload_targets_fallback import PortType, get_port_type
 
 if TYPE_CHECKING:

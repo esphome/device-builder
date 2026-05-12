@@ -1,10 +1,7 @@
-"""Local mirror of ``esphome.upload_targets`` for older esphome installs.
+"""Local mirror of ``esphome.upload_targets`` for older esphome installs."""
 
-Delete this module (and the ``try``/``except`` in
-:mod:`.helpers`) once the ``esphome`` dependency floor is past the
-release that ships ``esphome.upload_targets`` (PR
-esphome/esphome#16346, merged 2026-05-11).
-"""
+# TODO: remove after the esphome dep floor is past the release that ships
+# ``esphome.upload_targets``.
 
 from __future__ import annotations
 
