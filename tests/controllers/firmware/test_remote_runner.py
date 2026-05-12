@@ -372,6 +372,9 @@ async def test_remote_compile_translates_output_and_completes(
     assert len(captured[EventType.JOB_COMPLETED]) == 1
     assert captured[EventType.JOB_COMPLETED][0]["job"] is job
     assert captured[EventType.JOB_FAILED] == []
+    # COMPILE now goes through materialise so firmware/download
+    # serves the staged tree (#624).
+    client.download_artifacts.assert_awaited_once()
     client.submit_job.assert_awaited_once_with(
         job_id=job.job_id,
         configuration_filename="kitchen.yaml",

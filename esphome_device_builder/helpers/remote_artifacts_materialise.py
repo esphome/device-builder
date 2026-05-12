@@ -30,6 +30,7 @@ from ..controllers.remote_build.artifacts_tarball import (
 )
 from .json import dumps_indent
 from .json import loads as json_loads
+from .peer_link_bundle import FIRMWARE_MAX_TOTAL_BYTES
 from .storage_path import resolve_data_dir, resolve_idedata_path, resolve_storage_path
 
 _LOGGER = logging.getLogger(__name__)
@@ -114,6 +115,8 @@ def _open_and_extract_build_tree(tarball: bytes, configuration: str) -> _Extract
             )
     except tarfile.TarError as err:
         raise MaterialiseError(f"tarball is malformed: {err}") from err
+    if not (build_path / PLATFORMIO_INI_MEMBER_NAME).is_file():
+        raise MaterialiseError(f"tarball missing required {PLATFORMIO_INI_MEMBER_NAME!r} member")
     return _ExtractedTarball(
         storage_bytes=storage_bytes,
         idedata_bytes=idedata_bytes,
@@ -143,26 +146,50 @@ def _receiver_build_path_from_storage(receiver_storage: dict[str, Any]) -> Path:
 
 
 def _read_member_required(tar: tarfile.TarFile, name: str) -> bytes:
-    """Return *name*'s bytes from *tar* or raise with a clear message."""
+    """Return *name*'s bytes from *tar* or raise with a clear message.
+
+    Caps the declared member size against
+    :data:`FIRMWARE_MAX_TOTAL_BYTES` before reading so a hostile
+    peer can't expand a tiny gzipped tarball into multi-GiB
+    memory by inflating a metadata-member header.
+    """
     try:
         member = tar.getmember(name)
     except KeyError as err:
         raise MaterialiseError(f"tarball missing required member: {name!r}") from err
     if not member.isfile():
         raise MaterialiseError(f"tarball member {name!r} is not a regular file")
+    _check_member_size(member, total_so_far=0)
     payload = tar.extractfile(member)
     if payload is None:  # ``isfile()`` already gates this; defence
         raise MaterialiseError(f"tarball member {name!r} unreadable")
     return payload.read()
 
 
+def _check_member_size(member: tarfile.TarInfo, *, total_so_far: int) -> None:
+    """Reject tar members whose declared size would breach the global cap."""
+    if member.size > FIRMWARE_MAX_TOTAL_BYTES:
+        raise MaterialiseError(
+            f"tarball member {member.name!r} declares size {member.size} "
+            f"exceeding FIRMWARE_MAX_TOTAL_BYTES {FIRMWARE_MAX_TOTAL_BYTES}"
+        )
+    if total_so_far + member.size > FIRMWARE_MAX_TOTAL_BYTES:
+        raise MaterialiseError(
+            f"tarball cumulative size {total_so_far + member.size} "
+            f"exceeds FIRMWARE_MAX_TOTAL_BYTES {FIRMWARE_MAX_TOTAL_BYTES}"
+        )
+
+
 def _safe_extract_excluding(tar: tarfile.TarFile, dest: Path, *, exclude: set[str]) -> None:
-    """Extract every member except *exclude*; reject any that escapes *dest*."""
+    """Extract every member except *exclude*; reject any that escapes *dest* or breaches the cap."""
     dest_resolved = dest.resolve()
     members_to_extract: list[tarfile.TarInfo] = []
+    total_bytes = 0
     for member in tar.getmembers():
         if member.name in exclude:
             continue
+        _check_member_size(member, total_so_far=total_bytes)
+        total_bytes += member.size
         member_path = (dest / member.name).resolve()
         try:
             member_path.relative_to(dest_resolved)

@@ -26,6 +26,7 @@ from esphome.core import CORE
 
 from esphome_device_builder.controllers.remote_build.artifacts_tarball import (
     IDEDATA_MEMBER_NAME,
+    PLATFORMIO_INI_MEMBER_NAME,
     STORAGE_MEMBER_NAME,
     pack_build_artifacts,
 )
@@ -75,28 +76,33 @@ def _synthetic_tarball(
     *,
     storage: Any = _SENTINEL,
     idedata: Any = _SENTINEL,
+    platformio_ini: bytes | None = b"[env:e2e]\n",
     extra_members: list[tuple[str, bytes]] | None = None,
 ) -> bytes:
     """Build a minimal tarball for materialiser error-path tests.
 
     ``storage`` / ``idedata`` accept dict (JSON-encoded), bytes
     (raw — for malformed-JSON cases), or ``None`` (omit the
-    member). Default is a valid storage shape + ``{}`` idedata.
+    member). ``platformio_ini`` accepts bytes or ``None`` (omit).
+    Default is a valid storage shape + ``{}`` idedata + a
+    minimal platformio.ini stub.
     """
     if storage is _SENTINEL:
         storage = {"storage_version": 1, "name": "kitchen", "build_path": _FAKE_BUILD_PATH}
     if idedata is _SENTINEL:
         idedata = {}
+    members: list[tuple[str, bytes]] = []
+    for name, value in ((STORAGE_MEMBER_NAME, storage), (IDEDATA_MEMBER_NAME, idedata)):
+        if value is None:
+            continue
+        payload = value if isinstance(value, bytes) else json.dumps(value).encode("utf-8")
+        members.append((name, payload))
+    if platformio_ini is not None:
+        members.append((PLATFORMIO_INI_MEMBER_NAME, platformio_ini))
+    members.extend(extra_members or [])
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        for name, value in ((STORAGE_MEMBER_NAME, storage), (IDEDATA_MEMBER_NAME, idedata)):
-            if value is None:
-                continue
-            payload = value if isinstance(value, bytes) else json.dumps(value).encode("utf-8")
-            info = tarfile.TarInfo(name=name)
-            info.size = len(payload)
-            tar.addfile(info, io.BytesIO(payload))
-        for member_name, member_payload in extra_members or []:
+        for member_name, member_payload in members:
             info = tarfile.TarInfo(name=member_name)
             info.size = len(member_payload)
             tar.addfile(info, io.BytesIO(member_payload))
@@ -377,6 +383,26 @@ def test_materialise_rejects_non_json_storage(tmp_path: Path) -> None:
     """storage.json that isn't parseable JSON raises MaterialiseError."""
     tarball = _synthetic_tarball(storage=b"{bad")
     with pytest.raises(MaterialiseError, match=r"not valid JSON"):
+        _materialise_in_tmp(tarball, tmp_path)
+
+
+def test_materialise_rejects_missing_platformio_ini(tmp_path: Path) -> None:
+    """A tarball without platformio.ini raises MaterialiseError post-extract."""
+    tarball = _synthetic_tarball(platformio_ini=None)
+    with pytest.raises(MaterialiseError, match=r"missing required 'platformio\.ini'"):
+        _materialise_in_tmp(tarball, tmp_path)
+
+
+def test_materialise_rejects_oversized_member(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A member declaring more bytes than the cap is rejected as a decompression-bomb defence."""
+    monkeypatch.setattr(
+        "esphome_device_builder.helpers.remote_artifacts_materialise.FIRMWARE_MAX_TOTAL_BYTES",
+        16,
+    )
+    tarball = _synthetic_tarball()
+    with pytest.raises(MaterialiseError, match=r"FIRMWARE_MAX_TOTAL_BYTES"):
         _materialise_in_tmp(tarball, tmp_path)
 
 

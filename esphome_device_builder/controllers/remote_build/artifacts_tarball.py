@@ -102,7 +102,7 @@ class PackedArtifacts:
     firmware_offset: str
 
 
-def pack_build_artifacts(configuration: str) -> PackedArtifacts:
+def pack_build_artifacts(configuration: str) -> PackedArtifacts:  # noqa: PLR0915
     """Pack the build for *configuration* into the materialise-locally tarball.
 
     Synchronous; meant to run inside an executor. Raises
@@ -123,6 +123,9 @@ def pack_build_artifacts(configuration: str) -> PackedArtifacts:
         raise FileNotFoundError(msg)
     if storage.build_path is None:
         msg = f"build_path unset in StorageJSON for {configuration}"
+        raise FileNotFoundError(msg)
+    if not isinstance(storage.name, str) or not storage.name:
+        msg = f"StorageJSON name unset / non-string for {configuration}: {storage.name!r}"
         raise FileNotFoundError(msg)
 
     target_platform = (storage.target_platform or "").lower()
@@ -167,15 +170,18 @@ def pack_build_artifacts(configuration: str) -> PackedArtifacts:
     total_uncompressed = 0
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
         for arcname, src in (*metadata_members, *build_members):
-            payload = src.read_bytes()
-            total_uncompressed += len(payload)
-            if total_uncompressed > FIRMWARE_MAX_TOTAL_BYTES:
+            # Stat before read so a runaway build artefact trips
+            # the cap before we allocate its bytes into memory.
+            file_size = src.stat().st_size
+            if total_uncompressed + file_size > FIRMWARE_MAX_TOTAL_BYTES:
                 msg = (
                     f"build artifacts for {configuration} would exceed "
                     f"FIRMWARE_MAX_TOTAL_BYTES uncompressed "
-                    f"({total_uncompressed} > {FIRMWARE_MAX_TOTAL_BYTES})"
+                    f"({total_uncompressed + file_size} > {FIRMWARE_MAX_TOTAL_BYTES})"
                 )
                 raise RuntimeError(msg)
+            payload = src.read_bytes()
+            total_uncompressed += len(payload)
             info = tarfile.TarInfo(name=arcname)
             info.size = len(payload)
             tar.addfile(info, io.BytesIO(payload))
