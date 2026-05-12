@@ -135,6 +135,7 @@ async def test_lifecycle_event_fans_out_as_job_state_changed(
     fanout.start()
     job = _make_remote_job(status=status_field)
     _seed_via_queued(bus, job)
+    await _drain_background(controller)  # flush the queued frame's fan-out
     session.send_app_frame.reset_mock()
 
     bus.fire(event_type, {"job": job})
@@ -158,6 +159,7 @@ async def test_failed_event_carries_error_message() -> None:
     fanout.start()
     job = _make_remote_job(status=JobStatus.FAILED, error="compile failed: bad pin")
     _seed_via_queued(bus, job)
+    await _drain_background(controller)  # flush the queued frame's fan-out
     session.send_app_frame.reset_mock()
 
     bus.fire(EventType.JOB_FAILED, {"job": job})
@@ -210,18 +212,15 @@ async def test_lifecycle_skips_when_session_gone() -> None:
 
 
 @pytest.mark.asyncio
-async def test_job_queued_caches_correlation_but_does_not_fan_out() -> None:
-    """``JOB_QUEUED`` populates the fan-out cache but doesn't send a wire frame.
+async def test_job_queued_caches_correlation_and_fans_out_queued_frame() -> None:
+    """``JOB_QUEUED`` populates the cache AND fans out a ``queued`` wire frame.
 
-    Pins two contracts: (1) the ``submit_job_ack`` response
-    carries the queued signal implicitly, and a redundant
-    ``job_state_changed{queued}`` frame would race the ack and
-    add wire noise without adding signal; (2) the cache
-    population path itself runs so subsequent JOB_STARTED /
-    JOB_OUTPUT events can dispatch.
+    The ``queued`` fan-out is what drives the offloader's
+    "waiting in line" screen when the receiver is busy with
+    another offloader's job.
     """
     bus = EventBus()
-    session = _make_session()
+    session = _make_session(dashboard_id="alpha")
     controller = _make_controller(bus=bus, sessions={"alpha": session})
     fanout = JobFanout(controller)
     fanout.start()
@@ -230,7 +229,12 @@ async def test_job_queued_caches_correlation_but_does_not_fan_out() -> None:
     bus.fire(EventType.JOB_QUEUED, {"job": job})
     await _drain_background(controller)
 
-    session.send_app_frame.assert_not_called()
+    session.send_app_frame.assert_awaited_once()
+    frame = session.send_app_frame.call_args.args[0]
+    assert frame["type"] == "job_state_changed"
+    assert frame["job_id"] == "wire-job"
+    assert frame["status"] == "queued"
+    assert frame["error_message"] == ""
     # Cache populated — the JOB_STARTED that lands next will
     # find its correlation tuple.
     assert fanout._remote_jobs == {job.job_id: ("alpha", "wire-job")}
@@ -315,6 +319,7 @@ async def test_job_output_fans_out_as_job_output_frame() -> None:
     fanout = JobFanout(controller)
     fanout.start()
     _seed_via_queued(bus, job)
+    await _drain_background(controller)  # flush the queued frame's fan-out
     session.send_app_frame.reset_mock()
 
     bus.fire(EventType.JOB_OUTPUT, {"job_id": "local-1", "line": "Compiling .pioenvs/...\n"})

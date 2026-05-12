@@ -14,14 +14,13 @@ back to the submitting offloader over the same session.
 
 Wiring:
 
-* Lifecycle events ``JOB_STARTED`` / ``JOB_COMPLETED`` /
-  ``JOB_FAILED`` / ``JOB_CANCELLED`` map 1:1 to
-  ``job_state_changed`` frames with ``status`` = ``running`` /
-  ``completed`` / ``failed`` / ``cancelled``. ``JOB_QUEUED``
-  doesn't fan out — the ``submit_job_ack`` already tells the
-  offloader the job is queued, so a redundant
-  ``job_state_changed{queued}`` frame would race the ack and
-  add wire noise without adding signal.
+* Lifecycle events ``JOB_QUEUED`` / ``JOB_STARTED`` /
+  ``JOB_COMPLETED`` / ``JOB_FAILED`` / ``JOB_CANCELLED`` map 1:1
+  to ``job_state_changed`` frames with ``status`` = ``queued`` /
+  ``running`` / ``completed`` / ``failed`` / ``cancelled``. The
+  ``queued`` fan-out is what drives the offloader's "waiting in
+  line" screen when the receiver is busy with another
+  offloader's job.
 * ``JOB_OUTPUT`` maps to ``job_output{stream, line}``. High-
   rate during an active build (one per line of compiler /
   linker output); the channel's per-frame Noise AEAD overhead
@@ -65,12 +64,11 @@ _LOGGER = logging.getLogger(__name__)
 # ``JobStateChangedFrameData.status`` value. The receiver
 # fires the bus event from the firmware queue's existing
 # transitions; this map turns each into the typed frame's
-# enum string. ``JOB_QUEUED`` is intentionally absent — the
-# ``submit_job_ack`` already tells the offloader the job is
-# queued (see module docstring).
+# enum string.
 _JobStatusLiteral = Literal["queued", "running", "completed", "failed", "cancelled"]
 
 _LIFECYCLE_EVENT_TO_STATUS: dict[EventType, _JobStatusLiteral] = {
+    EventType.JOB_QUEUED: "queued",
     EventType.JOB_STARTED: "running",
     EventType.JOB_COMPLETED: "completed",
     EventType.JOB_FAILED: "failed",
@@ -125,12 +123,13 @@ class JobFanout:
         bus = self._controller._db.bus
         if bus is None:
             return
-        # JOB_QUEUED populates the cache but doesn't fan out (see
-        # module docstring on the deliberate skip — the
-        # ``submit_job_ack`` already signals queued, and a frame
-        # firing here would race the ack).
+        # JOB_QUEUED has a dedicated handler so the cache
+        # populate runs before the fan-out (listener order on
+        # the bus is not defined).
         self._listeners.callback(bus.add_listener(EventType.JOB_QUEUED, self._on_queued))
         for event_type in _LIFECYCLE_EVENT_TO_STATUS:
+            if event_type is EventType.JOB_QUEUED:
+                continue
             self._listeners.callback(bus.add_listener(event_type, self._on_lifecycle))
         self._listeners.callback(bus.add_listener(EventType.JOB_OUTPUT, self._on_output))
 
@@ -172,26 +171,12 @@ class JobFanout:
         return None
 
     def _on_queued(self, event: Event[JobLifecycleData]) -> None:
-        """Cache the remote-peer correlation for *job* if it has one.
+        """Cache the remote-peer correlation for *job* and fan out ``queued``.
 
-        JOB_QUEUED fires from :meth:`FirmwareController._enqueue`
-        immediately after the job lands in the queue — before any
-        JOB_STARTED / JOB_OUTPUT / terminal event. Populating
-        :attr:`_remote_jobs` here means subsequent listeners
-        (especially :meth:`_on_output`, which fires per line of
-        output) can do an O(1) sync lookup against state this
-        module owns rather than reaching back into the firmware
-        controller's job map.
-
-        Local-only jobs (``remote_peer`` empty) don't go in the
-        cache — saves a per-line dict miss on the busy path.
-        Jobs with ``remote_peer`` set but ``remote_job_id``
-        empty are flagged at debug — the cache miss would be
-        silent on every later lifecycle / output event,
-        making the missing correlation hard to find. The
-        likely shape is a persisted job from before
-        ``remote_job_id`` existed, or a future call site
-        forgetting to pass it through ``_create_job``.
+        The ``queued`` frame drives the offloader's "waiting in
+        line" screen when the receiver is busy with another
+        offloader's job. Local-only jobs and jobs missing
+        ``remote_job_id`` are skipped.
         """
         job = event.data["job"]
         if not job.remote_peer:
@@ -205,6 +190,14 @@ class JobFanout:
             )
             return
         self._remote_jobs[job.job_id] = (job.remote_peer, job.remote_job_id)
+        self._dispatch_state_changed(
+            remote_peer=job.remote_peer,
+            remote_job_id=job.remote_job_id,
+            status="queued",
+            error_message="",
+            log_label="JOB_QUEUED",
+            log_job_id=job.job_id,
+        )
 
     def _on_lifecycle(self, event: Event[JobLifecycleData]) -> None:
         """Forward a lifecycle transition to the submitting session, best-effort.
@@ -231,21 +224,41 @@ class JobFanout:
         if entry is None:
             return
         remote_peer, remote_job_id = entry
-        session = self._controller._peer_link_sessions.get(remote_peer)
-        if session is None:
-            _LOGGER.debug(
-                "%s for remote peer %s (job %s): no active session; dropping fan-out",
-                event.event_type.value,
-                remote_peer,
-                job.job_id,
-            )
-            return
         status = _LIFECYCLE_EVENT_TO_STATUS[event.event_type]
         # ``error_message`` is the empty string on non-terminal
         # paths; populate from ``FirmwareJob.error`` on
         # ``failed`` / ``cancelled`` so the offloader has a
         # one-liner to surface without parsing the full output.
         error_message = job.error if status in {"failed", "cancelled"} and job.error else ""
+        self._dispatch_state_changed(
+            remote_peer=remote_peer,
+            remote_job_id=remote_job_id,
+            status=status,
+            error_message=error_message,
+            log_label=event.event_type.value,
+            log_job_id=job.job_id,
+        )
+
+    def _dispatch_state_changed(
+        self,
+        *,
+        remote_peer: str,
+        remote_job_id: str,
+        status: _JobStatusLiteral,
+        error_message: str,
+        log_label: str,
+        log_job_id: str,
+    ) -> None:
+        """Send a ``job_state_changed`` frame to *remote_peer*'s session, best-effort."""
+        session = self._controller._peer_link_sessions.get(remote_peer)
+        if session is None:
+            _LOGGER.debug(
+                "%s for remote peer %s (job %s): no active session; dropping fan-out",
+                log_label,
+                remote_peer,
+                log_job_id,
+            )
+            return
         self._dispatch(
             session,
             JobStateChangedFrameData(
