@@ -228,6 +228,36 @@ def test_get_address_cache_args_unknown_configuration_returns_empty() -> None:
     assert args == []
 
 
+def test_get_ota_address_cache_args_returns_cache_for_ota_port() -> None:
+    """Strict ``port == "OTA"`` → delegate to ``get_address_cache_args``."""
+    controller = _devices_controller_with(_device())
+
+    assert controller.get_ota_address_cache_args("kitchen.yaml", "OTA") == [
+        "--mdns-address-cache",
+        "kitchen.local=192.168.1.50",
+    ]
+
+
+def test_get_ota_address_cache_args_empty_for_serial_port() -> None:
+    """``--device /dev/tty*`` doesn't consult the address cache."""
+    controller = _devices_controller_with(_device())
+
+    assert controller.get_ota_address_cache_args("kitchen.yaml", "/dev/ttyUSB0") == []
+
+
+def test_get_ota_address_cache_args_empty_for_missing_port() -> None:
+    """Empty string is *not* treated as OTA — callers must normalise first.
+
+    ``firmware/upload`` defaults to ``port=""`` and historically did
+    not forward cache args; the helper preserves that behaviour. The
+    ``stream_logs`` caller normalises ``port or "OTA"`` before passing
+    in (matching its ``--device`` default).
+    """
+    controller = _devices_controller_with(_device())
+
+    assert controller.get_ota_address_cache_args("kitchen.yaml", "") == []
+
+
 # ----------------------------------------------------------------------
 # FirmwareController._build_cache_args / _build_command
 # ----------------------------------------------------------------------
@@ -243,8 +273,12 @@ def _firmware_controller_with(devices_controller: Any) -> FirmwareController:
 
 def test_cache_args_only_for_ota_upload_install() -> None:
     """Compile / clean / serial-port jobs don't get cache args."""
+    cache = ["--mdns-address-cache", "k.local=1.2.3.4"]
     devices = MagicMock()
-    devices.get_address_cache_args.return_value = ["--mdns-address-cache", "k.local=1.2.3.4"]
+    devices.get_address_cache_args.return_value = cache
+    devices.get_ota_address_cache_args.side_effect = lambda _configuration, port: (
+        cache if port == "OTA" else []
+    )
     controller = _firmware_controller_with(devices)
 
     # Compile: no port, irrelevant
@@ -265,7 +299,7 @@ def test_cache_args_only_for_ota_upload_install() -> None:
     job = FirmwareJob(
         job_id="4", configuration="kitchen.yaml", job_type=JobType.INSTALL, port="OTA"
     )
-    assert controller._build_cache_args(job) == ["--mdns-address-cache", "k.local=1.2.3.4"]
+    assert controller._build_cache_args(job) == cache
 
 
 def test_cache_args_no_devices_controller() -> None:

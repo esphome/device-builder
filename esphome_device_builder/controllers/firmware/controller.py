@@ -1721,14 +1721,14 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         # Only OTA uploads benefit — serial flashes don't talk to the
         # device's network address at all. ``rename`` does an internal
         # OTA install via ``esphome run`` against the *old* address, so
-        # the same cache shortcut applies.
+        # the same cache shortcut applies regardless of ``job.port``.
         if job.job_type not in (JobType.UPLOAD, JobType.INSTALL, JobType.RENAME):
-            return []
-        if job.job_type != JobType.RENAME and job.port != "OTA":
             return []
         if self._db.devices is None:
             return []
-        return self._db.devices.get_address_cache_args(job.configuration)
+        if job.job_type == JobType.RENAME:
+            return self._db.devices.get_address_cache_args(job.configuration)
+        return self._db.devices.get_ota_address_cache_args(job.configuration, job.port)
 
     # ------------------------------------------------------------------
     # Internals — job management

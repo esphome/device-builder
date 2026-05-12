@@ -362,6 +362,113 @@ async def test_stream_logs_command_omits_no_states_by_default(
     assert captured == [["esphome", "--dashboard", "logs", "kitchen.yaml", "--device", "OTA"]]
 
 
+async def test_stream_logs_splices_cache_args_for_ota(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """OTA port → ``--mdns/--dns-address-cache`` lands between ``--dashboard`` and ``logs``.
+
+    The cache flags are parsed on esphome's top-level parser, not
+    ``logs``'s — landing them after the subcommand triggers
+    ``unrecognized arguments``.
+    """
+    ctrl = _make_controller_with_settings(make_controller, tmp_path, ["esphome"])
+    cache = ["--mdns-address-cache", "kitchen.local=192.168.1.50"]
+    ctrl.get_ota_address_cache_args = lambda _configuration, _port: cache  # type: ignore[method-assign]
+    captured: list[list[str]] = []
+
+    async def fake_stream(cmd: list[str], _client: Any, _mid: str, **_kwargs: Any) -> None:
+        captured.append(cmd)
+
+    ctrl._stream_subprocess = fake_stream  # type: ignore[method-assign]
+
+    await ctrl.stream_logs(
+        configuration="kitchen.yaml",
+        port="OTA",
+        client=MagicMock(),
+        message_id="m-cache",
+    )
+
+    assert captured == [
+        [
+            "esphome",
+            "--dashboard",
+            "--mdns-address-cache",
+            "kitchen.local=192.168.1.50",
+            "logs",
+            "kitchen.yaml",
+            "--device",
+            "OTA",
+        ]
+    ]
+
+
+async def test_stream_logs_splices_cache_args_when_port_defaults_to_ota(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """Empty port resolves to OTA *before* the cache-args lookup, so cache args still land."""
+    ctrl = _make_controller_with_settings(make_controller, tmp_path, ["esphome"])
+    cache = ["--mdns-address-cache", "kitchen.local=192.168.1.50"]
+    seen_ports: list[str] = []
+
+    def fake_get(configuration: str, port: str) -> list[str]:
+        seen_ports.append(port)
+        return cache if port == "OTA" else []
+
+    ctrl.get_ota_address_cache_args = fake_get  # type: ignore[method-assign]
+    captured: list[list[str]] = []
+
+    async def fake_stream(cmd: list[str], _client: Any, _mid: str, **_kwargs: Any) -> None:
+        captured.append(cmd)
+
+    ctrl._stream_subprocess = fake_stream  # type: ignore[method-assign]
+
+    await ctrl.stream_logs(
+        configuration="kitchen.yaml", client=MagicMock(), message_id="m-defcache"
+    )
+
+    assert seen_ports == ["OTA"]
+    assert captured == [
+        [
+            "esphome",
+            "--dashboard",
+            "--mdns-address-cache",
+            "kitchen.local=192.168.1.50",
+            "logs",
+            "kitchen.yaml",
+            "--device",
+            "OTA",
+        ]
+    ]
+
+
+async def test_stream_logs_no_cache_args_for_serial_port(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """Serial target → no cache args even if a cached IP exists.
+
+    ``--mdns/--dns-address-cache`` are no-ops for ``--device /dev/tty*``;
+    forwarding them would just be noise on the argv.
+    """
+    ctrl = _make_controller_with_settings(make_controller, tmp_path, ["esphome"])
+    captured: list[list[str]] = []
+
+    async def fake_stream(cmd: list[str], _client: Any, _mid: str, **_kwargs: Any) -> None:
+        captured.append(cmd)
+
+    ctrl._stream_subprocess = fake_stream  # type: ignore[method-assign]
+
+    await ctrl.stream_logs(
+        configuration="kitchen.yaml",
+        port="/dev/ttyUSB0",
+        client=MagicMock(),
+        message_id="m-serial",
+    )
+
+    assert captured == [
+        ["esphome", "--dashboard", "logs", "kitchen.yaml", "--device", "/dev/ttyUSB0"]
+    ]
+
+
 async def test_validate_config_command_includes_dashboard_flag(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:

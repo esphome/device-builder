@@ -206,11 +206,12 @@ def test_install_ota_default_keeps_cache_args() -> None:
     cache args and verifies they pass through to the command.
     """
     controller = _controller()
+    cache = ["--mdns-address-cache", "kitchen.local=192.168.1.50"]
     controller._db.devices = MagicMock()
-    controller._db.devices.get_address_cache_args.return_value = [
-        "--mdns-address-cache",
-        "kitchen.local=192.168.1.50",
-    ]
+    controller._db.devices.get_address_cache_args.return_value = cache
+    controller._db.devices.get_ota_address_cache_args.side_effect = lambda _configuration, port: (
+        cache if port == "OTA" else []
+    )
     job = FirmwareJob(
         job_id="install-2",
         configuration="kitchen.yaml",
@@ -221,5 +222,5 @@ def test_install_ota_default_keeps_cache_args() -> None:
     cache_args = controller._build_cache_args(job)
     cmd = controller._build_command(JobType.INSTALL, "kitchen.yaml", "OTA", cache_args)
 
-    assert cache_args == ["--mdns-address-cache", "kitchen.local=192.168.1.50"]
+    assert cache_args == cache
     assert "--mdns-address-cache" in cmd

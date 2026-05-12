@@ -132,14 +132,16 @@ class _StubDevices:
     ``_verify_chip`` no longer reads from the devices controller —
     chip variant comes from ``StorageJSON`` directly — but the
     runner's ``_build_cache_args`` still calls
-    ``get_address_cache_args`` on the install/upload paths.
-    Returning ``[]`` for the address-cache args keeps the build
-    command shape minimal (``--mdns-address-cache`` / ``--dns-
-    address-cache`` skipped) — orthogonal to the chip-id branches
-    these tests exercise.
+    ``get_address_cache_args`` / ``get_ota_address_cache_args`` on
+    the install/upload/rename paths. Returning ``[]`` for both
+    keeps the build command shape minimal — orthogonal to the
+    chip-id branches these tests exercise.
     """
 
     def get_address_cache_args(self, _configuration: str) -> list[str]:
+        return []
+
+    def get_ota_address_cache_args(self, _configuration: str, _port: str) -> list[str]:
         return []
 
 

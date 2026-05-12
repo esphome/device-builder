@@ -114,7 +114,7 @@ Connections that arrive on the trusted ingress site (HA add-on supervisor proxy)
 | `devices/import` | `{name, project_name?, package_import_url?, ...}` | `dict` | Import/adopt discovered device |
 | `devices/ignore` | `{name, ignore?}` | — | Toggle device visibility |
 | `devices/validate` | `{configuration}` | Streaming | Validate YAML config |
-| `devices/logs` | `{configuration, port?: "OTA" \| serial, no_states?: bool}` | Streaming | Stream live device logs. `port` defaults to `"OTA"` (empty string is treated the same) — without a default, `esphome logs` falls into an interactive port-choice prompt when multiple targets are visible and the stdin-less subprocess crashes with `EOFError`. |
+| `devices/logs` | `{configuration, port?: "OTA" \| serial, no_states?: bool}` | Streaming | Stream live device logs. `port` defaults to `"OTA"` (empty string is treated the same) — without a default, `esphome logs` falls into an interactive port-choice prompt when multiple targets are visible and the stdin-less subprocess crashes with `EOFError`. When `port` resolves to `"OTA"` the dashboard forwards its mDNS / DNS cache as `--mdns-address-cache` / `--dns-address-cache` so the CLI doesn't redo resolution the dashboard already has (legacy-dashboard parity with `build_cache_arguments`). |
 
 `Device.state`: `DeviceState` — `unknown`, `online`, or `offline` (discovered via mDNS + ping).
 `Device.has_pending_changes`: `true` = config changed since last compile, `false` = up to date, `null` = never compiled.
