@@ -154,13 +154,14 @@ def _wire_receiver_firmware_recorder(instances: PairedInstances) -> list[Firmwar
     firmware._create_job = MagicMock(side_effect=_create_job)
     firmware._enqueue = AsyncMock(side_effect=lambda job: job)
     # ``submit_job`` resolves the offloader's display label by
-    # going through ``self._firmware._db.remote_build.approved_peer_label``.
+    # going through
+    # ``self._firmware._db.remote_build_receiver.approved_peer_label``.
     # The firmware controller is a MagicMock in this harness, so
-    # the ``_db.remote_build`` chain returns yet-another MagicMock;
-    # pin it to the real receiver-side controller so the label
-    # lookup at job-create time hits the actual approved-peer
+    # the ``_db.remote_build_receiver`` chain returns yet-another
+    # MagicMock; pin it to the real receiver-side controller so the
+    # label lookup at job-create time hits the actual approved-peer
     # registry the pairing fixture populated.
-    firmware._db.remote_build = instances.receiver
+    firmware._db.remote_build_receiver = instances.receiver
     return created_jobs
 
 

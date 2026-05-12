@@ -43,6 +43,10 @@ from aiohttp import web
 from aiohttp.test_utils import TestServer
 
 from esphome_device_builder.api.ws import init_ws_app
+from esphome_device_builder.controllers.remote_build import (
+    OffloaderController,
+    ReceiverController,
+)
 from esphome_device_builder.controllers.remote_build.peer_link import (
     PEER_LINK_PATH,
     make_peer_link_handler,
@@ -66,13 +70,24 @@ from ..conftest import (
 
 @dataclass
 class PairedInstances:
-    """Two controllers + a TestServer, pre-paired and ready to drive.
+    """Two paired dashboards + a TestServer, pre-paired and ready to drive.
 
-    Test code reads :attr:`offloader` / :attr:`receiver` to drive
-    WS commands or assert on RAM-canonical state, and
-    :attr:`offloader_dashboard_id` to look up the offloader's
-    session on the receiver side
-    (``receiver._peer_link_sessions[<offloader_dashboard_id>]``).
+    Production has two sibling controllers per dashboard
+    (:class:`OffloaderController` and :class:`ReceiverController`);
+    the e2e harness simulates two whole dashboards, each with both
+    halves. ``receiver`` / ``offloader`` are the role-relevant
+    sibling on the role-relevant dashboard:
+
+    * ``receiver``: the receiver-role dashboard's receiver-side
+      sibling. Test code drives ``record_pair_request`` /
+      ``approve_peer`` / inspects ``_approved_peers`` here.
+    * ``offloader``: the offloader-role dashboard's offloader-side
+      sibling. Test code drives ``submit_job`` /
+      ``cancel_job`` / inspects ``_pairings`` here.
+
+    The full handles (``receiver_handles`` / ``offloader_handles``)
+    are exposed for tests that need both halves of a single
+    dashboard or the convenience ``start`` / ``stop`` lifecycle.
 
     :meth:`wait_until_session_opened` is the single conventional
     sync point; tests that need to assert on post-session state
@@ -80,8 +95,8 @@ class PairedInstances:
     registry by hand.
     """
 
-    receiver: RemoteBuildTestHandles
-    offloader: RemoteBuildTestHandles
+    receiver_handles: RemoteBuildTestHandles
+    offloader_handles: RemoteBuildTestHandles
     receiver_server: TestServer
     receiver_bus: EventBus
     offloader_bus: EventBus
@@ -106,6 +121,16 @@ class PairedInstances:
     offloader_closed: _CapturedEvents
     receiver_opened: _CapturedEvents
     receiver_closed: _CapturedEvents
+
+    @property
+    def offloader(self) -> OffloaderController:
+        """The offloader-role dashboard's offloader-side sibling."""
+        return self.offloader_handles.offloader
+
+    @property
+    def receiver(self) -> ReceiverController:
+        """The receiver-role dashboard's receiver-side sibling."""
+        return self.receiver_handles.receiver
 
     async def wait_until_session_opened(self, *, timeout: float = 2.0) -> None:
         """Block until both sides have observed the peer-link session opening.
@@ -209,7 +234,7 @@ async def paired_instances(
     # offloader dials ``("127.0.0.1", server.port)``.
     app = web.Application()
     init_ws_app(app)
-    handler = await make_peer_link_handler(receiver, receiver_dir)
+    handler = await make_peer_link_handler(receiver.receiver, receiver_dir)
     app.router.add_get(PEER_LINK_PATH, handler)
     server = TestServer(app)
     await server.start_server()
@@ -225,18 +250,18 @@ async def paired_instances(
 
     # 1. Receiver opens the pairing window so its handler will
     #    accept ``intent="pair_request"`` frames.
-    await receiver.set_pairing_window(open=True, client="receiver-tab")
+    await receiver.receiver.set_pairing_window(open=True, client="receiver-tab")
 
     # 2. Offloader runs preview to capture the receiver's pin
     #    over a live Noise XX handshake.
-    preview = await offloader.preview_pair(hostname="127.0.0.1", port=server.port)
+    preview = await offloader.offloader.preview_pair(hostname="127.0.0.1", port=server.port)
     pin_sha256 = preview["pin_sha256"]
 
     # 3. Offloader requests pairing. Receiver lands a PENDING
     #    ``StoredPeer`` and fires REMOTE_BUILD_PAIR_REQUEST_RECEIVED;
     #    the offloader spawns its pair-status long-poll listener
     #    against this row.
-    await offloader.request_pair(
+    await offloader.offloader.request_pair(
         hostname="127.0.0.1",
         port=server.port,
         pin_sha256=pin_sha256,
@@ -251,9 +276,9 @@ async def paired_instances(
     #    fires so the receiver's APPROVED → offloader's
     #    pair-status listener → status-flip-event chain can be
     #    awaited deterministically rather than spun on.
-    [pending_dashboard_id] = list(receiver._pending_peers.keys())
+    [pending_dashboard_id] = list(receiver.receiver._pending_peers.keys())
     pair_status_changed = capture_events(offloader_bus, EventType.OFFLOADER_PAIR_STATUS_CHANGED)
-    await receiver.approve_peer(dashboard_id=pending_dashboard_id)
+    await receiver.receiver.approve_peer(dashboard_id=pending_dashboard_id)
 
     # 5. Wait for the offloader's pair-status listener to observe
     #    the flip. The listener's long-poll WS unblocks on the
@@ -265,8 +290,8 @@ async def paired_instances(
     assert pair_status_changed[-1]["status"] == "approved"
 
     instances = PairedInstances(
-        receiver=receiver,
-        offloader=offloader,
+        receiver_handles=receiver,
+        offloader_handles=offloader,
         receiver_server=server,
         receiver_bus=receiver_bus,
         offloader_bus=offloader_bus,

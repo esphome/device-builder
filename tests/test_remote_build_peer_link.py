@@ -38,6 +38,9 @@ from noise.exceptions import NoiseInvalidMessage as _NoiseInvalidMessage
 
 from esphome_device_builder.api.ws import init_ws_app
 from esphome_device_builder.controllers.remote_build import (
+    ReceiverController,
+)
+from esphome_device_builder.controllers.remote_build import (
     peer_link as _peer_link_module,
 )
 from esphome_device_builder.controllers.remote_build.job_fanout import JobFanout
@@ -96,7 +99,7 @@ def _make_controller(*, config_dir: Any = None) -> RemoteBuildController:
 
 def _seed_peer(controller: RemoteBuildController, peer: StoredPeer) -> None:
     """Insert *peer* into the controller's RAM-canonical APPROVED dict."""
-    controller._approved_peers[peer.dashboard_id] = peer
+    controller.receiver._approved_peers[peer.dashboard_id] = peer
 
 
 async def _wait_until(condition: Callable[[], bool], *, timeout: float = 2.0) -> None:
@@ -129,10 +132,10 @@ async def _wait_until(condition: Callable[[], bool], *, timeout: float = 2.0) ->
 async def test_dispatch_preview_returns_ok(tmp_path: Path) -> None:
     """``intent="preview"`` doesn't hit the controller; just returns OK."""
     controller = _make_controller(config_dir=tmp_path)
-    controller._db.bus = MagicMock()
+    controller.offloader._db.bus = MagicMock()
 
     response = await _dispatch_intent(
-        controller,
+        controller.receiver,
         _DispatchInput(
             intent=PeerLinkIntent.PREVIEW,
             dashboard_id="alpha",
@@ -144,21 +147,21 @@ async def test_dispatch_preview_returns_ok(tmp_path: Path) -> None:
     )
 
     assert response is IntentResponse.OK
-    controller._db.bus.fire.assert_not_called()
+    controller.offloader._db.bus.fire.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_dispatch_pair_request_open_window_creates_pending(tmp_path: Path) -> None:
     """``intent="pair_request"`` while window open creates the row + fires event."""
     controller = _make_controller(config_dir=tmp_path)
-    controller._db.bus = MagicMock()
-    await controller.set_pairing_window(open=True, client="receiver-tab")
-    controller._db.bus.fire.reset_mock()
+    controller.offloader._db.bus = MagicMock()
+    await controller.receiver.set_pairing_window(open=True, client="receiver-tab")
+    controller.offloader._db.bus.fire.reset_mock()
 
     pubkey = b"\xaa" * 32
     pin = hashlib.sha256(pubkey).hexdigest()
     response = await _dispatch_intent(
-        controller,
+        controller.receiver,
         _DispatchInput(
             intent=PeerLinkIntent.PAIR_REQUEST,
             dashboard_id="alpha",
@@ -170,7 +173,7 @@ async def test_dispatch_pair_request_open_window_creates_pending(tmp_path: Path)
     )
 
     assert response is IntentResponse.PENDING
-    fire = controller._db.bus.fire
+    fire = controller.offloader._db.bus.fire
     fire.assert_called_once()
     _, payload = fire.call_args.args
     assert payload["dashboard_id"] == "alpha"
@@ -184,10 +187,10 @@ async def test_dispatch_pair_request_closed_window_returns_no_pairing_window(
 ) -> None:
     """Closed window short-circuits before any controller mutation."""
     controller = _make_controller(config_dir=tmp_path)
-    controller._db.bus = MagicMock()
+    controller.offloader._db.bus = MagicMock()
 
     response = await _dispatch_intent(
-        controller,
+        controller.receiver,
         _DispatchInput(
             intent=PeerLinkIntent.PAIR_REQUEST,
             dashboard_id="alpha",
@@ -199,17 +202,17 @@ async def test_dispatch_pair_request_closed_window_returns_no_pairing_window(
     )
 
     assert response is IntentResponse.NO_PAIRING_WINDOW
-    controller._db.bus.fire.assert_not_called()
+    controller.offloader._db.bus.fire.assert_not_called()
     # No row was created since the window gate fired first.
 
-    assert controller._approved_peers == {}
-    assert controller._pending_peers == {}
+    assert controller.receiver._approved_peers == {}
+    assert controller.receiver._pending_peers == {}
 
 
 @pytest.mark.asyncio
 async def test_dispatch_peer_link_approved_returns_ok(tmp_path: Path) -> None:
     controller = _make_controller(config_dir=tmp_path)
-    controller._db.bus = MagicMock()
+    controller.offloader._db.bus = MagicMock()
     pubkey = b"\xbb" * 32
     pin = hashlib.sha256(pubkey).hexdigest()
     _seed_peer(
@@ -224,7 +227,7 @@ async def test_dispatch_peer_link_approved_returns_ok(tmp_path: Path) -> None:
     )
 
     response = await _dispatch_intent(
-        controller,
+        controller.receiver,
         _DispatchInput(
             intent=PeerLinkIntent.PEER_LINK,
             dashboard_id="alpha",
@@ -249,12 +252,12 @@ async def test_dispatch_pair_request_empty_dashboard_id_returns_rejected(tmp_pat
     StoredPeer row keyed on ``""``.
     """
     controller = _make_controller(config_dir=tmp_path)
-    controller._db.bus = MagicMock()
-    await controller.set_pairing_window(open=True, client="receiver-tab")
-    controller._db.bus.fire.reset_mock()
+    controller.offloader._db.bus = MagicMock()
+    await controller.receiver.set_pairing_window(open=True, client="receiver-tab")
+    controller.offloader._db.bus.fire.reset_mock()
 
     response = await _dispatch_intent(
-        controller,
+        controller.receiver,
         _DispatchInput(
             intent=PeerLinkIntent.PAIR_REQUEST,
             dashboard_id="",  # empty — should fail the gate
@@ -266,9 +269,9 @@ async def test_dispatch_pair_request_empty_dashboard_id_returns_rejected(tmp_pat
     )
 
     assert response is IntentResponse.REJECTED
-    controller._db.bus.fire.assert_not_called()
-    assert controller._approved_peers == {}
-    assert controller._pending_peers == {}
+    controller.offloader._db.bus.fire.assert_not_called()
+    assert controller.receiver._approved_peers == {}
+    assert controller.receiver._pending_peers == {}
     await controller.stop()
 
 
@@ -286,13 +289,13 @@ async def test_dispatch_pair_request_malformed_dashboard_id_returns_rejected(
     would later refuse to operate on.
     """
     controller = _make_controller(config_dir=tmp_path)
-    controller._db.bus = MagicMock()
-    await controller.set_pairing_window(open=True, client="receiver-tab")
-    controller._db.bus.fire.reset_mock()
+    controller.offloader._db.bus = MagicMock()
+    await controller.receiver.set_pairing_window(open=True, client="receiver-tab")
+    controller.offloader._db.bus.fire.reset_mock()
 
     # Spaces aren't in the base64url alphabet.
     response = await _dispatch_intent(
-        controller,
+        controller.receiver,
         _DispatchInput(
             intent=PeerLinkIntent.PAIR_REQUEST,
             dashboard_id="has spaces!",
@@ -304,9 +307,9 @@ async def test_dispatch_pair_request_malformed_dashboard_id_returns_rejected(
     )
 
     assert response is IntentResponse.REJECTED
-    controller._db.bus.fire.assert_not_called()
-    assert controller._approved_peers == {}
-    assert controller._pending_peers == {}
+    controller.offloader._db.bus.fire.assert_not_called()
+    assert controller.receiver._approved_peers == {}
+    assert controller.receiver._pending_peers == {}
     await controller.stop()
 
 
@@ -327,14 +330,14 @@ async def test_dispatch_pair_status_unknown_after_window_close_returns_rejected(
     when admin reopens the window.
     """
     controller = _make_controller(config_dir=tmp_path)
-    controller._db.bus = MagicMock()
+    controller.offloader._db.bus = MagicMock()
     pubkey = b"\xcc" * 32
     pin = hashlib.sha256(pubkey).hexdigest()
     # No seed — the dict is empty (admin closed the window) and
     # settings.peers has no row (admin never approved).
 
     response = await _dispatch_intent(
-        controller,
+        controller.receiver,
         _DispatchInput(
             intent=PeerLinkIntent.PAIR_STATUS,
             dashboard_id="alpha",
@@ -502,7 +505,7 @@ async def test_drive_session_msg1_timeout_returns_quietly(
         "esphome_device_builder.controllers.remote_build.peer_link._HANDSHAKE_READ_TIMEOUT_SECONDS",
         0.01,
     )
-    controller = MagicMock(spec=RemoteBuildController)
+    controller = MagicMock(spec=ReceiverController)
     ws = _make_ws_stub()
 
     async def _hang() -> WSMessage:
@@ -523,7 +526,7 @@ async def test_handler_logs_unexpected_exception(
 ) -> None:
     """An unexpected exception inside the session driver lands in the loud-traceback branch."""
     controller = _make_controller(config_dir=tmp_path)
-    controller._db.bus = MagicMock()
+    controller.offloader._db.bus = MagicMock()
 
     async def _boom(*args: Any, **kwargs: Any) -> None:
         raise RuntimeError("synthetic")
@@ -533,7 +536,7 @@ async def test_handler_logs_unexpected_exception(
         _boom,
     )
 
-    handler = await make_peer_link_handler(controller, tmp_path)
+    handler = await make_peer_link_handler(controller.receiver, tmp_path)
     request = MagicMock()
     request.remote = "10.0.0.5"
     ws_response = AsyncMock(spec=web.WebSocketResponse)
@@ -601,7 +604,7 @@ async def test_drive_session_msg2_send_failure_short_circuits(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A connection that drops between msg1 and msg2 short-circuits the dispatch."""
-    controller = MagicMock(spec=RemoteBuildController)
+    controller = MagicMock(spec=ReceiverController)
     initiator_priv = secrets.token_bytes(32)
     responder_priv = secrets.token_bytes(32)
     initiator = PeerLinkNoiseSession.initiator(initiator_priv)
@@ -628,7 +631,7 @@ async def test_drive_session_unknown_intent_msg3_read_failure(
         "esphome_device_builder.controllers.remote_build.peer_link._HANDSHAKE_READ_TIMEOUT_SECONDS",
         0.01,
     )
-    controller = MagicMock(spec=RemoteBuildController)
+    controller = MagicMock(spec=ReceiverController)
     initiator_priv = secrets.token_bytes(32)
     responder_priv = secrets.token_bytes(32)
     initiator = PeerLinkNoiseSession.initiator(initiator_priv)
@@ -653,7 +656,7 @@ async def test_drive_session_unknown_intent_msg3_read_failure(
 @pytest.mark.asyncio
 async def test_drive_session_unknown_intent_msg2_send_failure() -> None:
     """Unknown intent + msg2 send fails → driver bails before reading msg3."""
-    controller = MagicMock(spec=RemoteBuildController)
+    controller = MagicMock(spec=ReceiverController)
     initiator_priv = secrets.token_bytes(32)
     responder_priv = secrets.token_bytes(32)
     initiator = PeerLinkNoiseSession.initiator(initiator_priv)
@@ -677,7 +680,7 @@ async def test_drive_session_happy_path_msg3_read_failure(
         "esphome_device_builder.controllers.remote_build.peer_link._HANDSHAKE_READ_TIMEOUT_SECONDS",
         0.01,
     )
-    controller = MagicMock(spec=RemoteBuildController)
+    controller = MagicMock(spec=ReceiverController)
     initiator_priv = secrets.token_bytes(32)
     responder_priv = secrets.token_bytes(32)
     initiator = PeerLinkNoiseSession.initiator(initiator_priv)
@@ -704,7 +707,7 @@ async def test_drive_session_handshake_not_complete_logs_and_returns(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """If the responder reaches msg3 without a remote static pubkey, log a warning and bail."""
-    controller = MagicMock(spec=RemoteBuildController)
+    controller = MagicMock(spec=ReceiverController)
     responder_priv = secrets.token_bytes(32)
 
     # Drive through msg1+msg2+msg3 against a real session, then
@@ -773,7 +776,7 @@ async def peer_link_app(
     expected ``remote_static_pub`` from the handshake transcript.
     """
     controller = _make_controller(config_dir=tmp_path)
-    controller._db.bus = MagicMock()
+    controller.offloader._db.bus = MagicMock()
 
     # Pre-create the receiver's identity so the handler doesn't
     # race the test on first-call generation; capture the pubkey
@@ -783,7 +786,7 @@ async def peer_link_app(
 
     app = web.Application()
     init_ws_app(app)
-    handler = await make_peer_link_handler(controller, tmp_path)
+    handler = await make_peer_link_handler(controller.receiver, tmp_path)
     app.router.add_get(PEER_LINK_PATH, handler)
     server = TestServer(app)
     client = TestClient(server)
@@ -879,8 +882,8 @@ async def test_e2e_pair_request_open_window_creates_row(
 ) -> None:
     """End-to-end: open window + pair_request → PENDING row + fired event + wire response."""
     client, controller, _ = peer_link_app
-    await controller.set_pairing_window(open=True, client="receiver-tab")
-    controller._db.bus.fire.reset_mock()
+    await controller.receiver.set_pairing_window(open=True, client="receiver-tab")
+    controller.offloader._db.bus.fire.reset_mock()
 
     round_trip = await _drive_initiator_handshake(
         client,
@@ -895,8 +898,8 @@ async def test_e2e_pair_request_open_window_creates_row(
 
     # PENDING entries land in the in-memory dict; APPROVED dict
     # stays empty until admin clicks Accept.
-    assert controller._approved_peers == {}
-    pending = controller._pending_peers["alpha"]
+    assert controller.receiver._approved_peers == {}
+    pending = controller.receiver._pending_peers["alpha"]
     assert pending.label == "alpha"
     # The receiver's controller derived the pin from the
     # handshake transcript's authenticated initiator static
@@ -924,8 +927,8 @@ async def test_e2e_pair_request_closed_window_returns_no_pairing_window(
     )
 
     # Closed window short-circuits before any RAM mutation.
-    assert controller._approved_peers == {}
-    assert controller._pending_peers == {}
+    assert controller.receiver._approved_peers == {}
+    assert controller.receiver._pending_peers == {}
 
 
 @pytest.mark.asyncio
@@ -1139,7 +1142,7 @@ async def test_e2e_peer_link_session_stays_open_after_intent_response(
         # registration happens just before. If the WS closed
         # instead, ``"alpha"`` would never land in the dict and
         # the wait would time out (deterministic failure).
-        await _wait_until(lambda: "alpha" in controller._peer_link_sessions)
+        await _wait_until(lambda: "alpha" in controller.receiver._peer_link_sessions)
         assert not ws.closed
     finally:
         await ws.close()
@@ -1221,7 +1224,7 @@ async def test_e2e_peer_link_session_kicks_old_on_duplicate_connect(
         close_msg = await asyncio.wait_for(old_ws.receive(), timeout=2.0)
         assert close_msg.type in (WSMsgType.CLOSE, WSMsgType.CLOSED, WSMsgType.CLOSING)
         # The registry now holds the NEW session; the old one is gone.
-        assert "alpha" in controller._peer_link_sessions
+        assert "alpha" in controller.receiver._peer_link_sessions
     finally:
         await new_ws.close()
 
@@ -1241,13 +1244,13 @@ async def test_e2e_peer_link_session_unregistered_on_peer_close(
     _session, ws, _ = await _drive_peer_link_session_open(
         client, dashboard_id="alpha", initiator_priv=initiator_priv
     )
-    await _wait_until(lambda: "alpha" in controller._peer_link_sessions)
+    await _wait_until(lambda: "alpha" in controller.receiver._peer_link_sessions)
 
     await ws.close()
 
     # The receiver's session loop sees the close, exits, and
     # ``unregister_peer_link_session`` runs in its ``finally``.
-    await _wait_until(lambda: "alpha" not in controller._peer_link_sessions)
+    await _wait_until(lambda: "alpha" not in controller.receiver._peer_link_sessions)
 
 
 @pytest.mark.asyncio
@@ -1273,7 +1276,7 @@ async def test_e2e_peer_link_session_drained_on_controller_stop(
         client, dashboard_id="alpha", initiator_priv=initiator_priv
     )
     try:
-        await _wait_until(lambda: "alpha" in controller._peer_link_sessions)
+        await _wait_until(lambda: "alpha" in controller.receiver._peer_link_sessions)
 
         # ``stop()`` runs in the same loop; the test fixture
         # also calls ``stop()`` on teardown but we drive it
@@ -1287,7 +1290,7 @@ async def test_e2e_peer_link_session_drained_on_controller_stop(
         assert terminate["reason"] == TerminateReason.SERVER_SHUTTING_DOWN.value
 
         await stop_task
-        assert controller._peer_link_sessions == {}
+        assert controller.receiver._peer_link_sessions == {}
     finally:
         await ws.close()
 
@@ -1368,8 +1371,8 @@ def _install_stub_submit_job_receiver(
 
     firmware_stub._create_job = MagicMock(side_effect=_create_job)
     firmware_stub._enqueue = AsyncMock(side_effect=_enqueue)
-    controller._submit_job_receiver = SubmitJobReceiver(
-        config_dir=controller._db.settings.config_dir,
+    controller.receiver._submit_job_receiver = SubmitJobReceiver(
+        config_dir=controller.offloader._db.settings.config_dir,
         firmware_controller=firmware_stub,
     )
     return firmware_stub, queued_jobs
@@ -1400,7 +1403,7 @@ async def test_e2e_submit_job_dispatches_to_receiver(
     await _seed_approved_offloader(controller, dashboard_id="alpha", pubkey=initiator_pub)
     _firmware_stub, queued_jobs = _install_stub_submit_job_receiver(controller)
     extracted_path = (
-        controller._db.settings.config_dir
+        controller.offloader._db.settings.config_dir
         / ".esphome"
         / ".remote_builds"
         / "alpha"
@@ -1584,7 +1587,7 @@ async def test_send_app_frame_short_circuits_after_terminate(tmp_path: Path) -> 
 async def test_register_peer_link_session_kicks_existing(tmp_path: Path) -> None:
     """Registering a new session for the same dashboard_id terminates the existing one."""
     controller = _make_controller(config_dir=tmp_path)
-    controller._db.bus = MagicMock()
+    controller.offloader._db.bus = MagicMock()
 
     # Stub two sessions with mocked terminate.
     old = MagicMock(spec=PeerLinkSession)
@@ -1594,12 +1597,12 @@ async def test_register_peer_link_session_kicks_existing(tmp_path: Path) -> None
     new.dashboard_id = "alpha"
     new.terminate = AsyncMock()
 
-    await controller.register_peer_link_session(old)
-    assert controller._peer_link_sessions["alpha"] is old
+    await controller.receiver.register_peer_link_session(old)
+    assert controller.receiver._peer_link_sessions["alpha"] is old
     old.terminate.assert_not_called()
 
-    await controller.register_peer_link_session(new)
-    assert controller._peer_link_sessions["alpha"] is new
+    await controller.receiver.register_peer_link_session(new)
+    assert controller.receiver._peer_link_sessions["alpha"] is new
     old.terminate.assert_awaited_once_with(TerminateReason.SUPERSEDED)
     new.terminate.assert_not_called()
 
@@ -1617,15 +1620,17 @@ async def test_register_peer_link_session_pushes_initial_queue_status(tmp_path: 
     silently fall back to LOCAL on every install request.
     """
     controller = _make_controller(config_dir=tmp_path)
-    controller._db.bus = MagicMock()
-    controller._db.firmware = MagicMock()
-    controller._db.firmware.queue_status_snapshot = MagicMock(return_value=(True, False, 0))
+    controller.offloader._db.bus = MagicMock()
+    controller.offloader._db.firmware = MagicMock()
+    controller.offloader._db.firmware.queue_status_snapshot = MagicMock(
+        return_value=(True, False, 0)
+    )
 
     session = MagicMock(spec=PeerLinkSession)
     session.dashboard_id = "alpha"
     session.send_app_frame = AsyncMock(return_value=True)
 
-    await controller.register_peer_link_session(session)
+    await controller.receiver.register_peer_link_session(session)
     # The send is dispatched as a background task; let it drain.
     await asyncio.sleep(0)
     await asyncio.sleep(0)
@@ -1648,14 +1653,14 @@ async def test_register_peer_link_session_skips_initial_queue_status_when_firmwa
     :meth:`_on_firmware_queue_transition`.
     """
     controller = _make_controller(config_dir=tmp_path)
-    controller._db.bus = MagicMock()
-    controller._db.firmware = None  # production pre-``start`` state
+    controller.offloader._db.bus = MagicMock()
+    controller.offloader._db.firmware = None  # production pre-``start`` state
 
     session = MagicMock(spec=PeerLinkSession)
     session.dashboard_id = "alpha"
     session.send_app_frame = AsyncMock()
 
-    await controller.register_peer_link_session(session)
+    await controller.receiver.register_peer_link_session(session)
     await asyncio.sleep(0)
     await asyncio.sleep(0)
 
@@ -1676,9 +1681,11 @@ async def test_register_peer_link_session_swallows_snapshot_exception(tmp_path: 
     :meth:`_broadcast_queue_status` for per-session sends.
     """
     controller = _make_controller(config_dir=tmp_path)
-    controller._db.bus = MagicMock()
-    controller._db.firmware = MagicMock()
-    controller._db.firmware.queue_status_snapshot = MagicMock(side_effect=RuntimeError("boom"))
+    controller.offloader._db.bus = MagicMock()
+    controller.offloader._db.firmware = MagicMock()
+    controller.offloader._db.firmware.queue_status_snapshot = MagicMock(
+        side_effect=RuntimeError("boom")
+    )
 
     session = MagicMock(spec=PeerLinkSession)
     session.dashboard_id = "alpha"
@@ -1686,13 +1693,13 @@ async def test_register_peer_link_session_swallows_snapshot_exception(tmp_path: 
 
     # Must not raise — register completes cleanly even on a bad
     # snapshot read.
-    await controller.register_peer_link_session(session)
+    await controller.receiver.register_peer_link_session(session)
     await asyncio.sleep(0)
     await asyncio.sleep(0)
 
     # Push skipped, but the session is registered.
     session.send_app_frame.assert_not_called()
-    assert controller._peer_link_sessions["alpha"] is session
+    assert controller.receiver._peer_link_sessions["alpha"] is session
 
 
 @pytest.mark.asyncio
@@ -1711,15 +1718,17 @@ async def test_register_peer_link_session_swallows_send_app_frame_exception(
     catches up on the next queue transition instead.
     """
     controller = _make_controller(config_dir=tmp_path)
-    controller._db.bus = MagicMock()
-    controller._db.firmware = MagicMock()
-    controller._db.firmware.queue_status_snapshot = MagicMock(return_value=(True, False, 0))
+    controller.offloader._db.bus = MagicMock()
+    controller.offloader._db.firmware = MagicMock()
+    controller.offloader._db.firmware.queue_status_snapshot = MagicMock(
+        return_value=(True, False, 0)
+    )
 
     session = MagicMock(spec=PeerLinkSession)
     session.dashboard_id = "alpha"
     session.send_app_frame = AsyncMock(side_effect=RuntimeError("boom"))
 
-    await controller.register_peer_link_session(session)
+    await controller.receiver.register_peer_link_session(session)
     # Drain the background task; the inner swallow must keep
     # the raise from surfacing as an unhandled task exception.
     await asyncio.sleep(0)
@@ -1727,7 +1736,7 @@ async def test_register_peer_link_session_swallows_send_app_frame_exception(
 
     session.send_app_frame.assert_awaited_once()
     # Session still registered — the failed push doesn't roll it back.
-    assert controller._peer_link_sessions["alpha"] is session
+    assert controller.receiver._peer_link_sessions["alpha"] is session
 
 
 def test_unregister_peer_link_session_no_op_when_replaced(tmp_path: Path) -> None:
@@ -1739,11 +1748,11 @@ def test_unregister_peer_link_session_no_op_when_replaced(tmp_path: Path) -> Non
     new = MagicMock(spec=PeerLinkSession)
     new.dashboard_id = "alpha"
 
-    controller._peer_link_sessions["alpha"] = new
-    controller.unregister_peer_link_session(old)
+    controller.receiver._peer_link_sessions["alpha"] = new
+    controller.receiver.unregister_peer_link_session(old)
     # New session still in place — the old session's late
     # cleanup didn't evict the replacement.
-    assert controller._peer_link_sessions["alpha"] is new
+    assert controller.receiver._peer_link_sessions["alpha"] is new
 
 
 def test_unregister_peer_link_session_removes_when_current(tmp_path: Path) -> None:
@@ -1752,10 +1761,10 @@ def test_unregister_peer_link_session_removes_when_current(tmp_path: Path) -> No
 
     session = MagicMock(spec=PeerLinkSession)
     session.dashboard_id = "alpha"
-    controller._peer_link_sessions["alpha"] = session
+    controller.receiver._peer_link_sessions["alpha"] = session
 
-    controller.unregister_peer_link_session(session)
-    assert controller._peer_link_sessions == {}
+    controller.receiver.unregister_peer_link_session(session)
+    assert controller.receiver._peer_link_sessions == {}
 
 
 @pytest.mark.asyncio
@@ -1909,7 +1918,7 @@ async def test_receive_loop_terminates_on_non_object_json(tmp_path: Path) -> Non
 
 @pytest.mark.asyncio
 async def test_receive_loop_routes_cancel_job_to_controller(tmp_path: Path) -> None:
-    """A ``cancel_job`` Noise frame routes through ``controller.handle_cancel_job``."""
+    """A ``cancel_job`` Noise frame routes through ``controller.receiver.handle_cancel_job``."""
     initiator, responder = _noise_pair()
     session, ws = _make_unit_session(responder)
     frame = initiator.encrypt(_json.dumps({"type": "cancel_job", "job_id": "j-1"}))
@@ -2106,7 +2115,7 @@ async def test_run_peer_link_session_heartbeat_closures_route_to_session(
 
     ws = _ParkingWs()
     controller = _make_controller(config_dir=tmp_path)
-    controller._db.bus = MagicMock()
+    controller.offloader._db.bus = MagicMock()
 
     captured: dict[str, Any] = {}
     heartbeat_started = asyncio.Event()
@@ -2122,7 +2131,7 @@ async def test_run_peer_link_session_heartbeat_closures_route_to_session(
 
     run_task = asyncio.create_task(
         _peer_link_module._run_peer_link_session(
-            controller=controller,
+            controller=controller.receiver,
             ws=ws,  # type: ignore[arg-type]
             session=responder,
             dashboard_id="alpha",
@@ -2212,9 +2221,9 @@ def _make_receiver_with_fanout(tmp_path: Path) -> RemoteBuildController:
     real ``submit_job`` had queued a remote job.
     """
     controller = make_remote_build_controller(config_dir=tmp_path)
-    controller._db.firmware = MagicMock()
-    controller._db.firmware.cancel = AsyncMock()
-    controller._job_fanout = JobFanout(controller)
+    controller.offloader._db.firmware = MagicMock()
+    controller.offloader._db.firmware.cancel = AsyncMock()
+    controller.receiver._job_fanout = JobFanout(controller)
     return controller
 
 
@@ -2229,25 +2238,25 @@ def _cancel_session(dashboard_id: str = "alpha") -> Any:
 async def test_handle_cancel_job_routes_to_firmware_cancel(tmp_path: Path) -> None:
     """Happy path: resolve offloader job_id → firmware job_id → fire ``firmware.cancel``."""
     controller = _make_receiver_with_fanout(tmp_path)
-    assert controller._job_fanout is not None
-    controller._job_fanout._remote_jobs["fw-abc"] = ("offloader-1", "remote-xyz")
+    assert controller.receiver._job_fanout is not None
+    controller.receiver._job_fanout._remote_jobs["fw-abc"] = ("offloader-1", "remote-xyz")
 
-    await controller.handle_cancel_job(
+    await controller.receiver.handle_cancel_job(
         _cancel_session(dashboard_id="offloader-1"),
         {"type": "cancel_job", "job_id": "remote-xyz"},
     )
-    controller._db.firmware.cancel.assert_awaited_once_with(job_id="fw-abc")
+    controller.offloader._db.firmware.cancel.assert_awaited_once_with(job_id="fw-abc")
 
 
 @pytest.mark.asyncio
 async def test_handle_cancel_job_unknown_remote_job_drops_silently(tmp_path: Path) -> None:
     """No matching correlation entry: drop without raising or calling firmware.cancel."""
     controller = _make_receiver_with_fanout(tmp_path)
-    await controller.handle_cancel_job(
+    await controller.receiver.handle_cancel_job(
         _cancel_session(dashboard_id="offloader-1"),
         {"type": "cancel_job", "job_id": "unknown"},
     )
-    controller._db.firmware.cancel.assert_not_called()
+    controller.offloader._db.firmware.cancel.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -2261,24 +2270,24 @@ async def test_handle_cancel_job_pin_to_wrong_session_no_cancel(tmp_path: Path) 
     from a different peer doesn't resolve.
     """
     controller = _make_receiver_with_fanout(tmp_path)
-    assert controller._job_fanout is not None
-    controller._job_fanout._remote_jobs["fw-abc"] = ("offloader-1", "j-1")
-    await controller.handle_cancel_job(
+    assert controller.receiver._job_fanout is not None
+    controller.receiver._job_fanout._remote_jobs["fw-abc"] = ("offloader-1", "j-1")
+    await controller.receiver.handle_cancel_job(
         _cancel_session(dashboard_id="offloader-2"),  # different peer
         {"type": "cancel_job", "job_id": "j-1"},
     )
-    controller._db.firmware.cancel.assert_not_called()
+    controller.offloader._db.firmware.cancel.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_handle_cancel_job_malformed_frame_drops_silently(tmp_path: Path) -> None:
     """A cancel_job frame missing ``job_id`` is dropped without raising."""
     controller = _make_receiver_with_fanout(tmp_path)
-    await controller.handle_cancel_job(
+    await controller.receiver.handle_cancel_job(
         _cancel_session(),
         {"type": "cancel_job"},  # missing job_id
     )
-    controller._db.firmware.cancel.assert_not_called()
+    controller.offloader._db.firmware.cancel.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -2296,26 +2305,26 @@ async def test_handle_cancel_job_before_controller_started_drops_silently(
     explicitly.
     """
     controller = _make_receiver_with_fanout(tmp_path)
-    controller._job_fanout = None  # simulate pre-start
-    await controller.handle_cancel_job(
+    controller.receiver._job_fanout = None  # simulate pre-start
+    await controller.receiver.handle_cancel_job(
         _cancel_session(dashboard_id="offloader-1"),
         {"type": "cancel_job", "job_id": "j-1"},
     )
-    controller._db.firmware.cancel.assert_not_called()
+    controller.offloader._db.firmware.cancel.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_handle_cancel_job_swallows_firmware_command_error(tmp_path: Path) -> None:
     """A ``CommandError`` from ``firmware.cancel`` (e.g. already-terminal) is swallowed."""
     controller = _make_receiver_with_fanout(tmp_path)
-    assert controller._job_fanout is not None
-    controller._job_fanout._remote_jobs["fw-abc"] = ("offloader-1", "j-1")
-    controller._db.firmware.cancel = AsyncMock(
+    assert controller.receiver._job_fanout is not None
+    controller.receiver._job_fanout._remote_jobs["fw-abc"] = ("offloader-1", "j-1")
+    controller.offloader._db.firmware.cancel = AsyncMock(
         side_effect=CommandError(ErrorCode.INVALID_ARGS, "Cannot cancel a completed job")
     )
     # Should not raise — the cancel is best-effort.
-    await controller.handle_cancel_job(
+    await controller.receiver.handle_cancel_job(
         _cancel_session(dashboard_id="offloader-1"),
         {"type": "cancel_job", "job_id": "j-1"},
     )
-    controller._db.firmware.cancel.assert_awaited_once()
+    controller.offloader._db.firmware.cancel.assert_awaited_once()

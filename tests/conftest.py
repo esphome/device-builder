@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 from unittest.mock import AsyncMock, MagicMock
@@ -191,59 +192,41 @@ def capture_events(bus: EventBus, event_type: EventType) -> _CapturedEvents:
     return captured
 
 
+@dataclass(frozen=True)
 class RemoteBuildTestHandles:
     """Test-only bundle of the two sibling remote-build controllers.
 
-    Production code accesses the two siblings (``OffloaderController``
-    and ``ReceiverController``) as separate attributes on
-    :class:`DeviceBuilder`. Tests written before the split
-    addressed both sides through one umbrella; this shim forwards
-    any non-``offloader`` / ``receiver`` attribute access to
-    whichever sibling has the name, so the legacy test surface
-    keeps working without per-test surgery. New tests should
-    address ``handles.offloader`` / ``handles.receiver`` directly.
+    Production code accesses the two siblings
+    (:class:`OffloaderController` and :class:`ReceiverController`)
+    as separate attributes on :class:`DeviceBuilder`. Tests model
+    that shape exactly: reach through ``handles.offloader`` for
+    outbound-side state + methods, ``handles.receiver`` for
+    inbound-side. The convenience ``start`` / ``stop`` methods
+    bring both sides up together; per-side tests can skip the
+    bundle and instantiate the relevant sibling directly.
     """
 
-    def __init__(self, db: Any) -> None:
-        # Bypass __setattr__ for the initial sibling slots so the
-        # forwarding logic sees them via ``__dict__`` lookup.
-        object.__setattr__(self, "offloader", OffloaderController(db))
-        object.__setattr__(self, "receiver", ReceiverController(db))
+    offloader: OffloaderController
+    receiver: ReceiverController
 
-    def __getattr__(self, name: str) -> Any:
-        """Forward attribute reads to whichever sibling owns *name*."""
-        # __getattr__ is only called for attrs not found via normal
-        # lookup — so ``offloader`` / ``receiver`` resolve normally.
-        offloader = self.__dict__.get("offloader")
-        if offloader is not None and hasattr(offloader, name):
-            return getattr(offloader, name)
-        receiver = self.__dict__.get("receiver")
-        if receiver is not None and hasattr(receiver, name):
-            return getattr(receiver, name)
-        raise AttributeError(f"RemoteBuildTestHandles has no attribute {name!r}")
+    @property
+    def _db(self) -> Any:
+        """The shared :class:`DeviceBuilder` ref both siblings hold.
 
-    def __setattr__(self, name: str, value: Any) -> None:
-        """Forward attribute writes to whichever sibling owns *name*."""
-        # Route writes to whichever sibling already owns the
-        # attribute. Lets legacy test code that did
-        # ``controller._pairings[...] = ...`` /
-        # ``controller._own_instance_name = ...`` keep working
-        # after the role split.
-        offloader = self.__dict__.get("offloader")
-        if offloader is not None and hasattr(offloader, name):
-            setattr(offloader, name, value)
-            return
-        receiver = self.__dict__.get("receiver")
-        if receiver is not None and hasattr(receiver, name):
-            setattr(receiver, name, value)
-            return
-        object.__setattr__(self, name, value)
+        Both siblings stash the same ``DeviceBuilder`` ref in
+        ``__init__``; this accessor lets test code reach
+        ``handles._db.firmware`` etc. without picking a sibling
+        arbitrarily.
+        """
+        return self.offloader._db
 
     async def start(self) -> None:
+        """Start both siblings, in the same order ``DeviceBuilder`` does."""
         await self.offloader.start()
         await self.receiver.start()
 
     async def stop(self) -> None:
+        """Stop both siblings, in the same order ``DeviceBuilder`` does."""
         await self.offloader.stop()
         await self.receiver.stop()
 
@@ -253,12 +236,12 @@ def make_remote_build_controller(
     config_dir: Path,
     bus: EventBus | None = None,
 ) -> RemoteBuildTestHandles:
-    """Build a :class:`RemoteBuildTestHandles` against a stub :class:`DeviceBuilder`.
+    """Build both remote-build sibling controllers against a stub :class:`DeviceBuilder`.
 
     Single source of truth for the per-test stub-DB shape.
     Mounted on a real :class:`EventBus` when *bus* is provided
     (e.g. the e2e harness's two-instance setup), otherwise
-    ``MagicMock`` auto-attribute resolution gives the controller
+    ``MagicMock`` auto-attribute resolution gives the controllers
     a no-op ``bus.fire``.
 
     ``db.create_background_task`` is wired to
@@ -272,13 +255,13 @@ def make_remote_build_controller(
     db.settings = MagicMock()
     db.settings.config_dir = config_dir
     db.create_background_task = asyncio.create_task
-    # ``register_peer_link_session`` calls ``firmware.queue_status_snapshot()``
-    # to push an initial idle / running / depth signal to a
-    # freshly-connected offloader (cold-connect gap fix).
     db.firmware.queue_status_snapshot = MagicMock(return_value=(True, False, 0))
     if bus is not None:
         db.bus = bus
-    return RemoteBuildTestHandles(db)
+    return RemoteBuildTestHandles(
+        offloader=OffloaderController(db),
+        receiver=ReceiverController(db),
+    )
 
 
 async def cancel_and_drain(task: asyncio.Task[Any]) -> None:

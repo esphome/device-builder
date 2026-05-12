@@ -61,7 +61,7 @@ def _make_remote_job(
 
 
 def _make_controller(*, bus: EventBus, sessions: dict[str, Any] | None = None) -> Any:
-    """Stub :class:`RemoteBuildController` with the attributes ``JobFanout`` reads.
+    """Stub :class:`ReceiverController` with the attributes ``JobFanout`` reads.
 
     Three load-bearing fields:
 
@@ -435,7 +435,7 @@ def test_start_no_op_without_bus() -> None:
     instantiate a stripped-down controller.
     """
     controller = _make_controller(bus=None)  # type: ignore[arg-type]
-    controller._db.bus = None
+    controller.offloader._db.bus = None
     fanout = JobFanout(controller)
     fanout.start()
     # No listeners attached, ``stop`` walks an empty list cleanly.

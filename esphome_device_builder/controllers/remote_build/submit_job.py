@@ -636,9 +636,9 @@ class SubmitJobReceiver:
         # file ``Store`` like ``_pairings``) only has to keep
         # the accessor's contract.
         remote_peer_label = ""
-        remote_build = self._firmware._db.remote_build
-        if remote_build is not None:
-            remote_peer_label = remote_build.approved_peer_label(session.dashboard_id)
+        receiver = self._firmware._db.remote_build_receiver
+        if receiver is not None:
+            remote_peer_label = receiver.approved_peer_label(session.dashboard_id)
 
         try:
             job = self._firmware._create_job(

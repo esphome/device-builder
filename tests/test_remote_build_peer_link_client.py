@@ -36,7 +36,10 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from noise.exceptions import NoiseInvalidMessage
 
 from esphome_device_builder.api.ws import init_ws_app
-from esphome_device_builder.controllers.remote_build import OffloaderController
+from esphome_device_builder.controllers.remote_build import (
+    OffloaderController,
+    ReceiverController,
+)
 from esphome_device_builder.controllers.remote_build import _models as rb_models
 from esphome_device_builder.controllers.remote_build import offloader as rb
 from esphome_device_builder.controllers.remote_build import (
@@ -110,7 +113,7 @@ def _make_controller(*, config_dir: Path) -> RemoteBuildController:
 @pytest.fixture
 async def receiver_server(
     tmp_path: Path,
-) -> AsyncGenerator[tuple[TestServer, RemoteBuildController, str, bytes], None]:
+) -> AsyncGenerator[tuple[TestServer, ReceiverController, str, bytes], None]:
     """Spin up an in-process receiver. Yields (server, controller, expected_pin, pub).
 
     The fourth element is the receiver's static X25519 pubkey
@@ -119,8 +122,9 @@ async def receiver_server(
     added in 4a-o part 5 rejects the connect when the captured
     pubkey doesn't match this value).
     """
-    controller = _make_controller(config_dir=tmp_path)
-    controller._db.bus = MagicMock()
+    handles = _make_controller(config_dir=tmp_path)
+    handles.receiver._db.bus = MagicMock()
+    controller = handles.receiver
 
     loop = asyncio.get_running_loop()
     identity = await loop.run_in_executor(None, get_or_create_peer_link_identity, tmp_path)
@@ -140,7 +144,7 @@ async def receiver_server(
         )
     finally:
         await server.close()
-        await controller.stop()
+        await handles.stop()
 
 
 # ---------------------------------------------------------------------------
@@ -150,7 +154,7 @@ async def receiver_server(
 
 @pytest.mark.asyncio
 async def test_preview_pair_returns_receivers_pin(
-    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     tmp_path: Path,
 ) -> None:
     """The captured pin from the handshake matches the receiver's actual identity."""
@@ -168,7 +172,7 @@ async def test_preview_pair_returns_receivers_pin(
 
 @pytest.mark.asyncio
 async def test_preview_pair_does_not_persist_state_on_receiver(
-    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
 ) -> None:
     """``intent="preview"`` returns ``OK`` without creating a peer row.
 
@@ -416,7 +420,7 @@ async def test_drive_initiator_round_trip_missing_intent_response_raises_client_
 
 @pytest.mark.asyncio
 async def test_drive_initiator_round_trip_handshake_not_complete_raises_client_error(
-    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Defensive: ``remote_static_pub`` raising ``HandshakeNotCompleteError`` is mapped.
@@ -576,7 +580,7 @@ async def test_drive_initiator_round_trip_maps_pathological_host_to_client_error
 
 @pytest.mark.asyncio
 async def test_request_pair_open_window_returns_pending(
-    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
 ) -> None:
     """Request_pair against an open pairing window returns PENDING + lands a peer row."""
     server, controller, expected_pin, _ = receiver_server
@@ -608,7 +612,7 @@ async def test_request_pair_open_window_returns_pending(
 
 @pytest.mark.asyncio
 async def test_request_pair_closed_window_returns_no_pairing_window(
-    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
 ) -> None:
     """Request_pair when the receiver window is closed returns NO_PAIRING_WINDOW."""
     server, _, _, _ = receiver_server
@@ -684,17 +688,17 @@ def offloader_controller_dir(tmp_path: Path) -> Path:
     return offloader_dir
 
 
-def _make_offloader_controller(*, config_dir: Path) -> RemoteBuildController:
+def _make_offloader_controller(*, config_dir: Path) -> OffloaderController:
     db = MagicMock()
     db.devices = MagicMock()
     db.devices.zeroconf = None
     db._dashboard_advertiser = None
     db.settings = MagicMock()
     db.settings.config_dir = config_dir
-    return RemoteBuildController(db)
+    return OffloaderController(db)
 
 
-async def _saved_pairings(offloader: RemoteBuildController) -> list[StoredPairing]:
+async def _saved_pairings(offloader: OffloaderController) -> list[StoredPairing]:
     """Flush any debounced save + return the on-disk pairings list.
 
     Empty list when the file doesn't exist (no save was ever
@@ -711,7 +715,7 @@ async def _saved_pairings(offloader: RemoteBuildController) -> list[StoredPairin
 
 @pytest.mark.asyncio
 async def test_controller_preview_pair_returns_receiver_pin(
-    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     offloader_controller_dir: Path,
 ) -> None:
     """End-to-end: ``RemoteBuildController.preview_pair`` returns the receiver's pin."""
@@ -750,7 +754,7 @@ async def test_controller_preview_pair_unavailable_on_unreachable_receiver(
 
 @pytest.mark.asyncio
 async def test_controller_request_pair_persists_pending_row(
-    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     offloader_controller_dir: Path,
 ) -> None:
     """End-to-end: ``RemoteBuildController.request_pair`` persists a PENDING StoredPairing."""
@@ -782,7 +786,7 @@ async def test_controller_request_pair_persists_pending_row(
 
 @pytest.mark.asyncio
 async def test_controller_request_pair_pin_mismatch_raises_precondition_failed(
-    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     offloader_controller_dir: Path,
 ) -> None:
     """User-supplied pin doesn't match the handshake → PRECONDITION_FAILED.
@@ -811,7 +815,7 @@ async def test_controller_request_pair_pin_mismatch_raises_precondition_failed(
 
 @pytest.mark.asyncio
 async def test_controller_request_pair_closed_window_raises_no_pairing_window(
-    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     offloader_controller_dir: Path,
 ) -> None:
     """Receiver window closed → CommandError(NO_PAIRING_WINDOW)."""
@@ -2056,7 +2060,7 @@ async def test_request_pair_repair_against_pending_cancels_old_listener(
 
 @pytest.mark.asyncio
 async def test_request_pair_already_approved_persists_to_disk(
-    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     offloader_controller_dir: Path,
 ) -> None:
     """Re-pair against an already-approved row persists APPROVED, no listener spawn.
@@ -2113,7 +2117,7 @@ async def test_request_pair_already_approved_persists_to_disk(
 
 @pytest.mark.asyncio
 async def test_lookup_peer_for_status_pending_dict_pin_mismatch_returns_rejected(
-    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
 ) -> None:
     """An offloader presenting a wrong pin against a PENDING dict entry → REJECTED.
 
@@ -2148,7 +2152,7 @@ async def test_lookup_peer_for_status_pending_dict_pin_mismatch_returns_rejected
 
 @pytest.mark.asyncio
 async def test_await_pair_status_returns_approved_when_receiver_approved(
-    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     offloader_controller_dir: Path,
 ) -> None:
     """await_pair_status against an APPROVED receiver row returns APPROVED + receiver pin."""
@@ -2192,7 +2196,7 @@ async def test_await_pair_status_returns_approved_when_receiver_approved(
 
 @pytest.mark.asyncio
 async def test_await_pair_status_unknown_dashboard_id_returns_rejected(
-    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
 ) -> None:
     """await_pair_status against an unknown dashboard_id returns REJECTED."""
     server, _, _, _ = receiver_server
@@ -2209,7 +2213,7 @@ async def test_await_pair_status_unknown_dashboard_id_returns_rejected(
 
 
 def _seed_approved_peer_sync(
-    controller: RemoteBuildController,
+    controller: ReceiverController,
     dashboard_id: str,
     pin: str,
     pubkey: bytes,
@@ -2552,7 +2556,7 @@ async def _drive_session_with_frames(
 
 
 async def _seed_approved_peer_for_initiator(
-    receiver_controller: RemoteBuildController,
+    receiver_controller: ReceiverController,
     *,
     dashboard_id: str,
     initiator_priv: bytes,
@@ -2572,7 +2576,7 @@ async def _seed_approved_peer_for_initiator(
 
 @pytest.mark.asyncio
 async def test_peer_link_client_fires_opened_after_handshake(
-    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
 ) -> None:
     """A real PeerLinkClient against a real receiver fires OFFLOADER_PEER_LINK_OPENED."""
     server, receiver, _, receiver_pub = receiver_server
@@ -2606,7 +2610,7 @@ async def test_peer_link_client_fires_opened_after_handshake(
 
 @pytest.mark.asyncio
 async def test_peer_link_client_fires_closed_on_cancel(
-    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
 ) -> None:
     """Cancelling the client task fires OFFLOADER_PEER_LINK_CLOSED with client_stopped."""
     server, receiver, _, receiver_pub = receiver_server
@@ -2644,7 +2648,7 @@ async def test_peer_link_client_fires_closed_on_cancel(
 
 @pytest.mark.asyncio
 async def test_peer_link_client_orphans_on_superseded(
-    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
 ) -> None:
     """A receiver-side ``terminate{reason: superseded}`` orphans the client.
 
@@ -2717,7 +2721,7 @@ async def test_peer_link_client_orphans_on_superseded(
 @pytest.mark.asyncio
 async def test_peer_link_client_reconnects_on_transport_error(
     monkeypatch: pytest.MonkeyPatch,
-    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
 ) -> None:
     """A failed connect retries with backoff; succeed on second attempt.
 
@@ -2972,7 +2976,7 @@ def test_peer_link_client_exposes_receiver_coordinates() -> None:
 
 @pytest.mark.asyncio
 async def test_peer_link_client_returns_transport_error_on_type_error(
-    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A ``TypeError`` from the handshake (e.g. non-binary frame) maps to ``transport_error``.
@@ -3019,7 +3023,7 @@ async def test_peer_link_client_returns_transport_error_on_type_error(
 
 @pytest.mark.asyncio
 async def test_peer_link_client_returns_transport_error_on_noise_failure(
-    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A Noise-side failure during the handshake maps to ``transport_error``.
@@ -3064,7 +3068,7 @@ async def test_peer_link_client_returns_transport_error_on_noise_failure(
 
 @pytest.mark.asyncio
 async def test_peer_link_client_close_event_carries_error_detail_on_noise_failure(
-    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A transport / Noise failure populates ``error_detail`` and ``last_connect_error``.
@@ -3124,7 +3128,7 @@ async def test_peer_link_client_close_event_carries_error_detail_on_noise_failur
 
 @pytest.mark.asyncio
 async def test_peer_link_client_auth_rejected_when_dashboard_id_unknown(
-    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
 ) -> None:
     """An unapproved dashboard_id fires CLOSED with auth_rejected.
 
@@ -3158,7 +3162,7 @@ async def test_peer_link_client_auth_rejected_when_dashboard_id_unknown(
 
 @pytest.mark.asyncio
 async def test_peer_link_client_pin_mismatch_aborts_and_orphans(
-    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
 ) -> None:
     """A pinned pubkey that doesn't match the receiver's actual key aborts the connect.
 
@@ -3514,7 +3518,7 @@ async def test_run_session_loops_on_dead_swallows_aiohttp_close_error(
 # ---------------------------------------------------------------------------
 
 
-def _prime_offloader_identity_for_spawn(controller: RemoteBuildController) -> None:
+def _prime_offloader_identity_for_spawn(controller: OffloaderController) -> None:
     """Set the identity prerequisites :meth:`_spawn_peer_link_client` checks before spawning.
 
     Production wires these in :meth:`start`; tests that bypass
@@ -4133,7 +4137,7 @@ async def test_submit_job_rejects_duplicate_job_id() -> None:
 
 
 def _seed_open_peer_link_client(
-    offloader: RemoteBuildController, pairing: StoredPairing
+    offloader: OffloaderController, pairing: StoredPairing
 ) -> PeerLinkClient:
     """Seed *offloader* with a fake open peer-link client for *pairing*.
 
@@ -4451,7 +4455,7 @@ async def test_controller_submit_job_rejects_path_traversal(
     db.devices.zeroconf = None
     db._dashboard_advertiser = None
     db.settings = settings
-    offloader = RemoteBuildController(db)
+    offloader = OffloaderController(db)
     offloader._db.bus = MagicMock()
 
     with pytest.raises(CommandError) as exc_info:
@@ -4790,7 +4794,7 @@ async def test_controller_submit_job_no_session_during_send_maps_to_precondition
 
 
 def _fire_offloader_job_state(
-    offloader: RemoteBuildController,
+    offloader: OffloaderController,
     *,
     pin_sha256: str = "a" * 64,
     receiver_hostname: str = "rcv.local",

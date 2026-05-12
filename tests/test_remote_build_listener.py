@@ -27,6 +27,10 @@ from esphome_device_builder.controllers.config import (
     DashboardSettings,
     remote_build_settings_transaction,
 )
+from esphome_device_builder.controllers.remote_build import (
+    OffloaderController,
+    ReceiverController,
+)
 from esphome_device_builder.device_builder import (
     DeviceBuilder,
     _strip_server_header_middleware,
@@ -761,18 +765,21 @@ async def test_set_settings_live_rebinds_listener(tmp_path: Path) -> None:
     # under ``config_dir / .offloader_pairings.json``; needs a
     # real Path (tmp_path is fine).
     db.remote_build_receiver = None  # not needed — controller doesn't read it
-    controller = RemoteBuildController(db)
-    db.remote_build_receiver = controller
+    controller = RemoteBuildController(
+        offloader=OffloaderController(db),
+        receiver=ReceiverController(db),
+    )
+    db.remote_build_receiver = controller.receiver
     # Wire the controller's mDNS-advertiser hook to a no-op.
     db._dashboard_advertiser = None
 
     try:
-        view = await controller.set_settings(enabled=True)
+        view = await controller.receiver.set_settings(enabled=True)
         assert view.enabled is True
         # Listener bound as a side effect of set_settings.
         assert db._remote_build_runner is not None
 
-        view = await controller.set_settings(enabled=False)
+        view = await controller.receiver.set_settings(enabled=False)
         assert view.enabled is False
         # Listener torn down as a side effect.
         assert db._remote_build_runner is None
