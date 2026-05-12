@@ -1,45 +1,26 @@
 """
 Per-signal freshness tracker for the device drawer's Reachability section.
 
-The state monitor is the source of truth for "is the device online and via
-which channel did we hear from it last." That decision boils down to a
-single ``DeviceState`` and a single ``source``. The drawer wants more:
-*every* channel's last-seen timestamp, independently, so the user can
-see e.g. "mDNS heard 12s ago, ping answered 47s ago, MQTT silent for 8
-min" in one glance.
+The state monitor owns the single ``DeviceState`` + active
+source for a device. The drawer wants more: *every* channel's
+last-seen independently so the user sees "mDNS heard 12s ago,
+ping answered 47s ago, MQTT silent for 8 min" at one glance.
 
-This tracker owns the per-signal freshness:
+* **mDNS** age is read live from zeroconf's cache via
+  ``mdns_cache_reader`` — the cache's ``DNSAddress.created``
+  refreshes on every announce *received*, including the
+  same-content TTL refreshes that suppress
+  ``ServiceStateChange.Updated`` (so stamping at the callback
+  site would lie).
+* **ping** / **MQTT** last-seen are stamped on the direct
+  observation; both signals fire callbacks every time.
+* **ping_rtt_ms** is paired with the most recent successful
+  ping.
 
-- **mDNS** — read directly from zeroconf's DNS cache via the
-  ``mdns_cache_reader`` callable. The cache's ``DNSAddress.created``
-  timestamp is refreshed on every announce *we receive*, even when
-  ``ServiceStateChange.Updated`` doesn't fire (zeroconf suppresses
-  the callback for same-content TTL refreshes). Stamping at the
-  callback site like we used to would lie about freshness — a
-  60s-old announce that hasn't changed content would still read
-  "5 min ago" because we never got a callback to bump our stamp.
-  Reading ``created`` straight from the cache gives the truth.
-- ``_ping_last_seen`` — set whenever an ICMP probe answers. Stamps
-  are correct here because we directly receive the success.
-- ``_mqtt_last_seen`` — set on every MQTT discovery payload routed
-  through the state monitor. Same: direct receive.
-- ``_ping_rtt_ms`` — paired with ``_ping_last_seen``; the most recent
-  successful ping's round-trip in milliseconds.
-
-The state monitor delegates: it calls :meth:`observe` on every
-positive observation and :meth:`record_ping_rtt` after a successful
-ping. The instance fires :attr:`on_observation` on every observation
-(including mDNS) so subscribers (the drawer's per-device WS
-subscription) can push a fresh snapshot to the UI without waiting
-for a state transition. The push-trigger is separate from the
-mDNS-age value: pushing tells the subscriber "look again," and
-:meth:`snapshot` re-reads the cache to compute the *current* age.
-
-Lives in its own module rather than as a few extra dicts inside
-:class:`DeviceStateMonitor` so the state monitor stays focused on its
-priority-rules + browser-callback + ping-loop work and the
-reachability-display data lives somewhere a future caller can reuse
-without inheriting the monitor's lifecycle.
+The state monitor calls :meth:`observe` on every positive
+observation; the tracker fires :attr:`on_observation` so the
+drawer's per-device subscription can push a fresh snapshot
+without waiting for a state transition.
 """
 
 from __future__ import annotations
@@ -50,15 +31,12 @@ from dataclasses import dataclass, field
 
 from ..models import DeviceReachabilityData, DeviceState
 
-# Wire-format dict the drawer's ``devices/subscribe_reachability`` event
-# carries — see :class:`DeviceReachabilityData` for the field-by-field
-# shape. The alias is kept as the local name for the snapshot
-# constructions in this module; ``DeviceReachabilityData`` is the
-# canonical name used at fire / listener sites.
+# Wire-shape alias kept local; ``DeviceReachabilityData`` is
+# the canonical name at fire / listener sites.
 ReachabilitySnapshot = DeviceReachabilityData
 
-# Callback fired every time we observe a freshness signal for a device,
-# so the per-device subscription stream can push a refreshed snapshot.
+# Fired on every freshness signal so the per-device
+# subscription stream can push a refreshed snapshot.
 ObservationCallback = Callable[[str], None]
 
 
@@ -67,52 +45,20 @@ class MdnsCacheInfo:
     """
     Truthful mDNS freshness derived from the zeroconf cache.
 
-    ``age_seconds`` is the elapsed time since the device's most
-    recent ``_esphomelib._tcp.local.`` SRV record was received,
-    computed from :attr:`zeroconf.DNSAddress.created`. Refreshed
-    on every announce zeroconf processes — including the same-
-    content TTL refreshes that don't fire
-    ``ServiceStateChange.Updated``.
+    ``age_seconds`` = elapsed time since the device's most
+    recent ``_esphomelib._tcp.local.`` SRV record, computed
+    from :attr:`zeroconf.DNSAddress.created`.
+    ``ttl_remaining_seconds`` = :meth:`DNSAddress.get_remaining_ttl`.
+    ``txt_records`` = parsed ``key -> value`` pairs from the
+    device's TXT record, sorted alphabetically for
+    deterministic wire output.
 
-    ``ttl_remaining_seconds`` is what
-    :meth:`zeroconf.DNSAddress.get_remaining_ttl` reports — how
-    long the cached entry has left before expiring without a
-    fresh announce. The drawer surfaces it beside the row so the
-    user can see whether the device is "due to re-announce" or
-    "missed several windows already."
-
-    ``txt_records`` is the parsed ``key -> value`` pairs from the
-    device's ``TXT`` record at ``<name>._esphomelib._tcp.local.``
-    — the same payload the dashboard already mines for
-    ``version`` / ``config_hash`` / ``mac`` / ``api_encryption``.
-    Surfaced wholesale to the drawer so the user can see exactly
-    what the device is broadcasting (debugging "why is the
-    dashboard reading the wrong version?" / "did my OTA actually
-    refresh the TXT?").
-
-    Bare keys (``foo`` with no ``=``), empty-value entries
-    (``foo=``), and entries whose value failed UTF-8 decode all
-    surface as ``""``-valued keys — zeroconf collapses the three
-    cases to a single ``None`` in ``decoded_properties`` and the
-    diagnostic value is the same regardless ("the key IS being
-    broadcast, even if there's nothing useful on the right-hand
-    side"). The empty string is the same signal the upstream
-    ``api_encryption`` tri-state already uses for "device
-    confirmed plaintext" (issue #437). Keys themselves are
-    dropped only when they fail UTF-8 decode (zeroconf surfaces
-    those as non-string keys in ``decoded_properties``); we
-    mirror the live-apply path's contract there.
-
-    Order is alphabetical by key — the decode pass sorts the
-    output so the wire format is deterministic across consecutive
-    snapshots regardless of zeroconf's bytes-order, which lets
-    downstream consumers compare with plain equality /
-    ``JSON.stringify`` instead of comparing dicts set-wise.
-
-    Empty mapping when no TXT record is cached at all (or the
-    cached record's bytes are missing); the snapshot serialiser
-    upstream maps ``{}`` to ``None`` on the wire so the drawer
-    hides the section entirely.
+    Bare keys (``foo`` with no ``=``), empty-value entries,
+    and UTF-8-decode failures all surface as ``""``-valued
+    keys — same empty-string-means-confirmed signal the
+    upstream ``api_encryption`` tri-state uses (#437). Keys
+    that fail UTF-8 decode are dropped. Empty ``txt_records``
+    when no TXT record is cached.
     """
 
     age_seconds: float
@@ -120,11 +66,9 @@ class MdnsCacheInfo:
     txt_records: dict[str, str] = field(default_factory=dict)
 
 
-# Reads the mDNS cache for a device name and returns the freshness
-# info, or ``None`` when zeroconf isn't running / the device hasn't
-# been heard from. Injected into the tracker rather than reaching for
-# zeroconf directly so the tracker stays a pure data-shape and tests
-# can pass a stub.
+# Reads the mDNS cache for a device name; ``None`` when
+# zeroconf isn't running / the device hasn't been heard.
+# Injected so tests can pass a stub.
 MdnsCacheReader = Callable[[str], MdnsCacheInfo | None]
 
 
@@ -137,35 +81,22 @@ class ReachabilityTracker:
         mdns_cache_reader: MdnsCacheReader | None = None,
     ) -> None:
         self._on_observation = on_observation
-        # Reads truthful mDNS freshness from zeroconf's cache. None
-        # when the caller doesn't wire one (existing test fixtures);
-        # the snapshot then falls through with ``None`` for the mDNS
-        # fields, which the drawer renders as a hidden mDNS row.
         self._mdns_cache_reader = mdns_cache_reader
-        # Each map keys on the device's ``esphome.name``. Values are
-        # ``time.monotonic()`` seconds. We never compare the values
-        # against absolute wall-clock; the snapshot subtracts them
-        # against a fresh ``time.monotonic()`` to compute "N seconds
-        # ago" so a clock skip can't make a 5s-ago observation look
-        # 5 minutes old.
+        # Each map keys on ``esphome.name`` and holds
+        # ``time.monotonic()`` seconds (subtracted against a
+        # fresh ``time.monotonic()`` at snapshot time, so a
+        # wall-clock skip can't age observations).
         #
-        # Size is bounded by the configured-device count — each
-        # observation overwrites its name's entry, never appends.
-        # ``clear(name)`` is the only pruner and runs from two
-        # paths: the mDNS browser's ``Removed`` event (broadcast
-        # went away, in ``_device_state_monitor.py``) and
-        # ``DevicesController._on_scan_change(REMOVED)`` (YAML
-        # deleted). An OFFLINE state from ping or MQTT timeout
-        # deliberately does *not* clear — the drawer still wants
-        # to surface "we last heard on MQTT 8 minutes ago" so the
-        # user can see when each channel went silent.
+        # No ``_mdns_last_seen`` — mDNS freshness comes from
+        # the cache reader; stamping at the call site lies
+        # when zeroconf suppresses ``Updated`` callbacks for
+        # same-content TTL refreshes.
         #
-        # Note: there is no ``_mdns_last_seen`` map. mDNS freshness
-        # comes from the zeroconf cache via ``_mdns_cache_reader``;
-        # stamping at the call site would lie when zeroconf
-        # suppresses ``Updated`` callbacks for same-content TTL
-        # refreshes (the cache still updates but our stamp would
-        # not).
+        # ``clear(name)`` is the only pruner (mDNS browser's
+        # ``Removed`` + ``DevicesController`` YAML-delete). An
+        # OFFLINE state from ping / MQTT timeout deliberately
+        # does *not* clear — the drawer wants "we last heard
+        # on MQTT 8 min ago" after the channel goes silent.
         self._ping_last_seen: dict[str, float] = {}
         self._mqtt_last_seen: dict[str, float] = {}
         self._ping_rtt_ms: dict[str, float] = {}
@@ -174,14 +105,11 @@ class ReachabilityTracker:
         """
         Notify subscribers of a fresh observation, stamping if applicable.
 
-        For ``ping`` / ``mqtt``: stamps the per-source last-seen
-        map. For ``mdns``: no stamp — freshness is read from the
-        zeroconf cache by ``snapshot``. In every modelled case
-        the observation callback fires so the drawer's
-        per-device WS subscription can push a refreshed snapshot
-        to the UI without waiting for the next state transition.
-
-        Sources we don't model (``unknown``) are silent no-ops.
+        ``ping`` / ``mqtt`` stamp the per-source last-seen
+        map. ``mdns`` doesn't stamp (freshness is read live
+        from the zeroconf cache by :meth:`snapshot`) but
+        still fires the callback. Other sources are silent
+        no-ops.
         """
         if source == "ping":
             self._ping_last_seen[name] = time.monotonic()
@@ -194,15 +122,12 @@ class ReachabilityTracker:
 
     def record_ping_rtt(self, name: str, rtt_ms: float) -> None:
         """
-        Record the round-trip from a successful ICMP probe.
+        Record a successful ICMP probe's round-trip.
 
-        Pure write — does *not* fire ``on_observation``. The state
-        monitor's ping path always pairs this with ``apply(name,
-        ONLINE, "ping")`` immediately after, which routes through
-        ``observe(name, "ping")`` and fires the callback once.
-        Firing here too would push two events for one ping. Future
-        callers that want a notification should call ``observe()``
-        explicitly after recording.
+        Pure write — does *not* fire ``on_observation``. The
+        state monitor's ping path always pairs this with an
+        ``observe(name, "ping")`` that fires the callback;
+        firing here would push two events for one ping.
         """
         self._ping_rtt_ms[name] = rtt_ms
 
@@ -210,12 +135,9 @@ class ReachabilityTracker:
         """
         Drop every tracked signal for *name*.
 
-        Used when mDNS reports the service ``Removed`` so the drawer
-        doesn't show stale-by-hours timestamps after a re-announce.
-        Idempotent — silently ignores names we've never tracked.
-        The mDNS row clears automatically because zeroconf evicts
-        the cache record alongside the ``Removed`` callback; this
-        method only needs to clear the directly-tracked maps.
+        Called when mDNS reports ``Removed`` or the YAML is
+        deleted. Idempotent. The mDNS row clears itself —
+        zeroconf evicts the cache record alongside ``Removed``.
         """
         self._ping_last_seen.pop(name, None)
         self._mqtt_last_seen.pop(name, None)
@@ -232,17 +154,12 @@ class ReachabilityTracker:
         """
         Return the wire-shape dict for the per-device subscription.
 
-        ``state`` / ``active_source`` / ``ip`` come from the state
-        monitor (it's the source of truth for those); the freshness
-        fields come from this tracker. mDNS reads the zeroconf
-        cache live via ``_mdns_cache_reader``; ping / MQTT use
-        ``time.monotonic()`` stamps from the directly-received
-        observations. Times are clamped at zero — a tiny negative
-        would only happen on clock skew, but a "-0.001s ago"
-        display is jarring.
-
-        Signals never observed for this device come through as
-        ``None`` so the renderer can hide their row entirely.
+        ``state`` / ``active_source`` / ``ip`` come from the
+        state monitor; freshness fields come from this
+        tracker. mDNS reads the zeroconf cache live; ping /
+        MQTT use ``time.monotonic()`` stamps. Ages are clamped
+        at zero. Never-observed signals come through as
+        ``None`` so the renderer can hide the row.
         """
         now = time.monotonic()
 
@@ -251,12 +168,9 @@ class ReachabilityTracker:
 
         mdns_age: float | None = None
         mdns_ttl_remaining: float | None = None
-        # ``None`` means "no TXT data the drawer should render". An
-        # empty dict would let the renderer mount a chevron with
-        # zero rows, which is just visual noise — so we collapse
-        # *both* "no TXT cached" and "TXT cached but every key
-        # decoded to nothing useful" to ``None`` here. The
-        # frontend hides the section entirely with a single
+        # ``None`` means "hide the TXT section" — collapses
+        # both "no TXT cached" and "TXT cached but no useful
+        # keys decoded" so the renderer is a single
         # null-check.
         mdns_txt_records: dict[str, str] | None = None
         if self._mdns_cache_reader is not None:
@@ -264,10 +178,8 @@ class ReachabilityTracker:
             if info is not None:
                 mdns_age = info.age_seconds
                 mdns_ttl_remaining = info.ttl_remaining_seconds
-                # Send a fresh dict on the wire — the cache reader
-                # may hand us a reference into a cached structure;
-                # don't let downstream mutation reach back into
-                # zeroconf's internals.
+                # Fresh dict on the wire so downstream mutation
+                # can't reach into zeroconf's internals.
                 mdns_txt_records = dict(info.txt_records) if info.txt_records else None
 
         return {
