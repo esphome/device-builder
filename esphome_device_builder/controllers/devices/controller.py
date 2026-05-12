@@ -338,16 +338,7 @@ class DevicesController:  # noqa: PLR0904 (grandfathered; new public methods nee
         return _build_address_cache_args(device, self._state_monitor)
 
     def get_ota_address_cache_args(self, configuration: str, port: str) -> list[str]:
-        """
-        Return cache args iff *port* is exactly ``"OTA"``; empty otherwise.
-
-        Serial targets get no cache args — the flags are no-ops for
-        ``--device /dev/tty*``. Callers that default a missing port
-        to OTA (``stream_logs``, ``firmware/install``) must normalise
-        before calling; the strict check keeps ``firmware/upload``'s
-        ``port=""`` auto-detect path from picking up cache args it
-        wasn't getting before.
-        """
+        """Return ``--mdns/--dns-address-cache`` args when ``port == "OTA"``; empty otherwise."""
         if port != "OTA":
             return []
         return self.get_address_cache_args(configuration)
