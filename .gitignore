@@ -25,6 +25,7 @@ Thumbs.db
 
 # Configs (user data, not shipped)
 configs/
+secrets.yaml
 
 # Script caches (cloned repos for sync)
 .cache/

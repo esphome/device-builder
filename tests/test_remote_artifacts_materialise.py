@@ -471,6 +471,38 @@ def test_materialise_rejects_cumulative_member_size(
         _materialise_in_tmp(tarball, tmp_path)
 
 
+def test_materialise_rejects_unreadable_storage_member(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Defensive guard: a regular-file member whose ``extractfile`` returns None raises."""
+    tarball = _synthetic_tarball()
+    real_extractfile = tarfile.TarFile.extractfile
+
+    def _stub_extractfile(self: tarfile.TarFile, member: object) -> object:
+        # Force None for the storage.json read; let other reads pass.
+        info = member if isinstance(member, tarfile.TarInfo) else self.getmember(str(member))
+        if info.name == STORAGE_MEMBER_NAME:
+            return None
+        return real_extractfile(self, member)
+
+    monkeypatch.setattr(tarfile.TarFile, "extractfile", _stub_extractfile)
+    with pytest.raises(MaterialiseError, match=r"unreadable"):
+        _materialise_in_tmp(tarball, tmp_path)
+
+
+def test_materialise_raises_when_storage_load_returns_none(
+    paired_roots: tuple[Path, Path],
+) -> None:
+    """A storage payload missing ``storage_version`` makes ``StorageJSON.load`` return None."""
+    _, offloader_root = paired_roots
+    # Drop storage_version so the early _parse_storage_json path still
+    # accepts name + build_path, but esphome.storage_json._load_impl
+    # raises KeyError and StorageJSON.load returns None.
+    tarball = _synthetic_tarball(storage={"name": "kitchen", "build_path": _FAKE_BUILD_PATH})
+    with pytest.raises(MaterialiseError, match=r"StorageJSON\.load returned None"):
+        _materialise_in_tmp(tarball, offloader_root)
+
+
 def test_materialise_idedata_skips_non_dict_flash_image_entry(
     paired_roots: tuple[Path, Path],
 ) -> None:

@@ -489,6 +489,41 @@ async def test_remote_compile_plumbs_device_names_from_local_scanner(
 
 
 @pytest.mark.asyncio
+async def test_remote_compile_falls_through_when_no_device_matches(
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_bundle: AsyncMock,
+) -> None:
+    """``submit_job`` ships empty names when the local scanner has no entry for the YAML."""
+    controller = firmware_controller_factory(with_terminate=True)
+    _capture_local_events(controller)
+    client = _make_client()
+    _wire_remote_build(controller, client=client)
+
+    unrelated_device = MagicMock()
+    unrelated_device.configuration = "other.yaml"
+    unrelated_device.name = "other"
+    unrelated_device.friendly_name = "Other"
+    devices_stub = MagicMock()
+    devices_stub.get_devices.return_value = [unrelated_device]
+    controller._db.devices = devices_stub
+
+    job = _make_remote_job()
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
+    await _wait_until_dispatched(client)
+    _fire_state(controller, job_id=job.job_id, status="completed")
+    await asyncio.wait_for(runner, timeout=2.0)
+
+    client.submit_job.assert_awaited_once_with(
+        job_id=job.job_id,
+        configuration_filename="kitchen.yaml",
+        target="compile",
+        bundle_bytes=b"FAKEBUNDLE",
+        device_name="",
+        device_friendly_name="",
+    )
+
+
+@pytest.mark.asyncio
 async def test_remote_compile_progress_translates_to_local_progress_event(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,

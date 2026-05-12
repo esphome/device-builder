@@ -92,6 +92,15 @@ async def paired_dashboards(
     if yaml_source is not None:
         target = offloader_dir / yaml_source.name
         target.write_bytes(yaml_source.read_bytes())
+        # Pull in ``secrets.yaml`` from the same directory so
+        # ``!secret`` references in the staged YAML resolve. Real
+        # device YAMLs almost always lean on this; without it the
+        # offloader's bundle step fails at config-read with
+        # "No such file: secrets.yaml" before ever talking to the
+        # receiver.
+        companion_secrets = yaml_source.parent / "secrets.yaml"
+        if companion_secrets.is_file():
+            (offloader_dir / "secrets.yaml").write_bytes(companion_secrets.read_bytes())
 
     offloader_settings = _make_settings(offloader_dir)
     receiver_settings = _make_settings(receiver_dir)
