@@ -21,11 +21,16 @@ toggle in the official ESPHome container and Home Assistant add-on.
 
 ## Code style
 
-- **Docstrings**: consumer-facing. Describe *what the function does
-  and what the caller can pass*, not how it's implemented internally.
-  Single-line docstrings inline (`"""Summary."""`); for **multi-line
-  docstrings put the content on the line after `"""`**, not on the
-  same line:
+- **Docstrings: terse, default to single-line.** A docstring is
+  the function's *contract*, not its narrative. Almost every
+  docstring should be one line — `"""Summary."""` — describing
+  what the function does and what the caller can pass. Multi-line
+  is the exception, not the rule, and is only justified when
+  there is genuinely non-obvious caller-visible behaviour that
+  the type signature and parameter names don't already convey.
+
+  When a multi-line docstring is needed, put the content on the
+  line after `"""`:
 
   ```python
   def merge_component_yaml(...) -> str:
@@ -37,18 +42,40 @@ toggle in the official ESPHome container and Home Assistant add-on.
       """
   ```
 
-  The codebase has both styles in older code; bring new code in
-  line with this convention.
+  **What does NOT belong in docstrings or comments:**
 
-- **Comments** clarify code that isn't immediately obvious. Don't
-  paraphrase what the code already says. **Don't remove existing
-  comments** unless the code they describe is gone — the original
-  author left them for a reason.
+  * Rationale / motivation / "why we used to do X" — that's the
+    PR description and the commit message. Git already remembers.
+  * Cross-references to issue numbers ("closes #N", "follow-up
+    to #M") — the PR body carries those.
+  * Restatement of the function body in prose. If the next line
+    of the docstring is just describing what the next line of
+    code does, delete the docstring line.
+  * Test docstrings retelling the production-side story. A test
+    docstring should name what the test pins, in one sentence —
+    not re-explain the bug, the fix, or the surrounding flow.
+  * "Same shape as X / mirrors Y" framing. A future reader
+    doesn't need to learn what *another* function does to read
+    this one.
 
-- **Don't pad commits or comments with cross-references** to old
-  codepaths or issue numbers unless there's a clear reason a future
-  reader needs that link. ("This used to live in X" is rarely
-  useful; the diff already shows that.)
+  Three-line maximum is a hard cap for new code. If the contract
+  genuinely needs more, the function probably needs splitting
+  first.
+
+- **Comments**: same bar. Default to writing no comments. Add
+  one only when the *why* is non-obvious: a hidden constraint, a
+  subtle invariant, a workaround for a specific bug, behaviour
+  that would surprise a reader. If removing the comment wouldn't
+  confuse a future reader, don't write it.
+
+  **Don't remove existing comments** unless the code they
+  describe is gone — the original author left them for a reason.
+
+- **Don't pad commits, docstrings, or comments with cross-
+  references** to old codepaths or issue numbers unless there's
+  a clear reason a future reader needs that link. ("This used to
+  live in X" is rarely useful; the diff already shows that. "See
+  #N for context" is what PR bodies are for.)
 
 - **Method order**: public API at the top, private helpers
   (`_underscore_prefixed`) at the bottom. The same applies to
