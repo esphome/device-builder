@@ -278,6 +278,53 @@ async def test_regenerate_marks_failed_on_spawn_oserror(
 
 
 @pytest.mark.asyncio
+async def test_regenerate_dedupes_same_tick_calls(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Two ``schedule_storage_regenerate`` calls in the same tick → one task.
+
+    Pins the same-tick race the in-flight test below can't reach.
+    Before the fix, ``_regenerate_pending`` was only populated
+    inside the spawned coroutine; back-to-back sync calls landed
+    before the loop ran the body, so both saw an empty pending
+    set and queued duplicate tasks (the lock further down then
+    serialised the subprocess but each task still paid the
+    failure-stamp read + post-success reload). With the sync
+    ``.add()`` in ``schedule`` the second call's dedupe check
+    fires immediately and only the first call queues a task.
+    """
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+
+    async def _fake_spawn(*_args: str, **_kwargs: Any) -> _FakeProc:
+        return _FakeProc(returncode=0)
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
+        _fake_spawn,
+    )
+    monkeypatch.setattr(
+        DevicesController,
+        "_finalize_regen_success",
+        AsyncMock(),
+    )
+
+    # Two synchronous calls — no ``await`` between them, so the
+    # spawned coroutine hasn't had a chance to run.
+    controller._schedule_storage_regenerate("kitchen.yaml")
+    controller._schedule_storage_regenerate("kitchen.yaml")
+
+    assert len(controller._spawned_tasks) == 1  # type: ignore[attr-defined]
+    # Sync ``.add()`` in ``schedule`` is the load-bearing piece —
+    # without it the second call wouldn't see the marker yet.
+    assert controller._regenerate_pending == {"kitchen.yaml"}
+
+    await _drain(controller)
+    assert controller._regenerate_pending == set()
+
+
+@pytest.mark.asyncio
 async def test_regenerate_pending_blocks_in_flight_dupe(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

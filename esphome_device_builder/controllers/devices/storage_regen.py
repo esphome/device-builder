@@ -107,11 +107,20 @@ def schedule(controller: DevicesController, configuration: str) -> None:
         # changed since; rerunning would produce the same error.
         return
 
+    # Mark synchronously so two same-tick ``schedule()`` calls
+    # don't both pass the dedupe check above (the coroutine
+    # body that used to do the add only runs after the loop
+    # yields, leaving a race window where a second call would
+    # queue a duplicate task; the lock further down serialises
+    # the subprocess but both runs would still pay the
+    # failure-stamp read + reload). Discard in ``_run``'s
+    # finally below so a single in-flight regen still clears
+    # cleanly.
+    controller._regenerate_pending.add(configuration)
     controller._db.create_background_task(_run(controller, configuration))
 
 
 async def _run(controller: DevicesController, configuration: str) -> None:
-    controller._regenerate_pending.add(configuration)
     try:
         # Cross-restart skip: the previous backend persisted
         # the YAML's mtime + wall-clock when the regen
