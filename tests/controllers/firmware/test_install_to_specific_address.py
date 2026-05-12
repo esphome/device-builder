@@ -23,7 +23,11 @@ from unittest.mock import MagicMock
 import pytest
 
 from esphome_device_builder.controllers.firmware import FirmwareController
-from esphome_device_builder.controllers.firmware.helpers import _validate_port
+from esphome_device_builder.controllers.firmware.helpers import (
+    PortType,
+    _validate_port,
+    get_port_type,
+)
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode, FirmwareJob, JobType
 
@@ -110,6 +114,16 @@ def test_validate_port_rejects_typos(port: str) -> None:
     # verbatim over WS to whichever command the user actually ran.
     assert "device target" in exc.value.message
     assert "install target" not in exc.value.message
+
+
+def test_validator_routes_serial_through_upstream_classifier() -> None:
+    """``_validate_port`` uses ``get_port_type`` for the SERIAL accept branch."""
+    assert get_port_type("/dev/ttyUSB0") is PortType.SERIAL
+    assert get_port_type("COM3") is PortType.SERIAL
+    # Stricter than the previous local classifier — bare names without
+    # a ``/`` or ``COM`` prefix classify as NETWORK and fall through to
+    # the hostname/IP check.
+    assert get_port_type("ttyUSB0") is PortType.NETWORK
 
 
 # ---------------------------------------------------------------------------

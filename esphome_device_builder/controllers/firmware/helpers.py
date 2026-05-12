@@ -39,6 +39,12 @@ from .constants import (
     _PROGRESS_PATTERNS,
 )
 
+try:
+    # esphome ≥ release that ships esphome/esphome#16346.
+    from esphome.upload_targets import PortType, get_port_type
+except ImportError:
+    from ._upload_targets_fallback import PortType, get_port_type
+
 if TYPE_CHECKING:
     from ...helpers.event_bus import EventBus
 
@@ -188,73 +194,11 @@ def _parse_progress(line: str) -> int | None:
     return None
 
 
-def _is_serial_port(port: str) -> bool:
-    """
-    Return True if *port* looks like a serial-device path.
-
-    Shared between :func:`_validate_port`'s accept rules and
-    the remote-install gate that forces serial targets to the
-    LOCAL path. ``esphome.__main__.get_port_type`` is the
-    upstream equivalent, but it lives in ``__main__`` — not a
-    stable public surface to import from. Owning our own
-    classifier keeps the dashboard pinned to its own rules
-    rather than tracking an unversioned upstream private.
-
-    Tracked at esphome/device-builder#562 — once we land an
-    upstream PR that re-exports ``get_port_type`` /
-    ``PortType`` from a non-``__main__`` module and bump the
-    esphome dependency floor past it, this helper collapses
-    to a thin re-export of the upstream call.
-
-    Adding a new serial-path marker updates both
-    :func:`_validate_port` (the WS validator) and the
-    remote-install gate together — keep them in lockstep.
-    """
-    return (
-        port.startswith("/")
-        or port.startswith("COM")
-        or any(marker in port for marker in ("ttyUSB", "ttyACM", "cu.", "tty."))
-    )
-
-
 def _validate_port(port: str) -> None:
-    """Sanity-check the user-supplied ``--device`` value.
-
-    The esphome CLI accepts arbitrary strings for ``--device`` and
-    treats them as one of: the literal ``"OTA"`` (let the CLI
-    resolve the configured host), a serial path, or a network host
-    (IPv4 / IPv6 / ``.local`` hostname). Without an upfront check
-    a typo'd IP would queue, run a compile, and only fail at the
-    flash step with a CLI error buried in the job output. Validate
-    early so the WS layer can return a clean ``INVALID_ARGS``.
-
-    The check is deliberately permissive — any of these shapes is
-    accepted:
-
-    * Empty string (``upload`` default — CLI auto-detects)
-    * The literal ``"OTA"``
-    * A serial path: starts with ``/``, ``COM`` (Windows), or
-      contains ``ttyUSB`` / ``ttyACM`` / ``cu.``
-    * A valid IPv4 or IPv6 address
-    * A hostname (``[a-z0-9-]+`` per label, optional ``.local``
-      suffix, optional FQDN trailing dot) — covers
-      ``device-name.local``, ``device.example.com.``, and bare
-      hostnames
-
-    Anything else (random punctuation, IPv4 with extra dots, etc.)
-    raises ``CommandError(INVALID_ARGS)``. Coordinated frontend
-    forms can pre-filter to the same shape.
-
-    Error messages use neutral "device target" wording — this
-    helper is shared across ``firmware/upload``, ``firmware/install``,
-    and ``firmware/install_bulk``, and the message is surfaced
-    verbatim over WS, so naming a single command in the error
-    would mislead callers of the others.
-    """
+    """Accept ``""`` / ``"OTA"`` / SERIAL / IPv4-6 / hostname; raise ``INVALID_ARGS`` otherwise."""
     if not port or port == "OTA":
         return
-    # Serial paths.
-    if _is_serial_port(port):
+    if get_port_type(port) is PortType.SERIAL:
         return
     # IP-shaped input must parse as a valid IP. Doing this check
     # *before* the hostname check rejects truncated / malformed
