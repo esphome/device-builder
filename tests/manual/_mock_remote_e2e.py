@@ -83,6 +83,11 @@ async def paired_dashboards(
     receiver_dir = root_dir / "receiver"
     offloader_dir.mkdir(parents=True, exist_ok=True)
     receiver_dir.mkdir(parents=True, exist_ok=True)
+    # ``/var/folders/...`` resolves to ``/private/var/folders/...`` on
+    # macOS; the receiver's ``relative_to`` against the extracted
+    # YAML path needs both sides to match, so canonicalise here.
+    offloader_dir = offloader_dir.resolve()
+    receiver_dir = receiver_dir.resolve()
 
     if yaml_source is not None:
         target = offloader_dir / yaml_source.name
@@ -105,51 +110,10 @@ async def paired_dashboards(
     assert receiver.remote_build_receiver is not None
     assert offloader.remote_build_offloader is not None
 
-    # Stand up the receiver's peer-link WS on a real loopback port.
-    app = web.Application()
-    init_ws_app(app)
-    handler = await make_peer_link_handler(receiver.remote_build_receiver, receiver_dir)
-    app.router.add_get(PEER_LINK_PATH, handler)
-    server = TestServer(app)
-    await server.start_server()
-    assert server.port is not None
-
-    # Pair via the production flow.
-    await receiver.remote_build_receiver.set_pairing_window(open=True, client="manual-script")
-    preview = await offloader.remote_build_offloader.preview_pair(
-        hostname="127.0.0.1", port=server.port
+    server = await _start_receiver_peer_link_server(receiver, receiver_dir)
+    pin_sha256, pending_dashboard_id = await _run_pair_flow(
+        offloader=offloader, receiver=receiver, server=server
     )
-    pin_sha256 = preview["pin_sha256"]
-    await offloader.remote_build_offloader.request_pair(
-        hostname="127.0.0.1",
-        port=server.port,
-        pin_sha256=pin_sha256,
-        receiver_label="receiver",
-        offloader_label="offloader",
-    )
-    [pending_dashboard_id] = list(receiver.remote_build_receiver._pending_peers.keys())
-
-    pair_event = asyncio.Event()
-
-    def _on_pair_status(event: object) -> None:
-        pair_event.set()
-
-    offloader.bus.add_listener(EventType.OFFLOADER_PAIR_STATUS_CHANGED, _on_pair_status)
-
-    queue_status_event = asyncio.Event()
-
-    def _on_queue_status(event: object) -> None:
-        queue_status_event.set()
-
-    offloader.bus.add_listener(EventType.OFFLOADER_QUEUE_STATUS_CHANGED, _on_queue_status)
-
-    await receiver.remote_build_receiver.approve_peer(dashboard_id=pending_dashboard_id)
-    await asyncio.wait_for(pair_event.wait(), timeout=5.0)
-    # The scheduler needs the receiver's queue_status push before it
-    # treats the pairing as eligible for REMOTE. Without this wait,
-    # firmware.compile / install can race the push and silently
-    # fall back to source=LOCAL.
-    await asyncio.wait_for(queue_status_event.wait(), timeout=5.0)
 
     pair = MockPair(
         offloader=offloader,
@@ -166,6 +130,66 @@ async def paired_dashboards(
         await offloader.stop()
         await receiver.stop()
         await server.close()
+
+
+async def _start_receiver_peer_link_server(
+    receiver: DeviceBuilder, receiver_dir: Path
+) -> TestServer:
+    """Stand up the receiver's peer-link WS on a real loopback port."""
+    app = web.Application()
+    init_ws_app(app)
+    assert receiver.remote_build_receiver is not None
+    handler = await make_peer_link_handler(receiver.remote_build_receiver, receiver_dir)
+    app.router.add_get(PEER_LINK_PATH, handler)
+    server = TestServer(app)
+    await server.start_server()
+    assert server.port is not None
+    return server
+
+
+async def _run_pair_flow(
+    *,
+    offloader: DeviceBuilder,
+    receiver: DeviceBuilder,
+    server: TestServer,
+) -> tuple[str, str]:
+    """Run the production pair handshake; return ``(pin_sha256, dashboard_id)``.
+
+    Also waits for the receiver's queue_status push so the
+    scheduler treats the pairing as REMOTE-eligible by the time
+    the caller submits a job.
+    """
+    assert receiver.remote_build_receiver is not None
+    assert offloader.remote_build_offloader is not None
+    assert server.port is not None
+
+    await receiver.remote_build_receiver.set_pairing_window(open=True, client="manual-script")
+    preview = await offloader.remote_build_offloader.preview_pair(
+        hostname="127.0.0.1", port=server.port
+    )
+    pin_sha256 = preview["pin_sha256"]
+    await offloader.remote_build_offloader.request_pair(
+        hostname="127.0.0.1",
+        port=server.port,
+        pin_sha256=pin_sha256,
+        receiver_label="receiver",
+        offloader_label="offloader",
+    )
+    [pending_dashboard_id] = list(receiver.remote_build_receiver._pending_peers.keys())
+
+    pair_event = asyncio.Event()
+    queue_status_event = asyncio.Event()
+    offloader.bus.add_listener(EventType.OFFLOADER_PAIR_STATUS_CHANGED, lambda _e: pair_event.set())
+    offloader.bus.add_listener(
+        EventType.OFFLOADER_QUEUE_STATUS_CHANGED, lambda _e: queue_status_event.set()
+    )
+
+    await receiver.remote_build_receiver.approve_peer(dashboard_id=pending_dashboard_id)
+    await asyncio.wait_for(pair_event.wait(), timeout=5.0)
+    # Scheduler needs the receiver's queue_status push before
+    # firmware.compile / install routes REMOTE.
+    await asyncio.wait_for(queue_status_event.wait(), timeout=5.0)
+    return pin_sha256, pending_dashboard_id
 
 
 async def wait_for_job(
