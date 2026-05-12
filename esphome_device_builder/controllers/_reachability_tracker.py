@@ -7,11 +7,12 @@ last-seen independently so the user sees "mDNS heard 12s ago,
 ping answered 47s ago, MQTT silent for 8 min" at one glance.
 
 * **mDNS** age is read live from zeroconf's cache via
-  ``mdns_cache_reader`` — the cache's ``DNSAddress.created``
-  refreshes on every announce *received*, including the
-  same-content TTL refreshes that suppress
-  ``ServiceStateChange.Updated`` (so stamping at the callback
-  site would lie).
+  ``mdns_cache_reader``, which folds the newest
+  ``DNSRecord.created`` across the device's cached A / AAAA
+  / SRV / TXT / PTR entries. Any of those refreshes on every
+  announce *received*, including the same-content TTL
+  refreshes that suppress ``ServiceStateChange.Updated`` (so
+  stamping at the callback site would lie).
 * **ping** / **MQTT** last-seen are stamped on the direct
   observation; both signals fire callbacks every time.
 * **ping_rtt_ms** is paired with the most recent successful
@@ -45,10 +46,12 @@ class MdnsCacheInfo:
     """
     Truthful mDNS freshness derived from the zeroconf cache.
 
-    ``age_seconds`` = elapsed time since the device's most
-    recent ``_esphomelib._tcp.local.`` SRV record, computed
-    from :attr:`zeroconf.DNSAddress.created`.
-    ``ttl_remaining_seconds`` = :meth:`DNSAddress.get_remaining_ttl`.
+    ``age_seconds`` = elapsed time since the newest cached
+    :class:`zeroconf.DNSRecord` for the device, folding the
+    A / AAAA / SRV / TXT / PTR entries together so any
+    refresh counts.
+    ``ttl_remaining_seconds`` = the same record's
+    :meth:`DNSRecord.get_remaining_ttl`.
     ``txt_records`` = parsed ``key -> value`` pairs from the
     device's TXT record, sorted alphabetically for
     deterministic wire output.
