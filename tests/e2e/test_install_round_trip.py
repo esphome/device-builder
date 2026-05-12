@@ -62,6 +62,9 @@ import pytest
 from esphome.core import CORE
 from esphome.storage_json import StorageJSON
 
+from esphome_device_builder.controllers.remote_build.artifacts_tarball import (
+    BUILD_INFO_MEMBER_NAME,
+)
 from esphome_device_builder.helpers.build_scheduler import (
     BuildPath,
     pick_build_path,
@@ -216,7 +219,7 @@ def _write_build_artifacts_on_disk(tmp_path: Path, *, configuration: str) -> dic
         image_paths[name] = path
 
     # Mirrors ESPHome's post-codegen build_info.json (#654).
-    (build_dir / "build_info.json").write_text(
+    (build_dir / BUILD_INFO_MEMBER_NAME).write_text(
         json.dumps({"config_hash": 0x5A94A12D}), encoding="utf-8"
     )
 
@@ -533,9 +536,10 @@ async def test_remote_compile_materialises_for_local_firmware_download(
     assert (download_dir / "partitions.bin").read_bytes() == images["partitions.bin"]
 
     # #654: read_build_info_hash resolves post-materialise.
-    assert (build_path / "build_info.json").is_file()
+    assert (build_path / BUILD_INFO_MEMBER_NAME).is_file()
     yaml_path = Path(CORE.config_path).parent / "kitchen.yaml"
-    assert read_build_info_hash(yaml_path) == "5a94a12d"
+    hex_hash = await asyncio.to_thread(read_build_info_hash, yaml_path)
+    assert hex_hash == "5a94a12d"
 
 
 def _drive_receiver_lifecycle(

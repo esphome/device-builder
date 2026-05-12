@@ -18,13 +18,17 @@ Tarball layout (materialise-locally wire format):
     storage.json     # receiver's <data_dir>/storage/<basename>.json
     idedata.json     # receiver's <data_dir>/idedata/<name>.json (esphome's cache copy)
     platformio.ini   # receiver's <build_path>/platformio.ini
+    build_info.json  # receiver's <build_path>/build_info.json (optional; #654)
     <per-platform build-tree files>  # see artifact_platforms/*.py
 
-The three metadata members at the top of the tarball are
-platform-independent — every build ships them. The
-:mod:`controllers.remote_build.artifact_platforms` registry
-drives which build-tree files travel alongside them; see the
-per-platform modules for the exact paths each platform ships.
+The metadata members at the top of the tarball are
+platform-independent — every build ships them
+(``build_info.json`` is optional: skipped when the receiver's
+build tree predates ESPHome's ``build_info.json`` write
+hook). The :mod:`controllers.remote_build.artifact_platforms`
+registry drives which build-tree files travel alongside them;
+see the per-platform modules for the exact paths each platform
+ships.
 
 The offloader-side materialiser
 (:func:`helpers.remote_artifacts_materialise.materialise_remote_artifacts`)

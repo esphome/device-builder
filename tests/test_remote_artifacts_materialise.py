@@ -25,6 +25,7 @@ import pytest
 from esphome.core import CORE
 
 from esphome_device_builder.controllers.remote_build.artifacts_tarball import (
+    BUILD_INFO_MEMBER_NAME,
     IDEDATA_MEMBER_NAME,
     PLATFORMIO_INI_MEMBER_NAME,
     STORAGE_MEMBER_NAME,
@@ -162,12 +163,12 @@ def test_materialise_lands_build_info_json_for_hash_lookup(
     tarball = _pack_in_tmp(
         receiver_root,
         extra_build_files={
-            "build_info.json": f'{{"config_hash": {config_hash_int}}}\n'.encode(),
+            BUILD_INFO_MEMBER_NAME: f'{{"config_hash": {config_hash_int}}}\n'.encode(),
         },
     )
     build_path = _materialise_in_tmp(tarball, offloader_root)
 
-    staged = build_path / "build_info.json"
+    staged = build_path / BUILD_INFO_MEMBER_NAME
     assert staged.is_file()
     assert json.loads(staged.read_text())["config_hash"] == config_hash_int
 
@@ -184,7 +185,7 @@ def test_materialise_handles_missing_build_info_json(
     receiver_root, offloader_root = paired_roots
     tarball = _pack_in_tmp(receiver_root)
     build_path = _materialise_in_tmp(tarball, offloader_root)
-    assert not (build_path / "build_info.json").exists()
+    assert not (build_path / BUILD_INFO_MEMBER_NAME).exists()
 
 
 def test_materialise_storage_sidecar_carries_receiver_metadata(
