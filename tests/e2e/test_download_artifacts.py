@@ -302,3 +302,49 @@ async def test_download_artifacts_job_not_completed_surfaces_precondition_failed
         )
 
     assert exc_info.value.code == ErrorCode.PRECONDITION_FAILED
+
+
+@pytest.mark.asyncio
+async def test_download_artifacts_pack_oversize_surfaces_unavailable(
+    paired_instances: PairedInstances,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Receiver-side ``RuntimeError`` from the packer rejects ``pack_failed`` → UNAVAILABLE.
+
+    Pins the soft-reject round-trip for the wire-size guard in
+    :func:`pack_build_artifacts._render_tarball`: when the
+    gzipped tarball would exceed
+    :data:`FIRMWARE_MAX_TOTAL_BYTES`, the packer raises
+    ``RuntimeError``; the receiver-side
+    :meth:`ArtifactsDownloadSender.handle_download_artifacts`
+    catches anything except ``FileNotFoundError`` and replies
+    with a single ``artifacts_end{accepted: false, reason:
+    "pack_failed"}`` frame. The offloader-side WS layer maps
+    that reason to :attr:`ErrorCode.UNAVAILABLE` via
+    :data:`_DOWNLOAD_ARTIFACTS_REASON_TO_ERROR_CODE`, so the
+    user sees a "remote build artifacts unavailable" surface
+    rather than a stack-trace toast.
+    """
+    await paired_instances.wait_until_session_opened()
+    job = _seed_firmware_job(paired_instances)
+    _write_build_artifacts_on_disk(tmp_path)
+    # Force the post-render wire-size guard by capping below
+    # the rendered tarball. With the e2e fixture's tiny test
+    # payloads the gzipped tarball is well over 10 bytes; the
+    # per-member uncompressed pre-check would also trip here,
+    # but either branch surfaces the same ``pack_failed``
+    # reason — the user-visible contract is identical.
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.artifacts_tarball."
+        "FIRMWARE_MAX_TOTAL_BYTES",
+        10,
+    )
+
+    with pytest.raises(CommandError) as exc_info:
+        await paired_instances.offloader.download_artifacts(
+            pin_sha256=paired_instances.pin_sha256,
+            job_id=job.remote_job_id,
+        )
+
+    assert exc_info.value.code == ErrorCode.UNAVAILABLE

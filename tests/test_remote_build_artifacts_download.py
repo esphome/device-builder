@@ -39,6 +39,7 @@ from esphome_device_builder.controllers.remote_build.artifacts_tarball import (
     PackedArtifacts,
     UnpackArtifactsError,
     _download_type_files,
+    _render_tarball,
     pack_build_artifacts,
     read_artifacts_tarball,
     unpack_artifacts_response,
@@ -683,6 +684,31 @@ def test_pack_build_artifacts_rejects_oversized_uncompressed(
 
     with pytest.raises(RuntimeError, match=r"would exceed FIRMWARE_MAX_TOTAL_BYTES"):
         pack_build_artifacts("kitchen.yaml")
+
+
+def test_render_tarball_rejects_oversized_on_the_wire(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Gzipped tarball larger than the cap raises the post-render ``on the wire`` guard.
+
+    The per-member uncompressed pre-check is the first gate;
+    the post-render wire-size cap is the second gate, defending
+    against the case where the gzipped output is *larger* than
+    the uncompressed file contents (tar headers + gzip framing
+    add ~80 bytes minimum, easily exceeding tiny payloads).
+    Use a 1-byte file so the loop sees ``0 + 1 > cap`` is false
+    while the rendered tarball trips the post-check.
+    """
+    payload = tmp_path / "tiny.bin"
+    payload.write_bytes(b"X")
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.artifacts_tarball."
+        "FIRMWARE_MAX_TOTAL_BYTES",
+        10,
+    )
+
+    with pytest.raises(RuntimeError, match=r"would exceed FIRMWARE_MAX_TOTAL_BYTES on the wire"):
+        _render_tarball([("tiny.bin", payload)], configuration="kitchen.yaml")
 
 
 def test_artifacts_download_sender_discard_session_clears_inflight() -> None:
