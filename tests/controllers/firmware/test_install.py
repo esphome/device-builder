@@ -243,7 +243,7 @@ def _stub_remote_build(
     idle_pins: frozenset[str] = frozenset(),
 ) -> None:
     """
-    Wire a stub ``_db.remote_build`` with a scripted scheduler snapshot.
+    Wire a stub ``_db.remote_build_offloader`` with a scripted scheduler snapshot.
 
     The scheduler walks ``pairings`` (APPROVED-only) and
     requires membership in ``open_pins`` for the peer-link
@@ -280,7 +280,7 @@ def _stub_remote_build(
         peer_queue_status=queue_status,
     )
     remote_build.get_pairing.side_effect = pairings_map.get
-    controller._db.remote_build = remote_build
+    controller._db.remote_build_offloader = remote_build
 
 
 @pytest.mark.asyncio
@@ -466,7 +466,7 @@ async def test_install_falls_back_to_local_when_remote_build_controller_absent(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """
-    ``_db.remote_build is None`` falls through to LOCAL without raising.
+    ``_db.remote_build_offloader is None`` falls through to LOCAL without raising.
 
     Production sets ``DeviceBuilder.remote_build`` during
     ``start()``; a firmware-queue restart-recovery path that
@@ -474,7 +474,7 @@ async def test_install_falls_back_to_local_when_remote_build_controller_absent(
     into ``None``. The resolver's None check is the gate.
     """
     controller = firmware_controller_factory(with_queue=True)
-    controller._db.remote_build = None
+    controller._db.remote_build_offloader = None
     (tmp_path / "kitchen.yaml").write_text("")
 
     job = await controller.install(configuration="kitchen.yaml")
@@ -525,7 +525,7 @@ async def test_install_falls_back_to_local_when_scheduler_picked_pin_disappeared
     # ``get_pairing`` returns None — the unpair happened
     # after the snapshot was taken.
     remote_build.get_pairing.return_value = None
-    controller._db.remote_build = remote_build
+    controller._db.remote_build_offloader = remote_build
     (tmp_path / "kitchen.yaml").write_text("")
 
     job = await controller.install(configuration="kitchen.yaml")

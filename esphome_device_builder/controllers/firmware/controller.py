@@ -378,10 +378,10 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         the fan-out shows up as "I clicked Clean but my receiver
         still has the old build".
         """
-        remote_build = self._db.remote_build
-        if remote_build is None:
+        offloader = self._db.remote_build_offloader
+        if offloader is None:
             return
-        snapshot = remote_build.build_scheduler_snapshot()
+        snapshot = offloader.build_scheduler_snapshot()
         # ``build_scheduler_snapshot`` ``dict(self._pairings)``-copies
         # on construction, so iteration is already isolated from a
         # concurrent unpair landing on a different loop tick.
@@ -1862,13 +1862,13 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         """
         if _is_serial_port(port):
             return JobSource.LOCAL, "", ""
-        remote_build = self._db.remote_build
-        if remote_build is None:
+        offloader = self._db.remote_build_offloader
+        if offloader is None:
             return JobSource.LOCAL, "", ""
-        decision = pick_build_path(remote_build.build_scheduler_snapshot())
+        decision = pick_build_path(offloader.build_scheduler_snapshot())
         if decision.path is not BuildPath.REMOTE or decision.pin_sha256 is None:
             return JobSource.LOCAL, "", ""
-        pairing = remote_build.get_pairing(decision.pin_sha256)
+        pairing = offloader.get_pairing(decision.pin_sha256)
         if pairing is None:
             # Scheduler picked a pin that's no longer paired (race
             # against an ``unpair`` on the same loop tick); silent

@@ -43,7 +43,8 @@ def _make_db() -> DeviceBuilder:
     db.bus = EventBus()
     db.subscriber_presence = SubscriberPresence()
     db.devices = None  # skip the device-snapshot branch
-    db.remote_build = None  # skip the pairings-snapshot branch
+    db.remote_build_offloader = None
+    db.remote_build_receiver = None
     return db
 
 
@@ -156,7 +157,8 @@ async def test_subscribe_events_includes_pairings_snapshot_in_initial_state() ->
     remote_build = MagicMock()
     remote_build.pairings_snapshot = MagicMock(return_value=[summary])
     remote_build.peers_snapshot = MagicMock(return_value=[])
-    db.remote_build = remote_build
+    db.remote_build_offloader = remote_build
+    db.remote_build_receiver = remote_build
 
     client = FakeWebSocketClient()
     handler_task = asyncio.create_task(db._cmd_subscribe_events(client=client, message_id="m1"))
@@ -210,7 +212,8 @@ async def test_subscribe_events_includes_peers_snapshot_in_initial_state() -> No
     remote_build = MagicMock()
     remote_build.pairings_snapshot = MagicMock(return_value=[])
     remote_build.peers_snapshot = MagicMock(return_value=[pending, approved])
-    db.remote_build = remote_build
+    db.remote_build_offloader = remote_build
+    db.remote_build_receiver = remote_build
 
     client = FakeWebSocketClient()
     handler_task = asyncio.create_task(db._cmd_subscribe_events(client=client, message_id="m1"))
@@ -272,7 +275,8 @@ async def test_subscribe_events_includes_hosts_snapshot_in_initial_state() -> No
     remote_build.pairings_snapshot = MagicMock(return_value=[])
     remote_build.peers_snapshot = MagicMock(return_value=[])
     remote_build.hosts_snapshot = MagicMock(return_value=[host])
-    db.remote_build = remote_build
+    db.remote_build_offloader = remote_build
+    db.remote_build_receiver = remote_build
 
     client = FakeWebSocketClient()
     handler_task = asyncio.create_task(db._cmd_subscribe_events(client=client, message_id="m1"))
@@ -365,7 +369,8 @@ async def test_subscribe_events_subscribed_arrives_before_live_events() -> None:
     devices_mock.get_devices.return_value = []
     devices_mock.get_importable_devices.return_value = []
     db.devices = devices_mock
-    db.remote_build = None
+    db.remote_build_offloader = None
+    db.remote_build_receiver = None
 
     class YieldingClient:
         """``send_event`` / ``send_result`` actually yield the loop.

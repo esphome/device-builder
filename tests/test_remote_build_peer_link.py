@@ -37,7 +37,6 @@ from noise.exceptions import NoiseInvalidMessage
 from noise.exceptions import NoiseInvalidMessage as _NoiseInvalidMessage
 
 from esphome_device_builder.api.ws import init_ws_app
-from esphome_device_builder.controllers.remote_build import RemoteBuildController
 from esphome_device_builder.controllers.remote_build import (
     peer_link as _peer_link_module,
 )
@@ -83,6 +82,7 @@ from esphome_device_builder.models import (
     StoredPeer,
 )
 
+from .conftest import RemoteBuildTestHandles as RemoteBuildController
 from .conftest import (
     make_remote_build_controller,
     make_submit_job_frames,

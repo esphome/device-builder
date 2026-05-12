@@ -52,10 +52,10 @@ def _wire_remote_build_with_peers(
         open_peer_links=frozenset(p.pin_sha256 for (p, ok) in pairings_open if ok),
         peer_queue_status={},
     )
-    # ``_db.remote_build`` is the controller's lookup site; replacing
+    # ``_db.remote_build_offloader`` is the controller's lookup site; replacing
     # the default ``None`` here is the minimum wiring the fan-out
     # path needs to enumerate connected approved peers.
-    controller._db.remote_build = remote_build  # type: ignore[attr-defined]
+    controller._db.remote_build_offloader = remote_build  # type: ignore[attr-defined]
     return remote_build
 
 
@@ -529,7 +529,7 @@ async def test_clean_with_no_remote_build_controller_skips_fan_out(
     """
     (tmp_path / "kitchen.yaml").write_text("")
     controller = firmware_controller_factory(with_queue=True)
-    # Default factory leaves ``_db.remote_build = None``.
+    # Default factory leaves ``_db.remote_build_offloader = None``.
 
     returned = await controller.clean(configuration="kitchen.yaml")
 

@@ -42,7 +42,7 @@ from .controllers.editor import EditorController
 from .controllers.firmware import FirmwareController
 from .controllers.labels import LabelsController
 from .controllers.onboarding import OnboardingController
-from .controllers.remote_build import RemoteBuildController
+from .controllers.remote_build import OffloaderController, ReceiverController
 from .controllers.remote_build.peer_link import PEER_LINK_PATH, make_peer_link_handler
 from .helpers.api import CommandHandler, collect_api_commands
 from .helpers.auth import auth_middleware
@@ -252,7 +252,8 @@ class DeviceBuilder:
         self.editor: EditorController | None = None
         self.labels: LabelsController | None = None
         self.onboarding: OnboardingController | None = None
-        self.remote_build: RemoteBuildController | None = None
+        self.remote_build_offloader: OffloaderController | None = None
+        self.remote_build_receiver: ReceiverController | None = None
 
         # mDNS advertise — populated in start() once we know zeroconf
         # is up. Optional: a zeroconf-bind failure leaves this None
@@ -323,7 +324,8 @@ class DeviceBuilder:
         self.editor = EditorController(self)
         self.labels = LabelsController(self)
         self.onboarding = OnboardingController(self)
-        self.remote_build = RemoteBuildController(self)
+        self.remote_build_offloader = OffloaderController(self)
+        self.remote_build_receiver = ReceiverController(self)
         await self.devices.start()
         await self.firmware.start()
         await self.editor.start()
@@ -382,7 +384,8 @@ class DeviceBuilder:
         # advertiser so the browser can capture our own
         # service-instance name and filter our broadcast out of the
         # discovered list.
-        await self.remote_build.start()
+        await self.remote_build_offloader.start()
+        await self.remote_build_receiver.start()
 
         # Bind the peer-link Noise WS receiver site at
         # ``/remote-build/peer-link`` if the user has opted in via
@@ -403,7 +406,8 @@ class DeviceBuilder:
             self.editor,
             self.labels,
             self.onboarding,
-            self.remote_build,
+            self.remote_build_offloader,
+            self.remote_build_receiver,
         ):
             self.command_handlers.update(collect_api_commands(controller))
 
@@ -453,8 +457,10 @@ class DeviceBuilder:
         # Cancel the remote-build browser BEFORE devices.stop()
         # closes the zeroconf socket the browser is using. Same
         # ordering rule as the dashboard advertise just below.
-        if self.remote_build is not None:
-            await self.remote_build.stop()
+        if self.remote_build_offloader is not None:
+            await self.remote_build_offloader.stop()
+        if self.remote_build_receiver is not None:
+            await self.remote_build_receiver.stop()
         # Withdraw the mDNS advertise BEFORE devices.stop() closes
         # the zeroconf socket the responder is using.
         if self._dashboard_advertiser is not None:
@@ -589,71 +595,41 @@ class DeviceBuilder:
             if self.devices:
                 initial["devices"] = [d.to_dict() for d in self.devices.get_devices()]
                 initial["importable"] = [d.to_dict() for d in self.devices.get_importable_devices()]
-            if self.remote_build is not None:
-                # Pairings (PENDING + APPROVED) so the frontend's
-                # Send-builds initial paint matches what
-                # ``OFFLOADER_PAIR_STATUS_CHANGED`` events will
-                # mutate against. Sync read from the controller's
-                # in-RAM ``_pairings`` dict — no wire calls, no
-                # disk I/O.
+            if self.remote_build_offloader is not None:
+                # Offloader-side seeds: pairings, mDNS-discovered
+                # hosts, pair alerts, per-peer queue status,
+                # in-flight remote jobs, and the master
+                # remote_builds_enabled toggle. Each is a sync
+                # read from the controller's in-RAM dict; live
+                # updates flow through subscribe_events.
                 initial["pairings"] = [
-                    summary.to_dict() for summary in self.remote_build.pairings_snapshot()
+                    summary.to_dict() for summary in self.remote_build_offloader.pairings_snapshot()
                 ]
-                # Receiver-side peers (PENDING + APPROVED) for the
-                # Pairing-requests inbox + paired list. Same RAM
-                # snapshot pattern as ``pairings``: live updates
-                # flow from ``REMOTE_BUILD_PAIR_REQUEST_RECEIVED``
-                # and ``REMOTE_BUILD_PAIR_STATUS_CHANGED`` events
-                # through the same ``subscribe_events`` stream.
-                initial["peers"] = [
-                    summary.to_dict() for summary in self.remote_build.peers_snapshot()
+                initial["hosts"] = [
+                    peer.to_dict() for peer in self.remote_build_offloader.hosts_snapshot()
                 ]
-                # mDNS-discovered peer dashboards (RAM-only,
-                # never persisted). Live updates flow from
-                # ``REMOTE_BUILD_HOST_ADDED`` /
-                # ``REMOTE_BUILD_HOST_REMOVED`` events fired by
-                # the receiver controller's mDNS browser
-                # callbacks.
-                initial["hosts"] = [peer.to_dict() for peer in self.remote_build.hosts_snapshot()]
-                # Offloader-side pair alerts (RAM-only on the
-                # controller; populated when pair-status detection
-                # finds a drifted receiver pin or a REJECTED
-                # response). Late-subscribers pick up alerts they
-                # missed on the live stream via this snapshot.
-                # ``OFFLOADER_PAIR_PIN_MISMATCH`` /
-                # ``OFFLOADER_PAIR_PEER_REVOKED`` /
-                # ``OFFLOADER_PAIR_ALERT_DISMISSED`` events drive
-                # subsequent mutations.
-                initial["offloader_alerts"] = list(self.remote_build.offloader_alerts_snapshot())
-                # Offloader-side per-peer queue-status snapshot.
-                # RAM-only on the controller; populated by inbound
-                # ``queue_status`` frames from each paired
-                # receiver. Late-subscribers pick up the most
-                # recent value the offloader has observed for each
-                # peer without waiting on the next live
-                # ``OFFLOADER_QUEUE_STATUS_CHANGED``.
-                initial["peer_queue_status"] = list(self.remote_build.peer_queue_status_snapshot())
-                # Offloader-side in-flight remote-job snapshot.
-                # RAM-only on the controller; populated by inbound
-                # ``job_state_changed`` frames the offloader
-                # received for jobs we submitted. Terminal entries
-                # are dropped on transition so the snapshot only
-                # carries actively-running rows. A tab subscribing
-                # AFTER ``running`` lands sees the job alive
-                # without waiting for the next event.
-                initial["remote_jobs"] = [
-                    dict(entry) for entry in self.remote_build.offloader_remote_jobs_snapshot()
-                ]
-                # Master toggle. The Settings UI reads the
-                # initial switch state from here; live updates
-                # flow through ``OFFLOADER_REMOTE_BUILDS_TOGGLED``
-                # events on the same ``subscribe_events``
-                # stream. Per-pairing ``enabled`` rides on each
-                # ``PairingSummary`` in ``initial["pairings"]``
-                # so no separate seed key is needed for that.
-                initial["remote_builds_enabled"] = (
-                    self.remote_build.remote_builds_enabled_snapshot()
+                initial["offloader_alerts"] = list(
+                    self.remote_build_offloader.offloader_alerts_snapshot()
                 )
+                initial["peer_queue_status"] = list(
+                    self.remote_build_offloader.peer_queue_status_snapshot()
+                )
+                initial["remote_jobs"] = [
+                    dict(entry)
+                    for entry in self.remote_build_offloader.offloader_remote_jobs_snapshot()
+                ]
+                initial["remote_builds_enabled"] = (
+                    self.remote_build_offloader.remote_builds_enabled_snapshot()
+                )
+            if self.remote_build_receiver is not None:
+                # Receiver-side peers (PENDING + APPROVED) for the
+                # Pairing-requests inbox + paired list. Live
+                # updates flow from
+                # ``REMOTE_BUILD_PAIR_REQUEST_RECEIVED`` and
+                # ``REMOTE_BUILD_PAIR_STATUS_CHANGED`` events.
+                initial["peers"] = [
+                    summary.to_dict() for summary in self.remote_build_receiver.peers_snapshot()
+                ]
             await client.send_event(message_id, "initial_state", initial)
             # Confirm subscription so the frontend can mark the WS
             # as live before the first event arrives.
@@ -850,7 +826,7 @@ class DeviceBuilder:
         operator gets a warning and the listener is simply absent
         until the next restart with the issue resolved.
         """
-        if self.remote_build is None or self.loop is None:
+        if self.remote_build_receiver is None or self.loop is None:
             return
         loop = self.loop
         if self.settings.on_ha_addon:
@@ -1113,7 +1089,7 @@ class DeviceBuilder:
         """
         loop = self.loop
         assert loop is not None  # caller-checked
-        assert self.remote_build is not None  # caller-checked
+        assert self.remote_build_receiver is not None  # caller-checked
 
         runner: web.AppRunner | None = None
         try:
@@ -1127,7 +1103,9 @@ class DeviceBuilder:
             # to aiohttp's 60s ``shutdown_timeout`` while its
             # handler sits in ``async for msg in session.ws``.
             init_ws_app(app)
-            handler = await make_peer_link_handler(self.remote_build, self.settings.config_dir)
+            handler = await make_peer_link_handler(
+                self.remote_build_receiver, self.settings.config_dir
+            )
             app.router.add_get(PEER_LINK_PATH, handler)
 
             runner = web.AppRunner(app)

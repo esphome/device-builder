@@ -25,8 +25,8 @@ from aiohttp_asyncmdnsresolver.api import AsyncDualMDNSResolver
 from zeroconf import ServiceStateChange
 from zeroconf.asyncio import AsyncZeroconf
 
-from esphome_device_builder.controllers.remote_build import RemoteBuildController
-from esphome_device_builder.controllers.remote_build import controller as rb
+from esphome_device_builder.controllers.remote_build import offloader as rb
+from esphome_device_builder.controllers.remote_build import receiver as rb_rcv
 from esphome_device_builder.controllers.remote_build._mdns import (
     decode_txt_value,
     peer_from_service_info,
@@ -69,6 +69,7 @@ from esphome_device_builder.models import (
     StoredPeer,
 )
 
+from .conftest import RemoteBuildTestHandles as RemoteBuildController
 from .conftest import make_remote_build_controller
 
 # ---------------------------------------------------------------------------
@@ -1144,7 +1145,7 @@ def test_on_service_state_change_uses_cache_when_available(
     fake_info = _fake_service_info(name="desktop")
     fake_info.load_from_cache = MagicMock(return_value=True)
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.controller.AsyncServiceInfo",
+        "esphome_device_builder.controllers.remote_build.offloader.AsyncServiceInfo",
         MagicMock(return_value=fake_info),
     )
     zeroconf = MagicMock()
@@ -1385,13 +1386,13 @@ async def test_start_swallows_peer_link_resolver_construction_errors(
     the OS resolver.
     """
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.controller.make_peer_link_resolver",
+        "esphome_device_builder.controllers.remote_build.offloader.make_peer_link_resolver",
         MagicMock(side_effect=RuntimeError("aiodns not installed")),
     )
     controller = _make_controller(config_dir=tmp_path)
     controller._db.devices.zeroconf = MagicMock(spec=AsyncZeroconf)
     with caplog.at_level(
-        "ERROR", logger="esphome_device_builder.controllers.remote_build.controller"
+        "ERROR", logger="esphome_device_builder.controllers.remote_build.offloader"
     ):
         await controller.start()
     try:
@@ -1426,7 +1427,7 @@ async def test_stop_swallows_peer_link_resolver_close_failures(
         side_effect=RuntimeError("aiodns gone")
     )
     with caplog.at_level(
-        "DEBUG", logger="esphome_device_builder.controllers.remote_build.controller"
+        "DEBUG", logger="esphome_device_builder.controllers.remote_build.offloader"
     ):
         await controller.stop()
     assert controller._peer_link_resolver is None
@@ -1470,7 +1471,7 @@ async def test_start_swallows_browser_construction_errors(
     not crash dashboard startup.
     """
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.controller.AsyncServiceBrowser",
+        "esphome_device_builder.controllers.remote_build.offloader.AsyncServiceBrowser",
         MagicMock(side_effect=RuntimeError("zeroconf socket gone")),
     )
     controller = _make_controller(config_dir=tmp_path)
@@ -1493,7 +1494,7 @@ async def test_start_captures_own_instance_name(
     fake_browser = MagicMock()
     fake_browser.async_cancel = AsyncMock()
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.controller.AsyncServiceBrowser",
+        "esphome_device_builder.controllers.remote_build.offloader.AsyncServiceBrowser",
         MagicMock(return_value=fake_browser),
     )
     controller = _make_controller(config_dir=tmp_path)
@@ -1516,7 +1517,7 @@ async def test_start_skips_self_capture_when_advertiser_unregistered(
     fake_browser = MagicMock()
     fake_browser.async_cancel = AsyncMock()
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.controller.AsyncServiceBrowser",
+        "esphome_device_builder.controllers.remote_build.offloader.AsyncServiceBrowser",
         MagicMock(return_value=fake_browser),
     )
     controller = _make_controller(config_dir=tmp_path)
@@ -1541,7 +1542,7 @@ async def test_start_skips_self_capture_when_no_advertiser(
     fake_browser = MagicMock()
     fake_browser.async_cancel = AsyncMock()
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.controller.AsyncServiceBrowser",
+        "esphome_device_builder.controllers.remote_build.offloader.AsyncServiceBrowser",
         MagicMock(return_value=fake_browser),
     )
     controller = _make_controller(config_dir=tmp_path)
@@ -1561,7 +1562,7 @@ async def test_stop_swallows_browser_cancel_errors(
     fake_browser = MagicMock()
     fake_browser.async_cancel = AsyncMock(side_effect=RuntimeError("boom"))
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.controller.AsyncServiceBrowser",
+        "esphome_device_builder.controllers.remote_build.offloader.AsyncServiceBrowser",
         MagicMock(return_value=fake_browser),
     )
     controller = _make_controller(config_dir=tmp_path)
@@ -1583,7 +1584,7 @@ async def test_on_service_state_change_spawns_resolve_task_on_cache_miss(
     fake_info.load_from_cache = MagicMock(return_value=False)
     fake_info.async_request = AsyncMock(return_value=True)
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.controller.AsyncServiceInfo",
+        "esphome_device_builder.controllers.remote_build.offloader.AsyncServiceInfo",
         MagicMock(return_value=fake_info),
     )
     zeroconf = MagicMock()
@@ -2659,7 +2660,7 @@ async def test_pairing_window_auto_closes_when_clients_age_out(
     controller._db.bus = MagicMock()
 
     # Patch the duration to ~0 so the auto-close fires almost immediately.
-    monkeypatch.setattr(rb, "_PAIRING_WINDOW_DURATION_SECONDS", 0.05)
+    monkeypatch.setattr(rb_rcv, "_PAIRING_WINDOW_DURATION_SECONDS", 0.05)
 
     await controller.set_pairing_window(open=True, client="tab-1")
     assert controller.is_pairing_window_open() is True
@@ -2722,7 +2723,7 @@ async def test_explicit_close_cancels_handle_no_duplicate_event(
     # required — the explicit-close path schedules no replacement
     # handle, so checking ``_pairing_window_handle is None`` after
     # a tick is sufficient).
-    monkeypatch.setattr(rb, "_PAIRING_WINDOW_DURATION_SECONDS", 1.0)
+    monkeypatch.setattr(rb_rcv, "_PAIRING_WINDOW_DURATION_SECONDS", 1.0)
 
     controller = _make_controller(config_dir=tmp_path)
     controller._db.bus = MagicMock()
@@ -3940,7 +3941,7 @@ async def test_run_cleanup_loop_reclaims_cold_subtree_and_skips_in_flight(
         # body runs without waiting an hour.
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.controller.asyncio.sleep",
+        "esphome_device_builder.controllers.remote_build.offloader.asyncio.sleep",
         _short_sleep,
     )
 
@@ -3980,7 +3981,7 @@ async def test_run_cleanup_loop_logs_per_cycle_exception_and_continues(
         return 0
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.controller.sweep_remote_builds",
+        "esphome_device_builder.controllers.remote_build.receiver.sweep_remote_builds",
         _flaky_sweep,
     )
 
@@ -3993,7 +3994,7 @@ async def test_run_cleanup_loop_logs_per_cycle_exception_and_continues(
             raise asyncio.CancelledError
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.controller.asyncio.sleep",
+        "esphome_device_builder.controllers.remote_build.offloader.asyncio.sleep",
         _short_sleep,
     )
 
@@ -4029,7 +4030,7 @@ async def test_run_cleanup_loop_short_circuits_when_firmware_missing(
         return 0
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.controller.sweep_remote_builds",
+        "esphome_device_builder.controllers.remote_build.receiver.sweep_remote_builds",
         _record_sweep,
     )
 
@@ -4042,7 +4043,7 @@ async def test_run_cleanup_loop_short_circuits_when_firmware_missing(
             raise asyncio.CancelledError
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.controller.asyncio.sleep",
+        "esphome_device_builder.controllers.remote_build.offloader.asyncio.sleep",
         _short_sleep,
     )
 

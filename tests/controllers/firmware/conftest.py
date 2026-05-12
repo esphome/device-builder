@@ -156,7 +156,11 @@ def firmware_controller_factory(
         # ``RemoteBuildController`` — without the seed an attribute
         # lookup would raise ``AttributeError`` and mask the
         # silent-fallback-LOCAL semantic.
-        db_attrs: dict[str, Any] = {"bus": bus, "remote_build": None}
+        db_attrs: dict[str, Any] = {
+            "bus": bus,
+            "remote_build_offloader": None,
+            "remote_build_receiver": None,
+        }
         if with_settings:
             settings = DashboardSettings()
             settings.config_dir = tmp_path

@@ -260,8 +260,8 @@ async def _dispatch_and_drive(  # noqa: PLR0911
         )
         return
 
-    remote_build = controller._db.remote_build
-    if remote_build is None:
+    offloader = controller._db.remote_build_offloader
+    if offloader is None:
         _fail_locally(
             controller,
             job,
@@ -269,7 +269,7 @@ async def _dispatch_and_drive(  # noqa: PLR0911
         )
         return
     try:
-        client = remote_build._lookup_open_peer_link_client(
+        client = offloader._lookup_open_peer_link_client(
             job.source_pin_sha256, label="firmware_remote"
         )
     except CommandError as exc:
@@ -768,15 +768,15 @@ async def _send_cancel_or_finalise(
     send error paths each get their own ``except`` clause
     without nesting.
     """
-    remote_build = controller._db.remote_build
-    if remote_build is None:
+    offloader = controller._db.remote_build_offloader
+    if offloader is None:
         # Receiver controller torn down mid-run — finalise as
         # cancelled rather than spinning forever on a future
         # that nothing will set.
         controller._finalize_cancelled(job)
         return False
     try:
-        client = remote_build._lookup_open_peer_link_client(
+        client = offloader._lookup_open_peer_link_client(
             job.source_pin_sha256, label="firmware_remote_cancel"
         )
         await client.cancel_job(job_id=job.job_id)

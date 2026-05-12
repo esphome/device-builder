@@ -43,7 +43,6 @@ from aiohttp import web
 from aiohttp.test_utils import TestServer
 
 from esphome_device_builder.api.ws import init_ws_app
-from esphome_device_builder.controllers.remote_build import RemoteBuildController
 from esphome_device_builder.controllers.remote_build.peer_link import (
     PEER_LINK_PATH,
     make_peer_link_handler,
@@ -57,7 +56,12 @@ from esphome_device_builder.models import (
     JobType,
 )
 
-from ..conftest import _CapturedEvents, capture_events, make_remote_build_controller
+from ..conftest import (
+    RemoteBuildTestHandles,
+    _CapturedEvents,
+    capture_events,
+    make_remote_build_controller,
+)
 
 
 @dataclass
@@ -76,8 +80,8 @@ class PairedInstances:
     registry by hand.
     """
 
-    receiver: RemoteBuildController
-    offloader: RemoteBuildController
+    receiver: RemoteBuildTestHandles
+    offloader: RemoteBuildTestHandles
     receiver_server: TestServer
     receiver_bus: EventBus
     offloader_bus: EventBus

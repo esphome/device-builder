@@ -74,7 +74,7 @@ def _wire_remote_build(
     client: Any | None = None,
     lookup_error: Exception | None = None,
 ) -> tuple[Any, Any]:
-    """Attach a stub ``_db.remote_build`` with a configurable lookup.
+    """Attach a stub ``_db.remote_build_offloader`` with a configurable lookup.
 
     Returns ``(remote_build, client)`` so the caller can both
     assert on the remote-build mock and reference the client
@@ -87,11 +87,11 @@ def _wire_remote_build(
     remote_build = MagicMock()
     if lookup_error is not None:
         remote_build._lookup_open_peer_link_client.side_effect = lookup_error
-        controller._db.remote_build = remote_build
+        controller._db.remote_build_offloader = remote_build
         return remote_build, None
     client = client or _make_client()
     remote_build._lookup_open_peer_link_client.return_value = client
-    controller._db.remote_build = remote_build
+    controller._db.remote_build_offloader = remote_build
     return remote_build, client
 
 
@@ -887,7 +887,7 @@ async def test_remote_compile_no_remote_build_controller_fires_job_failed(
     # No remote_build attached — production sets this in
     # ``DeviceBuilder.__init__`` but ``None`` is the typed
     # default the runner has to handle.
-    controller._db.remote_build = None
+    controller._db.remote_build_offloader = None
     job = _make_remote_job()
 
     await remote_runner.run_remote_job(controller, job)
@@ -1038,7 +1038,7 @@ async def test_remote_compile_cancel_translation_handles_missing_session(
         initial_client,
         CommandError(ErrorCode.PRECONDITION_FAILED, "session not connected (mid-reconnect)"),
     ]
-    controller._db.remote_build = remote_build
+    controller._db.remote_build_offloader = remote_build
     job = _make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
@@ -1339,7 +1339,7 @@ async def test_remote_compile_cancel_after_remote_build_torn_down_finalises_loca
     patch_bundle: AsyncMock,
 ) -> None:
     """
-    Cancel after ``_db.remote_build`` reset to ``None`` finalises CANCELLED locally.
+    Cancel after ``_db.remote_build_offloader`` reset to ``None`` finalises CANCELLED locally.
 
     Teardown race: ``DeviceBuilder`` clears its
     ``remote_build`` controller during shutdown, but a
@@ -1361,7 +1361,7 @@ async def test_remote_compile_cancel_after_remote_build_torn_down_finalises_loca
 
     # Simulate the receiver-controller teardown race: clear
     # ``remote_build`` mid-flight, then register the cancel.
-    controller._db.remote_build = None
+    controller._db.remote_build_offloader = None
     _request_remote_cancel(controller, job)
 
     await asyncio.wait_for(runner, timeout=2.0)

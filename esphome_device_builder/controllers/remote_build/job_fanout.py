@@ -55,8 +55,8 @@ from ...models import (
 )
 
 if TYPE_CHECKING:
-    from .controller import RemoteBuildController
     from .peer_link import PeerLinkSession
+    from .receiver import ReceiverController
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -81,19 +81,19 @@ _LIFECYCLE_EVENT_TO_STATUS: dict[EventType, _JobStatusLiteral] = {
 class JobFanout:
     """Subscribes to firmware ``JOB_*`` events and forwards remote-peer jobs.
 
-    One instance per :class:`RemoteBuildController` (started
-    in :meth:`RemoteBuildController.start`). Holds the
+    One instance per :class:`ReceiverController` (started
+    in :meth:`ReceiverController.start`). Holds the
     unsubscribe handles for the firmware bus listeners so
     :meth:`stop` can detach them on controller shutdown.
 
     The session lookup keys on ``FirmwareJob.remote_peer`` (the
     offloader's ``dashboard_id``) against
-    ``RemoteBuildController._peer_link_sessions``. A job whose
+    ``ReceiverController._peer_link_sessions``. A job whose
     ``remote_peer`` is empty is local-only and skipped before
     any session lookup.
     """
 
-    def __init__(self, controller: RemoteBuildController) -> None:
+    def __init__(self, controller: ReceiverController) -> None:
         self._controller = controller
         # Lifecycle bag of bus-listener unsubs. Each
         # ``EventBus.add_listener`` return is a sync callable
@@ -118,7 +118,7 @@ class JobFanout:
 
         Not idempotent — calling twice would double-subscribe
         each listener and double-fire every fan-out frame. Single
-        caller is :meth:`RemoteBuildController.start`. Listener
+        caller is :meth:`ReceiverController.start`. Listener
         lifetime is bounded by the controller's start / stop
         cycle; :meth:`stop` detaches every captured handle.
         """

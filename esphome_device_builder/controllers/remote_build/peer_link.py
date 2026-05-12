@@ -126,7 +126,7 @@ class _DispatchInput:
 
 
 if TYPE_CHECKING:
-    from .controller import RemoteBuildController
+    from .receiver import ReceiverController
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -200,7 +200,7 @@ class TerminateReason(StrEnum):
       receiver's side.
     * ``SERVER_SHUTTING_DOWN`` — the receiver controller is
       stopping. Sent to every active session before
-      :meth:`RemoteBuildController.stop` returns.
+      :meth:`ReceiverController.stop` returns.
     * ``MALFORMED_FRAME`` — a frame fails Noise decrypt /
       JSON parse / shape validation. Closes the session
       immediately; peer can reconnect after the next handshake.
@@ -288,7 +288,7 @@ class AppMessageType(StrEnum):
 
 
 async def make_peer_link_handler(
-    controller: RemoteBuildController,
+    controller: ReceiverController,
     config_dir: Path,
 ) -> Callable[[web.Request], Awaitable[web.WebSocketResponse]]:
     """
@@ -339,7 +339,7 @@ async def make_peer_link_handler(
 
 
 async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are the handshake's natural failure cliffs
-    controller: RemoteBuildController,
+    controller: ReceiverController,
     ws: web.WebSocketResponse,
     peer_ip: str,
     identity_priv: bytes,
@@ -421,7 +421,7 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
 
 
 async def _dispatch_intent(
-    controller: RemoteBuildController,
+    controller: ReceiverController,
     inp: _DispatchInput,
 ) -> IntentResponse:
     """
@@ -445,7 +445,7 @@ async def _dispatch_intent(
     # an empty / missing / malformed value would create or look up
     # nonsense rows, so reject before any controller call. The
     # alphabet + length contract is the same one
-    # ``RemoteBuildController._validate_dashboard_id`` uses for the
+    # ``ReceiverController._validate_dashboard_id`` uses for the
     # WS-command path; both consumers import the constants from
     # ``helpers.dashboard_identity`` so they can't drift.
     if (
@@ -586,7 +586,7 @@ class PeerLinkSession:
     """
     State for one active receiver-side peer-link WS session.
 
-    Owned by :class:`RemoteBuildController` (registered via
+    Owned by :class:`ReceiverController` (registered via
     :meth:`register_peer_link_session`, dropped via
     :meth:`unregister_peer_link_session`). Held while the
     underlying handler coroutine is running its receive loop;
@@ -662,7 +662,7 @@ class PeerLinkSession:
 
 
 async def _run_peer_link_session(
-    controller: RemoteBuildController,
+    controller: ReceiverController,
     ws: web.WebSocketResponse,
     session: PeerLinkNoiseSession,
     dashboard_id: str,
@@ -723,7 +723,7 @@ async def _run_peer_link_session(
         controller.unregister_peer_link_session(peer_link_session)
 
 
-async def _receive_loop(session: PeerLinkSession, controller: RemoteBuildController) -> None:
+async def _receive_loop(session: PeerLinkSession, controller: ReceiverController) -> None:
     """
     Read frames off the WS, decrypt, parse, and dispatch.
 

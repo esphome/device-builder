@@ -27,7 +27,6 @@ from esphome_device_builder.controllers.config import (
     DashboardSettings,
     remote_build_settings_transaction,
 )
-from esphome_device_builder.controllers.remote_build import RemoteBuildController
 from esphome_device_builder.device_builder import (
     DeviceBuilder,
     _strip_server_header_middleware,
@@ -37,6 +36,8 @@ from esphome_device_builder.helpers.dashboard_identity import (
     rotate_identity,
 )
 from esphome_device_builder.helpers.event_bus import EventBus
+
+from .conftest import RemoteBuildTestHandles as RemoteBuildController
 
 
 @pytest.mark.asyncio
@@ -64,8 +65,8 @@ async def test_maybe_start_remote_build_site_skips_when_explicitly_disabled(
     settings = DashboardSettings(config_dir=tmp_path)
     db = DeviceBuilder(settings)
     db.loop = loop
-    db.remote_build = MagicMock()
-    db.remote_build._db.settings.config_dir = tmp_path
+    db.remote_build_receiver = MagicMock()
+    db.remote_build_receiver._db.settings.config_dir = tmp_path
 
     await db._maybe_start_remote_build_site()
     assert db._remote_build_runner is None
@@ -91,8 +92,8 @@ async def test_maybe_start_remote_build_site_binds_by_default_on_fresh_install(
     settings.remote_build_port = 0  # ephemeral so the bind doesn't collide
     db = DeviceBuilder(settings)
     db.loop = asyncio.get_running_loop()
-    db.remote_build = MagicMock()
-    db.remote_build._db.settings.config_dir = tmp_path
+    db.remote_build_receiver = MagicMock()
+    db.remote_build_receiver._db.settings.config_dir = tmp_path
     db._publish_remote_build_advertise = AsyncMock()
 
     try:
@@ -128,8 +129,8 @@ async def test_maybe_start_remote_build_site_binds_when_enabled(tmp_path: Path) 
     settings.remote_build_port = 0
     db = DeviceBuilder(settings)
     db.loop = loop
-    db.remote_build = MagicMock()
-    db.remote_build._db.settings.config_dir = tmp_path
+    db.remote_build_receiver = MagicMock()
+    db.remote_build_receiver._db.settings.config_dir = tmp_path
 
     try:
         await db._maybe_start_remote_build_site()
@@ -176,8 +177,8 @@ async def test_maybe_start_remote_build_site_fails_soft_on_bind_error(
     settings.remote_build_port = 0
     db = DeviceBuilder(settings)
     db.loop = loop
-    db.remote_build = MagicMock()
-    db.remote_build._db.settings.config_dir = tmp_path
+    db.remote_build_receiver = MagicMock()
+    db.remote_build_receiver._db.settings.config_dir = tmp_path
 
     # Must not raise — the dashboard keeps running on bind failure.
     await db._maybe_start_remote_build_site()
@@ -230,8 +231,8 @@ async def test_maybe_start_remote_build_site_updates_advertiser_on_success(
     settings.remote_build_port = 0
     db = DeviceBuilder(settings)
     db.loop = loop
-    db.remote_build = MagicMock()
-    db.remote_build._db.settings.config_dir = tmp_path
+    db.remote_build_receiver = MagicMock()
+    db.remote_build_receiver._db.settings.config_dir = tmp_path
 
     fake_advertiser = MagicMock()
     fake_advertiser.set_pin_sha256 = MagicMock()
@@ -280,8 +281,8 @@ async def test_maybe_start_remote_build_site_advertises_actual_port_for_ephemera
     settings.remote_build_port = 0  # ask the OS for an ephemeral port
     db = DeviceBuilder(settings)
     db.loop = loop
-    db.remote_build = MagicMock()
-    db.remote_build._db.settings.config_dir = tmp_path
+    db.remote_build_receiver = MagicMock()
+    db.remote_build_receiver._db.settings.config_dir = tmp_path
 
     fake_advertiser = MagicMock()
     fake_advertiser.set_pin_sha256 = MagicMock()
@@ -321,8 +322,8 @@ async def test_maybe_start_remote_build_site_skips_ha_addon_without_persisted_op
     settings.on_ha_addon = True  # the branch under test
     db = DeviceBuilder(settings)
     db.loop = asyncio.get_running_loop()
-    db.remote_build = MagicMock()
-    db.remote_build._db.settings.config_dir = tmp_path
+    db.remote_build_receiver = MagicMock()
+    db.remote_build_receiver._db.settings.config_dir = tmp_path
 
     await db._maybe_start_remote_build_site()
     assert db._remote_build_runner is None
@@ -356,8 +357,8 @@ async def test_maybe_start_remote_build_site_binds_ha_addon_after_explicit_opt_i
     settings.on_ha_addon = True
     db = DeviceBuilder(settings)
     db.loop = loop
-    db.remote_build = MagicMock()
-    db.remote_build._db.settings.config_dir = tmp_path
+    db.remote_build_receiver = MagicMock()
+    db.remote_build_receiver._db.settings.config_dir = tmp_path
     db._publish_remote_build_advertise = AsyncMock()
 
     try:
@@ -397,8 +398,8 @@ async def test_maybe_start_remote_build_site_respects_ha_addon_explicit_disable(
     settings.on_ha_addon = True
     db = DeviceBuilder(settings)
     db.loop = loop
-    db.remote_build = MagicMock()
-    db.remote_build._db.settings.config_dir = tmp_path
+    db.remote_build_receiver = MagicMock()
+    db.remote_build_receiver._db.settings.config_dir = tmp_path
 
     await db._maybe_start_remote_build_site()
     assert db._remote_build_runner is None
@@ -462,8 +463,8 @@ async def test_reload_remote_build_identity_rebuilds_listener(tmp_path: Path) ->
     settings.remote_build_port = 0
     db = DeviceBuilder(settings)
     db.loop = loop
-    db.remote_build = MagicMock()
-    db.remote_build._db.settings.config_dir = tmp_path
+    db.remote_build_receiver = MagicMock()
+    db.remote_build_receiver._db.settings.config_dir = tmp_path
 
     try:
         await db._maybe_start_remote_build_site()
@@ -517,8 +518,8 @@ async def test_reload_remote_build_identity_clears_advertiser_when_rebuild_fails
     settings.remote_build_port = 0
     db = DeviceBuilder(settings)
     db.loop = loop
-    db.remote_build = MagicMock()
-    db.remote_build._db.settings.config_dir = tmp_path
+    db.remote_build_receiver = MagicMock()
+    db.remote_build_receiver._db.settings.config_dir = tmp_path
 
     advertiser = MagicMock()
     advertiser.refresh = AsyncMock()
@@ -617,8 +618,8 @@ async def test_apply_remote_build_enabled_binds_when_disk_says_true(tmp_path: Pa
     settings.remote_build_port = 0
     db = DeviceBuilder(settings)
     db.loop = loop
-    db.remote_build = MagicMock()
-    db.remote_build._db.settings.config_dir = tmp_path
+    db.remote_build_receiver = MagicMock()
+    db.remote_build_receiver._db.settings.config_dir = tmp_path
 
     try:
         bound = await db.apply_remote_build_enabled()
@@ -729,8 +730,8 @@ async def test_apply_remote_build_enabled_idempotent_when_already_on(tmp_path: P
     settings.remote_build_port = 0
     db = DeviceBuilder(settings)
     db.loop = loop
-    db.remote_build = MagicMock()
-    db.remote_build._db.settings.config_dir = tmp_path
+    db.remote_build_receiver = MagicMock()
+    db.remote_build_receiver._db.settings.config_dir = tmp_path
 
     try:
         await db._maybe_start_remote_build_site()
@@ -759,9 +760,9 @@ async def test_set_settings_live_rebinds_listener(tmp_path: Path) -> None:
     # ``RemoteBuildController.__init__`` builds a per-file Store
     # under ``config_dir / .offloader_pairings.json``; needs a
     # real Path (tmp_path is fine).
-    db.remote_build = None  # not needed — controller doesn't read it
+    db.remote_build_receiver = None  # not needed — controller doesn't read it
     controller = RemoteBuildController(db)
-    db.remote_build = controller
+    db.remote_build_receiver = controller
     # Wire the controller's mDNS-advertiser hook to a no-op.
     db._dashboard_advertiser = None
 

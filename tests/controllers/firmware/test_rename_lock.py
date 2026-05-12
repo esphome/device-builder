@@ -176,10 +176,11 @@ async def test_install_bulk_skips_locked_configs_and_queues_the_rest(
                 {"rel_path": lambda self, *parts: None},
             )(),
             # ``install`` resolves its source via the scheduler,
-            # which reads ``_db.remote_build`` — match production's
+            # which reads ``_db.remote_build_offloader`` — match production's
             # pre-start shape (``None`` until the controller is
             # constructed) so the resolver falls through to LOCAL.
-            "remote_build": None,
+            "remote_build_offloader": None,
+            "remote_build_receiver": None,
         },
     )()
     controller._persist_jobs = AsyncMock()

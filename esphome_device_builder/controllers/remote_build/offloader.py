@@ -1,24 +1,20 @@
 """
-Remote-build feature: peer dashboard discovery + pairing + peers.
+Offloader-side controller for the remote-build feature.
 
-Browses ``_esphomebuilder._tcp.local.`` for other dashboards,
-persists the receiver-side ``enabled`` flag, the paired-peer
-list, and the offloader-side pairings, and surfaces a unified
-``remote_build/list_hosts`` snapshot.
+Owns the dashboard's *outbound* role: discovering peer
+receivers via mDNS, persisting the per-pin
+:class:`StoredPairing` table, driving the pair-request →
+pair-status long-poll lifecycle, and keeping one
+:class:`PeerLinkClient` per APPROVED pairing alive for
+``submit_job`` / ``cancel_job`` / ``download_artifacts`` to
+reach through.
 
-Pairing is a two-step gate: an offloader's ``pair_request``
-lands a PENDING row inside the receiver-controlled pairing
-window; the admin clicks Accept (``approve_peer``) and APPROVED
-peers connect anytime via ``intent="peer_link"``. Receiver-side
-:class:`StoredPeer` rows are keyed on ``dashboard_id`` and
-carry the X25519 ``pin_sha256`` + ``static_x25519_pub`` from
-the handshake transcript.
-
-Browser shares the :class:`AsyncEsphomeZeroconf` the
-:class:`DeviceStateMonitor` owns (one mDNS responder per
-process); this controller just adds a second
-:class:`~zeroconf.asyncio.AsyncServiceBrowser` for the new
-service type.
+Pairs with :class:`~.receiver.ReceiverController` — the two
+siblings own disjoint state and never reach across; the only
+shared coupling is :mod:`._shared` (a free
+:func:`drain_tasks` helper) and the
+:class:`~esphome_device_builder.device_builder.DeviceBuilder`
+reference passed to both at construction.
 """
 
 from __future__ import annotations
@@ -26,37 +22,28 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Callable, Coroutine, Hashable, Iterable, Iterator
+from collections.abc import Coroutine, Iterator
 from contextlib import ExitStack, contextmanager
-from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import uuid4
 
 from zeroconf import ServiceStateChange
 from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo
 
-from ...helpers import dashboard_identity as _dashboard_identity_helper
 from ...helpers.api import CommandError, api_command
 from ...helpers.build_scheduler import BuildSchedulerInputs
 from ...helpers.dashboard_advertise import SERVICE_TYPE
 from ...helpers.dashboard_identity import get_or_create_identity
 from ...helpers.event_bus import Event
 from ...helpers.hostname import normalize_hostname
-from ...helpers.peer_link_frames import frame_schema, is_valid_frame
 from ...helpers.peer_link_identity import get_or_create_peer_link_identity
 from ...helpers.peer_link_resolver import PeerLinkDNSResolver, make_peer_link_resolver
-from ...helpers.remote_build_cleanup import sweep_remote_builds
-from ...helpers.remote_build_layout import parse_from_configuration
 from ...helpers.storage import ShutdownCallback, Store
 from ...models import (
-    MAX_CLEANUP_TTL_SECONDS,
-    MIN_CLEANUP_TTL_SECONDS,
     PAIRING_VERSION_MAX_LEN,
-    TERMINAL_JOB_EVENTS,
     ErrorCode,
     EventType,
-    IdentityView,
     IntentResponse,
     OffloaderAlertSnapshotEntry,
     OffloaderJobStateChangedData,
@@ -76,28 +63,11 @@ from ...models import (
     OffloaderRemoteBuildsToggledData,
     OffloaderRemoteJobSnapshotEntry,
     PairingSummary,
-    PairingWindowState,
     PeerQueueStatusSnapshotEntry,
     PeerStatus,
-    PeerSummary,
-    QueueStatusFrameData,
-    ReceiverPeerLinkSessionClosedData,
-    ReceiverPeerLinkSessionOpenedData,
-    ReceiverPeers,
     RemoteBuildHostRemovedData,
-    RemoteBuildIdentityRotatedData,
-    RemoteBuildPairingWindowChangedData,
-    RemoteBuildPairRequestReceivedData,
-    RemoteBuildPairStatusChangedData,
     RemoteBuildPeer,
-    RemoteBuildSettings,
-    RemoteBuildSettingsView,
     StoredPairing,
-    StoredPeer,
-)
-from ..config import (
-    load_remote_build_settings,
-    remote_build_settings_transaction,
 )
 from ._mdns import endpoints_equal, peer_from_service_info
 from ._models import (
@@ -106,15 +76,13 @@ from ._models import (
     RebindProbeOutcome,
     RebindProbeResult,
 )
+from ._shared import drain_tasks
 from ._storage_codecs import (
     OFFLOADER_PAIRINGS_FILE,
-    RECEIVER_PEERS_FILE,
     decode_pairings,
-    decode_peers,
     encode_pairings,
-    encode_peers,
 )
-from ._summaries import identity_view, pairing_summary, peer_summary
+from ._summaries import pairing_summary
 from ._validators import (
     HostFieldContext,
     PairLabelField,
@@ -122,17 +90,13 @@ from ._validators import (
     enforce_pin_match,
     intent_response_to_command_error,
     validate_bool,
-    validate_dashboard_id,
     validate_hostname,
     validate_pair_label,
     validate_pin_sha256,
     validate_port,
     validate_submit_job_target,
 )
-from .artifacts_download import ArtifactsDownloadSender
 from .artifacts_tarball import UnpackArtifactsError, unpack_artifacts_response
-from .job_fanout import JobFanout
-from .peer_link import PeerLinkSession, TerminateReason
 from .peer_link_client import (
     DownloadArtifactsError,
     PairStatusResult,
@@ -151,7 +115,6 @@ from .peer_link_client import (
 from .peer_link_client import (
     request_pair as peer_link_request_pair,
 )
-from .submit_job import SubmitJobReceiver
 
 if TYPE_CHECKING:
     from ...device_builder import DeviceBuilder
@@ -177,21 +140,11 @@ def _load_offloader_identities(
 # dashboards run on full hosts that may be more LAN hops away.
 _RESOLVE_TIMEOUT_MS = 3000
 
-# Pairing-window lifetime. Auto-closes after this much idle;
-# the frontend extends on each activity tick.
-_PAIRING_WINDOW_DURATION_SECONDS = 300.0
-
-
 # Terminal status set for the offloader-side remote-job cache
 # drop-on-terminal logic.
 _OFFLOADER_REMOTE_JOB_TERMINAL_STATUSES: frozenset[str] = frozenset(
     {"completed", "failed", "cancelled"}
 )
-
-
-# Required fields on inbound ``cancel_job`` peer-link frames.
-_CANCEL_JOB_SCHEMA = frame_schema({"job_id": str})
-
 
 # Reconnect backoff for a pair-status listener whose Noise WS
 # died on transport error — bounds tight-looping against a
@@ -202,117 +155,36 @@ _PAIR_STATUS_RECONNECT_BACKOFF_SECONDS = 2.0
 # so a burst of approvals collapses to one disk write.
 _PAIRINGS_SAVE_DELAY_SECONDS = 1.0
 
-# Cleanup-sweep cadence — TTL itself is the
-# operator-tunable knob (:data:`DEFAULT_CLEANUP_TTL_SECONDS`).
-_CLEANUP_SWEEP_INTERVAL_SECONDS = 60 * 60
-
 # Per-pin sliding window between mDNS rebind probes. Doubles
 # as in-flight guard + retry throttle so a permanently-down
 # host doesn't trigger a probe per mDNS Updated burst.
 _REBIND_PROBE_COOLDOWN_SECONDS = 30.0
 
 
-class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods need a refactor first)
-    """
-    Discover peer dashboards and own the receiver-side settings.
-
-    Constructed once in :meth:`DeviceBuilder.start`. The browser
-    lifetime is tied to :meth:`start` / :meth:`stop`; the controller's
-    own start happens after :class:`DevicesController.start` so the
-    shared zeroconf instance is already up.
-    """
+class OffloaderController:  # noqa: PLR0904
+    """Outbound side of remote-build: pair, peer-link, submit/cancel/download."""
 
     def __init__(self, device_builder: DeviceBuilder) -> None:
         self._db = device_builder
         self._browser: AsyncServiceBrowser | None = None
-        # Shared ``aiohttp`` resolver wired to the dashboard's
-        # :class:`AsyncEsphomeZeroconf` so outbound peer-link
-        # connects resolve ``*.local`` hostnames via mDNS rather
-        # than ``getaddrinfo``. ``None`` when zeroconf isn't up;
-        # call sites fall back to aiohttp's default resolver.
         self._peer_link_resolver: PeerLinkDNSResolver | None = None
         self._peers: dict[str, RemoteBuildPeer] = {}
-        # Strong refs for fire-and-forget resolve tasks (GC can't
-        # reap them mid-await).
         self._tasks: set[asyncio.Task[None]] = set()
-        # mDNS auto-rebind probe slot per pin → monotonic
-        # deadline. Doubles as in-flight guard + retry throttle:
-        # a probe storm from mDNS Updated bursts collapses to one
-        # probe per cooldown. Successful probes clear the entry.
         self._rebind_probe_until: dict[str, float] = {}
-        # Own service-instance name (captured at start) so we
-        # filter our own broadcast out of the discovered list.
         self._own_instance_name: str | None = None
-        # True while ``rotate_identity`` is in flight. Second
-        # caller gets ``ALREADY_EXISTS`` rather than queuing —
-        # interleaved teardowns can leave no listener at all,
-        # and back-to-back rotation is almost always an
-        # accidental double-click.
-        self._rotation_in_flight = False
-        # Pairing window: gates ``pair_request``, refcounted by
-        # WS client so multi-tab admins extend together.
-        # APPROVED peers bypass the window via ``peer_link``.
-        self._pairing_window_clients: dict[Hashable, float] = {}
-        self._pairing_window_handle: asyncio.TimerHandle | None = None
-        # One Task per PENDING StoredPairing holding an open
-        # pair_status long-poll. Spawned by ``request_pair``,
-        # cancelled by ``unpair`` / re-pair / terminal-flip. Keyed
-        # on ``pin_sha256``; RAM-only (PENDING never persists).
         self._pair_status_listeners: dict[str, asyncio.Task[None]] = {}
-        # PENDING StoredPeer rows keyed on ``dashboard_id``;
-        # never persisted, cleared on window auto-close (bounds
-        # LAN-scanner spam). Clears fire ``status="removed"`` so
-        # in-flight long-polls wake.
-        self._pending_peers: dict[str, StoredPeer] = {}
-        # RAM-canonical APPROVED peers keyed on ``dashboard_id``;
-        # disk is just persistence.
-        self._approved_peers: dict[str, StoredPeer] = {}
-        # Live peer-link sessions keyed on offloader's
-        # ``dashboard_id``. One per dashboard_id; a duplicate
-        # connect kicks the older session via
-        # ``TerminateReason.SUPERSEDED`` so a restarted offloader
-        # takes its slot back rather than doubling.
-        self._peer_link_sessions: dict[str, PeerLinkSession] = {}
-        # Receiver-side handlers; constructed in :meth:`start`
-        # once the firmware controller is available. Their
-        # accessor methods raise if reached before bind.
-        self._submit_job_receiver: SubmitJobReceiver | None = None
-        self._artifacts_download_sender: ArtifactsDownloadSender | None = None
-        # Fan-out from firmware ``JOB_*`` events to peer-link
-        # frames, filtered to remote-peer jobs.
-        self._job_fanout: JobFanout | None = None
-        # One peer-link client per APPROVED pairing, keyed on
-        # ``pin_sha256``. Handle bundles the task with the
-        # client; WS commands reach the submit/cancel API
-        # through the client.
         self._peer_link_clients: dict[str, PeerLinkClientHandle] = {}
-        # Currently-open offloader-side peer-link sessions
-        # (toggled by OPENED/CLOSED listeners). Read by
-        # ``pairings_snapshot`` to fill ``connected``.
         self._open_peer_links: set[str] = set()
-        # Cached at :meth:`start`. WS commands re-read from
-        # disk via :meth:`_load_offloader_identities_async` to
-        # pick up rotations.
+        # Cached at :meth:`start`; WS-command handlers re-read
+        # from disk via :meth:`_load_offloader_identities_async`
+        # to pick up rotations.
         self._offloader_dashboard_id: str | None = None
         self._offloader_peer_link_priv: bytes | None = None
-        # Offloader pairings (PENDING + APPROVED) keyed on
-        # ``pin_sha256`` (cryptographic identity); routing
-        # hints live as fields so receiver-rename is a value
-        # mutation. Disk filter strips PENDING at serialise.
         self._pairings: dict[str, StoredPairing] = {}
-        # Master "remote builds enabled" toggle for the
-        # offloader-side install scheduler.
         self._remote_builds_enabled: bool = True
-        # RAM-only pair alerts (pin_mismatch / peer_revoked);
-        # cleared only by re-pair or unpair.
         self._offloader_alerts: dict[str, OffloaderAlertSnapshotEntry] = {}
-        # Most recent queue_status per paired receiver.
         self._peer_queue_status: dict[str, PeerQueueStatusSnapshotEntry] = {}
-        # In-flight remote jobs keyed on offloader-local
-        # ``job_id``; rows drop on terminal status.
         self._offloader_remote_jobs: dict[str, OffloaderRemoteJobSnapshotEntry] = {}
-        # ``Store`` instances register their flush callbacks
-        # here; :meth:`stop` walks them to drain debounced writes.
         self._shutdown_callbacks: list[ShutdownCallback] = []
         self._pairings_store: Store[OffloaderRemoteBuildSettings] = Store(
             self._db.settings.config_dir / OFFLOADER_PAIRINGS_FILE,
@@ -321,63 +193,24 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
             shutdown_register=self._shutdown_callbacks.append,
             name="offloader_pairings",
         )
-        self._peers_store: Store[ReceiverPeers] = Store(
-            self._db.settings.config_dir / RECEIVER_PEERS_FILE,
-            encoder=encode_peers,
-            decoder=decode_peers,
-            shutdown_register=self._shutdown_callbacks.append,
-            name="receiver_peers",
-        )
-        # Bus-listener unsubscribers; :meth:`stop` closes the
-        # stack to detach all of them in one pass.
         self._listeners = ExitStack()
 
     async def start(self) -> None:
-        """Bring up the receiver-side handlers, seed RAM from disk, spawn clients."""
-        # Receiver-side handlers depend on the firmware controller.
-        if self._db.firmware is not None:
-            self._submit_job_receiver = SubmitJobReceiver(
-                config_dir=self._db.settings.config_dir,
-                firmware_controller=self._db.firmware,
-            )
-            self._artifacts_download_sender = ArtifactsDownloadSender(
-                firmware_controller=self._db.firmware,
-            )
-            self._job_fanout = JobFanout(self)
-            self._job_fanout.start()
-            self._track_task(
-                self._run_cleanup_loop(),
-                name=f"{type(self).__name__}._run_cleanup_loop",
-            )
+        """Seed pairings from disk, cache identities, spawn peer-link clients."""
         if (settings := await self._pairings_store.async_load()) is not None:
             for pairing in settings.pairings:
                 self._pairings[pairing.pin_sha256] = pairing
             self._remote_builds_enabled = settings.remote_builds_enabled
-        if (peers_state := await self._peers_store.async_load()) is not None:
-            for peer in peers_state.peers:
-                self._approved_peers[peer.dashboard_id] = peer
         peer_link_identity, dashboard_identity = await self._load_offloader_identities_async()
         self._offloader_peer_link_priv = peer_link_identity.private_bytes
         self._offloader_dashboard_id = dashboard_identity.dashboard_id
         # Wire the resolver before spawning clients so each picks
-        # it up at construction; stays None if zeroconf is down
-        # (HA-addon without ``ports:``, monitor failed to bind)
+        # it up at construction; stays None when zeroconf is down
         # and outbound connects fall back to the OS resolver.
         self._setup_peer_link_resolver()
         for pairing in self._pairings.values():
             if pairing.status is PeerStatus.APPROVED:
                 self._spawn_peer_link_client(pairing)
-        # JOB_OUTPUT / JOB_PROGRESS deliberately omitted from the
-        # broadcast set: high-rate streaming events that don't
-        # change queue_status shape.
-        for event_type in (
-            EventType.JOB_QUEUED,
-            EventType.JOB_STARTED,
-            *TERMINAL_JOB_EVENTS,
-        ):
-            self._listeners.callback(
-                self._db.bus.add_listener(event_type, self._on_firmware_queue_transition)
-            )
         self._listeners.callback(
             self._db.bus.add_listener(
                 EventType.OFFLOADER_QUEUE_STATUS_CHANGED,
@@ -410,6 +243,43 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
         )
         self._start_discovery()
 
+    async def stop(self) -> None:
+        """Cancel the browser, drain tasks, flush store, clear dicts."""
+        if self._browser is not None:
+            try:
+                await self._browser.async_cancel()
+            except Exception:
+                _LOGGER.debug("remote-build browser cancel failed", exc_info=True)
+            self._browser = None
+        self._listeners.close()
+        await drain_tasks(self._tasks)
+        self._tasks.clear()
+        await drain_tasks(self._pair_status_listeners.values())
+        self._pair_status_listeners.clear()
+        # Each peer-link client's CancelledError handler sends a
+        # ``client_stopped`` terminate so the receiver doesn't wait
+        # on its heartbeat to time out.
+        await drain_tasks(h.task for h in self._peer_link_clients.values())
+        self._peer_link_clients.clear()
+        for callback in self._shutdown_callbacks:
+            await callback()
+        self._pairings.clear()
+        self._peer_queue_status.clear()
+        self._offloader_remote_jobs.clear()
+        self._open_peer_links.clear()
+        self._rebind_probe_until.clear()
+        self._peers.clear()
+        await self._close_peer_link_resolver()
+
+    def _track_task(
+        self, coro: Coroutine[Any, Any, None], *, name: str | None = None
+    ) -> asyncio.Task[None]:
+        """Schedule *coro* and hold a strong ref in :attr:`_tasks` until it settles."""
+        task = asyncio.create_task(coro, name=name)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+        return task
+
     async def _load_offloader_identities_async(
         self,
     ) -> tuple[PeerLinkIdentity, DashboardIdentity]:
@@ -427,19 +297,6 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             None, _load_offloader_identities, self._db.settings.config_dir
-        )
-
-    async def _load_settings_async(self) -> RemoteBuildSettings:
-        """Read the receiver-side settings sidecar off the executor.
-
-        Carries the ``enabled`` master toggle +
-        ``cleanup_ttl_seconds`` knobs, which aren't mirrored in
-        RAM (the RAM-canonical state is :attr:`_approved_peers`
-        / :attr:`_pairings`).
-        """
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            None, load_remote_build_settings, self._db.settings.config_dir
         )
 
     def _setup_peer_link_resolver(self) -> None:
@@ -624,299 +481,6 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
         """In-flight remote-job snapshot for ``subscribe_events`` seeding."""
         return list(self._offloader_remote_jobs.values())
 
-    def _on_firmware_queue_transition(self, event: Event[Any]) -> None:
-        """Bus listener: broadcast ``queue_status`` to paired offloaders.
-
-        Called on every ``JOB_QUEUED`` / ``JOB_STARTED`` /
-        terminal event. Builds a snapshot from the firmware
-        controller's RAM state (sync read, no awaitables in the
-        bus listener) and schedules a per-session broadcast as a
-        background task. The broadcast itself runs async because
-        it sends across N peer-link sessions and we don't want a
-        slow socket on one session to block other listeners
-        observing the same event.
-        """
-        if self._db.firmware is None:
-            return
-        idle, running, queue_depth = self._db.firmware.queue_status_snapshot()
-        if not self._peer_link_sessions:
-            return
-        self._db.create_background_task(self._broadcast_queue_status(idle, running, queue_depth))
-
-    async def _broadcast_queue_status(self, idle: bool, running: bool, queue_depth: int) -> None:
-        """Send a ``queue_status`` frame to every active peer-link session.
-
-        Snapshot the registry to a list before iterating so a
-        concurrent register / unregister mid-walk doesn't mutate
-        the dict under us. Each ``send_app_frame`` is gated on
-        the session's ``_closing`` flag, so a ``terminate``-in-
-        progress session no-ops cleanly here without raising.
-        Per-session failures (``send_app_frame`` returns
-        ``False``) are logged at the channel layer; we don't
-        retry — a session that can't accept the latest snapshot
-        will pick up the next transition's broadcast on its
-        next successful frame.
-        """
-        sessions = list(self._peer_link_sessions.values())
-        payload = QueueStatusFrameData(
-            type="queue_status",
-            idle=idle,
-            running=running,
-            queue_depth=queue_depth,
-        )
-        for session in sessions:
-            # Per-session try/except so one flaky peer can't
-            # starve broadcasts to its siblings; the next queue
-            # transition will retry.
-            try:
-                await session.send_app_frame(dict(payload))
-            except Exception:
-                _LOGGER.exception(
-                    "queue_status broadcast to session %s raised; continuing with siblings",
-                    session.dashboard_id,
-                )
-
-    async def register_peer_link_session(self, session: PeerLinkSession) -> None:
-        """Register *session*; evict a stale same-``dashboard_id`` slot via SUPERSEDED.
-
-        Install runs before the terminate await so concurrent
-        dispatches see the freshest entry. Pushes an initial
-        ``queue_status`` to the offloader — without it,
-        cold-connected pairings never get an entry in
-        ``_peer_queue_status`` and ``pick_build_path`` silently
-        falls back to LOCAL (#568 regression).
-        """
-        existing = self._peer_link_sessions.get(session.dashboard_id)
-        self._peer_link_sessions[session.dashboard_id] = session
-        if existing is not None and existing is not session:
-            await existing.terminate(TerminateReason.SUPERSEDED)
-        if self._db.firmware is not None:
-            try:
-                idle, running, queue_depth = self._db.firmware.queue_status_snapshot()
-            except Exception:
-                # Best-effort: the transition-driven broadcast
-                # catches up the offloader on the next change.
-                _LOGGER.exception(
-                    "firmware.queue_status_snapshot() raised on session register; "
-                    "skipping initial queue_status push to %s",
-                    session.dashboard_id,
-                )
-            else:
-                self._db.create_background_task(
-                    self._send_initial_queue_status(session, idle, running, queue_depth)
-                )
-        # Fire AFTER the dict insert so subscriber lookups see
-        # the just-registered session.
-        if self._db.bus is not None:
-            self._db.bus.fire(
-                EventType.RECEIVER_PEER_LINK_SESSION_OPENED,
-                ReceiverPeerLinkSessionOpenedData(dashboard_id=session.dashboard_id),
-            )
-
-    async def _send_initial_queue_status(
-        self,
-        session: PeerLinkSession,
-        idle: bool,
-        running: bool,
-        queue_depth: int,
-    ) -> None:
-        """Push a one-shot ``queue_status`` frame to a freshly-connected session.
-
-        Mirror of :meth:`_broadcast_queue_status` but addressed
-        to a single session — invoked from
-        :meth:`register_peer_link_session` so the offloader gets
-        an idle / running signal on cold-connect rather than
-        waiting for the receiver's next firmware queue
-        transition. Best-effort: a session that has already
-        torn down between the registry insert and this send
-        no-ops cleanly (``send_app_frame`` is gated on the
-        session's ``_closing`` flag) and the offloader's next
-        reconnect tries again.
-        """
-        payload = QueueStatusFrameData(
-            type="queue_status",
-            idle=idle,
-            running=running,
-            queue_depth=queue_depth,
-        )
-        try:
-            await session.send_app_frame(dict(payload))
-        except Exception:
-            _LOGGER.exception(
-                "initial queue_status to session %s raised; "
-                "offloader will catch up on the next queue transition",
-                session.dashboard_id,
-            )
-
-    def unregister_peer_link_session(self, session: PeerLinkSession) -> None:
-        """
-        Drop *session* from the active peer-link registry.
-
-        No-op when a different session has taken the slot (the
-        :meth:`register_peer_link_session` dedupe path replaces
-        the entry before the old session's loop unwinds; the old
-        loop's ``finally`` calls this and would otherwise evict
-        the new entry). Sync because it's just a dict pop — the
-        actual WS close + Noise teardown happens in the session
-        loop's ``finally`` chain.
-        """
-        if self._peer_link_sessions.get(session.dashboard_id) is session:
-            del self._peer_link_sessions[session.dashboard_id]
-            # Drop any in-flight ``submit_job`` upload state so a
-            # bundle reception that was mid-stream when the
-            # session ended doesn't outlive the session that owns
-            # it. ``_submit_job_receiver`` is set in :meth:`start`;
-            # this branch only runs for sessions registered after
-            # ``start`` (live wire), so the attribute is always
-            # populated by the time we get here.
-            if self._submit_job_receiver is not None:
-                self._submit_job_receiver.discard_session(session.dashboard_id)
-            # Same shape — discard any in-flight artifacts
-            # download for this session so the slot doesn't
-            # outlive the session it was streaming over.
-            if self._artifacts_download_sender is not None:
-                self._artifacts_download_sender.discard_session(session.dashboard_id)
-            # Fire only when we actually dropped the slot — the
-            # no-op path (a SUPERSEDED-evicted session running its
-            # finally-block after the new session has taken its
-            # place) would double-fire CLOSED for a single
-            # logical close otherwise.
-            if self._db.bus is not None:
-                self._db.bus.fire(
-                    EventType.RECEIVER_PEER_LINK_SESSION_CLOSED,
-                    ReceiverPeerLinkSessionClosedData(dashboard_id=session.dashboard_id),
-                )
-
-    async def handle_cancel_job(self, session: PeerLinkSession, frame: dict[str, Any]) -> None:
-        """Receiver-side dispatch for inbound ``cancel_job`` frames.
-
-        Resolves the offloader's ``job_id`` to the receiver-local
-        :class:`FirmwareJob` via :class:`JobFanout` and routes
-        through :meth:`FirmwareController.cancel` — same path as
-        an operator-driven cancel. No wire ack; the fan-out's
-        ``job_state_changed{cancelled}`` carries the result.
-
-        Silent debug-log drops for malformed frames, unknown
-        correlations (race with a terminal transition), and
-        :class:`CommandError` from cancel (already-terminal).
-        """
-        if not is_valid_frame(_CANCEL_JOB_SCHEMA, frame):
-            _LOGGER.debug(
-                "peer-link cancel_job from %s: malformed frame; dropping: %r",
-                session.dashboard_id,
-                frame,
-            )
-            return
-        if self._job_fanout is None or self._db.firmware is None:
-            _LOGGER.debug(
-                "peer-link cancel_job from %s before controller fully started; dropping",
-                session.dashboard_id,
-            )
-            return
-        remote_job_id = cast(str, frame["job_id"])
-        firmware_job_id = self._job_fanout.resolve_firmware_job_id(
-            session.dashboard_id, remote_job_id
-        )
-        if firmware_job_id is None:
-            _LOGGER.debug(
-                "peer-link cancel_job from %s: no firmware job for remote_job_id=%r; dropping",
-                session.dashboard_id,
-                remote_job_id,
-            )
-            return
-        try:
-            await self._db.firmware.cancel(job_id=firmware_job_id)
-        except CommandError as exc:
-            _LOGGER.debug(
-                "peer-link cancel_job from %s: firmware refused cancel for job %s: %s",
-                session.dashboard_id,
-                firmware_job_id,
-                exc.message,
-            )
-
-    def get_submit_job_receiver(self) -> SubmitJobReceiver:
-        """Return the receiver-side ``submit_job`` flow handler, raising if not started.
-
-        Method (not ``@property``) because
-        :func:`collect_api_commands` walks public attributes
-        at startup; a property getter would fire pre-``start``
-        and raise.
-        """
-        if self._submit_job_receiver is None:
-            msg = "submit_job_receiver accessed before RemoteBuildController.start()"
-            raise RuntimeError(msg)
-        return self._submit_job_receiver
-
-    def get_artifacts_download_sender(self) -> ArtifactsDownloadSender:
-        """Return the receiver-side ``download_artifacts`` flow handler, raising if not started."""
-        if self._artifacts_download_sender is None:
-            msg = "artifacts_download_sender accessed before RemoteBuildController.start()"
-            raise RuntimeError(msg)
-        return self._artifacts_download_sender
-
-    async def stop(self) -> None:
-        """Cancel the browser, drain tasks + sessions, flush stores."""
-        if self._browser is not None:
-            try:
-                await self._browser.async_cancel()
-            except Exception:
-                _LOGGER.debug("remote-build browser cancel failed", exc_info=True)
-            self._browser = None
-        self._listeners.close()
-        if self._job_fanout is not None:
-            self._job_fanout.stop()
-            self._job_fanout = None
-        await self._drain_tasks(self._tasks)
-        self._tasks.clear()
-        await self._drain_tasks(self._pair_status_listeners.values())
-        self._pair_status_listeners.clear()
-        # Each peer-link client's CancelledError handler sends a
-        # ``client_stopped`` terminate so the receiver doesn't wait
-        # on its heartbeat to time out.
-        await self._drain_tasks(h.task for h in self._peer_link_clients.values())
-        self._peer_link_clients.clear()
-        if self._pairing_window_handle is not None:
-            self._pairing_window_handle.cancel()
-            self._pairing_window_handle = None
-        self._pairing_window_clients.clear()
-        # Snapshot to a list before iterating — each terminate
-        # unwinds via ``unregister_peer_link_session`` which
-        # mutates the dict.
-        for peer_link_session in list(self._peer_link_sessions.values()):
-            await peer_link_session.terminate(TerminateReason.SERVER_SHUTTING_DOWN)
-        self._peer_link_sessions.clear()
-        # Fire ``status="removed"`` for each PENDING peer so
-        # in-flight pair_status long-polls on a still-alive bus
-        # see the cancellation (matters for the soft-reload path).
-        self._clear_pending_peers_on_window_close()
-        # Flush debounced writes from every registered Store
-        # before the dicts go away.
-        for callback in self._shutdown_callbacks:
-            await callback()
-        self._pairings.clear()
-        self._peer_queue_status.clear()
-        self._offloader_remote_jobs.clear()
-        self._open_peer_links.clear()
-        self._rebind_probe_until.clear()
-        self._peers.clear()
-        self._approved_peers.clear()
-        await self._close_peer_link_resolver()
-
-    @staticmethod
-    async def _drain_tasks(tasks: Iterable[asyncio.Task[Any]]) -> None:
-        """Cancel and await every task in *tasks*, swallowing exceptions.
-
-        Snapshots *tasks* to a list so the caller's post-drain
-        ``clear`` doesn't pull tasks out from under the gather.
-        Caller owns clearing the source collection.
-        """
-        tasks_list = list(tasks)
-        if not tasks_list:
-            return
-        for task in tasks_list:
-            task.cancel()
-        await asyncio.gather(*tasks_list, return_exceptions=True)
-
     async def _close_peer_link_resolver(self) -> None:
         """Release the shared mDNS-aware aiohttp resolver, if any.
 
@@ -1027,58 +591,6 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
         """Fire ``REMOTE_BUILD_HOST_REMOVED`` for *name*."""
         payload: RemoteBuildHostRemovedData = {"name": name}
         self._db.bus.fire(EventType.REMOTE_BUILD_HOST_REMOVED, payload)
-
-    def _track_task(
-        self, coro: Coroutine[Any, Any, None], *, name: str | None = None
-    ) -> asyncio.Task[None]:
-        """Schedule *coro* and hold a strong ref in :attr:`_tasks` until it settles.
-
-        Distinct from :meth:`DeviceBuilder.create_background_task`
-        — this set is drained separately by :meth:`stop` for
-        ordered subsystem teardown.
-        """
-        task = asyncio.create_task(coro, name=name)
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
-        return task
-
-    async def _run_cleanup_loop(self) -> None:
-        """Sweep cold remote-build subtrees every ``_CLEANUP_SWEEP_INTERVAL_SECONDS``.
-
-        Sleeps before the first cycle — a fresh install has no
-        subtrees to reclaim and the TTL is 24h. Per-cycle
-        failures are logged and the loop continues; cancel via
-        :meth:`stop` settles cleanly through the sleep.
-        """
-        config_dir = self._db.settings.config_dir
-        loop = asyncio.get_running_loop()
-        while True:
-            await asyncio.sleep(_CLEANUP_SWEEP_INTERVAL_SECONDS)
-            try:
-                # Re-check firmware narrows the type for mypy and
-                # survives a future spawn/start decoupling.
-                firmware = self._db.firmware
-                if firmware is None:
-                    continue
-                settings = await self._load_settings_async()
-                in_flight_keys = frozenset(
-                    rbp
-                    for job in firmware.active_remote_peer_jobs()
-                    if (rbp := parse_from_configuration(job.configuration)) is not None
-                )
-                deleted = await loop.run_in_executor(
-                    None,
-                    partial(
-                        sweep_remote_builds,
-                        config_dir,
-                        ttl_seconds=settings.cleanup_ttl_seconds,
-                        in_flight_keys=in_flight_keys,
-                    ),
-                )
-                if deleted:
-                    _LOGGER.info("remote-build cleanup: swept %d cold subtree(s)", deleted)
-            except Exception:
-                _LOGGER.exception("remote-build cleanup sweep failed")
 
     def _schedule_pairings_save(self) -> None:
         """Debounce-write the offloader pairings store via the per-file Store."""
@@ -1283,138 +795,6 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
 
     # ------------------------------------------------------------------
     # API surface
-    # ------------------------------------------------------------------
-
-    @api_command("remote_build/get_settings")
-    async def get_settings(self, **kwargs: Any) -> RemoteBuildSettingsView:
-        """Return the receiver-side remote-build settings (wire view)."""
-        return self._to_view(await self._load_settings_async())
-
-    def _to_view(self, settings: RemoteBuildSettings) -> RemoteBuildSettingsView:
-        """Project receiver settings to wire view, merging in-memory peers.
-
-        The peer list is RAM-canonical: PENDING entries live in
-        ``self._pending_peers`` for the active pairing window's
-        lifetime (never hit disk) and APPROVED entries live in
-        ``self._approved_peers`` / its per-file ``Store``.
-        ``settings`` is consulted for the master ``enabled``
-        toggle.
-        """
-        return RemoteBuildSettingsView(
-            enabled=settings.enabled,
-            cleanup_ttl_seconds=settings.cleanup_ttl_seconds,
-            peers=self._peer_summaries(),
-        )
-
-    def _peer_summaries(self) -> list[PeerSummary]:
-        """Merge PENDING + APPROVED into a single ``PeerSummary`` list.
-
-        APPROVED rows read ``connected`` off
-        ``_peer_link_sessions``; PENDING always
-        ``connected=False`` since the peer-link dispatch
-        refuses non-APPROVED rows.
-        """
-        sessions = self._peer_link_sessions
-        return [
-            peer_summary(p, status=PeerStatus.PENDING, connected=False)
-            for p in self._pending_peers.values()
-        ] + [
-            peer_summary(p, status=PeerStatus.APPROVED, connected=p.dashboard_id in sessions)
-            for p in self._approved_peers.values()
-        ]
-
-    def approved_peer_label(self, dashboard_id: str) -> str:
-        """Return the APPROVED peer's display label, or ``""`` if not found."""
-        peer = self._approved_peers.get(dashboard_id)
-        return peer.label if peer is not None else ""
-
-    def peers_snapshot(self) -> list[PeerSummary]:
-        """Return the in-memory peers (PENDING + APPROVED) for ``subscribe_events`` seeding."""
-        return self._peer_summaries()
-
-    async def _modify_settings(
-        self, mutator: Callable[[RemoteBuildSettings], None]
-    ) -> RemoteBuildSettingsView:
-        """
-        Run ``mutator`` against the current settings and persist the result.
-
-        Wraps :func:`remote_build_settings_transaction` so the
-        whole read-modify-write happens under the metadata lock,
-        so two concurrent callers can't both read the same starting
-        value and have the second save wipe the first's change.
-        Runs in the default executor since the transaction does
-        blocking JSON I/O. Returns the wire view so the response
-        leaving this method can never carry ``secret_sha256``.
-
-        ``mutator`` is invoked with the freshly-loaded settings
-        and is expected to mutate it in place. A
-        :class:`CommandError` raised inside the mutator (e.g.
-        duplicate-detection on add) propagates out and discards
-        the pending write; same exception-on-discard contract as
-        :func:`metadata_transaction`.
-        """
-
-        def _txn() -> RemoteBuildSettings:
-            with remote_build_settings_transaction(self._db.settings.config_dir) as settings:
-                mutator(settings)
-                return settings
-
-        loop = asyncio.get_running_loop()
-        settings = await loop.run_in_executor(None, _txn)
-        return self._to_view(settings)
-
-    @api_command("remote_build/set_settings")
-    async def set_settings(
-        self,
-        *,
-        enabled: bool,
-        cleanup_ttl_seconds: int | None = None,
-        **kwargs: Any,
-    ) -> RemoteBuildSettingsView:
-        """
-        Persist the receiver-side ``enabled`` master switch.
-
-        Read-modify-write so peers / other fields stay intact.
-        Strict-bool validation defeats truthiness coercion on
-        this security-sensitive toggle.
-
-        Optional ``cleanup_ttl_seconds`` updates the cleanup
-        sweep threshold, range-checked against
-        :data:`MIN_CLEANUP_TTL_SECONDS` /
-        :data:`MAX_CLEANUP_TTL_SECONDS`. Omit to keep current.
-
-        Live-rebinds the peer-link listener: True runs the
-        startup bind path, False tears down + clears the mDNS
-        pin/port advertise. Fail-soft on bind error.
-        """
-        if not isinstance(enabled, bool):
-            msg = "remote_build/set_settings: 'enabled' must be a boolean"
-            raise CommandError(ErrorCode.INVALID_ARGS, msg)
-        if cleanup_ttl_seconds is not None:
-            # bool subclasses int, so reject ``True`` first to
-            # avoid a misleading OUT_OF_RANGE on a type error.
-            if isinstance(cleanup_ttl_seconds, bool) or not isinstance(cleanup_ttl_seconds, int):
-                msg = "remote_build/set_settings: 'cleanup_ttl_seconds' must be an integer"
-                raise CommandError(ErrorCode.INVALID_ARGS, msg)
-            if not MIN_CLEANUP_TTL_SECONDS <= cleanup_ttl_seconds <= MAX_CLEANUP_TTL_SECONDS:
-                msg = (
-                    f"remote_build/set_settings: 'cleanup_ttl_seconds' must be between "
-                    f"{MIN_CLEANUP_TTL_SECONDS} and {MAX_CLEANUP_TTL_SECONDS}"
-                )
-                raise CommandError(ErrorCode.INVALID_ARGS, msg)
-
-        def _set(settings: RemoteBuildSettings) -> None:
-            settings.enabled = enabled
-            if cleanup_ttl_seconds is not None:
-                settings.cleanup_ttl_seconds = cleanup_ttl_seconds
-
-        view = await self._modify_settings(_set)
-        await self._db.apply_remote_build_enabled()
-        return view
-
-    # ------------------------------------------------------------------
-    # Offloader-side settings: master toggle + per-pairing enable.
-    # Mutations persist via the existing ``_pairings_store``.
     # ------------------------------------------------------------------
 
     def _offloader_settings_view(self) -> OffloaderRemoteBuildSettingsView:
@@ -2339,499 +1719,3 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
     # directly. Rotation lives next door so the "rotate" button can
     # land in the same controller.
     # ------------------------------------------------------------------
-
-    @api_command("remote_build/get_identity")
-    async def get_identity(self, **kwargs: Any) -> IdentityView:
-        """Return this dashboard's stable identity (id + pin + versions + bind state).
-
-        The X25519 private key is never returned; only
-        ``pin_sha256`` (the fingerprint mDNS broadcasts and
-        offloaders pin against).
-        """
-        loop = asyncio.get_running_loop()
-        identity = await loop.run_in_executor(
-            None, get_or_create_identity, self._db.settings.config_dir
-        )
-        return identity_view(identity, listener_bound=self._db.is_remote_build_listener_bound)
-
-    @api_command("remote_build/rotate_identity")
-    async def rotate_identity(self, **kwargs: Any) -> IdentityView:
-        """
-        Mint a fresh X25519 peer-link keypair, replacing whatever's on disk.
-
-        Forces every paired offloader to re-pair — peers pinned
-        on the old ``pin_sha256`` see a fingerprint mismatch on
-        the next handshake. ``dashboard_id`` is preserved.
-
-        Side effects when remote-build is currently bound:
-        listener torn down + rebuilt with the fresh key,
-        ``pin_sha256`` re-advertised in mDNS, rebuild fail-softs
-        (``listener_bound=False`` in the response).
-        :attr:`EventType.REMOTE_BUILD_IDENTITY_ROTATED` fires
-        regardless of bind state so subscribers can refresh
-        cached pins without polling.
-
-        Concurrent calls return ``ALREADY_EXISTS`` — two
-        rotations racing would each tear down + rebuild the
-        listener; back-to-back is almost always an accidental
-        double-click.
-        """
-        # Check+set is atomic on the single asyncio loop.
-        if self._rotation_in_flight:
-            msg = "remote_build: an identity rotation is already in progress"
-            raise CommandError(ErrorCode.ALREADY_EXISTS, msg)
-        self._rotation_in_flight = True
-        try:
-            loop = asyncio.get_running_loop()
-            identity = await loop.run_in_executor(
-                None, _dashboard_identity_helper.rotate_identity, self._db.settings.config_dir
-            )
-            listener_bound = await self._db.reload_remote_build_identity(
-                pin_sha256=identity.pin_sha256,
-            )
-            self._db.bus.fire(
-                EventType.REMOTE_BUILD_IDENTITY_ROTATED,
-                RemoteBuildIdentityRotatedData(
-                    dashboard_id=identity.dashboard_id,
-                    pin_sha256=identity.pin_sha256,
-                ),
-            )
-            return identity_view(identity, listener_bound=listener_bound)
-        finally:
-            self._rotation_in_flight = False
-
-    # ------------------------------------------------------------------
-    # Peer CRUD — receiver-UI surface for the Pairing requests inbox.
-    # PENDING rows are created by the peer-link listener; these
-    # commands let the admin act on them.
-    # ------------------------------------------------------------------
-
-    @api_command("remote_build/approve_peer")
-    async def approve_peer(self, *, dashboard_id: str, **kwargs: Any) -> RemoteBuildSettingsView:
-        """
-        Promote a PENDING peer to APPROVED.
-
-        Pops the in-memory PENDING entry, inserts it into the
-        RAM-canonical ``_approved_peers`` dict, schedules a
-        debounced write to the receiver-peers store, and fires
-        :attr:`EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED` with
-        ``{dashboard_id, status: "approved"}``. The offloader's
-        pair-status listener observes the flip via the bus event +
-        re-snapshot path. ``NOT_FOUND`` if no PENDING entry
-        matches; ``INVALID_ARGS`` if the dashboard_id already
-        corresponds to an APPROVED row (duplicate Accept click,
-        almost always a UI race; refuse rather than silently
-        re-fire the event).
-        """
-        clean_id = validate_dashboard_id(dashboard_id)
-
-        pending = self._pending_peers.pop(clean_id, None)
-        if pending is None:
-            # Differentiate "already approved" from "never existed"
-            # so the frontend can decide whether to refresh or
-            # surface an error. Both reads short-circuit through
-            # RAM — no disk I/O.
-            if clean_id in self._approved_peers:
-                msg = f"peer is already approved: {clean_id}"
-                raise CommandError(ErrorCode.INVALID_ARGS, msg)
-            msg = f"no pending peer with dashboard_id: {clean_id}"
-            raise CommandError(ErrorCode.NOT_FOUND, msg)
-
-        self._approved_peers[clean_id] = pending
-        self._peers_store.async_delay_save(
-            self._serialize_peers, delay=_PAIRINGS_SAVE_DELAY_SECONDS
-        )
-        self._fire_pair_status_changed(clean_id, "approved")
-        return await self._current_settings_view()
-
-    @api_command("remote_build/remove_peer")
-    async def remove_peer(self, *, dashboard_id: str, **kwargs: Any) -> RemoteBuildSettingsView:
-        """
-        Delete a peer row (works on both PENDING and APPROVED).
-
-        Two semantically distinct outcomes share the same WS command:
-
-        * Removing a PENDING entry from the in-memory dict is
-          *rejection* — the row never represented established
-          trust, so this is inbox cleanup. Fires the
-          ``status="removed"`` event so any offloader currently
-          long-polling pair_status sees the cancellation and
-          drops its local state.
-        * Removing an APPROVED row from ``_approved_peers``
-          (RAM-canonical, debounced to disk) is *revocation* —
-          fires the same
-          :attr:`EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED`
-          ``status="removed"`` event so the offloader can
-          surface a ``peer_revoked`` UI alert.
-
-        ``NOT_FOUND`` if neither dict has a row.
-        """
-        clean_id = validate_dashboard_id(dashboard_id)
-
-        # PENDING: in-memory, no disk write needed (PENDING never
-        # reaches the peers store).
-        if self._pending_peers.pop(clean_id, None) is not None:
-            self._fire_pair_status_changed(clean_id, "removed")
-            return await self._current_settings_view()
-
-        if self._approved_peers.pop(clean_id, None) is None:
-            msg = f"no peer with dashboard_id: {clean_id}"
-            raise CommandError(ErrorCode.NOT_FOUND, msg)
-        self._peers_store.async_delay_save(
-            self._serialize_peers, delay=_PAIRINGS_SAVE_DELAY_SECONDS
-        )
-        self._fire_pair_status_changed(clean_id, "removed")
-        return await self._current_settings_view()
-
-    def _serialize_peers(self) -> ReceiverPeers:
-        """Build the on-disk peers shape from the in-RAM ``_approved_peers`` dict."""
-        return ReceiverPeers(peers=list(self._approved_peers.values()))
-
-    async def _current_settings_view(self) -> RemoteBuildSettingsView:
-        """Load settings from disk and project to the wire view (post-mutation response)."""
-        return self._to_view(await self._load_settings_async())
-
-    # ------------------------------------------------------------------
-    # Peer-link Noise WS dispatch helpers — called by the post-handshake
-    # intent dispatcher in :mod:`controllers.remote_build_peer_link`.
-    # These methods own the storage / event-firing side; the dispatcher
-    # owns the wire side.
-    # ------------------------------------------------------------------
-
-    async def record_pair_request(
-        self,
-        *,
-        dashboard_id: str,
-        pin_sha256: str,
-        static_x25519_pub: bytes,
-        label: str,
-        peer_ip: str,
-    ) -> IntentResponse:
-        """
-        Process an ``intent="pair_request"`` Noise session.
-
-        Returns:
-        * ``APPROVED`` — row exists for ``dashboard_id`` with
-          APPROVED status and matching pin. Re-pair against
-          existing trust bypasses the pairing window so an
-          offloader hiccup doesn't force a re-approve.
-        * ``PENDING`` — new ``StoredPeer`` created or existing
-          PENDING row refreshed. Only reachable inside an open
-          pairing window; fires
-          :attr:`EventType.REMOTE_BUILD_PAIR_REQUEST_RECEIVED`
-          so the receiver UI surfaces the inbox row.
-        * ``REJECTED`` — APPROVED row exists but pin doesn't
-          match: offloader rotated identity, or someone is
-          claiming a stranger's ``dashboard_id``. Refused
-          regardless of window state.
-        * ``NO_PAIRING_WINDOW`` — closed window for a request
-          that would create/refresh a PENDING row.
-        """
-        # Already-APPROVED row: re-pair against existing trust
-        # bypasses the window. Pin mismatch is refused regardless
-        # (rotation or impersonation).
-        approved_peer = self._approved_peers.get(dashboard_id)
-        if approved_peer is not None:
-            if approved_peer.pin_sha256 != pin_sha256:
-                return IntentResponse.REJECTED
-            return IntentResponse.APPROVED
-
-        if not self.is_pairing_window_open():
-            return IntentResponse.NO_PAIRING_WINDOW
-
-        # Refuse to overwrite a PENDING entry's pubkey — defense
-        # in depth against a LAN attacker injecting a rival key
-        # under the same scraped dashboard_id (the OOB fingerprint
-        # check at approve-time is the load-bearing gate, but
-        # silent overwrite enables a DoS). Same-pubkey retries
-        # refresh label / peer_ip / paired_at via the path below.
-        existing = self._pending_peers.get(dashboard_id)
-        if existing is not None and existing.static_x25519_pub != static_x25519_pub:
-            _LOGGER.warning(
-                "pair_request from %s claims dashboard_id=%s but presented "
-                "a different X25519 pubkey than the existing PENDING entry "
-                "from %s; refusing the overwrite",
-                peer_ip,
-                dashboard_id,
-                existing.peer_ip,
-            )
-            return IntentResponse.REJECTED
-
-        paired_at = time.time()
-        self._pending_peers[dashboard_id] = StoredPeer(
-            dashboard_id=dashboard_id,
-            pin_sha256=pin_sha256,
-            static_x25519_pub=static_x25519_pub,
-            label=label,
-            paired_at=paired_at,
-            peer_ip=peer_ip,
-        )
-        payload: RemoteBuildPairRequestReceivedData = {
-            "dashboard_id": dashboard_id,
-            "pin_sha256": pin_sha256,
-            "label": label,
-            "peer_ip": peer_ip,
-            "paired_at": paired_at,
-        }
-        self._db.bus.fire(EventType.REMOTE_BUILD_PAIR_REQUEST_RECEIVED, payload)
-        return IntentResponse.PENDING
-
-    async def lookup_peer_for_session(
-        self,
-        *,
-        dashboard_id: str,
-        pin_sha256: str,
-    ) -> IntentResponse:
-        """
-        Resolve an ``intent="peer_link"`` request.
-
-        Returns ``OK`` if APPROVED + pin matches, ``PENDING`` if
-        the row's still in the pending dict (admin hasn't clicked
-        Accept), ``REJECTED`` for no row or pin drift. The
-        offloader treats REJECTED as "send a fresh pair_request".
-        """
-        return await self._lookup_peer_response(
-            dashboard_id=dashboard_id,
-            pin_sha256=pin_sha256,
-            approved_response=IntentResponse.OK,
-        )
-
-    async def lookup_peer_for_status(
-        self,
-        *,
-        dashboard_id: str,
-        pin_sha256: str,
-    ) -> IntentResponse:
-        """
-        Resolve an ``intent="pair_status"`` query, long-polling on PENDING.
-
-        Returns :attr:`IntentResponse.APPROVED` or ``REJECTED``.
-        REJECTED is reached four ways: never paired, admin
-        clicked Reject, offloader's peer-link identity rotated,
-        or window-close cleared the pending dict mid-wait. The
-        offloader treats all of them as peer-revoked.
-
-        Long-poll: with snapshot=PENDING, await
-        :attr:`EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED` for
-        the matching ``dashboard_id``. No timeout — WS hangs
-        until the offloader cancels or the dict mutates.
-
-        Listener-attach-before-snapshot ordering is
-        load-bearing: an ``approve_peer`` firing between
-        snapshot and wait must not slip past. Window-gating is
-        implicit — closed window = empty pending dict = REJECTED
-        on snapshot, long-poll never starts.
-
-        Differs from :meth:`lookup_peer_for_session` only in
-        returning ``APPROVED`` vs ``OK`` — pair_status is
-        informational, peer_link is connection-establishing.
-        """
-        flip_event = asyncio.Event()
-
-        def _on_pair_status(event: Event[RemoteBuildPairStatusChangedData]) -> None:
-            if event.data["dashboard_id"] == dashboard_id:
-                flip_event.set()
-
-        with self._db.bus.listening([EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED], _on_pair_status):
-            snapshot = await self._lookup_peer_response(
-                dashboard_id=dashboard_id,
-                pin_sha256=pin_sha256,
-                approved_response=IntentResponse.APPROVED,
-            )
-            if snapshot is not IntentResponse.PENDING:
-                return snapshot
-            await flip_event.wait()
-            return await self._lookup_peer_response(
-                dashboard_id=dashboard_id,
-                pin_sha256=pin_sha256,
-                approved_response=IntentResponse.APPROVED,
-            )
-
-    async def _lookup_peer_response(
-        self,
-        *,
-        dashboard_id: str,
-        pin_sha256: str,
-        approved_response: IntentResponse,
-    ) -> IntentResponse:
-        """
-        Shared lookup core for the peer_link / pair_status WS dispatch paths.
-
-        Walks the in-memory PENDING dict first, then the persisted
-        APPROVED list. Both intents need the same pin-match check
-        on either store; only the APPROVED return value differs
-        (caller passes :attr:`IntentResponse.OK` for peer_link,
-        :attr:`IntentResponse.APPROVED` for pair_status).
-
-        Returns ``REJECTED`` when no row matches OR pin doesn't
-        match — the offloader treats either case the same (drop
-        local row + surface re-pair UI).
-        """
-        # PENDING dict first — most pair-flow traffic is pending
-        # peers polling pair_status. Both lookups are RAM reads
-        # (the APPROVED list moved off disk into ``_approved_peers``
-        # at startup).
-        pending = self._pending_peers.get(dashboard_id)
-        if pending is not None:
-            if pending.pin_sha256 != pin_sha256:
-                return IntentResponse.REJECTED
-            return IntentResponse.PENDING
-        peer = self._approved_peers.get(dashboard_id)
-        if peer is None or peer.pin_sha256 != pin_sha256:
-            return IntentResponse.REJECTED
-        return approved_response
-
-    # ------------------------------------------------------------------
-    # Pairing window — in-process deadline that gates
-    # ``intent="pair_request"`` Noise frames at the listener (the
-    # listener consumes :meth:`is_pairing_window_open`). See issue
-    # #106 design choice (c).
-    # ------------------------------------------------------------------
-
-    @api_command("remote_build/set_pairing_window")
-    async def set_pairing_window(
-        self,
-        *,
-        open: bool,  # noqa: A002 — wire format names this field "open"
-        client: Hashable,
-        **kwargs: Any,
-    ) -> PairingWindowState:
-        """
-        Open, extend, or close the pairing window for the calling client.
-
-        Refcounted per WS client: ``open=true`` adds/refreshes
-        the caller's entry, ``open=false`` removes it. Window is
-        open iff any client has a non-stale entry. Crashed tabs
-        age out via the 5min idle timeout; a graceful close from
-        one tab leaves the window open for others.
-
-        ``client`` is the WS connection injected by the
-        dispatcher — used as the refcount key so two tabs get
-        distinct entries. Required kwarg (a default would
-        silently bucket every caller under the same key).
-
-        Fires :attr:`EventType.REMOTE_BUILD_PAIRING_WINDOW_CHANGED`
-        only on real state transitions; idempotent calls don't.
-        """
-        if not isinstance(open, bool):
-            msg = "remote_build/set_pairing_window: 'open' must be a bool"
-            raise CommandError(ErrorCode.INVALID_ARGS, msg)
-
-        was_open = self.is_pairing_window_open()
-        if open:
-            self._pairing_window_clients[client] = time.monotonic()
-        else:
-            self._pairing_window_clients.pop(client, None)
-        self._reschedule_pairing_window_close()
-        is_open = bool(self._pairing_window_clients)
-
-        # Fire on state transitions AND on every extend (so the
-        # frontend countdown re-syncs against the bumped deadline).
-        if was_open != is_open or (open and is_open):
-            self._fire_pairing_window_changed()
-        if was_open and not is_open:
-            self._clear_pending_peers_on_window_close()
-        return self._pairing_window_state()
-
-    def is_pairing_window_open(self) -> bool:
-        """Return whether the pairing window is currently open (post-prune)."""
-        self._prune_stale_pairing_window_clients()
-        return bool(self._pairing_window_clients)
-
-    def _pairing_window_remaining(self) -> float | None:
-        """Seconds until the latest-extend deadline, or ``None`` if closed."""
-        self._prune_stale_pairing_window_clients()
-        if not self._pairing_window_clients:
-            return None
-        latest_extend = max(self._pairing_window_clients.values())
-        return max(0.0, latest_extend + _PAIRING_WINDOW_DURATION_SECONDS - time.monotonic())
-
-    def _pairing_window_state(self) -> PairingWindowState:
-        """Project the in-memory client map into a wire-shape response."""
-        remaining = self._pairing_window_remaining()
-        if remaining is None:
-            return PairingWindowState(open=False, expires_in_seconds=None)
-        return PairingWindowState(open=True, expires_in_seconds=remaining)
-
-    def _fire_pair_status_changed(
-        self, dashboard_id: str, status: Literal["approved", "removed"]
-    ) -> None:
-        """Fire ``REMOTE_BUILD_PAIR_STATUS_CHANGED`` for a peer transition."""
-        payload: RemoteBuildPairStatusChangedData = {
-            "dashboard_id": dashboard_id,
-            "status": status,
-        }
-        self._db.bus.fire(EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED, payload)
-
-    def _fire_pairing_window_changed(self) -> None:
-        """Fire ``REMOTE_BUILD_PAIRING_WINDOW_CHANGED`` with the current state."""
-        state = self._pairing_window_state()
-        payload: RemoteBuildPairingWindowChangedData = {
-            "open": state.open,
-            "expires_in_seconds": state.expires_in_seconds,
-        }
-        self._db.bus.fire(EventType.REMOTE_BUILD_PAIRING_WINDOW_CHANGED, payload)
-
-    def _prune_stale_pairing_window_clients(self) -> None:
-        """Drop client entries whose last-extend timestamp aged out."""
-        if not self._pairing_window_clients:
-            return
-        cutoff = time.monotonic() - _PAIRING_WINDOW_DURATION_SECONDS
-        self._pairing_window_clients = {
-            client: extended_at
-            for client, extended_at in self._pairing_window_clients.items()
-            if extended_at >= cutoff
-        }
-
-    def _reschedule_pairing_window_close(self) -> None:
-        """
-        Cancel any pending close handle and schedule a fresh one.
-
-        Called after every :meth:`set_pairing_window` mutation. The
-        handle always reflects the current latest-extend deadline,
-        so on every extend we cancel and reschedule rather than
-        letting an old handle wake up and re-check; this avoids the
-        duplicate-close-event class of bug where an old handle
-        would fire after an explicit close.
-
-        When the client map is empty (the explicit-close case where
-        the last client just dropped out), no new handle is
-        scheduled and ``_pairing_window_handle`` stays ``None``.
-        """
-        if self._pairing_window_handle is not None:
-            self._pairing_window_handle.cancel()
-            self._pairing_window_handle = None
-        remaining = self._pairing_window_remaining()
-        if remaining is None:
-            return
-        loop = asyncio.get_running_loop()
-        self._pairing_window_handle = loop.call_later(remaining, self._on_pairing_window_deadline)
-
-    def _on_pairing_window_deadline(self) -> None:
-        """
-        Sync callback fired by the TimerHandle when the deadline lapses.
-
-        The handle was scheduled to the latest-extend deadline; if
-        any later extend had bumped the deadline, the handle would
-        have been cancelled and rescheduled, so by the time we run
-        every client has aged out. Clear the client refcount + the
-        in-memory PENDING peers dict, fire the close event +
-        cancellation events, done.
-        """
-        self._pairing_window_handle = None
-        self._pairing_window_clients.clear()
-        self._fire_pairing_window_changed()
-        self._clear_pending_peers_on_window_close()
-
-    def _clear_pending_peers_on_window_close(self) -> None:
-        """Drop every PENDING peer + fire ``status="removed"`` for each.
-
-        Wakes any in-flight ``lookup_peer_for_status`` long-poll
-        so its offloader sees REJECTED.
-        """
-        if not self._pending_peers:
-            return
-        cleared = list(self._pending_peers)
-        self._pending_peers.clear()
-        for dashboard_id in cleared:
-            self._fire_pair_status_changed(dashboard_id, "removed")
