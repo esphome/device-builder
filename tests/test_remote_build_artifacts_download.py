@@ -547,6 +547,46 @@ def test_pack_build_artifacts_raises_when_platformio_ini_missing(tmp_path: Path)
         pack_build_artifacts("kitchen.yaml")
 
 
+def test_pack_build_artifacts_rejects_firmware_bin_outside_build_files(
+    tmp_path: Path,
+) -> None:
+    """A firmware_bin_path not covered by BUILD_FILES raises ``RuntimeError``.
+
+    Defence-in-depth against a future esphome bump moving
+    firmware_bin_path somewhere a platform module doesn't list:
+    we want a clean reject rather than a half-shipped tarball
+    the offloader stages without the firmware binary.
+    """
+    state = _write_receiver_state(tmp_path)
+    # Point firmware_bin_path at a path that isn't covered by
+    # esp32's BUILD_FILES tuple (no platform ships a top-level
+    # ``custom_firmware.bin``).
+    custom_path = state["build_path"] / "custom_firmware.bin"
+    custom_path.write_bytes(b"CUSTOM")
+    storage_data = json.loads(state["storage_path"].read_text())
+    storage_data["firmware_bin_path"] = str(custom_path)
+    state["storage_path"].write_text(json.dumps(storage_data) + "\n")
+
+    with pytest.raises(RuntimeError, match=r"not covered by BUILD_FILES"):
+        pack_build_artifacts("kitchen.yaml")
+
+
+def test_pack_build_artifacts_rejects_firmware_bin_outside_build_path(
+    tmp_path: Path,
+) -> None:
+    """A firmware_bin_path that escapes the build dir raises ``RuntimeError``."""
+    state = _write_receiver_state(tmp_path)
+    escapee = tmp_path / "outside" / "firmware.bin"
+    escapee.parent.mkdir()
+    escapee.write_bytes(b"OUTSIDE")
+    storage_data = json.loads(state["storage_path"].read_text())
+    storage_data["firmware_bin_path"] = str(escapee)
+    state["storage_path"].write_text(json.dumps(storage_data) + "\n")
+
+    with pytest.raises(RuntimeError, match=r"not under build_path"):
+        pack_build_artifacts("kitchen.yaml")
+
+
 def test_pack_build_artifacts_rejects_oversized_uncompressed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

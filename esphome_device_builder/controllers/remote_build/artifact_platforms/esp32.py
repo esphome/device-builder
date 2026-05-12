@@ -12,7 +12,11 @@ TARGET_PLATFORM = "esp32"
 BUILD_FILES: tuple[str, ...] = (
     ".pioenvs/{name}/firmware.bin",
     ".pioenvs/{name}/firmware.elf",
+    # ``firmware.factory.bin`` + ``firmware.ota.bin`` are the
+    # download options esphome's ``get_download_types`` lists
+    # for ESP32.
     ".pioenvs/{name}/firmware.factory.bin",
+    ".pioenvs/{name}/firmware.ota.bin",
     ".pioenvs/{name}/bootloader.bin",
     ".pioenvs/{name}/partitions.bin",
     ".pioenvs/{name}/ota_data_initial.bin",

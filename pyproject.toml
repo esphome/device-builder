@@ -157,6 +157,9 @@ select = [
 # Discovery CLI: prints are the entire UX (mirrors aioesphomeapi-discover).
 "esphome_device_builder/discover.py" = ["T20"]
 "tests/*" = ["S105", "S106"] # hardcoded test credentials
+# Manual scripts: print is the UX, late imports gate optional setup,
+# subprocess + tempdir paths are part of the CLI contract.
+"tests/manual/*" = ["T20", "S108", "PLC0415"]
 # GitHub Action helpers: prints are CI-log diagnostics, lazy imports keep the
 # module importable for unit tests without PyGithub installed, and the temp
 # file path is a runner-controlled location not user input.

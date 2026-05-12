@@ -47,7 +47,9 @@ rewrite the frontend's lookup relies on.
 from __future__ import annotations
 
 import base64
+import importlib
 import io
+import logging
 import tarfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -63,6 +65,8 @@ from .artifact_platforms import build_files_for_platform
 
 if TYPE_CHECKING:
     from .peer_link_client import DownloadArtifactsResult
+
+_LOGGER = logging.getLogger(__name__)
 
 # Tarball member names that ride alongside the build tree. The
 # offloader-side materialiser pulls these out of the tarball and
@@ -176,23 +180,57 @@ def _collect_pack_members(
         (IDEDATA_MEMBER_NAME, idedata_cache_path),
         (PLATFORMIO_INI_MEMBER_NAME, platformio_ini),
     ]
+    seen: set[str] = set()
     for template in build_files:
         rel = template.format(name=storage.name)
         abs_path = build_path / rel
-        if abs_path.is_file():
+        if abs_path.is_file() and rel not in seen:
             members.append((rel, abs_path))
+            seen.add(rel)
+
+    # Every file ``get_download_types`` lists for this platform
+    # must travel too so the offloader's ``firmware/get_binaries``
+    # + ``firmware/download`` surface matches the legacy
+    # esphome.dashboard set (factory.bin, ota.bin, libretiny's
+    # per-chip outputs from firmware.json, nRF52's zephyr.uf2 /
+    # zephyr.hex / etc.).
+    firmware_bin = Path(storage.firmware_bin_path)
+    pioenvs_rel = _relative_or_raise(firmware_bin.parent, build_path, configuration=configuration)
+    for download_file in _download_type_files(storage):
+        rel = f"{pioenvs_rel}/{download_file}"
+        abs_path = build_path / rel
+        if abs_path.is_file() and rel not in seen:
+            members.append((rel, abs_path))
+            seen.add(rel)
 
     # firmware_bin_path MUST be in the tarball — otherwise the
     # offloader stages a tree where firmware/download misses.
-    firmware_bin = Path(storage.firmware_bin_path)
     firmware_bin_rel = _relative_or_raise(firmware_bin, build_path, configuration=configuration)
-    if not any(rel == firmware_bin_rel for rel, _ in members):
+    if firmware_bin_rel not in seen:
         msg = (
             f"firmware_bin_path {firmware_bin_rel!r} not covered by BUILD_FILES "
             f"for target_platform={storage.target_platform!r}"
         )
         raise RuntimeError(msg)
     return members
+
+
+def _download_type_files(storage: StorageJSON) -> list[str]:
+    """Return paths (relative to firmware_bin_path.parent) listed by ``get_download_types``."""
+    from ..firmware.controller import _resolve_download_component  # noqa: PLC0415
+
+    component = _resolve_download_component(storage.target_platform)
+    if not component:
+        return []
+    try:
+        module = importlib.import_module(f"esphome.components.{component}")
+        return [entry["file"] for entry in module.get_download_types(storage)]
+    except Exception:
+        _LOGGER.warning(
+            "Could not determine download types for target_platform=%r",
+            storage.target_platform,
+        )
+        return []
 
 
 def _render_tarball(members: list[tuple[str, Path]], *, configuration: str) -> bytes:
