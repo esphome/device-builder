@@ -3,10 +3,12 @@ name: Apollo ESPHome Starter Kit
 description: >
   Official ESPHome Starter Kit by Apollo Automation. Plug-and-play kit with
   an ESP32-C6-MINI-1 module, two 14-pin FPC expansion ports, onboard RGB LED,
-  and USB-C power. Comes with three swappable sensor modules: PIR motion
-  (MH-SR602, 0-3.5 m range), AHT20F temperature and humidity sensor, and
-  an RGB LED strip with piezo buzzer. Any two modules can be used
-  simultaneously to build a multisensor. No soldering or coding required.
+  and USB-C power. Comes with four swappable modules: Motion Module
+  (MH-SR602, 0-3.5 m range), AHT20F Temperature and Humidity Module, an
+  RGB + Buzzer Module (10 RGB LEDs and a piezo buzzer in the
+  ESPHome Casita form factor), and a Button Module. Up to two modules
+  can be used simultaneously to build a multisensor. No soldering or
+  coding required.
 manufacturer: Apollo Automation
 images:
 - https://cdn.shopify.com/s/files/1/0792/0959/5187/files/eskboard.jpg?v=1775723467
@@ -35,14 +37,14 @@ product_url: https://apolloautomation.com/products/esk-1-esphome-starter-kit
 featured: true
 pins:
 - gpio: 0
-  label: I2C_SCL
+  label: I2C SCL
   features:
   - i2c_scl
   - adc
   available: true
   notes: I2C clock line for sensor modules
 - gpio: 1
-  label: I2C_SDA
+  label: I2C SDA
   features:
   - i2c_sda
   - adc
@@ -58,14 +60,14 @@ pins:
   features:
   - adc
   available: true
-  notes: FPC connector — default pin for the bundled PIR motion module
+  notes: Available on FPC connector
 - gpio: 4
-  label: ACCESSORY_PWR
+  label: ACCESSORY PWR
   available: false
   occupied_by: Accessory power switch (controls FPC module power rail)
   notes: Internal GPIO switch, ALWAYS_ON with setup_priority 2000 — must latch high before FPC modules enumerate
 - gpio: 5
-  label: RGB_LED
+  label: ONBOARD LED
   features:
   - rgb_led
   available: false
@@ -84,12 +86,12 @@ pins:
   available: true
   notes: Available on FPC connector
 - gpio: 9
-  label: BUTTON
+  label: Boot Button
   features:
   - boot_button
   available: false
   occupied_by: Physical button
-  notes: Active-low with internal pull-up, directly usable
+  notes: Active-low with internal pull-up
 - gpio: 14
   label: GPIO14
   features:
@@ -115,9 +117,9 @@ featured_components:
   component_id: i2c
   name: I²C Bus (sensor modules)
   description: |
-    The two FPC connectors expose the same I²C bus on GPIO0 (SCL) and
-    GPIO1 (SDA). Configure I²C once and any of the swappable sensor
-    modules (AHT20, additional I²C breakouts) will work.
+    The shared I²C bus for the kit's sensor modules. Configure it once
+    and the AHT20 module uses it, along with Apollo's optional breakout
+    boards for adding more I²C sensors.
   fields:
     id: i2c_bus
     scl:
@@ -128,22 +130,25 @@ featured_components:
       locked: true
 - id: aht20
   component_id: sensor.aht10
-  name: AHT20 Temperature & Humidity
+  name: AHT20 Temperature & Humidity Module
   description: |
-    Sensor module shipped with the kit. Plug into either FPC connector;
-    it talks I²C so no per-pin config is needed beyond the bus above.
+    Temperature and humidity module shipped with the starter kit. Plug
+    it into either FPC connector and add the I²C Bus component so it
+    can talk to the board. Accurate to ±0.3°C and ±2% humidity, useful
+    for tracking room comfort or humidity in places like a bathroom or
+    basement.
   fields:
     id: aht20
-    name: AHT20 Temperature & Humidity
+    name: AHT20 Temperature & Humidity Module
     variant: AHT20
+# Uses ESPHome's max17043 driver for the MAX17048 chip. Same I²C
+# protocol (fixed address 0x36, VCELL + SOC register layout).
 - id: battery_monitor
   component_id: sensor.max17043
   name: Battery Fuel Gauge (MAX17048)
   description: |
-    Onboard MAX17048 fuel gauge for monitoring a LiPo battery. ESPHome's
-    ``max17043`` driver speaks the same I²C protocol (fixed address
-    ``0x36``, VCELL + SOC register layout) and reads voltage and
-    state-of-charge correctly without any external component.
+    Onboard fuel gauge for monitoring the LiPo battery's voltage and
+    charge level.
   fields:
     id: battery_monitor
     i2c_id: i2c_bus
@@ -154,14 +159,15 @@ featured_components:
     battery_level:
       value:
         name: Battery Level
+# `internal: true` so this switch doesn't surface as a user-controllable
+# entity in the home automation platform.
 - id: accessory_power
   component_id: switch.gpio
   name: Accessory Power Rail
   description: |
-    Internal GPIO switch that gates power to the FPC accessory connectors.
-    Must be ALWAYS_ON with an early setup_priority so the AHT20, PIR, RGB+buzzer
-    and other plug-in modules are powered before they enumerate. Marked
-    ``internal`` so it doesn't surface as a user-controllable entity.
+    Internal switch that powers the FPC accessory connectors at boot.
+    You don't need to touch this. It's set to always-on so plug-in
+    modules get power before they start up.
   fields:
     id: accessory_power
     pin:
@@ -170,25 +176,27 @@ featured_components:
     restore_mode: ALWAYS_ON
     setup_priority: 2000
     internal: true
-- id: pir_motion
+- id: motion_module
   component_id: binary_sensor.gpio
-  name: PIR Motion Module (MH-SR602)
+  name: Motion Module (MH-SR602)
   description: |
-    Motion sensor module included with the kit.
+    Motion sensor module included with the starter kit. Detects motion
+    in rooms like a kitchen, bathroom, or hallway, perfect for
+    triggering lights or other automations.
   fields:
-    id: pir_motion
-    name: PIR Motion Module
+    id: motion_module
+    name: Motion Module
     pin:
       value: 3
     device_class: motion
+# Hardwired to GPIO 9 on the ESP32-C6 module.
 - id: boot_button
   component_id: binary_sensor.gpio
   name: Boot Button (onboard)
   description: |
-    Physical pushbutton on the dev board tied to GPIO9. Active-low with the
-    chip's internal pull-up, so configure with ``mode: INPUT_PULLUP`` and
-    ``inverted: true``. Doubles as the bootloader strapping pin — hold while
-    powering the board to enter download mode.
+    The physical button on the dev board. Use it as a secondary button
+    in automations, or hold it during power-on to enter boot mode for
+    flashing.
   fields:
     id: boot_button
     name: Boot Button
@@ -202,14 +210,13 @@ featured_components:
       locked: true
 - id: button_module
   component_id: binary_sensor.gpio
-  name: Button Module (FPC accessory)
+  name: Button Module
   description: |
-    Plug-in pushbutton accessory module. Wired to GPIO6 on the FPC connector;
-    active-low with internal pull-up so the ``inverted`` flag turns "pressed"
-    into the on state.
+    Pushbutton module shipped with the starter kit. Plug it into the
+    FPC connector (GPIO 6) and use it as a button input in automations.
   fields:
-    id: button_1
-    name: Button 1
+    id: button_module
+    name: Button Module
     pin:
       value:
         number: 6
@@ -217,36 +224,56 @@ featured_components:
           input: true
           pullup: true
         inverted: true
-- id: rgb_strip
+- id: rgb_leds
   component_id: light.esp32_rmt_led_strip
-  name: RGB LED Strip (addon module)
+  name: RGB LEDs (module)
   description: |
-    Addressable LED strip from the RGB+buzzer addon. Ships with a 10-LED
-    WS2812 strip in GRB order — adjust ``num_leds`` / ``rgb_order`` /
-    ``chipset`` if you swap in a different strip.
+    The 10 RGB LEDs by themselves, without the buzzer parts. If you have
+    the whole RGB + Buzzer module, add the "RGB LED + Buzzer Module"
+    bundle instead. It includes the LEDs along with the buzzer and
+    ringtone player.
   fields:
-    id: rgb_strip
-    name: RGB LED Strip
+    id: rgb_leds
+    name: RGB LEDs
     pin:
       value: 14
     chipset: WS2812
     num_leds: 10
     rgb_order: GRB
+- id: onboard_rgb_led
+  component_id: light.esp32_rmt_led_strip
+  name: Onboard RGB LED
+  description: |
+    The onboard RGB LED on the ESP32-C6 module.
+  fields:
+    id: onboard_rgb_led
+    name: Onboard RGB LED
+    pin:
+      value: 5
+      locked: true
+    chipset: WS2812
+    num_leds: 1
+    rgb_order: GRB
 - id: buzzer_output
   component_id: output.ledc
-  name: Piezo Buzzer (addon module)
+  name: Piezo Buzzer (module)
   description: |
-    PWM output driving the piezo buzzer on the RGB+buzzer addon.
+    The piezo buzzer output by itself, without the LEDs. If you have
+    the whole RGB + Buzzer module, add the "RGB LED + Buzzer Module"
+    bundle instead. It includes the buzzer along with the LEDs and
+    ringtone player.
   fields:
     id: buzzer_output
     pin:
       value: 18
 - id: rtttl_player
   component_id: rtttl
-  name: RTTTL Player (addon buzzer)
+  name: RTTTL Player (buzzer)
   description: |
-    Plays RTTTL ringtones through the piezo buzzer above. Wired to the
-    ``buzzer_output`` LEDC output that ships with the same addon.
+    Plays ringtones through a piezo buzzer (RTTTL format). If you have
+    the whole RGB + Buzzer module, add the "RGB LED + Buzzer Module"
+    bundle instead. It includes the ringtone player along with the
+    LEDs and buzzer.
   fields:
     id: rtttl_player
     output:
@@ -256,7 +283,8 @@ featured_bundles:
 - id: rgb_buzzer_module
   name: RGB LED + Buzzer Module
   description: |
-    Plug-in addon shipped with the starter kit — addressable LED
-    strip plus a piezo buzzer. Adds the strip, the buzzer PWM output,
-    and the RTTTL player as one logical unit.
-  component_ids: [rgb_strip, buzzer_output, rtttl_player]
+    The starter kit's RGB + Buzzer module. 10 RGB LEDs across the front.
+    On the back: a piezo buzzer plus the FPC connector that plugs into
+    the board. Adding this drops the LEDs, the buzzer, and the ringtone
+    player into your config all at once.
+  component_ids: [rgb_leds, buzzer_output, rtttl_player]
