@@ -64,7 +64,11 @@ from esphome.storage_json import StorageJSON
 from ...helpers.build_artifacts import _firmware_offset_for_platform
 from ...helpers.json import loads as json_loads
 from ...helpers.peer_link_bundle import FIRMWARE_MAX_TOTAL_BYTES
-from ...helpers.storage_path import resolve_idedata_path, resolve_storage_path
+from ...helpers.storage_path import (
+    resolve_compiled_config_path,
+    resolve_idedata_path,
+    resolve_storage_path,
+)
 from .artifact_platforms import build_files_for_platform
 
 if TYPE_CHECKING:
@@ -85,14 +89,31 @@ PLATFORMIO_INI_MEMBER_NAME = "platformio.ini"
 # Read by the offloader's ``read_build_info_hash`` to populate
 # ``expected_config_hash`` post-build (see #654).
 BUILD_INFO_MEMBER_NAME = "build_info.json"
+# Receiver-side esphome >= 2026.6.0 dumps the validated config alongside
+# the StorageJSON sidecar; reusing it on the offloader lets `esphome
+# upload` / `esphome logs` skip the full `read_config()` pipeline. Optional
+# member: skipped when the receiver predates the cache.
+VALIDATED_YAML_MEMBER_NAME = "validated.yaml"
 _METADATA_MEMBERS: frozenset[str] = frozenset(
     {
         STORAGE_MEMBER_NAME,
         IDEDATA_MEMBER_NAME,
         PLATFORMIO_INI_MEMBER_NAME,
         BUILD_INFO_MEMBER_NAME,
+        VALIDATED_YAML_MEMBER_NAME,
     }
 )
+
+# esphome's `update_storage_json` writes the validated-config cache and
+# the StorageJSON sidecar inside the same call, so a same-compile pair
+# of mtimes lands within milliseconds. A downgrade to an esphome version
+# that doesn't write the cache leaves the previous cache lingering with
+# its mtime stuck on the older compile while the storage.json gets
+# rewritten by every new compile. Reject anything older than the
+# sidecar by more than this many seconds -- generous enough to cover
+# `clean_build` + `clean_cmake_cache` running between the two writes,
+# tight enough to never accept a cache from a prior compile cycle.
+_VALIDATED_YAML_STALE_THRESHOLD_S = 60.0
 
 
 # ---------------------------------------------------------------------------
@@ -188,6 +209,7 @@ def _collect_pack_members(
         raise FileNotFoundError(msg)
 
     build_info_path = build_path / BUILD_INFO_MEMBER_NAME
+    validated_yaml_path = resolve_compiled_config_path(configuration)
     members: list[tuple[str, Path]] = [
         (STORAGE_MEMBER_NAME, storage_path),
         (IDEDATA_MEMBER_NAME, idedata_cache_path),
@@ -195,6 +217,8 @@ def _collect_pack_members(
     ]
     if build_info_path.is_file():
         members.append((BUILD_INFO_MEMBER_NAME, build_info_path))
+    if _validated_yaml_is_fresh(validated_yaml_path, storage_path):
+        members.append((VALIDATED_YAML_MEMBER_NAME, validated_yaml_path))
     # Dedupe by basename, not full path: the WS-unpack adapter
     # keys flash images by basename, so a build emitting both
     # ``.pioenvs/<name>/firmware.factory.bin`` and
@@ -235,6 +259,23 @@ def _collect_pack_members(
         )
         raise RuntimeError(msg)
     return members
+
+
+def _validated_yaml_is_fresh(validated_yaml: Path, storage_json: Path) -> bool:
+    """Test that *validated_yaml* was written by the same compile as *storage_json*.
+
+    esphome >= 2026.6 writes both inside one ``update_storage_json``
+    call. If the receiver later downgrades to an esphome that doesn't
+    write the cache, the old cache stays on disk while the sidecar
+    gets rewritten by every new compile -- detected here by the
+    sidecar pulling ahead of the cache.
+    """
+    try:
+        storage_mtime = storage_json.stat().st_mtime
+        validated_mtime = validated_yaml.stat().st_mtime
+    except OSError:
+        return False
+    return storage_mtime - validated_mtime <= _VALIDATED_YAML_STALE_THRESHOLD_S
 
 
 def _download_type_files(storage: StorageJSON) -> list[str]:

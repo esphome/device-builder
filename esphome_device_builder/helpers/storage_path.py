@@ -127,6 +127,20 @@ def resolve_storage_path(configuration: str) -> Path:
     return resolve_data_dir(configuration) / "storage" / f"{Path(configuration).name}.json"
 
 
+def resolve_compiled_config_path(configuration: str) -> Path:
+    """Return the validated-config cache YAML path for *configuration*.
+
+    Mirror of :func:`esphome.compiled_config.compiled_config_path`:
+    ``<data_dir>/storage/<basename>.validated.yaml``. Routed through
+    :func:`resolve_data_dir` for the same reason as
+    :func:`resolve_storage_path` -- receiver-side remote-build configs
+    land under the per-build subtree.
+    """
+    return (
+        resolve_data_dir(configuration) / "storage" / f"{Path(configuration).name}.validated.yaml"
+    )
+
+
 def resolve_idedata_path(configuration: str, *, name: str) -> Path:
     """Return the cached ``idedata/<name>.json`` path for *configuration*.
 

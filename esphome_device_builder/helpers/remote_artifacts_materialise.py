@@ -5,8 +5,11 @@ After :func:`materialise_remote_artifacts` returns, the offloader's
 filesystem looks as if a local compile produced the build:
 ``<data_dir>/build/<name>/`` carries the per-platform build tree,
 ``<data_dir>/storage/<basename>.json`` is the rewritten StorageJSON
-sidecar, and ``<data_dir>/idedata/<name>.json`` is the rewritten
-idedata cache (touched so ``_load_idedata``'s mtime gate hits).
+sidecar, ``<data_dir>/idedata/<name>.json`` is the rewritten idedata
+cache (touched so ``_load_idedata``'s mtime gate hits), and -- when
+the receiver-side esphome shipped one -- ``<basename>.validated.yaml``
+sits next to the JSON sidecar so the next local ``esphome upload`` /
+``esphome logs`` skips ``read_config()`` via esphome's fast path.
 """
 
 from __future__ import annotations
@@ -27,11 +30,17 @@ from ..controllers.remote_build.artifacts_tarball import (
     IDEDATA_MEMBER_NAME,
     PLATFORMIO_INI_MEMBER_NAME,
     STORAGE_MEMBER_NAME,
+    VALIDATED_YAML_MEMBER_NAME,
 )
 from .json import dumps_indent
 from .json import loads as json_loads
 from .peer_link_bundle import FIRMWARE_MAX_TOTAL_BYTES
-from .storage_path import resolve_data_dir, resolve_idedata_path, resolve_storage_path
+from .storage_path import (
+    resolve_compiled_config_path,
+    resolve_data_dir,
+    resolve_idedata_path,
+    resolve_storage_path,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,6 +62,9 @@ class _ExtractedTarball(NamedTuple):
     idedata_bytes: bytes
     receiver_build_path: Path
     build_path: Path
+    # Optional: present when receiver-side esphome wrote a
+    # validated-config cache (>= 2026.6.0).
+    validated_yaml_bytes: bytes | None
 
 
 def materialise_remote_artifacts(tarball: bytes, configuration: str) -> Path:
@@ -83,6 +95,11 @@ def materialise_remote_artifacts(tarball: bytes, configuration: str) -> Path:
         platformio_ini=extracted.build_path / PLATFORMIO_INI_MEMBER_NAME,
         cached_idedata=cached_idedata_path,
     )
+    if extracted.validated_yaml_bytes is not None:
+        _stage_offloader_validated_yaml(
+            configuration=configuration,
+            payload=extracted.validated_yaml_bytes,
+        )
     return extracted.build_path
 
 
@@ -97,6 +114,7 @@ def _open_and_extract_build_tree(tarball: bytes, configuration: str) -> _Extract
         with tarfile.open(fileobj=io.BytesIO(tarball), mode="r:gz") as tar:
             storage_bytes = _read_member_required(tar, STORAGE_MEMBER_NAME)
             idedata_bytes = _read_member_required(tar, IDEDATA_MEMBER_NAME)
+            validated_yaml_bytes = _read_member_optional(tar, VALIDATED_YAML_MEMBER_NAME)
             receiver_storage = _parse_storage_json(storage_bytes)
             device_name = _device_name_from_storage(receiver_storage)
             receiver_build_path = _receiver_build_path_from_storage(receiver_storage)
@@ -111,7 +129,11 @@ def _open_and_extract_build_tree(tarball: bytes, configuration: str) -> _Extract
             _safe_extract_excluding(
                 tar,
                 build_path,
-                exclude={STORAGE_MEMBER_NAME, IDEDATA_MEMBER_NAME},
+                exclude={
+                    STORAGE_MEMBER_NAME,
+                    IDEDATA_MEMBER_NAME,
+                    VALIDATED_YAML_MEMBER_NAME,
+                },
             )
     except tarfile.TarError as err:
         raise MaterialiseError(f"tarball is malformed: {err}") from err
@@ -122,6 +144,7 @@ def _open_and_extract_build_tree(tarball: bytes, configuration: str) -> _Extract
         idedata_bytes=idedata_bytes,
         receiver_build_path=receiver_build_path,
         build_path=build_path,
+        validated_yaml_bytes=validated_yaml_bytes,
     )
 
 
@@ -143,6 +166,21 @@ def _receiver_build_path_from_storage(receiver_storage: dict[str, Any]) -> Path:
     if not isinstance(receiver_build_path_str, str):
         raise MaterialiseError("tarball storage.json missing required build_path field")
     return Path(receiver_build_path_str)
+
+
+def _read_member_optional(tar: tarfile.TarFile, name: str) -> bytes | None:
+    """Return *name*'s bytes or None when absent. Same size cap as required."""
+    try:
+        member = tar.getmember(name)
+    except KeyError:
+        return None
+    if not member.isfile():
+        raise MaterialiseError(f"tarball member {name!r} is not a regular file")
+    _check_member_size(member, total_so_far=0)
+    payload = tar.extractfile(member)
+    if payload is None:
+        raise MaterialiseError(f"tarball member {name!r} unreadable")
+    return payload.read()
 
 
 def _read_member_required(tar: tarfile.TarFile, name: str) -> bytes:
@@ -302,6 +340,26 @@ def _remap_idedata_toolchain_path(data: dict[str, Any]) -> None:
         data.pop("cc_path", None)
     else:
         data["cc_path"] = remapped
+
+
+def _stage_offloader_validated_yaml(
+    *,
+    configuration: str,
+    payload: bytes,
+) -> None:
+    """Stage the receiver's validated-config cache at the offloader's path.
+
+    Written 0600 because the cache resolves !secret references inline.
+    mtime is touched to "now" so esphome's fast path (which gates on
+    cache mtime >= source YAML mtime) takes the cache instead of
+    re-running read_config.
+    """
+    path = resolve_compiled_config_path(configuration)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(payload)
+    os.chmod(path, 0o600)
+    now = time.time()
+    os.utime(path, (now, now))
 
 
 def _force_idedata_cache_hit(*, platformio_ini: Path, cached_idedata: Path) -> None:

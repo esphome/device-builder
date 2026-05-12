@@ -49,6 +49,7 @@ from esphome_device_builder.controllers.remote_build.peer_link_client import (
 )
 from esphome_device_builder.helpers.build_artifacts import load_build_artifacts
 from esphome_device_builder.helpers.storage_path import (
+    resolve_compiled_config_path,
     resolve_idedata_path,
     resolve_storage_path,
 )
@@ -340,6 +341,7 @@ def _write_receiver_state(
     target_platform: str = "ESP32",
     extras: list[tuple[str, str]] | None = None,
     extra_build_files: dict[str, bytes] | None = None,
+    validated_yaml: bytes | None = None,
 ) -> dict[str, Path]:
     """Lay down a minimal receiver-side build state on disk.
 
@@ -424,13 +426,19 @@ def _write_receiver_state(
         encoding="utf-8",
     )
 
-    return {
+    paths = {
         "build_path": build_path,
         "firmware_bin": firmware_bin,
         "storage_path": storage_path,
         "idedata_path": idedata_path,
         "platformio_ini": build_path / "platformio.ini",
     }
+    if validated_yaml is not None:
+        validated_yaml_path = resolve_compiled_config_path(configuration)
+        validated_yaml_path.parent.mkdir(parents=True, exist_ok=True)
+        validated_yaml_path.write_bytes(validated_yaml)
+        paths["validated_yaml_path"] = validated_yaml_path
+    return paths
 
 
 def _tar_member_names(tarball: bytes) -> list[str]:

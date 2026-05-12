@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import tarfile
+import time
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -29,6 +31,7 @@ from esphome_device_builder.controllers.remote_build.artifacts_tarball import (
     IDEDATA_MEMBER_NAME,
     PLATFORMIO_INI_MEMBER_NAME,
     STORAGE_MEMBER_NAME,
+    VALIDATED_YAML_MEMBER_NAME,
     pack_build_artifacts,
 )
 from esphome_device_builder.helpers.config_hash import read_build_info_hash
@@ -39,6 +42,7 @@ from esphome_device_builder.helpers.remote_artifacts_materialise import (
     materialise_remote_artifacts,
 )
 from esphome_device_builder.helpers.storage_path import (
+    resolve_compiled_config_path,
     resolve_idedata_path,
     resolve_storage_path,
 )
@@ -176,6 +180,69 @@ def test_materialise_lands_build_info_json_for_hash_lookup(
     with patch.object(CORE, "config_path", sentinel):
         yaml_path = offloader_root / "kitchen.yaml"
         assert read_build_info_hash(yaml_path) == "5a94a12d"
+
+
+def test_materialise_stages_validated_yaml_for_esphome_fast_path(
+    paired_roots: tuple[Path, Path],
+) -> None:
+    """Stage the receiver-side validated-config cache at the offloader's path.
+
+    The next ``esphome upload`` / ``logs`` then skips ``read_config``.
+    """
+    receiver_root, offloader_root = paired_roots
+    cache_body = b"esphome:\n  name: kitchen\n"
+    tarball = _pack_in_tmp(receiver_root, validated_yaml=cache_body)
+    _materialise_in_tmp(tarball, offloader_root)
+
+    sentinel = offloader_root / "___DASHBOARD_SENTINEL___.yaml"
+    with patch.object(CORE, "config_path", sentinel):
+        staged = resolve_compiled_config_path("kitchen.yaml")
+    assert staged.read_bytes() == cache_body
+    # 0600 because the cache resolves !secret inline.
+    assert (staged.stat().st_mode & 0o777) == 0o600
+
+
+def test_materialise_handles_missing_validated_yaml(
+    paired_roots: tuple[Path, Path],
+) -> None:
+    """Receiver without the cache (old esphome): materialise completes, no cache staged."""
+    receiver_root, offloader_root = paired_roots
+    tarball = _pack_in_tmp(receiver_root)
+    _materialise_in_tmp(tarball, offloader_root)
+
+    sentinel = offloader_root / "___DASHBOARD_SENTINEL___.yaml"
+    with patch.object(CORE, "config_path", sentinel):
+        staged = resolve_compiled_config_path("kitchen.yaml")
+    assert not staged.exists()
+
+
+def test_pack_skips_stale_validated_yaml_after_esphome_downgrade(
+    paired_roots: tuple[Path, Path],
+) -> None:
+    """Drop a stale validated.yaml at pack time after an esphome downgrade.
+
+    The packer rejects any cache whose mtime predates storage.json by
+    more than the threshold, so the offloader doesn't land with a
+    cache that no longer matches the binary on disk.
+    """
+    receiver_root, offloader_root = paired_roots
+    cache_body = b"esphome:\n  name: kitchen\n"
+    sentinel = receiver_root / "___DASHBOARD_SENTINEL___.yaml"
+    with patch.object(CORE, "config_path", sentinel):
+        paths = _write_receiver_state(receiver_root, validated_yaml=cache_body)
+        # Back-date the cache an hour before the sidecar -- the gap a
+        # cross-version downgrade produces.
+        now = time.time()
+        os.utime(paths["storage_path"], (now, now))
+        os.utime(paths["validated_yaml_path"], (now - 3600, now - 3600))
+        tarball = pack_build_artifacts("kitchen.yaml").tarball
+
+    with tarfile.open(fileobj=io.BytesIO(tarball), mode="r:gz") as tar:
+        assert VALIDATED_YAML_MEMBER_NAME not in tar.getnames()
+
+    _materialise_in_tmp(tarball, offloader_root)
+    with patch.object(CORE, "config_path", offloader_root / "___DASHBOARD_SENTINEL___.yaml"):
+        assert not resolve_compiled_config_path("kitchen.yaml").exists()
 
 
 def test_materialise_handles_missing_build_info_json(
