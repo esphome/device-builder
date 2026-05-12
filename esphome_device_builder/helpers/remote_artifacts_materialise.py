@@ -392,8 +392,11 @@ def _stage_offloader_validated_yaml(
     # Open with 0600 at creation time so the file is never momentarily
     # readable at the process umask between write_bytes() and chmod().
     # O_CREAT honours an existing inode's mode bits, so tighten with
-    # an explicit chmod afterwards too (no-op on Windows).
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    # an explicit chmod afterwards too (no-op on Windows). O_BINARY
+    # only exists on Windows where it disables the CRLF translation
+    # that would otherwise corrupt the YAML bytes.
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0)
+    fd = os.open(path, flags, 0o600)
     try:
         os.write(fd, payload)
     finally:
