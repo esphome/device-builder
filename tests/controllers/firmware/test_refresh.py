@@ -287,7 +287,7 @@ async def test_refresh_after_compile_persists_hash_and_reloads(
         _fake_set_metadata,
     )
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.compute_yaml_config_hash",
+        "esphome_device_builder.controllers.devices.firmware_sync.compute_yaml_config_hash",
         _fake_compute,
     )
 
@@ -324,7 +324,7 @@ async def test_refresh_after_compile_skips_persist_on_hash_failure(
         _fake_set_metadata,
     )
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.compute_yaml_config_hash",
+        "esphome_device_builder.controllers.devices.firmware_sync.compute_yaml_config_hash",
         _fake_compute,
     )
 
@@ -353,7 +353,7 @@ async def test_refresh_after_upload_skips_hash_compute(tmp_path: Path, monkeypat
         return "deadbeef"
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.compute_yaml_config_hash",
+        "esphome_device_builder.controllers.devices.firmware_sync.compute_yaml_config_hash",
         _fake_compute,
     )
 
