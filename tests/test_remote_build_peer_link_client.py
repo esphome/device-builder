@@ -22,8 +22,8 @@ import hashlib
 import io
 import secrets
 import tarfile
-from collections.abc import AsyncGenerator, AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncGenerator, AsyncIterator, Iterator
+from contextlib import asynccontextmanager, closing
 from pathlib import Path
 from typing import Any, cast
 from unittest.mock import MagicMock
@@ -31,7 +31,7 @@ from unittest.mock import MagicMock
 import aiohttp
 import pytest
 from aiohttp import WSMessage, WSMsgType, web
-from aiohttp.test_utils import TestServer
+from aiohttp.test_utils import TestServer, get_unused_port_socket
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from noise.exceptions import NoiseInvalidMessage
 
@@ -104,6 +104,13 @@ from .conftest import (
     make_remote_build_controller,
 )
 from .conftest import RemoteBuildTestHandles as RemoteBuildController
+
+
+@pytest.fixture
+def bound_unused_tcp_port() -> Iterator[int]:
+    """Yield a 127.0.0.1 port held bound (no ``listen``) for the test — no TOCTOU race."""
+    with closing(get_unused_port_socket("127.0.0.1")) as sock:
+        yield sock.getsockname()[1]
 
 
 def _make_controller(*, config_dir: Path) -> RemoteBuildController:
@@ -201,14 +208,14 @@ async def test_preview_pair_does_not_persist_state_on_receiver(
 @pytest.mark.asyncio
 async def test_preview_pair_connection_refused_raises_client_error(
     tmp_path: Path,
-    unused_tcp_port: int,
+    bound_unused_tcp_port: int,
 ) -> None:
     """Connecting to a closed port raises :class:`PeerLinkClientError`."""
     initiator_priv = secrets.token_bytes(32)
     with pytest.raises(PeerLinkClientError, match="failed"):
         await preview_pair(
             hostname="127.0.0.1",
-            port=unused_tcp_port,
+            port=bound_unused_tcp_port,
             identity_priv=initiator_priv,
         )
 
@@ -738,7 +745,7 @@ async def test_controller_preview_pair_returns_receiver_pin(
 @pytest.mark.asyncio
 async def test_controller_preview_pair_unavailable_on_unreachable_receiver(
     offloader_controller_dir: Path,
-    unused_tcp_port: int,
+    bound_unused_tcp_port: int,
 ) -> None:
     """Receiver unreachable → CommandError(UNAVAILABLE)."""
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
@@ -747,7 +754,7 @@ async def test_controller_preview_pair_unavailable_on_unreachable_receiver(
     with pytest.raises(CommandError) as exc:
         await offloader.preview_pair(
             hostname="127.0.0.1",
-            port=unused_tcp_port,
+            port=bound_unused_tcp_port,
         )
     assert exc.value.code == ErrorCode.UNAVAILABLE
 
@@ -839,7 +846,7 @@ async def test_controller_request_pair_closed_window_raises_no_pairing_window(
 @pytest.mark.asyncio
 async def test_controller_request_pair_unavailable_on_unreachable_receiver(
     offloader_controller_dir: Path,
-    unused_tcp_port: int,
+    bound_unused_tcp_port: int,
 ) -> None:
     """Receiver unreachable → CommandError(UNAVAILABLE)."""
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
@@ -848,7 +855,7 @@ async def test_controller_request_pair_unavailable_on_unreachable_receiver(
     with pytest.raises(CommandError) as exc:
         await offloader.request_pair(
             hostname="127.0.0.1",
-            port=unused_tcp_port,
+            port=bound_unused_tcp_port,
             pin_sha256="a" * 64,
             receiver_label="my-receiver",
             offloader_label="my-builder",
