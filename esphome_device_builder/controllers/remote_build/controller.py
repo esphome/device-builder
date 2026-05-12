@@ -1,50 +1,24 @@
 """
-Remote-build feature; peer dashboard discovery + pairing + peers.
+Remote-build feature: peer dashboard discovery + pairing + peers.
 
-Browses ``_esphomebuilder._tcp.local.`` to list other dashboards
-reachable on the LAN; persists the receiver-side ``enabled``
-master switch, the user-supplied manual-host list for
-cross-subnet / non-multicast LANs, and the paired-peer list;
-merges discovery sources into a single
+Browses ``_esphomebuilder._tcp.local.`` for other dashboards,
+persists the receiver-side ``enabled`` flag, the paired-peer
+list, and the offloader-side pairings, and surfaces a unified
 ``remote_build/list_hosts`` snapshot.
 
-The ``enabled`` flag gates the peer-link Noise WS listener
-:class:`DeviceBuilder` binds at startup
-(``/remote-build/peer-link``, default port 6055). Toggling
-``enabled`` at runtime persists the new value but does NOT
-live-bind / unbind the listener; flipping it requires a
-dashboard restart for the listener state to follow. The 3c
-Settings UI surfaces this constraint; a future PR can wire
-the start / stop hooks if interactive toggling matters.
+Pairing is a two-step gate: an offloader's ``pair_request``
+lands a PENDING row inside the receiver-controlled pairing
+window; the admin clicks Accept (``approve_peer``) and APPROVED
+peers connect anytime via ``intent="peer_link"``. Receiver-side
+:class:`StoredPeer` rows are keyed on ``dashboard_id`` and
+carry the X25519 ``pin_sha256`` + ``static_x25519_pub`` from
+the handshake transcript.
 
-Pairing model:
-
-* Receiver-side state is a list of :class:`StoredPeer` rows
-  keyed on ``dashboard_id``, with X25519 ``pin_sha256`` +
-  ``static_x25519_pub`` derived from the offloader's peer-link
-  Noise handshake transcript.
-* Approval is a two-step gate: the offloader's first
-  ``pair_request`` lands a ``PENDING`` row inside the
-  receiver-controlled "pairing window"; the receiver UI
-  shows the row in the inbox and the user clicks
-  Accept, which calls the ``remote_build/approve_peer`` WS
-  command → :meth:`RemoteBuildController.approve_peer` (the
-  per-row counterpart to :meth:`record_pair_request`).
-* Approved peers can then run ``intent="peer_link"`` against
-  the same ``/remote-build/peer-link`` endpoint without
-  re-prompting the receiver-side user.
-
-Manual hosts have no version / fingerprint resolution yet;
-they land in ``list_hosts`` with empty ``server_version`` /
-``esphome_version`` until pairing attempts the connection.
-
-Browser uses the existing ``AsyncEsphomeZeroconf`` instance owned by
-:class:`~esphome_device_builder.controllers._device_state_monitor.DeviceStateMonitor`,
-so the dashboard ships one mDNS responder per process and this
-controller adds a second :class:`~zeroconf.asyncio.AsyncServiceBrowser`
-on the same instance for the new service type. The state monitor's
-own browsers (``_esphomelib._tcp.local.`` for devices,
-``_http._tcp.local.`` for adoptable web UIs) are unaffected.
+Browser shares the :class:`AsyncEsphomeZeroconf` the
+:class:`DeviceStateMonitor` owns (one mDNS responder per
+process); this controller just adds a second
+:class:`~zeroconf.asyncio.AsyncServiceBrowser` for the new
+service type.
 """
 
 from __future__ import annotations
@@ -300,17 +274,9 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
         self._browser: AsyncServiceBrowser | None = None
         # Shared ``aiohttp`` resolver wired to the dashboard's
         # :class:`AsyncEsphomeZeroconf` so outbound peer-link
-        # connects resolve ``*.local`` receiver hostnames through
-        # mDNS rather than the host OS's ``getaddrinfo``. Built
-        # in :meth:`start` once the device-state monitor's
-        # zeroconf is available; cleared in :meth:`stop`. Stays
-        # ``None`` when the shared zeroconf isn't up (HA-addon
-        # mode without an explicit ``ports:`` override, or any
-        # path where zeroconf failed to start) — call sites fall
-        # back to ``aiohttp``'s default OS resolver, which
-        # preserves the pre-mDNS-resolver behaviour for the
-        # subset of deployments that already had working mDNS in
-        # the OS.
+        # connects resolve ``*.local`` hostnames via mDNS rather
+        # than ``getaddrinfo``. ``None`` when zeroconf isn't up;
+        # call sites fall back to aiohttp's default resolver.
         self._peer_link_resolver: PeerLinkDNSResolver | None = None
         self._peers: dict[str, RemoteBuildPeer] = {}
         # Strong refs for fire-and-forget resolve tasks so the
@@ -347,27 +313,15 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
         # guarantees the check + set in :meth:`rotate_identity`
         # is atomic without an explicit lock.
         self._rotation_in_flight = False
-        # Pairing window state (issue #106 design choice (c)).
-        # The window narrows acceptance of ``intent="pair_request"``
-        # Noise frames so an idle receiver doesn't accumulate inbox
-        # noise from arbitrary LAN scanners. Already-approved peers
-        # are NOT gated by the window; they connect anytime via
-        # ``intent="peer_link"``.
+        # Pairing window state. Gates ``intent="pair_request"`` so
+        # an idle receiver doesn't accumulate inbox noise; APPROVED
+        # peers connect anytime via ``intent="peer_link"``.
         #
-        # Refcounted by client so two browser tabs / two users with
-        # the Pairing requests screen open both keep the window open
-        # together. Each ``set_pairing_window(open=true)`` call adds
-        # the calling WS client to the map (or refreshes its
-        # last-extend timestamp); ``open=false`` removes it. The
-        # window is open iff the map has any client whose last-extend
-        # timestamp is within ``_PAIRING_WINDOW_DURATION_SECONDS``.
-        # Crashed / disconnected clients (no graceful ``open=false``)
-        # age out via the same timeout, so a one-tab close in a
-        # multi-tab session doesn't immediately close the window for
-        # the other tab, and a crashed tab doesn't keep the window
-        # open forever. State lives in-memory only and resets on
-        # dashboard restart (which is fine; admins re-open the
-        # screen and the window opens fresh).
+        # Refcounted by WS client (multi-tab admins both extend
+        # together). Window is open iff any client's last-extend
+        # is within ``_PAIRING_WINDOW_DURATION_SECONDS``. Crashed
+        # tabs age out via the same timeout; in-memory only,
+        # resets on dashboard restart.
         self._pairing_window_clients: dict[Hashable, float] = {}
         # TimerHandle scheduled for the latest-extend deadline. Cancelled
         # and rescheduled on every set_pairing_window call so it always
@@ -376,63 +330,26 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
         # cancelled it), so the callback just clears the dict and fires
         # the close event. ``None`` when the window is closed.
         self._pairing_window_handle: asyncio.TimerHandle | None = None
-        # One long-running asyncio.Task per PENDING
-        # :class:`StoredPairing`, spawned by ``request_pair`` when
-        # it lands a row in ``_pairings`` and cancelled
-        # by ``unpair`` / a re-pair against the same address /
-        # the listener's own terminal-flip exit. The task holds
-        # an open Noise WS to its receiver with
-        # ``intent="pair_status"``; the receiver-side responder
-        # parks on its bus event for an admin-click and pushes
-        # the response back, so the offloader sees the flip with
-        # sub-second latency without polling.
-        #
-        # No cold-start spawn: PENDING is in-memory only, so a
-        # controller restart starts with an empty dict and there's
-        # nothing to rebuild from disk. The bus event the
-        # listener fires on flip
-        # (:attr:`EventType.OFFLOADER_PAIR_STATUS_CHANGED`) is
-        # picked up by any client subscribed to the global
-        # ``subscribe_events`` stream — no separate
-        # ``subscribe_pairings`` channel needed.
-        #
-        # Keyed on ``pin_sha256`` to match the unified
-        # ``_pairings`` dict (offloader state is keyed on pin
-        # rather than ``(host, port)`` so a receiver rename
-        # is a one-line value mutation rather than a multi-
-        # dict atomic remap).
+        # One Task per PENDING StoredPairing, spawned by
+        # ``request_pair`` and cancelled by ``unpair`` / re-pair /
+        # terminal-flip exit. Holds an open Noise WS with
+        # ``intent="pair_status"`` so the offloader sees the flip
+        # via sub-second-latency long-poll, not polling. Keyed on
+        # ``pin_sha256`` to match ``_pairings`` (receiver rename
+        # = one-line mutation, not a multi-dict remap). PENDING
+        # is RAM-only — restart starts empty, nothing to rehydrate.
         self._pair_status_listeners: dict[str, asyncio.Task[None]] = {}
-        # PENDING StoredPeer rows live here, keyed on dashboard_id.
-        # Never persisted — the per-file ``_peers_store``
-        # (``.receiver_peers.json``) only stores APPROVED rows.
-        # Bounded lifetime: rows land via ``record_pair_request``
-        # while the pairing window is open, and the dict is
-        # cleared on window auto-close so a malicious LAN scanner
-        # can't fill the receiver's persistent state with junk
-        # pair-requests. Cleared rows fire
-        # ``REMOTE_BUILD_PAIR_STATUS_CHANGED("removed")`` (the
-        # *receiver-side* bus event — distinct from the
-        # offloader-side ``OFFLOADER_PAIR_STATUS_CHANGED`` event
-        # that the offloader's listener task fires after observing
-        # the pair_status response) so any offloader currently
-        # long-polling pair_status sees the cancellation. On
-        # controller restart this dict is empty — any in-flight
-        # pair attempts have to be re-initiated by the offloader.
+        # PENDING StoredPeer rows, keyed on ``dashboard_id``.
+        # Never persisted; rows land via ``record_pair_request``
+        # while the pairing window is open and the dict is
+        # cleared on window auto-close (bounds LAN-scanner spam).
+        # Cleared rows fire receiver-side ``status="removed"``
+        # so in-flight pair_status long-polls wake.
         self._pending_peers: dict[str, StoredPeer] = {}
-        # RAM-canonical APPROVED peers, keyed on
-        # ``dashboard_id``. Loaded once at :meth:`start` from the
-        # per-file ``_peers_store`` (sibling-of-sidecar
-        # ``.receiver_peers.json``) and mutated immediately by
-        # ``approve_peer`` / ``remove_peer`` — disk persistence
-        # rides a debounced ``async_delay_save``, so the in-RAM
-        # update doesn't block on the write and a save failure
-        # doesn't roll back the user-visible mutation. Reads
-        # (snapshot, ``_to_view``, ``_lookup_peer_response``)
-        # short-circuit through this dict so no read path hits
-        # disk while a write is in flight — the disk-read-vs-write
-        # race a fresh ``load_remote_build_settings`` on every read
-        # would expose is closed structurally. Cleared in
-        # :meth:`stop` for shutdown ordering.
+        # RAM-canonical APPROVED peers, keyed on ``dashboard_id``.
+        # Loaded from disk once at :meth:`start`; mutations land
+        # in RAM and ride a debounced save so reads never race
+        # an in-flight write.
         self._approved_peers: dict[str, StoredPeer] = {}
         # Active long-lived peer-link sessions, keyed on the
         # offloader's ``dashboard_id``. Populated by
@@ -478,65 +395,33 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
         # fan out — local operator-driven compiles never reach a
         # peer-link session.
         self._job_fanout: JobFanout | None = None
-        # Offloader-side long-lived peer-link clients, one per
-        # APPROVED ``StoredPairing``, keyed on the receiver's
-        # ``pin_sha256``. Spawned by
-        # :meth:`_spawn_peer_link_client` from :meth:`start`'s
-        # cold-start path and from
-        # :meth:`_apply_pair_status_result` flipping a row to
-        # APPROVED. Cancelled by :meth:`_cancel_peer_link_client`
-        # on ``unpair``; drained in :meth:`stop`. The task runs
-        # the connect-handshake-park-reconnect loop in
-        # :meth:`PeerLinkClient.run`. The client object is
-        # retained alongside its task so the
-        # ``remote_build/submit_job`` WS command can reach
-        # :meth:`PeerLinkClient.submit_job` to drive a
-        # bundle through the live session — the task itself
-        # exposes only ``cancel`` / ``done``, not the per-flow
-        # send API.
+        # One long-lived peer-link client per APPROVED pairing,
+        # keyed on ``pin_sha256``. Handle bundles the task
+        # (cancel/done) with the client object (the submit/cancel
+        # API the WS commands reach through) — see
+        # :class:`PeerLinkClientHandle`. Spawn/cancel via
+        # :meth:`_spawn_peer_link_client` / ``_cancel_peer_link_client``.
         self._peer_link_clients: dict[str, PeerLinkClientHandle] = {}
-        # RAM-only set of ``pin_sha256`` strings whose
-        # offloader-side peer-link sessions are currently open.
-        # Mutated by listeners on ``OFFLOADER_PEER_LINK_OPENED``
-        # (add) / ``OFFLOADER_PEER_LINK_CLOSED`` (discard) the
-        # :class:`PeerLinkClient` already fires from
-        # :meth:`_fire_opened` / :meth:`_fire_closed`. Read at
-        # :meth:`pairings_snapshot` time to populate
-        # :attr:`PairingSummary.connected` so the offloader-side
-        # Settings UI's "Paired build servers" list can render a
-        # connected/disconnected indicator. Cleared on
-        # :meth:`unpair` for the matching pin (the row's gone;
-        # any stale "true" carried over a removal would land a
-        # phantom indicator on a re-pair before the handshake
-        # actually completes), and on :meth:`stop` along with
-        # the rest of controller-scoped state.
+        # RAM-only set of ``pin_sha256`` for currently-open
+        # offloader-side peer-link sessions. Toggled by
+        # ``OFFLOADER_PEER_LINK_OPENED`` / ``_CLOSED`` listeners;
+        # read by ``pairings_snapshot`` to fill
+        # ``PairingSummary.connected``. Cleared on ``unpair`` for
+        # the matching pin and on :meth:`stop`.
         self._open_peer_links: set[str] = set()
-        # Identities cached once at :meth:`start` so each
-        # peer-link client can pick them up without an executor
-        # hop on every spawn. ``_offloader_dashboard_id`` is the
-        # offloader's stable ``dashboard_id`` sent in every
-        # peer_link msg3; ``_offloader_peer_link_priv`` is the
-        # X25519 keypair used for the Noise XX handshake. Both
-        # are loaded by the existing ``_load_offloader_identities``
-        # helper.
+        # Identities cached at :meth:`start` so spawn paths
+        # don't pay an executor hop each time. WS commands
+        # re-read from disk on every call to pick up rotations
+        # (see :meth:`_load_offloader_identities_async`).
         self._offloader_dashboard_id: str | None = None
         self._offloader_peer_link_priv: bytes | None = None
-        # Single offloader-side ``StoredPairing`` map: contains both
-        # PENDING and APPROVED rows, keyed on
-        # :attr:`StoredPairing.pin_sha256`. The pin is the
-        # stable cryptographic identity (hash of the receiver's
-        # static X25519 pubkey, OOB-confirmed during preview);
-        # ``(receiver_hostname, receiver_port)`` are routing
-        # hints stored as fields on the value rather than the
-        # primary key, so a receiver rename is a one-line
-        # value mutation rather than a multi-dict atomic
-        # remap. Source of truth at runtime; the disk filter at
-        # serialise time strips PENDING rows so the on-disk
-        # shape stays APPROVED-only. Loaded once at
-        # :meth:`start` and mutated in-place on every
-        # ``request_pair`` / ``unpair`` /
-        # ``_apply_pair_status_result`` — saves debounce
-        # through :attr:`_pairings_store`.
+        # Offloader-side pairings, both PENDING + APPROVED,
+        # keyed on ``pin_sha256``. Pin is the stable
+        # cryptographic identity; hostname/port are routing
+        # hints stored as fields so receiver-rename is a value
+        # mutation rather than a multi-dict remap. RAM is
+        # canonical at runtime; the disk filter at serialise
+        # time strips PENDING.
         self._pairings: dict[str, StoredPairing] = {}
         # 7b master toggle. Default ``True`` matches the
         # historical implicit behaviour (no setting ⇒ the
@@ -546,69 +431,28 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
         # offloader-settings WS commands. Read by
         # :meth:`build_scheduler_snapshot` on every install.
         self._remote_builds_enabled: bool = True
-        # RAM-only offloader-side pair alerts. Keyed on
-        # ``pin_sha256`` to match ``_pairings``. Populated by
-        # ``_apply_pair_status_result`` when a
-        # pair-status round-trip detects a pin drift
-        # (pin_mismatch) or a receiver-side rejection
-        # (peer_revoked); cleared only by the two resolution
-        # paths that fix the underlying broken state:
-        # ``request_pair`` succeeding for the same pin
-        # (auto-resolve on re-pair) and ``unpair`` (user
-        # removed the row outright). There is no operator-
-        # driven dismiss surface — clicking "OK got it"
-        # without acting would just hide a broken pairing the
-        # next peer-link session would still fail against.
-        # Never persisted: the alert describes a transient
-        # detection, and a process restart with the row still
-        # gone leaves nothing for the listener to re-detect
-        # against; live peer-link sessions re-trigger the
-        # underlying condition the next time the row is *used*.
-        # ``subscribe_events.initial_state.offloader_alerts``
-        # carries the snapshot so a tab subscribing AFTER the
-        # event fired still sees the alert it would have missed
-        # on the live stream.
+        # RAM-only pair alerts (pin_mismatch / peer_revoked),
+        # keyed on ``pin_sha256``. Cleared only by a successful
+        # ``request_pair`` for the same pin or ``unpair``; no
+        # operator-driven dismiss because clicking "OK" without
+        # acting would just hide a still-broken pairing.
+        # Surfaced via
+        # ``subscribe_events.initial_state.offloader_alerts``.
         self._offloader_alerts: dict[str, OffloaderAlertSnapshotEntry] = {}
-        # RAM-only offloader-side cache of the most recent
-        # ``queue_status`` snapshot received from each paired
-        # receiver, keyed on ``pin_sha256`` (mirrors
-        # ``_pairings`` keying). Updated on every
-        # inbound ``OFFLOADER_QUEUE_STATUS_CHANGED`` (the
-        # :class:`PeerLinkClient` receive loop fires the event
-        # after parsing a wire frame). Surfaced through
-        # ``subscribe_events.initial_state.peer_queue_status`` so
-        # a tab subscribing AFTER the most recent push still
-        # sees the latest value the offloader has observed for
-        # each peer. Never persisted — the next peer-link
-        # session triggers a fresh push on its first queue
-        # transition (or on session-open via the receiver-side
-        # initial broadcast in a follow-up phase). Cleared on
-        # :meth:`unpair` for the matching key so the snapshot
-        # doesn't surface stale data for a pairing the user
-        # removed.
+        # Most recent ``queue_status`` per paired receiver, keyed
+        # on ``pin_sha256``. Updated from
+        # ``OFFLOADER_QUEUE_STATUS_CHANGED``; surfaced via
+        # ``initial_state.peer_queue_status``; cleared by
+        # :meth:`unpair`.
         self._peer_queue_status: dict[str, PeerQueueStatusSnapshotEntry] = {}
-        # Offloader-side cache of remote-driven jobs we submitted
-        # that haven't reached a terminal state. Keyed on the
-        # offloader-local ``job_id`` (the one we generated for
-        # the ``submit_job`` header). Populated by the listener
-        # on ``OFFLOADER_JOB_STATE_CHANGED`` and cleared on the
-        # matching terminal transition. Surfaced via
-        # ``subscribe_events.initial_state.remote_jobs`` so a
-        # late-subscribing tab sees in-flight jobs without
-        # waiting for the next event — same pattern
-        # ``_peer_queue_status`` uses for queue depth. RAM-only;
-        # terminal jobs drop here so a page reload after a
-        # build completes shows no entry (the frontend keeps
-        # its own history if it wants one).
+        # In-flight remote-driven jobs we submitted, keyed on the
+        # offloader-local ``job_id``. Populated from
+        # ``OFFLOADER_JOB_STATE_CHANGED``; rows drop on terminal.
+        # Surfaced via ``initial_state.remote_jobs`` so late
+        # subscribers see in-flight rows without polling.
         self._offloader_remote_jobs: dict[str, OffloaderRemoteJobSnapshotEntry] = {}
-        # ``Store`` registers itself with this list at construction
-        # (via ``shutdown_register=...append``); the controller's
-        # :meth:`stop` walks the list to flush any debounced save
-        # before shutdown returns. Living on the controller rather
-        # than ``DeviceBuilder`` keeps the lifecycle layer scoped to
-        # the same object that owns the state.
-        # ``DeviceBuilder.stop`` already awaits :meth:`stop`, so the
-        # chain is unbroken.
+        # ``Store`` instances register their flush callbacks here;
+        # :meth:`stop` walks them to drain debounced writes.
         self._shutdown_callbacks: list[ShutdownCallback] = []
         self._pairings_store: Store[OffloaderRemoteBuildSettings] = Store(
             self._db.settings.config_dir / OFFLOADER_PAIRINGS_FILE,
@@ -618,11 +462,8 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
             name="offloader_pairings",
         )
         # Receiver-side APPROVED peers, persisted via the same
-        # per-file ``Store`` shape the offloader uses for
-        # pairings. RAM is canonical at runtime; disk is just
-        # persistence across restarts. Mutations land via
-        # ``async_delay_save`` so a burst of ``approve_peer`` /
-        # ``remove_peer`` collapses into one disk write.
+        # debounced per-file ``Store`` shape the offloader uses.
+        # RAM is canonical at runtime; disk is persistence only.
         self._peers_store: Store[ReceiverPeers] = Store(
             self._db.settings.config_dir / RECEIVER_PEERS_FILE,
             encoder=encode_peers,
@@ -630,24 +471,10 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
             shutdown_register=self._shutdown_callbacks.append,
             name="receiver_peers",
         )
-        # Lifecycle bag of bus-listener unsubscribers held for
-        # the lifetime of the controller. Populated in
-        # :meth:`start` via ``self._listeners.callback(...)`` and
-        # closed in :meth:`stop`. Currently covers the
-        # receiver-side firmware-queue lifecycle listeners
-        # (``JOB_QUEUED`` / ``JOB_STARTED`` / terminal events) that
-        # drive the ``queue_status`` peer-link broadcast and the
-        # offloader-side ``OFFLOADER_QUEUE_STATUS_CHANGED`` /
-        # ``OFFLOADER_PAIR_PIN_MISMATCH`` /
-        # ``OFFLOADER_PEER_LINK_OPENED`` /
-        # ``OFFLOADER_PEER_LINK_CLOSED`` listeners. New
-        # controller-scoped bus subscriptions should register their
-        # closer here so :meth:`stop` doesn't need a parallel
-        # collection. ``contextlib.ExitStack`` is the stdlib
-        # pattern for accumulating cleanup callables — each
-        # ``EventBus.add_listener`` return is a sync ``Callable[[],
-        # None]`` and ``ExitStack.callback`` is what stdlib provides
-        # for that exact shape.
+        # Bag of bus-listener unsubscribers; :meth:`start` calls
+        # ``self._listeners.callback(...)`` for each registration
+        # and :meth:`stop` closes the stack to detach all of them
+        # in one pass.
         self._listeners = ExitStack()
 
     async def start(self) -> None:
@@ -754,37 +581,18 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
         for pairing in self._pairings.values():
             if pairing.status is PeerStatus.APPROVED:
                 self._spawn_peer_link_client(pairing)
-        # Bus-listener registration runs unconditionally; the
-        # discovery-side bring-up (mDNS browser, advertiser name
-        # capture) is split into ``_start_discovery`` below and
-        # runs *last* so its zeroconf-availability gate can't
-        # shadow the listener registration. The listeners only
-        # need ``self._db.bus`` (always present) and feed
-        # ``_open_peer_links`` / ``_offloader_alerts`` /
-        # ``_peer_queue_status`` / ``_offloader_remote_jobs`` —
-        # none of which are zeroconf-driven, so this ordering
-        # invariant is what keeps ``pairings_snapshot()``'s
-        # ``connected`` projection working in test harnesses
-        # (and any production path where zeroconf failed to
-        # start).
+        # Bus listeners attach unconditionally — they don't depend
+        # on zeroconf, and ``_start_discovery`` runs last so its
+        # availability gate can't shadow this registration. The
+        # ``connected`` projection in ``pairings_snapshot()`` relies
+        # on the OPENED/CLOSED listeners below being live even when
+        # zeroconf failed to bind.
         #
-        # Subscribe to firmware-queue lifecycle events so every
-        # transition broadcasts a fresh ``queue_status`` snapshot
-        # to all paired offloaders. The transitions of interest
-        # are:
-        # * ``JOB_QUEUED``: a job entered the queue (queue_depth
-        #   bumped; running might already be true if the runner
-        #   is busy)
-        # * ``JOB_STARTED``: the runner picked up the next job
-        #   (queue_depth dropped, running flipped to true)
-        # * Terminal events (``JOB_COMPLETED`` / ``JOB_FAILED`` /
-        #   ``JOB_CANCELLED``): the runner slot is now free
-        #   (running flipped to false; queue_depth may still be
-        #   non-zero if more jobs were queued meanwhile)
-        # ``JOB_OUTPUT`` / ``JOB_PROGRESS`` deliberately don't
-        # trigger a broadcast — they're per-line streaming events
-        # that fire at high rates during a build, and the
-        # ``queue_status`` shape doesn't change across them.
+        # Firmware-queue events that trigger a fresh ``queue_status``
+        # broadcast: JOB_QUEUED, JOB_STARTED, and the three terminal
+        # events. JOB_OUTPUT / JOB_PROGRESS deliberately don't —
+        # they're high-rate streaming events and the queue_status
+        # shape doesn't change across them.
         for event_type in (
             EventType.JOB_QUEUED,
             EventType.JOB_STARTED,
@@ -820,19 +628,11 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
                 self._on_offloader_job_state_changed,
             )
         )
-        # Mirror :class:`PeerLinkClient`-fired pin-mismatch
-        # events into the RAM-only ``_offloader_alerts`` dict so
-        # the snapshot path
-        # (``subscribe_events.initial_state.offloader_alerts``)
-        # picks up alerts that fired from the long-lived
-        # peer-link path (peer-link handshake observed a
-        # different responder pubkey than the OOB-confirmed
-        # pin). Idempotent vs. the synchronous mutation in
-        # :meth:`_apply_pair_status_result`'s pin-drift branch
-        # — both paths land the same shape under the same key,
-        # so a same-tick fire from the pair-status listener
-        # ends with the listener overwriting a value the
-        # caller already wrote (no behaviour change there).
+        # Mirror peer-link pin-mismatch events into
+        # ``_offloader_alerts`` so the snapshot path surfaces
+        # alerts from the long-lived handshake path. Idempotent
+        # against the sync mutation in
+        # :meth:`_apply_pair_status_result`'s pin-drift branch.
         self._listeners.callback(
             self._db.bus.add_listener(
                 EventType.OFFLOADER_PAIR_PIN_MISMATCH,
@@ -1001,31 +801,18 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
     def _on_offloader_peer_link_opened(self, event: Event[OffloaderPeerLinkOpenedData]) -> None:
         """Add ``pin_sha256`` to ``_open_peer_links`` and refresh the receiver version.
 
-        The receiver advertises its
-        :data:`esphome.const.__version__` on every
-        ``intent_response`` payload; the offloader-side
-        :class:`PeerLinkClient` lifts it onto this event so the
-        controller can land the up-to-date value on the matching
-        :class:`StoredPairing` without reaching into the per-pin
-        client task. pick_build_path's deferred version-compat
-        gate reads this field; the value refreshes on every
-        reconnect so a receiver upgrade picks up on the next
-        session-open without operator action.
+        Receiver's ``esphome_version`` rides on every
+        ``intent_response`` so a receiver upgrade picks up on
+        next session-open without operator action.
+        ``pick_build_path``'s deferred version-compat gate reads
+        this field.
 
-        Empty ``esphome_version`` (older receiver predating this
-        wire change, or a malformed response) leaves the stored
-        value alone — clobbering with empty would lose the
-        previously-captured version after a reconnect from an
-        older receiver mid-rollout. Values exceeding
-        :data:`PAIRING_VERSION_MAX_LEN` are also rejected: the
-        :class:`StoredPairing` validator caps at the same length
-        on disk-load, so persisting an oversize value through
-        the in-memory mutation path would survive until the next
-        sidecar load and then poison it. The wire-extract path
-        on the :class:`PeerLinkClient` side already caps before
-        firing this event; the listener-side guard is defense-
-        in-depth for any other future fire site of the same
-        event.
+        Empty / oversize versions are dropped silently rather
+        than clobbering — empty would lose the captured value
+        after a reconnect from a pre-feature receiver; oversize
+        is defense-in-depth against the
+        :data:`PAIRING_VERSION_MAX_LEN` cap that the storage
+        validator enforces on disk-load.
         """
         data = event.data
         pin_sha256 = data["pin_sha256"]
@@ -1197,21 +984,15 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
         self._peer_link_sessions[session.dashboard_id] = session
         if existing is not None and existing is not session:
             await existing.terminate(TerminateReason.SUPERSEDED)
-        # Send the receiver's current queue_status to the just-
-        # connected offloader. The transition-driven broadcast
-        # (``_on_firmware_queue_transition`` → ``_broadcast_queue_status``)
-        # only fires when the receiver's local firmware queue
-        # mutates — a cold-connected offloader that pairs before
-        # the receiver builds anything would otherwise never
-        # observe an idle entry, and the install scheduler's
-        # ``pick_build_path`` requires an entry in
-        # ``_peer_queue_status`` to consider a pairing eligible
-        # (the "no signal that the receiver can accept work"
-        # gate). Without this initial push the offloader's
-        # ``firmware/install`` silently falls back to LOCAL on
-        # every paired receiver until the receiver happens to
-        # build something locally — the exact bug that surfaced
-        # in production after #568 landed.
+        # Push current queue_status to the just-connected
+        # offloader. The transition-driven broadcast only fires
+        # on receiver-side queue mutations, so a cold-connected
+        # offloader would otherwise have no entry in
+        # ``_peer_queue_status`` — and ``pick_build_path``
+        # requires one to consider the pairing eligible. Without
+        # this push, ``firmware/install`` silently falls back to
+        # LOCAL on every paired receiver until the receiver
+        # happens to build something locally (#568 regression).
         if self._db.firmware is not None:
             try:
                 idle, running, queue_depth = self._db.firmware.queue_status_snapshot()
@@ -1317,39 +1098,15 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
     async def handle_cancel_job(self, session: PeerLinkSession, frame: dict[str, Any]) -> None:
         """Receiver-side dispatch for inbound ``cancel_job`` frames.
 
-        Resolves the offloader-supplied ``job_id`` to the
-        receiver-local :class:`FirmwareJob` via
-        :meth:`JobFanout.resolve_firmware_job_id`, then routes
-        the cancel through the firmware controller's existing
-        :meth:`FirmwareController.cancel` primitive — same path
-        as a local operator-driven cancel. No ack on the wire:
-        the firmware queue fires ``JOB_CANCELLED`` once the
-        cancel lands, :class:`JobFanout` fans that out as a
-        ``job_state_changed{status: cancelled}`` frame, and the
-        offloader's existing ``OFFLOADER_JOB_STATE_CHANGED``
-        plumbing surfaces it without any new bus event type.
+        Resolves the offloader's ``job_id`` to the receiver-local
+        :class:`FirmwareJob` via :class:`JobFanout` and routes
+        through :meth:`FirmwareController.cancel` — same path as
+        an operator-driven cancel. No wire ack; the fan-out's
+        ``job_state_changed{cancelled}`` carries the result.
 
-        Silent drops (debug-logged only) for:
-
-        * Malformed frame shape — peer is off-contract;
-          dropping matches the read-loop's behaviour for the
-          other peer-controlled frames. The terminate-on-
-          malformed escalation lives in
-          :func:`parse_app_frame` for decrypt / JSON failures;
-          a structurally-bad cancel doesn't warrant tearing
-          the session down.
-        * Unknown ``(remote_peer, remote_job_id)`` correlation
-          — typically a race between the offloader's send and
-          a receiver-side terminal transition that already
-          evicted the entry. The offloader will see the
-          earlier terminal ``job_state_changed`` regardless;
-          no action needed.
-        * :class:`CommandError` from
-          :meth:`FirmwareController.cancel` (already-terminal
-          job, race with a parallel cancel) — best-effort
-          semantics; the offloader's UI rendered the cancel
-          intent on click and the next observed state is
-          authoritative.
+        Silent debug-log drops for malformed frames, unknown
+        correlations (race with a terminal transition), and
+        :class:`CommandError` from cancel (already-terminal).
         """
         if not is_valid_frame(_CANCEL_JOB_SCHEMA, frame):
             _LOGGER.debug(
@@ -1625,30 +1382,16 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
     def _upsert_host(self, name: str, info: AsyncServiceInfo) -> None:
         """Replace the row keyed on *name* and fire ``REMOTE_BUILD_HOST_ADDED``.
 
-        Called from both the cache-hit and resolve-success paths;
-        centralises the dict-mutation + event-fire so a future
-        TXT-only refresh doesn't accidentally skip the event. The
-        event payload is the same :meth:`RemoteBuildPeer.to_dict`
-        projection :meth:`hosts_snapshot` delivers in the
-        ``subscribe_events`` initial-state push, so a snapshot-
-        loaded row and a live-event row carry identical fields by
-        construction; adding a field to :class:`RemoteBuildPeer`
-        flows through both surfaces in lockstep without a manual
-        bookkeeping update here.
-
-        Drops resolved entries whose ``(server, port)`` matches our
-        own published advertise so this dashboard never offers
-        itself as a pair candidate. The early
-        ``service_instance_name`` filter in
-        :meth:`_on_service_state_change` covers the common case
-        before resolve, but a rename-on-conflict zeroconf bounce
-        between our own register and our own browse callback can
-        leave the captured instance name out of date — the
-        endpoint comparison is the live cross-check that survives
-        that drift. Matching on both ``server`` and ``port`` (not
-        just ``server``) preserves the ability to run two
-        dashboards on the same host on different ports as
-        distinct peer candidates.
+        Shared between cache-hit and resolve-success paths so
+        the dict-mutation + event-fire stay paired. Drops
+        entries whose ``(server, port)`` matches our own
+        advertise — the ``service_instance_name`` filter
+        earlier in the callback handles the common case before
+        resolve, but a rename-on-conflict zeroconf bounce can
+        leave the captured instance name stale; the endpoint
+        comparison is the live cross-check. Matching on both
+        server and port preserves the ability to run two
+        dashboards on the same host on different ports.
         """
         peer = peer_from_service_info(name, info)
         if self._is_self_endpoint(peer.hostname, peer.port):
@@ -1802,38 +1545,13 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
     ) -> RebindProbeResult:
         """Probe + identity-verify a candidate endpoint without mutating state.
 
-        Caller-agnostic primitive shared by
-        :meth:`_probe_and_rebind_endpoint` (mDNS-driven
-        auto-rebind, 4a-o part 7) and :meth:`edit_pairing_endpoint`
-        (user-driven manual rebind, 8b). Each caller maps the
-        typed outcome onto its own surface — silent log + cooldown
-        for the auto path, typed :class:`CommandError` for the
-        WS-driven user path.
-
-        The probe runs one ``intent="preview"`` Noise XX
-        round-trip via :func:`peer_link_preview_pair`. Three
-        roles in a single network call:
-
-        * **Reachability check** — TCP connect + Noise handshake
-          completing means the new endpoint is up. Any connect /
-          timeout / decode error returns
-          :attr:`RebindProbeOutcome.UNREACHABLE`.
-        * **Identity verification** — Noise XX binds the
-          responder's static X25519 pubkey into the handshake
-          transcript. A mismatch against the stored pin returns
-          :attr:`RebindProbeOutcome.PIN_MISMATCH`.
-        * **Race-safe re-check** — the dict entry may have
-          been replaced by a concurrent ``unpair`` / ``request_pair``
-          while the probe was in flight. Identity-equality check
-          on the captured ``pairing`` reference returns
-          :attr:`RebindProbeOutcome.PAIRING_REPLACED` if the
-          dict no longer points at the same object, or
-          :attr:`RebindProbeOutcome.STATUS_CHANGED` if the
-          row's ``status`` flipped away from APPROVED.
-
-        Callers pre-check ``self._offloader_peer_link_priv is
-        not None``; the assert here narrows for the type
-        checker.
+        Shared by the mDNS auto-rebind path and the user-driven
+        endpoint edit; each caller maps the typed outcome onto
+        its own surface. One ``intent="preview"`` round-trip
+        covers three checks: reachability (TCP + handshake),
+        identity (pubkey vs stored pin), and race-safety
+        (captured pairing object still in the dict, still
+        APPROVED).
         """
         assert self._offloader_peer_link_priv is not None
         try:
@@ -1952,27 +1670,10 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
     ) -> None:
         """Probe the candidate endpoint; rebind the pairing iff the pin still matches.
 
-        The probe is one ``intent="preview"`` Noise XX round-trip
-        via :func:`peer_link_preview_pair` and serves three roles
-        in a single network call:
-
-        * **Reachability check** — TCP connect + Noise handshake
-          completing means the new endpoint is up and answering
-          peer-link traffic. Any connect / timeout / Noise error
-          raises :class:`PeerLinkClientError`; we leave stored
-          state alone (and let the cooldown gate the next
-          attempt).
-        * **Identity verification** — Noise XX binds the
-          responder's static X25519 pubkey into the handshake
-          transcript. A mismatch against the stored pin means a
-          different keypair under the same advertised pin (mDNS
-          spoof, untracked identity rotation, fresh receiver
-          grabbing the old hostname); refuse to rebind.
-        * **Pairing-window-independent** — ``preview`` is the
-          one intent the receiver always honours, so a quiet
-          receiver doesn't deadlock the rebind path.
-
-        On match, mutate :class:`StoredPairing` in place,
+        One ``preview`` round-trip checks reachability + identity
+        in one call. ``preview`` bypasses the pairing window so a
+        quiet receiver doesn't deadlock the rebind path. On a
+        successful match, mutate :class:`StoredPairing` in place,
         schedule the debounced save, cancel + respawn the
         peer-link client at the new coordinates, fire
         :attr:`EventType.OFFLOADER_PAIR_ENDPOINT_REBOUND`, and
@@ -2092,13 +1793,10 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
     def _peer_summaries(self) -> list[PeerSummary]:
         """Merge PENDING + APPROVED into a single ``PeerSummary`` list.
 
-        ``connected`` is read off ``_peer_link_sessions`` per row.
-        PENDING peers always project as ``connected=False`` (the
-        peer-link dispatch refuses non-APPROVED rows; see
-        :meth:`lookup_peer_for_session`); APPROVED rows look up
-        their ``dashboard_id`` in the session registry to report
-        live connection state. The dict membership read is
-        sync, RAM-only, and constant-time per row.
+        APPROVED rows read ``connected`` off
+        ``_peer_link_sessions``; PENDING always
+        ``connected=False`` since the peer-link dispatch
+        refuses non-APPROVED rows.
         """
         sessions = self._peer_link_sessions
         return [
@@ -2134,26 +1832,11 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
         """
         Return the in-memory peers snapshot (PENDING + APPROVED).
 
-        Pure synchronous read of ``_pending_peers`` +
-        ``_approved_peers`` — no executor hop, no disk read, no
-        race window. :meth:`start` seeded ``_approved_peers``
-        from disk; every mutation since has flowed through the
-        same dict, so RAM is the canonical source of truth (mirrors
-        the offloader-side :meth:`pairings_snapshot` shape).
-
-        Used by
-        :meth:`device_builder.DeviceBuilder._cmd_subscribe_events`
-        to seed the frontend's initial state. Live updates flow
-        from ``REMOTE_BUILD_PAIR_REQUEST_RECEIVED`` and
-        ``REMOTE_BUILD_PAIR_STATUS_CHANGED`` bus events through
-        the same ``subscribe_events`` stream — the events fire
-        right after the dict mutation, so a subscriber that reads
-        the snapshot then attaches its event handler will see
-        every state change without missing any.
-
-        Not a WS command: the dashboard frontend always subscribes
-        on app-startup, so a separate snapshot read would just be
-        a redundant round-trip.
+        Pure sync read; RAM is canonical after :meth:`start`
+        seeds ``_approved_peers`` from disk. Seeds the
+        frontend's initial state via
+        ``subscribe_events.initial_state``; live updates flow
+        through the same stream.
         """
         return self._peer_summaries()
 
@@ -2199,34 +1882,18 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
         """
         Persist the receiver-side ``enabled`` master switch.
 
-        Read-modify-write so manual hosts, peers, and any future
-        phase-4+ fields stay intact; a client toggling just
-        ``enabled`` doesn't reset every other field to its default.
+        Read-modify-write so peers / other fields stay intact.
+        Strict-bool validation defeats truthiness coercion on
+        this security-sensitive toggle.
 
-        Validates ``enabled`` is strictly a ``bool`` rather than
-        coercing truthiness; a client sending the string ``"false"``
-        for example would otherwise persist as ``True``, which is
-        the opposite of what the user intended on a security-
-        sensitive toggle.
-
-        Optionally accepts ``cleanup_ttl_seconds`` to update the
-        6c TTL sweep's cold-subtree threshold. Validated against
+        Optional ``cleanup_ttl_seconds`` updates the cleanup
+        sweep threshold, range-checked against
         :data:`MIN_CLEANUP_TTL_SECONDS` /
-        :data:`MAX_CLEANUP_TTL_SECONDS` so a fat-fingered value
-        can't push the sweep to "delete everything every tick"
-        or "never reclaim disk". Omitting it (or sending
-        ``None``) preserves the current setting; the field is
-        optional on the wire so clients that only flip the
-        master switch don't have to re-supply the TTL.
+        :data:`MAX_CLEANUP_TTL_SECONDS`. Omit to keep current.
 
-        Live-rebinds the peer-link Noise WS listener after the
-        write lands: a flip to ``True`` runs the same bind path
-        :meth:`DeviceBuilder._maybe_start_remote_build_site` does
-        at startup; a flip to ``False`` tears down the runner and
-        clears the mDNS pin/port advertise. Fail-soft on bind error
-        — the dashboard keeps running without a listener and a
-        subsequent ``set_settings`` retry can clear a transient
-        port conflict without a restart.
+        Live-rebinds the peer-link listener: True runs the
+        startup bind path, False tears down + clears the mDNS
+        pin/port advertise. Fail-soft on bind error.
         """
         if not isinstance(enabled, bool):
             msg = "remote_build/set_settings: 'enabled' must be a boolean"
@@ -2305,25 +1972,14 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
         """
         Flip the offloader-side master toggle for transparent install.
 
-        When ``False``, :func:`pick_build_path` short-circuits
-        every install to LOCAL regardless of how many idle
-        receivers are paired. Peer-link sessions stay open and
-        the Send-builds power-user dialog still works — only
-        the implicit "Install → maybe route to a receiver"
-        path is gated off. The intent is "I want to keep the
-        receivers paired but stop the dashboard from
-        auto-routing builds there for now."
+        ``False`` short-circuits :func:`pick_build_path` to
+        LOCAL; peer-link sessions stay open and the manual
+        Send-builds dialog still works. The intent is "keep the
+        pairings but stop auto-routing for now."
 
-        Strict ``bool`` validation rather than truthiness:
-        the string ``"false"`` would otherwise coerce to
-        ``True`` and persist the opposite of what the
-        operator intended.
-
-        Fires ``EventType.OFFLOADER_REMOTE_BUILDS_TOGGLED`` so
-        other open tabs sync the switch state without
-        polling, then debounce-saves through the existing
-        ``_pairings_store`` (the master toggle lives on the
-        same on-disk shape as the pairings list).
+        Fires ``OFFLOADER_REMOTE_BUILDS_TOGGLED`` for cross-tab
+        sync; debounce-saves through ``_pairings_store`` (same
+        on-disk shape).
         """
         self._remote_builds_enabled = validate_bool(
             remote_builds_enabled,
@@ -2348,25 +2004,14 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
         """
         Flip the per-pairing enable switch for transparent install.
 
-        The 7b Settings UI exposes one switch per paired
-        build server: a connected, healthy receiver the
-        operator nevertheless doesn't want eating dashboard
-        installs (flaky link, doing heavy work, in a build
-        contention with another offloader). Distinct from
-        ``unpair`` — the row stays in ``_pairings``, peer-link
-        clients keep their sessions open, the Send-builds
-        manual-dispatch path still works against this row.
+        Distinct from ``unpair`` — the row stays in
+        ``_pairings``, peer-link client keeps its session open,
+        the manual-dispatch surface still works. Disables only
+        the auto-routing in ``pick_build_path``.
 
-        Both ``pin_sha256`` and ``enabled`` are strictly
-        validated (the same shape gate
-        :func:`validate_pin_sha256` uses across this
-        controller). An unknown pin raises ``NOT_FOUND``
-        rather than silently no-op'ing so a stale UI doesn't
-        get the wrong "switch flipped" feedback.
-
-        Fires ``EventType.OFFLOADER_PAIRING_ENABLED_CHANGED``
-        for cross-tab UI sync, then debounce-saves the
-        pairings store so the choice survives restart.
+        Unknown pin raises ``NOT_FOUND``. Fires
+        ``OFFLOADER_PAIRING_ENABLED_CHANGED`` for cross-tab
+        sync and debounce-saves the pairings store.
         """
         clean_pin = validate_pin_sha256(pin_sha256)
         clean_enabled = validate_bool(
@@ -2397,30 +2042,13 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
     async def preview_pair(self, *, hostname: str, port: int, **kwargs: Any) -> dict[str, str]:
         """Open a brief Noise XX WS to *hostname*:*port* and return the receiver's pin.
 
-        The offloader runs ``intent="preview"`` to capture the
-        receiver's static X25519 pubkey from the Noise handshake
-        transcript before committing to pair. The frontend
-        renders the returned ``pin_sha256`` for the user to
-        OOB-verify against the receiver's "Build server"
-        Settings card; only after that confirmation does the
-        offloader call ``request_pair``.
+        ``intent="preview"`` captures the receiver's static
+        X25519 pubkey from the handshake transcript. The
+        frontend renders the returned ``pin_sha256`` for the
+        user to OOB-verify against the receiver's "Build
+        server" Settings card before calling ``request_pair``.
 
-        Args:
-            hostname: Receiver's hostname / IP (validated as for
-                manual hosts: non-empty, ≤255 chars,
-                lowercase-normalised).
-            port: Receiver's peer-link port (1-65535, non-bool).
-
-        Returns:
-            ``{"pin_sha256": "<lowercase-hex-64>"}`` on a
-            successful preview round-trip.
-
-        Raises:
-            :class:`CommandError(INVALID_ARGS)` for bad inputs.
-            :class:`CommandError(UNAVAILABLE)` for any transport
-            / handshake / decode failure (connection refused,
-            timeout, malformed Noise frame, mismatched
-            ``intent_response``).
+        Returns ``{"pin_sha256": "<lowercase-hex-64>"}``.
         """
         clean_host = validate_hostname(hostname, context=HostFieldContext.RECEIVER)
         clean_port = validate_port(port, context=HostFieldContext.RECEIVER)
@@ -2454,85 +2082,27 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
     ) -> PairingSummary:
         """Open a Noise XX WS, send ``intent="pair_request"``, persist a local row.
 
-        The offloader's second handshake with a receiver, after
-        the user has OOB-confirmed the receiver's pin via
-        :meth:`preview_pair`. Sends ``{"label":
-        offloader_label, "dashboard_id": <ours>}`` in the
-        encrypted msg3 payload; the receiver's response decides
-        what state the local :class:`StoredPairing` row lands
-        in.
+        The second handshake with a receiver, after the user
+        OOB-confirmed the receiver's pin via :meth:`preview_pair`.
+        Sends ``{"label": offloader_label, "dashboard_id":
+        <ours>}`` in the encrypted msg3; the receiver's response
+        decides what state the local :class:`StoredPairing` row
+        lands in.
 
-        Two distinct labels because the offloader-side and
-        receiver-side rows mean different things:
+        Two labels: *receiver_label* is the offloader-side
+        display name (stored locally, never sent); *offloader_label*
+        is the offloader's self-identification sent to the
+        receiver so its Pairing requests inbox shows a friendly
+        name.
 
-        * *receiver_label* — what the offloader's user calls the
-          receiver in their own settings UI (e.g. "desktop").
-          Persisted to ``StoredPairing.label``; never sent to
-          the receiver.
-        * *offloader_label* — what the offloader-side user
-          identifies *itself* as so the receiver-side admin's
-          Pairing requests inbox shows a friendly name (e.g.
-          "green-laptop"). Sent to the receiver in the
-          encrypted msg3 payload; the receiver's
-          ``record_pair_request`` lands it in
-          ``StoredPeer.label``. Never persisted on the
-          offloader side.
+        TOCTOU defense: the *pin_sha256* arg is compared against
+        the receiver's actual pubkey from the live handshake; a
+        mismatch (rotation or MITM) returns
+        ``PRECONDITION_FAILED`` and persists nothing.
 
-        TOCTOU defense: the *pin_sha256* arg is the value the
-        user OOB-confirmed in preview; the live handshake
-        captures the receiver's actual pubkey. If the two don't
-        match — receiver rotated identity between preview and
-        request, or an active MITM intervened — the call
-        rejects with ``PRECONDITION_FAILED`` and persists
-        nothing. The offloader's frontend should re-run
-        preview before retrying.
-
-        Args:
-            hostname: Receiver's hostname (validated /
-                normalised by :func:`validate_hostname`;
-                yarl-correct).
-            port: Receiver's peer-link port (1-65535).
-            pin_sha256: Lowercase-hex SHA-256 of the receiver's
-                X25519 pubkey, captured + OOB-verified during
-                ``preview_pair``.
-            receiver_label: Offloader-side display name for the
-                receiver (stored locally only).
-            offloader_label: Offloader-side self-identification
-                label (sent to the receiver, stored receiver-
-                side).
-
-        Returns:
-            :class:`PairingSummary` for the newly-created or
-            refreshed :class:`StoredPairing` row, with
-            ``status`` = ``PENDING`` (typical) or ``APPROVED``
-            (re-pair against a row the receiver already
-            approved).
-
-        Raises:
-            :class:`CommandError(INVALID_ARGS)` for bad inputs
-                (host / port / pin / label shape).
-            :class:`CommandError(UNAVAILABLE)` for transport,
-                handshake, or decode failures.
-            :class:`CommandError(PRECONDITION_FAILED)` for
-                pin mismatch (TOCTOU) or receiver-side
-                ``REJECTED`` (admin declined).
-            :class:`CommandError(NO_PAIRING_WINDOW)` when the
-                receiver returns ``no_pairing_window`` —
-                frontend prompts the user to ask the
-                receiver-side admin to open the Pairing
-                requests screen.
-
-        Persistence note: only APPROVED rows are written to disk.
-        PENDING rows live in the controller's in-memory
-        ``_pairings`` dict for the lifetime of the
-        offloader process. If the offloader is restarted while a
-        request is still pending, the dict starts empty and the
-        user has to re-issue ``request_pair``; this matches the
-        receiver's symmetric "controller restart drops PENDING"
-        property (the receiver-side window-close that triggered
-        any in-flight pair_request would have cleared its own
-        pending dict anyway, so cross-restart pending is never
-        a coherent state on either side).
+        Only APPROVED rows reach disk. PENDING lives in-memory
+        for the offloader process's lifetime; a restart drops
+        them and the user re-runs ``request_pair``.
         """
         clean_host = validate_hostname(hostname, context=HostFieldContext.RECEIVER)
         clean_port = validate_port(port, context=HostFieldContext.RECEIVER)
@@ -2648,33 +2218,18 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
     ) -> dict[str, bool]:
         """Drop the local :class:`StoredPairing` row keyed on *pin_sha256*.
 
-        Idempotent: returns ``{"removed": False}`` when no row matches
-        rather than raising — the frontend's "Unpair" button should
-        always succeed visually even when the row was already gone
-        (race with a concurrent listener-driven flip-to-removed).
+        Idempotent — returns ``{"removed": False}`` rather than
+        raising on a missing row so the frontend's Unpair button
+        always succeeds visually.
 
-        4a-o part 6 changed the WS arg from ``(hostname, port)`` to
-        ``pin_sha256`` so the receiver-side identity (not the
-        routing coordinates) is the lookup key — this keeps unpair
-        consistent across a hostname change. The frontend already
-        carries ``pin_sha256`` on every :class:`PairingSummary`,
-        so the user-clicks-Unpair path threads that value
-        directly.
+        Receiver-side state is **not** notified; the receiver's
+        :class:`StoredPeer` row sticks until the receiver's admin
+        clicks Remove. The next ``peer_link`` from this offloader
+        returns ``REJECTED`` because our local row is gone.
 
-        Receiver-side state is *not* notified. The receiver's
-        :class:`StoredPeer` row stays until the receiver's admin
-        clicks Remove on their Pairing requests inbox; that's the
-        receiver's ownership concern. The next ``intent="peer_link"``
-        from this offloader will return ``REJECTED`` because the
-        offloader's local row is gone, but the receiver-side row
-        won't auto-clean — a future re-auth wizard would surface
-        the "stale on receiver, removed locally" case as a UI
-        affordance for the receiver-side admin to clean up.
-
-        If a pair-status listener task is in flight for this row
-        (admin hadn't clicked Accept/Reject yet), it gets cancelled
-        promptly so the offloader's open Noise WS to the receiver
-        closes cleanly rather than waiting on a now-irrelevant flip.
+        In-flight pair-status / peer-link tasks for this pin are
+        cancelled before mutating the dict so their open Noise WS
+        closes promptly.
         """
         key = validate_pin_sha256(pin_sha256)
 
@@ -2754,70 +2309,21 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
     ) -> PairingSummary:
         """Manually rebind *pin_sha256*'s pairing onto new (*hostname*, *port*) coords.
 
-        User-driven analog of 4a-o part 7's mDNS auto-rebind, for
-        the cases the auto-rebind can't catch: cross-subnet
-        receivers (no mDNS path), mDNS disabled on the
-        receiver's host, the receiver moved to a hostname the
-        offloader's network can resolve but mDNS doesn't
-        broadcast.
+        User-driven analog of the mDNS auto-rebind, for cases
+        the auto path can't catch: cross-subnet receivers, mDNS
+        disabled, receiver moved to a non-broadcast hostname.
 
-        Same trust model as the auto-rebind: a one-shot
-        :func:`peer_link_preview_pair` probe verifies the new
-        endpoint is reachable AND answers with the same pin
-        :class:`StoredPairing` was paired against. The probe
-        replaces the entire identity-verification gate — we
-        deliberately don't fall through to the normal peer-link
-        client retry loop on a pin mismatch, since accepting a
-        new identity under the user's existing trust is
-        precisely what 8a's re-auth wizard is for.
+        Same trust model: a one-shot ``preview_pair`` probe
+        verifies the new endpoint answers with the same pin
+        :class:`StoredPairing` was paired against. Pin mismatch
+        deliberately doesn't fall through — accepting a new
+        identity under the user's existing trust is what the
+        re-auth wizard exists for.
 
-        Args:
-            pin_sha256: Identity of the existing pairing — RAM
-                key (not the routing coordinates, which are what
-                we're updating).
-            hostname: New routing host (validated as for manual
-                hosts via :func:`validate_hostname`: non-empty,
-                ≤255 chars, trimmed + ``str.lower``-normalised
-                so the stored value's case is consistent. The
-                trailing-dot / FQDN-form folding the
-                no-op-edit guard cares about happens inside
-                :func:`endpoints_equal`'s
-                :func:`normalize_hostname` call at compare time
-                only; the value persisted on
-                :class:`StoredPairing.receiver_hostname` keeps
-                the trim + lowercase shape the validator
-                returned, matching what :meth:`request_pair`
-                writes.
-            port: New peer-link port (1-65535, non-bool).
-
-        Returns:
-            Updated :class:`PairingSummary` projection of the
-            re-routed row. ``connected`` typically reads
-            ``False`` at return time — the new
-            :class:`PeerLinkClient` task spawned by
-            :meth:`_respawn_peer_link_at_new_endpoint` is still
-            running its handshake; the
-            :attr:`EventType.OFFLOADER_PEER_LINK_OPENED` event
-            that follows flips it to ``True`` once the session
-            opens.
-
-        Raises:
-            :class:`CommandError(INVALID_ARGS)` for bad inputs.
-            :class:`CommandError(NOT_FOUND)` if no pairing
-                exists for *pin_sha256*, or the pairing dropped
-                mid-probe.
-            :class:`CommandError(PRECONDITION_FAILED)` if the
-                pairing isn't APPROVED, the offloader-side
-                identity hasn't loaded yet, the new endpoint
-                matches the current one (no-op), or the probe
-                lands at a different identity (pin mismatch:
-                the user must re-pair through the regular pair
-                flow if they actually want to switch identities).
-            :class:`CommandError(UNAVAILABLE)` if the new
-                endpoint is unreachable / the Noise XX
-                handshake fails — leaves the stored pairing
-                untouched so a retry against the correct coords
-                lands cleanly.
+        Returns the updated :class:`PairingSummary`;
+        ``connected`` typically reads ``False`` because the
+        respawned :class:`PeerLinkClient` is still handshaking
+        when this method returns.
         """
         pin = validate_pin_sha256(pin_sha256)
         clean_host = validate_hostname(hostname, context=HostFieldContext.RECEIVER)
@@ -2872,17 +2378,10 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
     async def _validate_submit_job_config(self, configuration: object) -> tuple[str, Path]:
         """Validate the WS *configuration* arg, return ``(name, yaml_path)``.
 
-        Validates the path-traversal boundary via
-        :meth:`DashboardSettings.rel_path` and returns the
-        resolved :class:`Path` so the downstream bundle build
-        doesn't have to redo the executor hop. ``rel_path`` is
-        blocking (``Path.resolve`` = ``os.path.abspath``
-        syscall) so the call lives inside an executor.
-        Mirrors
-        :meth:`FirmwareController._validate_configuration_boundary`'s
-        shape; lifted as a private helper so the future
-        bulk-submit variant (multi-config offload) can reuse
-        the same gate.
+        Path-traversal boundary via :meth:`DashboardSettings.rel_path`;
+        executor hop because ``Path.resolve`` is a syscall. Returns
+        the resolved path so the downstream bundle build doesn't
+        redo the hop.
         """
         if not isinstance(configuration, str) or not configuration:
             msg = "configuration must be a non-empty string"
@@ -2894,20 +2393,12 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
     def _lookup_open_peer_link_client(self, pin_sha256: str, *, label: str) -> PeerLinkClient:
         """Return the live :class:`PeerLinkClient` for *pin_sha256*, raising on miss.
 
-        Two error codes the frontend branches on: ``NOT_FOUND``
-        for a missing pairing (typo / row removed concurrently),
-        ``PRECONDITION_FAILED`` for any of the
-        not-ready-for-traffic states (PENDING, client not
-        spawned, orphaned, mid-reconnect). The latter four are
-        folded into one raise — the user's recovery is the
-        same (wait + retry); the distinguishing detail is for
-        the operator's log line, not a UI branch.
-
-        ``label`` names the calling operation in the
-        :class:`CommandError` message (``"submit_job"`` /
-        ``"cancel_job"`` / future senders) so the user-facing
-        text identifies which WS command failed rather than
-        always saying ``"submit_job: ..."``.
+        ``NOT_FOUND`` for a missing pairing; ``PRECONDITION_FAILED``
+        for any of the not-ready states (PENDING, client not
+        spawned, orphaned, mid-reconnect) — all four fold into
+        one raise since the user's recovery is the same (wait +
+        retry); the distinguishing reason rides in the log line.
+        *label* names the calling op in the error message.
         """
         pairing = self._pairings.get(pin_sha256)
         if pairing is None:
@@ -2930,16 +2421,11 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
         """Build the bundle bytes for *yaml_path*.
 
         Wraps :func:`helpers.config_bundle.build_yaml_bundle`
-        (which spawns the ``esphome bundle`` CLI). Maps the
-        two structured failure modes
-        (:class:`FileNotFoundError`, :class:`BundleBuildError`)
-        to typed :class:`CommandError`; anything else
-        propagates and lands as ``INTERNAL_ERROR`` via the WS
-        dispatcher's outer ``except Exception``.
-
-        *configuration* is the original wire-arg, used only for
-        diagnostic messages; *yaml_path* is the resolved path
-        :meth:`_validate_submit_job_config` already produced.
+        (spawns the ``esphome bundle`` CLI). Maps
+        :class:`FileNotFoundError` → ``NOT_FOUND`` and
+        :class:`BundleBuildError` → ``INVALID_ARGS``; anything
+        else propagates to ``INTERNAL_ERROR``. *configuration*
+        is the original wire-arg used in diagnostics.
         """
         from ...helpers.config_bundle import (  # noqa: PLC0415
             BundleBuildError,
@@ -2969,73 +2455,24 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
     ) -> dict[str, Any]:
         """Bundle *configuration* and dispatch a build to the receiver behind *pin_sha256*.
 
-        Offloader-side counterpart of the receiver's
-        :class:`SubmitJobReceiver` accept path. Validates the
-        request, packs the config + every referenced file
-        (includes, secrets, fonts, images, …) into a gzipped
-        tarball via the ``esphome bundle`` CLI subprocess
-        (:func:`helpers.config_bundle.build_yaml_bundle`), and
-        streams the bytes over the existing peer-link session.
-        Returns the receiver's ``submit_job_ack`` shape so the
-        frontend can render success / rejection inline; live
-        job lifecycle + output are pushed asynchronously
-        through ``OFFLOADER_JOB_STATE_CHANGED`` /
+        Offloader-side counterpart of :class:`SubmitJobReceiver`.
+        Packs the config + referenced files (includes, secrets,
+        fonts, images, …) into a gzipped tarball via the
+        ``esphome bundle`` CLI subprocess and streams it over
+        the existing peer-link session. Live job lifecycle +
+        output ride ``OFFLOADER_JOB_STATE_CHANGED`` /
         ``OFFLOADER_JOB_OUTPUT`` events on the
-        ``subscribe_events`` stream.
+        ``subscribe_events`` stream; this call returns only the
+        receiver's ``submit_job_ack``.
 
-        Validation gates (in order, so the cheapest user-input
-        errors short-circuit before we touch disk or the wire):
-
-        1. ``pin_sha256`` shape (lowercase 64-hex).
-        2. ``target`` value (one of ``compile`` / ``upload``).
-        3. ``configuration`` shape + path-traversal boundary
-           (resolves to a leaf YAML under ``config_dir``).
-        4. Pairing exists, status is APPROVED.
-        5. Peer-link client exists and a session is currently
-           live.
-
-        After validation, build the bundle by spawning
-        ``esphome bundle <yaml> -o <tmp.tar.gz>`` with a 60s
-        timeout (see
-        :func:`helpers.config_bundle.build_yaml_bundle`).
         Subprocess instead of in-process because the CLI is the
-        stable upstream contract (the in-process
-        ``read_config`` + ``ConfigBundleCreator`` would couple
-        us to ``CORE.config_path`` + the validation pipeline,
-        both of which shift across ESPHome releases). Generate
-        a fresh ``job_id`` and hand off to
-        :meth:`PeerLinkClient.submit_job`. The bundle is
-        rebuilt every call: a stale cache would ship the wrong
-        source after the user edits a YAML.
+        stable upstream contract — in-process ``read_config``
+        would couple us to the ESPHome validation pipeline,
+        which shifts across releases. Bundle is rebuilt every
+        call so a YAML edit can't ship a stale cache.
 
-        Returns:
-            ``{"job_id": <our id>, "accepted": <bool>,
-              "reason": <str>}`` — ``reason`` only present on
-              rejection (matches :class:`SubmitJobAckFrameData`'s
-              ``NotRequired[str]``).
-
-        Raises:
-            :class:`CommandError(INVALID_ARGS)` for bad inputs
-                (pin / target / configuration shape) or a
-                ``esphome bundle`` non-zero exit (schema-
-                invalid YAML, missing include, malformed
-                secret — the CLI's stdout is inlined into
-                the message).
-            :class:`CommandError(NOT_FOUND)` if no pairing
-                exists for *pin_sha256* or the YAML is missing
-                from ``config_dir``.
-            :class:`CommandError(PRECONDITION_FAILED)` if the
-                pairing isn't APPROVED, or the peer-link
-                session isn't currently live (orphaned client,
-                receiver unreachable, mid-reconnect).
-            :class:`CommandError(UNAVAILABLE)` if the wire-side
-                send fails mid-flow or the ack times out (the
-                session may have died between the open check
-                and the send; the receiver may have been
-                slow under load).
-            :class:`CommandError(INTERNAL_ERROR)` for
-                unexpected failures inside the bundle
-                subprocess (e.g. ``esphome`` not on PATH).
+        Returns ``{"job_id": <our id>, "accepted": <bool>,
+        "reason": <str>}`` (``reason`` only on rejection).
         """
         clean_pin = validate_pin_sha256(pin_sha256)
         clean_target = validate_submit_job_target(target)
@@ -3077,66 +2514,18 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
     ) -> dict[str, Any]:
         """Fetch the build's flash-artifact set for *job_id* from the paired receiver.
 
-        Sends ``download_artifacts{job_id}`` over the open
+        Sends ``download_artifacts{job_id}`` over the live
         peer-link to *pin_sha256*, parks on the assembled-bytes
-        future the receive-loop fills as
-        ``artifacts_start`` / ``artifacts_chunk`` /
-        ``artifacts_end`` frames land, then unpacks the
-        SHA-256-verified gzipped tarball into a structured
-        response the offloader's frontend can hand directly to
-        its install paths (Web Serial / network OTA /
-        download-to-disk).
+        future the receive loop fills via
+        ``artifacts_start`` / ``_chunk`` / ``_end`` frames,
+        unpacks the SHA-256-verified gzipped tarball, and
+        rewrites ``idedata.extra.flash_images[].path`` from
+        receiver-absolute paths to the bare basenames the
+        frontend's install path looks up.
 
-        Validation gates (cheapest first, so user-input errors
-        short-circuit before any wire work):
-
-        1. ``pin_sha256`` shape (lowercase 64-hex).
-        2. ``job_id`` shape (non-empty string).
-        3. Pairing exists, status is APPROVED, peer-link
-           session live.
-
-        After validation, hand off to
-        :meth:`PeerLinkClient.download_artifacts` for the
-        round-trip; on success, unpack the tarball off the
-        event loop (executor) and rewrite
-        ``idedata.extra.flash_images[].path`` from the
-        receiver's absolute build-dir paths to the bare
-        basenames the offloader's install path looks up in
-        the returned ``images`` list.
-
-        Returns:
-            ``{job_id, idedata, images, total_bytes}`` —
-            ``idedata`` is the parsed manifest (with rewritten
-            paths), ``images`` is a list of
-            ``{name, offset, size, data_b64}`` entries
-            (``firmware.bin`` first, then
-            ``idedata.extra.flash_images`` in their declared
-            order), and ``total_bytes`` is the sum of every
-            image's ``size`` for the frontend's progress UI.
-
-        Raises:
-            :class:`CommandError(INVALID_ARGS)` for bad
-                inputs (pin / empty job_id) or a malformed
-                tarball from the receiver.
-            :class:`CommandError(NOT_FOUND)` if no pairing
-                exists for *pin_sha256*, or the receiver
-                reported ``unknown_job`` /
-                ``build_dir_missing`` (the job doesn't exist
-                on the receiver, or its build dir was wiped
-                by the cleanup sweep before download).
-            :class:`CommandError(PRECONDITION_FAILED)` if the
-                pairing isn't APPROVED, the peer-link
-                session isn't live, or the receiver reported
-                ``job_not_completed`` /
-                ``duplicate_download`` (job still running, or
-                another download is already streaming for
-                this session).
-            :class:`CommandError(UNAVAILABLE)` if the wire
-                send fails mid-flow, the session ends mid-
-                download, or the receiver reported
-                ``pack_failed`` (build artifacts couldn't be
-                read on the receiver — disk error, race with
-                cleanup).
+        Returns ``{job_id, idedata, images, total_bytes}`` —
+        ``images`` is ``firmware.bin`` first, then
+        ``idedata.extra.flash_images`` in declared order.
         """
         clean_pin = validate_pin_sha256(pin_sha256)
         if not isinstance(job_id, str) or not job_id:
@@ -3168,30 +2557,15 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
     ) -> dict[str, bool]:
         """Send a ``cancel_job`` frame to the receiver behind *pin_sha256*.
 
-        Cooperative cancellation for a previously-submitted
-        remote-driven job. *job_id* is the offloader-local id
-        the original :meth:`submit_job` returned. The handler
-        validates the pairing + session, then fires the frame
-        through :meth:`PeerLinkClient.cancel_job` — fire-and-
-        forget; the receiver's resulting
-        ``job_state_changed{status: cancelled}`` frame is the
-        confirmation, surfaced through the existing
-        :attr:`EventType.OFFLOADER_JOB_STATE_CHANGED` plumbing.
+        Fire-and-forget cancel for a previously-submitted
+        remote-driven job; the receiver's resulting
+        ``job_state_changed{cancelled}`` is the confirmation,
+        surfaced via ``OFFLOADER_JOB_STATE_CHANGED``.
 
         Returns ``{"sent": <bool>}`` reflecting whether the
-        frame made it onto the wire. ``sent=false`` means a
-        same-tick channel failure (Noise encrypt / WS send);
-        the caller should treat it the same as a typed error
-        — the cancel didn't reach the receiver.
-
-        Raises:
-            :class:`CommandError(INVALID_ARGS)` for bad inputs
-                (pin / empty job_id).
-            :class:`CommandError(NOT_FOUND)` if no pairing
-                exists for *pin_sha256*.
-            :class:`CommandError(PRECONDITION_FAILED)` if the
-                pairing isn't APPROVED, or the peer-link
-                session isn't currently live.
+        frame made it onto the wire; ``sent=false`` is a
+        same-tick channel failure the caller should treat as
+        an error.
         """
         clean_pin = validate_pin_sha256(pin_sha256)
         if not isinstance(job_id, str) or not job_id:
@@ -3241,50 +2615,19 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
         """
         Bundle the scheduler's input state into an immutable snapshot.
 
-        Pure synchronous read of three RAM-canonical dicts plus
-        a master toggle: ``_pairings`` (every paired receiver,
-        PENDING + APPROVED), ``_open_peer_links`` (pin_sha256 set
-        of currently-live peer-link sessions), and
-        ``_peer_queue_status`` (most recent ``queue_status``
-        snapshot per pin). Construction is sync + side-effect-
-        free so the ``firmware/install`` WS handler can call it
-        without an executor hop on the hot install path.
+        Pure sync read of three RAM-canonical structures plus
+        the master toggle: ``_pairings`` (every paired receiver),
+        ``_open_peer_links`` (pin set of live sessions), and
+        ``_peer_queue_status`` (most recent queue snapshot per
+        pin). The ``Mapping`` / ``frozenset`` typing prevents
+        the caller from mutating the mapping membership.
 
-        The :class:`BuildSchedulerInputs` typing
-        (``Mapping[str, StoredPairing]`` + ``frozenset[str]`` +
-        ``Mapping[str, PeerQueueStatusSnapshotEntry]``) forces
-        the caller into read-only iteration: a concurrent
-        mutation on the controller's underlying *mapping*
-        membership during a long-running install (a fresh
-        pairing landing on a different event-loop tick)
-        doesn't poison the snapshot the scheduler is walking.
-
-        The shallow copy doesn't extend to the
-        :class:`StoredPairing` rows themselves —
-        ``StoredPairing`` is a mutable ``@dataclass`` and is
-        edited in place elsewhere
-        (e.g. ``_apply_pair_status_result`` updates
-        ``esphome_version`` on an existing row;
-        ``_commit_endpoint_rebind`` rewrites the hostname /
-        port pair). The scheduler today is the only consumer,
-        runs sync on the same event-loop tick as the install
-        handler, and reads the four scalar fields
-        (``status`` / ``paired_at`` / ``pin_sha256`` /
-        ``esphome_version``) that aren't being mutated by any
-        in-flight call. If a future consumer needs a deep
-        snapshot stable across awaits, the right shape is
-        ``BuildSchedulerInputs.pairings: Mapping[str,
-        PairingSummary]`` (frozen-by-projection at construction
-        time) — flagged here so the surface choice is a
-        deliberate move, not a silent assumption.
-
-        ``remote_builds_enabled`` reads :attr:`_remote_builds_enabled`,
-        the master switch the offloader Settings UI flips
-        through ``set_offloader_settings``. ``False``
-        gates every install to LOCAL without tearing down the
-        peer-link sessions — the Send-builds power-user dialog
-        and the receiver-side housekeeping (queue_status push,
-        artifact downloads for manual dispatches) keep working.
+        Shallow copy only — :class:`StoredPairing` rows are
+        edited in place elsewhere. The scheduler runs sync on
+        the same event-loop tick and reads only fields not
+        mutated by in-flight calls. A future consumer that
+        needs deep stability across awaits should project to
+        :class:`PairingSummary`.
         """
         return BuildSchedulerInputs(
             remote_builds_enabled=self._remote_builds_enabled,
@@ -3296,24 +2639,10 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
     def pairings_snapshot(self) -> list[PairingSummary]:
         """Return the in-memory pairings snapshot (PENDING + APPROVED).
 
-        Pure synchronous read of the unified ``_pairings`` dict —
-        no executor hop, no disk read, no race window.
-        :meth:`start` seeded the dict from disk; every mutation
-        since has flowed through the same dict, so RAM is the
-        canonical source of truth.
-
-        Used by
-        :meth:`device_builder.DeviceBuilder._cmd_subscribe_events`
-        to seed the frontend's initial state. Live updates flow
-        from ``OFFLOADER_PAIR_STATUS_CHANGED`` bus events through
-        the same ``subscribe_events`` stream — the events fire
-        right after the dict mutation, so a subscriber that reads
-        the snapshot then attaches its event handler will see
-        every state change without missing any.
-
-        Not a WS command: the dashboard frontend always subscribes
-        on app-startup, so a separate snapshot read would just be
-        a redundant round-trip.
+        Pure sync read; RAM-canonical after :meth:`start` seeds
+        from disk. Seeds the frontend's initial state via
+        ``subscribe_events``; live updates ride the same stream
+        as ``OFFLOADER_PAIR_STATUS_CHANGED``.
         """
         return [self._pairing_summary_for(p) for p in self._pairings.values()]
 
@@ -3343,23 +2672,10 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
     def offloader_alerts_snapshot(self) -> list[OffloaderAlertSnapshotEntry]:
         """Return the in-memory offloader pair alerts snapshot.
 
-        Pure sync read of ``_offloader_alerts`` — same shape
-        rationale as :meth:`pairings_snapshot`. The snapshot is
-        ordered by insertion (Python ``dict`` insertion order
-        contract); the most-recent alert lands at the end of
-        the list. Frontends that want "newest first" reverse
-        client-side. RAM-only state — backend restart drops
-        the dict, the snapshot empties, and the frontend's
-        next subscribe sees no alerts (matches the design:
-        alerts describe transient detections).
-
-        Used by
-        :meth:`device_builder.DeviceBuilder._cmd_subscribe_events`
-        to seed the offloader UI's alerts list. Live updates flow
-        from ``OFFLOADER_PAIR_PIN_MISMATCH`` /
-        ``OFFLOADER_PAIR_PEER_REVOKED`` /
-        ``OFFLOADER_PAIR_ALERT_DISMISSED`` events through the
-        same ``subscribe_events`` stream.
+        Pure sync read; insertion-ordered (newest at end).
+        RAM-only — restart empties the dict. Seeds the
+        offloader UI's alerts list via
+        ``subscribe_events.initial_state``.
         """
         return list(self._offloader_alerts.values())
 
@@ -3507,27 +2823,16 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
     ) -> None:
         """Drop any pairing or alert at ``(hostname, port)`` whose pin isn't *keep_pin_sha256*.
 
-        Called from :meth:`request_pair` to clean up stale rows
-        when the user re-pairs against the same network
-        coordinates under a fresh pin (receiver rotated
-        identity, or a different receiver moved to that
-        hostname). Without this sweep, the old row + its
-        listener task + alert would leak under pin-keying — the
-        new entry lands at the new pin, and the old pin's slot
-        keeps pointing at a stale row nobody references.
+        Cleans up after a re-pair against the same endpoint
+        under a fresh pin (receiver rotated identity, or a
+        different receiver took the hostname). Without the
+        sweep the old row + listener task + alert would leak
+        under pin-keying.
 
-        ``keep_pin_sha256`` is the pin of the row the caller is
-        about to install; rows under that pin are skipped (the
-        caller's own write is the source of truth).
-
-        Walks both ``_pairings`` and ``_offloader_alerts``: an
-        alert can outlive its pairing in some race paths (e.g.
-        ``_apply_pair_status_result``'s pin-drift branch
-        registered the alert and dropped the pairing under the
-        old pin), so dropping by pin alone wouldn't cover the
-        re-pair-clears-old-alert contract. Snapshots the dicts
-        to lists before iterating so the in-loop pop doesn't
-        mutate-during-iteration.
+        Walks both ``_pairings`` and ``_offloader_alerts``
+        because an alert can outlive its pairing on the
+        pin-drift branch. Snapshots to lists before iterating
+        to avoid mutate-during-iteration.
         """
         for stale_pin, pairing in list(self._pairings.items()):
             if stale_pin == keep_pin_sha256:
@@ -3611,39 +2916,17 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
     ) -> bool:
         """Apply a pair-status response. Return True when the listener should exit.
 
-        Listener only spawns for rows the controller has in
-        ``_pairings`` (typically PENDING — APPROVED rows don't
-        need a listener once persisted), so each terminal branch
-        either flips the row's ``status`` or drops it, schedules
-        the debounced save, and fires the bus event.
+        * APPROVED + matching pin → flip the row to APPROVED.
+        * APPROVED + drifted pin → drop the row (peer-revoked;
+          new pubkey under existing trust requires re-pair).
+        * REJECTED → drop the row (admin rejected, window
+          closed, offloader rotated, or row never existed).
+        * Anything else → log + reconnect.
 
-        * APPROVED + matching pin → flip row to
-          ``status=APPROVED``, schedule save, fire
-          ``status="approved"``.
-        * APPROVED + drifted pin → drop row, schedule save, fire
-          ``status="removed"``. Receiver-side identity rotated
-          since pair time; treat as peer-revoked rather than
-          silently substituting the new pubkey under the user's
-          existing trust.
-        * REJECTED → drop row, schedule save, fire
-          ``status="removed"``. Receiver returned this when admin
-          clicked Reject, the window closed (clearing the
-          receiver-side pending dict), the offloader's identity
-          rotated, or the row never existed on the receiver. From
-          the offloader's POV all four cases collapse to "drop
-          the local row, user can re-pair if they want."
-        * PENDING / OK / NO_PAIRING_WINDOW shouldn't appear here
-          — the long-poll only returns APPROVED or REJECTED. Log
-          + reconnect on the off-chance a future receiver bug
-          emits something unexpected.
-
-        Race-safe against ``unpair``: every branch pops or mutates
-        via a single ``pop``-keyed comparison; if the user ran
-        ``unpair`` between our ``await await_pair_status(...)``
-        and this branch the row is already gone, so the controller
-        skips both promotion and event-firing. ``unpair`` itself
-        fires ``status="removed"`` so other subscribed clients
-        still see the removal.
+        Race-safe against ``unpair``: every branch keys on
+        ``self._pairings.pop(key, None)``, so if the user
+        unpaired between the await and this branch we skip
+        promotion + event-firing silently.
         """
         host = pairing.receiver_hostname
         port = pairing.receiver_port
@@ -3871,43 +3154,22 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
         """
         Mint a fresh X25519 peer-link keypair, replacing whatever's on disk.
 
-        Forces every paired offloader to re-pair: the new
-        ``pin_sha256`` (SHA-256 of the new public key) is what
-        peers verify against on the next Noise handshake, and
-        any peer that pinned the old one will see a fingerprint
-        mismatch and surface the re-pair wizard. The
-        ``dashboard_id`` is preserved so the receiver-side
-        audit trail stays readable across rotations.
+        Forces every paired offloader to re-pair — peers pinned
+        on the old ``pin_sha256`` see a fingerprint mismatch on
+        the next handshake. ``dashboard_id`` is preserved.
 
-        Side effects: (1) the bound peer-link site is torn down
-        and rebuilt with the fresh X25519 key if remote-build
-        is currently enabled and bound; the rebuild fail-softs
-        (``listener_bound=False`` in the response) so the
-        Settings UI can show "rotation succeeded but the
-        listener didn't come back up — check logs". (2) The
-        mDNS advertise picks up the new ``pin_sha256`` only
-        when the listener was bound at rotation time: the
-        TXT contract is "pin + port appear iff the listener
-        is currently bound", so an unbound rotation leaves
-        mDNS alone and the next successful bind (after the
-        operator flips remote-build on, or after the
-        fail-soft path resolves) advertises the new pin.
-        (3) An :attr:`EventType.REMOTE_BUILD_IDENTITY_ROTATED`
-        event fires on the bus carrying
-        ``{dashboard_id, pin_sha256}`` regardless of
-        listener-bound state — subscribers (the offloader-side
-        peer-link, the receiver Settings UI) refresh their
-        cached pin without polling ``get_identity`` even when
-        the listener didn't come back up.
+        Side effects when remote-build is currently bound:
+        listener torn down + rebuilt with the fresh key,
+        ``pin_sha256`` re-advertised in mDNS, rebuild fail-softs
+        (``listener_bound=False`` in the response).
+        :attr:`EventType.REMOTE_BUILD_IDENTITY_ROTATED` fires
+        regardless of bind state so subscribers can refresh
+        cached pins without polling.
 
-        **Concurrent calls fail with ``ALREADY_EXISTS``.** Two
+        Concurrent calls return ``ALREADY_EXISTS`` — two
         rotations racing would each tear down + rebuild the
-        listener, and back-to-back rotation is almost always an
-        accidental double-click rather than two intentional
-        events; the frontend is expected to confirm before each
-        call. Rotation is otherwise intentionally cheap to
-        invoke (X25519 keygen + one atomic file write), bounded
-        only by the WS auth gate on this command's channel.
+        listener; back-to-back is almost always an accidental
+        double-click.
         """
         # Single-threaded asyncio guarantees the check + set is
         # atomic — no other coroutine runs between these two
@@ -4062,41 +3324,21 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
         Process an ``intent="pair_request"`` Noise session.
 
         Returns:
-        * :attr:`IntentResponse.APPROVED` — a row already exists
-          for this ``dashboard_id`` with status APPROVED **and**
-          its stored pin matches the handshake's. Returns
-          ``APPROVED`` without changing the row or firing the
-          event; demoting an already-trusted peer back to PENDING
-          on every stray pair_request would force the receiving
-          dashboard's user to re-approve on every offloader
-          hiccup, which is hostile UX. **Bypasses the pairing
-          window** — the offloader is re-establishing existing
-          trust, not asking for new authorization, so admin
-          doesn't need to be on the Pairing requests screen.
-        * :attr:`IntentResponse.PENDING` — created a new
-          ``StoredPeer`` (or refreshed an existing PENDING row's
-          pin / label / paired_at). Only reachable while the
-          pairing window is open — both branches that would
-          create / refresh a PENDING row check
-          :meth:`is_pairing_window_open` first and return
-          ``NO_PAIRING_WINDOW`` when closed (admin has to be on
-          the Pairing requests screen for new authorization). On
-          the PENDING path, fires
-          :attr:`EventType.REMOTE_BUILD_PAIR_REQUEST_RECEIVED` so
-          the receiver UI surfaces the request in the inbox.
-        * :attr:`IntentResponse.REJECTED` — a row exists for this
-          ``dashboard_id`` with status APPROVED but the
-          handshake's pin doesn't match the stored pin. Either
-          the offloader rotated their identity under us, or
-          someone is presenting a fresh keypair and claiming
-          Alice's ``dashboard_id``. Refuse regardless of window
-          state; the receiver-side user has to remove the peer
-          and re-pair if the rotation is legitimate.
-        * :attr:`IntentResponse.NO_PAIRING_WINDOW` — admin isn't
-          on the Pairing requests screen, and this request would
-          create or refresh a PENDING row. Returned for the
-          unknown-dashboard_id branch and the existing-PENDING
-          branch only.
+        * ``APPROVED`` — row exists for ``dashboard_id`` with
+          APPROVED status and matching pin. Re-pair against
+          existing trust bypasses the pairing window so an
+          offloader hiccup doesn't force a re-approve.
+        * ``PENDING`` — new ``StoredPeer`` created or existing
+          PENDING row refreshed. Only reachable inside an open
+          pairing window; fires
+          :attr:`EventType.REMOTE_BUILD_PAIR_REQUEST_RECEIVED`
+          so the receiver UI surfaces the inbox row.
+        * ``REJECTED`` — APPROVED row exists but pin doesn't
+          match: offloader rotated identity, or someone is
+          claiming a stranger's ``dashboard_id``. Refused
+          regardless of window state.
+        * ``NO_PAIRING_WINDOW`` — closed window for a request
+          that would create/refresh a PENDING row.
         """
         # Already-APPROVED branch — RAM read, no disk hop. The
         # dict is the source of truth at runtime; ``start`` seeded
@@ -4125,57 +3367,16 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
         if not self.is_pairing_window_open():
             return IntentResponse.NO_PAIRING_WINDOW
 
-        # Security: refuse to overwrite a PENDING entry's pubkey.
-        # The retry case the comment below describes is legitimate
-        # only when the *same* offloader sends a second
-        # ``pair_request`` — same X25519 keypair, possibly different
-        # label / peer_ip / paired_at. A different pubkey under the
-        # same dashboard_id is one of:
-        #   1. A second peer claiming the same dashboard_id (the
-        #      offloader-generated ``dashboard_id`` has 22 chars of
-        #      base64url entropy; collision is astronomical and
-        #      indistinguishable from impersonation regardless).
-        #   2. The offloader rotating its identity mid-pair-request.
-        #      Identity rotation preserves ``dashboard_id`` (see
-        #      ``rotate_identity`` in ``helpers/dashboard_identity.py``),
-        #      so the rotated-then-retried case is theoretically
-        #      reachable; rejecting forces the operator to abandon
-        #      the stale PENDING row and start over with a fresh
-        #      pair_request, which is the right user-visible outcome.
-        #   3. A LAN-adjacent attacker that read the legitimate
-        #      offloader's broadcast ``dashboard_id`` off mDNS and
-        #      sent a ``pair_request`` with their own pubkey.
-        #
-        # Pre-fix, case (3) silently overwrote the operator's PENDING
-        # row with the attacker's pubkey. Two damage modes:
-        #   * Pairing DoS: an attacker flickers the row between
-        #     legitimate and attacker pubkeys, the inbox keeps
-        #     re-rendering, the operator can't reliably approve
-        #     the right row.
-        #   * Approve-without-verifying impersonation: if the
-        #     operator clicks Approve based on muscle memory
-        #     without re-comparing the on-screen fingerprint to
-        #     their OOB-known one, they approve the attacker's
-        #     pubkey. Paired peers can ``submit_job``, which the
-        #     receiver compiles and serves binaries back for.
-        #
-        # **No practical attack is exploited in the wild today** —
-        # the OOB fingerprint check that operators perform during
-        # the approve step is the actual security gate, and a
-        # vigilant operator catches the swap. This fix is
-        # defense-in-depth: closing the silent-overwrite path
-        # turns the impersonation chain from "operator must
-        # OOB-verify carefully" into "attacker cannot inject a
-        # rival pubkey into an active PENDING row at all". The
-        # DoS variant — which doesn't depend on operator
-        # mistakes — is closed unconditionally.
-        #
-        # Same-pubkey retries still refresh ``label`` / ``peer_ip``
-        # / ``paired_at`` (the legitimate retry case below). The
-        # check is RAM-only; no disk hop, no UI event (firing a
-        # conflict event would only advertise the attempt to an
-        # attacker and let them noise up the inbox by triggering
-        # it on demand — refusing silently is strictly better).
+        # Defense-in-depth: refuse to overwrite a PENDING entry's
+        # pubkey. A different pubkey under the same dashboard_id
+        # means either an offloader-side identity rotation mid-flow
+        # or a LAN attacker who scraped ``dashboard_id`` from mDNS
+        # and is injecting a rival pubkey. The OOB fingerprint check
+        # the operator performs at approve-time is the load-bearing
+        # gate, but silently overwriting also enables a DoS
+        # (attacker flickers the row, operator can't tell which to
+        # approve). Same-pubkey retries refresh label / peer_ip /
+        # paired_at via the legitimate path below.
         existing = self._pending_peers.get(dashboard_id)
         if existing is not None and existing.static_x25519_pub != static_x25519_pub:
             _LOGGER.warning(
@@ -4225,26 +3426,10 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
         """
         Resolve an ``intent="peer_link"`` request.
 
-        Returns:
-        * :attr:`IntentResponse.OK` — peer is APPROVED and the
-          handshake's pubkey hash matches the stored
-          ``pin_sha256``. Caller can keep the WS open for
-          application messages.
-        * :attr:`IntentResponse.PENDING` — peer's row exists in
-          the receiver's in-memory PENDING dict (admin hasn't
-          clicked Accept yet). The offloader's frontend reflects
-          this via the offloader-side ``OFFLOADER_PAIR_STATUS_CHANGED``
-          event stream rather than retrying ``peer_link``;
-          ``peer_link`` is for established sessions, not for
-          waiting on admin approval — that's the
-          ``intent="pair_status"`` long-poll's job.
-        * :attr:`IntentResponse.REJECTED` — no row matches OR the
-          row's stored ``pin_sha256`` doesn't match the
-          handshake's. Either the offloader has never paired
-          (unknown), or the offloader's peer-link identity
-          rotated under us, or someone is claiming Alice's
-          ``dashboard_id`` with their own keys. The offloader
-          treats this as "send a fresh pair_request".
+        Returns ``OK`` if APPROVED + pin matches, ``PENDING`` if
+        the row's still in the pending dict (admin hasn't clicked
+        Accept), ``REJECTED`` for no row or pin drift. The
+        offloader treats REJECTED as "send a fresh pair_request".
         """
         return await self._lookup_peer_response(
             dashboard_id=dashboard_id,
@@ -4261,61 +3446,26 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
         """
         Resolve an ``intent="pair_status"`` query, long-polling on PENDING.
 
-        Returns:
-        * :attr:`IntentResponse.APPROVED` — peer is APPROVED.
-          Snapshot path; returns immediately.
-        * :attr:`IntentResponse.REJECTED` — no row matches OR pin
-          mismatch. Reached three ways: (a) the offloader has
-          never paired, (b) admin clicked Reject (deletes the
-          dict entry), (c) the offloader's peer-link identity
-          rotated under us, (d) the receiver's pairing window
-          closed mid-wait — window-close clears the pending
-          dict and fires ``REMOTE_BUILD_PAIR_STATUS_CHANGED``
-          ``status="removed"`` for each cleared entry, the
-          flip-event wakes the long-poll, and the re-snapshot
-          finds no matching row. The offloader treats REJECTED
-          as a peer-revoked signal regardless of which path
-          produced it: drop the local row.
+        Returns :attr:`IntentResponse.APPROVED` or ``REJECTED``.
+        REJECTED is reached four ways: never paired, admin
+        clicked Reject, offloader's peer-link identity rotated,
+        or window-close cleared the pending dict mid-wait. The
+        offloader treats all of them as peer-revoked.
 
-        Long-poll semantics: with the snapshot at PENDING, await
+        Long-poll: with snapshot=PENDING, await
         :attr:`EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED` for
-        the matching ``dashboard_id``. No timeout — the WS hangs
-        until either the offloader cancels its end, an admin
-        click flips the row (event fires APPROVED), or
-        window-close clears the dict (event fires "removed",
-        re-snapshot returns REJECTED). Receiver-side cost is one
-        parked task per pending peer, bounded by the pending-row
-        count.
+        the matching ``dashboard_id``. No timeout — WS hangs
+        until the offloader cancels or the dict mutates.
 
-        Window-gating is *implicit* now that PENDING peers live
-        in an in-memory dict cleared on window-close: when the
-        window is closed there are no PENDING entries to
-        snapshot, so the snapshot returns REJECTED immediately
-        and the long-poll never starts. The ``is_pairing_window_open()``
-        check at the entry path is unnecessary and absent.
-        ``NO_PAIRING_WINDOW`` is *not* a return value here —
-        closed-window manifests as REJECTED via the empty-dict
-        path; an earlier draft of this method gated explicitly
-        on the window and returned NO_PAIRING_WINDOW, but the
-        in-memory-dict refactor collapsed both cases to REJECTED
-        (cleaner offloader-side branch table — listener treats
-        REJECTED as terminal, doesn't need a separate "window
-        closed, retry later" branch).
+        Listener-attach-before-snapshot ordering is
+        load-bearing: an ``approve_peer`` firing between
+        snapshot and wait must not slip past. Window-gating is
+        implicit — closed window = empty pending dict = REJECTED
+        on snapshot, long-poll never starts.
 
-        Listener registration order is load-bearing: bus
-        ``listening`` attaches BEFORE the snapshot read so an
-        ``approve_peer`` firing between snapshot and wait can't
-        slip past us. Re-snapshot after the flip wakes us keeps
-        the response source-of-truth in one place
-        (:meth:`_lookup_peer_response`) and naturally handles
-        pin-drift (e.g. offloader rotated peer-link key between
-        pair and poll → REJECTED on the re-snapshot).
-
-        Differs from :meth:`lookup_peer_for_session` in just
-        one way: APPROVED returns ``APPROVED`` vs ``OK`` because
-        pair_status is informational while peer_link is
-        connection-establishing. Both paths consult the same
-        dict + list pair via :meth:`_lookup_peer_response`.
+        Differs from :meth:`lookup_peer_for_session` only in
+        returning ``APPROVED`` vs ``OK`` — pair_status is
+        informational, peer_link is connection-establishing.
         """
         flip_event = asyncio.Event()
 
@@ -4390,40 +3540,19 @@ class RemoteBuildController:  # noqa: PLR0904 (grandfathered; new public methods
         """
         Open, extend, or close the pairing window for the calling client.
 
-        Wire shape: ``{open: bool}``. Refcounted by WS client: each
-        ``open=true`` adds (or refreshes) the caller's entry in the
-        active-clients map; ``open=false`` removes it. The window is
-        open iff *any* client has a non-stale entry. The
-        receiver-side frontend calls this on screen-mount and on
-        each activity-driven extend tick (debounced to once per 30s
-        on the wire), and ``open=false`` on screen-unmount /
-        ``beforeunload``. An explicit "extend" / "still pairing?"
-        button in the UI is just another caller of ``open=true``;
-        no separate wire command is needed for it.
+        Refcounted per WS client: ``open=true`` adds/refreshes
+        the caller's entry, ``open=false`` removes it. Window is
+        open iff any client has a non-stale entry. Crashed tabs
+        age out via the 5min idle timeout; a graceful close from
+        one tab leaves the window open for others.
 
-        ``client`` is the WS connection object that the dispatcher
-        injects on every command call (see ``api/ws.py``); we use
-        the connection itself as the refcount dict key, so two
-        browser tabs / two users get distinct entries. Required
-        kwarg with no default: a missing ``client`` would silently
-        bucket every caller under the same key and break the
-        refcount, so we want the loud ``TypeError`` from a missing
-        kwarg instead. Tests pass a stand-in hashable (``"tab-1"``,
-        etc.) to simulate distinct clients.
+        ``client`` is the WS connection injected by the
+        dispatcher — used as the refcount key so two tabs get
+        distinct entries. Required kwarg (a default would
+        silently bucket every caller under the same key).
 
-        Fires :attr:`EventType.REMOTE_BUILD_PAIRING_WINDOW_CHANGED` on
-        every state transition. Idempotent calls that don't change
-        state (close-while-already-closed; or close from a client
-        that wasn't extending while another client still is) do NOT
-        fire; the frontend renders countdown ticks client-side and
-        doesn't need a per-second fire.
-
-        Two-tab / two-user behaviour: window stays open as long as
-        at least one client is extending. A crashed tab ages out
-        naturally via the 5min idle timeout (no per-client
-        disconnect hook is needed); a graceful close from one tab
-        leaves the window open for the other tab. See issue #106
-        design choice (c).
+        Fires :attr:`EventType.REMOTE_BUILD_PAIRING_WINDOW_CHANGED`
+        only on real state transitions; idempotent calls don't.
         """
         if not isinstance(open, bool):
             msg = "remote_build/set_pairing_window: 'open' must be a bool"
