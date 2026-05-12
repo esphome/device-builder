@@ -58,15 +58,23 @@ through it. The held-ref pattern is verified by the unit tests.
 from __future__ import annotations
 
 import hashlib
+from functools import lru_cache
 from typing import cast
 
-from noise.connection import Keypair, NoiseConnection
+from noise.backends.default.keypairs import KeyPair25519
+from noise.connection import NoiseConnection
 from noise.exceptions import (
     NoiseHandshakeError,
     NoiseInvalidMessage,
     NoiseMaxNonceError,
     NoiseValueError,
 )
+
+# Internal key for ``noise_protocol.keypairs`` — Noise's
+# pattern-token notation: ``'s'`` is the local static, mirroring
+# ``noise.connection._keypairs[Keypair.STATIC]``. Hardcoded here
+# so we don't reach into the upstream module-private mapping.
+_NOISE_LOCAL_STATIC = "s"
 
 # Standard Noise pattern name. Same cipher suite the ESPHome device
 # API uses (``Noise_NNpsk0_25519_ChaChaPoly_SHA256``); only the
@@ -130,7 +138,7 @@ class PeerLinkNoiseSession:
         """Construct an initiator session bound to *our_static_priv* (32-byte X25519 priv)."""
         nc = NoiseConnection.from_name(NOISE_PATTERN)
         nc.set_as_initiator()
-        nc.set_keypair_from_private_bytes(Keypair.STATIC, our_static_priv)
+        nc.noise_protocol.keypairs[_NOISE_LOCAL_STATIC] = _cached_static_keypair(our_static_priv)
         nc.start_handshake()
         return cls(nc)
 
@@ -139,7 +147,7 @@ class PeerLinkNoiseSession:
         """Construct a responder session bound to *our_static_priv* (32-byte X25519 priv)."""
         nc = NoiseConnection.from_name(NOISE_PATTERN)
         nc.set_as_responder()
-        nc.set_keypair_from_private_bytes(Keypair.STATIC, our_static_priv)
+        nc.noise_protocol.keypairs[_NOISE_LOCAL_STATIC] = _cached_static_keypair(our_static_priv)
         nc.start_handshake()
         return cls(nc)
 
@@ -270,3 +278,34 @@ def pin_sha256_for_pubkey(static_x25519_pub: bytes) -> str:
     UI and event payloads work in this representation.
     """
     return hashlib.sha256(static_x25519_pub).hexdigest()
+
+
+@lru_cache(maxsize=8)
+def _cached_static_keypair(static_priv: bytes) -> KeyPair25519:
+    """
+    Return the derived ``KeyPair25519`` for *static_priv*, building once.
+
+    ``noise.connection.NoiseConnection.set_keypair_from_private_bytes``
+    runs the X25519 pubkey-from-private derivation on every call —
+    a CodSpeed profile on
+    ``test_xx_session_construction`` showed that derivation
+    (``KeyPair25519.from_private_bytes`` → cryptography →
+    OpenSSL ``ossl_x25519_public_from_private`` →
+    ``ge_scalarmult_base``) dominates ~74% of the session-
+    construction CPU.
+
+    Production has one long-lived static private key per
+    dashboard, set at startup via
+    :mod:`peer_link_identity`. Caching the derived keypair
+    means every subsequent session reuses the same X25519
+    derivation result rather than redoing it. The keypair
+    objects are treated as immutable post-creation by
+    ``noiseprotocol`` (the handshake state reads ``.private`` /
+    ``.public`` / ``.public_bytes`` but doesn't mutate them),
+    so sharing one instance across sessions is safe.
+
+    The ``maxsize=8`` cap keeps the cache bounded under tests
+    that spin fresh identities; production with a single
+    identity sits at one entry.
+    """
+    return KeyPair25519.from_private_bytes(static_priv)
