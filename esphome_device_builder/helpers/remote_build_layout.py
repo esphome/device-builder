@@ -24,8 +24,9 @@ from pathlib import Path, PurePosixPath
 # parent tree, alongside the user's own files.
 REMOTE_BUILDS_NAME = ".remote_builds"
 
-# Under ``.esphome/`` to keep the YAML extract adjacent to
-# StorageJSON / build dirs.
+# Under ``.esphome/`` so the YAML extract sits in the
+# dashboard's hidden artefacts tree rather than at the top
+# level of ``<config_dir>``.
 REMOTE_BUILDS_SUBDIR = Path(".esphome") / REMOTE_BUILDS_NAME
 
 # Bundle lives outside the extract target so upstream
@@ -92,9 +93,12 @@ class RemoteBuildPath:
           other's ``storage/kitchen.yaml.json``. The
           ``dashboard_id`` partition is the isolation gate.
 
-        Sibling to :meth:`subtree`, which holds the per-device
-        YAML extract. Splitting build artefacts (here) from
-        the extract subtree (there) keeps upstream
+        Separate root from :meth:`subtree` — that one is
+        anchored on ``config_dir``, this one on
+        ``CORE.data_dir`` (the same path on default installs,
+        different in HA-addon mode: ``/config/esphome`` vs
+        ``/data``). Splitting build artefacts (here) from the
+        per-device YAML extract (there) keeps upstream
         :func:`esphome.bundle.prepare_bundle_for_compile`'s
         pre-extract wipe off the deep ``build/<env>/.pioenvs``
         tree (PR #578).
