@@ -594,11 +594,16 @@ def redirect_storage_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
         "esphome_device_builder.controllers.devices.controller.resolve_storage_path",
         _ext,
     )
-    # ``_archive_single`` lives in ``controller.py`` but delegates to
-    # ``_wipe_device_build_dir`` and ``_remove_device_sidecars`` over
-    # in ``helpers.py``. Both files import ``resolve_storage_path``
-    # independently; rebinding only one leaves the other path running
-    # against the real CORE.
+    # The archive / delete flow's filesystem dance lives in
+    # ``archive.py``; ``helpers.py`` carries the
+    # ``_wipe_device_build_dir`` / ``_remove_device_sidecars`` half.
+    # Each module imports ``resolve_storage_path`` independently —
+    # rebinding only one leaves the others running against the
+    # real CORE.
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.archive.resolve_storage_path",
+        _ext,
+    )
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.helpers.resolve_storage_path",
         _ext,
