@@ -2130,6 +2130,19 @@ class DevicesController:  # noqa: PLR0904 (grandfathered; new public methods nee
         """
         Stream live device logs. Per-connection, not queued.
 
+        ``port`` is forwarded to ``esphome logs`` as ``--device``;
+        when the caller omits it (or passes the empty string) we
+        default to ``OTA`` to match the legacy dashboard's
+        always-supply-a-target shape and ``firmware/install``'s
+        default. Without that default the CLI sees multiple options
+        (multiple serial ports + the OTA endpoint), falls into an
+        interactive ``input()`` prompt for the port choice, and
+        crashes with ``EOFError`` because our subprocess has no
+        stdin attached — the symptom in issue #636 after a
+        Stop → Start of the log stream from a "this computer"
+        (browser-serial) install, where the frontend leaves
+        ``port`` empty.
+
         ``no_states`` passes ``--no-states`` through to ``esphome logs``
         so component state-publish lines (sensor / binary_sensor /
         switch / cover / climate ...) are suppressed at the source.
@@ -2137,9 +2150,14 @@ class DevicesController:  # noqa: PLR0904 (grandfathered; new public methods nee
         toggle.
         """
         config_path = str(self._db.settings.rel_path(configuration))
-        cmd = [*self._esphome_cmd, "--dashboard", "logs", config_path]
-        if port:
-            cmd.extend(["--device", port])
+        cmd = [
+            *self._esphome_cmd,
+            "--dashboard",
+            "logs",
+            config_path,
+            "--device",
+            port or "OTA",
+        ]
         if no_states:
             cmd.append("--no-states")
         await self._stream_subprocess(cmd, client, message_id)

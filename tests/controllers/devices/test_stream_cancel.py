@@ -255,10 +255,20 @@ async def test_stream_logs_command_includes_dashboard_flag(
     assert captured == [["esphome", "--dashboard", "logs", "kitchen.yaml", "--device", "OTA"]]
 
 
-async def test_stream_logs_command_without_port_omits_device_arg(
+async def test_stream_logs_command_without_port_defaults_to_ota(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """No port given → no ``--device`` arg, ``--dashboard`` still present."""
+    """No port given → ``--device OTA`` (don't let esphome fall into an interactive prompt).
+
+    Regression guard for #636 — the frontend's browser-serial log
+    dialog leaves ``port`` empty after a Stop → Start cycle, and
+    without a default the CLI saw multiple options
+    (``/dev/ttyACM0`` + ``/dev/ttyUSB0`` + OTA) and tried to
+    ``input()`` for the port choice. Our subprocess has no stdin
+    attached, so that crashed with ``EOFError``. Defaulting to OTA
+    mirrors the legacy dashboard's always-supply-a-target shape
+    and ``firmware/install``'s default.
+    """
     ctrl = _make_controller_with_settings(make_controller, tmp_path, ["esphome"])
     captured: list[list[str]] = []
 
@@ -269,7 +279,26 @@ async def test_stream_logs_command_without_port_omits_device_arg(
 
     await ctrl.stream_logs(configuration="kitchen.yaml", client=MagicMock(), message_id="m2")
 
-    assert captured == [["esphome", "--dashboard", "logs", "kitchen.yaml"]]
+    assert captured == [["esphome", "--dashboard", "logs", "kitchen.yaml", "--device", "OTA"]]
+
+
+async def test_stream_logs_command_empty_port_defaults_to_ota(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """Explicit empty-string port behaves the same as no port — defaults to OTA."""
+    ctrl = _make_controller_with_settings(make_controller, tmp_path, ["esphome"])
+    captured: list[list[str]] = []
+
+    async def fake_stream(cmd: list[str], _client: Any, _mid: str, **_kwargs: Any) -> None:
+        captured.append(cmd)
+
+    ctrl._stream_subprocess = fake_stream  # type: ignore[method-assign]
+
+    await ctrl.stream_logs(
+        configuration="kitchen.yaml", port="", client=MagicMock(), message_id="m2e"
+    )
+
+    assert captured == [["esphome", "--dashboard", "logs", "kitchen.yaml", "--device", "OTA"]]
 
 
 async def test_stream_logs_command_appends_no_states_when_requested(
@@ -300,7 +329,7 @@ async def test_stream_logs_command_appends_no_states_when_requested(
 async def test_stream_logs_command_no_states_without_port(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """``no_states=True`` and no ``port`` → ``--no-states`` lands without ``--device``."""
+    """``no_states=True`` and no ``port`` → ``--no-states`` after the OTA default."""
     ctrl = _make_controller_with_settings(make_controller, tmp_path, ["esphome"])
     captured: list[list[str]] = []
 
@@ -316,7 +345,9 @@ async def test_stream_logs_command_no_states_without_port(
         message_id="m2-ns",
     )
 
-    assert captured == [["esphome", "--dashboard", "logs", "kitchen.yaml", "--no-states"]]
+    assert captured == [
+        ["esphome", "--dashboard", "logs", "kitchen.yaml", "--device", "OTA", "--no-states"]
+    ]
 
 
 async def test_stream_logs_command_omits_no_states_by_default(
