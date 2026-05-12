@@ -15,10 +15,13 @@ import os
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+from noise.connection import Keypair, NoiseConnection
 
 from esphome_device_builder.helpers.peer_link_noise import (
+    NOISE_PATTERN,
     HandshakeNotCompleteError,
     PeerLinkNoiseSession,
+    _cached_static_keypair,
     pin_sha256_for_pubkey,
 )
 
@@ -189,3 +192,38 @@ def test_distinct_sessions_derive_distinct_keys() -> None:
     # And each session's ciphertext only round-trips with its own peer.
     assert sessions[0][1].decrypt(ct_a) == b"hello"
     assert sessions[1][1].decrypt(ct_b) == b"hello"
+
+
+def test_static_keypair_is_cached_across_sessions() -> None:
+    """Two sessions built from the same priv reuse one ``KeyPair25519`` instance."""
+    _cached_static_keypair.cache_clear()
+    priv = os.urandom(32)
+    PeerLinkNoiseSession.initiator(priv)
+    PeerLinkNoiseSession.responder(priv)
+    info = _cached_static_keypair.cache_info()
+    # First call missed (built the keypair); second hit the cache.
+    assert info.misses == 1
+    assert info.hits == 1
+
+
+def test_cached_keypair_matches_upstream_derive_path() -> None:
+    """Cached path produces a keypair matching ``set_keypair_from_private_bytes``.
+
+    Canary against the noiseprotocol-internal ``keypairs['s']``
+    slot we assign into: a rename or KeyPair-shape change
+    upstream fires here with a clear pubkey mismatch instead of
+    a silent broken session.
+    """
+    priv = os.urandom(32)
+    # Build the slot the upstream-canonical way…
+    nc_ref = NoiseConnection.from_name(NOISE_PATTERN)
+    nc_ref.set_as_initiator()
+    nc_ref.set_keypair_from_private_bytes(Keypair.STATIC, priv)
+    ref_kp = nc_ref.noise_protocol.keypairs["s"]
+
+    # …then our cached path; the public bytes must match. If
+    # upstream renames the slot or changes its KeyPair shape,
+    # one of these assertions fires.
+    cached_kp = _cached_static_keypair(priv)
+    assert ref_kp is not None
+    assert cached_kp.public_bytes == ref_kp.public_bytes

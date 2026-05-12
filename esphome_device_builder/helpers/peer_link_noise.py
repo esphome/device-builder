@@ -136,7 +136,7 @@ class PeerLinkNoiseSession:
         """Construct an initiator session bound to *our_static_priv* (32-byte X25519 priv)."""
         nc = NoiseConnection.from_name(NOISE_PATTERN)
         nc.set_as_initiator()
-        nc.noise_protocol.keypairs[_NOISE_LOCAL_STATIC] = _cached_static_keypair(our_static_priv)
+        _install_cached_static_keypair(nc, our_static_priv)
         nc.start_handshake()
         return cls(nc)
 
@@ -145,7 +145,7 @@ class PeerLinkNoiseSession:
         """Construct a responder session bound to *our_static_priv* (32-byte X25519 priv)."""
         nc = NoiseConnection.from_name(NOISE_PATTERN)
         nc.set_as_responder()
-        nc.noise_protocol.keypairs[_NOISE_LOCAL_STATIC] = _cached_static_keypair(our_static_priv)
+        _install_cached_static_keypair(nc, our_static_priv)
         nc.start_handshake()
         return cls(nc)
 
@@ -276,6 +276,11 @@ def pin_sha256_for_pubkey(static_x25519_pub: bytes) -> str:
     UI and event payloads work in this representation.
     """
     return hashlib.sha256(static_x25519_pub).hexdigest()
+
+
+def _install_cached_static_keypair(nc: NoiseConnection, static_priv: bytes) -> None:
+    """Install our cached static keypair on *nc* (skips the X25519 derive)."""
+    nc.noise_protocol.keypairs[_NOISE_LOCAL_STATIC] = _cached_static_keypair(static_priv)
 
 
 @lru_cache(maxsize=8)
