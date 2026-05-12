@@ -63,7 +63,8 @@ _REQUIRES_FCNTL = pytest.mark.skipif(
 
 @contextmanager
 def _lock_held_by_thread(config_dir: Path) -> Generator[None]:
-    """Hold the single-instance lock from a background thread.
+    """
+    Hold the single-instance lock from a background thread.
 
     flock on separate fds within one process is treated as
     independent locks (Linux + BSD flock), so a thread that
@@ -90,6 +91,9 @@ def _lock_held_by_thread(config_dir: Path) -> Generator[None]:
     finally:
         release.set()
         thread.join(timeout=5.0)
+        # Surface a stuck thread instead of letting the next test
+        # inherit a live lock holder.
+        assert not thread.is_alive(), "lock-holder thread did not exit after release"
 
 
 @_REQUIRES_FCNTL
