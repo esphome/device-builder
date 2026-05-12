@@ -337,9 +337,9 @@ class DevicesController:  # noqa: PLR0904 (grandfathered; new public methods nee
             return []
         return _build_address_cache_args(device, self._state_monitor)
 
-    def get_ota_address_cache_args(self, configuration: str, port: str) -> list[str]:
-        """Return ``--mdns/--dns-address-cache`` args when ``port == "OTA"``; empty otherwise."""
-        if port != "OTA":
+    def get_ota_address_cache_args(self, configuration: str, port: str | None) -> list[str]:
+        """Return cache args when ``port == "OTA"`` (or ``None`` for always-OTA flows)."""
+        if port is not None and port != "OTA":
             return []
         return self.get_address_cache_args(configuration)
 

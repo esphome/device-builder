@@ -58,6 +58,7 @@ from .constants import (
     _JOBS_KEY,
     _MAX_AUX_TERMINAL_JOBS,
     _MAX_PRIMARY_TERMINAL_JOBS,
+    _OTA_ADDRESS_CACHE_JOB_TYPES,
     _PRIMARY_JOB_TYPES,
     ESPHOME_SUBPROCESS_ENV,
 )
@@ -1718,18 +1719,13 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
     def _build_cache_args(self, job: FirmwareJob) -> list[str]:
         """Return ``--mdns/--dns-address-cache`` args for *job*, or empty."""
-        # Only OTA uploads benefit — serial flashes don't talk to the
-        # device's network address at all. ``rename`` does an internal
-        # OTA install via ``esphome run`` against the *old* address, so
-        # the same cache shortcut applies regardless of ``job.port``.
-        if (
-            job.job_type not in (JobType.UPLOAD, JobType.INSTALL, JobType.RENAME)
-            or self._db.devices is None
-        ):
+        if job.job_type not in _OTA_ADDRESS_CACHE_JOB_TYPES or self._db.devices is None:
             return []
-        if job.job_type == JobType.RENAME:
-            return self._db.devices.get_address_cache_args(job.configuration)
-        return self._db.devices.get_ota_address_cache_args(job.configuration, job.port)
+        # ``rename``'s ``port`` is the post-rename re-install target;
+        # the inner ``esphome run`` against the *old* address is
+        # always OTA, so skip the gate with ``None``.
+        port: str | None = None if job.job_type == JobType.RENAME else job.port
+        return self._db.devices.get_ota_address_cache_args(job.configuration, port)
 
     # ------------------------------------------------------------------
     # Internals — job management

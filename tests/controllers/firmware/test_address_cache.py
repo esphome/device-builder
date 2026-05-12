@@ -246,16 +246,20 @@ def test_get_ota_address_cache_args_empty_for_serial_port() -> None:
 
 
 def test_get_ota_address_cache_args_empty_for_missing_port() -> None:
-    """Empty string is *not* treated as OTA — callers must normalise first.
-
-    ``firmware/upload`` defaults to ``port=""`` and historically did
-    not forward cache args; the helper preserves that behaviour. The
-    ``stream_logs`` caller normalises ``port or "OTA"`` before passing
-    in (matching its ``--device`` default).
-    """
+    """Empty string is *not* treated as OTA — callers must normalise first."""
     controller = _devices_controller_with(_device())
 
     assert controller.get_ota_address_cache_args("kitchen.yaml", "") == []
+
+
+def test_get_ota_address_cache_args_none_is_always_ota() -> None:
+    """``port=None`` skips the OTA gate — for always-OTA flows like ``rename``."""
+    controller = _devices_controller_with(_device())
+
+    assert controller.get_ota_address_cache_args("kitchen.yaml", None) == [
+        "--mdns-address-cache",
+        "kitchen.local=192.168.1.50",
+    ]
 
 
 # ----------------------------------------------------------------------
@@ -311,22 +315,18 @@ def test_cache_args_no_devices_controller() -> None:
     assert controller._build_cache_args(job) == []
 
 
-def test_cache_args_rename_always_uses_cache_regardless_of_port() -> None:
-    """``rename`` runs an internal OTA install against the *old* address.
+def test_cache_args_rename_passes_none_port_to_skip_gate() -> None:
+    """``rename`` calls the helper with ``port=None`` (always-OTA marker).
 
-    ``job.port`` on a rename row isn't a target — it's the value the
-    user picked for the post-rename re-install. The address-cache
-    shortcut applies to the inner OTA either way, so the rename
-    branch goes through ``get_address_cache_args`` directly and
-    bypasses the strict ``port == "OTA"`` gate that the
-    upload / install branches go through.
+    The user-supplied ``job.port`` is the post-rename re-install
+    target — irrelevant to the inner ``esphome run`` against the
+    old address, which is always OTA.
     """
     cache = ["--mdns-address-cache", "k.local=1.2.3.4"]
     devices = MagicMock()
-    devices.get_address_cache_args.return_value = cache
-    # Side-effect deliberately returns [] so we'd notice if the
-    # rename branch leaked into the OTA-gated helper.
-    devices.get_ota_address_cache_args.side_effect = lambda *_args, **_kwargs: []
+    devices.get_ota_address_cache_args.side_effect = lambda _configuration, port: (
+        cache if port in (None, "OTA") else []
+    )
     controller = _firmware_controller_with(devices)
 
     job = FirmwareJob(
@@ -336,8 +336,7 @@ def test_cache_args_rename_always_uses_cache_regardless_of_port() -> None:
         port="/dev/ttyUSB0",
     )
     assert controller._build_cache_args(job) == cache
-    devices.get_address_cache_args.assert_called_once_with("kitchen.yaml")
-    devices.get_ota_address_cache_args.assert_not_called()
+    devices.get_ota_address_cache_args.assert_called_once_with("kitchen.yaml", None)
 
 
 def test_command_places_cache_args_before_subcommand() -> None:

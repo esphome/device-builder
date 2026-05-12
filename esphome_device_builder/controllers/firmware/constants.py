@@ -117,6 +117,11 @@ _PRIMARY_JOB_TYPES: frozenset[JobType] = frozenset(
     {JobType.COMPILE, JobType.UPLOAD, JobType.INSTALL}
 )
 
+# Job types eligible for ``--mdns/--dns-address-cache`` forwarding.
+_OTA_ADDRESS_CACHE_JOB_TYPES: frozenset[JobType] = frozenset(
+    {JobType.UPLOAD, JobType.INSTALL, JobType.RENAME}
+)
+
 # Per-job output cap for retained terminal jobs. Compile output for a
 # successful build runs ~3-10k lines; the head is mostly toolchain
 # noise that's rarely useful once the build finished. Trim
