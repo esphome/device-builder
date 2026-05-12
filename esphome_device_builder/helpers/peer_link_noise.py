@@ -70,10 +70,8 @@ from noise.exceptions import (
     NoiseValueError,
 )
 
-# Internal key for ``noise_protocol.keypairs`` — Noise's
-# pattern-token notation: ``'s'`` is the local static, mirroring
-# ``noise.connection._keypairs[Keypair.STATIC]``. Hardcoded here
-# so we don't reach into the upstream module-private mapping.
+# Noise's pattern-token notation: ``'s'`` is the local static.
+# Mirrors ``noise.connection._keypairs[Keypair.STATIC]``.
 _NOISE_LOCAL_STATIC = "s"
 
 # Standard Noise pattern name. Same cipher suite the ESPHome device
@@ -282,30 +280,5 @@ def pin_sha256_for_pubkey(static_x25519_pub: bytes) -> str:
 
 @lru_cache(maxsize=8)
 def _cached_static_keypair(static_priv: bytes) -> KeyPair25519:
-    """
-    Return the derived ``KeyPair25519`` for *static_priv*, building once.
-
-    ``noise.connection.NoiseConnection.set_keypair_from_private_bytes``
-    runs the X25519 pubkey-from-private derivation on every call —
-    a CodSpeed profile on
-    ``test_xx_session_construction`` showed that derivation
-    (``KeyPair25519.from_private_bytes`` → cryptography →
-    OpenSSL ``ossl_x25519_public_from_private`` →
-    ``ge_scalarmult_base``) dominates ~74% of the session-
-    construction CPU.
-
-    Production has one long-lived static private key per
-    dashboard, set at startup via
-    :mod:`peer_link_identity`. Caching the derived keypair
-    means every subsequent session reuses the same X25519
-    derivation result rather than redoing it. The keypair
-    objects are treated as immutable post-creation by
-    ``noiseprotocol`` (the handshake state reads ``.private`` /
-    ``.public`` / ``.public_bytes`` but doesn't mutate them),
-    so sharing one instance across sessions is safe.
-
-    The ``maxsize=8`` cap keeps the cache bounded under tests
-    that spin fresh identities; production with a single
-    identity sits at one entry.
-    """
+    """Return the derived ``KeyPair25519`` for *static_priv*, building once."""
     return KeyPair25519.from_private_bytes(static_priv)
