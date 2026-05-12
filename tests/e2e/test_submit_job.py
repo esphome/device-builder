@@ -50,7 +50,6 @@ covered separately by tests on :func:`build_yaml_bundle`.
 
 from __future__ import annotations
 
-import asyncio
 import io
 import json
 import tarfile
@@ -300,10 +299,11 @@ async def test_submit_job_round_trip_then_fanout_to_offloader_bus(
     assert job.job_id in paired_instances.receiver._job_fanout._remote_jobs
     paired_instances.receiver_bus.fire(EventType.JOB_STARTED, JobLifecycleData(job=job))
 
-    await asyncio.wait_for(state_changes.received.wait(), timeout=2.0)
-    payload = state_changes[-1]
+    # JOB_QUEUED now fans out as ``queued`` ahead of ``running``;
+    # poll for the running transition rather than asserting on
+    # whichever frame raced to the bus first.
+    payload = await state_changes.wait_for_status("running")
     assert payload["job_id"] == "off-job-1"  # offloader's tag echoed back
-    assert payload["status"] == "running"
     assert payload["pin_sha256"] == paired_instances.pin_sha256
 
 

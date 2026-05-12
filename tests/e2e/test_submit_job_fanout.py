@@ -85,24 +85,25 @@ async def test_remote_peer_job_lifecycle_fans_out_to_offloader_bus(
     state_changes = capture_events(
         paired_instances.offloader_bus, EventType.OFFLOADER_JOB_STATE_CHANGED
     )
+    # ``make_and_seed_remote_peer_job`` fires JOB_QUEUED on the
+    # receiver, which fans out a queued frame the offloader sees
+    # before the running one. Poll until both lifecycle frames
+    # have landed so the lifecycle assertion below is order-
+    # independent against the wire round-trip.
     job = await make_and_seed_remote_peer_job(paired_instances)
-
-    # Drive the lifecycle event the fan-out actually fires for.
     paired_instances.receiver_bus.fire(EventType.JOB_STARTED, JobLifecycleData(job=job))
 
-    # Wait for the wire round-trip — frame send is scheduled as
-    # a background task, frame decrypt + dispatch happens on the
-    # offloader's receive loop on its own task. The capture
-    # ``Event`` flips when the OFFLOADER_JOB_STATE_CHANGED fires.
-    await asyncio.wait_for(state_changes.received.wait(), timeout=2.0)
-    assert len(state_changes) == 1
-    payload = state_changes[-1]
-    assert payload["job_id"] == "off-job-1"  # offloader's tag echoed back
-    assert payload["status"] == "running"
-    assert payload["error_message"] == ""
-    assert payload["pin_sha256"] == paired_instances.pin_sha256
-    assert payload["receiver_hostname"] == "127.0.0.1"
-    assert payload["receiver_port"] == paired_instances.receiver_server.port
+    queued = await state_changes.wait_for_status("queued")
+    running = await state_changes.wait_for_status("running")
+
+    assert queued["job_id"] == "off-job-1"
+    assert queued["error_message"] == ""
+
+    assert running["job_id"] == "off-job-1"  # offloader's tag echoed back
+    assert running["error_message"] == ""
+    assert running["pin_sha256"] == paired_instances.pin_sha256
+    assert running["receiver_hostname"] == "127.0.0.1"
+    assert running["receiver_port"] == paired_instances.receiver_server.port
 
 
 @pytest.mark.asyncio
@@ -127,9 +128,7 @@ async def test_remote_peer_terminal_failure_carries_error_message(
 
     paired_instances.receiver_bus.fire(EventType.JOB_FAILED, JobLifecycleData(job=job))
 
-    await asyncio.wait_for(state_changes.received.wait(), timeout=2.0)
-    payload = state_changes[-1]
-    assert payload["status"] == "failed"
+    payload = await state_changes.wait_for_status("failed")
     assert payload["error_message"] == "esphome compile failed: undefined reference"
 
 

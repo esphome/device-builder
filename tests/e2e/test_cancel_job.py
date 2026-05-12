@@ -174,10 +174,11 @@ async def test_offloader_cancel_job_full_round_trip_to_state_changed(
     # stub didn't fire on its own.
     paired_instances.receiver_bus.fire(EventType.JOB_CANCELLED, JobLifecycleData(job=job))
 
-    await asyncio.wait_for(state_changes.received.wait(), timeout=2.0)
-    payload = state_changes[-1]
+    # The queued frame from ``make_and_seed_remote_peer_job``
+    # may still be on the wire here; poll for the cancelled
+    # transition rather than asserting it's the only entry.
+    payload = await state_changes.wait_for_status("cancelled")
     assert payload["job_id"] == job.remote_job_id
-    assert payload["status"] == "cancelled"
     assert payload["pin_sha256"] == paired_instances.pin_sha256
 
 

@@ -365,11 +365,10 @@ async def make_and_seed_remote_peer_job(
 
     :class:`JobFanout._on_lifecycle` is a sync bus listener that
     looks up the correlation in :attr:`JobFanout._remote_jobs`,
-    populated only by ``JOB_QUEUED`` (the fan-out deliberately
-    skips the queued frame itself; see
-    ``test_submit_job_fanout.py``'s module docstring on why a
-    redundant ``job_state_changed{queued}`` would race the
-    submit ack).
+    populated by ``JOB_QUEUED``. The queued event itself also
+    fans out a ``job_state_changed{queued}`` frame to the
+    submitting offloader so the cross-offloader "waiting in
+    line" screen has its trigger.
     """
     job = make_remote_peer_job(remote_peer=instances.offloader_dashboard_id, error=error)
     instances.receiver_bus.fire(EventType.JOB_QUEUED, JobLifecycleData(job=job))

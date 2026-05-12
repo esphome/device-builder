@@ -342,12 +342,12 @@ async def test_remote_install_submit_then_lifecycle_then_download_on_one_session
 
     * ``submit_job_ack{accepted: true}`` flows back; the
       receiver's recorded job carries the correlation fields.
-    * Two ``OFFLOADER_JOB_STATE_CHANGED`` events landed
-      (``running`` then ``completed``), both echoing the
-      offloader-supplied ``job_id`` and the live ``pin_sha256``
-      from the harness's handshake — the fan-out preserves the
-      offloader's tag rather than leaking the receiver's local
-      id.
+    * ``OFFLOADER_JOB_STATE_CHANGED`` events land for the
+      ``running`` then ``completed`` transitions (a leading
+      ``queued`` from JOB_QUEUED may precede them; this test
+      polls for the named statuses rather than asserting count).
+      Both echo the offloader-supplied ``job_id`` and the live
+      ``pin_sha256`` from the harness's handshake.
     * ``download_artifacts`` returns the StorageJSON +
       ``idedata`` + base64-enveloped image bytes the receiver
       packed; the artifact set survives the round-trip on the
@@ -406,23 +406,13 @@ async def test_remote_install_submit_then_lifecycle_then_download_on_one_session
     # the deterministic sync point.
     paired_instances.receiver_bus.fire(EventType.JOB_QUEUED, JobLifecycleData(job=receiver_job))
     paired_instances.receiver_bus.fire(EventType.JOB_STARTED, JobLifecycleData(job=receiver_job))
-    await asyncio.wait_for(state_changes.received.wait(), timeout=2.0)
-    running_payload = state_changes[-1]
+    running_payload = await state_changes.wait_for_status("running")
     assert running_payload["job_id"] == "off-job-1"
-    assert running_payload["status"] == "running"
     assert running_payload["pin_sha256"] == paired_instances.pin_sha256
 
-    # Re-arm the captured event for the next deterministic wait
-    # — the helper's ``received`` event stays set after the
-    # first deliver, so a second wait_for would return
-    # immediately on the old payload without checking that
-    # JOB_COMPLETED actually fanned out.
-    state_changes.received.clear()
     paired_instances.receiver_bus.fire(EventType.JOB_COMPLETED, JobLifecycleData(job=receiver_job))
-    await asyncio.wait_for(state_changes.received.wait(), timeout=2.0)
-    completed_payload = state_changes[-1]
+    completed_payload = await state_changes.wait_for_status("completed")
     assert completed_payload["job_id"] == "off-job-1"
-    assert completed_payload["status"] == "completed"
     assert completed_payload["pin_sha256"] == paired_instances.pin_sha256
 
     # 5. Flip the recorded receiver-side job to COMPLETED so
@@ -514,10 +504,9 @@ async def test_remote_compile_materialises_for_local_firmware_download(
 
     paired_instances.receiver_bus.fire(EventType.JOB_QUEUED, JobLifecycleData(job=receiver_job))
     paired_instances.receiver_bus.fire(EventType.JOB_STARTED, JobLifecycleData(job=receiver_job))
-    await asyncio.wait_for(state_changes.received.wait(), timeout=2.0)
-    state_changes.received.clear()
+    await state_changes.wait_for_status("running")
     paired_instances.receiver_bus.fire(EventType.JOB_COMPLETED, JobLifecycleData(job=receiver_job))
-    await asyncio.wait_for(state_changes.received.wait(), timeout=2.0)
+    await state_changes.wait_for_status("completed")
     receiver_job.status = JobStatus.COMPLETED
 
     packed = await handle.client.download_artifacts(job_id="off-compile-1")
@@ -809,24 +798,14 @@ async def test_remote_clean_round_trip_lands_clean_job_and_fans_state_back(
     # compile / install.
     _drive_receiver_lifecycle(paired_instances, receiver_job, terminal=EventType.JOB_COMPLETED)
 
-    # Two state changes land on the offloader's bus: running then
-    # completed, both carrying the offloader-supplied ``job_id`` and
-    # the live pin_sha256. JOB_QUEUED doesn't produce a state-change
-    # fan-out (the fan-out fires from JOB_STARTED onward); two
-    # events is the right count. Poll until both have arrived rather
-    # than ``wait_for(received)`` once — the latter wakes on the
-    # first event, races the second one, and would flake on a
-    # slower CPU.
-    async def _wait_for_two_events() -> None:
-        while len(state_changes) < 2:
-            state_changes.received.clear()
-            if len(state_changes) >= 2:
-                return
-            await state_changes.received.wait()
-
-    await asyncio.wait_for(_wait_for_two_events(), timeout=2.0)
-    assert len(state_changes) >= 2
+    # Three state changes land on the offloader's bus: queued,
+    # running, completed; each carries the offloader-supplied
+    # ``job_id`` and the live pin_sha256. Poll for the terminal
+    # one and then check every captured entry rather than racing
+    # ``wait_for(received)`` against the lifecycle.
+    await state_changes.wait_for_status("completed")
     statuses = [payload["status"] for payload in state_changes]
+    assert "queued" in statuses
     assert "running" in statuses
     assert "completed" in statuses
     for payload in state_changes:
