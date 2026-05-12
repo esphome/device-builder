@@ -1257,7 +1257,7 @@ async def test_e2e_peer_link_session_unregistered_on_peer_close(
 async def test_e2e_peer_link_session_drained_on_controller_stop(
     peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
 ) -> None:
-    """``RemoteBuildController.stop()`` terminates active peer-link sessions.
+    """``ReceiverController.stop()`` terminates active peer-link sessions.
 
     The shutdown path snapshots the session dict, sends a
     structured ``terminate{reason: server_shutting_down}`` to
@@ -1336,7 +1336,7 @@ def _install_stub_submit_job_receiver(
     """Wire a stub firmware controller into a fresh :class:`SubmitJobReceiver`.
 
     The ``peer_link_app`` fixture doesn't drive
-    ``RemoteBuildController.start()``, so
+    ``ReceiverController.start()``, so
     ``_submit_job_receiver`` would be ``None`` at dispatch
     time. Tests that exercise the wire-side ``submit_job`` flow
     install a fresh receiver here. Returns the firmware stub +

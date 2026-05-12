@@ -378,12 +378,12 @@ class DeviceBuilder:
 
         # Remote-build peer browse (issue #106): browse the same
         # service type to surface peer dashboards.
-        # ``RemoteBuildController.start`` is itself a no-op when
-        # zeroconf is unavailable — same fail-soft contract as the
-        # advertise — so we don't gate it here. Started AFTER the
-        # advertiser so the browser can capture our own
-        # service-instance name and filter our broadcast out of the
-        # discovered list.
+        # ``OffloaderController.start`` is itself a no-op on the
+        # mDNS path when zeroconf is unavailable — same fail-soft
+        # contract as the advertise — so we don't gate it here.
+        # Started AFTER the advertiser so the browser can capture
+        # our own service-instance name and filter our broadcast
+        # out of the discovered list.
         await self.remote_build_offloader.start()
         await self.remote_build_receiver.start()
 
@@ -954,7 +954,7 @@ class DeviceBuilder:
         """
         Converge the peer-link listener to the on-disk ``enabled`` flag.
 
-        Called by ``RemoteBuildController.set_settings`` after the
+        Called by ``ReceiverController.set_settings`` after the
         new ``enabled`` value lands on disk. Reads back from disk
         under :attr:`_remote_build_lifecycle_lock` so the
         last-writer-wins persisted value is always what the
@@ -993,7 +993,7 @@ class DeviceBuilder:
         """
         Rebuild the peer-link listener after an X25519 identity rotation.
 
-        Wired up to ``RemoteBuildController.rotate_identity`` right
+        Wired up to ``ReceiverController.rotate_identity`` right
         after :func:`rotate_peer_link_identity` writes the new
         X25519 keypair to disk. The new ``pin_sha256`` is what
         every paired offloader pins against on the next Noise

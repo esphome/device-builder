@@ -12,7 +12,7 @@ slipping past two unit suites that pass on the same drift.
 
 The chain:
 
-  offloader-side ``RemoteBuildController.cancel_job`` WS handler
+  offloader-side ``OffloaderController.cancel_job`` WS handler
                        →  ``PeerLinkClient.cancel_job``
                        →  peer-link ``cancel_job`` frame
                           (real Noise AEAD)

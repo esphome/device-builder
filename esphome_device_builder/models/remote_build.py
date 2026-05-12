@@ -17,7 +17,7 @@ class RemoteBuildPeerSource(StrEnum):
     How a peer dashboard ended up in the discovered-hosts surface.
 
     The discovered-hosts surface is
-    :meth:`RemoteBuildController.hosts_snapshot` (sync read used
+    :meth:`OffloaderController.hosts_snapshot` (sync read used
     by ``subscribe_events.initial_state.hosts``) plus the
     matching ``REMOTE_BUILD_HOST_ADDED`` /
     ``REMOTE_BUILD_HOST_REMOVED`` events.
@@ -221,14 +221,14 @@ class OffloaderPairStatusChangedData(TypedDict):
     offloader's local bus from two paths:
 
     * The per-row pair-status listener task
-      (``RemoteBuildController._await_pair_status_flip`` →
+      (``OffloaderController._await_pair_status_flip`` →
       ``_apply_pair_status_result`` → ``_fire_offloader_pair_status_changed``)
       when a previously-PENDING :class:`StoredPairing` flips to
       ``APPROVED`` (admin clicked Accept) or is dropped because
       the receiver returned ``REJECTED`` (admin clicked Reject;
       window closed clearing the receiver-side dict; row never
       existed; pin rotated).
-    * ``RemoteBuildController.unpair`` when the user removes a
+    * ``OffloaderController.unpair`` when the user removes a
       row, so other clients on the global ``subscribe_events``
       stream see the removal without re-fetching the pairings
       snapshot.
@@ -254,7 +254,7 @@ class OffloaderPairEndpointReboundData(TypedDict):
     Payload for ``EventType.OFFLOADER_PAIR_ENDPOINT_REBOUND``.
 
     Fired by the offloader's mDNS auto-rebind path
-    (``RemoteBuildController._probe_and_rebind_endpoint``) after
+    (``OffloaderController._probe_and_rebind_endpoint``) after
     a paired receiver's broadcast arrived from a different
     ``(hostname, port)`` than the ``StoredPairing`` records and a
     probe-before-mutate Noise XX handshake against the new
@@ -280,7 +280,7 @@ class OffloaderPairPinMismatchData(TypedDict):
     Payload for ``EventType.OFFLOADER_PAIR_PIN_MISMATCH``.
 
     Fired by the offloader's per-row pair-status listener task
-    (``RemoteBuildController._apply_pair_status_result``) when a
+    (``OffloaderController._apply_pair_status_result``) when a
     Noise XX handshake to the receiver returns
     ``IntentResponse.APPROVED`` but the observed
     ``pin_sha256`` (lowercase-hex SHA-256 of the receiver's
@@ -407,7 +407,7 @@ class OffloaderPairPeerRevokedData(TypedDict):
     Payload for ``EventType.OFFLOADER_PAIR_PEER_REVOKED``.
 
     Fired by the offloader's per-row pair-status listener task
-    (``RemoteBuildController._apply_pair_status_result``) when
+    (``OffloaderController._apply_pair_status_result``) when
     a Noise XX handshake to the receiver returns
     ``IntentResponse.REJECTED`` for a row the offloader had as
     PENDING / APPROVED. The receiver-side admin clicked Reject,
@@ -462,7 +462,7 @@ class RemoteBuildHostAddedData(TypedDict):
 
     Carries the full :class:`RemoteBuildPeer` projection of an
     mDNS-discovered (or refreshed) peer dashboard. Fires from
-    :meth:`RemoteBuildController._on_service_state_change`'s
+    :meth:`OffloaderController._on_service_state_change`'s
     cache-hit branch and the asynchronous
     :meth:`_resolve_and_apply` resolve-success branch. Upsert
     semantics — the frontend keys the discovered-hosts list on
@@ -572,7 +572,7 @@ class ReceiverPeerLinkSessionOpenedData(TypedDict):
     """
     Payload for ``EventType.RECEIVER_PEER_LINK_SESSION_OPENED``.
 
-    Fired by :meth:`RemoteBuildController.register_peer_link_session`
+    Fired by :meth:`ReceiverController.register_peer_link_session`
     after the receiver has installed an offloader's peer-link
     Noise WS session in its ``_peer_link_sessions`` registry —
     i.e. the post-handshake ``_run_peer_link_session`` is about
@@ -590,7 +590,7 @@ class ReceiverPeerLinkSessionClosedData(TypedDict):
     """
     Payload for ``EventType.RECEIVER_PEER_LINK_SESSION_CLOSED``.
 
-    Fired by :meth:`RemoteBuildController.unregister_peer_link_session`
+    Fired by :meth:`ReceiverController.unregister_peer_link_session`
     when the receiver's session loop unwinds (offloader
     disconnect, heartbeat timeout, controller shutdown,
     ``superseded`` eviction). Receiver-side counterpart to
@@ -609,7 +609,7 @@ class QueueStatusFrameData(TypedDict):
     Application-frame payload for ``AppMessageType.QUEUE_STATUS``.
 
     Wire shape sent by the receiver-side
-    :class:`RemoteBuildController` over an active peer-link
+    :class:`ReceiverController` over an active peer-link
     session whenever the firmware queue transitions
     (``JOB_QUEUED`` / ``JOB_STARTED`` / terminal events).
     Encrypted under the established Noise session and
@@ -716,13 +716,13 @@ class OffloaderRemoteBuildsToggledData(TypedDict):
     """
     Payload for ``EventType.OFFLOADER_REMOTE_BUILDS_TOGGLED``.
 
-    Fires from :meth:`RemoteBuildController.set_offloader_settings`
+    Fires from :meth:`OffloaderController.set_offloader_settings`
     when the operator flips the master "Remote builds enabled"
     switch on the offloader Settings UI. Subscribers are the
     Settings UI on every connected tab — one toggle on one tab
     should flip the switch state on every other open tab without
     a refresh. The scheduler doesn't need this event because it
-    reads :attr:`RemoteBuildController._remote_builds_enabled`
+    reads :attr:`OffloaderController._remote_builds_enabled`
     on every install via :meth:`build_scheduler_snapshot`; the
     event is purely cross-tab UI sync.
     """
@@ -734,7 +734,7 @@ class OffloaderPairingEnabledChangedData(TypedDict):
     """
     Payload for ``EventType.OFFLOADER_PAIRING_ENABLED_CHANGED``.
 
-    Fires from :meth:`RemoteBuildController.set_pairing_enabled`
+    Fires from :meth:`OffloaderController.set_pairing_enabled`
     when the operator flips an individual paired-receiver
     enable switch on the offloader Settings UI. Subscribers
     update the matching row's switch state. The scheduler reads
@@ -760,7 +760,7 @@ class OffloaderRemoteJobSnapshotEntry(TypedDict):
     event-only framing — the receiver's coordinates plus the
     most recent ``status`` / ``error_message`` for an offloader-
     submitted job that hasn't yet reached a terminal state.
-    Cached on :attr:`RemoteBuildController._offloader_remote_jobs`
+    Cached on :attr:`OffloaderController._offloader_remote_jobs`
     and surfaced via
     ``subscribe_events.initial_state.remote_jobs`` so a tab
     subscribing AFTER a ``running`` transition still sees the
@@ -1231,7 +1231,7 @@ class PeerSummary(DataClassORJSONMixin):
     ``connected`` reports whether the receiver currently has
     an active peer-link session for this peer
     (``dashboard_id`` membership in
-    :attr:`RemoteBuildController._peer_link_sessions`). The
+    :attr:`ReceiverController._peer_link_sessions`). The
     field is computed at snapshot-build time from the
     receiver's RAM-canonical session registry — not stored
     on disk — and live updates flow through the
@@ -1240,7 +1240,7 @@ class PeerSummary(DataClassORJSONMixin):
     open / close still sees current state from the snapshot.
     Always ``False`` for PENDING peers: peer-link is gated on
     APPROVED status (the receiver's
-    :meth:`RemoteBuildController.lookup_peer_for_session`
+    :meth:`ReceiverController.lookup_peer_for_session`
     only returns ``OK`` for APPROVED rows), so a PENDING peer
     can never have a registered session.
     """
@@ -1527,7 +1527,7 @@ class PairingSummary(DataClassORJSONMixin):
     offloader's per-pairing :class:`PeerLinkClient` task
     currently has an open peer-link session against the
     receiver. Computed at snapshot-build time from
-    :attr:`RemoteBuildController._open_peer_links`
+    :attr:`OffloaderController._open_peer_links`
     (a ``set[str]`` of ``pin_sha256`` values, populated by
     listeners on :attr:`EventType.OFFLOADER_PEER_LINK_OPENED` /
     :attr:`EventType.OFFLOADER_PEER_LINK_CLOSED` that
@@ -1658,7 +1658,7 @@ class RemoteBuildSettings(DataClassORJSONMixin):
     def __post_init__(self) -> None:
         """Coerce + clamp ``cleanup_ttl_seconds`` on load.
 
-        The WS validator on :meth:`RemoteBuildController.set_settings`
+        The WS validator on :meth:`ReceiverController.set_settings`
         gates writes that come through the WS surface, but the
         on-disk decode path (``from_dict`` →
         ``RemoteBuildSettings(...)``) doesn't apply the same
@@ -1734,7 +1734,7 @@ class ReceiverPeers(DataClassORJSONMixin):
     ``StoredPeer`` list, no other fields, RAM-canonical at
     runtime.
 
-    PENDING peers live in ``RemoteBuildController._pending_peers``
+    PENDING peers live in ``ReceiverController._pending_peers``
     and are never persisted (their lifetime is bounded by the
     pairing window). Only APPROVED rows reach this file.
     """
@@ -1817,9 +1817,9 @@ class PairingWindowState(DataClassORJSONMixin):
     Wire shape for the ``set_pairing_window`` response and the
     ``remote_build_pairing_window_changed`` event payload. Not
     persisted; the per-client extend timestamps live in
-    :attr:`RemoteBuildController._pairing_window_clients` and the
+    :attr:`ReceiverController._pairing_window_clients` and the
     auto-close timer in
-    :attr:`RemoteBuildController._pairing_window_handle`. State
+    :attr:`ReceiverController._pairing_window_handle`. State
     resets on every dashboard restart (which is fine; the
     receiving dashboard's user re-opens the Pairing requests
     screen after restart and the window opens fresh).

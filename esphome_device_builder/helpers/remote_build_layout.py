@@ -16,7 +16,7 @@ Three sites need to know this shape:
 * :mod:`helpers.remote_build_cleanup` walks it
   (iterating ``<dashboard_id>/<device_name>/`` subtrees for the
   6c TTL sweep).
-* :class:`controllers.remote_build.RemoteBuildController`'s
+* :class:`controllers.remote_build.ReceiverController`'s
   cleanup loop parses :attr:`FirmwareJob.configuration` back
   into ``(dashboard_id, device_name)`` to skip in-flight
   subtrees from the sweep.

@@ -139,7 +139,7 @@ async def test_subscribe_events_includes_pairings_snapshot_in_initial_state() ->
     Pins the contract that the frontend's first paint receives the
     full set of pairings server-side knows about (PENDING +
     APPROVED) without a follow-up read. The snapshot is a sync
-    RAM read off ``RemoteBuildController._pairings`` — no executor
+    RAM read off ``OffloaderController._pairings`` — no executor
     hop, no disk read.
     """
     db = DeviceBuilder.__new__(DeviceBuilder)

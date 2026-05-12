@@ -3731,7 +3731,7 @@ def test_on_firmware_queue_transition_skips_when_firmware_missing(
 ) -> None:
     """Bus tick when ``DeviceBuilder.firmware`` is ``None`` short-circuits.
 
-    ``RemoteBuildController.start`` registers the listener
+    ``ReceiverController.start`` registers the listener
     before :class:`DeviceBuilder` finishes wiring all
     controllers, but the ``firmware`` attribute is set first
     in startup; still, a partial-startup race where the bus

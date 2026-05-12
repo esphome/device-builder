@@ -563,7 +563,7 @@ def _hermetic_lifecycle(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(DeviceMqttCoordinator, "reconcile", AsyncMock())
     monkeypatch.setattr(DeviceMqttCoordinator, "stop", AsyncMock())
     # The remote-build feature wires a second mDNS browser
-    # behind ``RemoteBuildController.start``. The lifecycle tests use
+    # behind ``OffloaderController.start``. The lifecycle tests use
     # the same "stub start/stop on the class" trick to keep the
     # smoke test hermetic — the per-controller test file
     # ``test_remote_build_controller.py`` exercises the real browser.

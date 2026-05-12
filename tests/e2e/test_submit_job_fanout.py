@@ -66,7 +66,7 @@ async def test_remote_peer_job_lifecycle_fans_out_to_offloader_bus(
        ``(remote_peer, remote_job_id)`` correlation.
     2. Receiver fires :attr:`EventType.JOB_STARTED`; the
        fan-out looks up the session for ``remote_peer`` in
-       :attr:`RemoteBuildController._peer_link_sessions`,
+       :attr:`ReceiverController._peer_link_sessions`,
        sends a typed :class:`JobStateChangedFrameData` over the
        live peer-link channel.
     3. Offloader's receive loop deserialises the frame, validates

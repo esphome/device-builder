@@ -21,7 +21,7 @@ and threads it in. Two reasons for that shape:
   suite covers them without standing up the controllers or
   the event bus.
 * **Lifetime.** The state the function reads is RAM-canonical
-  and lives on :class:`RemoteBuildController` (``_pairings``,
+  and lives on :class:`OffloaderController` (``_pairings``,
   ``_open_peer_links``, ``_peer_queue_status``). Passing it in
   rather than reaching for the controller keeps the helper
   callable from any future site that's already holding the
@@ -100,7 +100,7 @@ class BuildSchedulerInputs:
     one immutable value so the helper's signature can't be
     misused with raw controller-owned dicts that another task
     might mutate mid-iteration. The caller —
-    :class:`RemoteBuildController` — is responsible for
+    :class:`OffloaderController` — is responsible for
     handing in a *snapshot*: today the natural call site is on
     the same event loop as the controller's mutations so a
     shallow ``dict(...)`` / ``frozenset(...)`` of each field
@@ -202,7 +202,7 @@ def pick_build_path(inputs: BuildSchedulerInputs) -> BuildPathDecision:
       row is skipped; the peer-link client stays open.
     * **Live peer-link session.** ``pin_sha256`` must be in
       ``inputs.open_peer_links`` — the RAM-canonical set the
-      :class:`RemoteBuildController` maintains from
+      :class:`OffloaderController` maintains from
       ``OFFLOADER_PEER_LINK_OPENED`` / ``_CLOSED`` events. An
       APPROVED pairing whose session is reconnecting (or
       orphaned via ``pin_mismatch`` / ``superseded``) doesn't

@@ -600,7 +600,7 @@ async def test_reload_remote_build_identity_advertiser_refresh_failure_is_swallo
 
 
 # ---------------------------------------------------------------------------
-# Live-toggle: ``RemoteBuildController.set_settings`` calls
+# Live-toggle: ``ReceiverController.set_settings`` calls
 # ``DeviceBuilder.apply_remote_build_enabled`` after persisting, so
 # flipping ``enabled`` doesn't require a dashboard restart.
 # ---------------------------------------------------------------------------
@@ -761,7 +761,7 @@ async def test_set_settings_live_rebinds_listener(tmp_path: Path) -> None:
     db = DeviceBuilder(settings)
     db.loop = asyncio.get_running_loop()
     db.bus = EventBus()
-    # ``RemoteBuildController.__init__`` builds a per-file Store
+    # ``OffloaderController.__init__`` builds a per-file Store
     # under ``config_dir / .offloader_pairings.json``; needs a
     # real Path (tmp_path is fine).
     db.remote_build_receiver = None  # not needed — controller doesn't read it

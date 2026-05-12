@@ -428,7 +428,7 @@ async def test_send_app_frame_failure_is_swallowed() -> None:
 def test_start_no_op_without_bus() -> None:
     """``start()`` is a no-op when the controller has no bus wired.
 
-    The receiver's ``RemoteBuildController.start`` constructs
+    The receiver's ``ReceiverController.start`` constructs
     the fan-out only when the firmware controller is present;
     bus presence is also a prerequisite (events flow through
     it). The guard here keeps the helper safe for tests that

@@ -125,10 +125,10 @@ class EventType(StrEnum):
     # Payload: ``{receiver_hostname, receiver_port,
     # status: "approved" | "removed"}``. Fired by the offloader's
     # per-row pair-status listener task
-    # (``RemoteBuildController._fire_offloader_pair_status_changed``,
+    # (``OffloaderController._fire_offloader_pair_status_changed``,
     # called from ``_apply_pair_status_result`` once an
     # ``intent="pair_status"`` round-trip resolves), and also by
-    # ``RemoteBuildController.unpair`` when the user removes a
+    # ``OffloaderController.unpair`` when the user removes a
     # row. Delivered to clients via the existing global
     # ``subscribe_events`` stream — no separate subscription
     # channel. Receiver-side keys aren't carried because the
@@ -220,7 +220,7 @@ class EventType(StrEnum):
     OFFLOADER_PEER_LINK_CLOSED = "offloader_peer_link_closed"
 
     # Receiver-side counterpart to :attr:`OFFLOADER_PEER_LINK_OPENED`.
-    # Fires from :meth:`RemoteBuildController.register_peer_link_session`
+    # Fires from :meth:`ReceiverController.register_peer_link_session`
     # the moment a peer-link Noise WS session lands in the
     # receiver's ``_peer_link_sessions`` registry — i.e. the
     # post-handshake ``_run_peer_link_session`` has installed the
@@ -238,7 +238,7 @@ class EventType(StrEnum):
     RECEIVER_PEER_LINK_SESSION_OPENED = "receiver_peer_link_session_opened"
 
     # Counterpart to :attr:`RECEIVER_PEER_LINK_SESSION_OPENED`.
-    # Fires from :meth:`RemoteBuildController.unregister_peer_link_session`
+    # Fires from :meth:`ReceiverController.unregister_peer_link_session`
     # when the receiver's session loop unwinds (offloader
     # disconnects, heartbeat timeout, controller shutdown,
     # ``superseded`` eviction). Payload: ``{dashboard_id}``.
@@ -346,20 +346,20 @@ class EventType(StrEnum):
     OFFLOADER_JOB_OUTPUT = "offloader_job_output"
 
     # Offloader-side master toggle changed. Fires from
-    # :meth:`RemoteBuildController.set_offloader_settings`
+    # :meth:`OffloaderController.set_offloader_settings`
     # whenever the operator flips the "Remote builds enabled"
     # switch in the offloader Settings UI. Payload:
     # ``{remote_builds_enabled: bool}``. Subscribers are the
     # Settings UI (renders the live switch state) — the
     # scheduler doesn't need an event because it reads
-    # :attr:`RemoteBuildController._remote_builds_enabled` on
+    # :attr:`OffloaderController._remote_builds_enabled` on
     # every install via :meth:`build_scheduler_snapshot`. The
     # event still fires so a second open tab sees the
     # cross-tab toggle without polling.
     OFFLOADER_REMOTE_BUILDS_TOGGLED = "offloader_remote_builds_toggled"
 
     # Offloader-side per-pairing toggle changed. Fires
-    # from :meth:`RemoteBuildController.set_pairing_enabled`
+    # from :meth:`OffloaderController.set_pairing_enabled`
     # whenever the operator flips an individual paired
     # receiver's enable switch. Payload:
     # ``{pin_sha256: str, enabled: bool}``. Subscribers

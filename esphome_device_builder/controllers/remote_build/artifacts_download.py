@@ -129,8 +129,8 @@ class _InflightDownload:
 class ArtifactsDownloadSender:
     """Drives the receiver side of a ``download_artifacts`` flow.
 
-    One instance per :class:`RemoteBuildController` (created
-    in :meth:`RemoteBuildController.start` alongside the
+    One instance per :class:`ReceiverController` (created
+    in :meth:`ReceiverController.start` alongside the
     :class:`SubmitJobReceiver`). Holds the in-flight
     download registry; the actual streaming work lives in
     :meth:`handle_download_artifacts` which the peer-link

@@ -10,7 +10,7 @@ typed-value layer in one place.
 
 * :class:`PeerLinkClientHandle` bundles a long-lived
   :class:`PeerLinkClient` with its run task so a single
-  :attr:`~RemoteBuildController._peer_link_clients` lookup
+  :attr:`~OffloaderController._peer_link_clients` lookup
   yields both, instead of two parallel dicts that could
   drift.
 * :class:`RebindProbeOutcome` / :class:`RebindProbeResult` are
@@ -43,7 +43,7 @@ class PeerLinkClientHandle:
     :attr:`PeerLinkClient.is_session_open`); the task carries
     the cancellation handle the controller's lifecycle wiring
     needs (cancel on unpair, drain in :meth:`stop`). Held in
-    :attr:`RemoteBuildController._peer_link_clients` so a single
+    :attr:`OffloaderController._peer_link_clients` so a single
     lookup yields both, instead of two parallel dicts that
     could drift.
     """
@@ -53,7 +53,7 @@ class PeerLinkClientHandle:
 
 
 class RebindProbeOutcome(StrEnum):
-    """Typed outcome of :meth:`RemoteBuildController._probe_pairing_endpoint`.
+    """Typed outcome of :meth:`OffloaderController._probe_pairing_endpoint`.
 
     The probe is shared between mDNS-driven auto-rebind and
     user-driven manual edit; each caller maps the outcome onto
@@ -73,7 +73,7 @@ class RebindProbeOutcome(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class RebindProbeResult:
-    """Result of :meth:`RemoteBuildController._probe_pairing_endpoint`.
+    """Result of :meth:`OffloaderController._probe_pairing_endpoint`.
 
     *observed_pin* is populated only on
     :attr:`RebindProbeOutcome.PIN_MISMATCH` (so the caller's

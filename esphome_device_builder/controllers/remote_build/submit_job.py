@@ -314,8 +314,8 @@ class _PendingSubmit:
 class SubmitJobReceiver:
     """Receiver-side state machine for the peer-link ``submit_job`` flow.
 
-    One instance per :class:`RemoteBuildController` (started in
-    :meth:`RemoteBuildController.start`). Holds per-session
+    One instance per :class:`ReceiverController` (started in
+    :meth:`ReceiverController.start`). Holds per-session
     in-flight bundle reception state in :attr:`_inflight`,
     keyed on the session's ``dashboard_id``. The receive loop in
     :func:`controllers.remote_build_peer_link._receive_loop`
@@ -629,7 +629,7 @@ class SubmitJobReceiver:
         # Snapshot the offloader's display label so the
         # firmware-tasks UI can render "from {label}" without
         # re-looking-up the (potentially since-renamed) peer.
-        # Goes through :meth:`RemoteBuildController.approved_peer_label`
+        # Goes through :meth:`ReceiverController.approved_peer_label`
         # so the receiver doesn't couple to the private
         # ``_approved_peers`` layout — a future refactor of the
         # peer registry (e.g. moving APPROVED rows into a per-

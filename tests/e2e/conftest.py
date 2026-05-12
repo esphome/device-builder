@@ -143,7 +143,7 @@ class PairedInstances:
           receiver's post-handshake ``intent_response: ok``.
         * Receiver fires
           :attr:`EventType.RECEIVER_PEER_LINK_SESSION_OPENED`
-          from inside :meth:`RemoteBuildController.register_peer_link_session`,
+          from inside :meth:`ReceiverController.register_peer_link_session`,
           which the receiver handler enters *after* sending the
           post-handshake response — so receiver-side registration
           can lag the offloader's OPENED fire by an event-loop tick.

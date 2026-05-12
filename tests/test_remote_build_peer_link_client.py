@@ -671,7 +671,7 @@ async def test_request_pair_unknown_intent_response_raises_client_error() -> Non
 
 
 # ---------------------------------------------------------------------------
-# RemoteBuildController.request_pair — end-to-end through the WS-command shell
+# OffloaderController.request_pair — end-to-end through the WS-command shell
 # ---------------------------------------------------------------------------
 
 
@@ -718,7 +718,7 @@ async def test_controller_preview_pair_returns_receiver_pin(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     offloader_controller_dir: Path,
 ) -> None:
-    """End-to-end: ``RemoteBuildController.preview_pair`` returns the receiver's pin."""
+    """End-to-end: ``OffloaderController.preview_pair`` returns the receiver's pin."""
     server, _, expected_pin, _ = receiver_server
 
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
@@ -757,7 +757,7 @@ async def test_controller_request_pair_persists_pending_row(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     offloader_controller_dir: Path,
 ) -> None:
-    """End-to-end: ``RemoteBuildController.request_pair`` persists a PENDING StoredPairing."""
+    """End-to-end: ``OffloaderController.request_pair`` persists a PENDING StoredPairing."""
     server, receiver_controller, expected_pin, _ = receiver_server
     await receiver_controller.set_pairing_window(open=True, client="test-tab")
 
@@ -973,7 +973,7 @@ async def test_unpair_drops_pending_dict_entry_and_cancels_listener(
     # The captured task reference was cancelled by ``unpair``'s
     # ``_cancel_pair_status_listener``; drain via ``gather`` so
     # the cancellation propagates without surfacing as a test
-    # failure (same shape ``RemoteBuildController.stop()`` uses
+    # failure (same shape ``OffloaderController.stop()`` uses
     # for its own cancel-and-drain).
     await asyncio.gather(listener, return_exceptions=True)
     assert listener.cancelled()
@@ -1929,7 +1929,7 @@ async def test_request_pair_repair_then_unpair_clean_state(
     listener_v2 = offloader._pair_status_listeners[pin2]
     assert listener_v2 is not listener_v1
     # Drain the cancelled v1 task — same cancel-and-gather
-    # shape ``RemoteBuildController.stop()`` uses for its
+    # shape ``OffloaderController.stop()`` uses for its
     # task-set drain.
     await asyncio.gather(listener_v1, return_exceptions=True)
     assert listener_v1.cancelled()
@@ -2040,7 +2040,7 @@ async def test_request_pair_repair_against_pending_cancels_old_listener(
 
     # Old listener got cancelled (cleared pin-drift exposure);
     # drain via gather, same shape as production's
-    # ``RemoteBuildController.stop()``.
+    # ``OffloaderController.stop()``.
     await asyncio.gather(old_listener, return_exceptions=True)
     assert old_listener.cancelled()
     # New listener spawned with the fresh pairing under the new pin key.

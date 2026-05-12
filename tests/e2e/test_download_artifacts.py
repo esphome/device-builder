@@ -15,7 +15,7 @@ pass on the same drift.
 
 The chain (happy path):
 
-  offloader-side ``RemoteBuildController.download_artifacts``
+  offloader-side ``OffloaderController.download_artifacts``
                        →  ``PeerLinkClient.download_artifacts``
                        →  peer-link ``download_artifacts`` frame
                           (real Noise AEAD)

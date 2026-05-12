@@ -177,7 +177,7 @@ class FirmwareJob(DataClassORJSONMixin):
     # picks up an in-progress REMOTE job after a dashboard
     # restart and needs to know which receiver to query /
     # cancel / download from, and
-    # ``RemoteBuildController._open_peer_links`` is RAM-only
+    # ``OffloaderController._open_peer_links`` is RAM-only
     # so the mapping can't be reconstructed otherwise.
     source_pin_sha256: str = ""
     # Display label for the paired receiver that compiled this

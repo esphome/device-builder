@@ -476,7 +476,7 @@ def _drive_receiver_lifecycle(
     Models the receiver-side firmware queue's three-event
     transition for a single job. ``queue_status_snapshot`` is
     pinned ahead of each fire so the
-    :meth:`RemoteBuildController._on_firmware_queue_transition`
+    :meth:`ReceiverController._on_firmware_queue_transition`
     listener captures the matching ``(idle, running, depth)``
     tuple synchronously inside the broadcast — same shape
     production's :meth:`FirmwareController._finalize_terminal`

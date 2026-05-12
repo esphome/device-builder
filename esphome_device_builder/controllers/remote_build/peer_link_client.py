@@ -680,7 +680,7 @@ class PeerLinkClient:
     Long-lived offloader-side peer-link Noise WS session.
 
     One instance per APPROVED :class:`StoredPairing`, owned by
-    :class:`RemoteBuildController`. Drive via
+    :class:`OffloaderController`. Drive via
     :meth:`run` (cancellable asyncio task) — connects to the
     receiver's peer-link port, runs the Noise XX handshake with
     ``intent="peer_link"``, parks on a receive loop, drives an
@@ -820,7 +820,7 @@ class PeerLinkClient:
         """OOB-verified pin (sha256 of the receiver's pubkey).
 
         Stable identifier for this client — matches the key in
-        :attr:`RemoteBuildController._peer_link_clients` and the
+        :attr:`OffloaderController._peer_link_clients` and the
         ``pin_sha256`` field on every event this client fires.
         Surfaced as a property so the controller's WS handler
         can confirm it matches the request before driving a
@@ -1838,7 +1838,7 @@ class PeerLinkClient:
         """Fire ``OFFLOADER_PAIR_PIN_MISMATCH`` after a peer-link pin drift.
 
         Same event shape the pair-status listener already fires
-        from :meth:`RemoteBuildController._apply_pair_status_result`
+        from :meth:`OffloaderController._apply_pair_status_result`
         on its own pin-drift branch. The controller listens for
         the event and stores the alert in
         ``_offloader_alerts`` so the snapshot path
@@ -1866,8 +1866,8 @@ class PeerLinkClient:
         The peer-link receive loop validates the wire shape
         (boolean / int) before getting here, so the event
         payload's primitive contract holds without re-checking.
-        Listeners on the bus include the offloader-side
-        ``RemoteBuildController`` cache update and the
+        Listeners on the bus include the
+        :class:`OffloaderController`'s cache update and the
         ``subscribe_events`` re-broadcast.
         """
         payload: OffloaderQueueStatusChangedData = {

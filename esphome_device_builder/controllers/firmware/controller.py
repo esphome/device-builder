@@ -364,7 +364,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
         Reads the remote-build controller's RAM-canonical
         ``(_pairings, _open_peer_links)`` state via
-        :meth:`RemoteBuildController.build_scheduler_snapshot`.
+        :meth:`OffloaderController.build_scheduler_snapshot`.
         Approved + connected peers get a job each; everything else
         is silently skipped (a PENDING row can't accept submits,
         a disconnected approved row would just FAIL on the runner's
@@ -1384,7 +1384,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
         Step 2 has to land *before* step 3: the ``queue_status``
         broadcaster
-        (:meth:`RemoteBuildController._on_firmware_queue_transition`)
+        (:meth:`ReceiverController._on_firmware_queue_transition`)
         reads :meth:`queue_status_snapshot` *synchronously*
         inside the fire and needs to see the post-terminal idle
         state. Without the prior release the snapshot reports
