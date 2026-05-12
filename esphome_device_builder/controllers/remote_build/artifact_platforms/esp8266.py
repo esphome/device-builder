@@ -5,6 +5,6 @@ from __future__ import annotations
 TARGET_PLATFORM = "esp8266"
 
 BUILD_FILES: tuple[str, ...] = (
-    "firmware.bin",
-    "firmware.elf",
+    ".pioenvs/{name}/firmware.bin",
+    ".pioenvs/{name}/firmware.elf",
 )

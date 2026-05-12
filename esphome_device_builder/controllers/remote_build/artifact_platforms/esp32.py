@@ -4,12 +4,21 @@ from __future__ import annotations
 
 TARGET_PLATFORM = "esp32"
 
-# Basenames under <build_path>/.pioenvs/<name>/. Files that don't
-# exist on disk are silently skipped.
+# Build-relative paths. ``{name}`` substitutes ``StorageJSON.name``
+# at pack time. Files missing on disk are silently skipped. Paths
+# outside ``.pioenvs/<name>/`` are fine — native ESP-IDF's
+# ``build/firmware.factory.bin`` would land here without
+# special-casing if/when device-builder surfaces it.
 BUILD_FILES: tuple[str, ...] = (
-    "firmware.bin",
-    "firmware.elf",
-    "bootloader.bin",
-    "partitions.bin",
-    "ota_data_initial.bin",
+    ".pioenvs/{name}/firmware.bin",
+    ".pioenvs/{name}/firmware.elf",
+    ".pioenvs/{name}/firmware.factory.bin",
+    ".pioenvs/{name}/bootloader.bin",
+    ".pioenvs/{name}/partitions.bin",
+    ".pioenvs/{name}/ota_data_initial.bin",
+    # Native ESP-IDF (non-PIO) layout — only present when the
+    # build went through ``KEY_NATIVE_IDF``; harmlessly skipped
+    # otherwise.
+    "build/firmware.factory.bin",
+    "build/{name}.bin",
 )

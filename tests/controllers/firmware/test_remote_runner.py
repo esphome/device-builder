@@ -588,7 +588,7 @@ async def test_remote_compile_failed_status_fires_job_failed(
     await asyncio.wait_for(runner, timeout=2.0)
 
     assert job.status == JobStatus.FAILED
-    assert job.error == "syntax error in YAML"
+    assert job.error == "remote build: syntax error in YAML"
     assert len(captured[EventType.JOB_FAILED]) == 1
 
 

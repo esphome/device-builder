@@ -102,7 +102,7 @@ class PackedArtifacts:
     firmware_offset: str
 
 
-def pack_build_artifacts(configuration: str) -> PackedArtifacts:  # noqa: PLR0915
+def pack_build_artifacts(configuration: str) -> PackedArtifacts:
     """Pack the build for *configuration* into the materialise-locally tarball.
 
     Synchronous; meant to run inside an executor. Raises
@@ -113,6 +113,21 @@ def pack_build_artifacts(configuration: str) -> PackedArtifacts:  # noqa: PLR091
     (per-member walking sum + post-render check, the latter
     matching the offloader-side BundleAssembler cap).
     """
+    storage_path, storage = _load_storage_for_pack(configuration)
+    build_path = Path(storage.build_path)
+    members = _collect_pack_members(
+        configuration=configuration,
+        storage=storage,
+        storage_path=storage_path,
+        build_path=build_path,
+    )
+    firmware_offset = _firmware_offset_for_platform(storage.target_platform or "")
+    tarball = _render_tarball(members, configuration=configuration)
+    return PackedArtifacts(tarball=tarball, firmware_offset=firmware_offset)
+
+
+def _load_storage_for_pack(configuration: str) -> tuple[Path, StorageJSON]:
+    """Load + validate the StorageJSON sidecar for the receiver-side pack."""
     storage_path = resolve_storage_path(configuration)
     storage = StorageJSON.load(storage_path)
     if storage is None:
@@ -127,7 +142,17 @@ def pack_build_artifacts(configuration: str) -> PackedArtifacts:  # noqa: PLR091
     if not isinstance(storage.name, str) or not storage.name:
         msg = f"StorageJSON name unset / non-string for {configuration}: {storage.name!r}"
         raise FileNotFoundError(msg)
+    return storage_path, storage
 
+
+def _collect_pack_members(
+    *,
+    configuration: str,
+    storage: StorageJSON,
+    storage_path: Path,
+    build_path: Path,
+) -> list[tuple[str, Path]]:
+    """Return ``(arcname, src_path)`` pairs for the tarball, in write order."""
     target_platform = (storage.target_platform or "").lower()
     build_files = build_files_for_platform(target_platform)
     if not build_files:
@@ -137,7 +162,6 @@ def pack_build_artifacts(configuration: str) -> PackedArtifacts:  # noqa: PLR091
         )
         raise RuntimeError(msg)
 
-    build_path = Path(storage.build_path)
     idedata_cache_path = resolve_idedata_path(configuration, name=storage.name)
     platformio_ini = build_path / "platformio.ini"
     if not idedata_cache_path.is_file():
@@ -147,29 +171,36 @@ def pack_build_artifacts(configuration: str) -> PackedArtifacts:  # noqa: PLR091
         msg = f"platformio.ini missing for {configuration}: {platformio_ini}"
         raise FileNotFoundError(msg)
 
-    firmware_offset = _firmware_offset_for_platform(storage.target_platform or "")
-
-    # Platform-independent metadata at the top, then every
-    # existing per-platform BUILD_FILES entry under
-    # .pioenvs/<name>/. Missing files are skipped (a build that
-    # didn't emit ``ota_data_initial.bin`` shouldn't fail).
-    metadata_members: list[tuple[str, Path]] = [
+    members: list[tuple[str, Path]] = [
         (STORAGE_MEMBER_NAME, storage_path),
         (IDEDATA_MEMBER_NAME, idedata_cache_path),
         (PLATFORMIO_INI_MEMBER_NAME, platformio_ini),
     ]
-    pioenvs_prefix = f".pioenvs/{storage.name}"
-    pioenvs_dir = build_path / ".pioenvs" / storage.name
-    build_members: list[tuple[str, Path]] = []
-    for rel in build_files:
-        abs_path = pioenvs_dir / rel
+    for template in build_files:
+        rel = template.format(name=storage.name)
+        abs_path = build_path / rel
         if abs_path.is_file():
-            build_members.append((f"{pioenvs_prefix}/{rel}", abs_path))
+            members.append((rel, abs_path))
 
+    # firmware_bin_path MUST be in the tarball — otherwise the
+    # offloader stages a tree where firmware/download misses.
+    firmware_bin = Path(storage.firmware_bin_path)
+    firmware_bin_rel = _relative_or_raise(firmware_bin, build_path, configuration=configuration)
+    if not any(rel == firmware_bin_rel for rel, _ in members):
+        msg = (
+            f"firmware_bin_path {firmware_bin_rel!r} not covered by BUILD_FILES "
+            f"for target_platform={storage.target_platform!r}"
+        )
+        raise RuntimeError(msg)
+    return members
+
+
+def _render_tarball(members: list[tuple[str, Path]], *, configuration: str) -> bytes:
+    """Write *members* to a gzipped tarball, capping declared + rendered bytes."""
     buf = io.BytesIO()
     total_uncompressed = 0
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        for arcname, src in (*metadata_members, *build_members):
+        for arcname, src in members:
             # Stat before read so a runaway build artefact trips
             # the cap before we allocate its bytes into memory.
             file_size = src.stat().st_size
@@ -185,12 +216,10 @@ def pack_build_artifacts(configuration: str) -> PackedArtifacts:  # noqa: PLR091
             info = tarfile.TarInfo(name=arcname)
             info.size = len(payload)
             tar.addfile(info, io.BytesIO(payload))
-
     tarball = buf.getvalue()
-    # Final post-render cap on the wire-side length. See the
-    # docstring for the rationale on why the post-render check
-    # exists even when the uncompressed walking gate above
-    # already passed.
+    # Final post-render cap on the wire-side length so the
+    # receiver-side ceiling matches the offloader's
+    # BundleAssembler check on ArtifactsStartFrameData.total_bytes.
     if len(tarball) > FIRMWARE_MAX_TOTAL_BYTES:
         msg = (
             f"build artifacts tarball for {configuration} would exceed "
@@ -198,7 +227,7 @@ def pack_build_artifacts(configuration: str) -> PackedArtifacts:  # noqa: PLR091
             f"({len(tarball)} > {FIRMWARE_MAX_TOTAL_BYTES})"
         )
         raise RuntimeError(msg)
-    return PackedArtifacts(tarball=tarball, firmware_offset=firmware_offset)
+    return tarball
 
 
 # ---------------------------------------------------------------------------
@@ -327,6 +356,18 @@ def _walk_artifacts_members(
         image_bytes_by_name[basename] = payload
         basename_origin[basename] = member.name
     return idedata, image_bytes_by_name
+
+
+def _relative_or_raise(path: Path, base: Path, *, configuration: str) -> str:
+    """Return *path* relative to *base* as a posix string, or raise."""
+    try:
+        return path.relative_to(base).as_posix()
+    except ValueError as err:
+        msg = (
+            f"firmware_bin_path {path} for {configuration} not under "
+            f"build_path {base}; can't include in tarball"
+        )
+        raise RuntimeError(msg) from err
 
 
 def _check_member_size(member: tarfile.TarInfo, *, total_so_far: int) -> None:

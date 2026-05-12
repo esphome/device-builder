@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 BUILD_FILES: tuple[str, ...] = (
-    "firmware.uf2",
-    "firmware.bin",
-    "firmware.elf",
+    ".pioenvs/{name}/firmware.uf2",
+    ".pioenvs/{name}/firmware.bin",
+    ".pioenvs/{name}/firmware.elf",
 )

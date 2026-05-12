@@ -249,7 +249,7 @@ def test_remote_runner_terminal_helpers_release_slot_before_fire(
     if fn_name == "_finalize_success":
         remote_runner._finalize_success(controller, job)
     else:
-        remote_runner._fail_locally(controller, job, error="boom")
+        remote_runner._fail_locally(controller, job, reason="boom")
 
     assert captured == [(True, False, 0)]
     assert controller._current_job is None
@@ -259,6 +259,6 @@ def test_remote_runner_terminal_helpers_release_slot_before_fire(
         # ``_fail_locally`` stamps ``job.error`` before
         # ``_finalize_terminal``; the JOB_FAILED listener that
         # rides the broadcast sees the populated field.
-        assert job.error == "boom"
+        assert job.error == "remote build: boom"
     else:
         assert job.error is None

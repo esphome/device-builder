@@ -5,8 +5,8 @@ from __future__ import annotations
 TARGET_PLATFORM = "nrf52"
 
 BUILD_FILES: tuple[str, ...] = (
-    "firmware.bin",
-    "firmware.elf",
-    "zephyr/app_update.bin",
-    "zephyr/zephyr.elf",
+    ".pioenvs/{name}/firmware.bin",
+    ".pioenvs/{name}/firmware.elf",
+    ".pioenvs/{name}/zephyr/app_update.bin",
+    ".pioenvs/{name}/zephyr/zephyr.elf",
 )
