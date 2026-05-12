@@ -433,14 +433,14 @@ class ReceiverController:  # noqa: PLR0904
         and raise.
         """
         if self._submit_job_receiver is None:
-            msg = "submit_job_receiver accessed before RemoteBuildController.start()"
+            msg = "submit_job_receiver accessed before ReceiverController.start()"
             raise RuntimeError(msg)
         return self._submit_job_receiver
 
     def get_artifacts_download_sender(self) -> ArtifactsDownloadSender:
         """Return the receiver-side ``download_artifacts`` flow handler, raising if not started."""
         if self._artifacts_download_sender is None:
-            msg = "artifacts_download_sender accessed before RemoteBuildController.start()"
+            msg = "artifacts_download_sender accessed before ReceiverController.start()"
             raise RuntimeError(msg)
         return self._artifacts_download_sender
 

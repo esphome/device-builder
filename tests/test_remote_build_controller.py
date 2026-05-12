@@ -3908,7 +3908,7 @@ def test_get_submit_job_receiver_raises_before_start(tmp_path: Path) -> None:
     instead of silently no-op'ing the dispatch.
     """
     controller = _make_controller(config_dir=tmp_path)
-    with pytest.raises(RuntimeError, match=r"before RemoteBuildController\.start"):
+    with pytest.raises(RuntimeError, match=r"before ReceiverController\.start"):
         controller.receiver.get_submit_job_receiver()
 
 
@@ -3920,7 +3920,7 @@ def test_get_artifacts_download_sender_raises_before_start(tmp_path: Path) -> No
     for the 6a artifact-download sender.
     """
     controller = _make_controller(config_dir=tmp_path)
-    with pytest.raises(RuntimeError, match=r"before RemoteBuildController\.start"):
+    with pytest.raises(RuntimeError, match=r"before ReceiverController\.start"):
         controller.receiver.get_artifacts_download_sender()
 
 
