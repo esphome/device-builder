@@ -2291,7 +2291,11 @@ async def test_start_seeds_approved_peers_dict_from_disk(tmp_path: Path) -> None
     # callback path production uses; the offloader-side test
     # uses an identical shape.
     seeder.receiver._peers_store.async_delay_save(seeder.receiver._serialize_peers, delay=0.0)
-    for cb in seeder.offloader._shutdown_callbacks:
+    # ``_peers_store`` is the receiver-side per-file Store, so the
+    # flush callback it registered lives on the receiver's
+    # ``_shutdown_callbacks``. The offloader's list flushes
+    # ``_pairings_store``, which this test doesn't seed.
+    for cb in seeder.receiver._shutdown_callbacks:
         await cb()
 
     fresh = _make_controller(config_dir=tmp_path)
