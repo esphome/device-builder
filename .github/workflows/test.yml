@@ -294,4 +294,8 @@ jobs:
         uses: CodSpeedHQ/action@3194d9a39c4d46684cb44bf7207fc56626aad8fd  # v4.15.1
         with:
           mode: simulation
-          run: pytest tests/benchmarks --codspeed --no-cov --timeout=600
+          # ``--durations 10`` prints the 10 slowest benchmark wall
+          # times at the end of the run so a regression in any
+          # single bench is visible in the CI log without having
+          # to dig into the CodSpeed dashboard.
+          run: pytest tests/benchmarks --codspeed --no-cov --timeout=600 --durations 10
