@@ -40,6 +40,8 @@ resolving after the subpackage split. Submodules:
   on-subscription mDNS A-record refresh loop.
 - ``state_callbacks`` — the six per-attribute mDNS callbacks
   (state / ip / version / mac / api_encryption / config_hash).
+- ``validate`` — ``devices/validate`` WS command body
+  (``esphome config`` subprocess + ANSI-conceal-SGR redaction).
 - ``storage_regen`` — background ``--only-generate`` scheduler
   + the disk-stamp guard that keeps it from looping on a
   broken YAML.

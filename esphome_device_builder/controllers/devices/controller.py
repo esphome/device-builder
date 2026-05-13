@@ -71,6 +71,7 @@ from . import (
     reachability,
     state_callbacks,
     storage_regen,
+    validate,
 )
 from ._yaml_search import (
     DEFAULT_CONTEXT_LINES,
@@ -80,7 +81,6 @@ from ._yaml_search import (
 from ._yaml_search_cache import YamlSearchCache
 from .helpers import (
     _build_address_cache_args,
-    _redact_concealed_secrets,
     _rewrite_required_yaml_leaf,
     _validate_archive_configuration,
     friendly_name_slugify,
@@ -1515,32 +1515,14 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         message_id: str = "",
         **kwargs: Any,
     ) -> None:
-        """
-        Validate a device YAML config. Streams output per-connection.
-
-        ``show_secrets`` passes ``--show-secrets`` to ``esphome config``
-        so resolved ``!secret`` values appear in the output instead of
-        the default ``<removed>`` redaction. Default is ``False`` —
-        secrets only appear when the user actively asks for them.
-        Mirrors the legacy dashboard's ``streamer_mode`` semantics
-        but as a per-call opt-in rather than a global setting, so one
-        user wanting to see secrets in a multi-user deployment doesn't
-        change the default for everyone else.
-        """
-        config_path = str(self._db.settings.rel_path(configuration))
-        cmd = [*self._esphome_cmd, "--dashboard", "config", config_path]
-        line_transform: Callable[[str], str] | None = None
-        if show_secrets:
-            cmd.append("--show-secrets")
-        else:
-            # ``esphome config`` without ``--show-secrets`` doesn't
-            # redact — it wraps each ``password|key|psk|ssid`` value
-            # in the ANSI conceal SGR (8/28). Browsers don't honour
-            # that escape, so the resolved secret bytes were leaking
-            # plain into the validate dialog. Strip the wrapped runs
-            # before the line leaves the WS handler.
-            line_transform = _redact_concealed_secrets
-        await self._stream_subprocess(cmd, client, message_id, line_transform=line_transform)
+        """Validate a device YAML config; streams output per-connection."""
+        await validate.validate_config(
+            self,
+            configuration=configuration,
+            show_secrets=show_secrets,
+            client=client,
+            message_id=message_id,
+        )
 
     @api_command("devices/logs")
     async def stream_logs(
