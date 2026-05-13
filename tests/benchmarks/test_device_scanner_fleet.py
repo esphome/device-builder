@@ -32,7 +32,11 @@ def _make_scanner(config_dir: Path) -> DeviceScanner:
     )
 
 
-@pytest.mark.parametrize("fleet_size", [50, 200])
+# Only fleet_size=50 here: per-device materialise pays the full YAML
+# parse + sidecar read, and [200] cost too much CodSpeed sample
+# budget. Cheaper fleet-size benches (cache keys, to_dict) keep
+# the 50/200 ladder below.
+@pytest.mark.parametrize("fleet_size", [50])
 def test_load_devices_fleet(
     benchmark: BenchmarkFixture,
     tmp_path: Path,
