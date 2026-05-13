@@ -3178,6 +3178,7 @@ async def test_peer_link_client_auth_rejected_when_dashboard_id_unknown(
 @pytest.mark.asyncio
 async def test_peer_link_client_pin_mismatch_aborts_and_orphans(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """A pinned pubkey that doesn't match the receiver's actual key aborts the connect.
 
@@ -3198,6 +3199,10 @@ async def test_peer_link_client_pin_mismatch_aborts_and_orphans(
        hammering whatever's at the wrong endpoint.
     4. NOT fire ``OFFLOADER_PEER_LINK_OPENED`` — application
        frames must not flow against the wrong identity.
+    5. Emit one ``WARNING`` log line carrying both pin_sha256
+       fingerprints and the raw 32-byte hex of each pubkey
+       (the diagnostic that distinguishes "wire bytes differ"
+       from "bytes match but ``!=`` tripped anyway").
     """
     server, receiver, _, receiver_pub = receiver_server
     initiator_priv = secrets.token_bytes(32)
@@ -3228,32 +3233,50 @@ async def test_peer_link_client_pin_mismatch_aborts_and_orphans(
         receiver_label="my-laptop",
         bus=bus,
     )
-    task = asyncio.create_task(client.run())
-    try:
-        # Pin-mismatch fires before close; close fires before
-        # orphaning. Wait on close (the terminal signal).
-        await asyncio.wait_for(closed.received.wait(), timeout=2.0)
-        # Yield once so any pending ``run`` post-close work
-        # (orphan flag set, return) finishes before we assert.
-        for _ in range(10):
-            if task.done():
-                break
-            await asyncio.sleep(0)
+    with caplog.at_level(
+        "WARNING",
+        logger="esphome_device_builder.controllers.remote_build.peer_link_client.client",
+    ):
+        task = asyncio.create_task(client.run())
+        try:
+            # Pin-mismatch fires before close; close fires before
+            # orphaning. Wait on close (the terminal signal).
+            await asyncio.wait_for(closed.received.wait(), timeout=2.0)
+            # Yield once so any pending ``run`` post-close work
+            # (orphan flag set, return) finishes before we assert.
+            for _ in range(10):
+                if task.done():
+                    break
+                await asyncio.sleep(0)
 
-        assert closed[0]["reason"] == "pin_mismatch"
-        assert len(pin_mismatch) == 1
-        assert pin_mismatch[0]["receiver_hostname"] == "127.0.0.1"
-        assert pin_mismatch[0]["receiver_label"] == "my-laptop"
-        assert pin_mismatch[0]["expected_pin"] != pin_mismatch[0]["observed_pin"]
-        # Application channel never opened — bundles can't flow
-        # against the wrong identity.
-        assert len(opened) == 0
-        # Client orphaned: reconnect loop exits without further
-        # backoff. ``run`` has returned, so the task is done.
-        assert task.done()
-        assert client.is_orphaned is True
-    finally:
-        await cancel_and_drain(task)
+            assert closed[0]["reason"] == "pin_mismatch"
+            assert len(pin_mismatch) == 1
+            assert pin_mismatch[0]["receiver_hostname"] == "127.0.0.1"
+            assert pin_mismatch[0]["receiver_label"] == "my-laptop"
+            assert pin_mismatch[0]["expected_pin"] != pin_mismatch[0]["observed_pin"]
+            # Application channel never opened — bundles can't flow
+            # against the wrong identity.
+            assert len(opened) == 0
+            # Client orphaned: reconnect loop exits without further
+            # backoff. ``run`` has returned, so the task is done.
+            assert task.done()
+            assert client.is_orphaned is True
+
+            # Exactly one drift warning, carrying both fingerprints
+            # AND the raw 32-byte hex of each pubkey so an operator
+            # can tell a bytes-comparison bug from a wire-level
+            # identity mismatch from a single log line.
+            drift_records = [
+                rec for rec in caplog.records if "observed pin drift" in rec.getMessage()
+            ]
+            assert len(drift_records) == 1
+            msg = drift_records[0].getMessage()
+            assert pin_sha256_for_pubkey(wrong_pub) in msg
+            assert pin_sha256_for_pubkey(receiver_pub) in msg
+            assert wrong_pub.hex() in msg
+            assert receiver_pub.hex() in msg
+        finally:
+            await cancel_and_drain(task)
 
 
 @pytest.mark.asyncio
