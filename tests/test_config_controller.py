@@ -1146,11 +1146,15 @@ def _mock_run_esptool(monkeypatch: pytest.MonkeyPatch, side_effect):
 
     ``side_effect`` is a callable ``(args: list[str]) → (rc, stdout_bytes)``
     or ``(rc, stdout_bytes, timed_out)``; the wrapper pads a missing
-    ``timed_out`` to ``False`` so happy-path tests stay concise.
+    ``timed_out`` to ``False`` so happy-path tests stay concise. The
+    side-effect runs via ``asyncio.to_thread`` because the manifest-
+    read tests use ``Path.write_bytes`` to plant a synthetic blob in
+    the tempfile esptool would otherwise produce — blockbuster
+    flags that as a sync write on the event-loop thread otherwise.
     """
 
     async def fake(args: list[str], timeout: float) -> tuple[int, bytes, bool]:
-        result = side_effect(args)
+        result = await asyncio.to_thread(side_effect, args)
         if len(result) == 2:
             rc, stdout = result
             return rc, stdout, False
