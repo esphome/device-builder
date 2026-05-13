@@ -124,3 +124,43 @@ def write_build_info(build_path: Path, **fields: Any) -> Path:
     build_info = build_path / "build_info.json"
     build_info.write_text(json.dumps(payload), encoding="utf-8")
     return build_info
+
+
+def write_synthetic_device(
+    config_dir: Path,
+    name: str,
+    *,
+    yaml_body: str | None = None,
+    config_hash: int | None = None,
+    storage_overrides: dict[str, Any] | None = None,
+) -> Path:
+    """
+    Write a synthetic device (YAML + StorageJSON sidecar + optional build_info).
+
+    Returns the YAML path. Layout mirrors what a real compiled device
+    leaves on disk: YAML at ``<config_dir>/<name>.yaml``, sidecar at
+    ``<config_dir>/.esphome/storage/<name>.yaml.json``, build_info at
+    ``<config_dir>/.esphome/build/<name>/build_info.json``.
+
+    *yaml_body* defaults to a minimal ``esphome: { name: <name> }``
+    stub; pass a richer body to exercise the YAML parser.
+    *config_hash=None* skips the ``build_info.json`` write (simulates
+    a post-clean / never-compiled device).
+    """
+    configuration = f"{name}.yaml"
+    yaml_path = config_dir / configuration
+    yaml_path.write_text(
+        yaml_body if yaml_body is not None else f"esphome:\n  name: {name}\n",
+        encoding="utf-8",
+    )
+    build_dir = config_dir / ".esphome" / "build" / name
+    if config_hash is not None:
+        write_build_info(build_dir, config_hash=config_hash)
+    write_storage_json(
+        config_dir,
+        configuration,
+        firmware_bin_path=build_dir / ".pioenvs" / name / "firmware.bin",
+        build_path=build_dir,
+        overrides=storage_overrides,
+    )
+    return yaml_path

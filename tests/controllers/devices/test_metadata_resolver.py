@@ -21,7 +21,7 @@ import pytest
 from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.models import Device, EventType
-from tests._storage_fixtures import write_build_info, write_storage_json
+from tests._storage_fixtures import write_synthetic_device
 
 from .conftest import CaptureDevicesEventsFactory, RecordingStateMonitor
 
@@ -52,28 +52,8 @@ def _stub_get_metadata(monkeypatch: Any, payload: dict[str, Any]) -> None:
     )
 
 
-def _write_storage_pointer(config_dir: Path, filename: str, build_path: Path) -> None:
-    """Write the ESPHome ``StorageJSON`` sidecar pointing at *build_path*.
-
-    ``read_build_info_hash`` resolves the build directory by loading
-    ``StorageJSON`` and reading ``storage.build_path`` — these tests
-    write a real sidecar (instead of mocking) so the resolver
-    exercises the same disk path it does in production.
-    """
-    write_storage_json(
-        config_dir,
-        filename,
-        firmware_bin_path=build_path / ".pioenvs" / "firmware.bin",
-        build_path=build_path,
-    )
-
-
 def test_build_info_hash_wins_over_stale_sidecar(tmp_path: Path, monkeypatch: Any) -> None:
     """``build_info.json`` is authoritative; sidecar's stale value is ignored."""
-    config_dir = tmp_path
-    filename = "kitchen.yaml"
-    (config_dir / filename).write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-
     # Sidecar carries a wrong value left over from the pre-codegen
     # subprocess bug (the user-visible regression on
     # ``acfloatmonitor32.yaml``: ``f3e21d5a``).
@@ -83,12 +63,10 @@ def test_build_info_hash_wins_over_stale_sidecar(tmp_path: Path, monkeypatch: An
     )
 
     # build_info.json carries the firmware-canonical value.
-    build_path = config_dir / ".esphome" / "build" / "kitchen"
-    _write_storage_pointer(config_dir, filename, build_path)
-    write_build_info(build_path, config_hash=0x5A94A12D)
+    write_synthetic_device(tmp_path, "kitchen", config_hash=0x5A94A12D)
 
     controller = _make_controller(monkeypatch)
-    metadata = controller._resolve_device_metadata(config_dir, filename)
+    metadata = controller._resolve_device_metadata(tmp_path, "kitchen.yaml")
 
     assert metadata.expected_config_hash == "5a94a12d"
     assert metadata.ip == "192.168.1.42"  # untouched
@@ -96,24 +74,18 @@ def test_build_info_hash_wins_over_stale_sidecar(tmp_path: Path, monkeypatch: An
 
 def test_falls_back_to_sidecar_when_build_dir_wiped(tmp_path: Path, monkeypatch: Any) -> None:
     """No build_info.json (e.g. after ``clean``) → use the sidecar's hash."""
-    config_dir = tmp_path
-    filename = "kitchen.yaml"
-    (config_dir / filename).write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-
     _stub_get_metadata(
         monkeypatch,
         {"board_id": "", "ip": "", "expected_config_hash": "abcd1234"},
     )
 
-    # StorageJSON points at a build dir that no longer exists — clean
+    # StorageJSON points at a build dir that no longer exists; clean
     # job wipes ``.esphome/build/<name>``, and the sidecar is the
     # only remaining trace of the previous compile's hash.
-    build_path = config_dir / ".esphome" / "build" / "kitchen"
-    _write_storage_pointer(config_dir, filename, build_path)
-    # Intentionally NOT calling _write_build_info — directory empty.
+    write_synthetic_device(tmp_path, "kitchen")  # no build_info written
 
     controller = _make_controller(monkeypatch)
-    metadata = controller._resolve_device_metadata(config_dir, filename)
+    metadata = controller._resolve_device_metadata(tmp_path, "kitchen.yaml")
 
     assert metadata.expected_config_hash == "abcd1234"
 
@@ -127,11 +99,10 @@ def test_no_hash_anywhere_returns_empty_string(tmp_path: Path, monkeypatch: Any)
     """
     config_dir = tmp_path
     filename = "kitchen.yaml"
+    # YAML only; no sidecar, no build_info.json.
     (config_dir / filename).write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
-    _stub_get_metadata(monkeypatch, {})  # nothing in the sidecar
-    # No StorageJSON sidecar either → no build_path → no
-    # build_info.json read.
+    _stub_get_metadata(monkeypatch, {})
 
     controller = _make_controller(monkeypatch)
     metadata = controller._resolve_device_metadata(config_dir, filename)
@@ -144,23 +115,17 @@ def test_build_info_hash_used_even_when_sidecar_empty(tmp_path: Path, monkeypatc
 
     Mirrors what the dashboard sees right after
     ``_schedule_storage_regenerate`` runs ``--only-generate`` for a
-    newly-added YAML — the sidecar's ``expected_config_hash`` is
+    newly-added YAML; the sidecar's ``expected_config_hash`` is
     only written on success of that regenerate, but the resolver
     runs on every scan, so the build_info.json read has to carry
     the value through until the persist completes.
     """
-    config_dir = tmp_path
-    filename = "kitchen.yaml"
-    (config_dir / filename).write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-
     _stub_get_metadata(monkeypatch, {})  # sidecar not yet written
 
-    build_path = config_dir / ".esphome" / "build" / "kitchen"
-    _write_storage_pointer(config_dir, filename, build_path)
-    write_build_info(build_path, config_hash=0x12345678)
+    write_synthetic_device(tmp_path, "kitchen", config_hash=0x12345678)
 
     controller = _make_controller(monkeypatch)
-    metadata = controller._resolve_device_metadata(config_dir, filename)
+    metadata = controller._resolve_device_metadata(tmp_path, "kitchen.yaml")
 
     assert metadata.expected_config_hash == "12345678"
 
