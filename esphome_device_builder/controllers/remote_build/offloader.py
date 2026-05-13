@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -36,7 +35,6 @@ from ...helpers.peer_link_identity import get_or_create_peer_link_identity
 from ...helpers.peer_link_resolver import PeerLinkDNSResolver, make_peer_link_resolver
 from ...helpers.storage import Store
 from ...models import (
-    PAIRING_VERSION_MAX_LEN,
     EventType,
     OffloaderAlertSnapshotEntry,
     OffloaderJobStateChangedData,
@@ -44,7 +42,6 @@ from ...models import (
     OffloaderPairPinMismatchData,
     OffloaderPeerLinkClosedData,
     OffloaderPeerLinkOpenedData,
-    OffloaderPinMismatchAlert,
     OffloaderQueueStatusChangedData,
     OffloaderRemoteBuildSettings,
     OffloaderRemoteBuildSettingsView,
@@ -56,6 +53,7 @@ from ...models import (
     StoredPairing,
 )
 from . import (
+    bus_handlers,
     discovery,
     pair_commands,
     pair_status,
@@ -94,12 +92,6 @@ def _load_offloader_identities(
     """
     return get_or_create_peer_link_identity(config_dir), get_or_create_identity(config_dir)
 
-
-# Terminal status set for the offloader-side remote-job cache
-# drop-on-terminal logic.
-_OFFLOADER_REMOTE_JOB_TERMINAL_STATUSES: frozenset[str] = frozenset(
-    {"completed", "failed", "cancelled"}
-)
 
 # Debounce window for the offloader-side pairings-store write
 # so a burst of approvals collapses to one disk write.
@@ -271,105 +263,30 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         discovery.start_discovery(self)
 
     def _on_offloader_pair_pin_mismatch(self, event: Event[OffloaderPairPinMismatchData]) -> None:
-        """Cache the alert in ``_offloader_alerts`` for late-subscriber snapshot.
-
-        Keyed on ``pin_sha256`` (matches the synchronous
-        mutation site in :meth:`_apply_pair_status_result`).
-        The alert payload adds ``kind`` + ``fired_at`` to the
-        bus event's wire fields so the snapshot row survives
-        the event drop.
-        """
-        data = event.data
-        # Build the typed alert explicitly rather than as a bare
-        # dict literal: ``_offloader_alerts`` is typed
-        # ``dict[..., OffloaderAlertSnapshotEntry]`` (a union of
-        # ``OffloaderPinMismatchAlert`` / ``OffloaderPeerRevokedAlert``
-        # discriminated by ``kind``), and a bare literal under
-        # strict mypy can fall back to ``dict[str, object]``
-        # rather than narrowing into the right TypedDict variant.
-        alert: OffloaderPinMismatchAlert = {
-            "kind": "pin_mismatch",
-            "receiver_hostname": data["receiver_hostname"],
-            "receiver_port": data["receiver_port"],
-            "pin_sha256": data["pin_sha256"],
-            "receiver_label": data["receiver_label"],
-            "expected_pin": data["expected_pin"],
-            "observed_pin": data["observed_pin"],
-            "fired_at": time.time(),
-        }
-        self._offloader_alerts[data["pin_sha256"]] = alert
+        """Cache the alert in ``_offloader_alerts`` for late-subscriber snapshot."""
+        bus_handlers.on_offloader_pair_pin_mismatch(self, event)
 
     def _on_offloader_peer_link_opened(self, event: Event[OffloaderPeerLinkOpenedData]) -> None:
-        """Add ``pin_sha256`` to ``_open_peer_links`` and refresh the receiver version.
-
-        Receiver's ``esphome_version`` rides on every
-        ``intent_response`` so a receiver upgrade picks up on
-        next session-open without operator action.
-        ``pick_build_path``'s deferred version-compat gate reads
-        this field.
-
-        Empty / oversize versions are dropped silently rather
-        than clobbering — empty would lose the captured value
-        after a reconnect from a pre-feature receiver; oversize
-        is defense-in-depth against the
-        :data:`PAIRING_VERSION_MAX_LEN` cap that the storage
-        validator enforces on disk-load.
-        """
-        data = event.data
-        pin_sha256 = data["pin_sha256"]
-        self._open_peer_links.add(pin_sha256)
-        version = data["esphome_version"]
-        if not version or len(version) > PAIRING_VERSION_MAX_LEN:
-            return
-        pairing = self._pairings.get(pin_sha256)
-        if pairing is None or pairing.esphome_version == version:
-            return
-        pairing.esphome_version = version
-        self._schedule_pairings_save()
+        """Add ``pin_sha256`` to ``_open_peer_links`` and refresh the receiver version."""
+        bus_handlers.on_offloader_peer_link_opened(self, event)
 
     def _on_offloader_peer_link_closed(self, event: Event[OffloaderPeerLinkClosedData]) -> None:
         """Discard ``pin_sha256`` from ``_open_peer_links`` on session close."""
-        self._open_peer_links.discard(event.data["pin_sha256"])
+        bus_handlers.on_offloader_peer_link_closed(self, event)
 
     def _on_offloader_queue_status_changed(
         self, event: Event[OffloaderQueueStatusChangedData]
     ) -> None:
         """Update the offloader-side ``_peer_queue_status`` cache from a wire event."""
-        data = event.data
-        self._peer_queue_status[data["pin_sha256"]] = PeerQueueStatusSnapshotEntry(
-            receiver_hostname=data["receiver_hostname"],
-            receiver_port=data["receiver_port"],
-            pin_sha256=data["pin_sha256"],
-            idle=data["idle"],
-            running=data["running"],
-            queue_depth=data["queue_depth"],
-        )
+        bus_handlers.on_offloader_queue_status_changed(self, event)
 
     def peer_queue_status_snapshot(self) -> list[PeerQueueStatusSnapshotEntry]:
         """Per-peer queue-status snapshot for ``subscribe_events`` seeding."""
         return list(self._peer_queue_status.values())
 
     def _on_offloader_job_state_changed(self, event: Event[OffloaderJobStateChangedData]) -> None:
-        """Maintain the offloader-side in-flight remote-job cache.
-
-        Upserts the entry on ``queued`` / ``running``; drops on
-        terminal (``completed`` / ``failed`` / ``cancelled``)
-        so the snapshot only ever carries actively-running
-        rows. The :class:`PeerLinkClient` receive loop already
-        validated the wire shape before firing this event.
-        """
-        data = event.data
-        if data["status"] in _OFFLOADER_REMOTE_JOB_TERMINAL_STATUSES:
-            self._offloader_remote_jobs.pop(data["job_id"], None)
-            return
-        self._offloader_remote_jobs[data["job_id"]] = OffloaderRemoteJobSnapshotEntry(
-            receiver_hostname=data["receiver_hostname"],
-            receiver_port=data["receiver_port"],
-            pin_sha256=data["pin_sha256"],
-            job_id=data["job_id"],
-            status=data["status"],
-            error_message=data["error_message"],
-        )
+        """Maintain the offloader-side in-flight remote-job cache."""
+        bus_handlers.on_offloader_job_state_changed(self, event)
 
     def offloader_remote_jobs_snapshot(self) -> list[OffloaderRemoteJobSnapshotEntry]:
         """In-flight remote-job snapshot for ``subscribe_events`` seeding."""
