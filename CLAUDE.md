@@ -59,10 +59,16 @@ the official ESPHome container and Home Assistant add-on.
     doesn't need to learn what *another* function does to read
     this one.
 
-  Hard cap for new code: three lines between the `"""` markers
-  (blank lines count). The example above is at the cap. If the
-  contract genuinely needs more, the function probably needs
-  splitting first.
+  Default target for new code: three lines between the `"""`
+  markers (blank lines count). The example above is at that
+  target. Longer is acceptable when the contract genuinely
+  needs it — non-obvious priority orders, security-relevant
+  fallbacks, an empirical anchor (e.g. issue number proving a
+  value matters), or a multi-stage flow whose ordering is
+  load-bearing. What's never acceptable is paragraphs that
+  restate what the body of the function already says; if a
+  reader who's reading the code would only be confused by the
+  docstring, drop those parts, don't just clip arbitrarily.
 
 - **Comments**: same bar. Default to writing no comments. Add
   one only when the *why* is non-obvious: a hidden constraint, a
