@@ -41,27 +41,23 @@ async def archive_single(controller: DevicesController, configuration: str) -> N
         archive_dir.mkdir(parents=True, exist_ok=True)
         target = archive_dir / configuration
         if target.exists():
-            # Same name already archived. Auto-renaming to
-            # ``<name> (2).yaml`` would orphan the StorageJSON sidecar
-            # (still keyed on the original filename), so a later
-            # unarchive of the suffixed copy would lose the cached
-            # address / version / loaded_integrations. Refuse and let
-            # the user resolve the collision (unarchive or delete the
-            # existing archive).
+            # Refuse rather than auto-rename; the StorageJSON sidecar
+            # is filename-keyed, so unarchiving a ``<name> (2).yaml``
+            # later would lose the cached state.
             msg = (
                 f"Cannot archive {configuration}: an archived config "
                 "with the same name already exists. Unarchive or "
                 "permanently delete the existing archive first."
             )
             raise FileExistsError(msg)
-        # Wipe build dir + StorageJSON first (deliberate divergence from
-        # the upstream dashboard, which preserved StorageJSON on archive).
-        # Our ``ext_storage_path`` is per-filename keyed, so a future
-        # same-name device would otherwise inherit the archived device's
-        # stale firmware_bin_path / loaded_integrations / target_platform
-        # until recompiled. ``_archive_clear_device_sidecars`` keeps the
-        # stable identity fields (board_id, friendly_name, comment) so
-        # unarchive of the same YAML restores the user-visible state.
+        # Wipe build dir + StorageJSON first; deliberate divergence
+        # from the upstream dashboard. Our ``ext_storage_path`` is
+        # per-filename keyed, so a future same-name device would
+        # otherwise inherit the archived device's stale
+        # firmware_bin_path / loaded_integrations / target_platform.
+        # ``_archive_clear_device_sidecars`` preserves identity
+        # fields (board_id, friendly_name, comment) so unarchive of
+        # the same YAML restores the user-visible state.
         _wipe_device_build_dir(configuration)
         shutil.move(str(config_path), str(target))
         _archive_clear_device_sidecars(config_dir, configuration)
@@ -160,14 +156,13 @@ async def delete_single(controller: DevicesController, configuration: str) -> No
     config_dir = controller._db.settings.config_dir
 
     def _delete_all() -> None:
-        # Existence check runs in the executor too; ``Path.exists``
-        # stat()s the filesystem and would block the event loop if
-        # called from the async caller.
+        # Existence check stays inside the executor; Path.exists
+        # stat()s and would block the event loop otherwise.
         if not config_path.exists():
             msg = f"File not found: {configuration}"
             raise FileNotFoundError(msg)
-        # Wipe build dir first so a partial failure later still
-        # leaves the user able to retry the delete.
+        # Wipe build dir first so a partial failure later leaves
+        # the user able to retry the delete.
         _wipe_device_build_dir(configuration)
         config_path.unlink(missing_ok=True)
         (config_dir / ".trash" / configuration).unlink(missing_ok=True)
