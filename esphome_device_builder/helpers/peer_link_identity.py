@@ -104,10 +104,12 @@ def get_or_create_peer_link_identity(config_dir: Path) -> PeerLinkIdentity:
     public_bytes = (
         X25519PrivateKey.from_private_bytes(private_bytes).public_key().public_bytes_raw()
     )
+    pin_sha256 = hashlib.sha256(public_bytes).hexdigest()
+    _log_loaded_identity(key_path, public_bytes, pin_sha256)
     return PeerLinkIdentity(
         private_bytes=private_bytes,
         public_bytes=public_bytes,
-        pin_sha256=hashlib.sha256(public_bytes).hexdigest(),
+        pin_sha256=pin_sha256,
     )
 
 
@@ -134,16 +136,43 @@ def rotate_peer_link_identity(config_dir: Path) -> PeerLinkIdentity:
     public_bytes = (
         X25519PrivateKey.from_private_bytes(private_bytes).public_key().public_bytes_raw()
     )
+    pin_sha256 = hashlib.sha256(public_bytes).hexdigest()
+    _log_loaded_identity(key_path, public_bytes, pin_sha256)
     return PeerLinkIdentity(
         private_bytes=private_bytes,
         public_bytes=public_bytes,
-        pin_sha256=hashlib.sha256(public_bytes).hexdigest(),
+        pin_sha256=pin_sha256,
     )
 
 
 # ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
+
+
+def _log_loaded_identity(key_path: Path, public_bytes: bytes, pin_sha256: str) -> None:
+    """Log the loaded identity with file stat + raw pubkey hex for drift diagnosis.
+
+    Pairs with the offloader-side pin-drift warning's
+    ``observed_bytes`` so an operator can compare what this
+    process loaded against what a paired offloader actually
+    observed on the wire.
+    """
+    try:
+        stat = key_path.stat()
+        size = stat.st_size
+        mtime = stat.st_mtime
+    except OSError:
+        size = -1
+        mtime = 0.0
+    _LOGGER.info(
+        "Loaded peer-link identity from %s (size=%d mtime=%.0f pub=%s pin=%s)",
+        key_path,
+        size,
+        mtime,
+        public_bytes.hex(),
+        pin_sha256,
+    )
 
 
 def _load_key(key_path: Path) -> bytes | None:

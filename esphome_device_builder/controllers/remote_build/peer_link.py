@@ -351,6 +351,7 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
     against a fake ``WebSocketResponse`` without standing up an
     aiohttp server.
     """
+    _LOGGER.info("peer-link WS accepted from %s", peer_ip)
     session = PeerLinkNoiseSession.responder(identity_priv)
 
     # --- handshake msg1 (offloader → receiver, plaintext payload) ---
@@ -392,6 +393,13 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
     pin = pin_sha256_for_pubkey(remote_static_pub)
     dashboard_id = _str_or_empty(msg3.get("dashboard_id"))
     label = _normalize_label(msg3.get("label"))
+    _LOGGER.info(
+        "peer-link handshake from %s ok (intent=%s dashboard_id=%s observed_offloader_pin=%s)",
+        peer_ip,
+        intent.value,
+        dashboard_id,
+        pin,
+    )
 
     response = await _dispatch_intent(
         controller,

@@ -203,3 +203,46 @@ def test_returns_peer_link_identity_dataclass(tmp_path: Path) -> None:
     # The dataclass is frozen, attempting to mutate raises.
     with pytest.raises((AttributeError, TypeError)):  # frozen dataclass
         identity.private_bytes = b"replacement"  # type: ignore[misc]
+
+
+def test_loaded_identity_log_carries_pubkey_and_file_stat(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Every load logs the key-file path, size, mtime, raw pubkey hex, and pin.
+
+    Pairs with the offloader-side pin-drift warning's
+    ``observed_bytes``: an operator can cross-check what the
+    receiver process actually loaded against what a paired
+    offloader observed on the wire.
+    """
+    with caplog.at_level("INFO", logger=identitymod.__name__):
+        identity = get_or_create_peer_link_identity(tmp_path)
+
+    key_path = tmp_path / _KEY_FILENAME
+    records = [
+        rec for rec in caplog.records if "Loaded peer-link identity from" in rec.getMessage()
+    ]
+    assert len(records) == 1
+    msg = records[0].getMessage()
+    assert str(key_path) in msg
+    assert f"size={_KEY_LENGTH}" in msg
+    assert f"pub={identity.public_bytes.hex()}" in msg
+    assert f"pin={identity.pin_sha256}" in msg
+
+
+def test_loaded_identity_log_fires_on_rotate(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """``rotate_peer_link_identity`` logs the new pubkey + pin after the write."""
+    get_or_create_peer_link_identity(tmp_path)
+    caplog.clear()
+    with caplog.at_level("INFO", logger=identitymod.__name__):
+        rotated = rotate_peer_link_identity(tmp_path)
+
+    records = [
+        rec for rec in caplog.records if "Loaded peer-link identity from" in rec.getMessage()
+    ]
+    assert len(records) == 1
+    msg = records[0].getMessage()
+    assert f"pub={rotated.public_bytes.hex()}" in msg
+    assert f"pin={rotated.pin_sha256}" in msg

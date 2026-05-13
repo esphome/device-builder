@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import io
+import logging
 import secrets
 import tarfile
 from collections.abc import AsyncGenerator, AsyncIterator, Iterator
@@ -5682,3 +5683,219 @@ async def test_controller_download_artifacts_malformed_tarball_maps_to_invalid_a
             return_exceptions=True,
         )
     assert exc_info.value.code == ErrorCode.INVALID_ARGS
+
+
+# ---------------------------------------------------------------------------
+# Connection-target + receiver-side accept diagnostics (pin-drift triage)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_receiver_logs_accept_and_handshake_ok_on_preview_session(
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Receiver emits ``WS accepted`` + ``handshake ... ok`` for every completed session.
+
+    Paired with the offloader-side pin-drift warning, these two
+    lines tell an operator whether the offloader's reconnect even
+    reached this receiver (accept fires) and whether Noise XX
+    completed against this process (handshake ok fires). Together
+    they rule out the "different process answered" branch when the
+    pin-drift warning fires elsewhere.
+    """
+    server, _, _, _ = receiver_server
+    initiator_priv = secrets.token_bytes(32)
+
+    with caplog.at_level(
+        "INFO", logger="esphome_device_builder.controllers.remote_build.peer_link"
+    ):
+        await preview_pair(
+            hostname="127.0.0.1",
+            port=server.port,
+            identity_priv=initiator_priv,
+        )
+
+    accept = [rec for rec in caplog.records if "peer-link WS accepted from" in rec.getMessage()]
+    handshake = [rec for rec in caplog.records if "peer-link handshake from" in rec.getMessage()]
+    assert len(accept) >= 1
+    assert len(handshake) >= 1
+    initiator_pub = (
+        X25519PrivateKey.from_private_bytes(initiator_priv).public_key().public_bytes_raw()
+    )
+    expected_offloader_pin = pin_sha256_for_pubkey(initiator_pub)
+    assert f"observed_offloader_pin={expected_offloader_pin}" in handshake[-1].getMessage()
+    assert "intent=preview" in handshake[-1].getMessage()
+
+
+@pytest.mark.asyncio
+async def test_run_one_session_logs_connect_target_no_resolver(
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A successful connect with ``resolver=None`` logs hostname:port only.
+
+    The pin-drift triage line should fire on the same code path
+    every real reconnect uses; running the client to OPENED and
+    asserting the line is present pins the wiring, not just the
+    helper.
+    """
+    server, receiver, _, receiver_pub = receiver_server
+    initiator_priv = secrets.token_bytes(32)
+    await _seed_approved_peer_for_initiator(
+        receiver, dashboard_id="alpha", initiator_priv=initiator_priv
+    )
+
+    bus = EventBus()
+    opened = capture_events(bus, EventType.OFFLOADER_PEER_LINK_OPENED)
+
+    client = PeerLinkClient(
+        receiver_hostname="127.0.0.1",
+        receiver_port=server.port,
+        identity_priv=initiator_priv,
+        dashboard_id="alpha",
+        pinned_static_x25519_pub=receiver_pub,
+        pin_sha256="a" * 64,
+        receiver_label="test-receiver",
+        bus=bus,
+    )
+    with caplog.at_level(
+        "INFO",
+        logger="esphome_device_builder.controllers.remote_build.peer_link_client.client",
+    ):
+        task = asyncio.create_task(client.run())
+        try:
+            await asyncio.wait_for(opened.received.wait(), timeout=2.0)
+        finally:
+            await cancel_and_drain(task)
+
+    records = [
+        rec
+        for rec in caplog.records
+        if f"peer-link client connecting to 127.0.0.1:{server.port}" in rec.getMessage()
+    ]
+    assert len(records) >= 1
+    # No ``resolved:`` annotation when resolver isn't configured.
+    assert "resolved" not in records[0].getMessage()
+
+
+@pytest.mark.asyncio
+async def test_run_one_session_logs_connect_target_with_resolver(
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A configured resolver surfaces its hits via ``(resolved: <hosts>)`` in the log."""
+    server, receiver, _, receiver_pub = receiver_server
+    initiator_priv = secrets.token_bytes(32)
+    await _seed_approved_peer_for_initiator(
+        receiver, dashboard_id="alpha", initiator_priv=initiator_priv
+    )
+
+    bus = EventBus()
+    opened = capture_events(bus, EventType.OFFLOADER_PEER_LINK_OPENED)
+
+    # aiohttp's stock ThreadedResolver hands the real getaddrinfo
+    # result back. For 127.0.0.1 that's a single-entry list whose
+    # ``host`` is ``127.0.0.1`` — the same IP aiohttp ends up
+    # connecting to, so the ws_connect path stays viable.
+    resolver = aiohttp.ThreadedResolver()
+    client = PeerLinkClient(
+        receiver_hostname="127.0.0.1",
+        receiver_port=server.port,
+        identity_priv=initiator_priv,
+        dashboard_id="alpha",
+        pinned_static_x25519_pub=receiver_pub,
+        pin_sha256="a" * 64,
+        receiver_label="test-receiver",
+        bus=bus,
+        resolver=resolver,
+    )
+    with caplog.at_level(
+        "INFO",
+        logger="esphome_device_builder.controllers.remote_build.peer_link_client.client",
+    ):
+        task = asyncio.create_task(client.run())
+        try:
+            await asyncio.wait_for(opened.received.wait(), timeout=2.0)
+        finally:
+            await cancel_and_drain(task)
+
+    records = [
+        rec
+        for rec in caplog.records
+        if "peer-link client connecting to 127.0.0.1" in rec.getMessage()
+        and "resolved:" in rec.getMessage()
+    ]
+    assert len(records) >= 1
+    assert "127.0.0.1" in records[0].getMessage().split("resolved:", 1)[1]
+
+
+@pytest.mark.asyncio
+async def test_run_one_session_logs_resolve_failure(
+    caplog: pytest.LogCaptureFixture,
+    bound_unused_tcp_port: int,
+) -> None:
+    """A resolver that raises is surfaced as ``(resolve failed: <ExcType>: <msg>)``.
+
+    Connection itself will fail downstream; the diagnostic line
+    must still appear on the per-attempt code path so an operator
+    chasing pin drift can see whether the resolver path is at
+    fault. We point at a never-accepting port so the test doesn't
+    depend on what the real receiver does after the failure.
+    """
+
+    class _RaisingResolver:
+        async def resolve(self, host: str, port: int, family: int = 0) -> list[dict[str, Any]]:
+            raise OSError("mdns timeout")
+
+        async def close(self) -> None:
+            return None
+
+    # Sync off the *log emit* rather than the resolver call —
+    # the line we assert on lands in the ``except`` branch after
+    # ``resolve`` raises. A handler on the client logger flips
+    # the event the moment the matching record is emitted, so
+    # the test awaits a deterministic edge instead of polling.
+    loop = asyncio.get_running_loop()
+    log_seen = asyncio.Event()
+
+    class _LogSignalHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            if "resolve failed: OSError: mdns timeout" in record.getMessage():
+                loop.call_soon_threadsafe(log_seen.set)
+
+    bus = EventBus()
+    client = PeerLinkClient(
+        receiver_hostname="laptop.local",
+        receiver_port=bound_unused_tcp_port,
+        identity_priv=secrets.token_bytes(32),
+        dashboard_id="alpha",
+        pinned_static_x25519_pub=b"\x00" * 32,
+        pin_sha256="0" * 64,
+        receiver_label="laptop",
+        bus=bus,
+        resolver=cast(Any, _RaisingResolver()),
+    )
+
+    logger = logging.getLogger(
+        "esphome_device_builder.controllers.remote_build.peer_link_client.client"
+    )
+    handler = _LogSignalHandler(level=logging.INFO)
+    logger.addHandler(handler)
+    try:
+        with caplog.at_level(
+            "INFO",
+            logger="esphome_device_builder.controllers.remote_build.peer_link_client.client",
+        ):
+            task = asyncio.create_task(client.run())
+            try:
+                await asyncio.wait_for(log_seen.wait(), timeout=2.0)
+            finally:
+                await cancel_and_drain(task)
+    finally:
+        logger.removeHandler(handler)
+
+    records = [
+        rec for rec in caplog.records if "resolve failed: OSError: mdns timeout" in rec.getMessage()
+    ]
+    assert len(records) >= 1
