@@ -94,7 +94,8 @@ async def set_pairing_enabled(
 async def preview_pair(
     controller: OffloaderController, *, hostname: str, port: int
 ) -> dict[str, str]:
-    """Open a brief Noise XX WS to *hostname*:*port* and return the receiver's pin.
+    """
+    Open a brief Noise XX WS to *hostname*:*port* and return the receiver's pin.
 
     ``intent="preview"`` captures the receiver's static
     X25519 pubkey from the handshake transcript. The
@@ -133,7 +134,8 @@ async def request_pair(
     receiver_label: str,
     offloader_label: str,
 ) -> PairingSummary:
-    """Open a Noise XX WS, send ``intent="pair_request"``, persist a local row.
+    """
+    Open a Noise XX WS, send ``intent="pair_request"``, persist a local row.
 
     Sends ``{"label": offloader_label, "dashboard_id":
     <ours>}`` in the encrypted msg3; the receiver's response
@@ -217,7 +219,8 @@ async def request_pair(
 
 
 async def unpair(controller: OffloaderController, *, pin_sha256: str) -> dict[str, bool]:
-    """Drop the local :class:`StoredPairing` row keyed on *pin_sha256*.
+    """
+    Drop the local :class:`StoredPairing` row keyed on *pin_sha256*.
 
     Idempotent — returns ``{"removed": False}`` rather than
     raising on a missing row so the frontend's Unpair button
@@ -263,7 +266,8 @@ async def edit_pairing_endpoint(
     hostname: str,
     port: int,
 ) -> PairingSummary:
-    """Manually rebind *pin_sha256*'s pairing onto new (*hostname*, *port*) coords.
+    """
+    Manually rebind *pin_sha256*'s pairing onto new (*hostname*, *port*) coords.
 
     For cases the auto path can't catch: cross-subnet
     receivers, mDNS disabled, receiver moved to a
