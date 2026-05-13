@@ -1,17 +1,13 @@
 """
 Offloader-side ``submit_job`` / ``download_artifacts`` / ``cancel_job`` WS commands.
 
-Top-half of the remote-build dispatch loop: the offloader
-packs the YAML config (and its referenced files) into a
-gzipped tarball via the ``esphome bundle`` CLI, streams it to
-the receiver behind a paired peer-link, and tracks the build's
-lifecycle / artifacts. Symmetric to the receiver-side
-:mod:`.submit_job` (which owns the bottom half — bundle
-unpack, compile, ack); the wire shapes meet in
-:mod:`.peer_link_client`.
+The offloader packs the YAML config (and its referenced
+files) into a gzipped tarball via the ``esphome bundle`` CLI,
+streams it to the receiver behind a paired peer-link, and
+tracks the build's lifecycle / artifacts.
 
-Bodies take :class:`OffloaderController` as the first arg; the
-controller keeps the three ``@api_command``-decorated WS
+Bodies take :class:`OffloaderController` as the first arg;
+the controller keeps the three ``@api_command``-decorated WS
 methods plus the two ``_validate`` / ``_build`` helpers as
 thin bound-method delegates so test call-sites and the WS
 dispatch resolve unchanged.
@@ -100,21 +96,12 @@ async def submit_job(
 ) -> dict[str, Any]:
     """Bundle *configuration* and dispatch a build to the receiver behind *pin_sha256*.
 
-    Offloader-side counterpart of :class:`SubmitJobReceiver`.
-    Packs the config + referenced files (includes, secrets,
-    fonts, images, …) into a gzipped tarball via the
-    ``esphome bundle`` CLI subprocess and streams it over
-    the existing peer-link session. Live job lifecycle +
-    output ride ``OFFLOADER_JOB_STATE_CHANGED`` /
+    Streams the gzipped tarball over the existing peer-link
+    session. Live job lifecycle + output ride
+    ``OFFLOADER_JOB_STATE_CHANGED`` /
     ``OFFLOADER_JOB_OUTPUT`` events on the
     ``subscribe_events`` stream; this call returns only the
     receiver's ``submit_job_ack``.
-
-    Subprocess instead of in-process because the CLI is the
-    stable upstream contract — in-process ``read_config``
-    would couple us to the ESPHome validation pipeline,
-    which shifts across releases. Bundle is rebuilt every
-    call so a YAML edit can't ship a stale cache.
 
     Returns ``{"job_id": <our id>, "accepted": <bool>,
     "reason": <str>}`` (``reason`` only on rejection).
