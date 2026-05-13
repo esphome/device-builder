@@ -25,10 +25,12 @@ The expected chip variant comes from a real StorageJSON sidecar
 seeded via ``write_storage_json`` — ``_verify_chip`` reads
 ``StorageJSON.target_platform`` directly (the upstream-canonical
 chip variant) rather than ``Device.target_platform`` (which now
-carries the platform *key*, not the variant). Tests redirect
-``ext_storage_path`` in the firmware controller's namespace so
-``StorageJSON.load`` finds the sidecar at
-``tmp_path/.esphome/storage/<configuration>.json``.
+carries the platform *key*, not the variant). The global
+``_core_config_path_in_tmp`` autouse fixture in ``tests/conftest.py``
+pins ``CORE.config_path`` onto ``tmp_path`` so production
+``resolve_storage_path`` resolves to
+``tmp_path/.esphome/storage/<configuration>.json`` — the same path
+``write_storage_json`` writes to. No per-module redirect required.
 
 Branches the runner depends on:
 
@@ -67,7 +69,6 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from esphome_device_builder.controllers.firmware import FirmwareController
-from esphome_device_builder.controllers.firmware import download as download_module
 from esphome_device_builder.controllers.firmware import runner as runner_module
 from esphome_device_builder.models import EventType, JobStatus
 from tests._storage_fixtures import write_storage_json
@@ -152,27 +153,6 @@ class _StubDevices:
 def _wire_devices(controller: FirmwareController) -> None:
     """Attach a no-op ``DevicesController`` stub for ``_build_cache_args``."""
     controller._db.devices = _StubDevices()  # type: ignore[attr-defined]
-
-
-@pytest.fixture(autouse=True)
-def _redirect_ext_storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Redirect ``ext_storage_path`` to ``tmp_path/.esphome/storage/``.
-
-    The production helper resolves through ``CORE.config_path``
-    which isn't set in isolated tests; the redirect makes
-    ``StorageJSON.load(ext_storage_path(filename))`` (called from
-    ``_verify_chip``) read the sidecar ``_seed_storage`` lays
-    down. Same pattern as ``test_download.py``'s redirect — the
-    fixture is autouse so every test in this module is covered
-    without a per-test ``@pytest.mark.usefixtures`` decoration.
-    """
-    storage_dir = tmp_path / ".esphome" / "storage"
-    storage_dir.mkdir(parents=True, exist_ok=True)
-
-    def _ext(configuration: str) -> Path:
-        return storage_dir / f"{configuration}.json"
-
-    monkeypatch.setattr(download_module, "resolve_storage_path", _ext)
 
 
 def _is_esptool_spawn(args: tuple[Any, ...]) -> bool:
