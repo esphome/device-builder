@@ -38,10 +38,10 @@ import pytest
 
 from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.controllers.firmware import (
-    controller as controller_module,
+    helpers as helpers_module,
 )
 from esphome_device_builder.controllers.firmware import (
-    helpers as helpers_module,
+    runner as runner_module,
 )
 from esphome_device_builder.controllers.firmware.constants import (
     _INFLIGHT_TRIM_KEEP,
@@ -697,7 +697,7 @@ async def test_compile_inflight_output_trims_when_cap_exceeded(
     because the ``finally``-block ``_trim_job_output(job)`` call
     runs anyway.
     """
-    real_trim = controller_module._trim_job_output
+    real_trim = runner_module._trim_job_output
     inflight_trim_calls: list[tuple[JobStatus, int, int | None]] = []
 
     def _spy_trim(job: Any, *, keep: int | None = None) -> None:
@@ -711,13 +711,13 @@ async def test_compile_inflight_output_trims_when_cap_exceeded(
             real_trim(job, keep=keep)
 
     # Patch both surfaces: the post-exit ``finally``-block call
-    # resolves through ``controller_module`` (the streaming-loop
+    # resolves through ``runner_module`` (the streaming-loop
     # imports it directly), while the mid-run trim now lands via
     # the shared ``_ingest_output_line`` helper in ``helpers.py``
     # — which calls ``_trim_job_output`` from its own module
     # scope. Without patching both, the mid-run branch escapes
     # the spy and the regression check goes silent.
-    monkeypatch.setattr(controller_module, "_trim_job_output", _spy_trim)
+    monkeypatch.setattr(runner_module, "_trim_job_output", _spy_trim)
     monkeypatch.setattr(helpers_module, "_trim_job_output", _spy_trim)
 
     excess = 200

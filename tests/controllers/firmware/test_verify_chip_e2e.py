@@ -65,6 +65,7 @@ import pytest
 
 from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.controllers.firmware import controller as controller_module
+from esphome_device_builder.controllers.firmware import runner as runner_module
 from esphome_device_builder.models import EventType, JobStatus
 from tests._storage_fixtures import write_storage_json
 
@@ -191,7 +192,7 @@ def _patch_subprocess(
     in particular whether the esptool call fired at all.
     """
     record: dict[str, list] = {"esptool_calls": [], "build_calls": []}
-    real = controller_module.create_subprocess_exec
+    real = runner_module.create_subprocess_exec
 
     async def _wrapper(*args: Any, **kwargs: Any) -> Any:
         # esptool spawn:
@@ -221,7 +222,7 @@ def _patch_subprocess(
         record["build_calls"].append(args)
         return await real(sys.executable, "-c", _BUILD_SCRIPT_OK, **kwargs)
 
-    monkeypatch.setattr(controller_module, "create_subprocess_exec", _wrapper)
+    monkeypatch.setattr(runner_module, "create_subprocess_exec", _wrapper)
     return record
 
 
@@ -589,7 +590,7 @@ async def test_cancel_during_hanging_verify_chip_terminates_subprocess(
     _seed_yaml(tmp_path)
     _seed_storage(tmp_path, target_platform="ESP32C3")
 
-    real = controller_module.create_subprocess_exec
+    real = runner_module.create_subprocess_exec
     verify_spawned = asyncio.Event()
 
     async def _wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -613,7 +614,7 @@ async def test_cancel_during_hanging_verify_chip_terminates_subprocess(
         msg = "build subprocess spawned despite mid-verify cancel"
         raise AssertionError(msg)
 
-    monkeypatch.setattr(controller_module, "create_subprocess_exec", _wrapper)
+    monkeypatch.setattr(runner_module, "create_subprocess_exec", _wrapper)
 
     job = await controller.install(configuration="kitchen.yaml", port="/dev/ttyUSB0")
 
@@ -674,7 +675,7 @@ async def test_cancel_during_verify_chip_marks_job_cancelled(
     _seed_yaml(tmp_path)
     _seed_storage(tmp_path, target_platform="ESP32C3")
 
-    real = controller_module.create_subprocess_exec
+    real = runner_module.create_subprocess_exec
     cancel_armed = False
 
     async def _wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -703,7 +704,7 @@ async def test_cancel_during_verify_chip_marks_job_cancelled(
         msg = "build subprocess spawned despite mid-verify cancel"
         raise AssertionError(msg)
 
-    monkeypatch.setattr(controller_module, "create_subprocess_exec", _wrapper)
+    monkeypatch.setattr(runner_module, "create_subprocess_exec", _wrapper)
 
     job = await controller.install(configuration="kitchen.yaml", port="/dev/ttyUSB0")
     captured = await _run_until_terminal(controller)
@@ -890,7 +891,7 @@ async def test_cancel_in_gap_between_verify_and_main_spawn_terminates(
     # ordering — the post-spawn cancel check is what's under test.
     _seed_storage(tmp_path, target_platform="ESP32C3")
 
-    real = controller_module.create_subprocess_exec
+    real = runner_module.create_subprocess_exec
     terminate_calls: list[asyncio.subprocess.Process | None] = []
     real_terminate = controller._terminate_current_process
 
@@ -911,7 +912,7 @@ async def test_cancel_in_gap_between_verify_and_main_spawn_terminates(
             controller._cancel_requested.add(controller._current_job.job_id)
         return await real(sys.executable, "-c", _BUILD_SCRIPT_OK, **kwargs)
 
-    monkeypatch.setattr(controller_module, "create_subprocess_exec", _wrapper)
+    monkeypatch.setattr(runner_module, "create_subprocess_exec", _wrapper)
 
     job = await controller.install(configuration="kitchen.yaml", port="OTA")
     captured = await _run_until_terminal(controller)
