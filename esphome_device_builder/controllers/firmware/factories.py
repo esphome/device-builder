@@ -77,17 +77,9 @@ def create_job(
 
 
 def resolve_install_source(
-    controller: FirmwareController, configuration: str, *, force_local: bool = False
+    controller: FirmwareController, *, force_local: bool = False
 ) -> JobBuildSource:
-    """
-    Pick LOCAL or REMOTE based on the scheduler snapshot; return the build source.
-
-    ``configuration`` isn't read today — the decision is purely a
-    function of ``force_local`` and the offloader's
-    :meth:`build_scheduler_snapshot`. The parameter is preserved
-    for future-extensible per-config policy and to match the call
-    sites (every caller passes its own configuration).
-    """
+    """Pick LOCAL or REMOTE from the scheduler snapshot; return the build source."""
     if force_local:
         return LOCAL_JOB_BUILD_SOURCE
     offloader = controller._db.remote_build_offloader

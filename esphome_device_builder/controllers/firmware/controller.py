@@ -241,7 +241,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         despite an available paired receiver.
         """
         await self._validate_configuration_boundary(configuration)
-        build_source = self._resolve_install_source(configuration, force_local=force_local)
+        build_source = self._resolve_install_source(force_local=force_local)
         job = self._create_job(
             configuration,
             JobType.COMPILE,
@@ -497,7 +497,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         """
         _validate_port(port)
         await self._validate_configuration_boundary(configuration)
-        build_source = self._resolve_install_source(configuration, force_local=force_local)
+        build_source = self._resolve_install_source(force_local=force_local)
         job = self._create_job(
             configuration,
             JobType.INSTALL,
@@ -583,7 +583,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         jobs: list[FirmwareJob] = []
         for config in configurations:
             try:
-                build_source = self._resolve_install_source(config, force_local=force_local)
+                build_source = self._resolve_install_source(force_local=force_local)
                 job = self._create_job(
                     config,
                     JobType.COMPILE,
@@ -616,7 +616,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         jobs: list[FirmwareJob] = []
         for config in configurations:
             try:
-                build_source = self._resolve_install_source(config)
+                build_source = self._resolve_install_source()
                 job = self._create_job(
                     config,
                     JobType.INSTALL,
@@ -1492,10 +1492,8 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             device_friendly_name=device_friendly_name,
         )
 
-    def _resolve_install_source(
-        self, configuration: str, *, force_local: bool = False
-    ) -> JobBuildSource:
-        return factories.resolve_install_source(self, configuration, force_local=force_local)
+    def _resolve_install_source(self, *, force_local: bool = False) -> JobBuildSource:
+        return factories.resolve_install_source(self, force_local=force_local)
 
     async def _enqueue(self, job: FirmwareJob, *, supersede: bool = True) -> FirmwareJob:
         return await factories.enqueue(self, job, supersede=supersede)
