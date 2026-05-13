@@ -6,6 +6,8 @@ import asyncio
 import hmac
 import logging
 import os
+import re
+import sys
 import tempfile
 import threading
 from collections.abc import Iterator
@@ -32,6 +34,7 @@ from ..helpers.secrets_state import (
     read_secrets_yaml,
 )
 from ..helpers.storage_path import resolve_storage_path
+from ..helpers.subprocess import run_subprocess_capture
 from ..models import (
     ErrorCode,
     Label,
@@ -912,6 +915,377 @@ def delete_label_cascade(config_dir: Path, label_id: str) -> tuple[bool, set[str
 
 
 # ---------------------------------------------------------------------------
+# Chip / variant detection helpers (config/detect_chip)
+# ---------------------------------------------------------------------------
+
+# Maps esptool's "Detecting chip type… <X>" family string (lower-cased)
+# to (chip_family, variant, platform) where:
+#
+# - ``chip_family`` matches a ``WIZARD_BOARD_PLATFORMS.label`` value
+#   in the frontend so callers can hand it straight to the board-
+#   picker filter (e.g. ``"ESP32-C3"``). Families that aren't in
+#   the frontend table are still returned verbatim — the frontend
+#   gracefully falls through to "no filter" rather than crashing.
+# - ``variant`` / ``platform`` mirror ESPHome's own variant + platform
+#   keys (the lowercase values that show up in StorageJSON and the
+#   board catalogue).
+#
+# esptool can only identify ESP chips. Non-ESP platforms (RP2040 /
+# RP2350, BK72xx, RTL87xx, LN882x, nRF52) need their own probe path;
+# they're not in this table.
+_CHIP_FAMILY_MAP: dict[str, tuple[str, str, str]] = {
+    "esp32": ("ESP32", "esp32", "esp32"),
+    "esp32-s2": ("ESP32-S2", "esp32s2", "esp32"),
+    "esp32-s3": ("ESP32-S3", "esp32s3", "esp32"),
+    "esp32-c2": ("ESP32-C2", "esp32c2", "esp32"),
+    "esp32-c3": ("ESP32-C3", "esp32c3", "esp32"),
+    "esp32-c5": ("ESP32-C5", "esp32c5", "esp32"),
+    "esp32-c6": ("ESP32-C6", "esp32c6", "esp32"),
+    "esp32-c61": ("ESP32-C61", "esp32c61", "esp32"),
+    "esp32-h2": ("ESP32-H2", "esp32h2", "esp32"),
+    "esp32-p4": ("ESP32-P4", "esp32p4", "esp32"),
+    "esp8266": ("ESP8266", "", "esp8266"),
+}
+
+# ESP-IDF ``esp_app_desc_t`` lives at the start of every IDF app
+# image. With ESPHome's default partition layout the app partition
+# starts at 0x10000 and the descriptor sits at offset 0x20 within,
+# i.e. 0x10020 in flash. The layout is:
+#
+#   magic         u32       offset 0      0xabcd5432, little-endian
+#   secure_ver    u32       offset 4
+#   reserved      u8[8]     offset 8
+#   version       char[32]  offset 16
+#   project_name  char[32]  offset 48
+#   …             (more fields we don't need)
+#
+# ESPHome populates ``project_name`` from ``esphome.name``, which
+# vendors flashing factory firmware set to a catalogue board id —
+# that's how the wizard auto-routes a starter-kit straight to its
+# specific setup screen.
+_APP_DESC_OFFSET = 0x10020
+_APP_DESC_SIZE = 256
+_APP_DESC_MAGIC = 0xABCD5432
+_PROJECT_NAME_OFFSET = 48
+_PROJECT_NAME_SIZE = 32
+
+# Windows port names (COM1 … COM256). Linux / macOS ports start with
+# ``/dev/`` and are validated separately. Catches accidental command
+# injection via the port arg — only well-formed paths reach esptool.
+_WINDOWS_PORT_RE = re.compile(r"^COM\d{1,3}$", re.IGNORECASE)
+
+
+def _is_valid_port_name(port: str) -> bool:
+    """Reject port strings that don't look like a real device path.
+
+    Defence-in-depth — esptool ultimately validates the port itself,
+    but accepting arbitrary strings here would let a malicious caller
+    pass an argv that triggers esptool to read from a path it
+    shouldn't (e.g. a config file). Restrict to ``/dev/<basename>``
+    (POSIX serial nodes) or ``COM<n>`` (Windows).
+    """
+    if port.startswith("/dev/"):
+        # Reject path traversal and shell metacharacters.
+        rest = port[len("/dev/") :]
+        return (
+            bool(rest)
+            and "/" not in rest
+            and ".." not in rest
+            and all(c.isalnum() or c in "-_." for c in rest)
+        )
+    return bool(_WINDOWS_PORT_RE.match(port))
+
+
+def _chip_family_to_descriptor(esptool_family: str) -> dict[str, str] | None:
+    """Map ``"ESP32-C3"`` → ``{chip_family, variant, platform}``."""
+    key = esptool_family.strip().lower()
+    entry = _CHIP_FAMILY_MAP.get(key)
+    if entry is None:
+        return None
+    family, variant, platform = entry
+    return {"chip_family": family, "variant": variant, "platform": platform}
+
+
+def _parse_project_name(blob: bytes) -> str | None:
+    """Pull ``project_name`` out of a 256-byte ``esp_app_desc_t`` blob.
+
+    Returns ``None`` whenever the magic word doesn't match (not an
+    IDF app, or partition-layout drift) or the field is empty.
+    Callers treat this as "no factory firmware present" and fall
+    through to chip-family filtering.
+    """
+    if len(blob) < _PROJECT_NAME_OFFSET + _PROJECT_NAME_SIZE:
+        return None
+    magic = int.from_bytes(blob[0:4], "little")
+    if magic != _APP_DESC_MAGIC:
+        return None
+    raw = blob[_PROJECT_NAME_OFFSET : _PROJECT_NAME_OFFSET + _PROJECT_NAME_SIZE]
+    nul = raw.find(b"\x00")
+    if nul != -1:
+        raw = raw[:nul]
+    try:
+        name = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    return name or None
+
+
+def _find_esptool_cmd() -> list[str]:
+    """Locate the ``esptool`` CLI, preferring the same interpreter as ours.
+
+    Mirrors :func:`controllers.firmware.helpers._find_esphome_cmd`.
+    The backend's own interpreter (``sys.executable``) is the
+    authoritative source: a sibling ``esptool`` script in the same
+    bin directory is preferred when present (its shebang is pinned
+    to our interpreter, so it can't accidentally jump to a different
+    Python), with ``[sys.executable, "-m", "esptool"]`` as the
+    fallback for envs that ship esptool as a module without a
+    standalone script.
+
+    Using the sibling script also dodges the ``"No module named
+    esptool"`` failure mode we hit under VS Code's debugpy launch
+    chain — ``python -m esptool`` from inside a debug-wrapped
+    process can fail module resolution in ways the parent process
+    doesn't, while the standalone script with its absolute-path
+    shebang is launched as a plain executable and always works.
+    """
+    python = sys.executable
+    bin_dir = Path(python).parent
+
+    sibling = bin_dir / ("esptool.exe" if os.name == "nt" else "esptool")
+    if sibling.exists():
+        return [str(sibling)]
+
+    return [python, "-m", "esptool"]
+
+
+# Timeouts for the two esptool subcommands ``detect_chip_cmd``
+# invokes. ``chip-id`` against a healthy ESP usually completes in
+# 2-3 s (reset pulse + ROM handshake + read MAC); the 30 s ceiling
+# leaves headroom for slow USB hubs, macOS re-enumeration delays,
+# and the occasional retry esptool does internally before giving up.
+# ``read-flash`` of 256 B is similar but adds stub upload (a few
+# hundred ms) — same ceiling is fine.
+_CHIP_DETECT_TIMEOUT = 30.0
+_READ_FLASH_TIMEOUT = 30.0
+
+
+def _classify_esptool_failure(output: str) -> str:
+    """Map an esptool error blob to one of the ``_DETECT_*`` reasons.
+
+    Pattern-matches on substrings the esptool CLI prints today —
+    fragile in principle, but the patterns have been stable across
+    v4 → v5 (busy / no-response are OS-level errors that ride
+    through unchanged from pyserial).
+    """
+    lower = output.lower()
+    if "no module named" in lower or "modulenotfounderror" in lower:
+        return _DETECT_NO_ESPTOOL
+    if (
+        "resource busy" in lower
+        or "could not open port" in lower
+        or "port is busy" in lower
+        or "errno 16" in lower
+        or "access is denied" in lower  # Windows equivalent of EBUSY
+        or "permissionerror" in lower
+    ):
+        return _DETECT_BUSY
+    if (
+        "failed to connect" in lower
+        or "no serial data received" in lower
+        or "wrong boot mode detected" in lower
+    ):
+        return _DETECT_NO_RESPONSE
+    return _DETECT_UNKNOWN
+
+
+def _parse_chip_family_line(output: str) -> dict[str, str] | None:
+    r"""Pull the chip family out of an esptool stdout blob.
+
+    esptool prints the family in three places we can target, listed
+    here from most to least reliable:
+
+    1. ``"Chip type:          ESP32-C3 (QFN32) (revision v0.3)"`` —
+       prints unconditionally after a successful detect+connect,
+       happens *after* the collapsing stage finishes (so escape
+       codes never overwrite it).
+    2. ``"Connected to ESP32-C3 on /dev/..."`` — same post-stage
+       guarantee, but the family is embedded mid-line so the
+       extraction is slightly more fragile.
+    3. ``"Detecting chip type... ESP32-C3"`` — what ``_verify_chip``
+       in the firmware controller parses. Lives *inside* the
+       collapsible stage; when esptool's "smart features" are
+       active (TERM set + colours enabled) the line is still in
+       the byte stream but the post-stage ``\x1b[1A\x1b[2K``
+       sequence visually erases it. The bytes themselves survive,
+       so the parser still finds the line — kept as a final
+       fallback for completeness.
+    """
+    # 1) "Chip type:" line — most reliable, immune to stage collapsing.
+    for line in output.splitlines():
+        idx = line.find("Chip type:")
+        if idx != -1:
+            after = line[idx + len("Chip type:") :].strip()
+            # Strip the parenthesised package / revision suffix
+            # (``ESP32-C3 (QFN32) (revision v0.3)`` → ``ESP32-C3``).
+            family = after.split("(")[0].strip()
+            descriptor = _chip_family_to_descriptor(family)
+            if descriptor is not None:
+                return descriptor
+
+    # 2) "Connected to X on" line.
+    for line in output.splitlines():
+        idx = line.find("Connected to ")
+        if idx != -1:
+            after = line[idx + len("Connected to ") :]
+            family = after.split(" on ")[0].strip()
+            descriptor = _chip_family_to_descriptor(family)
+            if descriptor is not None:
+                return descriptor
+
+    # 3) "Detecting chip type..." legacy fallback.
+    for line in output.splitlines():
+        if "Detecting chip type" in line:
+            family = line.split("...")[-1].strip()
+            descriptor = _chip_family_to_descriptor(family)
+            if descriptor is not None:
+                return descriptor
+
+    return None
+
+
+async def _run_esptool(args: list[str], timeout: float) -> tuple[int, bytes]:
+    """Spawn esptool with *args* and capture stdout+stderr.
+
+    Uses :func:`_find_esptool_cmd` to pick the right invocation
+    (sibling script preferred over ``python -m esptool``) and runs
+    through :func:`helpers.subprocess.run_subprocess_capture` — the
+    same one-shot helper :func:`_verify_esphome_importable` uses
+    for the esphome CLI sanity check.
+
+    Returns ``(returncode, stdout)``. On timeout, returncode is the
+    one assigned by the OS to the killed process (typically negative
+    on POSIX). Caller checks the return code; non-zero gets
+    classified by :func:`_classify_esptool_failure`.
+    """
+    cmd = _find_esptool_cmd()
+    result = await run_subprocess_capture(*cmd, *args, timeout=timeout)
+    return result.returncode if result.returncode is not None else -1, result.stdout
+
+
+async def _detect_chip_via_esptool(
+    port: str,
+) -> tuple[dict[str, str] | None, str | None]:
+    """Run ``esptool chip-id`` and parse the chip family.
+
+    Returns ``(descriptor, None)`` on success or
+    ``(None, failure_reason)`` on failure. ``failure_reason`` is one
+    of the ``_DETECT_*`` constants — the handler maps it to a
+    user-facing message.
+    """
+    returncode, stdout = await _run_esptool(["--port", port, "chip-id"], _CHIP_DETECT_TIMEOUT)
+    output = stdout.decode("utf-8", errors="replace")
+    if returncode != 0:
+        _LOGGER.debug("esptool chip-id on %s exited %d: %s", port, returncode, output)
+        return None, _classify_esptool_failure(output)
+    descriptor = _parse_chip_family_line(output)
+    if descriptor is None:
+        _LOGGER.debug(
+            "esptool chip-id on %s succeeded but family wasn't in our map: %s",
+            port,
+            output,
+        )
+        return None, _DETECT_UNKNOWN_CHIP
+    return descriptor, None
+
+
+async def _read_app_descriptor_board_id(port: str) -> str | None:
+    """Best-effort: read 256 B at 0x10020 and decode project_name.
+
+    Failure here is non-fatal — the caller still has chip-family
+    info to narrow the picker with. Uses a tempfile because
+    esptool's ``read-flash`` writes the binary payload to a named
+    file, not stdout.
+    """
+    fd, path = tempfile.mkstemp(prefix="esp_app_desc_", suffix=".bin")
+    os.close(fd)
+    try:
+        returncode, _stdout = await _run_esptool(
+            [
+                "--port",
+                port,
+                "read-flash",
+                hex(_APP_DESC_OFFSET),
+                str(_APP_DESC_SIZE),
+                path,
+            ],
+            _READ_FLASH_TIMEOUT,
+        )
+        if returncode != 0:
+            return None
+        try:
+            blob = Path(path).read_bytes()
+        except OSError:
+            return None
+        return _parse_project_name(blob)
+    finally:
+        with suppress(OSError):
+            os.unlink(path)
+
+
+# Failure classifications for ``_detect_chip_via_esptool``. The
+# handler in ``detect_chip_cmd`` maps each to a user-facing message
+# — they all surface as ``UNAVAILABLE`` to the WS client, the
+# distinction is in the human text. ``BUSY`` is the load-bearing one
+# (a serial monitor or stale WebSerial session is the single most
+# common reason detection fails); without it the user gets a
+# misleading "is a device connected?" message even though the cable
+# is plugged in.
+_DETECT_BUSY = "busy"
+_DETECT_NO_RESPONSE = "no_response"
+_DETECT_TIMEOUT = "timeout"
+_DETECT_NO_ESPTOOL = "no_esptool"
+_DETECT_UNKNOWN_CHIP = "unknown_chip"
+_DETECT_UNKNOWN = "unknown"
+
+
+def _detect_failure_message(reason: str | None, port: str) -> str:
+    """Translate a ``_DETECT_*`` reason into a user-facing message.
+
+    These reach the user directly via the WS error's ``details``
+    field, which the frontend renders inline in the wizard's
+    detection-failed state. Keep them short, specific, and
+    action-oriented — the user just clicked a port and got a red
+    box; they need to know what to do next, not what went wrong
+    internally.
+    """
+    if reason == _DETECT_BUSY:
+        return (
+            f"{port} is already in use by another application. Close any "
+            "browser tab using Web Serial or any serial monitor connected "
+            "to this port, then try again."
+        )
+    if reason == _DETECT_NO_RESPONSE:
+        return (
+            f"No response from a chip on {port}. Check the USB cable, "
+            "and on boards without auto-reset try holding the BOOT button "
+            "while you plug it in."
+        )
+    if reason == _DETECT_UNKNOWN_CHIP:
+        return (
+            f"Detected a device on {port}, but it isn't a recognised ESP "
+            "chip family. This command only supports ESP32 / ESP8266 "
+            "variants — pick a board manually from the list."
+        )
+    if reason == _DETECT_NO_ESPTOOL:
+        return (
+            "Could not run esptool on the server. Make sure esptool is "
+            "installed in the dashboard's Python environment."
+        )
+    return f"Could not detect a chip on {port}. Is a supported ESP device connected?"
+
+
+# ---------------------------------------------------------------------------
 # ConfigController
 # ---------------------------------------------------------------------------
 
@@ -936,6 +1310,45 @@ class ConfigController:
             {"port": p.path, "desc": p.description if p.description != "n/a" else p.path}
             for p in ports
         ]
+
+    @api_command("config/detect_chip")
+    async def detect_chip_cmd(self, **kwargs: Any) -> dict:
+        """Identify what's plugged into a server-side serial port.
+
+        Runs ``esptool chip-id`` to detect the chip family, then
+        best-effort reads the IDF ``esp_app_desc_t`` at flash
+        offset ``0x10020`` for the ``project_name`` field (the
+        board_id baked in by ESPHome at compile time when factory
+        firmware is present). Closes the parity gap with WebSerial,
+        which already does the same locally via esptool-js.
+
+        Returns ``{chip_family, variant, platform, board_id?}``.
+        ``board_id`` is omitted whenever the manifest read fails or
+        the device isn't running an IDF image — callers treat that
+        as "narrow the picker by chip family" and let the user pick
+        the specific board.
+
+        Failures all surface as ``UNAVAILABLE`` but with distinct
+        messages so the user can act: "port busy" (close the
+        offending app), "no response" (check the cable / BOOT
+        button), "unknown chip" (the device responded but isn't
+        an ESP variant we recognise), etc.
+        """
+        port = kwargs.get("port")
+        if not isinstance(port, str) or not port:
+            raise CommandError(ErrorCode.INVALID_ARGS, "port is required")
+        if not _is_valid_port_name(port):
+            raise CommandError(ErrorCode.INVALID_ARGS, f"invalid port: {port!r}")
+
+        chip_info, failure = await _detect_chip_via_esptool(port)
+        if chip_info is None:
+            raise CommandError(ErrorCode.UNAVAILABLE, _detect_failure_message(failure, port))
+
+        result: dict = dict(chip_info)
+        board_id = await _read_app_descriptor_board_id(port)
+        if board_id:
+            result["board_id"] = board_id
+        return result
 
     @api_command("config/get_preferences")
     async def get_prefs(self, **kwargs: Any) -> UserPreferences:
