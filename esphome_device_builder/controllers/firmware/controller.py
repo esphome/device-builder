@@ -422,6 +422,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
                     source=JobSource.REMOTE,
                     source_pin_sha256=pairing.pin_sha256,
                     source_label=pairing.label,
+                    source_esphome_version=pairing.esphome_version,
                 ),
             )
             # ``supersede=False``: the fan-out batch is N+1 jobs
@@ -1840,6 +1841,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             source=build_source.source,
             source_pin_sha256=build_source.source_pin_sha256,
             source_label=build_source.source_label,
+            source_esphome_version=build_source.source_esphome_version,
             device_name=device_name,
             device_friendly_name=device_friendly_name,
         )
@@ -1867,6 +1869,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             source=JobSource.REMOTE,
             source_pin_sha256=pairing.pin_sha256,
             source_label=pairing.label,
+            source_esphome_version=pairing.esphome_version,
         )
 
     async def _enqueue(self, job: FirmwareJob, *, supersede: bool = True) -> FirmwareJob:

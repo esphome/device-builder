@@ -145,6 +145,7 @@ def test_reset_preserves_dispatch_origin_fields() -> None:
         source=JobSource.REMOTE,
         source_pin_sha256="a" * 64,
         source_label="desktop",
+        source_esphome_version="2026.5.0",
         remote_peer="alpha-dashboard-id",
         remote_job_id="offloader-job-7",
     )
@@ -154,6 +155,7 @@ def test_reset_preserves_dispatch_origin_fields() -> None:
     assert job.source is JobSource.REMOTE
     assert job.source_pin_sha256 == "a" * 64
     assert job.source_label == "desktop"
+    assert job.source_esphome_version == "2026.5.0"
     assert job.remote_peer == "alpha-dashboard-id"
     assert job.remote_job_id == "offloader-job-7"
 
@@ -191,6 +193,7 @@ def test_remote_source_round_trips_through_serialisation() -> None:
         source=JobSource.REMOTE,
         source_pin_sha256="a" * 64,
         source_label="desktop",
+        source_esphome_version="2026.5.0",
     )
 
     raw = job.to_json()
@@ -199,6 +202,7 @@ def test_remote_source_round_trips_through_serialisation() -> None:
     assert restored.source is JobSource.REMOTE
     assert restored.source_pin_sha256 == "a" * 64
     assert restored.source_label == "desktop"
+    assert restored.source_esphome_version == "2026.5.0"
 
 
 def test_older_sidecar_without_source_field_loads_as_local() -> None:
@@ -226,6 +230,7 @@ def test_older_sidecar_without_source_field_loads_as_local() -> None:
     assert restored.source is JobSource.LOCAL
     assert restored.source_pin_sha256 == ""
     assert restored.source_label == ""
+    assert restored.source_esphome_version == ""
 
 
 def test_malformed_source_value_rejected_on_load() -> None:

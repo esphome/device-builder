@@ -62,6 +62,7 @@ class JobBuildSource:
     source: JobSource = JobSource.LOCAL
     source_pin_sha256: str = ""
     source_label: str = ""
+    source_esphome_version: str = ""
 
 
 LOCAL_JOB_BUILD_SOURCE = JobBuildSource()
@@ -201,6 +202,15 @@ class FirmwareJob(DataClassORJSONMixin):
     # ``source_pin_sha256``; ``source_label`` is purely for
     # rendering.
     source_label: str = ""
+    # Receiver's ``esphome.const.__version__`` at job-creation
+    # time, snapshotted from :attr:`StoredPairing.esphome_version`.
+    # Empty for ``LOCAL`` jobs and for ``REMOTE`` jobs whose
+    # pairing hadn't yet completed a peer-link session (the
+    # pairing field is populated on every session-open). The
+    # install dialog renders this next to the receiver label so
+    # the operator can spot a version skew between the offloader
+    # and the receiver actually compiling the firmware.
+    source_esphome_version: str = ""
 
     def reset(self) -> None:
         """
@@ -231,7 +241,8 @@ class FirmwareJob(DataClassORJSONMixin):
         - **Preserves identity** — ``configuration`` /
           ``job_type`` / ``port`` / ``new_name`` / ``created_at``
           / ``job_id`` / ``source`` / ``source_pin_sha256`` /
-          ``source_label`` / ``remote_peer`` / ``remote_peer_label`` /
+          ``source_label`` / ``source_esphome_version`` /
+          ``remote_peer`` / ``remote_peer_label`` /
           ``remote_job_id`` / ``device_name`` /
           ``device_friendly_name`` describe the job rather than
           the run, so they stay

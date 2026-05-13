@@ -64,6 +64,7 @@ def _pairing(
     pin_sha256: str,
     label: str = "receiver",
     status: PeerStatus = PeerStatus.APPROVED,
+    esphome_version: str = "",
 ) -> StoredPairing:
     # ``StoredPairing.pin_sha256`` is validated against a 64-char
     # min length (the wire format is lowercase hex SHA-256). The
@@ -78,6 +79,7 @@ def _pairing(
         label=label,
         paired_at=1.0,
         status=status,
+        esphome_version=esphome_version,
     )
 
 
@@ -320,8 +322,8 @@ async def test_clean_fans_out_to_connected_approved_peers(
     controller = firmware_controller_factory(with_queue=True)
     _wire_remote_build_with_peers(
         controller,
-        (_pairing(pin_sha256="a", label="desktop"), True),
-        (_pairing(pin_sha256="b", label="laptop"), True),
+        (_pairing(pin_sha256="a", label="desktop", esphome_version="2026.5.0"), True),
+        (_pairing(pin_sha256="b", label="laptop", esphome_version="2026.4.1"), True),
     )
 
     returned = await controller.clean(configuration="kitchen.yaml")
@@ -356,6 +358,7 @@ async def test_clean_fans_out_to_connected_approved_peers(
         "b".ljust(64, "0"),
     ]
     assert [j.source_label for j in remote_jobs] == ["desktop", "laptop"]
+    assert [j.source_esphome_version for j in remote_jobs] == ["2026.5.0", "2026.4.1"]
     # Every fan-out job carries the same configuration the
     # operator clicked clean on.
     assert all(j.configuration == "kitchen.yaml" for j in clean_jobs)

@@ -222,7 +222,7 @@ async def test_install_registers_job_in_jobs_map(
 _PIN = "a" * 64
 
 
-def _make_pairing(label: str = "desktop") -> StoredPairing:
+def _make_pairing(label: str = "desktop", esphome_version: str = "") -> StoredPairing:
     """Build a passing :class:`StoredPairing` for the scheduler tests."""
     return StoredPairing(
         receiver_hostname="build.local",
@@ -232,6 +232,7 @@ def _make_pairing(label: str = "desktop") -> StoredPairing:
         label=label,
         paired_at=1.0,
         status=PeerStatus.APPROVED,
+        esphome_version=esphome_version,
     )
 
 
@@ -323,7 +324,7 @@ async def test_install_routes_to_remote_when_pairing_is_idle_and_connected(
     {receiver_label}".
     """
     controller = firmware_controller_factory(with_queue=True)
-    pairing = _make_pairing(label="desktop")
+    pairing = _make_pairing(label="desktop", esphome_version="2026.5.0")
     _stub_remote_build(
         controller,
         pairings=[pairing],
@@ -337,6 +338,7 @@ async def test_install_routes_to_remote_when_pairing_is_idle_and_connected(
     assert job.source is JobSource.REMOTE
     assert job.source_pin_sha256 == _PIN
     assert job.source_label == "desktop"
+    assert job.source_esphome_version == "2026.5.0"
 
 
 @pytest.mark.asyncio
