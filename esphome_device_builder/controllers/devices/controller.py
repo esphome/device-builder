@@ -57,14 +57,10 @@ from . import (
     mutations_yaml,
     reachability,
     scan_change,
+    search,
     state_callbacks,
     storage_regen,
     validate,
-)
-from ._yaml_search import (
-    DEFAULT_CONTEXT_LINES,
-    MAX_CONTEXT_LINES,
-    search_yaml_devices,
 )
 from ._yaml_search_cache import YamlSearchCache
 from .helpers import (
@@ -90,13 +86,6 @@ _LOGGER = logging.getLogger(__name__)
 # long enough that a debugger restarting the dashboard 10x in a
 # row doesn't churn through 10 spawns on the same broken config.
 _REGEN_FAILURE_TTL_SECONDS: float = 3600.0
-
-# Per-file match cap for ``yaml/search``. Each device contributes
-# at most this many lines so a chatty match (a query of ``:``
-# against a deeply-nested config) doesn't drown hits in other
-# devices. The dropdown caps its overall hit count at the
-# caller-supplied ``max_results`` on top of this.
-_YAML_SEARCH_PER_FILE_MATCH_CAP = 5
 
 
 class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods need a refactor first)
@@ -334,96 +323,14 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         context_lines: int | None = None,
         **kwargs: Any,
     ) -> list[dict]:
-        """
-        Substring-search every configured device's raw YAML file.
-
-        Returns a list of per-device hits, each entry shaped as::
-
-            {
-              "configuration": "<filename>",
-              "device_name":   "<esphome.name>",
-              "friendly_name": "<esphome.friendly_name or name>",
-              "matches": [
-                {"line_number": <1-based int>, "line_text": "<raw line>"}
-              ]
-            }
-
-        Per-file matches are capped at
-        ``_YAML_SEARCH_PER_FILE_MATCH_CAP`` so a chatty match (e.g.
-        a query of ``:`` against a deeply-nested config) doesn't
-        crowd out hits in other devices, and the total hit count is
-        capped at ``max_results`` so the dropdown on the frontend
-        stays usable. Empty / whitespace-only queries return ``[]``
-        immediately — the frontend debounces typing but a stray
-        empty call shouldn't iterate every YAML file.
-
-        Reads the on-disk file (not the package-resolved tree) for
-        cheap line-numbered grep. Searching expanded packages would
-        need separate "matched in package X line Y" rendering on the
-        frontend; queued as a follow-up.
-
-        Iterates the scanner's existing snapshot rather than firing
-        a fresh ``await self._scanner.scan()`` like ``devices/list``
-        does — this command runs once per debounced keystroke from
-        the frontend's command palette, and a per-keystroke disk
-        scan would dominate the round-trip cost. The scanner refreshes
-        on its own cadence (file-watcher events + periodic re-scan)
-        so YAMLs added or removed between scans become visible on
-        the next scan, not the next search. The scanner-level skip
-        of YAMLs that fail to materialise into a ``Device`` (broken
-        configs that ``DeviceScanner._load_devices()`` logs and
-        drops) carries through here too: this command searches the
-        same set of devices the dashboard list shows, not the raw
-        ``*.yaml`` filesystem.
-
-        Cache: see ``_yaml_search_cache.YamlSearchCache``. The
-        frontend debounces keystrokes but still fires one search
-        per pause — on a fleet of 100 devices that's 100 reads + 100
-        splitlines per keystroke without a cache. With it, every
-        keystroke after the first becomes a stat-and-grep against
-        an already-split list (only files whose mtime changed get
-        re-read).
-        """
-        needle_raw = query.strip()
-        if not needle_raw:
-            return []
-        needle = needle_raw if case_sensitive else needle_raw.lower()
-
-        # Server-clamp the context window. The frontend can dial
-        # this between ``0`` (no context, just the matched line)
-        # and ``MAX_CONTEXT_LINES`` to render denser or sparser
-        # snippets without a backend redeploy. ``None`` means the
-        # caller didn't ask — use ``DEFAULT_CONTEXT_LINES``.
-        # Out-of-range values clamp to the nearest endpoint
-        # (negative → 0, > MAX → MAX) rather than falling back
-        # to the default: a caller passing ``10_000`` clearly
-        # wants "as much context as possible", and giving them
-        # ``MAX_CONTEXT_LINES`` is closer to that intent than
-        # silently substituting ``DEFAULT_CONTEXT_LINES``.
-        if context_lines is None:
-            effective_context_lines = DEFAULT_CONTEXT_LINES
-        else:
-            effective_context_lines = max(0, min(context_lines, MAX_CONTEXT_LINES))
-
-        # Global search lock: serialise the I/O-bound walk so two
-        # concurrent searches don't double up on stat / read calls
-        # against the same fleet. The frontend's per-keystroke
-        # debounce + concurrency-of-1 gate keeps the queue shallow
-        # in normal use; this lock backstops the case where a slow
-        # request from a stuck client overlaps with a fresh one.
-        async with self._yaml_search_lock:
-            results, live_configurations = await search_yaml_devices(
-                devices=self._scanner.devices,
-                cache=self._yaml_search_cache,
-                rel_path=lambda c: Path(self._db.settings.rel_path(c)),
-                needle=needle,
-                case_sensitive=case_sensitive,
-                max_results=max_results,
-                per_file_cap=_YAML_SEARCH_PER_FILE_MATCH_CAP,
-                context_lines=effective_context_lines,
-            )
-            self._yaml_search_cache.prune(live_configurations)
-            return results
+        """Substring-search every configured device's raw YAML file."""
+        return await search.search_yaml(
+            self,
+            query=query,
+            max_results=max_results,
+            case_sensitive=case_sensitive,
+            context_lines=context_lines,
+        )
 
     # ------------------------------------------------------------------
     # API commands — CRUD

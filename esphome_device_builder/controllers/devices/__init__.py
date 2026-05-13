@@ -54,6 +54,8 @@ resolving after the subpackage split. Submodules:
   UPDATED / REMOVED scanner changes onto the event bus and
   fans out side effects (mDNS probe, regen scheduling,
   reachability cleanup).
+- ``search`` — ``yaml/search`` WS command body
+  (substring-search every device's raw YAML; cache-backed).
 - ``state_callbacks`` — the six per-attribute mDNS callbacks
   (state / ip / version / mac / api_encryption / config_hash).
 - ``validate`` — ``devices/validate`` WS command body
