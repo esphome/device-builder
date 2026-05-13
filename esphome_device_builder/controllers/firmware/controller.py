@@ -32,7 +32,6 @@ from esphome.storage_json import StorageJSON
 from ...helpers.api import CommandError, api_command
 from ...helpers.build_scheduler import BuildPath, pick_build_path
 from ...helpers.event_bus import StreamControls, stream_events
-from ...helpers.process import terminate_subtree_with_grace
 from ...helpers.storage_path import resolve_storage_path
 from ...helpers.subprocess import create_subprocess_exec, iter_lines_with_progress
 from ...models import (
@@ -50,7 +49,7 @@ from ...models import (
     StreamEvent,
 )
 from ...models.remote_build import PeerStatus
-from . import cli, persistence
+from . import cli, lifecycle, persistence
 from .constants import (
     _ACTIVE_JOB_STATUSES,
     _ERROR_PATTERNS,
@@ -103,17 +102,6 @@ _LIBRETINY_TARGET_PLATFORMS: frozenset[str] = frozenset(_LIBRETINY_FAMILY_COMPON
 _BUILD_PRODUCING_JOB_TYPES: frozenset[JobType] = frozenset(
     {JobType.COMPILE, JobType.UPLOAD, JobType.INSTALL, JobType.RENAME}
 )
-
-# Maps each terminal :class:`JobStatus` to the lifecycle event the
-# runner fires when a job reaches that status. Routes through
-# :meth:`FirmwareController._finalize_terminal` so every
-# finalisation site stays paired with the right event — keeps the
-# six-call-site signature consistent.
-_STATUS_TO_TERMINAL_EVENT: dict[JobStatus, EventType] = {
-    JobStatus.COMPLETED: EventType.JOB_COMPLETED,
-    JobStatus.FAILED: EventType.JOB_FAILED,
-    JobStatus.CANCELLED: EventType.JOB_CANCELLED,
-}
 
 
 def _resolve_download_component(target_platform: str | None) -> str:
@@ -1383,113 +1371,16 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             self._current_process = prev
 
     def _finalize_terminal(self, job: FirmwareJob, status: JobStatus) -> None:
-        """Stamp *job* terminal, release the runner slot, fire the matching event.
-
-        The three-step "this job is over" sequence every
-        finalisation site has to run, bundled so a future call
-        site can't accidentally skip one. Steps in order:
-
-        1. :func:`_mark_job_terminal` stamps ``status`` +
-           ``completed_at`` on the model (raises on a
-           non-terminal *status* — preserves the existing
-           loud-fail guard).
-        2. Release the runner slot (``_current_job`` /
-           ``_current_process``) if *job* holds it. Guarded on
-           ``is job`` so the QUEUED-cancel path in :meth:`cancel`
-           (where ``_current_job`` belongs to whatever's actually
-           running) doesn't evict the wrong job.
-        3. Fire the matching lifecycle event
-           (``JOB_COMPLETED`` / ``JOB_FAILED`` / ``JOB_CANCELLED``)
-           on the bus.
-
-        Step 2 has to land *before* step 3: the ``queue_status``
-        broadcaster
-        (:meth:`ReceiverController._on_firmware_queue_transition`)
-        reads :meth:`queue_status_snapshot` *synchronously*
-        inside the fire and needs to see the post-terminal idle
-        state. Without the prior release the snapshot reports
-        ``running=True``, the offloader's ``_peer_queue_status``
-        cache freezes there, and
-        :func:`helpers.build_scheduler.pick_build_path` rejects
-        the pairing on every subsequent install — the silent
-        LOCAL-fallback regression after the first remote build.
-        The ``finally`` block in :meth:`_execute_job` still
-        re-clears both fields as a backstop for exception paths
-        that bypass this helper.
-
-        Callers that want to ride a payload field (e.g.
-        ``job.error = "..."``) into the event must set it on the
-        job *before* invoking this helper — the broadcast reads
-        whatever's on the model at fire time.
-        """
-        _mark_job_terminal(job, status)
-        if self._current_job is job:
-            self._current_job = None
-            self._current_process = None
-        payload: JobLifecycleData = {"job": job}
-        self._db.bus.fire(_STATUS_TO_TERMINAL_EVENT[status], payload)
+        lifecycle.finalize_terminal(self, job, status)
 
     def _finalize_cancelled(self, job: FirmwareJob) -> None:
-        """
-        Run the runtime-cancel finalisation: discard, mark, fire.
-
-        Drops the id from ``_cancel_requested`` (so a subsequent
-        re-queue starts clean) then routes through
-        :meth:`_finalize_terminal` for the mark + slot-release +
-        fire sequence. Each call site adds its own log line so
-        the message can name the phase that was cancelled.
-
-        Doesn't cover the QUEUED-cancel path in ``cancel`` itself —
-        that one also runs ``_prune_history`` + ``_persist_jobs``
-        because the runner never sees the job, and inlining those
-        here would couple the runtime-cancel sites to disk I/O
-        they don't otherwise need.
-        """
-        self._cancel_requested.discard(job.job_id)
-        self._finalize_terminal(job, JobStatus.CANCELLED)
+        lifecycle.finalize_cancelled(self, job)
 
     def _raise_if_cancelled(self, job: FirmwareJob, phase: str) -> None:
-        """
-        Short-circuit a runner phase if a cancel landed mid-phase.
-
-        Called between subprocess spawns so a cancel that came in
-        while one pre-flight was running stops the next one from
-        starting. Raises ``ValueError`` so ``_execute_job``'s
-        cancel-aware ``except Exception`` branch finalises the job
-        as ``CANCELLED`` (vs. the bare ``FAILED`` path used for
-        unrelated exceptions). ``phase`` shows up in the error
-        message to make the cause clear in the log.
-        """
-        if job.job_id in self._cancel_requested:
-            msg = f"Cancelled during {phase}"
-            raise ValueError(msg)
+        lifecycle.raise_if_cancelled(self, job, phase)
 
     async def _terminate_current_process(self) -> None:
-        """Signal the running subprocess (and its children); escalate if it lingers.
-
-        The runner loop is the one that actually finalises the
-        ``FirmwareJob`` on exit (so we don't double-write status from
-        two coroutines). We only nudge the process here.
-
-        ESPHome forks PlatformIO which forks gcc / esptool / etc. The
-        spawn site uses ``start_new_session=True`` (POSIX) so the whole
-        tree shares a process group; we signal the group instead of
-        just the python parent — without that, the compiler children
-        get orphaned and the build keeps going until they finish.
-
-        Windows has no process groups in the POSIX sense; we use
-        ``taskkill /F /T`` to walk the parent-child tree from the
-        kernel's accounting and force-kill the whole subtree in one
-        shot. There's no graceful SIGTERM stage on Windows because the
-        compile chain doesn't honour any of the polite signals.
-        """
-        proc = self._current_process
-        if proc is None:
-            return
-        await terminate_subtree_with_grace(
-            proc,
-            job_label=f"job {self._current_job.job_id}" if self._current_job else "job ?",
-        )
+        await lifecycle.terminate_current_process(self)
 
     async def _verify_chip(self, job: FirmwareJob) -> None:
         await cli.verify_chip(self, job)

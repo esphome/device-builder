@@ -25,7 +25,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from esphome_device_builder.controllers.firmware import FirmwareController
-from esphome_device_builder.controllers.firmware import controller as _firmware_controller_mod
+from esphome_device_builder.controllers.firmware import lifecycle as _firmware_lifecycle_mod
 from esphome_device_builder.helpers import process as _process_mod
 from esphome_device_builder.helpers.process import _signal_process_group
 from esphome_device_builder.helpers.subprocess import create_subprocess_exec
@@ -165,7 +165,7 @@ async def test_terminate_kills_grandchild_via_process_group(
     # time. Wrap the controller's binding so the SIGKILL escalation
     # fires after 0.1s instead of the full window.
     monkeypatch.setattr(
-        _firmware_controller_mod,
+        _firmware_lifecycle_mod,
         "terminate_subtree_with_grace",
         partial(_process_mod.terminate_subtree_with_grace, grace_seconds=0.1),
     )
