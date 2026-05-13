@@ -23,12 +23,11 @@ async def validate_config(
     """
     Validate a device YAML config; streams output per-connection.
 
-    ``show_secrets`` opts into ``--show-secrets`` so resolved
-    ``!secret`` values appear in the output. Default is False;
-    a per-call opt-in rather than the legacy dashboard's global
-    ``streamer_mode`` so one user wanting secrets in a
-    multi-user deployment doesn't change the default for
-    everyone else.
+    ``show_secrets`` passes ``--show-secrets`` to ``esphome
+    config`` when True so resolved ``!secret`` values appear
+    in the output; when False, ANSI-conceal-wrapped secret
+    runs are stripped from each line before it leaves the
+    WS handler.
     """
     config_path = str(controller._db.settings.rel_path(configuration))
     cmd = [*controller._esphome_cmd, "--dashboard", "config", config_path]
