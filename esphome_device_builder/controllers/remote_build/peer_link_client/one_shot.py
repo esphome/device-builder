@@ -59,8 +59,8 @@ _RESPONSE_DECODE_ERRORS: tuple[type[Exception], ...] = (
 
 
 # 10s matches the receiver-side per-step timeout in
-# ``peer_link._HANDSHAKE_READ_TIMEOUT_SECONDS`` so we don't give
-# up before the receiver does, but doesn't pin a coroutine forever.
+# ``peer_link.wire_io._HANDSHAKE_READ_TIMEOUT_SECONDS`` so we don't
+# give up before the receiver does, but doesn't pin a coroutine forever.
 _DEFAULT_TIMEOUT_SECONDS = 10.0
 
 

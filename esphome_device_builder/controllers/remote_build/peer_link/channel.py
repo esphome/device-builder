@@ -22,6 +22,7 @@ import aiohttp
 from ....helpers import json as _json
 from ....helpers.peer_link_noise import NOISE_ERRORS, PeerLinkNoiseSession
 from .wire import AppMessageType
+from .wire_io import _send_bytes_safely
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -57,11 +58,6 @@ class PeerLinkChannel:
         — the Noise cipher state is not safe to share across
         concurrent encrypts.
         """
-        # Lazy import: ``_send_bytes_safely`` lives in the parent
-        # package's ``__init__.py``, which imports this module — a
-        # top-level import here would deadlock the load.
-        from . import _send_bytes_safely  # noqa: PLC0415
-
         try:
             plaintext = _json.dumps(payload)
         except (TypeError, ValueError):

@@ -45,7 +45,6 @@ from esphome_device_builder.controllers.remote_build import (
 )
 from esphome_device_builder.controllers.remote_build.job_fanout import JobFanout
 from esphome_device_builder.controllers.remote_build.peer_link import (
-    _PEER_LABEL_MAX_CHARS,
     APP_FRAME_MAX_BYTES,
     PEER_LINK_PATH,
     PeerLinkChannel,
@@ -55,15 +54,18 @@ from esphome_device_builder.controllers.remote_build.peer_link import (
     _DispatchInput,
     _drive_peer_link_session,
     _HandshakeStep,
+    _receive_loop,
+    make_peer_link_handler,
+)
+from esphome_device_builder.controllers.remote_build.peer_link.wire_io import (
+    _PEER_LABEL_MAX_CHARS,
     _normalize_label,
     _parse_intent,
     _parse_json,
     _read_handshake_message,
-    _receive_loop,
     _send_bytes_safely,
     _send_handshake_message,
     _send_response,
-    make_peer_link_handler,
 )
 from esphome_device_builder.controllers.remote_build.submit_job import (
     SubmitJobReceiver,
@@ -380,7 +382,7 @@ async def test_read_handshake_message_timeout_returns_none(
 ) -> None:
     """A peer that opens TCP but never sends msg1 falls through the timeout branch."""
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.peer_link._HANDSHAKE_READ_TIMEOUT_SECONDS",
+        "esphome_device_builder.controllers.remote_build.peer_link.wire_io._HANDSHAKE_READ_TIMEOUT_SECONDS",
         0.01,
     )
     session = PeerLinkNoiseSession.responder(secrets.token_bytes(32))
@@ -502,7 +504,7 @@ async def test_drive_session_msg1_timeout_returns_quietly(
 ) -> None:
     """A peer that never sends msg1 closes the WS without dispatching anything."""
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.peer_link._HANDSHAKE_READ_TIMEOUT_SECONDS",
+        "esphome_device_builder.controllers.remote_build.peer_link.wire_io._HANDSHAKE_READ_TIMEOUT_SECONDS",
         0.01,
     )
     controller = MagicMock(spec=ReceiverController)
@@ -628,7 +630,7 @@ async def test_drive_session_unknown_intent_msg3_read_failure(
 ) -> None:
     """Unknown intent + peer disconnects before msg3 closes without a response frame."""
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.peer_link._HANDSHAKE_READ_TIMEOUT_SECONDS",
+        "esphome_device_builder.controllers.remote_build.peer_link.wire_io._HANDSHAKE_READ_TIMEOUT_SECONDS",
         0.01,
     )
     controller = MagicMock(spec=ReceiverController)
@@ -677,7 +679,7 @@ async def test_drive_session_happy_path_msg3_read_failure(
 ) -> None:
     """Known intent + msg2 sends + msg3 read times out → driver bails before dispatch."""
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.peer_link._HANDSHAKE_READ_TIMEOUT_SECONDS",
+        "esphome_device_builder.controllers.remote_build.peer_link.wire_io._HANDSHAKE_READ_TIMEOUT_SECONDS",
         0.01,
     )
     controller = MagicMock(spec=ReceiverController)
