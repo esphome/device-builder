@@ -28,38 +28,19 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-# Heartbeat cadence for the long-lived peer-link session. The
-# receiver sends an encrypted ``ping`` frame every 30s and expects
-# the offloader to echo it back with a ``pong`` carrying the same
-# ``nonce``. Three consecutive missed pongs (90s of silence) close
-# the session so a half-open TCP connection — common on LANs with
-# dropped routes / sleeping middleboxes — doesn't pin a session
-# slot indefinitely. Picked to match the receiver-pinged 30s /
-# 90s-miss pattern called out in the issue's "Connection
-# lifecycle" section.
+# Receiver-driven heartbeat: ping every 30s, three consecutive
+# missed pongs (90s of silence) closes the session so a half-open
+# TCP connection on a flaky LAN can't pin a slot indefinitely.
 HEARTBEAT_INTERVAL_SECONDS = 30.0
 HEARTBEAT_MISS_THRESHOLD = 3
 HEARTBEAT_DEAD_AFTER_SECONDS = HEARTBEAT_INTERVAL_SECONDS * HEARTBEAT_MISS_THRESHOLD
 
-# Cap inbound application-frame size at 60 KiB. The cap is
-# applied to the WS BINARY frame's bytes (``msg.data``) before
-# Noise decrypt, so it bounds ciphertext + AEAD tag, not
-# plaintext. The Noise framework spec's hard ceiling is 65535
-# bytes per encrypted frame; 60 KiB leaves ~4 KiB headroom for
-# the AEAD tag (16 bytes) plus any future protocol overhead.
-#
-# 5c bundle chunks are the actual sizing driver: a 32 KiB raw
-# slice base64-inflates to ~43 KiB inside a JSON envelope
-# around 43.5 KiB, fitting under 60 KiB with ~16 KiB further
-# headroom for unusually long ``job_id`` / header fields.
-# Smaller messages (heartbeat, queue_status, pair frames) are
-# tiny (~30-200 bytes) and unaffected.
-#
-# The cap keeps a misbehaving / hostile peer from pinning
-# memory before the dispatch loop sees the frame; raised from
-# the original 32 KiB now that 5c has actual sizing
-# requirements (the original comment anticipated this bump).
-# Forward-compatible: smaller frames are always accepted.
+# Cap inbound application-frame size at 60 KiB (ciphertext + AEAD
+# tag, before Noise decrypt). Noise's 65535-byte ceiling minus
+# ~4 KiB headroom. 5c bundle chunks (32 KiB raw → ~43 KiB after
+# b64+JSON envelope) drove the size; smaller frame types are
+# unaffected. Bounds memory before the dispatch loop sees the
+# frame, so a hostile peer can't pin arbitrary bytes.
 APP_FRAME_MAX_BYTES = 60 * 1024
 
 
@@ -68,19 +49,12 @@ class PeerLinkSession:
     """
     State for one active receiver-side peer-link WS session.
 
-    Owned by :class:`ReceiverController` (registered via
-    :meth:`register_peer_link_session`, dropped via
-    :meth:`unregister_peer_link_session`). Held while the
-    underlying handler coroutine is running its receive loop;
-    cleared the moment the loop returns.
-
-    Composes a :class:`PeerLinkChannel` for the wire-level
-    encrypt / send / parse / terminate operations — the same
-    channel shape the offloader-side :class:`PeerLinkClient`
-    uses, so both ends share one validation / framing seam.
-    Sends from the controller (e.g. ``queue_status`` pushes in
-    5b) go through :meth:`send_app_frame`; the
-    :attr:`_closing` short-circuit there protects against a
+    Owned by :class:`ReceiverController` via
+    register / unregister_peer_link_session. Composes a
+    :class:`PeerLinkChannel` for wire-level encrypt / send /
+    parse / terminate — same channel shape the offloader-side
+    :class:`PeerLinkClient` uses. The :attr:`_closing`
+    short-circuit on :meth:`send_app_frame` protects against a
     heartbeat / app sender racing a final frame onto the wire
     after :meth:`terminate` has flipped the close decision.
     """
@@ -109,33 +83,25 @@ class PeerLinkSession:
     async def send_app_frame(self, payload: dict[str, Any]) -> bool:
         """Encrypt + send under the channel's lock; gated on ``_closing``.
 
-        Returns ``True`` on success, ``False`` on encrypt /
-        WS-side failure or once :meth:`terminate` has flipped
-        the close decision (a heartbeat / app sender that wakes
-        from ``asyncio.sleep`` after a controller-driven close
-        mustn't race a final ``ping`` onto the wire after the
-        ``terminate`` frame). The terminate frame itself routes
-        through the channel directly — :meth:`PeerLinkChannel.send_terminate`
-        bypasses the gate.
+        Returns ``False`` once :meth:`terminate` has flipped the
+        close decision so a heartbeat / app sender that wakes from
+        ``asyncio.sleep`` after the close can't race a final frame
+        onto the wire. The terminate frame itself routes through
+        :meth:`PeerLinkChannel.send_terminate`, which bypasses the
+        gate.
         """
         if self._closing:
             return False
         return await self._channel.send_frame(payload)
 
     async def terminate(self, reason: TerminateReason) -> None:
-        """
-        Send a ``terminate`` frame and close the WS.
-
-        Idempotent. Used by the controller's session-registry
-        dedupe path (kick the older session on a duplicate
-        connect) and by ``stop()`` (drain everything before
-        shutdown).
+        """Send a ``terminate`` frame and close the WS; idempotent.
 
         Sets :attr:`_closing` *before* delegating to
         :meth:`PeerLinkChannel.send_terminate` so any racing
-        :meth:`send_app_frame` call short-circuits cleanly; the
-        terminate-frame send itself goes through the channel
-        directly, bypassing the gate.
+        :meth:`send_app_frame` call short-circuits cleanly. The
+        terminate-frame send goes through the channel directly,
+        bypassing the gate.
         """
         if self._closing:
             return
@@ -149,23 +115,13 @@ def parse_app_frame(
     """
     Validate, decrypt, and JSON-parse one inbound peer-link frame.
 
-    Returns the parsed dict on success or ``None`` on any of the
-    malformed-frame branches: wrong WS message type (not BINARY),
-    oversize body, Noise decrypt failure, or post-decrypt JSON
-    that isn't an object. Concentrating the per-branch logging
-    here keeps each side's dispatch loop a single straight line —
-    receiver and offloader callers both respond to ``None`` by
-    closing the session (the offloader maps it to
-    ``transport_error``, the receiver to a structured
-    ``terminate{malformed_frame}`` frame).
-
-    Public so the offloader-side :class:`PeerLinkClient` can share
-    the same validation seam with the receiver-side
-    :class:`PeerLinkSession` without duplicating the four
-    log-and-return branches. ``log_label`` is what each side wants
-    in its log lines — the receiver passes its
-    ``dashboard_id``, the offloader passes
-    ``"<hostname>:<port>"``.
+    Returns the parsed dict on success or ``None`` on any
+    malformed branch (non-BINARY type, oversize body, Noise
+    decrypt failure, post-decrypt JSON that isn't an object).
+    Both wire ends call this so the four log-and-return branches
+    live in one place; receiver maps ``None`` to a structured
+    ``terminate{malformed_frame}``, offloader to a
+    ``transport_error``.
     """
     if msg.type != WSMsgType.BINARY:
         _LOGGER.debug(
@@ -207,29 +163,16 @@ async def run_peer_link_heartbeat(
     on_dead: Callable[[], Awaitable[None]],
 ) -> None:
     """
-    Run a heartbeat loop driving either end of a peer-link session.
+    Heartbeat loop driving either end of a peer-link session.
 
-    Sleeps :data:`HEARTBEAT_INTERVAL_SECONDS`, then either bails
-    out via *on_dead* (if no pong has landed within
-    :data:`HEARTBEAT_DEAD_AFTER_SECONDS`) or sends a ping via
-    *send_ping*. ``send_ping`` returns whether the wire write
-    succeeded; a ``False`` return triggers *on_dead* too (the WS
-    is presumed dead so the session shouldn't keep trying).
+    Sleeps :data:`HEARTBEAT_INTERVAL_SECONDS`, then bails via
+    *on_dead* (no pong within :data:`HEARTBEAT_DEAD_AFTER_SECONDS`)
+    or sends a ping via *send_ping*. A ``False`` *send_ping*
+    return also triggers *on_dead* — the WS is presumed dead.
 
-    Lets :class:`asyncio.CancelledError` propagate out of
-    ``asyncio.sleep`` — callers spawn this as a task and cancel
-    it under ``contextlib.suppress(CancelledError)``; catching
-    here would swallow the signal at the wrong layer.
-
-    Each side's *on_dead* is what differs: the receiver sends a
-    structured ``terminate{heartbeat_timeout}`` via the session
-    registry's close path, the offloader just calls
-    ``ws.close()`` (the receive loop sees the close and unwinds
-    naturally). Each side's *send_ping* is what gates the send —
-    the receiver routes through :meth:`PeerLinkSession.send_app_frame`
-    so the ``_closing`` short-circuit holds; the offloader routes
-    through :meth:`PeerLinkChannel.send_frame` directly because
-    its lifecycle has no equivalent gate.
+    Lets ``asyncio.CancelledError`` propagate out of
+    ``asyncio.sleep``; callers cancel as a task under
+    ``contextlib.suppress(CancelledError)``.
     """
     nonce = 0
     while True:
@@ -254,20 +197,11 @@ async def _run_peer_link_session(
     peer_ip: str,
 ) -> None:
     """
-    Run the post-handshake receive loop + heartbeat for one peer-link session.
+    Run the post-handshake receive loop + heartbeat for one session.
 
-    Returns when the session ends — peer close, heartbeat
-    timeout, controller shutdown, or a malformed frame. Always
-    cleans up the controller-side registration in its ``finally``
-    so a session is unregistered the moment its coroutine exits,
-    even on uncaught exceptions.
-
-    Heartbeat is receiver-driven (per the issue's "Connection
-    lifecycle" spec): the receiver pings every
-    :data:`HEARTBEAT_INTERVAL_SECONDS`, the offloader replies
-    with a ``pong`` carrying the same ``nonce``, three consecutive
-    misses (:data:`HEARTBEAT_DEAD_AFTER_SECONDS` of silence) close
-    the session.
+    Returns on peer close, heartbeat timeout, controller shutdown,
+    or a malformed frame. Always unregisters the session in its
+    ``finally`` so cleanup runs even on uncaught exceptions.
     """
     peer_link_session = PeerLinkSession(
         dashboard_id=dashboard_id,
@@ -276,10 +210,9 @@ async def _run_peer_link_session(
         peer_ip=peer_ip,
     )
     # Register before spawning the heartbeat — a duplicate connect
-    # arriving in the same loop tick MUST find this session in the
-    # registry so it can kick it. The dedupe runs synchronously
-    # inside :meth:`register_peer_link_session` so the
-    # registration is observed atomically.
+    # on the same loop tick must find this session in the registry
+    # to kick it. ``register_peer_link_session`` does the dedupe
+    # synchronously, so the registration is observed atomically.
     await controller.register_peer_link_session(peer_link_session)
     peer_link_session.last_pong_at = _monotonic()
 
@@ -312,19 +245,13 @@ async def _receive_loop(session: PeerLinkSession, controller: ReceiverController
     """
     Read frames off the WS, decrypt, parse, and dispatch.
 
-    aiohttp's ``WebSocketResponse`` is async-iterable; the
-    iterator yields only message frames (BINARY / TEXT / PING /
-    PONG) and exits cleanly on CLOSE / CLOSING / ERROR, so we
-    don't have to spell those transitions out.
-
     Returns on peer close, malformed frame (after firing the
-    structured ``terminate``), or controller-driven session close
-    (the registry's :meth:`PeerLinkSession.terminate` flips
-    ``_closing`` so a CLOSE frame doesn't trigger a redundant
-    terminate). Dispatches ``ping`` / ``pong`` / ``terminate``
-    keepalive frames plus ``submit_job`` / ``submit_job_chunk``
-    against the controller's :class:`SubmitJobReceiver`. Other
-    types log at debug and are ignored.
+    structured ``terminate``), or controller-driven session
+    close. Dispatches keepalive frames + ``submit_job`` /
+    ``submit_job_chunk`` / ``cancel_job`` / ``download_artifacts``
+    against the controller; unknown types log at debug and are
+    ignored. ``WebSocketResponse`` is async-iterable so CLOSE /
+    CLOSING / ERROR exit cleanly without explicit handling.
     """
     async for msg in session.ws:
         parsed = session._channel.parse_frame(msg)
@@ -336,10 +263,9 @@ async def _receive_loop(session: PeerLinkSession, controller: ReceiverController
             session.last_pong_at = _monotonic()
             continue
         if msg_type == AppMessageType.PING.value:
-            # Mirror the offloader's ping nonce so a peer that
-            # also runs heartbeat from its end gets pong
-            # parity without us defining a separate keepalive
-            # protocol per direction.
+            # Mirror the offloader's nonce so a peer that runs
+            # heartbeat from its end gets pong parity without a
+            # per-direction keepalive protocol.
             nonce = parsed.get("nonce")
             await session.send_app_frame({"type": AppMessageType.PONG.value, "nonce": nonce})
             continue
@@ -349,11 +275,9 @@ async def _receive_loop(session: PeerLinkSession, controller: ReceiverController
             session._closing = True
             return
         if msg_type == AppMessageType.SUBMIT_JOB.value:
-            # Header validation lives inside the receiver. The
-            # `cast` here is the dispatch boundary's "the wire
-            # parse said this is a submit_job; treat it as the
-            # matching TypedDict" hand-off — runtime field
-            # validation is the receiver's job.
+            # The ``cast`` is the dispatch boundary's "wire said
+            # submit_job; treat as the matching TypedDict"
+            # hand-off; receiver validates the fields.
             await controller.get_submit_job_receiver().handle_submit_job(
                 session, cast(SubmitJobFrameData, parsed)
             )
@@ -364,23 +288,14 @@ async def _receive_loop(session: PeerLinkSession, controller: ReceiverController
             )
             continue
         if msg_type == AppMessageType.CANCEL_JOB.value:
-            # 5d cooperative cancel from the offloader. Frame
-            # carries the offloader-supplied ``job_id`` we
-            # stashed as ``FirmwareJob.remote_job_id`` at
-            # submit time; the controller's handler resolves
-            # it back through :class:`JobFanout` and routes
-            # through ``FirmwareController.cancel``. No ack
-            # frame — the resulting ``JOB_CANCELLED`` bus
-            # event fans out a ``job_state_changed{cancelled}``
-            # which the offloader already plumbs.
+            # Cooperative cancel; fire-and-forget. The resulting
+            # ``JOB_CANCELLED`` bus event fans out
+            # ``job_state_changed{cancelled}`` which the offloader
+            # already plumbs — no ack frame needed.
             await controller.handle_cancel_job(session, parsed)
             continue
         if msg_type == AppMessageType.DOWNLOAD_ARTIFACTS.value:
-            # Offloader is requesting the built-firmware
-            # artifact set for a previously-completed job. The
-            # sender packs idedata.json + every flash image
-            # listed in ``idedata.flash_images`` into a
-            # gzipped tarball + streams it back via
+            # Streams the completed build's artifacts back via
             # ``artifacts_start`` → chunks → ``artifacts_end``.
             await controller.get_artifacts_download_sender().handle_download_artifacts(
                 session, parsed
