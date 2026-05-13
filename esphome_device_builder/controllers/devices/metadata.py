@@ -24,10 +24,10 @@ class DeviceMetadataMixin:
     """
     Metadata resolution + persistence methods for ``DevicesController``.
 
-    Mixed in directly (``class DevicesController(DeviceMetadataMixin):
-    ...``) since every method only reads ``self._db`` plus same-mixin
-    methods; no reach into other controller state. Test instance-patches
-    on ``_persist_device_metadata_async`` / ``_derive_board_id_from_yaml``
+    Mixed in directly on ``DevicesController`` since every method
+    only reads ``self._db`` plus same-mixin methods; no reach into
+    other controller state. Test instance-patches on
+    ``_persist_device_metadata_async`` / ``_derive_board_id_from_yaml``
     work as before because the methods are real attributes on the
     instance via inheritance.
     """
@@ -155,9 +155,9 @@ class DeviceMetadataMixin:
         """
         Run a blocking ``set_device_metadata`` write on the default executor.
 
-        Centralises the ``loop.run_in_executor(None, lambda: set_device_metadata(
-        config_dir, configuration, **fields))`` boilerplate that every
-        async-context sidecar write was repeating.
+        Centralises the ``run_in_executor`` + ``config_dir`` lookup
+        boilerplate that every async-context sidecar write was
+        repeating.
         """
         loop = asyncio.get_running_loop()
         config_dir = self._db.settings.config_dir
