@@ -399,8 +399,12 @@ class RemoteBuildPeer(DataClassORJSONMixin):
     """
     A peer dashboard known to this dashboard.
 
-    Wire shape returned from ``remote_build/list_hosts``. The
-    only source today is ``source=MDNS``: discovered via the
+    Wire shape reaching the frontend through
+    :meth:`OffloaderController.hosts_snapshot` (the sync read
+    used by ``subscribe_events.initial_state.hosts``) plus the
+    matching ``REMOTE_BUILD_HOST_ADDED`` /
+    ``REMOTE_BUILD_HOST_REMOVED`` events. The only source
+    today is ``source="mdns"``: discovered via the
     ``_esphomebuilder._tcp.local.`` browse. ``name`` is the
     mDNS service-instance name (leftmost label, e.g.
     ``desktop``); ``hostname`` is the SRV target (e.g.
