@@ -36,11 +36,11 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-# Schemas built via ``frame_schema`` so the bool-vs-int special case
-# (``isinstance(True, int) is True``) is handled the same way every
-# shared frame schema is. Optional fields (``*FrameData.reason``)
-# live outside the schema — dispatchers read via
-# ``frame.get("reason")`` post-validate.
+# Schemas built via ``frame_schema`` so the bool-vs-int special
+# case (``isinstance(True, int) is True``) gets handled the same
+# way it does for every shared frame schema in the project.
+# Optional fields (``*FrameData.reason``) live outside the schema
+# — dispatchers read via ``frame.get("reason")`` post-validate.
 _SUBMIT_JOB_ACK_SCHEMA = frame_schema({"job_id": str, "accepted": bool})
 
 _JOB_STATE_CHANGED_SCHEMA = frame_schema({"job_id": str, "status": str, "error_message": str})
@@ -71,12 +71,14 @@ _ARTIFACTS_CHUNK_SCHEMA = frame_schema(
 _ARTIFACTS_END_SCHEMA = frame_schema({"job_id": str, "accepted": bool})
 
 # Membership check on top of the str shape gate so a buggy
-# receiver sending status="unknown" / stream="foo" is dropped at
-# the wire layer instead of fanning out a malformed bus event.
+# receiver sending status="unknown" is dropped at the wire layer
+# instead of fanning out a malformed bus event.
 _JOB_STATE_CHANGED_VALID_STATUS: frozenset[str] = frozenset(
     {"queued", "running", "completed", "failed", "cancelled"}
 )
 
+# Same membership-check rationale for ``stream`` on inbound
+# ``job_output`` frames.
 _JOB_OUTPUT_VALID_STREAM: frozenset[str] = frozenset({"stdout", "stderr"})
 
 
