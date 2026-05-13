@@ -59,18 +59,12 @@ async def validate_rewritten_yaml_or_raise(
     """
     Schema-validate *content* via the editor; raise if invalid.
 
-    Refusing the write here keeps on-disk state and live state
-    in lockstep when a YAML wouldn't validate (the install
-    would fail and the device-on-network would keep its old
-    state). *on_error_cleanup* runs in a finally on any
+    No-op when *editor* is None. *on_failure* selects the
+    ``ErrorCode`` raised: ``INVALID_ARGS`` for user-fixable
+    input, ``INTERNAL_ERROR`` for broken YAML from our own
+    generators. *on_error_cleanup* runs in a finally on any
     non-success path so callers that wrote the YAML before
-    validating (currently ``import_device``) can roll back the
-    half-imported file. *on_failure* picks ``INVALID_ARGS``
-    (user can fix the input) vs ``INTERNAL_ERROR`` (broken
-    YAML came from one of our generators). *editor* is
-    optional so the controller's bound delegate can pass
-    ``self._db.editor`` straight through during the boot
-    window where it's still None.
+    validating can roll back.
     """
     if editor is None:
         return
