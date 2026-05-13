@@ -72,6 +72,14 @@ _STARTUP_BLOCKING_OK: tuple[tuple[str, str], ...] = (
     # once at HA-add-on startup as an aiohttp ``on_startup`` hook —
     # the cost is paid once, not on the request path.
     ("device_builder.py", "_start_ingress_site"),
+    # ``_find_sibling_cli`` probes for ``<bin>/esphome`` and
+    # ``<bin>/esptool`` to pick between a sibling script and
+    # ``python -m <cli>``. The result is ``lru_cache``-d so the
+    # ``os.stat`` only fires once per ``name`` per process — first
+    # call is on a request path (``_run_esptool`` for chip detect,
+    # ``verify_chip`` for firmware install) but every subsequent
+    # one hits the cache.
+    ("controllers/firmware/helpers.py", "_find_sibling_cli"),
 )
 
 
