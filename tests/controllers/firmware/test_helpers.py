@@ -41,6 +41,7 @@ from esphome_device_builder.controllers.firmware.constants import (
 from esphome_device_builder.controllers.firmware.helpers import (
     _find_esphome_cmd,
     _find_esptool_cmd,
+    _find_sibling_cli,
     _names_touched_by_job,
     _trim_job_output,
     _verify_esphome_importable,
@@ -259,8 +260,22 @@ async def test_verify_esphome_importable_returns_false_on_timeout(
 
 
 # ---------------------------------------------------------------------------
-# _find_esphome_cmd
+# _find_esphome_cmd / _find_esptool_cmd
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _clear_sibling_cli_cache() -> Any:
+    """Reset the ``_find_sibling_cli`` lru_cache before each test.
+
+    The cache exists so async callers don't trip blockbuster on
+    repeated ``os.stat`` calls, but it would carry state between
+    tests that ``monkeypatch.setattr(sys, "executable", ...)`` —
+    making the second test see the first test's resolved path.
+    """
+    _find_sibling_cli.cache_clear()
+    yield
+    _find_sibling_cli.cache_clear()
 
 
 def test_find_esphome_cmd_prefers_sibling_binary_when_present(
