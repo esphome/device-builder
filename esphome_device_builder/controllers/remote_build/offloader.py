@@ -48,7 +48,6 @@ from ...models import (
     OffloaderQueueStatusChangedData,
     OffloaderRemoteBuildSettings,
     OffloaderRemoteBuildSettingsView,
-    OffloaderRemoteBuildsToggledData,
     OffloaderRemoteJobSnapshotEntry,
     PairingSummary,
     PeerQueueStatusSnapshotEntry,
@@ -62,6 +61,7 @@ from . import (
     pair_status,
     peer_link_lifecycle,
     rebind,
+    settings_commands,
     submit_job_commands,
 )
 from ._models import RebindProbeResult
@@ -72,7 +72,6 @@ from ._storage_codecs import (
     encode_pairings,
 )
 from ._summaries import pairing_summary
-from ._validators import validate_bool
 from .peer_link_client import PairStatusResult
 
 if TYPE_CHECKING:
@@ -466,22 +465,10 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
     # API surface
     # ------------------------------------------------------------------
 
-    def _offloader_settings_view(self) -> OffloaderRemoteBuildSettingsView:
-        """Project the in-RAM offloader-side state to its wire view.
-
-        Pure sync RAM read off :attr:`_pairings` +
-        :attr:`_remote_builds_enabled`, which are canonical
-        after :meth:`start` seeds them from disk.
-        """
-        return OffloaderRemoteBuildSettingsView(
-            pairings=self.pairings_snapshot(),
-            remote_builds_enabled=self._remote_builds_enabled,
-        )
-
     @api_command("remote_build/get_offloader_settings")
     async def get_offloader_settings(self, **kwargs: Any) -> OffloaderRemoteBuildSettingsView:
         """Return the offloader-side settings view (master toggle + pairings list)."""
-        return self._offloader_settings_view()
+        return await settings_commands.get_offloader_settings(self)
 
     @api_command("remote_build/set_offloader_settings")
     async def set_offloader_settings(
@@ -490,29 +477,10 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         remote_builds_enabled: bool,
         **kwargs: Any,
     ) -> OffloaderRemoteBuildSettingsView:
-        """
-        Flip the offloader-side master toggle for transparent install.
-
-        ``False`` short-circuits :func:`pick_build_path` to
-        LOCAL; peer-link sessions stay open and the manual
-        Send-builds dialog still works. The intent is "keep the
-        pairings but stop auto-routing for now."
-
-        Fires ``OFFLOADER_REMOTE_BUILDS_TOGGLED`` for cross-tab
-        sync; debounce-saves through ``_pairings_store`` (same
-        on-disk shape).
-        """
-        self._remote_builds_enabled = validate_bool(
-            remote_builds_enabled,
-            command="remote_build/set_offloader_settings",
-            field="remote_builds_enabled",
+        """Flip the offloader-side master toggle for transparent install."""
+        return await settings_commands.set_offloader_settings(
+            self, remote_builds_enabled=remote_builds_enabled
         )
-        toggled: OffloaderRemoteBuildsToggledData = {
-            "remote_builds_enabled": remote_builds_enabled,
-        }
-        self._db.bus.fire(EventType.OFFLOADER_REMOTE_BUILDS_TOGGLED, toggled)
-        self._schedule_pairings_save()
-        return self._offloader_settings_view()
 
     @api_command("remote_build/set_pairing_enabled")
     async def set_pairing_enabled(
