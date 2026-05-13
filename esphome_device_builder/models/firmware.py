@@ -206,10 +206,7 @@ class FirmwareJob(DataClassORJSONMixin):
     # time, snapshotted from :attr:`StoredPairing.esphome_version`.
     # Empty for ``LOCAL`` jobs and for ``REMOTE`` jobs whose
     # pairing hadn't yet completed a peer-link session (the
-    # pairing field is populated on every session-open). The
-    # install dialog renders this next to the receiver label so
-    # the operator can spot a version skew between the offloader
-    # and the receiver actually compiling the firmware.
+    # pairing field populates on every session-open).
     source_esphome_version: str = ""
 
     def reset(self) -> None:
