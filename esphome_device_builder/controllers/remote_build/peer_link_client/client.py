@@ -31,6 +31,7 @@ from ....helpers.peer_link_noise import (
     NOISE_ERRORS,
     PeerLinkNoiseSession,
     pin_sha256_for_pubkey,
+    public_bytes_for_priv,
 )
 from ....helpers.peer_link_resolver import make_peer_link_http_session
 from ....models import (
@@ -128,6 +129,12 @@ class PeerLinkClient:
         self._hostname = receiver_hostname
         self._port = receiver_port
         self._identity_priv = identity_priv
+        # Cached at construction so the self-loopback guard in
+        # :meth:`_run_one_session` can compare against
+        # ``session.remote_static_pub`` without re-deriving on
+        # every reconnect. Shares the X25519 derive cache with
+        # the Noise session itself.
+        self._identity_pub = public_bytes_for_priv(identity_priv)
         self._dashboard_id = dashboard_id
         # ``None`` falls back to aiohttp's default resolver —
         # the only viable shape for unit tests that don't
@@ -360,6 +367,28 @@ class PeerLinkClient:
                 # legitimate rotation or a MITM / mDNS spoof.
                 # Abort either way before any application frames.
                 observed = session.remote_static_pub
+                if observed == self._identity_pub:
+                    # mDNS resolved the receiver's hostname to an
+                    # IP that routes back to this process's own
+                    # peer-link listener (the canonical case is a
+                    # shared Docker bridge gateway like ``172.17.0.1``
+                    # on both hosts; the receiver advertises it,
+                    # the offloader's routing reaches its own
+                    # listener instead). Refuse and return a
+                    # transport-error close so the reconnect loop
+                    # keeps trying — the next resolution may pick
+                    # a different (correct) A record.
+                    _LOGGER.error(
+                        "peer-link client to %s:%d looped back to own listener "
+                        "(peer=%s pin=%s); check mDNS / routing — the receiver's "
+                        "hostname is resolving to one of this host's own IPs",
+                        self._hostname,
+                        self._port,
+                        ws.get_extra_info("peername"),
+                        self._pin_sha256,
+                    )
+                    self._last_connect_error = "self loopback"
+                    return _LOCAL_CLOSE_TRANSPORT_ERROR
                 if observed != self._pinned_static_x25519_pub:
                     # ``stored_pin`` is the sha256 written to disk at
                     # pair time; ``expected_pin`` is what the raw
