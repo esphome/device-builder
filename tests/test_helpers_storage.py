@@ -302,8 +302,8 @@ async def test_atomic_write_creates_parent_directory(tmp_path: Path) -> None:
     )
     store.async_delay_save(lambda: b"nested", delay=0.0)
     # 2s rather than the 1s used by the simple-write tests below;
-    # the parent-directory mkdir on top of the atomic write tips
-    # this past 1s on loaded Windows runners (#689 flake).
+    # the parent-directory mkdir on top of the atomic write can tip
+    # this past 1s on loaded Windows runners.
     await _drain_loop_until(store_path.exists, timeout=2.0)
     assert store_path.read_bytes() == b"nested"
 
