@@ -17,11 +17,10 @@ import importlib
 import logging
 import sys
 from collections.abc import AsyncIterator, Iterator
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from operator import attrgetter
 from typing import TYPE_CHECKING, Any
-from uuid import uuid4
 
 from esphome.components.esp32 import VARIANTS as ESP32_VARIANTS
 from esphome.components.libretiny.const import (
@@ -30,7 +29,6 @@ from esphome.components.libretiny.const import (
 from esphome.storage_json import StorageJSON
 
 from ...helpers.api import CommandError, api_command
-from ...helpers.build_scheduler import BuildPath, pick_build_path
 from ...helpers.event_bus import StreamControls, stream_events
 from ...helpers.storage_path import resolve_storage_path
 from ...helpers.subprocess import create_subprocess_exec, iter_lines_with_progress
@@ -49,7 +47,7 @@ from ...models import (
     StreamEvent,
 )
 from ...models.remote_build import PeerStatus
-from . import cli, lifecycle, persistence
+from . import cli, factories, lifecycle, persistence
 from .constants import (
     _ACTIVE_JOB_STATUSES,
     _ERROR_PATTERNS,
@@ -59,7 +57,6 @@ from .helpers import (
     _ingest_output_line,
     _is_no_module_named_esphome,
     _mark_job_terminal,
-    _names_touched_by_job,
     _trim_job_output,
     _validate_port,
     _verify_esphome_importable,
@@ -1481,184 +1478,33 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         device_name: str = "",
         device_friendly_name: str = "",
     ) -> FirmwareJob:
-        """Create a new job and add it to the in-memory map.
-
-        Caller is responsible for having validated ``configuration``
-        first via ``_validate_configuration_boundary`` — keeping it
-        async-only lets the validation run in an executor without
-        making this helper async too.
-
-        ``remote_peer`` is the offloader's ``dashboard_id`` when
-        this job came in via the peer-link ``submit_job`` flow
-        (issue #106), empty otherwise. ``remote_job_id``
-        is the offloader's submit-tagged ``job_id`` from the
-        same flow; the receiver-side ``job_id`` above is
-        generated independently so the two id-spaces don't
-        collide. ``remote_peer_label`` is the offloader's
-        display label (:attr:`StoredPeer.label`) snapshotted at
-        submit time so the receiver's firmware-tasks UI can
-        render "from {label}" without a separate lookup —
-        symmetric to ``source_label`` on the offloader side.
-
-        ``device_name`` / ``device_friendly_name`` are the
-        ``esphome.name`` / ``esphome.friendly_name`` the
-        offloader sends on the :class:`SubmitJobFrameData`
-        header — the offloader already has both off its local
-        Device scanner at install time, so the receiver doesn't
-        re-parse the bundled YAML. Peer-controlled at the wire
-        boundary; the receive-side handler
-        (:meth:`SubmitJobReceiver.handle_submit_job`) coerces +
-        length-caps them via ``_coerce_display_field`` before
-        passing them here. Empty for locally-submitted jobs
-        (the dashboard's own Device list already carries the
-        friendly name).
-
-        ``build_source`` bundles the dispatch-origin ``source_*``
-        fields; defaults to :data:`LOCAL_JOB_BUILD_SOURCE`.
-        """
-        job = FirmwareJob(
-            job_id=uuid4().hex[:12],
-            configuration=configuration,
-            job_type=job_type,
-            created_at=datetime.now(UTC).isoformat(),
+        return factories.create_job(
+            self,
+            configuration,
+            job_type,
             port=port,
             new_name=new_name,
             remote_peer=remote_peer,
             remote_peer_label=remote_peer_label,
             remote_job_id=remote_job_id,
-            source=build_source.source,
-            source_pin_sha256=build_source.source_pin_sha256,
-            source_label=build_source.source_label,
-            source_esphome_version=build_source.source_esphome_version,
+            build_source=build_source,
             device_name=device_name,
             device_friendly_name=device_friendly_name,
         )
-        self._jobs[job.job_id] = job
-        return job
 
     def _resolve_install_source(
         self, configuration: str, *, force_local: bool = False
     ) -> JobBuildSource:
-        """Pick LOCAL or REMOTE for *configuration*; return its build source."""
-        if force_local:
-            return LOCAL_JOB_BUILD_SOURCE
-        offloader = self._db.remote_build_offloader
-        if offloader is None:
-            return LOCAL_JOB_BUILD_SOURCE
-        decision = pick_build_path(offloader.build_scheduler_snapshot())
-        if decision.path is not BuildPath.REMOTE or decision.pin_sha256 is None:
-            return LOCAL_JOB_BUILD_SOURCE
-        pairing = offloader.get_pairing(decision.pin_sha256)
-        if pairing is None:
-            # Scheduler picked a pin that's no longer paired (race
-            # vs an ``unpair`` on the same loop tick).
-            return LOCAL_JOB_BUILD_SOURCE
-        return JobBuildSource(
-            source=JobSource.REMOTE,
-            source_pin_sha256=pairing.pin_sha256,
-            source_label=pairing.label,
-            source_esphome_version=pairing.esphome_version,
-        )
+        return factories.resolve_install_source(self, configuration, force_local=force_local)
 
     async def _enqueue(self, job: FirmwareJob, *, supersede: bool = True) -> FirmwareJob:
-        """
-        Enqueue a job, persist, and fire JOB_QUEUED.
-
-        Cancels any queued or running job for the same device so the
-        manage-tasks panel only shows one active job per device — a
-        fresh compile/upload/install/clean request makes earlier
-        in-flight work irrelevant. We fire ``JOB_QUEUED`` for the
-        new job *before* cancelling the predecessor so frontends can
-        recognise the resulting ``JOB_CANCELLED`` as a supersede
-        (already-present successor for the same configuration) and
-        drop the old entry silently rather than parking it in the
-        "Recent" history. Reset jobs (empty configuration) skip the
-        supersede.
-
-        ``supersede=False`` opts out of the cancel-by-configuration
-        step. Used by the ``firmware/clean`` fan-out: the local job
-        enqueues with supersede=True (cancelling any prior in-flight
-        work on this device, the right "make this device idle"
-        behaviour), then the per-peer remote fan-out jobs enqueue
-        with supersede=False so the fan-out batch doesn't cancel
-        its own siblings or the just-queued local job. Without this
-        carve-out, every successive ``_enqueue`` in the fan-out
-        loop would cancel its predecessors and only the LAST peer's
-        clean would actually run; see esphome/device-builder#608
-        review for the failure trace. The carve-out is safe because
-        the fan-out is a coordinated batch from one operator click;
-        if the user clicks clean a second time, the next batch's
-        LOCAL enqueue (supersede=True) cancels every member of the
-        prior batch in one pass.
-
-        Rejects with ``CommandError(INVALID_ARGS)`` when an in-flight
-        ``RENAME`` job has the new job's configuration locked. Rename
-        rewrites the YAML mid-flight (old YAML still on disk during
-        compile, new YAML only written on install success), so a
-        compile/install/clean/upload — or another rename targeting the
-        same old or new name — would fight for files the rename is
-        actively reading or about to write. Same-old-config rename
-        retries are allowed through so the supersede path can cancel
-        and replace.
-        """
-        self._check_rename_lock(job)
-        await self._queue.put(job)
-        queued_payload: JobLifecycleData = {"job": job}
-        self._db.bus.fire(EventType.JOB_QUEUED, queued_payload)
-        if supersede and job.configuration:
-            await self._supersede_active_jobs(job.configuration, exclude_job_id=job.job_id)
-        await self._persist_jobs()
-        return job
+        return await factories.enqueue(self, job, supersede=supersede)
 
     def _check_rename_lock(self, job: FirmwareJob) -> None:
-        """Reject jobs that would clash with an in-flight rename.
-
-        A rename touches two YAML filenames: the old one it's reading
-        from and the new one it'll create on install success. Any
-        other job that touches either name would either fight for the
-        same file or land its work on a half-flashed device. The one
-        exception is a fresh ``RENAME`` on the same old configuration
-        — that's an explicit user retry / target-name change and the
-        supersede path is meant to cancel-and-replace.
-        """
-        new_touches = _names_touched_by_job(job)
-        if not new_touches:
-            return
-        for active in self._jobs.values():
-            if active.job_type != JobType.RENAME:
-                continue
-            if active.status not in _ACTIVE_JOB_STATUSES:
-                continue
-            # Same-old-config rename retry: let supersede do its thing.
-            if job.job_type == JobType.RENAME and job.configuration == active.configuration:
-                continue
-            clash = new_touches & _names_touched_by_job(active)
-            if not clash:
-                continue
-            old = active.configuration
-            new = f"{active.new_name}.yaml" if active.new_name else "(unknown)"
-            msg = (
-                f"Device {old} is being renamed to {new}; wait for the "
-                f"rename to finish before queueing another firmware "
-                f"task on either name."
-            )
-            raise CommandError(ErrorCode.INVALID_ARGS, msg)
+        factories.check_rename_lock(self, job)
 
     async def _supersede_active_jobs(self, configuration: str, *, exclude_job_id: str) -> None:
-        """Cancel queued/running jobs for ``configuration``."""
-        to_cancel = [
-            j.job_id
-            for j in self._jobs.values()
-            if j.job_id != exclude_job_id
-            and j.configuration == configuration
-            and j.status in _ACTIVE_JOB_STATUSES
-        ]
-        for job_id in to_cancel:
-            # Status may flip under us if the runner finalises the
-            # job mid-iteration; cancel() raises in that window and
-            # we don't care.
-            with suppress(ValueError, RuntimeError):
-                await self.cancel(job_id=job_id)
+        await factories.supersede_active_jobs(self, configuration, exclude_job_id=exclude_job_id)
 
     def _prune_history(self) -> None:
         persistence.prune_history(self)
