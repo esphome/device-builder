@@ -24,7 +24,6 @@ import logging
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
-from uuid import uuid4
 
 from zeroconf import ServiceStateChange
 from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo
@@ -60,7 +59,7 @@ from ...models import (
     RemoteBuildPeer,
     StoredPairing,
 )
-from . import discovery, pair_status, peer_link_lifecycle, rebind
+from . import discovery, pair_status, peer_link_lifecycle, rebind, submit_job_commands
 from ._mdns import endpoints_equal
 from ._models import (
     EDIT_PAIRING_PROBE_ERRORS,
@@ -77,7 +76,6 @@ from ._summaries import pairing_summary
 from ._validators import (
     HostFieldContext,
     PairLabelField,
-    download_artifacts_error_to_command_error,
     enforce_pin_match,
     intent_response_to_command_error,
     validate_bool,
@@ -85,16 +83,10 @@ from ._validators import (
     validate_pair_label,
     validate_pin_sha256,
     validate_port,
-    validate_submit_job_target,
 )
-from .artifacts_tarball import UnpackArtifactsError, unpack_artifacts_response
 from .peer_link_client import (
-    DownloadArtifactsError,
     PairStatusResult,
     PeerLinkClientError,
-    PeerLinkNoSessionError,
-    SubmitJobSessionLostError,
-    SubmitJobTimeoutError,
 )
 from .peer_link_client import (
     preview_pair as peer_link_preview_pair,
@@ -829,50 +821,16 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         return self._pairing_summary_for(pairing)
 
     async def _validate_submit_job_config(self, configuration: object) -> tuple[str, Path]:
-        """Validate the WS *configuration* arg, return ``(name, yaml_path)``.
-
-        Path-traversal boundary via :meth:`DashboardSettings.rel_path`;
-        executor hop because ``Path.resolve`` is a syscall. Returns
-        the resolved path so the downstream bundle build doesn't
-        redo the hop.
-        """
-        if not isinstance(configuration, str) or not configuration:
-            msg = "configuration must be a non-empty string"
-            raise CommandError(ErrorCode.INVALID_ARGS, msg)
-        loop = asyncio.get_running_loop()
-        yaml_path = await loop.run_in_executor(None, self._db.settings.rel_path, configuration)
-        return configuration, yaml_path
+        """Validate the WS *configuration* arg, return ``(name, yaml_path)``."""
+        return await submit_job_commands.validate_submit_job_config(self, configuration)
 
     def _lookup_open_peer_link_client(self, pin_sha256: str, *, label: str) -> PeerLinkClient:
         """Return the live :class:`PeerLinkClient` for *pin_sha256*, raising on miss."""
         return peer_link_lifecycle.lookup_open_peer_link_client(self, pin_sha256, label=label)
 
     async def _build_submit_job_bundle(self, configuration: str, yaml_path: Path) -> bytes:
-        """Build the bundle bytes for *yaml_path*.
-
-        Wraps :func:`helpers.config_bundle.build_yaml_bundle`
-        (spawns the ``esphome bundle`` CLI). Maps
-        :class:`FileNotFoundError` → ``NOT_FOUND`` and
-        :class:`BundleBuildError` → ``INVALID_ARGS``; anything
-        else propagates to ``INTERNAL_ERROR``. *configuration*
-        is the original wire-arg used in diagnostics.
-        """
-        from ...helpers.config_bundle import (  # noqa: PLC0415
-            BundleBuildError,
-            build_yaml_bundle,
-        )
-
-        try:
-            return await build_yaml_bundle(yaml_path)
-        except FileNotFoundError as exc:
-            raise CommandError(
-                ErrorCode.NOT_FOUND, f"submit_job: YAML not found: {configuration}"
-            ) from exc
-        except BundleBuildError as exc:
-            raise CommandError(
-                ErrorCode.INVALID_ARGS,
-                f"submit_job: bundle build failed for {configuration}: {exc.output or exc}",
-            ) from exc
+        """Build the bundle bytes for *yaml_path*."""
+        return await submit_job_commands.build_submit_job_bundle(self, configuration, yaml_path)
 
     @api_command("remote_build/submit_job")
     async def submit_job(
@@ -883,51 +841,10 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         target: str,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """Bundle *configuration* and dispatch a build to the receiver behind *pin_sha256*.
-
-        Offloader-side counterpart of :class:`SubmitJobReceiver`.
-        Packs the config + referenced files (includes, secrets,
-        fonts, images, …) into a gzipped tarball via the
-        ``esphome bundle`` CLI subprocess and streams it over
-        the existing peer-link session. Live job lifecycle +
-        output ride ``OFFLOADER_JOB_STATE_CHANGED`` /
-        ``OFFLOADER_JOB_OUTPUT`` events on the
-        ``subscribe_events`` stream; this call returns only the
-        receiver's ``submit_job_ack``.
-
-        Subprocess instead of in-process because the CLI is the
-        stable upstream contract — in-process ``read_config``
-        would couple us to the ESPHome validation pipeline,
-        which shifts across releases. Bundle is rebuilt every
-        call so a YAML edit can't ship a stale cache.
-
-        Returns ``{"job_id": <our id>, "accepted": <bool>,
-        "reason": <str>}`` (``reason`` only on rejection).
-        """
-        clean_pin = validate_pin_sha256(pin_sha256)
-        clean_target = validate_submit_job_target(target)
-        clean_config, yaml_path = await self._validate_submit_job_config(configuration)
-        client = self._lookup_open_peer_link_client(clean_pin, label="submit_job")
-        bundle_bytes = await self._build_submit_job_bundle(clean_config, yaml_path)
-        job_id = uuid4().hex[:12]
-        try:
-            ack = await client.submit_job(
-                job_id=job_id,
-                configuration_filename=clean_config,
-                target=clean_target,
-                bundle_bytes=bundle_bytes,
-            )
-        except PeerLinkNoSessionError as exc:
-            raise CommandError(ErrorCode.PRECONDITION_FAILED, str(exc)) from exc
-        except (SubmitJobTimeoutError, SubmitJobSessionLostError) as exc:
-            raise CommandError(ErrorCode.UNAVAILABLE, str(exc)) from exc
-        result: dict[str, Any] = {
-            "job_id": ack["job_id"],
-            "accepted": ack["accepted"],
-        }
-        if "reason" in ack:
-            result["reason"] = ack["reason"]
-        return result
+        """Bundle *configuration* and dispatch a build to the receiver behind *pin_sha256*."""
+        return await submit_job_commands.submit_job(
+            self, pin_sha256=pin_sha256, configuration=configuration, target=target
+        )
 
     @api_command("remote_build/download_artifacts")
     async def download_artifacts(
@@ -937,40 +854,10 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         job_id: str,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """Fetch the build's flash-artifact set for *job_id* from the paired receiver.
-
-        Sends ``download_artifacts{job_id}`` over the live
-        peer-link to *pin_sha256*, parks on the assembled-bytes
-        future the receive loop fills via
-        ``artifacts_start`` / ``_chunk`` / ``_end`` frames,
-        unpacks the SHA-256-verified gzipped tarball, and
-        rewrites ``idedata.extra.flash_images[].path`` from
-        receiver-absolute paths to the bare basenames the
-        frontend's install path looks up.
-
-        Returns ``{job_id, idedata, images, total_bytes}`` —
-        ``images`` is ``firmware.bin`` first, then
-        ``idedata.extra.flash_images`` in declared order.
-        """
-        clean_pin = validate_pin_sha256(pin_sha256)
-        if not isinstance(job_id, str) or not job_id:
-            msg = "job_id must be a non-empty string"
-            raise CommandError(ErrorCode.INVALID_ARGS, msg)
-        client = self._lookup_open_peer_link_client(clean_pin, label="download_artifacts")
-        try:
-            packed = await client.download_artifacts(job_id=job_id)
-        except PeerLinkNoSessionError as exc:
-            raise CommandError(ErrorCode.PRECONDITION_FAILED, str(exc)) from exc
-        except SubmitJobSessionLostError as exc:
-            raise CommandError(ErrorCode.UNAVAILABLE, str(exc)) from exc
-        except DownloadArtifactsError as exc:
-            raise download_artifacts_error_to_command_error(exc) from exc
-        try:
-            return await asyncio.get_running_loop().run_in_executor(
-                None, unpack_artifacts_response, packed, job_id
-            )
-        except UnpackArtifactsError as exc:
-            raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
+        """Fetch the build's flash-artifact set for *job_id* from the paired receiver."""
+        return await submit_job_commands.download_artifacts(
+            self, pin_sha256=pin_sha256, job_id=job_id
+        )
 
     @api_command("remote_build/cancel_job")
     async def cancel_job(
@@ -980,28 +867,8 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         job_id: str,
         **kwargs: Any,
     ) -> dict[str, bool]:
-        """Send a ``cancel_job`` frame to the receiver behind *pin_sha256*.
-
-        Fire-and-forget cancel for a previously-submitted
-        remote-driven job; the receiver's resulting
-        ``job_state_changed{cancelled}`` is the confirmation,
-        surfaced via ``OFFLOADER_JOB_STATE_CHANGED``.
-
-        Returns ``{"sent": <bool>}`` reflecting whether the
-        frame made it onto the wire; ``sent=false`` is a
-        same-tick channel failure the caller should treat as
-        an error.
-        """
-        clean_pin = validate_pin_sha256(pin_sha256)
-        if not isinstance(job_id, str) or not job_id:
-            msg = "job_id must be a non-empty string"
-            raise CommandError(ErrorCode.INVALID_ARGS, msg)
-        client = self._lookup_open_peer_link_client(clean_pin, label="cancel_job")
-        try:
-            sent = await client.cancel_job(job_id=job_id)
-        except PeerLinkNoSessionError as exc:
-            raise CommandError(ErrorCode.PRECONDITION_FAILED, str(exc)) from exc
-        return {"sent": sent}
+        """Send a ``cancel_job`` frame to the receiver behind *pin_sha256*."""
+        return await submit_job_commands.cancel_job(self, pin_sha256=pin_sha256, job_id=job_id)
 
     def get_pairing(self, pin_sha256: str) -> StoredPairing | None:
         """Return the :class:`StoredPairing` for *pin_sha256*, or ``None``."""
