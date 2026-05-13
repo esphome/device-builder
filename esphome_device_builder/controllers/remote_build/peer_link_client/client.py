@@ -129,19 +129,10 @@ class PeerLinkClient:
         self._hostname = receiver_hostname
         self._port = receiver_port
         self._identity_priv = identity_priv
-        # Cached at construction so the self-loopback guard in
-        # :meth:`_run_one_session` can compare against
-        # ``session.remote_static_pub`` without re-deriving on
-        # every reconnect. Shares the X25519 derive cache with
-        # the Noise session itself.
         self._identity_pub = public_bytes_for_priv(identity_priv)
-        # Peer IPs we've observed self-loopback against. aiohttp's
-        # ``TCPConnector`` caches resolutions (10s) and happy-eyeballs
-        # tries the addresses in order, so without this filter a
-        # reconnect after self-loopback would land on the same bad
-        # IP. The resolver wrapper in ``_run_one_session`` reads this
-        # set on every resolve; a new entry takes effect on the next
-        # reconnect attempt.
+        # Peer IPs we've self-loopbacked against. Read live by the
+        # resolver wrapper in :meth:`_run_one_session` so the next
+        # reconnect picks a different A record from the cached set.
         self._blocked_peer_ips: set[str] = set()
         self._dashboard_id = dashboard_id
         # ``None`` falls back to aiohttp's default resolver —
@@ -348,10 +339,6 @@ class PeerLinkClient:
         # Handshake reads are bounded with ``asyncio.wait_for``
         # downstream so a stalled handshake still fails fast.
         timeout = aiohttp.ClientTimeout(total=None, sock_connect=_DEFAULT_TIMEOUT_SECONDS)
-        # Wrap so any peer IP we've previously self-loopbacked against
-        # gets stripped from this attempt's resolution. ``None`` falls
-        # through to aiohttp's default resolver (test path; the
-        # self-loopback bug only manifests via mDNS).
         resolver = (
             _BlocklistingResolver(self._resolver, self._blocked_peer_ips)
             if self._resolver is not None
@@ -639,31 +626,7 @@ class PeerLinkClient:
         _dispatch.fire_queue_status(self, idle, running, queue_depth)
 
     def _on_self_static_observed(self, peer: object) -> str:
-        """
-        Handle a handshake where the responder presented our own static key.
-
-        Two production causes lead here, neither involving the other
-        peer's identity going wrong:
-
-        * **Routing loopback** (the canonical case). mDNS resolved
-          the receiver's hostname to an IP that routes back to this
-          process's own peer-link listener — e.g. a shared Docker
-          bridge gateway like ``172.17.0.1`` present on both hosts:
-          the receiver's announce carries it, the offloader's
-          routing reaches its own listener instead.
-        * **Identity collision.** The receiver was misconfigured
-          with a copy of this dashboard's
-          ``.device-builder-peer-link-key.bin`` — two peers can't
-          share one X25519 identity. Operator action: rotate
-          identity on one side.
-
-        Blocklist the peer IP so the next reconnect's resolver
-        wrapper skips it (recovers automatically from the
-        loopback case); the identity-collision case keeps firing
-        until the operator fixes the receiver side, but the
-        ``check mDNS / routing or identity collision`` text
-        steers them at both causes.
-        """
+        """Blocklist *peer*'s IP, log ERROR, return the transport-error close reason."""
         if isinstance(peer, tuple) and peer and isinstance(peer[0], str):
             self._blocked_peer_ips.add(peer[0])
         _LOGGER.error(

@@ -93,16 +93,7 @@ class PeerLinkDNSResolver(AsyncDualMDNSResolver):
 
 
 class _BlocklistingResolver:
-    """
-    Wraps an aiohttp resolver; drops resolution results whose host is blocklisted.
-
-    Used by the peer-link offloader client to skip A records that
-    resolved to one of the offloader's own interface IPs on a
-    previous attempt (the self-loopback case where mDNS handed back
-    a shared Docker-bridge gateway IP). The blocklist is a shared
-    mutable set so the owning client can append to it between
-    resolves without re-wiring the connector.
-    """
+    """Wraps an aiohttp resolver; drops results whose host is in the *blocked* set."""
 
     def __init__(self, inner: AbstractResolver, blocked: set[str]) -> None:
         self._inner = inner
