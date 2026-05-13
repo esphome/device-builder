@@ -27,17 +27,10 @@ def compose_subprocess_env(job: FirmwareJob) -> dict[str, str]:
     """
     Return the env dict for *job*'s ``esphome`` subprocess.
 
-    Layers:
-
-    1. ``os.environ`` (inherits the dashboard's deployment-mode
-       context: ``ESPHOME_DATA_DIR`` on the HA addon, etc.).
-    2. :data:`ESPHOME_SUBPROCESS_ENV` (force ANSI / unbuffered
-       output regardless of TTY).
-    3. For receiver-side remote-build jobs: pin
-       ``ESPHOME_DATA_DIR`` to the per-build subtree under
-       ``CORE.data_dir`` so per-config artefacts land under one
-       ``(dashboard_id, device)``-keyed directory instead of
-       colliding in the dashboard's shared keyspace.
+    Layers ``os.environ`` + :data:`ESPHOME_SUBPROCESS_ENV`, then
+    for receiver-side remote-build jobs pins ``ESPHOME_DATA_DIR``
+    to the per-build subtree under ``CORE.data_dir`` so per-config
+    artefacts land in one ``(dashboard_id, device)``-keyed dir.
     """
     env = {**os.environ, **ESPHOME_SUBPROCESS_ENV}
     remote_build_path = parse_remote_build_path(job.configuration)
@@ -112,23 +105,12 @@ async def verify_chip(controller: FirmwareController, job: FirmwareJob) -> None:
     Run ``esptool chip-id`` against *job*'s port and raise on mismatch.
 
     Skipped for OTA / non-``/dev`` ports and when no
-    ``StorageJSON.target_platform`` has been recorded yet
-    (pre-compile installs — esphome's own flash error covers the
-    wrong-chip case there).
-
-    Reads ``StorageJSON.target_platform`` (the upstream-canonical
-    chip variant — ``ESP32S3`` / ``ESP32C3`` / plain ``ESP8266``)
-    rather than ``Device.target_platform`` (lowercase platform
-    *key*, e.g. ``esp32`` for every ESP32 family member, which
-    would false-positive on a chip-vs-variant mismatch).
-
-    Registers the verify subprocess as ``_current_process`` so an
-    early ``firmware/cancel`` (typical when the user picked the
-    wrong serial port and esptool hangs) lands on the spawned
-    esptool process instead of no-op'ing because the main install
-    hasn't been spawned yet. ``start_new_session=True`` puts the
-    process in its own group so the SIGTERM signal walks the
-    whole tree.
+    ``StorageJSON.target_platform`` is recorded yet. Reads
+    ``StorageJSON.target_platform`` (upstream-canonical chip
+    variant — ``ESP32S3``, ``ESP32C3``, etc.) rather than
+    ``Device.target_platform`` (lowercase platform *key* like
+    ``esp32``, which would false-positive on a chip-vs-variant
+    mismatch).
     """
     if not job.port or job.port.upper() == "OTA" or not job.port.startswith("/dev"):
         return  # only check serial ports
