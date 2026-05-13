@@ -80,7 +80,7 @@ async def test_edit_friendly_name_schedules_storage_regenerate(
     make_controller: MakeControllerFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Rewrite refreshes ``StorageJSON`` so ``config_hash`` reflects the new YAML (#676)."""
+    """Successful rewrite schedules a StorageJSON regen."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     (tmp_path / "kitchen.yaml").write_text(SOURCE_YAML, "utf-8")
     scheduled: list[str] = []

@@ -492,10 +492,6 @@ def make_controller() -> MakeControllerFactory:
             controller._regenerate_failed = set()
             controller._regenerate_lock = asyncio.Lock()
 
-        # Mirror ``__init__``'s default so the schedule-regen guard's
-        # falsy check works without each test having to opt into
-        # ``esphome_cmd=...``; ``[]`` short-circuits the spawn the
-        # same way an unstarted controller would in production.
         controller._esphome_cmd = esphome_cmd if esphome_cmd is not None else []
 
         return controller

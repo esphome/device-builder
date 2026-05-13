@@ -1183,10 +1183,6 @@ class DevicesController:  # noqa: PLR0904 (grandfathered; new public methods nee
             configuration, new_content, action="update friendly name"
         )
 
-        # Routed through :meth:`_persist_yaml_mutation` so the
-        # rewritten YAML lands atomically and ``StorageJSON``
-        # picks up the new ``config_hash`` without waiting for
-        # a compile.
         await self._persist_yaml_mutation(configuration, new_content)
         return {"configuration": configuration, "rewritten": True}
 
@@ -1435,13 +1431,7 @@ class DevicesController:  # noqa: PLR0904 (grandfathered; new public methods nee
 
     @api_command("devices/update_config")
     async def update_config(self, *, configuration: str, content: str, **kwargs: Any) -> None:
-        """Write device config YAML.
-
-        Routed through :meth:`_persist_yaml_mutation` so the
-        editor's "Save" lands an atomic write + a StorageJSON
-        regen (mirrors the upstream dashboard's
-        ``EditRequestHandler`` → ``async_schedule_storage_json_update``).
-        """
+        """Write device config YAML."""
         await self._persist_yaml_mutation(configuration, content)
 
     def _schedule_storage_regenerate(self, configuration: str) -> None:
@@ -1722,19 +1712,12 @@ class DevicesController:  # noqa: PLR0904 (grandfathered; new public methods nee
         await loop.run_in_executor(None, atomic_write_file, path, content)
 
     async def _persist_yaml_mutation(self, configuration: str, content: str) -> None:
-        """Atomic write + scan + StorageJSON regen for in-place YAML mutators.
-
-        Every WS command that rewrites an existing device YAML
-        (``update_config``, ``add_component``, ``edit_friendly_name``)
-        funnels through here so the regen-schedule call can't get
-        forgotten on a new mutator (#676).
-        """
+        """Atomic write + scan + StorageJSON regen for in-place YAML mutators."""
         await self._write_yaml_atomic_async(self._db.settings.rel_path(configuration), content)
         await self._scanner.scan()
-        # Refresh ``StorageJSON`` so ``loaded_integrations`` /
-        # ``config_hash`` reflect the new YAML without waiting
-        # for a full compile. Mirrors the upstream dashboard's
-        # ``async_schedule_storage_json_update``.
+        # Mirrors the upstream dashboard's
+        # ``async_schedule_storage_json_update``; without it
+        # ``loaded_integrations`` stays at its pre-write state.
         self._schedule_storage_regenerate(configuration)
 
     @staticmethod

@@ -647,9 +647,6 @@ def _make_controller(catalog: ComponentCatalog, tmp_path: Any) -> DevicesControl
     ctrl._db.components = catalog
     ctrl._scanner = MagicMock()
     ctrl._scanner.scan = AsyncMock()
-    # Mirror ``__init__``'s default so the schedule-regen guard's
-    # falsy check short-circuits cleanly without spinning up a
-    # subprocess.
     ctrl._esphome_cmd = []
     return ctrl
 
@@ -896,11 +893,7 @@ async def test_add_component_handles_secret_tags_in_existing_yaml(
 async def test_add_component_schedules_storage_regenerate(
     catalog: ComponentCatalog, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``add_component`` refreshes ``StorageJSON`` after the write (#676).
-
-    Without this, ``loaded_integrations`` stays at its pre-add
-    state and the frontend gates Install on a stale list.
-    """
+    """``add_component`` schedules a StorageJSON regen after the write."""
     (tmp_path / "plug.yaml").write_text("esphome:\n  name: plug\n", "utf-8")
     ctrl = _make_controller(catalog, tmp_path)
     scheduled: list[str] = []
