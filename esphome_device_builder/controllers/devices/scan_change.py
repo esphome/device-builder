@@ -12,19 +12,7 @@ if TYPE_CHECKING:
 
 
 def on_scan_change(controller: DevicesController, kind: ScanChange, device: Device) -> None:
-    """
-    Forward scanner changes onto the event bus and fan out side effects.
-
-    On ADDED, eagerly probes mDNS so a freshly-dropped YAML
-    doesn't sit at "Unknown" until the next periodic ping
-    sweep. On UPDATED / REMOVED, clears any prior storage-regen
-    failure marker so a YAML edit gets a fresh chance.
-    Schedules ``--only-generate`` for first-sight devices that
-    have no compile output yet (or pre-build_info.json devices
-    with empty ``expected_config_hash``); on REMOVED, re-emits
-    cached importables and clears the per-signal reachability
-    history.
-    """
+    """Forward scanner changes onto the event bus and fan out per-kind side effects."""
     event = {
         ScanChange.ADDED: EventType.DEVICE_ADDED,
         ScanChange.UPDATED: EventType.DEVICE_UPDATED,
