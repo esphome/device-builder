@@ -175,7 +175,8 @@ class PairingSummary(DataClassORJSONMixin):
     # "last known: X.Y.Z" so the operator can spot a version
     # skew before pick_build_path silently falls back to LOCAL.
     esphome_version: str = ""
-    # Per-pairing enable toggle (mirrors :attr:`StoredPairing.enabled`).
+    # Per-pairing enable toggle the Settings UI renders the
+    # switch from; ``False`` skips the row in pick_build_path.
     enabled: bool = True
 
 
