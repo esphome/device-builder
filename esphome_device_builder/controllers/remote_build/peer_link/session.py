@@ -28,8 +28,8 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-# Receiver-driven heartbeat: ping every 30s, three consecutive
-# missed pongs (90s of silence) closes the session so a half-open
+# Receiver-driven heartbeat: ping every 30s; three consecutive
+# missed pongs (90s of silence) close the session so a half-open
 # TCP connection on a flaky LAN can't pin a slot indefinitely.
 HEARTBEAT_INTERVAL_SECONDS = 30.0
 HEARTBEAT_MISS_THRESHOLD = 3
@@ -52,11 +52,10 @@ class PeerLinkSession:
     Owned by :class:`ReceiverController` via
     register / unregister_peer_link_session. Composes a
     :class:`PeerLinkChannel` for wire-level encrypt / send /
-    parse / terminate — same channel shape the offloader-side
-    :class:`PeerLinkClient` uses. The :attr:`_closing`
-    short-circuit on :meth:`send_app_frame` protects against a
-    heartbeat / app sender racing a final frame onto the wire
-    after :meth:`terminate` has flipped the close decision.
+    parse / terminate. The :attr:`_closing` short-circuit on
+    :meth:`send_app_frame` protects against a heartbeat / app
+    sender racing a final frame onto the wire after
+    :meth:`terminate` has flipped the close decision.
     """
 
     dashboard_id: str
