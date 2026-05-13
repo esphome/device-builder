@@ -35,6 +35,7 @@ from esphome_device_builder.device_builder import (
     DeviceBuilder,
     _strip_server_header_middleware,
 )
+from esphome_device_builder.helpers.dashboard_advertise import DashboardAdvertiser
 from esphome_device_builder.helpers.dashboard_identity import (
     get_or_create_identity,
     rotate_identity,
@@ -253,6 +254,74 @@ async def test_maybe_start_remote_build_site_updates_advertiser_on_success(
         # ``refresh`` was awaited so the TXT change actually
         # leaves the local cache.
         assert fake_advertiser.refresh.called
+    finally:
+        if db._remote_build_runner is not None:
+            await db._remote_build_runner.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_maybe_start_remote_build_site_against_unregistered_advertiser_stages_only(
+    tmp_path: Path,
+) -> None:
+    """A bind before advertiser registration stages pin+port without firing an update.
+
+    Pins the startup-ordering contract: at process start the bind
+    runs BEFORE ``DashboardAdvertiser.register`` so the initial
+    ServiceInfo carries all 4 TXT keys in one announce. A bind
+    against an unregistered advertiser must therefore stage the
+    pin and port via the setters, and the ``refresh`` call must
+    be a no-op (the real refresh short-circuits on
+    ``info is None``); firing ``async_update_service`` here would
+    race python-zeroconf's background announce of the initial
+    register and flap the wire-visible TXT between 2 and 4 keys.
+    """
+    loop = asyncio.get_running_loop()
+
+    def _enable() -> None:
+        with remote_build_settings_transaction(tmp_path) as txn:
+            txn.enabled = True
+
+    await loop.run_in_executor(None, _enable)
+
+    settings = DashboardSettings(config_dir=tmp_path)
+    settings.host = "127.0.0.1"
+    settings.remote_build_port = 0
+    db = DeviceBuilder(settings)
+    db.loop = loop
+    db.remote_build_receiver = MagicMock()
+    db.remote_build_receiver._db.settings.config_dir = tmp_path
+
+    # Real advertiser, deliberately not registered: ``_info`` and
+    # ``_zeroconf`` stay ``None`` so the production ``refresh``
+    # short-circuits without touching the wire.
+    advertiser = DashboardAdvertiser(
+        port=6052,
+        server_version="1.2.3",
+        esphome_version="2026.5.0",
+        dashboard_id="abcd1234",
+    )
+    db._dashboard_advertiser = advertiser
+
+    try:
+        await db._maybe_start_remote_build_site()
+        assert db._remote_build_runner is not None
+        # Pin + port were staged for the next ``build_service_info``.
+        assert advertiser._pin_sha256
+        assert advertiser._remote_build_port is not None
+        # No premature publish: ``_info`` / ``_zeroconf`` still
+        # absent, so ``refresh`` was a no-op.
+        assert advertiser._info is None
+        assert advertiser._zeroconf is None
+        # A subsequent ``build_service_info`` carries all 4 TXT keys
+        # in one shot — what ``register`` will publish.
+        info = advertiser.build_service_info(addresses=["127.0.0.1"])
+        decoded = {k.decode(): v.decode() for k, v in info.properties.items()}
+        assert set(decoded) == {
+            "server_version",
+            "esphome_version",
+            "pin_sha256",
+            "remote_build_port",
+        }
     finally:
         if db._remote_build_runner is not None:
             await db._remote_build_runner.cleanup()
