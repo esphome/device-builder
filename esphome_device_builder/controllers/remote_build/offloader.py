@@ -33,7 +33,6 @@ from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo
 
 from ...helpers.api import CommandError, api_command
 from ...helpers.build_scheduler import BuildSchedulerInputs
-from ...helpers.dashboard_advertise import SERVICE_TYPE
 from ...helpers.dashboard_identity import get_or_create_identity
 from ...helpers.event_bus import Event
 from ...helpers.hostname import normalize_hostname
@@ -65,11 +64,11 @@ from ...models import (
     PairingSummary,
     PeerQueueStatusSnapshotEntry,
     PeerStatus,
-    RemoteBuildHostRemovedData,
     RemoteBuildPeer,
     StoredPairing,
 )
-from ._mdns import endpoints_equal, peer_from_service_info
+from . import discovery
+from ._mdns import endpoints_equal
 from ._models import (
     EDIT_PAIRING_PROBE_ERRORS,
     PeerLinkClientHandle,
@@ -134,11 +133,6 @@ def _load_offloader_identities(
     """
     return get_or_create_peer_link_identity(config_dir), get_or_create_identity(config_dir)
 
-
-# Cache-miss resolve timeout for the dashboard service-info
-# fetch. Longer than the device-state monitor's because peer
-# dashboards run on full hosts that may be more LAN hops away.
-_RESOLVE_TIMEOUT_MS = 3000
 
 # Terminal status set for the offloader-side remote-job cache
 # drop-on-terminal logic.
@@ -322,47 +316,8 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
             self._peer_link_resolver = None
 
     def _start_discovery(self) -> None:
-        """
-        Bring up the mDNS service browser for peer discovery.
-
-        Captures the dashboard's own service-instance name (so
-        our own advertise doesn't show up in ``list_hosts``) and
-        constructs the :class:`AsyncServiceBrowser` against the
-        shared zeroconf. Skips silently if either the devices
-        controller or its zeroconf isn't available (peer
-        discovery is opt-in fail-soft); on browser-construction
-        failure logs the exception and leaves :attr:`_browser`
-        as ``None``.
-        """
-        if self._db.devices is None:
-            _LOGGER.debug("remote-build discovery skipped: devices controller unavailable")
-            return
-        zeroconf = self._db.devices.zeroconf
-        if zeroconf is None:
-            _LOGGER.debug("remote-build discovery skipped: zeroconf unavailable")
-            return
-        # Capture own service-instance name so our own advertise
-        # doesn't show up in ``list_hosts``. Reads through the
-        # public ``service_instance_name`` accessor on
-        # ``DashboardAdvertiser`` rather than reaching into
-        # ``_info``; keeps this controller decoupled from the
-        # advertiser's private layout.
-        advertiser = self._db._dashboard_advertiser
-        if advertiser is not None:
-            self._own_instance_name = advertiser.service_instance_name
-        # Wrap browser construction so a zeroconf-side failure
-        # (e.g. the underlying socket got torn down between
-        # ``DeviceStateMonitor.start`` and now, or the cache is in
-        # an unexpected state) doesn't abort dashboard startup.
-        try:
-            self._browser = AsyncServiceBrowser(
-                zeroconf.zeroconf,
-                [SERVICE_TYPE],
-                handlers=[self._on_service_state_change],
-            )
-        except Exception:
-            _LOGGER.exception("Could not start remote-build browser; peer discovery disabled")
-            self._browser = None
+        """Bring up the mDNS service browser for peer discovery."""
+        discovery.start_discovery(self)
 
     def _on_offloader_pair_pin_mismatch(self, event: Event[OffloaderPairPinMismatchData]) -> None:
         """Cache the alert in ``_offloader_alerts`` for late-subscriber snapshot.
@@ -494,91 +449,24 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         name: str,
         state_change: ServiceStateChange,
     ) -> None:
-        """
-        Browser callback; resolve the service info and update the peer map.
-
-        Filters our own service-instance name so we don't surface
-        our own advertise as a discovered host. ``Removed`` events
-        delete the peer immediately and fire
-        :attr:`EventType.REMOTE_BUILD_HOST_REMOVED`; ``Added`` /
-        ``Updated`` resolve either from the zeroconf cache (sync,
-        fires :attr:`EventType.REMOTE_BUILD_HOST_ADDED` inline) or
-        via a fire-and-forget task (async, fires from
-        :meth:`_resolve_and_apply` once the SRV / TXT round-trip
-        completes).
-        """
-        if name == self._own_instance_name:
-            return
-        if state_change == ServiceStateChange.Removed:
-            popped = self._peers.pop(name, None)
-            if popped is not None:
-                # Event keys on the wire-friendly ``peer.name``
-                # (leftmost label) so frontend dicts keyed on the
-                # ``RemoteBuildPeer.name`` field upsert/delete
-                # consistently. The FQDN ``name`` is the
-                # ``self._peers`` dict key only.
-                self._fire_host_removed(popped.name)
-            return
-        info = AsyncServiceInfo(service_type, name)
-        if info.load_from_cache(zeroconf):
-            self._upsert_host(name, info)
-            return
-        self._track_task(self._resolve_and_apply(zeroconf, info, name))
+        """Browser callback; resolve the service info and update the peer map."""
+        discovery.on_service_state_change(self, zeroconf, service_type, name, state_change)
 
     async def _resolve_and_apply(self, zeroconf: Any, info: AsyncServiceInfo, name: str) -> None:
         """Async resolve path for cache misses."""
-        try:
-            resolved = await info.async_request(zeroconf, timeout=_RESOLVE_TIMEOUT_MS)
-        except Exception:
-            _LOGGER.debug("Resolve failed for %s", name, exc_info=True)
-            return
-        if not resolved:
-            return
-        self._upsert_host(name, info)
+        await discovery.resolve_and_apply(self, zeroconf, info, name)
 
     def _upsert_host(self, name: str, info: AsyncServiceInfo) -> None:
-        """Replace the row keyed on *name* and fire ``REMOTE_BUILD_HOST_ADDED``.
-
-        Drops entries whose ``(server, port)`` matches our own
-        advertise — the instance-name filter handles the common
-        case, but a rename-on-conflict bounce can leave the
-        captured name stale.
-        """
-        peer = peer_from_service_info(name, info)
-        if self._is_self_endpoint(peer.hostname, peer.port):
-            return
-        self._peers[name] = peer
-        self._db.bus.fire(EventType.REMOTE_BUILD_HOST_ADDED, peer.to_dict())
-        # mDNS auto-rebind: if this broadcast's pin matches a
-        # stored pairing whose ``(host, port)`` differs, the
-        # probe-then-rebind background task verifies the new
-        # endpoint really is our paired receiver before mutating.
-        self._maybe_schedule_rebind_probe(peer)
+        """Replace the row keyed on *name* and fire ``REMOTE_BUILD_HOST_ADDED``."""
+        discovery.upsert_host(self, name, info)
 
     def _is_self_endpoint(self, hostname: str, port: int) -> bool:
-        """Return True when *(hostname, port)* matches our published advertise.
-
-        Reads the live ``service_target_endpoint`` off the
-        :class:`DashboardAdvertiser` rather than a captured-at-start
-        value so a post-start register / re-register isn't missed.
-        Hostname comparison goes through
-        :func:`normalize_hostname` so the resolved peer hostname
-        and the advertiser's published target compare equal
-        regardless of trailing-dot / case.
-        """
-        advertiser = self._db._dashboard_advertiser
-        if advertiser is None:
-            return False
-        endpoint = advertiser.service_target_endpoint
-        if endpoint is None:
-            return False
-        own_host, own_port = endpoint
-        return endpoints_equal(hostname, port, own_host, own_port)
+        """Return True when *(hostname, port)* matches our published advertise."""
+        return discovery.is_self_endpoint(self, hostname, port)
 
     def _fire_host_removed(self, name: str) -> None:
         """Fire ``REMOTE_BUILD_HOST_REMOVED`` for *name*."""
-        payload: RemoteBuildHostRemovedData = {"name": name}
-        self._db.bus.fire(EventType.REMOTE_BUILD_HOST_REMOVED, payload)
+        discovery.fire_host_removed(self, name)
 
     def _schedule_pairings_save(self) -> None:
         """Debounce-write the offloader pairings store via the per-file Store."""

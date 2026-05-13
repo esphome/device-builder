@@ -1163,7 +1163,7 @@ def test_on_service_state_change_uses_cache_when_available(
     fake_info = _fake_service_info(name="desktop")
     fake_info.load_from_cache = MagicMock(return_value=True)
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader.AsyncServiceInfo",
+        "esphome_device_builder.controllers.remote_build.discovery.AsyncServiceInfo",
         MagicMock(return_value=fake_info),
     )
     zeroconf = MagicMock()
@@ -1495,7 +1495,7 @@ async def test_start_swallows_browser_construction_errors(
     not crash dashboard startup.
     """
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader.AsyncServiceBrowser",
+        "esphome_device_builder.controllers.remote_build.discovery.AsyncServiceBrowser",
         MagicMock(side_effect=RuntimeError("zeroconf socket gone")),
     )
     controller = _make_controller(config_dir=tmp_path)
@@ -1518,7 +1518,7 @@ async def test_start_captures_own_instance_name(
     fake_browser = MagicMock()
     fake_browser.async_cancel = AsyncMock()
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader.AsyncServiceBrowser",
+        "esphome_device_builder.controllers.remote_build.discovery.AsyncServiceBrowser",
         MagicMock(return_value=fake_browser),
     )
     controller = _make_controller(config_dir=tmp_path)
@@ -1541,7 +1541,7 @@ async def test_start_skips_self_capture_when_advertiser_unregistered(
     fake_browser = MagicMock()
     fake_browser.async_cancel = AsyncMock()
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader.AsyncServiceBrowser",
+        "esphome_device_builder.controllers.remote_build.discovery.AsyncServiceBrowser",
         MagicMock(return_value=fake_browser),
     )
     controller = _make_controller(config_dir=tmp_path)
@@ -1566,7 +1566,7 @@ async def test_start_skips_self_capture_when_no_advertiser(
     fake_browser = MagicMock()
     fake_browser.async_cancel = AsyncMock()
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader.AsyncServiceBrowser",
+        "esphome_device_builder.controllers.remote_build.discovery.AsyncServiceBrowser",
         MagicMock(return_value=fake_browser),
     )
     controller = _make_controller(config_dir=tmp_path)
@@ -1586,7 +1586,7 @@ async def test_stop_swallows_browser_cancel_errors(
     fake_browser = MagicMock()
     fake_browser.async_cancel = AsyncMock(side_effect=RuntimeError("boom"))
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader.AsyncServiceBrowser",
+        "esphome_device_builder.controllers.remote_build.discovery.AsyncServiceBrowser",
         MagicMock(return_value=fake_browser),
     )
     controller = _make_controller(config_dir=tmp_path)
@@ -1608,7 +1608,7 @@ async def test_on_service_state_change_spawns_resolve_task_on_cache_miss(
     fake_info.load_from_cache = MagicMock(return_value=False)
     fake_info.async_request = AsyncMock(return_value=True)
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader.AsyncServiceInfo",
+        "esphome_device_builder.controllers.remote_build.discovery.AsyncServiceInfo",
         MagicMock(return_value=fake_info),
     )
     zeroconf = MagicMock()
