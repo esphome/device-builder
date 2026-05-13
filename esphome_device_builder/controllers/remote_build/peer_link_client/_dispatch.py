@@ -36,16 +36,11 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-# Voluptuous schemas for the peer-supplied inbound wire frames
-# the offloader receive loop dispatches into bus events / ack
-# futures / download assemblers. Built via
-# :func:`helpers.peer_link_frames.frame_schema` so the
-# ``bool``-vs-``int`` special case (Python's
-# ``isinstance(True, int) is True``) is handled the same way
-# every shared frame schema in the project does. Optional
-# fields (``SubmitJobAckFrameData.reason`` /
-# ``ArtifactsEndFrameData.reason``) live outside the schema —
-# the dispatch reads ``frame.get("reason")`` post-validate.
+# Schemas built via ``frame_schema`` so the bool-vs-int special case
+# (``isinstance(True, int) is True``) is handled the same way every
+# shared frame schema is. Optional fields (``*FrameData.reason``)
+# live outside the schema — dispatchers read via
+# ``frame.get("reason")`` post-validate.
 _SUBMIT_JOB_ACK_SCHEMA = frame_schema({"job_id": str, "accepted": bool})
 
 _JOB_STATE_CHANGED_SCHEMA = frame_schema({"job_id": str, "status": str, "error_message": str})
@@ -54,7 +49,6 @@ _JOB_OUTPUT_SCHEMA = frame_schema({"job_id": str, "stream": str, "line": str})
 
 _QUEUE_STATUS_SCHEMA = frame_schema({"idle": bool, "running": bool, "queue_depth": int})
 
-# Schemas for the 6a artifact-download stream frames.
 _ARTIFACTS_START_SCHEMA = frame_schema(
     {
         "job_id": str,
@@ -76,28 +70,18 @@ _ARTIFACTS_CHUNK_SCHEMA = frame_schema(
 
 _ARTIFACTS_END_SCHEMA = frame_schema({"job_id": str, "accepted": bool})
 
-# Allowed ``status`` values on inbound ``job_state_changed``
-# frames, mirroring :class:`JobStateChangedFrameData`'s
-# ``Literal``. Membership check after the str-shape gate so a
-# misbehaving receiver sending ``status="unknown"`` is dropped
-# at the wire layer instead of fanning out a malformed bus
-# event for downstream consumers.
+# Membership check on top of the str shape gate so a buggy
+# receiver sending status="unknown" / stream="foo" is dropped at
+# the wire layer instead of fanning out a malformed bus event.
 _JOB_STATE_CHANGED_VALID_STATUS: frozenset[str] = frozenset(
     {"queued", "running", "completed", "failed", "cancelled"}
 )
 
-# Allowed ``stream`` values on inbound ``job_output`` frames,
-# mirroring :class:`JobOutputFrameData`'s ``Literal``.
 _JOB_OUTPUT_VALID_STREAM: frozenset[str] = frozenset({"stdout", "stderr"})
 
 
 def log_malformed(client: PeerLinkClient, frame_type: str, parsed: dict[str, Any]) -> None:
-    """Debug-log a frame that failed shape validation.
-
-    Single call site for the per-dispatcher
-    "malformed X frame from Y:Z" line so the format string
-    doesn't drift across the four dispatchers.
-    """
+    """Debug-log a frame that failed shape validation."""
     _LOGGER.debug(
         "peer-link client malformed %s frame from %s:%d: %r",
         frame_type,
@@ -108,15 +92,7 @@ def log_malformed(client: PeerLinkClient, frame_type: str, parsed: dict[str, Any
 
 
 def dispatch_queue_status(client: PeerLinkClient, parsed: dict[str, Any]) -> None:
-    """Validate a ``queue_status`` frame and fire the offloader-side bus event.
-
-    Drop silently on shape mismatch — the receiver will
-    broadcast another snapshot on the next queue
-    transition. The frame's ``queue_depth`` is ``int``;
-    :func:`frame_schema` wraps every ``int`` field with
-    :func:`not_bool` so a ``bool`` (which subclasses
-    ``int``) doesn't slip through as a valid integer.
-    """
+    """Validate a ``queue_status`` frame and fire the offloader-side bus event."""
     if not is_valid_frame(_QUEUE_STATUS_SCHEMA, parsed):
         log_malformed(client, "queue_status", parsed)
         return
@@ -124,24 +100,7 @@ def dispatch_queue_status(client: PeerLinkClient, parsed: dict[str, Any]) -> Non
 
 
 def dispatch_submit_job_ack(client: PeerLinkClient, parsed: dict[str, Any]) -> None:
-    """Resolve the matching ack future for an inbound ``submit_job_ack`` frame.
-
-    Drops silently on:
-
-    * Shape mismatch (missing / wrong-typed required fields)
-      — the awaiter times out cleanly rather than seeing a
-      malformed frame as a successful accept.
-    * No matching future under *job_id* — the awaiter
-      already raised :class:`SubmitJobTimeoutError` and
-      popped its entry, or the receiver acked a job we
-      didn't submit.
-    * Future already done — duplicate ack under one
-      *job_id*; the first wins and the second's
-      ``set_result`` would raise ``InvalidStateError``.
-
-    Optional ``reason`` (only present on rejection) is read
-    post-validate and copied through.
-    """
+    """Resolve the matching ack future for an inbound ``submit_job_ack`` frame."""
     if not is_valid_frame(_SUBMIT_JOB_ACK_SCHEMA, parsed):
         log_malformed(client, "submit_job_ack", parsed)
         return
@@ -164,11 +123,9 @@ def dispatch_submit_job_ack(client: PeerLinkClient, parsed: dict[str, Any]) -> N
         "job_id": job_id,
         "accepted": accepted,
     }
-    # ``SubmitJobAckFrameData.reason`` is ``NotRequired`` and
-    # carries the rejection code on ``accepted=False``. A
-    # receiver that includes ``reason`` on accept is off-
-    # contract — preserve the typed shape by dropping the
-    # spurious field (logged at debug for the operator).
+    # Preserve the typed shape: ``reason`` is NotRequired and only
+    # carries content on ``accepted=False``. Spurious ``reason`` on
+    # accept is off-contract; drop it (logged at debug).
     reason = parsed.get("reason")
     if isinstance(reason, str):
         if accepted:
@@ -186,15 +143,7 @@ def dispatch_submit_job_ack(client: PeerLinkClient, parsed: dict[str, Any]) -> N
 
 
 def dispatch_job_state_changed(client: PeerLinkClient, parsed: dict[str, Any]) -> None:
-    """Validate + fan an inbound ``job_state_changed`` frame onto the bus.
-
-    Same pattern as :func:`dispatch_queue_status`: validate
-    first, drop silently on shape mismatch (a future
-    retransmit will land cleanly), enrich with this
-    client's receiver coordinates so subscribers can
-    disambiguate transitions across multiple paired
-    receivers.
-    """
+    """Validate + fan an inbound ``job_state_changed`` frame onto the bus."""
     if not is_valid_frame(_JOB_STATE_CHANGED_SCHEMA, parsed):
         log_malformed(client, "job_state_changed", parsed)
         return
@@ -214,13 +163,7 @@ def dispatch_job_state_changed(client: PeerLinkClient, parsed: dict[str, Any]) -
 
 
 def dispatch_job_output(client: PeerLinkClient, parsed: dict[str, Any]) -> None:
-    """Validate + fan an inbound ``job_output`` frame onto the bus.
-
-    High-rate path during an active build (one frame per
-    line of compiler / linker output). Validate cheaply and
-    drop on shape mismatch; subscribers see ``stream`` /
-    ``line`` typed by :class:`OffloaderJobOutputData`.
-    """
+    """Validate + fan an inbound ``job_output`` frame onto the bus."""
     if not is_valid_frame(_JOB_OUTPUT_SCHEMA, parsed):
         log_malformed(client, "job_output", parsed)
         return
@@ -240,16 +183,7 @@ def dispatch_job_output(client: PeerLinkClient, parsed: dict[str, Any]) -> None:
 
 
 def dispatch_artifacts_start(client: PeerLinkClient, parsed: dict[str, Any]) -> None:
-    """Validate ``artifacts_start`` + install the assembler for the in-flight download.
-
-    Drops silently on shape mismatch / unknown job_id —
-    the receive loop is hot and a malformed frame from a
-    buggy peer shouldn't crash anyone. A stray
-    ``artifacts_start`` for a job we never asked for
-    means the awaiter already raised + popped its state
-    (or it was a different session entirely); the safe
-    thing is to ignore.
-    """
+    """Validate ``artifacts_start`` + install the assembler for the in-flight download."""
     if not is_valid_frame(_ARTIFACTS_START_SCHEMA, parsed):
         log_malformed(client, "artifacts_start", parsed)
         return
@@ -278,13 +212,7 @@ def dispatch_artifacts_start(client: PeerLinkClient, parsed: dict[str, Any]) -> 
 
 
 def dispatch_artifacts_chunk(client: PeerLinkClient, parsed: dict[str, Any]) -> None:
-    """Validate ``artifacts_chunk`` + feed the assembler.
-
-    Out-of-order / oversized / decode-failure chunks
-    from a buggy receiver resolve the future with
-    :class:`DownloadArtifactsError`; the awaiter unwinds
-    and the WS layer surfaces the structured reason.
-    """
+    """Validate ``artifacts_chunk`` + feed the assembler."""
     if not is_valid_frame(_ARTIFACTS_CHUNK_SCHEMA, parsed):
         log_malformed(client, "artifacts_chunk", parsed)
         return
@@ -307,15 +235,7 @@ def dispatch_artifacts_chunk(client: PeerLinkClient, parsed: dict[str, Any]) -> 
 
 
 def dispatch_artifacts_end(client: PeerLinkClient, parsed: dict[str, Any]) -> None:
-    """Validate ``artifacts_end`` + resolve the download future.
-
-    Success path (``accepted=true``): finalise the
-    assembler (validates count + SHA-256), set the
-    future to the bytes. Failure path
-    (``accepted=false``): pop ``reason`` and set the
-    future to a :class:`DownloadArtifactsError` carrying
-    it.
-    """
+    """Validate ``artifacts_end`` + resolve the download future (success or failure)."""
     if not is_valid_frame(_ARTIFACTS_END_SCHEMA, parsed):
         log_malformed(client, "artifacts_end", parsed)
         return
@@ -379,21 +299,7 @@ def fire_closed(client: PeerLinkClient, reason: str, *, error_detail: str = "") 
 
 
 def fire_pin_mismatch(client: PeerLinkClient, *, observed: bytes) -> None:
-    """Fire ``OFFLOADER_PAIR_PIN_MISMATCH`` after a peer-link pin drift.
-
-    Same event shape the pair-status listener already fires
-    from :meth:`OffloaderController._apply_pair_status_result`
-    on its own pin-drift branch. The controller listens for
-    the event and stores the alert in
-    ``_offloader_alerts`` so the snapshot path
-    (``subscribe_events.initial_state.offloader_alerts``)
-    carries it for late-subscribing tabs.
-
-    ``expected_pin`` / ``observed_pin`` are the
-    SHA-256 hashes of the pinned + observed pubkeys, in the
-    same lowercase-hex form
-    :class:`StoredPairing.pin_sha256` uses on disk.
-    """
+    """Fire ``OFFLOADER_PAIR_PIN_MISMATCH`` after a peer-link pin drift."""
     payload: OffloaderPairPinMismatchData = {
         "receiver_hostname": client._hostname,
         "receiver_port": client._port,
@@ -406,15 +312,7 @@ def fire_pin_mismatch(client: PeerLinkClient, *, observed: bytes) -> None:
 
 
 def fire_queue_status(client: PeerLinkClient, idle: bool, running: bool, queue_depth: int) -> None:
-    """Fire ``OFFLOADER_QUEUE_STATUS_CHANGED`` for an inbound snapshot.
-
-    The peer-link receive loop validates the wire shape
-    (boolean / int) before getting here, so the event
-    payload's primitive contract holds without re-checking.
-    Listeners on the bus include the
-    :class:`OffloaderController`'s cache update and the
-    ``subscribe_events`` re-broadcast.
-    """
+    """Fire ``OFFLOADER_QUEUE_STATUS_CHANGED`` for an inbound snapshot."""
     payload: OffloaderQueueStatusChangedData = {
         "receiver_hostname": client._hostname,
         "receiver_port": client._port,
