@@ -145,8 +145,9 @@ class PeerLinkClient:
         self._bus = bus
         # True after a receiver-side ``terminate{superseded}`` or
         # post-handshake pin-mismatch — reconnecting would just
-        # hammer the wrong endpoint. Controller can reset by
-        # spawning a fresh :meth:`run` task.
+        # hammer the wrong endpoint. One-shot: never cleared on
+        # the instance. Controller recovers by dropping this
+        # client and constructing a fresh :class:`PeerLinkClient`.
         self._orphaned = False
         # True once a session reached ``intent_response: ok`` —
         # :meth:`run`'s backoff resets only on previously-opened
@@ -201,9 +202,10 @@ class PeerLinkClient:
 
         Set on receiver-side ``superseded`` close (another
         offloader instance with the same ``dashboard_id`` took
-        our slot) or post-handshake pin-mismatch. Operator
-        recovery is re-pair or unpair; the controller's restart
-        path (a fresh :meth:`run`) clears the flag.
+        our slot) or post-handshake pin-mismatch. One-shot:
+        never cleared on this instance. Operator recovery is
+        re-pair or unpair; the controller drops this client and
+        constructs a fresh one.
         """
         return self._orphaned
 
