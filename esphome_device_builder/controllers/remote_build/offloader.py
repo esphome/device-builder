@@ -22,8 +22,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Iterator
-from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import uuid4
@@ -35,7 +33,6 @@ from ...helpers.api import CommandError, api_command
 from ...helpers.build_scheduler import BuildSchedulerInputs
 from ...helpers.dashboard_identity import get_or_create_identity
 from ...helpers.event_bus import Event
-from ...helpers.hostname import normalize_hostname
 from ...helpers.peer_link_identity import get_or_create_peer_link_identity
 from ...helpers.peer_link_resolver import PeerLinkDNSResolver, make_peer_link_resolver
 from ...helpers.storage import Store
@@ -47,7 +44,6 @@ from ...models import (
     OffloaderAlertSnapshotEntry,
     OffloaderJobStateChangedData,
     OffloaderPairAlertDismissedData,
-    OffloaderPairEndpointReboundData,
     OffloaderPairingEnabledChangedData,
     OffloaderPairPeerRevokedData,
     OffloaderPairPinMismatchData,
@@ -67,7 +63,7 @@ from ...models import (
     RemoteBuildPeer,
     StoredPairing,
 )
-from . import discovery
+from . import discovery, rebind
 from ._mdns import endpoints_equal
 from ._models import (
     EDIT_PAIRING_PROBE_ERRORS,
@@ -148,11 +144,6 @@ _PAIR_STATUS_RECONNECT_BACKOFF_SECONDS = 2.0
 # Debounce window for the offloader-side pairings-store write
 # so a burst of approvals collapses to one disk write.
 _PAIRINGS_SAVE_DELAY_SECONDS = 1.0
-
-# Per-pin sliding window between mDNS rebind probes. Doubles
-# as in-flight guard + retry throttle so a permanently-down
-# host doesn't trigger a probe per mDNS Updated burst.
-_REBIND_PROBE_COOLDOWN_SECONDS = 30.0
 
 
 class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
@@ -481,189 +472,30 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         new_hostname: str,
         new_port: int,
     ) -> RebindProbeResult:
-        """Probe + identity-verify a candidate endpoint without mutating state.
-
-        Shared by the mDNS auto-rebind path and the user-driven
-        endpoint edit; each caller maps the typed outcome onto
-        its own surface. One ``intent="preview"`` round-trip
-        covers three checks: reachability (TCP + handshake),
-        identity (pubkey vs stored pin), and race-safety
-        (captured pairing object still in the dict, still
-        APPROVED).
-        """
-        assert self._offloader_peer_link_priv is not None
-        try:
-            observed_pin = await peer_link_preview_pair(
-                hostname=new_hostname,
-                port=new_port,
-                identity_priv=self._offloader_peer_link_priv,
-                resolver=self._peer_link_resolver,
-            )
-        except PeerLinkClientError as exc:
-            return RebindProbeResult(RebindProbeOutcome.UNREACHABLE, transport_error=exc)
-        if observed_pin != pairing.pin_sha256:
-            return RebindProbeResult(RebindProbeOutcome.PIN_MISMATCH, observed_pin=observed_pin)
-        current = self._pairings.get(pairing.pin_sha256)
-        if current is not pairing:
-            return RebindProbeResult(RebindProbeOutcome.PAIRING_REPLACED)
-        if current.status is not PeerStatus.APPROVED:
-            return RebindProbeResult(RebindProbeOutcome.STATUS_CHANGED)
-        return RebindProbeResult(RebindProbeOutcome.OK)
+        """Probe + identity-verify a candidate endpoint without mutating state."""
+        return await rebind.probe_pairing_endpoint(
+            self, pairing=pairing, new_hostname=new_hostname, new_port=new_port
+        )
 
     def _commit_endpoint_rebind(self, pairing: StoredPairing, *, hostname: str, port: int) -> None:
-        """Mutate *pairing* to (*hostname*, *port*) and run the rebind epilogue.
-
-        Clears the per-pin probe cooldown — a successful rebind
-        means the next mDNS Updated should probe immediately.
-        Caller owns the probe + identity verify; no checks here.
-        """
-        pairing.receiver_hostname = hostname
-        pairing.receiver_port = port
-        self._schedule_pairings_save()
-        self._respawn_peer_link_at_new_endpoint(pairing)
-        self._rebind_probe_until.pop(pairing.pin_sha256, None)
-
-    def _respawn_peer_link_at_new_endpoint(self, pairing: StoredPairing) -> None:
-        """Cancel + respawn the peer-link client and fire the rebind event.
-
-        The caller has already mutated *pairing*'s
-        hostname/port; this is the shared epilogue.
-        """
-        self._cancel_peer_link_client(pairing.pin_sha256)
-        self._spawn_peer_link_client(pairing)
-        self._fire_offloader_pair_endpoint_rebound(
-            pin_sha256=pairing.pin_sha256,
-            receiver_hostname=pairing.receiver_hostname,
-            receiver_port=pairing.receiver_port,
-        )
+        """Mutate *pairing* to (*hostname*, *port*) and run the rebind epilogue."""
+        rebind.commit_endpoint_rebind(self, pairing, hostname=hostname, port=port)
 
     # ------------------------------------------------------------------
     # mDNS auto-rebind
     # ------------------------------------------------------------------
 
     def _maybe_schedule_rebind_probe(self, peer: RemoteBuildPeer) -> None:
-        """Spawn a probe-and-rebind task if *peer* is a known pin at a new endpoint.
-
-        Called from :meth:`_upsert_host` on every resolved
-        broadcast. Cheap early-returns dominate (most discoveries
-        are unpaired peers or steady-state re-announces); only a
-        rare hostname / port change for an APPROVED pairing
-        spawns a probe task. The probe slot is rate-limited via
-        :attr:`_rebind_probe_until` so a burst of zeroconf
-        Updated callbacks or a permanently-unreachable host both
-        collapse to one probe per
-        :data:`_REBIND_PROBE_COOLDOWN_SECONDS`.
-        """
-        pin = peer.pin_sha256
-        new_port = peer.remote_build_port
-        if not pin or new_port == 0:
-            return
-        pairing = self._pairings.get(pin)
-        if pairing is None or pairing.status is not PeerStatus.APPROVED:
-            return
-        new_hostname = normalize_hostname(peer.hostname)
-        if endpoints_equal(
-            pairing.receiver_hostname, pairing.receiver_port, new_hostname, new_port
-        ):
-            return
-        if self._offloader_peer_link_priv is None:
-            return
-        now = time.monotonic()
-        if self._rebind_probe_until.get(pin, 0.0) > now:
-            return
-        self._rebind_probe_until[pin] = now + _REBIND_PROBE_COOLDOWN_SECONDS
-        self._track_task(
-            self._probe_and_rebind_endpoint(
-                pairing=pairing, new_hostname=new_hostname, new_port=new_port
-            ),
-            name=f"rebind-probe-{pin[:8]}",
-        )
+        """Spawn a probe-and-rebind task if *peer* is a known pin at a new endpoint."""
+        rebind.maybe_schedule_rebind_probe(self, peer)
 
     async def _probe_and_rebind_endpoint(
         self, *, pairing: StoredPairing, new_hostname: str, new_port: int
     ) -> None:
-        """Probe the candidate endpoint; rebind the pairing iff the pin still matches.
-
-        One ``preview`` round-trip checks reachability + identity
-        in one call. ``preview`` bypasses the pairing window so a
-        quiet receiver doesn't deadlock the rebind path. On a
-        successful match, mutate :class:`StoredPairing` in place,
-        schedule the debounced save, cancel + respawn the
-        peer-link client at the new coordinates, fire
-        :attr:`EventType.OFFLOADER_PAIR_ENDPOINT_REBOUND`, and
-        clear the cooldown so a future move is probed
-        immediately. Failure paths leave the cooldown in place.
-        """
-        pin = pairing.pin_sha256
-        with self._clear_cooldown_on_unexpected_exit(pin):
-            result = await self._probe_pairing_endpoint(
-                pairing=pairing, new_hostname=new_hostname, new_port=new_port
-            )
-            if result.outcome is RebindProbeOutcome.UNREACHABLE:
-                # Pass the captured ``PeerLinkClientError`` as
-                # ``exc_info=`` so the debug log carries the
-                # full traceback for diagnosing handshake /
-                # connect failures in the field — same shape
-                # the inline ``except`` block had before this
-                # path was factored into ``_probe_pairing_endpoint``.
-                _LOGGER.debug(
-                    "rebind probe %s -> %s:%d failed (unreachable / handshake error)",
-                    pin,
-                    new_hostname,
-                    new_port,
-                    exc_info=result.transport_error,
-                )
-                return
-            if result.outcome is RebindProbeOutcome.PIN_MISMATCH:
-                _LOGGER.warning(
-                    "rebind probe %s -> %s:%d observed pin %s; ignoring (spoof or rotation)",
-                    pin,
-                    new_hostname,
-                    new_port,
-                    result.observed_pin,
-                )
-                return
-            if result.outcome is not RebindProbeOutcome.OK:
-                # PAIRING_REPLACED / STATUS_CHANGED — silent skip;
-                # cooldown stays in place so a burst of mDNS
-                # Updated callbacks doesn't re-fire the probe
-                # against state that's already moved on.
-                return
-            self._commit_endpoint_rebind(pairing, hostname=new_hostname, port=new_port)
-            _LOGGER.info("rebound pairing %s to %s:%d", pin, new_hostname, new_port)
-
-    @contextmanager
-    def _clear_cooldown_on_unexpected_exit(self, pin: str) -> Iterator[None]:
-        """Pop *pin* from ``_rebind_probe_until`` iff the wrapped block raises.
-
-        Graceful failure paths inside the probe (unreachable
-        host, pin mismatch, mid-probe re-pair) preserve the
-        cooldown entry to throttle retries. Cancellation /
-        unexpected exceptions shouldn't lock the pin out of
-        future legitimate rebind attempts, so on any escaped
-        exception we drop the entry before the exception
-        propagates.
-        """
-        try:
-            yield
-        except BaseException:
-            self._rebind_probe_until.pop(pin, None)
-            raise
-
-    def _fire_offloader_pair_endpoint_rebound(
-        self,
-        *,
-        pin_sha256: str,
-        receiver_hostname: str,
-        receiver_port: int,
-    ) -> None:
-        """Fire ``OFFLOADER_PAIR_ENDPOINT_REBOUND`` after a successful rebind."""
-        payload: OffloaderPairEndpointReboundData = {
-            "pin_sha256": pin_sha256,
-            "receiver_hostname": receiver_hostname,
-            "receiver_port": receiver_port,
-        }
-        self._db.bus.fire(EventType.OFFLOADER_PAIR_ENDPOINT_REBOUND, payload)
+        """Probe the candidate endpoint; rebind the pairing iff the pin still matches."""
+        await rebind.probe_and_rebind_endpoint(
+            self, pairing=pairing, new_hostname=new_hostname, new_port=new_port
+        )
 
     def hosts_snapshot(self) -> list[RemoteBuildPeer]:
         """Return the current mDNS-discovered hosts for ``subscribe_events`` seeding."""
