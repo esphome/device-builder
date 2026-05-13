@@ -590,11 +590,21 @@ def _locate_top_list_item(
         if stripped and stripped[0].isalpha() and not stripped.startswith(" "):
             domain_end = idx
             break
-    item_starts: list[int] = [
-        idx
-        for idx in range(domain_start + 1, domain_end)
-        if lines[idx].lstrip(" ").startswith("- ")
-    ]
+    # Only column-2 dashes count as top-level list items; deeper
+    # dashes belong to nested action lists inside the item body.
+    item_indent: str | None = None
+    item_starts: list[int] = []
+    for idx in range(domain_start + 1, domain_end):
+        raw = lines[idx].rstrip("\n\r")
+        stripped = raw.lstrip(" ")
+        if not stripped.startswith("- "):
+            continue
+        prefix = raw[: len(raw) - len(stripped)]
+        if item_indent is None:
+            item_indent = prefix
+        if prefix != item_indent:
+            continue
+        item_starts.append(idx)
     if index < 0 or index >= len(item_starts):
         msg = f"{domain}[{index}] out of range (have {len(item_starts)})"
         raise CommandError(ErrorCode.NOT_FOUND, msg)

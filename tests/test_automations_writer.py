@@ -15,17 +15,23 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from esphome_device_builder.controllers.automations.parsing import parse_device_yaml
 from esphome_device_builder.controllers.automations.writing import (
     render_delete,
     render_upsert,
 )
+from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.models.api import ErrorCode
 from esphome_device_builder.models.automations import (
     ActionNode,
     AutomationTree,
     ComponentOnLocation,
     DeviceOnLocation,
+    IntervalLocation,
     LightEffectLocation,
+    ScriptLocation,
 )
 
 _FIXTURES = Path(__file__).parent / "fixtures" / "automation_yamls"
@@ -241,6 +247,124 @@ def test_delete_light_effect_removes_one_list_item() -> None:
 # ---------------------------------------------------------------------------
 # Comment / blank-line preservation
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Replace-path / not-found error coverage
+# ---------------------------------------------------------------------------
+
+
+def test_upsert_device_on_creates_esphome_block_when_absent() -> None:
+    """A device with no ``esphome:`` block yet gains one when on_boot lands."""
+    text = "wifi:\n  ssid: x\n"
+    new_text, diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id="on_boot",
+            actions=[ActionNode(action_id="delay", params={"id": "1s"})],
+        ),
+        location=DeviceOnLocation(trigger="on_boot"),
+    )
+    assert "esphome:" in new_text
+    assert "on_boot:" in new_text
+    assert diff.fromLine >= 1
+
+
+def test_upsert_script_with_same_id_replaces_existing_item() -> None:
+    """Upserting a script whose id matches an existing entry replaces it in place."""
+    text = "esphome:\n  name: x\nscript:\n  - id: alarm\n    then:\n      - delay: 1s\n"
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="logger.log", params={"id": "wake"})],
+        ),
+        location=ScriptLocation(id="alarm"),
+    )
+    assert new_text.count("- id: alarm") == 1
+    assert "logger.log" in new_text
+    assert "delay: 1s" not in new_text
+
+
+def test_upsert_interval_at_existing_index_replaces_in_place() -> None:
+    """An indexed interval upsert at a populated index replaces the item."""
+    text = "esphome:\n  name: x\ninterval:\n  - interval: 60s\n    then:\n      - delay: 1s\n"
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id=None,
+            trigger_params={"interval": "30s"},
+            actions=[ActionNode(action_id="delay", params={"id": "5s"})],
+        ),
+        location=IntervalLocation(index=0),
+    )
+    assert new_text.count("- interval:") == 1
+    assert "interval: 30s" in new_text
+
+
+def test_delete_script_not_present_raises_not_found() -> None:
+    """Deleting a script with a missing id raises NOT_FOUND."""
+    text = "esphome:\n  name: x\n"
+    with pytest.raises(CommandError) as err:
+        render_delete(text, location=ScriptLocation(id="absent"))
+    assert err.value.code == ErrorCode.NOT_FOUND
+
+
+def test_delete_device_on_when_block_absent_raises_not_found() -> None:
+    """Deleting on_boot from a YAML without ``esphome:`` raises NOT_FOUND."""
+    text = "wifi:\n  ssid: x\n"
+    with pytest.raises(CommandError) as err:
+        render_delete(text, location=DeviceOnLocation(trigger="on_boot"))
+    assert err.value.code == ErrorCode.NOT_FOUND
+
+
+def test_delete_light_effect_out_of_range_raises_not_found() -> None:
+    """Deleting effects[99] from a one-effect light raises NOT_FOUND."""
+    text = _load("light_effects.yaml")
+    with pytest.raises(CommandError) as err:
+        render_delete(
+            text,
+            location=LightEffectLocation(component_id="my_lamp", index=99),
+        )
+    assert err.value.code == ErrorCode.NOT_FOUND
+
+
+def test_delete_last_light_effect_removes_the_effects_block_entirely() -> None:
+    """Deleting the only effect drops ``effects:`` from the light instance."""
+    text = (
+        "esphome:\n  name: x\n"
+        "light:\n  - platform: binary\n    name: lamp\n    id: lamp\n"
+        "    output: out\n    effects:\n      - flicker:\n          alpha: 0.9\n"
+    )
+    new_text, _diff = render_delete(
+        text,
+        location=LightEffectLocation(component_id="lamp", index=0),
+    )
+    assert "effects:" not in new_text
+    assert "flicker" not in new_text
+
+
+def test_upsert_component_on_unknown_trigger_raises() -> None:
+    """A trigger key that doesn't exist on any domain raises INVALID_ARGS."""
+    text = "binary_sensor:\n  - platform: gpio\n    id: btn\n    pin: GPIO0\n"
+    with pytest.raises(CommandError) as err:
+        render_upsert(
+            text,
+            tree=AutomationTree(trigger_id="bogus.never_exists", actions=[]),
+            location=ComponentOnLocation(component_id="btn", trigger="never_exists"),
+        )
+    assert err.value.code == ErrorCode.INVALID_ARGS
+
+
+def test_delete_component_on_missing_instance_raises_not_found() -> None:
+    """Deleting on_press on an instance id that doesn't exist raises NOT_FOUND."""
+    text = "binary_sensor:\n  - platform: gpio\n    id: btn\n    pin: GPIO0\n"
+    with pytest.raises(CommandError) as err:
+        render_delete(
+            text,
+            location=ComponentOnLocation(component_id="ghost", trigger="on_press"),
+        )
+    assert err.value.code == ErrorCode.NOT_FOUND
 
 
 def test_round_trip_preserves_comments_above_top_level_blocks() -> None:
