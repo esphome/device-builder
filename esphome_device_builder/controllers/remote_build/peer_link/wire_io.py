@@ -21,7 +21,7 @@ from ....helpers.peer_link_noise import NOISE_ERRORS, PeerLinkNoiseSession
 from ....models import IntentResponse, PeerLinkIntent
 
 if TYPE_CHECKING:
-    from . import _HandshakeStep
+    from .handshake import _HandshakeStep
 
 _LOGGER = logging.getLogger(__name__)
 
