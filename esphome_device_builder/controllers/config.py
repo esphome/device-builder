@@ -1181,16 +1181,39 @@ async def _detect_chip_via_esptool(
     return descriptor, None
 
 
+def _make_descriptor_tempfile() -> str:
+    """Allocate (and close) a tempfile for esptool's ``read-flash`` output."""
+    fd, path = tempfile.mkstemp(prefix="esp_app_desc_", suffix=".bin")
+    os.close(fd)
+    return path
+
+
+def _read_descriptor_file(path: str) -> str | None:
+    """Read *path* and decode ``project_name`` from the app descriptor."""
+    try:
+        blob = Path(path).read_bytes()
+    except OSError:
+        return None
+    return _parse_project_name(blob)
+
+
+def _unlink_quietly(path: str) -> None:
+    """``os.unlink(path)`` swallowing ``OSError``."""
+    with suppress(OSError):
+        os.unlink(path)
+
+
 async def _read_app_descriptor_board_id(port: str) -> str | None:
     """Best-effort: read 256 B at 0x10020 and decode project_name.
 
     Failure here is non-fatal — the caller still has chip-family
     info to narrow the picker with. Uses a tempfile because
     esptool's ``read-flash`` writes the binary payload to a named
-    file, not stdout.
+    file, not stdout. The tempfile-create / read / unlink are sync
+    FS calls so they run via ``asyncio.to_thread`` to keep
+    blockbuster happy.
     """
-    fd, path = tempfile.mkstemp(prefix="esp_app_desc_", suffix=".bin")
-    os.close(fd)
+    path = await asyncio.to_thread(_make_descriptor_tempfile)
     try:
         returncode, _stdout, timed_out = await _run_esptool(
             [
@@ -1205,14 +1228,9 @@ async def _read_app_descriptor_board_id(port: str) -> str | None:
         )
         if timed_out or returncode != 0:
             return None
-        try:
-            blob = Path(path).read_bytes()
-        except OSError:
-            return None
-        return _parse_project_name(blob)
+        return await asyncio.to_thread(_read_descriptor_file, path)
     finally:
-        with suppress(OSError):
-            os.unlink(path)
+        await asyncio.to_thread(_unlink_quietly, path)
 
 
 # Failure classifications for ``_detect_chip_via_esptool``. The
