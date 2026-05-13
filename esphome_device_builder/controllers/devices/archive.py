@@ -157,7 +157,8 @@ async def delete_single(controller: DevicesController, configuration: str) -> No
 
     def _delete_all() -> None:
         # Existence check stays inside the executor; Path.exists
-        # stat()s and would block the event loop otherwise.
+        # performs a filesystem stat and would block the event
+        # loop otherwise.
         if not config_path.exists():
             msg = f"File not found: {configuration}"
             raise FileNotFoundError(msg)
