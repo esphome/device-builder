@@ -26,7 +26,7 @@ from collections.abc import AsyncGenerator, AsyncIterator, Iterator
 from contextlib import asynccontextmanager, closing
 from pathlib import Path
 from typing import Any, cast
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import aiohttp
 import pytest
@@ -83,6 +83,7 @@ from esphome_device_builder.helpers.peer_link_noise import (
     PeerLinkNoiseSession,
     pin_sha256_for_pubkey,
 )
+from esphome_device_builder.helpers.peer_link_resolver import _BlocklistingResolver
 from esphome_device_builder.models import (
     PAIRING_VERSION_MAX_LEN,
     ErrorCode,
@@ -3326,6 +3327,10 @@ async def test_peer_link_client_self_loopback_logs_error_and_retries(
             assert len(pin_mismatch) == 0
             assert len(opened) == 0
             assert client.is_orphaned is False
+            # Offending peer IP is captured so the next reconnect's
+            # resolver wrapper skips it (aiohttp would otherwise serve
+            # the same cached resolution and land on this IP forever).
+            assert "127.0.0.1" in client._blocked_peer_ips
             loopback = [
                 rec for rec in caplog.records if "looped back to own listener" in rec.getMessage()
             ]
@@ -3334,6 +3339,27 @@ async def test_peer_link_client_self_loopback_logs_error_and_retries(
             assert "check mDNS / routing" in loopback[0].getMessage()
         finally:
             await cancel_and_drain(task)
+
+
+@pytest.mark.asyncio
+async def test_blocklisting_resolver_strips_blocked_hosts_live() -> None:
+    """``_BlocklistingResolver.resolve`` filters blocked entries, picking up live edits."""
+    inner = MagicMock()
+    inner.resolve = AsyncMock(
+        return_value=[
+            {"host": "192.168.1.10", "port": 6055, "family": 0, "flags": 0, "hostname": "x"},
+            {"host": "172.17.0.1", "port": 6055, "family": 0, "flags": 0, "hostname": "x"},
+        ]
+    )
+    blocked: set[str] = {"172.17.0.1"}
+    wrapper = _BlocklistingResolver(inner, blocked)
+
+    assert [r["host"] for r in await wrapper.resolve("x", 6055)] == ["192.168.1.10"]
+    # Live mutation: the owning client appends to the set between
+    # resolves; the wrapper must read it fresh, not snapshot at
+    # construction.
+    blocked.add("192.168.1.10")
+    assert await wrapper.resolve("x", 6055) == []
 
 
 @pytest.mark.asyncio

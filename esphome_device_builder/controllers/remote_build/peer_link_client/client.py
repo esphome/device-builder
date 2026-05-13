@@ -33,7 +33,7 @@ from ....helpers.peer_link_noise import (
     pin_sha256_for_pubkey,
     public_bytes_for_priv,
 )
-from ....helpers.peer_link_resolver import make_peer_link_http_session
+from ....helpers.peer_link_resolver import _BlocklistingResolver, make_peer_link_http_session
 from ....models import (
     IntentResponse,
     PeerLinkIntent,
@@ -135,6 +135,14 @@ class PeerLinkClient:
         # every reconnect. Shares the X25519 derive cache with
         # the Noise session itself.
         self._identity_pub = public_bytes_for_priv(identity_priv)
+        # Peer IPs we've observed self-loopback against. aiohttp's
+        # ``TCPConnector`` caches resolutions (10s) and happy-eyeballs
+        # tries the addresses in order, so without this filter a
+        # reconnect after self-loopback would land on the same bad
+        # IP. The resolver wrapper in ``_run_one_session`` reads this
+        # set on every resolve; a new entry takes effect on the next
+        # reconnect attempt.
+        self._blocked_peer_ips: set[str] = set()
         self._dashboard_id = dashboard_id
         # ``None`` falls back to aiohttp's default resolver —
         # the only viable shape for unit tests that don't
@@ -340,9 +348,18 @@ class PeerLinkClient:
         # Handshake reads are bounded with ``asyncio.wait_for``
         # downstream so a stalled handshake still fails fast.
         timeout = aiohttp.ClientTimeout(total=None, sock_connect=_DEFAULT_TIMEOUT_SECONDS)
+        # Wrap so any peer IP we've previously self-loopbacked against
+        # gets stripped from this attempt's resolution. ``None`` falls
+        # through to aiohttp's default resolver (test path; the
+        # self-loopback bug only manifests via mDNS).
+        resolver = (
+            _BlocklistingResolver(self._resolver, self._blocked_peer_ips)
+            if self._resolver is not None
+            else None
+        )
         try:
             async with (
-                make_peer_link_http_session(timeout=timeout, resolver=self._resolver) as http,
+                make_peer_link_http_session(timeout=timeout, resolver=resolver) as http,
                 http.ws_connect(url, max_msg_size=APP_FRAME_MAX_BYTES) as ws,
             ):
                 _LOGGER.info(
@@ -374,17 +391,20 @@ class PeerLinkClient:
                     # shared Docker bridge gateway like ``172.17.0.1``
                     # on both hosts; the receiver advertises it,
                     # the offloader's routing reaches its own
-                    # listener instead). Refuse and return a
-                    # transport-error close so the reconnect loop
-                    # keeps trying — the next resolution may pick
-                    # a different (correct) A record.
+                    # listener instead). Refuse, blocklist the peer
+                    # IP so the next reconnect's resolver wrapper
+                    # skips it, and return a transport-error close
+                    # so the reconnect loop keeps trying.
+                    peer = ws.get_extra_info("peername")
+                    if isinstance(peer, tuple) and peer and isinstance(peer[0], str):
+                        self._blocked_peer_ips.add(peer[0])
                     _LOGGER.error(
                         "peer-link client to %s:%d looped back to own listener "
                         "(peer=%s pin=%s); check mDNS / routing — the receiver's "
                         "hostname is resolving to one of this host's own IPs",
                         self._hostname,
                         self._port,
-                        ws.get_extra_info("peername"),
+                        peer,
                         self._pin_sha256,
                     )
                     self._last_connect_error = "self loopback"

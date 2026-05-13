@@ -66,6 +66,7 @@ import aiohttp
 from aiohttp_asyncmdnsresolver.api import AsyncDualMDNSResolver
 
 if TYPE_CHECKING:
+    from aiohttp.abc import ResolveResult
     from aiohttp.resolver import AbstractResolver
     from zeroconf.asyncio import AsyncZeroconf
 
@@ -89,6 +90,30 @@ class PeerLinkDNSResolver(AsyncDualMDNSResolver):
 
     async def close(self) -> None:
         """No-op so per-request connectors don't tear down the shared resolver."""
+
+
+class _BlocklistingResolver:
+    """
+    Wraps an aiohttp resolver; drops resolution results whose host is blocklisted.
+
+    Used by the peer-link offloader client to skip A records that
+    resolved to one of the offloader's own interface IPs on a
+    previous attempt (the self-loopback case where mDNS handed back
+    a shared Docker-bridge gateway IP). The blocklist is a shared
+    mutable set so the owning client can append to it between
+    resolves without re-wiring the connector.
+    """
+
+    def __init__(self, inner: AbstractResolver, blocked: set[str]) -> None:
+        self._inner = inner
+        self._blocked = blocked
+
+    async def resolve(self, host: str, port: int = 0, family: int = 0) -> list[ResolveResult]:
+        results = await self._inner.resolve(host, port, family)
+        return [r for r in results if r.get("host") not in self._blocked]
+
+    async def close(self) -> None:
+        """No-op so per-request connector close doesn't kill the shared inner resolver."""
 
 
 def make_peer_link_resolver(async_zeroconf: AsyncZeroconf) -> PeerLinkDNSResolver:
