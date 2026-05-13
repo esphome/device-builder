@@ -44,7 +44,6 @@ from esphome_device_builder.controllers.config import (
     _PROJECT_NAME_SIZE,
     ConfigController,
     _chip_family_to_descriptor,
-    _find_esptool_cmd,
     _is_valid_port_name,
     _load_metadata,
     _parse_chip_family_line,
@@ -1091,37 +1090,6 @@ def test_parse_chip_family_line_returns_none_when_unparseable() -> None:
 
 def test_parse_chip_family_line_returns_none_for_unknown_family() -> None:
     assert _parse_chip_family_line("Chip type: ESP32-Z99 (revision v9.9)") is None
-
-
-def test_find_esptool_cmd_prefers_sibling_script(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A sibling ``esptool`` next to ``sys.executable`` wins over ``-m esptool``."""
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    fake_python = fake_bin / "python3"
-    fake_python.write_text("#!/bin/sh\n")
-    fake_python.chmod(0o755)
-    sibling = fake_bin / "esptool"
-    sibling.write_text("#!/bin/sh\n")
-    sibling.chmod(0o755)
-
-    monkeypatch.setattr("sys.executable", str(fake_python))
-    assert _find_esptool_cmd() == [str(sibling)]
-
-
-def test_find_esptool_cmd_falls_back_to_module_invocation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Without a sibling script — return ``[python, -m, esptool]``."""
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    fake_python = fake_bin / "python3"
-    fake_python.write_text("#!/bin/sh\n")
-    fake_python.chmod(0o755)
-
-    monkeypatch.setattr("sys.executable", str(fake_python))
-    assert _find_esptool_cmd() == [str(fake_python), "-m", "esptool"]
 
 
 def test_chip_family_to_descriptor_maps_esp8266() -> None:

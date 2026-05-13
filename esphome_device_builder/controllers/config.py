@@ -7,7 +7,6 @@ import hmac
 import logging
 import os
 import re
-import sys
 import tempfile
 import threading
 from collections.abc import Iterator
@@ -1026,35 +1025,6 @@ def _parse_project_name(blob: bytes) -> str | None:
     return name or None
 
 
-def _find_esptool_cmd() -> list[str]:
-    """Locate the ``esptool`` CLI, preferring the same interpreter as ours.
-
-    Mirrors :func:`controllers.firmware.helpers._find_esphome_cmd`.
-    The backend's own interpreter (``sys.executable``) is the
-    authoritative source: a sibling ``esptool`` script in the same
-    bin directory is preferred when present (its shebang is pinned
-    to our interpreter, so it can't accidentally jump to a different
-    Python), with ``[sys.executable, "-m", "esptool"]`` as the
-    fallback for envs that ship esptool as a module without a
-    standalone script.
-
-    Using the sibling script also dodges the ``"No module named
-    esptool"`` failure mode we hit under VS Code's debugpy launch
-    chain — ``python -m esptool`` from inside a debug-wrapped
-    process can fail module resolution in ways the parent process
-    doesn't, while the standalone script with its absolute-path
-    shebang is launched as a plain executable and always works.
-    """
-    python = sys.executable
-    bin_dir = Path(python).parent
-
-    sibling = bin_dir / ("esptool.exe" if os.name == "nt" else "esptool")
-    if sibling.exists():
-        return [str(sibling)]
-
-    return [python, "-m", "esptool"]
-
-
 # Timeouts for the two esptool subcommands ``detect_chip_cmd``
 # invokes. ``chip-id`` against a healthy ESP usually completes in
 # 2-3 s (reset pulse + ROM handshake + read MAC); the 30 s ceiling
@@ -1157,17 +1127,23 @@ def _parse_chip_family_line(output: str) -> dict[str, str] | None:
 async def _run_esptool(args: list[str], timeout: float) -> tuple[int, bytes, bool]:
     """Spawn esptool with *args* and capture stdout+stderr.
 
-    Uses :func:`_find_esptool_cmd` to pick the right invocation
-    (sibling script preferred over ``python -m esptool``) and runs
-    through :func:`helpers.subprocess.run_subprocess_capture` — the
-    same one-shot helper :func:`_verify_esphome_importable` uses
-    for the esphome CLI sanity check.
+    Uses :func:`controllers.firmware.helpers._find_esptool_cmd` to
+    pick the right invocation (sibling script preferred over
+    ``python -m esptool``) and runs through
+    :func:`helpers.subprocess.run_subprocess_capture` — the same
+    one-shot helper :func:`_verify_esphome_importable` uses.
 
     Returns ``(returncode, stdout, timed_out)``. The caller treats
     ``timed_out`` separately from a normal non-zero exit so the WS
     error message can recommend an unplug/replug rather than
     pointing at the cable.
+
+    Lazy-imported to avoid a ``config`` ↔ ``firmware.persistence``
+    circular import (persistence reaches back into config for
+    ``_load_metadata`` / ``metadata_transaction``).
     """
+    from .firmware.helpers import _find_esptool_cmd  # noqa: PLC0415
+
     cmd = _find_esptool_cmd()
     result = await run_subprocess_capture(*cmd, *args, timeout=timeout)
     rc = result.returncode if result.returncode is not None else -1

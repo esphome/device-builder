@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -16,6 +15,7 @@ from ...helpers.remote_build_layout import parse_from_configuration as parse_rem
 from ...helpers.storage_path import resolve_storage_path
 from ...models import FirmwareJob, JobType
 from .constants import _OTA_ADDRESS_CACHE_JOB_TYPES, ESPHOME_SUBPROCESS_ENV
+from .helpers import _find_esptool_cmd
 
 if TYPE_CHECKING:
     from .controller import FirmwareController
@@ -125,9 +125,7 @@ async def verify_chip(controller: FirmwareController, job: FirmwareJob) -> None:
     expected_platform = storage.target_platform.lower()
 
     async with controller._tracked_subprocess(
-        sys.executable,
-        "-m",
-        "esptool",
+        *_find_esptool_cmd(),
         "--port",
         job.port,
         "chip-id",

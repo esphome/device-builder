@@ -11,11 +11,14 @@ and the recorded subprocess invocations) drive the assertions.
 touches; it's the runner entry point and exists to be driven
 in tests this way.
 
-The chip-id check spawns ``[sys.executable, '-m', 'esptool',
-'--port', <port>, 'chip-id']`` via ``create_subprocess_exec``.
-Tests substitute that helper module-level so each one's "esptool"
-output can be controlled while the real subsequent build still
-runs through the same wrapper (substitute returns a no-op
+The chip-id check spawns ``[*_find_esptool_cmd(), '--port', <port>,
+'chip-id']`` via ``create_subprocess_exec``. The resolved command is
+either a sibling ``esptool`` script next to ``sys.executable`` or
+``[sys.executable, '-m', 'esptool']`` as a fallback (see
+``_find_esptool_cmd`` in ``controllers.firmware.helpers``). Tests
+substitute ``create_subprocess_exec`` module-level so each one's
+"esptool" output can be controlled while the real subsequent build
+still runs through the same wrapper (substitute returns a no-op
 success-exit script for non-esptool calls).
 
 The expected chip variant comes from a real StorageJSON sidecar
@@ -171,6 +174,19 @@ def _redirect_ext_storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     monkeypatch.setattr(controller_module, "resolve_storage_path", _ext)
 
 
+def _is_esptool_spawn(args: tuple[Any, ...]) -> bool:
+    """Match either esptool-spawn argv shape ``_find_esptool_cmd`` produces.
+
+    Sibling script (``<bin>/esptool``) on dev venvs;
+    ``[sys.executable, '-m', 'esptool']`` fallback on slim images.
+    """
+    if not args:
+        return False
+    if Path(str(args[0])).name in ("esptool", "esptool.exe"):
+        return True
+    return len(args) >= 3 and args[0] == sys.executable and args[1] == "-m" and args[2] == "esptool"
+
+
 def _patch_subprocess(
     monkeypatch: pytest.MonkeyPatch,
     *,
@@ -194,14 +210,7 @@ def _patch_subprocess(
     real = controller_module.create_subprocess_exec
 
     async def _wrapper(*args: Any, **kwargs: Any) -> Any:
-        # esptool spawn:
-        # ``sys.executable -m esptool --port <port> chip-id``.
-        if (
-            len(args) >= 3
-            and args[0] == sys.executable
-            and args[1] == "-m"
-            and args[2] == "esptool"
-        ):
+        if _is_esptool_spawn(args):
             record["esptool_calls"].append(args)
             return await real(
                 sys.executable,
@@ -593,12 +602,7 @@ async def test_cancel_during_hanging_verify_chip_terminates_subprocess(
     verify_spawned = asyncio.Event()
 
     async def _wrapper(*args: Any, **kwargs: Any) -> Any:
-        if (
-            len(args) >= 3
-            and args[0] == sys.executable
-            and args[1] == "-m"
-            and args[2] == "esptool"
-        ):
+        if _is_esptool_spawn(args):
             verify_spawned.set()
             # Sleep long enough that any non-cancelled run would
             # blow the test timeout — the assertion that the test
@@ -679,12 +683,7 @@ async def test_cancel_during_verify_chip_marks_job_cancelled(
 
     async def _wrapper(*args: Any, **kwargs: Any) -> Any:
         nonlocal cancel_armed
-        if (
-            len(args) >= 3
-            and args[0] == sys.executable
-            and args[1] == "-m"
-            and args[2] == "esptool"
-        ):
+        if _is_esptool_spawn(args):
             # Simulate the in-flight cancel: queue the flag set
             # before the verify subprocess returns. The fake exits
             # quickly (no real hang) so the runner reaches the post-

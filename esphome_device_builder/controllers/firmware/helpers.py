@@ -167,14 +167,30 @@ def _find_esphome_cmd() -> list[str]:
     ``python -m esphome`` and surfaces a friendlier traceback when
     something goes wrong inside esphome).
     """
+    return _find_sibling_cli("esphome")
+
+
+def _find_esptool_cmd() -> list[str]:
+    """Locate the ``esptool`` CLI, preferring the same interpreter as ours.
+
+    Same sibling-script-first lookup as :func:`_find_esphome_cmd`.
+    The sibling script's shebang is pinned to our interpreter so it
+    can't accidentally jump to a different Python — and it dodges
+    the ``"No module named esptool"`` failure mode under VS Code's
+    debugpy launch chain, where ``python -m esptool`` from inside
+    a debug-wrapped process can fail module resolution in ways the
+    parent process doesn't.
+    """
+    return _find_sibling_cli("esptool")
+
+
+def _find_sibling_cli(name: str) -> list[str]:
+    """Sibling script next to ``sys.executable``, else ``python -m <name>``."""
     python = sys.executable
-    bin_dir = Path(python).parent
-
-    sibling_esphome = bin_dir / ("esphome.exe" if os.name == "nt" else "esphome")
-    if sibling_esphome.exists():
-        return [str(sibling_esphome)]
-
-    return [python, "-m", "esphome"]
+    sibling = Path(python).parent / (f"{name}.exe" if os.name == "nt" else name)
+    if sibling.exists():
+        return [str(sibling)]
+    return [python, "-m", name]
 
 
 def _parse_progress(line: str) -> int | None:

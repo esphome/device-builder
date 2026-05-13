@@ -40,6 +40,7 @@ from esphome_device_builder.controllers.firmware.constants import (
 )
 from esphome_device_builder.controllers.firmware.helpers import (
     _find_esphome_cmd,
+    _find_esptool_cmd,
     _names_touched_by_job,
     _trim_job_output,
     _verify_esphome_importable,
@@ -374,6 +375,36 @@ def test_find_esphome_cmd_picks_esphome_exe_on_windows(
     cmd = _find_esphome_cmd()
 
     assert cmd == [str(bin_dir / "esphome.exe")]
+
+
+def test_find_esptool_cmd_prefers_sibling_script(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A sibling ``esptool`` next to ``sys.executable`` wins over ``-m esptool``."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake_python = bin_dir / "python"
+    fake_python.write_text("#!/bin/sh\n", encoding="utf-8")
+    sibling = bin_dir / ("esptool.exe" if os.name == "nt" else "esptool")
+    sibling.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    monkeypatch.setattr(sys, "executable", str(fake_python))
+
+    assert _find_esptool_cmd() == [str(sibling)]
+
+
+def test_find_esptool_cmd_falls_back_to_python_dash_m(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No sibling esptool → ``[sys.executable, '-m', 'esptool']``."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake_python = bin_dir / "python"
+    fake_python.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    monkeypatch.setattr(sys, "executable", str(fake_python))
+
+    assert _find_esptool_cmd() == [str(fake_python), "-m", "esptool"]
 
 
 def test_find_esphome_cmd_does_not_substitute_sibling_python(
