@@ -815,7 +815,10 @@ def _format_yaml_value(value: Any) -> str:
     if isinstance(value, str):
         if value in ("true", "false", "null", "yes", "no", "on", "off"):
             return f'"{value}"'
-        if value.startswith("!") or ":" in value or "#" in value:
+        # YAML 1.2 reserved indicators that cannot start a plain scalar.
+        # Without this, schema defaults like `%` for humidity
+        # `unit_of_measurement` emit bare and fail YAML parsing (#675).
+        if not value or value[0] in "!&*%@`?|>,[]{}" or ":" in value or "#" in value:
             return f'"{value}"'
         return value
     return str(value)

@@ -993,18 +993,47 @@ def test_generate_component_yaml_quotes_yaml_keyword_strings(keyword: str) -> No
 
 @pytest.mark.parametrize(
     "value",
-    ["foo:bar", "foo#bar", "!secret api_key"],
-    ids=["colon", "hash", "tag-prefix"],
+    [
+        "foo:bar",
+        "foo#bar",
+        "!secret api_key",
+        "%",
+        "@host",
+        "*anchor",
+        "| pipe",
+        "> folded",
+        "& anchor",
+        "? key",
+        ", comma",
+        "[flow]",
+        "{flow}",
+    ],
+    ids=[
+        "colon",
+        "hash",
+        "tag-prefix",
+        "percent",
+        "at-sign",
+        "alias",
+        "literal-block",
+        "folded-block",
+        "anchor",
+        "complex-key",
+        "comma",
+        "flow-seq",
+        "flow-map",
+    ],
 )
 def test_generate_component_yaml_quotes_strings_with_special_chars(value: str) -> None:
-    """Strings containing ``:`` / ``#`` or starting with ``!`` get quoted.
+    """Strings with YAML reserved indicators get quoted.
 
-    Each of these is YAML structural punctuation: ``:`` opens a
-    mapping value, ``#`` opens a comment, and ``!`` introduces a tag.
-    Emitting any of them unquoted either breaks the parse or
+    ``:`` opens a mapping value and ``#`` opens a comment anywhere in
+    a scalar; the other characters are YAML 1.2 reserved indicators
+    that cannot start a plain scalar. Emitting any of them unquoted
+    either breaks the parse (``unit_of_measurement: %`` from #675) or
     silently changes the meaning (``key: foo#bar`` becomes ``key:
-    foo`` with a trailing comment). Pin all three so a refactor that
-    drops one of the disjuncts surfaces here.
+    foo`` with a trailing comment). Pin all of them so a refactor
+    that drops one of the disjuncts surfaces here.
     """
     component = _component(component_id="myc", category=ComponentCategory.MISC)
     out = generate_component_yaml(component, {"v": value})
