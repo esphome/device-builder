@@ -24,6 +24,7 @@ from esphome_device_builder.helpers.peer_link_identity import (
     _KEY_LENGTH,
     _KEY_MODE,
     PeerLinkIdentity,
+    _log_loaded_identity,
     get_or_create_peer_link_identity,
     rotate_peer_link_identity,
 )
@@ -208,13 +209,7 @@ def test_returns_peer_link_identity_dataclass(tmp_path: Path) -> None:
 def test_loaded_identity_log_carries_pubkey_and_file_stat(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Every load logs the key-file path, size, mtime, raw pubkey hex, and pin.
-
-    Pairs with the offloader-side pin-drift warning's
-    ``observed_bytes``: an operator can cross-check what the
-    receiver process actually loaded against what a paired
-    offloader observed on the wire.
-    """
+    """Every load logs the key-file path, size, mtime, raw pubkey hex, and pin."""
     with caplog.at_level("INFO", logger=identitymod.__name__):
         identity = get_or_create_peer_link_identity(tmp_path)
 
@@ -228,6 +223,32 @@ def test_loaded_identity_log_carries_pubkey_and_file_stat(
     assert f"size={_KEY_LENGTH}" in msg
     assert f"pub={identity.public_bytes.hex()}" in msg
     assert f"pin={identity.pin_sha256}" in msg
+
+
+def test_loaded_identity_log_marks_stat_failure(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """When ``stat()`` fails the log carries an explicit ``stat_failed`` marker."""
+    key_path = tmp_path / "missing-on-purpose.bin"
+    pub = b"\x11" * 32
+    pin = hashlib.sha256(pub).hexdigest()
+
+    with caplog.at_level("INFO", logger=identitymod.__name__):
+        _log_loaded_identity(key_path, pub, pin)
+
+    records = [
+        rec for rec in caplog.records if "Loaded peer-link identity from" in rec.getMessage()
+    ]
+    assert len(records) == 1
+    msg = records[0].getMessage()
+    # File doesn't exist → ``stat()`` raises FileNotFoundError;
+    # operator sees ``stat_failed: ...`` instead of misleading
+    # ``size=-1 mtime=0`` placeholders.
+    assert "stat_failed: FileNotFoundError" in msg
+    assert "size=" not in msg
+    assert "mtime=" not in msg
+    assert f"pub={pub.hex()}" in msg
+    assert f"pin={pin}" in msg
 
 
 def test_loaded_identity_log_fires_on_rotate(

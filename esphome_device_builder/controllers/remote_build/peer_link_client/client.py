@@ -333,12 +333,17 @@ class PeerLinkClient:
         # Handshake reads are bounded with ``asyncio.wait_for``
         # downstream so a stalled handshake still fails fast.
         timeout = aiohttp.ClientTimeout(total=None, sock_connect=_DEFAULT_TIMEOUT_SECONDS)
-        await self._log_resolved_target()
         try:
             async with (
                 make_peer_link_http_session(timeout=timeout, resolver=self._resolver) as http,
                 http.ws_connect(url, max_msg_size=APP_FRAME_MAX_BYTES) as ws,
             ):
+                _LOGGER.info(
+                    "peer-link client connected to %s:%d (peer=%s)",
+                    self._hostname,
+                    self._port,
+                    ws.get_extra_info("peername"),
+                )
                 session = PeerLinkNoiseSession.initiator(self._identity_priv)
                 msg3_payload = _json.dumps({"dashboard_id": self._dashboard_id})
                 response_ct = await _drive_initiator_handshake_and_read_response(
@@ -605,33 +610,3 @@ class PeerLinkClient:
 
     def _fire_queue_status(self, idle: bool, running: bool, queue_depth: int) -> None:
         _dispatch.fire_queue_status(self, idle, running, queue_depth)
-
-    async def _log_resolved_target(self) -> None:
-        """Resolve ``hostname:port`` through the configured resolver and log it.
-
-        Pairs with the pin-drift warning's ``observed_bytes`` so an
-        operator can tell whether reconnects after a receiver restart
-        are landing on the expected endpoint (mDNS / NAT / mirrored-
-        networking races route the same hostname to a different host).
-        """
-        if self._resolver is None:
-            _LOGGER.info("peer-link client connecting to %s:%d", self._hostname, self._port)
-            return
-        try:
-            resolved = await self._resolver.resolve(self._hostname, self._port)
-        except Exception as exc:
-            _LOGGER.info(
-                "peer-link client connecting to %s:%d (resolve failed: %s: %s)",
-                self._hostname,
-                self._port,
-                type(exc).__name__,
-                exc,
-            )
-            return
-        hosts = ", ".join(str(r.get("host", "?")) for r in resolved) or "<empty>"
-        _LOGGER.info(
-            "peer-link client connecting to %s:%d (resolved: %s)",
-            self._hostname,
-            self._port,
-            hosts,
-        )

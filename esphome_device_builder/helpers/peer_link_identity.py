@@ -151,7 +151,8 @@ def rotate_peer_link_identity(config_dir: Path) -> PeerLinkIdentity:
 
 
 def _log_loaded_identity(key_path: Path, public_bytes: bytes, pin_sha256: str) -> None:
-    """Log the loaded identity with file stat + raw pubkey hex for drift diagnosis.
+    """
+    Log the loaded identity with file stat + raw pubkey hex for drift diagnosis.
 
     Pairs with the offloader-side pin-drift warning's
     ``observed_bytes`` so an operator can compare what this
@@ -160,16 +161,21 @@ def _log_loaded_identity(key_path: Path, public_bytes: bytes, pin_sha256: str) -
     """
     try:
         stat = key_path.stat()
-        size = stat.st_size
-        mtime = stat.st_mtime
-    except OSError:
-        size = -1
-        mtime = 0.0
+    except OSError as exc:
+        _LOGGER.info(
+            "Loaded peer-link identity from %s (stat_failed: %s: %s pub=%s pin=%s)",
+            key_path,
+            type(exc).__name__,
+            exc,
+            public_bytes.hex(),
+            pin_sha256,
+        )
+        return
     _LOGGER.info(
         "Loaded peer-link identity from %s (size=%d mtime=%.0f pub=%s pin=%s)",
         key_path,
-        size,
-        mtime,
+        stat.st_size,
+        stat.st_mtime,
         public_bytes.hex(),
         pin_sha256,
     )
