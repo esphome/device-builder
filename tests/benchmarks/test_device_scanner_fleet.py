@@ -1,4 +1,4 @@
-"""DeviceScanner inner-loop benchmarks at fleet sizes 50 / 200."""
+"""DeviceScanner inner-loop benchmarks at small fleet sizes."""
 
 from __future__ import annotations
 
@@ -32,11 +32,13 @@ def _make_scanner(config_dir: Path) -> DeviceScanner:
     )
 
 
-# Only fleet_size=50 here: per-device materialise pays the full YAML
-# parse + sidecar read, and [200] cost too much CodSpeed sample
-# budget. Cheaper fleet-size benches (cache keys, to_dict) keep
-# the 50/200 ladder below.
-@pytest.mark.parametrize("fleet_size", [50])
+# ``_load_devices`` is a linear ``for path in paths`` loop calling
+# ``load_device_from_storage`` per device, so a tiny fleet catches
+# the same per-device regression class as a larger one. Larger
+# values just multiply the callgrind sample budget without adding
+# signal; cheaper fleet-size benches (cache keys, to_dict) keep
+# the 50/200 ladder below where it's still affordable.
+@pytest.mark.parametrize("fleet_size", [5])
 def test_load_devices_fleet(
     benchmark: BenchmarkFixture,
     tmp_path: Path,
