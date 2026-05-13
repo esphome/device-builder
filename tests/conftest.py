@@ -248,8 +248,8 @@ class RemoteBuildTestHandles:
 
     async def start(self) -> None:
         """Start both siblings, in the same order ``DeviceBuilder`` does."""
-        await self.offloader.start()
         await self.receiver.start()
+        await self.offloader.start()
 
     async def stop(self) -> None:
         """Stop both siblings, in the same order ``DeviceBuilder`` does."""

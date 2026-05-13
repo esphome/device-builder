@@ -27,7 +27,7 @@ from esphome_device_builder.controllers.config import (
     DashboardSettings,
     remote_build_settings_transaction,
 )
-from esphome_device_builder.controllers.devices.controller import DevicesController
+from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.remote_build import (
     OffloaderController,
     ReceiverController,
