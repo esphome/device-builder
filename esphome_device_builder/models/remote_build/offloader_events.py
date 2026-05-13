@@ -252,6 +252,11 @@ class RemoteBuildHostAddedData(TypedDict):
     semantics — the frontend keys the discovered-hosts list on
     ``name`` (the mDNS service-instance name) and replaces an
     existing row with the same key when this event fires.
+
+    ``pin_sha256`` and ``remote_build_port`` come from the
+    ``_esphomebuilder._tcp.local.`` TXT record; empty / 0 for
+    receivers that haven't bound the peer-link listener
+    (default-off mode).
     """
 
     name: str
@@ -261,6 +266,8 @@ class RemoteBuildHostAddedData(TypedDict):
     addresses: list[str]
     server_version: str
     esphome_version: str
+    pin_sha256: str
+    remote_build_port: int
 
 
 class RemoteBuildHostRemovedData(TypedDict):
