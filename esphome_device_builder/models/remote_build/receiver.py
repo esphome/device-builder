@@ -14,12 +14,15 @@ class StoredPeer(DataClassORJSONMixin):
     """
     Receiver-side record of a paired (or pending) offloader.
 
-    Persisted in its own per-file
+    APPROVED rows are persisted in their own per-file
     :class:`~helpers.storage.Store` at
     ``<config_dir>/.receiver_peers.json`` (the
     :class:`ReceiverPeers` container wraps the list at that
-    path). Created by the pair-request flow over the peer-link
-    WS: an offloader runs a Noise XX handshake with
+    path). PENDING rows live only in
+    ``ReceiverController._pending_peers`` and never reach
+    disk — their lifetime is bounded by the pairing window.
+    Created by the pair-request flow over the peer-link WS:
+    an offloader runs a Noise XX handshake with
     ``intent="pair_request"`` and a payload carrying its
     ``label`` + ``dashboard_id``. The receiver reads the
     offloader's static X25519 pubkey from the Noise handshake
