@@ -39,21 +39,12 @@ def create_job(
     device_name: str = "",
     device_friendly_name: str = "",
 ) -> FirmwareJob:
-    """
-    Create a new job and add it to the in-memory map.
+    """Create a new job and add it to the in-memory map; *sync*, no I/O.
 
-    Caller is responsible for having validated ``configuration``
-    first via ``_validate_configuration_boundary`` — keeping this
-    sync lets validation run in an executor without making the
-    helper async too.
-
-    ``remote_peer`` / ``remote_peer_label`` / ``remote_job_id``
-    are the offloader-side identifiers for receiver-side jobs
-    submitted over the peer-link ``submit_job`` flow; empty
-    for local-origin jobs. ``device_name`` /
-    ``device_friendly_name`` are length-capped at the receive-
-    side handler before reaching here. ``build_source`` bundles
-    the dispatch-origin ``source_*`` fields.
+    Caller validates ``configuration`` via
+    ``_validate_configuration_boundary`` first. The ``remote_*``
+    fields identify receiver-side jobs from peer-link ``submit_job``
+    — empty for local-origin jobs.
     """
     job = FirmwareJob(
         job_id=uuid4().hex[:12],
@@ -104,25 +95,19 @@ def resolve_install_source(
 async def enqueue(
     controller: FirmwareController, job: FirmwareJob, *, supersede: bool = True
 ) -> FirmwareJob:
-    """
-    Enqueue a job, persist, and fire JOB_QUEUED.
+    """Enqueue *job*, persist, fire JOB_QUEUED; cancel predecessors by default.
 
-    Fires JOB_QUEUED for *job* before cancelling any predecessor
-    for the same configuration so frontends can recognise the
-    resulting JOB_CANCELLED as a supersede (already-present
-    successor) and drop the old entry silently. Reset jobs
-    (empty configuration) skip the supersede.
+    Fires JOB_QUEUED *before* cancelling any predecessor for the
+    same configuration so frontends recognise the resulting
+    JOB_CANCELLED as a supersede and drop the old entry silently.
+    Reset jobs (empty configuration) skip the supersede.
 
-    ``supersede=False`` opts out of the cancel-by-configuration
-    step — used by the ``firmware/clean`` fan-out so per-peer
-    remote-fan-out jobs don't cancel their own siblings or the
-    just-queued local job. See esphome/device-builder#608 for
-    the failure trace this carves out.
+    ``supersede=False`` opts out — used by the ``firmware/clean``
+    fan-out so per-peer remote-fan-out jobs don't cancel their
+    siblings or the just-queued local job (#608).
 
     Rejects with ``CommandError(INVALID_ARGS)`` when an in-flight
-    RENAME has the new job's configuration locked (the rename
-    rewrites YAML mid-flight; conflicting jobs would fight for
-    files the rename is reading or about to write).
+    RENAME has *job*'s configuration locked.
     """
     controller._check_rename_lock(job)
     await controller._queue.put(job)
@@ -135,15 +120,13 @@ async def enqueue(
 
 
 def check_rename_lock(controller: FirmwareController, job: FirmwareJob) -> None:
-    """
-    Reject jobs that would clash with an in-flight rename.
+    """Reject *job* if an in-flight rename has either YAML name locked.
 
-    A rename touches two YAML filenames: the old one it reads
-    from and the new one it creates on install success. Other
-    jobs touching either name would fight for the same file or
-    land work on a half-flashed device. Same-old-config
-    ``RENAME`` retries are let through so supersede can
-    cancel-and-replace.
+    A rename touches two filenames (the old it reads from + the
+    new it creates on install success); conflicting jobs would
+    fight for the same file or land work on a half-flashed device.
+    Same-old-config ``RENAME`` retries pass through so supersede
+    can cancel-and-replace.
     """
     new_touches = _names_touched_by_job(job)
     if not new_touches:

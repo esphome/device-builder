@@ -21,13 +21,10 @@ async def compile_bulk(
     configurations: list[str],
     force_local: bool = False,
 ) -> list[FirmwareJob]:
-    """Queue compile for multiple devices.
+    """Queue compile for *configurations*; skip per-device errors and keep going.
 
-    Per-device errors (most commonly the rename lock) skip that
-    device and keep going. Each job routes through
-    :meth:`_resolve_install_source` so paired-build auto-routing
-    applies (mirrors :meth:`compile` / :meth:`install_bulk`);
-    ``force_local=True`` keeps every job LOCAL.
+    ``force_local=True`` keeps every job LOCAL (otherwise paired-build
+    auto-routing may send some REMOTE).
     """
     await controller._validate_configurations_boundary(configurations)
     jobs: list[FirmwareJob] = []
@@ -50,16 +47,11 @@ async def compile_bulk(
 async def install_bulk(
     controller: FirmwareController, *, configurations: list[str], port: str = "OTA"
 ) -> list[FirmwareJob]:
-    """Queue update (compile + upload) for multiple devices. Defaults to OTA.
+    """Queue install (compile + upload) for *configurations*; defaults to OTA.
 
-    ``port`` is shared across every queued job; pass an explicit
-    IP only when you really want every device installed against
-    the same target (rare — almost always callers want the
-    per-device default of ``"OTA"``).
-
-    Per-device errors (most commonly the rename lock) skip that
-    device and keep going — a rename-in-flight on one of the
-    selected devices shouldn't abort the install for the rest.
+    ``port`` is shared across every queued job — pass an explicit IP
+    only when every device should install against the same target.
+    Per-device errors skip that device and keep going.
     """
     _validate_port(port)
     await controller._validate_configurations_boundary(configurations)

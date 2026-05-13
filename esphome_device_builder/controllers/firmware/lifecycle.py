@@ -12,10 +12,9 @@ if TYPE_CHECKING:
     from .controller import FirmwareController
 
 
-# Maps each terminal :class:`JobStatus` to the lifecycle event
-# the runner fires when a job reaches it. Routes through
-# :func:`finalize_terminal` so every finalisation site stays
-# paired with the right event.
+# Terminal :class:`JobStatus` -> the lifecycle event the runner
+# fires when a job reaches it; pinned so every finalisation site
+# stays paired with the right event.
 _STATUS_TO_TERMINAL_EVENT: dict[JobStatus, EventType] = {
     JobStatus.COMPLETED: EventType.JOB_COMPLETED,
     JobStatus.FAILED: EventType.JOB_FAILED,
@@ -24,19 +23,18 @@ _STATUS_TO_TERMINAL_EVENT: dict[JobStatus, EventType] = {
 
 
 def finalize_terminal(controller: FirmwareController, job: FirmwareJob, status: JobStatus) -> None:
-    """
-    Stamp *job* terminal, release the runner slot, fire the matching event.
+    """Stamp *job* terminal, release the runner slot, fire the matching event.
 
-    Step ordering matters: the runner-slot release lands *before*
-    the bus.fire so the ``queue_status`` broadcaster's
-    synchronous :meth:`queue_status_snapshot` read sees the
-    post-terminal idle state. Without that ordering the
-    offloader's ``_peer_queue_status`` cache freezes at
-    ``running=True`` after the first remote build, and the
-    scheduler silently falls back to LOCAL on every subsequent
-    install. Callers that want to ride a payload field (e.g.
-    ``job.error = "..."``) into the event must set it on the
-    job before invoking this helper.
+    Step ordering matters: runner-slot release lands *before* the
+    ``bus.fire`` so the ``queue_status`` broadcaster's sync
+    :meth:`queue_status_snapshot` read sees the post-terminal
+    idle state. Reversing them froze the offloader's
+    ``_peer_queue_status`` cache at ``running=True`` after the
+    first remote build, silently falling back to LOCAL on every
+    subsequent install.
+
+    Callers riding a payload field (e.g. ``job.error = "..."``)
+    must set it on the job before calling.
     """
     _mark_job_terminal(job, status)
     if controller._current_job is job:
@@ -47,29 +45,24 @@ def finalize_terminal(controller: FirmwareController, job: FirmwareJob, status: 
 
 
 def finalize_cancelled(controller: FirmwareController, job: FirmwareJob) -> None:
-    """
-    Run the runtime-cancel finalisation: discard, mark, fire.
+    """Runtime-cancel finalisation: discard the cancel flag, finalize as CANCELLED.
 
-    Doesn't cover the QUEUED-cancel path in
-    :meth:`FirmwareController.cancel` itself — that one also
-    runs ``_prune_history`` + ``_persist_jobs`` because the
-    runner never sees the job, and inlining those here would
-    couple the runtime-cancel sites to disk I/O.
+    Skips the disk I/O the QUEUED-cancel path in
+    :meth:`FirmwareController.cancel` runs (``_prune_history`` +
+    ``_persist_jobs``); the runner has already seen the job.
     """
     controller._cancel_requested.discard(job.job_id)
-    # Route through the bound-method delegate so test patches
-    # on ``controller._finalize_terminal`` intercept the cancel
-    # path the same way they do every other finalisation site.
+    # Route through the bound-method delegate so test patches on
+    # ``controller._finalize_terminal`` intercept this path too.
     controller._finalize_terminal(job, JobStatus.CANCELLED)
 
 
 def raise_if_cancelled(controller: FirmwareController, job: FirmwareJob, phase: str) -> None:
-    """
-    Short-circuit a runner phase if a cancel landed mid-phase.
+    """Raise ``ValueError`` if a cancel landed mid-*phase*; else no-op.
 
-    Raises ``ValueError`` so :meth:`_execute_job`'s cancel-aware
-    ``except Exception`` branch finalises the job as CANCELLED
-    (vs. the bare FAILED path used for unrelated exceptions).
+    ``ValueError`` (rather than a custom type) is what the runner's
+    cancel-aware ``except Exception`` branch keys off to finalise
+    as CANCELLED instead of FAILED.
     """
     if job.job_id in controller._cancel_requested:
         msg = f"Cancelled during {phase}"
@@ -77,15 +70,13 @@ def raise_if_cancelled(controller: FirmwareController, job: FirmwareJob, phase: 
 
 
 async def terminate_current_process(controller: FirmwareController) -> None:
-    """
-    Signal the running subprocess (and its children); escalate if it lingers.
+    """Signal the running subprocess + children; escalate if it lingers.
 
-    The runner loop is the one that actually finalises the
-    :class:`FirmwareJob` on exit — this helper only nudges the
-    process. Uses :func:`terminate_subtree_with_grace` so SIGTERM
-    walks the whole process group (esphome → platformio → gcc /
-    esptool) on POSIX, and ``taskkill /F /T`` on Windows where
-    the compile chain doesn't honour polite signals.
+    Walks the whole process group via
+    :func:`terminate_subtree_with_grace` so SIGTERM reaches
+    esphome → platformio → gcc / esptool on POSIX, ``taskkill /F
+    /T`` on Windows. The runner loop is what actually finalises
+    the job on exit — this helper only nudges the process.
     """
     proc = controller._current_process
     if proc is None:

@@ -45,20 +45,9 @@ async def get_job(controller: FirmwareController, *, job_id: str) -> FirmwareJob
 def active_remote_peer_jobs(controller: FirmwareController) -> Iterator[FirmwareJob]:
     """Yield every QUEUED / RUNNING job that arrived via the peer-link.
 
-    Synchronous, no-copy generator over :attr:`_jobs` for the
-    peer-link tier's lookups (the 6c cleanup sweep keys off
-    this to skip in-flight subtrees; future schedulers /
-    diagnostics surfaces should call this rather than
-    reaching into ``_jobs`` directly). The single-underscore
-    prefix on ``_jobs`` marks it as private to the firmware
-    controller; this public accessor is the load-bearing
-    seam so a future refactor (lock-wrapped jobs map,
-    QUEUED + RUNNING split into two dicts, indexed view)
-    doesn't silently break callers.
-
-    ``remote_peer`` filters to peer-link-originated jobs
-    only — :class:`FirmwareJob.remote_peer` is empty for
-    locally-submitted jobs (see :mod:`models.firmware`).
+    ``remote_peer`` is empty on locally-submitted jobs so they're
+    filtered out; the public accessor exists so callers don't
+    reach into ``_jobs`` directly.
     """
     for job in controller._jobs.values():
         if job.status not in _ACTIVE_JOB_STATUSES:
@@ -69,25 +58,19 @@ def active_remote_peer_jobs(controller: FirmwareController) -> Iterator[Firmware
 
 
 async def cancel(controller: FirmwareController, *, job_id: str) -> None:
-    """Cancel a queued or running job.
+    """Cancel a queued or running job; fires JOB_CANCELLED on the bus.
 
-    Queued jobs are flipped to ``CANCELLED`` immediately. Running
-    jobs receive a SIGTERM and are escalated to SIGKILL after a
-    short grace period — the runner loop sees the dead process and
-    finalises the job with status ``CANCELLED`` (instead of the
-    usual ``FAILED`` for non-zero exits) thanks to the
-    ``_cancel_requested`` flag set here.
-
-    Either path fires ``JOB_CANCELLED`` on the bus so frontends
-    following all-jobs streams stay consistent.
+    QUEUED → flipped to CANCELLED immediately. RUNNING → SIGTERM
+    (escalated to SIGKILL after a short grace); the runner sees
+    the dead process and finalises the job CANCELLED via
+    ``_cancel_requested``.
 
     User-facing rejections (unknown ``job_id``, already-terminal
-    job) raise ``CommandError`` so the WS dispatcher surfaces
-    the message verbatim. A bare ``ValueError`` would be wrapped
-    as ``"Command failed: firmware/cancel"`` and the operator
-    would lose the offending id / status. The state-out-of-sync
-    case stays as ``RuntimeError`` — it's a server bug, not user
-    input, and ``INTERNAL_ERROR`` is the right code.
+    job) raise ``CommandError`` so the WS dispatcher surfaces the
+    message verbatim — a bare ``ValueError`` would be wrapped as
+    "Command failed: firmware/cancel" and lose the offending id /
+    status. State-out-of-sync stays as ``RuntimeError`` (server
+    bug, not user input).
     """
     job = controller._jobs.get(job_id)
     if not job:
@@ -95,16 +78,10 @@ async def cancel(controller: FirmwareController, *, job_id: str) -> None:
         raise CommandError(ErrorCode.NOT_FOUND, msg)
 
     if job.status == JobStatus.QUEUED:
-        # Mark + persist before fire so a restart-after-cancel
-        # reload sees the job as CANCELLED (the test pins
-        # this in ``test_cancelled_job_survives_restart_without_
-        # being_requeued``). Doesn't go through
-        # :meth:`_finalize_terminal` because the helper
-        # collapses mark + fire and we need to land
-        # ``_persist_jobs`` in between; the slot-release the
-        # helper does is a no-op anyway for a QUEUED job
-        # (``_current_job`` belongs to whatever's actually
-        # running, not this queue entry).
+        # Mark + persist before fire so a restart-after-cancel reload
+        # sees the job as CANCELLED. Spelled out rather than routed
+        # through ``_finalize_terminal`` because we need to land
+        # ``_persist_jobs`` between the mark and the fire.
         _mark_job_terminal(job, JobStatus.CANCELLED)
         controller._prune_history()
         await controller._persist_jobs()
@@ -117,10 +94,9 @@ async def cancel(controller: FirmwareController, *, job_id: str) -> None:
             msg = "Running job is not the active subprocess (state out of sync)"
             raise RuntimeError(msg)
         controller._cancel_requested.add(job_id)
-        # Wake any runner parked on its cancel event (the
-        # source-routed remote runner registers one; the
-        # local subprocess path doesn't need one because
-        # SIGTERM is the wake signal).
+        # Wake any runner parked on its cancel event — only the
+        # remote runner registers one; the local subprocess path's
+        # wake signal is SIGTERM on the spawned process.
         cancel_event = controller._cancel_events.get(job_id)
         if cancel_event is not None:
             cancel_event.set()
@@ -132,12 +108,7 @@ async def cancel(controller: FirmwareController, *, job_id: str) -> None:
 
 
 async def clear(controller: FirmwareController, *, status: JobStatus | str | None = None) -> None:
-    """
-    Remove finished jobs from the list.
-
-    If ``status`` is given, only remove jobs with that status.
-    Otherwise removes completed, failed, and cancelled jobs.
-    """
+    """Remove finished jobs from the list; pass ``status`` to scope to one state."""
     terminal = TERMINAL_JOB_STATUSES
     to_remove = [
         jid
