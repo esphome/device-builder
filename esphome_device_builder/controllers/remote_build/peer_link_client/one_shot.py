@@ -2,7 +2,7 @@
 Offloader-side one-shot peer-link Noise WS round-trip helpers (issue #106).
 
 Initiator counterpart of
-:mod:`controllers.remote_build_peer_link`'s responder. Opens a
+:mod:`controllers.remote_build.peer_link`'s responder. Opens a
 ``ws://<receiver>:<peer_link_port>/remote-build/peer-link``
 WebSocket, drives the three Noise XX handshake messages from the
 offloader side, optionally exchanges application-level
@@ -10,7 +10,7 @@ offloader side, optionally exchanges application-level
 captured receiver static pubkey hash to the caller.
 
 This module is the wire-shape twin of
-``remote_build_peer_link.py``: same handshake, opposite role.
+``peer_link.py``: same handshake, opposite role.
 The two share the cipher suite + frame layout via
 :mod:`helpers.peer_link_noise` (single :class:`PeerLinkNoiseSession`
 class, ``initiator`` / ``responder`` factories) and the same
@@ -86,7 +86,7 @@ _RESPONSE_DECODE_ERRORS: tuple[type[Exception], ...] = (
 # upgrade + 3 Noise messages + post-handshake response + clean
 # close. Bounded by LAN latency + the receiver's own per-step
 # timeout (10s in
-# ``remote_build_peer_link._HANDSHAKE_READ_TIMEOUT_SECONDS``);
+# ``peer_link._HANDSHAKE_READ_TIMEOUT_SECONDS``);
 # 10s here matches that budget so we don't give up before the
 # receiver does, but doesn't pin a coroutine forever if the
 # remote side is gone.
@@ -264,7 +264,7 @@ async def drive_initiator_round_trip(
     intents don't reinvent it.
 
     Wire shape, mirroring the receiver-side responder in
-    :func:`controllers.remote_build_peer_link._drive_peer_link_session`:
+    :func:`controllers.remote_build.peer_link._drive_peer_link_session`:
 
     * msg1 — send ``{"intent": "..."}`` cleartext-but-noise-framed
       (msg1's payload is plaintext on the wire per Noise XX;
