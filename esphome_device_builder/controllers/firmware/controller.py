@@ -1824,12 +1824,8 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         (the dashboard's own Device list already carries the
         friendly name).
 
-        ``build_source`` is the offloader-side dispatch-origin
-        bundle: :class:`JobSource` (``LOCAL`` / ``REMOTE``) plus
-        the receiver's ``pin_sha256`` and display label.
-        Defaults to :data:`LOCAL_JOB_BUILD_SOURCE` so every
-        existing call site that doesn't pass an explicit source
-        continues to produce LOCAL jobs.
+        ``build_source`` bundles the dispatch-origin ``source_*``
+        fields; defaults to :data:`LOCAL_JOB_BUILD_SOURCE`.
         """
         job = FirmwareJob(
             job_id=uuid4().hex[:12],
@@ -1853,14 +1849,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     def _resolve_install_source(
         self, configuration: str, *, force_local: bool = False
     ) -> JobBuildSource:
-        """Pick LOCAL or REMOTE for *configuration*; return its build source.
-
-        Pure sync helper. Returns ``LOCAL_JOB_BUILD_SOURCE`` when
-        ``force_local`` is set (the install dialog's "Build locally
-        instead" override) and when remote-build isn't wired up yet
-        (firmware-queue restart-recovery can fire before remote-
-        build's ``start()``).
-        """
+        """Pick LOCAL or REMOTE for *configuration*; return its build source."""
         if force_local:
             return LOCAL_JOB_BUILD_SOURCE
         offloader = self._db.remote_build_offloader
