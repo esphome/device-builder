@@ -21,43 +21,21 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class DeviceMetadataMixin:
-    """
-    Metadata resolution + persistence methods for ``DevicesController``.
+    """Metadata resolution + persistence for ``DevicesController``."""
 
-    Mixed in directly because every method only touches
-    ``self._db`` plus same-mixin siblings; if a future change
-    pulls in ``_scanner`` / ``_state_monitor`` / etc. the mixin
-    pattern stops fitting and the methods should move to a
-    sibling module taking ``controller`` as the first arg.
-    """
-
-    # Type stub for mypy: ``_db`` is supplied by the host class.
     if TYPE_CHECKING:
+        # Supplied by the host controller class.
         _db: DeviceBuilder
 
     def _resolve_device_metadata(self, config_dir: Path, filename: str) -> DeviceFileMetadata:
         """
         Resolve a device's persisted ``board_id`` / ``ip`` / config hash / MAC.
 
-        ``board_id`` priority: the sidecar (set by the user or
-        backfilled by an earlier scan); else parse the YAML and
-        match by PlatformIO ``board:`` (``find_by_pio_board``);
-        else match by platform + variant
-        (``find_by_platform_variant``), preferring generic
-        catalog entries (``generic-esp32-c3`` over a random
-        vendor board sharing the variant). YAML-derived hits
-        backfill the sidecar so subsequent scans skip the parse.
-
-        ``expected_config_hash`` reads ``build_info.json`` first
-        and only falls back to the sidecar; the sidecar can
+        ``board_id`` falls back through sidecar → YAML PlatformIO
+        ``board:`` → platform + variant; ``expected_config_hash``
+        reads ``build_info.json`` first since the sidecar can
         carry a stale pre-codegen hash from older dashboard
-        versions, and ``build_info.json`` is the authoritative
-        post-codegen value.
-
-        ``mac_address`` is the canonical mDNS-observed value
-        persisted to the sidecar so the dashboard renders it
-        immediately on restart (devices are mDNS-silent until
-        probed).
+        versions.
         """
         md = get_device_metadata(config_dir, filename)
         ip = str(md.get("ip", ""))
