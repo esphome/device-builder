@@ -64,6 +64,20 @@ _STORAGE_LOADED: Final[dict[str, object]] = {
 def synthesize_fleet(config_dir: Path, n: int) -> list[Path]:
     """Materialise *n* synthetic devices under *config_dir*; return sorted YAML paths."""
     config_dir.mkdir(parents=True, exist_ok=True)
+    # The synthetic YAML uses ``!secret wifi_ssid`` / ``!secret wifi_password``.
+    # Without a ``secrets.yaml`` next to the configs, ESPHome's C-based
+    # ``ESPHomeLoader`` raises ``EsphomeError`` from ``construct_secret``;
+    # ``parse_yaml`` then silently retries the whole document through the
+    # pure-Python ``ESPHomePurePythonLoader`` (5-10x slower) and that retry
+    # also fails, so ``load_device_yaml`` returns ``None``. The bench
+    # ends up measuring two failed parses per device. Real production
+    # deployments carry a ``secrets.yaml`` (``esphome new`` lays one
+    # down), so writing one here lands the bench on the C-loader fast
+    # path the dashboard actually runs in production.
+    (config_dir / "secrets.yaml").write_text(
+        "wifi_ssid: bench-ssid\nwifi_password: bench-password\n",
+        encoding="utf-8",
+    )
     paths: list[Path] = []
     for index in range(n):
         name = f"device_{index:04d}"
