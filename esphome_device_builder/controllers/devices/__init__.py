@@ -36,6 +36,8 @@ resolving after the subpackage split. Submodules:
   ``self._db`` and same-mixin siblings.
 - ``reachability`` — per-device reachability streaming + the
   on-subscription mDNS A-record refresh loop.
+- ``state_callbacks`` — the six per-attribute mDNS callbacks
+  (state / ip / version / mac / api_encryption / config_hash).
 - ``storage_regen`` — background ``--only-generate`` scheduler
   + the disk-stamp guard that keeps it from looping on a
   broken YAML.

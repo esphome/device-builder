@@ -27,7 +27,6 @@ from ...helpers.device_yaml import (
     parse_platform_from_yaml,
 )
 from ...helpers.event_bus import Event
-from ...helpers.mac_addresses import derive_interface_macs
 from ...helpers.storage_path import resolve_storage_path
 from ...helpers.yaml import (
     YamlUpsertNotSupportedError,
@@ -44,7 +43,6 @@ from ...models import (
     DeviceReachabilityData,
     DevicesResponse,
     DeviceState,
-    DeviceStateChangedData,
     ErrorCode,
     EventType,
     JobLifecycleData,
@@ -71,6 +69,7 @@ from . import (
     importable,
     logs,
     reachability,
+    state_callbacks,
     storage_regen,
 )
 from ._yaml_search import (
@@ -1746,190 +1745,22 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         await reachability.refresh_device_mdns(self, name)
 
     def _on_state_change(self, name: str, state: DeviceState, source: str) -> None:
-        """Forward state monitor updates onto the event bus."""
-        for device in self._devices_by_name(name):
-            old_state = device.state
-            device.state = state
-            _LOGGER.info(
-                "Device %s (%s): %s → %s (via %s)",
-                name,
-                device.configuration,
-                old_state,
-                state,
-                source,
-            )
-            # Frontend's ``DeviceStateChangedEventData`` is the flat
-            # ``{configuration, state}`` shape — sending the full ``device``
-            # object made the destructure resolve both fields to
-            # ``undefined`` and the table never updated. Match the type
-            # exactly so the row's state cell flips on the next event.
-            self._db.bus.fire(
-                EventType.DEVICE_STATE_CHANGED,
-                DeviceStateChangedData(
-                    configuration=device.configuration,
-                    state=state.value,
-                ),
-            )
+        state_callbacks.on_state_change(self, name, state, source)
 
     def _on_ip_change(self, name: str, ip: str, addresses: list[str]) -> None:
-        """
-        Forward IP updates onto the event bus and persist the primary value.
-
-        ``ip=""`` (with an empty *addresses* list) means the device
-        dropped off mDNS — we keep the last-known primary on disk so
-        the OTA address cache stays warm across the device's offline
-        window. The DNS pre-resolve and next mDNS resolve will
-        overwrite it on reconnect.
-
-        Only ``ip`` is persisted; ``addresses`` is the live mDNS view
-        and gets repopulated by the next monitor pass after a restart.
-        """
-        new_addresses = list(addresses)
-        for device in self._devices_by_name(name):
-            if device.ip == ip and device.ip_addresses == new_addresses:
-                continue
-            ip_changed = device.ip != ip
-            device.ip = ip
-            device.ip_addresses = list(new_addresses)
-            _LOGGER.debug(
-                "Device %s (%s) IPs: %s",
-                name,
-                device.configuration,
-                ", ".join(new_addresses) or "(cleared)",
-            )
-            if ip and ip_changed:
-                self._db.create_background_task(
-                    self._persist_device_ip_async(device.configuration, ip)
-                )
-            self._fire_device_updated(device)
+        state_callbacks.on_ip_change(self, name, ip, addresses)
 
     def _on_version_change(self, name: str, version: str) -> None:
-        """Apply a fresh ESPHome version observed via mDNS."""
-        for device in self._devices_by_name(name):
-            if device.deployed_version == version:
-                continue
-
-            # StorageJSON.load/save are blocking — push to a background task
-            # so any error gets surfaced via the loop's exception handler.
-            self._db.create_background_task(
-                self._persist_storage_version_async(device.configuration, version)
-            )
-
-            old_version = device.deployed_version
-            device.deployed_version = version
-            device.update_available = bool(
-                device.current_version and version != device.current_version
-            )
-            _LOGGER.info(
-                "Device %s (%s) version: %s → %s (via mdns)",
-                name,
-                device.configuration,
-                old_version or "?",
-                version,
-            )
-            self._fire_device_updated(device)
+        state_callbacks.on_version_change(self, name, version)
 
     def _on_mac_address_change(self, name: str, mac: str) -> None:
-        """
-        Apply a MAC address observed via mDNS and derive interface MACs.
-
-        The mDNS broadcast is always the device's primary MAC (Wi-Fi
-        STA / eFuse base on ESP32, the single MAC on RP2040). When
-        the YAML loads ``ethernet`` or any ``esp32_ble*`` /
-        ``bluetooth_*`` integration we compute the corresponding
-        interface MAC via :func:`derive_interface_macs` so the drawer
-        can show every MAC the device owns without forcing the
-        firmware to broadcast all of them.
-
-        Persists ``mac_address`` to the per-device metadata sidecar
-        so the dashboard shows the value immediately on restart —
-        ESPHome devices stay mDNS-silent until probed. The derived
-        MACs aren't persisted: they're deterministic from primary +
-        ``loaded_integrations``, so a YAML edit that toggles
-        bluetooth picks up the new derived MAC on the next reload
-        without going through a stale-cache window. The early-return
-        on equality skips both the in-memory write and the sidecar
-        I/O on a steady-state announcement, keeping the typical
-        "same value re-broadcast every 60s" cycle off-disk.
-        """
-        for device in self._devices_by_name(name):
-            if device.mac_address == mac:
-                continue
-            device.mac_address = mac
-            device.ethernet_mac, device.bluetooth_mac = derive_interface_macs(
-                mac, device.target_platform, device.loaded_integrations
-            )
-            self._db.create_background_task(
-                self._persist_device_metadata_async(device.configuration, mac_address=mac)
-            )
-            self._fire_device_updated(device)
+        state_callbacks.on_mac_address_change(self, name, mac)
 
     def _on_api_encryption_change(self, name: str, encryption: str) -> None:
-        r"""
-        Apply the API-encryption state observed via mDNS.
-
-        Stores the broadcast value (or empty string for "TXT absent —
-        device is plaintext") on the in-memory device. The dashboard's
-        four-state lock indicator reads this together with
-        ``api_encrypted`` to distinguish active / pending-flash /
-        mismatch / plaintext.
-
-        Also folds the wire signal into ``api_encrypted`` itself when
-        a truthy cipher string arrives. ESPHome's compile pipeline
-        runs the Jinja preprocessor over packages before YAML parsing
-        (``api: |\n  # set ns = ...  ${ns.cfg}``); the dashboard's
-        ``yaml_util.load_yaml`` doesn't, so the scan-time YAML pass
-        can come back ``api_encrypted=False`` for a fully-encrypted
-        device (issue #437). The live broadcast is the truthful
-        signal — promoting ``api_encrypted`` here closes the gap for
-        non-frontend consumers (HA integration, table-row menu
-        gating, the ``Show API key`` affordance) that otherwise hide
-        encryption-aware affordances on a YAML-detection miss. The
-        symmetric "wire confirms plaintext" case (empty-string
-        broadcast) deliberately doesn't *clear* ``api_encrypted`` —
-        a wire-says-no while YAML-says-yes is the legitimate
-        "mismatch" / "pending" shape the existing state machine
-        already handles.
-        """
-        for device in self._devices_by_name(name):
-            wire_promotes_encrypted = bool(encryption) and not device.api_encrypted
-            if device.api_encryption_active == encryption and not wire_promotes_encrypted:
-                continue
-            device.api_encryption_active = encryption
-            if wire_promotes_encrypted:
-                device.api_encrypted = True
-            self._fire_device_updated(device)
+        state_callbacks.on_api_encryption_change(self, name, encryption)
 
     def _on_config_hash_change(self, name: str, config_hash: str) -> None:
-        """
-        Apply a running-firmware config hash observed via mDNS.
-
-        Stores the hash on the in-memory device and, when both
-        expected and deployed hashes are known, flips
-        ``has_pending_changes`` to reflect the comparison so the
-        dashboard can tell "device runs the latest compile" apart
-        from "device has older firmware". Devices on firmware that
-        predates the ``config_hash`` TXT broadcast never trigger this
-        callback and stay on the legacy mtime check.
-        """
-        for device in self._devices_by_name(name):
-            if device.deployed_config_hash == config_hash:
-                continue
-            old_hash = device.deployed_config_hash
-            device.deployed_config_hash = config_hash
-            # Mtime side stays with the periodic scanner poll so this
-            # callback can stay off-disk and non-blocking. A YAML edit
-            # between polls (~5s window) self-corrects on the next scan.
-            if device.expected_config_hash:
-                device.has_pending_changes = device.expected_config_hash != config_hash
-            _LOGGER.info(
-                "Device %s (%s) config_hash: %s → %s (via mdns)",
-                name,
-                device.configuration,
-                old_hash or "?",
-                config_hash,
-            )
-            self._fire_device_updated(device)
+        state_callbacks.on_config_hash_change(self, name, config_hash)
 
     def _on_importable_added(self, device: AdoptableDevice) -> None:
         importable.on_importable_added(self, device)
