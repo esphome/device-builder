@@ -1198,7 +1198,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         on_error_cleanup: Callable[[], None] | None = None,
     ) -> None:
         await mutations_yaml.validate_rewritten_yaml_or_raise(
-            self,
+            self._db.editor,
             configuration,
             content,
             action=action,

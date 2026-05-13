@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from ...models import BoardCatalogEntry
-    from .controller import DevicesController
+    from ..editor import EditorController
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ def yaml_content_for_create(
 
 
 async def validate_rewritten_yaml_or_raise(
-    controller: DevicesController,
+    editor: EditorController | None,
     configuration: str,
     content: str,
     *,
@@ -67,9 +67,11 @@ async def validate_rewritten_yaml_or_raise(
     validating (currently ``import_device``) can roll back the
     half-imported file. *on_failure* picks ``INVALID_ARGS``
     (user can fix the input) vs ``INTERNAL_ERROR`` (broken
-    YAML came from one of our generators).
+    YAML came from one of our generators). *editor* is
+    optional so the controller's bound delegate can pass
+    ``self._db.editor`` straight through during the boot
+    window where it's still None.
     """
-    editor = controller._db.editor
     if editor is None:
         return
     succeeded = False
