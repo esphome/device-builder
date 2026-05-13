@@ -3199,11 +3199,6 @@ async def test_peer_link_client_pin_mismatch_aborts_and_orphans(
        hammering whatever's at the wrong endpoint.
     4. NOT fire ``OFFLOADER_PEER_LINK_OPENED`` — application
        frames must not flow against the wrong identity.
-    5. Emit one ``WARNING`` log line carrying the on-disk
-       ``stored_pin``, both pin_sha256 fingerprints, and the
-       raw 32-byte hex of each pubkey (the diagnostic that
-       distinguishes "stored row corruption" / "wire bytes
-       differ" / "bytes match but ``!=`` tripped anyway").
     """
     server, receiver, _, receiver_pub = receiver_server
     initiator_priv = secrets.token_bytes(32)
