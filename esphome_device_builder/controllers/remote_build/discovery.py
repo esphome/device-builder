@@ -109,13 +109,13 @@ def on_service_state_change(
             # ``RemoteBuildPeer.name`` field upsert/delete
             # consistently. The FQDN ``name`` is the
             # ``controller._peers`` dict key only.
-            fire_host_removed(controller, popped.name)
+            controller._fire_host_removed(popped.name)
         return
     info = AsyncServiceInfo(service_type, name)
     if info.load_from_cache(zeroconf):
-        upsert_host(controller, name, info)
+        controller._upsert_host(name, info)
         return
-    controller._track_task(resolve_and_apply(controller, zeroconf, info, name))
+    controller._track_task(controller._resolve_and_apply(zeroconf, info, name))
 
 
 async def resolve_and_apply(
@@ -129,7 +129,7 @@ async def resolve_and_apply(
         return
     if not resolved:
         return
-    upsert_host(controller, name, info)
+    controller._upsert_host(name, info)
 
 
 def upsert_host(controller: OffloaderController, name: str, info: AsyncServiceInfo) -> None:
@@ -141,7 +141,7 @@ def upsert_host(controller: OffloaderController, name: str, info: AsyncServiceIn
     captured name stale.
     """
     peer = peer_from_service_info(name, info)
-    if is_self_endpoint(controller, peer.hostname, peer.port):
+    if controller._is_self_endpoint(peer.hostname, peer.port):
         return
     controller._peers[name] = peer
     controller._db.bus.fire(EventType.REMOTE_BUILD_HOST_ADDED, peer.to_dict())
