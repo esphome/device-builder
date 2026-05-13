@@ -21,14 +21,9 @@ from esphome.zeroconf import AsyncEsphomeZeroconf
 from ...helpers.api import CommandError, api_command
 from ...helpers.device_yaml import (
     configuration_stem,
-    parse_esphome_meta,
 )
 from ...helpers.event_bus import Event
 from ...helpers.storage_path import resolve_storage_path
-from ...helpers.yaml import (
-    YamlUpsertNotSupportedError,
-    upsert_yaml_leaf_under_top_block,
-)
 from ...models import (
     AddComponentResponse,
     AdoptableDevice,
@@ -48,10 +43,6 @@ from .._device_mqtt_coordinator import DeviceMqttCoordinator
 from .._device_scanner import DeviceScanner, ScanChange
 from .._device_state_monitor import DeviceStateMonitor
 from .._reachability_tracker import ReachabilityTracker
-from ..config import (
-    get_device_metadata,
-    set_device_labels,
-)
 from ..firmware.helpers import _find_esphome_cmd
 from . import (
     add_component,
@@ -62,6 +53,7 @@ from . import (
     logs,
     mutations_clone,
     mutations_create,
+    mutations_simple,
     mutations_yaml,
     reachability,
     scan_change,
@@ -469,25 +461,12 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         **kwargs: Any,
     ) -> UpdateDeviceResponse:
         """Update device metadata (sidecar JSON, not the YAML file)."""
-        filename = f"{name}.yaml"
-        await self._persist_device_metadata_async(
-            filename,
-            board_id=board_id,
+        return await mutations_simple.update_device(
+            self,
+            name=name,
             friendly_name=friendly_name,
             comment=comment,
-        )
-
-        # ``get_device_metadata`` reads ``.device-builder.json`` via
-        # ``Path.read_bytes()``; route it through the executor so the
-        # sync I/O doesn't stall the event loop (and doesn't trip
-        # blockbuster on Linux CI).
-        config_dir = self._db.settings.config_dir
-        meta = await asyncio.to_thread(get_device_metadata, config_dir, filename)
-        return UpdateDeviceResponse(
-            name=name,
-            friendly_name=meta.get("friendly_name", name),
-            comment=meta.get("comment"),
-            board_id=meta.get("board_id"),
+            board_id=board_id,
         )
 
     @api_command("devices/set_labels")
@@ -498,59 +477,10 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         label_ids: list[str],
         **kwargs: Any,
     ) -> Device:
-        """
-        Replace this device's label assignments.
-
-        ``label_ids`` is the new full list of assigned label IDs (no
-        diff semantics — ``[]`` clears every assignment). Unknown
-        IDs are rejected with ``INVALID_ARGS``; the catalog check
-        runs inside the same metadata transaction as the write so a
-        concurrent ``labels/delete`` cascade can't leave a dangling
-        reference. After persistence the device is force-reloaded
-        so the live ``Device`` model reflects the new labels — the
-        scanner's mtime cache would otherwise skip the file.
-        """
-        # ``rel_path`` raises ``CommandError(INVALID_ARGS)`` on path
-        # traversal; reuses the existing single chokepoint.
-        self._db.settings.rel_path(configuration)
-        if not isinstance(label_ids, list):
-            raise CommandError(
-                ErrorCode.INVALID_ARGS, "label_ids must be a list of label id strings"
-            )
-
-        # Verify the device exists *before* writing the sidecar — a
-        # ``configuration`` that passes ``rel_path`` but isn't tracked
-        # by the scanner (typo, deleted YAML) would otherwise leave an
-        # orphaned ``.device-builder.json`` entry pinning labels to a
-        # non-existent device. The scanner's name index is the
-        # authoritative "what's actually on disk" view.
-        device = next(
-            (d for d in self._scanner.devices if d.configuration == configuration),
-            None,
+        """Replace this device's label assignments."""
+        return await mutations_simple.set_labels(
+            self, configuration=configuration, label_ids=label_ids
         )
-        if device is None:
-            raise CommandError(ErrorCode.NOT_FOUND, f"Device {configuration!r} not found")
-
-        config_dir = self._db.settings.config_dir
-
-        def _persist() -> None:
-            try:
-                set_device_labels(config_dir, configuration, label_ids)
-            except ValueError as err:
-                raise CommandError(ErrorCode.INVALID_ARGS, str(err)) from err
-
-        await asyncio.to_thread(_persist)
-        await self._scanner.reload(configuration)
-
-        # Re-fetch from the scanner — ``reload`` replaces the Device
-        # in the index, so the reference held above is stale.
-        refreshed = next(
-            (d for d in self._scanner.devices if d.configuration == configuration),
-            None,
-        )
-        if refreshed is None:
-            raise CommandError(ErrorCode.NOT_FOUND, f"Device {configuration!r} not found")
-        return refreshed
 
     @api_command("devices/rename")
     async def rename_device(
@@ -560,67 +490,10 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         new_name: str,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """
-        Rename a device configuration.
-
-        Thin pass-through to ``esphome rename``: the CLI owns the
-        whole atomic flow — YAML edit (substitution-aware), config
-        revalidation, compile + OTA install, and rollback (unlinks
-        the freshly-written YAML on validation or install failure
-        so the device stays reachable under its old hostname).
-        Routed through the firmware queue so the streaming output
-        shows up alongside other firmware tasks instead of running
-        silently in the background.
-
-        We deliberately don't pre-validate or fall back to a
-        file-level rename when the config doesn't validate. The CLI
-        already runs its own ``esphome config`` pass and surfaces
-        the errors verbatim; a file-level fallback would silently
-        rename the YAML on disk while leaving the running firmware
-        broadcasting the old hostname forever (dashboard label and
-        device state diverge with no error to the user). Better to
-        error than to make a potentially broken config worse —
-        matches the legacy dashboard's thin-pass-through behaviour.
-
-        Returns the new filename plus the queued firmware job.
-        """
-        new_filename = f"{new_name}.yaml"
-
-        # Reject same-name renames up-front: a no-op at the YAML
-        # level but still queues a real ``esphome rename`` job that
-        # re-compiles and OTA-flashes the device. Frontend should
-        # call ``firmware/install`` for "flash without renaming".
-        # Compare on the *stem*, not the filename, so cloning
-        # ``kitchen.yml`` to ``new_name=kitchen`` is rejected even
-        # though the literal filenames differ — the device's mDNS
-        # hostname comes from the stem and stays the same either
-        # way, so the rename would still be a no-op rewrite + flash.
-        source_stem = configuration_stem(configuration)
-        if new_name == source_stem:
-            raise CommandError(
-                ErrorCode.INVALID_ARGS,
-                "new_name must differ from the current device name",
-            )
-        # Reject up-front if the target filename is already in use.
-        # ``esphome rename`` itself doesn't check collisions — it
-        # blindly ``write_text``s the new YAML and OTA-installs it,
-        # so without this check we'd silently overwrite an unrelated
-        # device's config and flash that firmware to the wrong
-        # device. ``rel_path`` resolves the filename and
-        # ``.exists()`` is an ``os.stat`` — both blocking. Push the
-        # pair to the executor so the dashboard's request-path
-        # stays event-loop-friendly on slow / network-mounted dirs.
-        loop = asyncio.get_running_loop()
-        new_path = self._db.settings.rel_path(new_filename)
-        if await loop.run_in_executor(None, new_path.exists):
-            msg = f"A device named {new_filename} already exists"
-            raise CommandError(ErrorCode.INVALID_ARGS, msg)
-
-        if self._db.firmware is None:
-            msg = "Firmware controller is unavailable"
-            raise CommandError(ErrorCode.INTERNAL_ERROR, msg)
-        job = await self._db.firmware.rename(configuration=configuration, new_name=new_name)
-        return {"configuration": new_filename, "job": job.to_dict()}
+        """Rename a device configuration via ``esphome rename``."""
+        return await mutations_simple.rename_device(
+            self, configuration=configuration, new_name=new_name
+        )
 
     @api_command("devices/clone")
     async def clone_device(
@@ -647,185 +520,12 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         new_friendly_name: str,
         **kwargs: Any,
     ) -> dict[str, str | bool]:
-        """
-        Rewrite ``esphome.friendly_name:`` in the device YAML.
-
-        Targeted at the "I just want to call my bulb something
-        different" workflow — beginners shouldn't have to open the
-        YAML editor and find the right line to change a label.
-
-        The YAML is the source of truth: sidecar-only updates would
-        let the dashboard label drift from what the running firmware
-        broadcasts (every reboot would announce the YAML's value via
-        mDNS, the next compile bakes the YAML in, dashboard and
-        device disagree). Reuses the
-        :func:`rewrite_name_or_substitution` helper from the clone
-        path so the substitution-redirect / safe-quoting / list-
-        item-aware machinery stays in one place.
-
-        Doesn't touch firmware — the frontend already owns the
-        install-flow UX (opens the command-dialog, follows the
-        streaming job, surfaces toasts) so a separate
-        ``firmware/install`` call after this one composes
-        naturally with the existing rename / install paths and
-        keeps this command's responsibility narrow.
-
-        Returns ``{"configuration": …, "rewritten": bool}``.
-        ``rewritten`` is False when the leaf already matched the
-        requested value (no-op rewrite); the caller can use that
-        to skip a redundant follow-up install.
-
-        Insertion behaviour for absent leaves:
-        - Existing ``esphome.friendly_name`` line → rewritten in
-          place (substitution-aware via
-          :func:`rewrite_name_or_substitution`).
-        - Existing ``esphome:`` block but no ``friendly_name:``
-          child → ``friendly_name:`` is inserted into the block.
-        - No ``esphome:`` block at all (package / ``!include``-
-          driven config) → a new ``esphome:`` block is prepended
-          with just ``friendly_name:``. ESPHome's package merge
-          gives our local leaf precedence over the package's
-          value, so the user's intended override actually lands.
-          ``esphome.name`` is intentionally not synthesised — a
-          literal-text check can't see a name supplied by
-          ``packages:`` / ``!include`` / substitutions, and a
-          synthesised slug here would silently override the
-          package-supplied hostname (breaking API discovery,
-          OTA, and mDNS). Configs that genuinely lack ``name:``
-          from any source are already invalid and ESPHome's
-          schema check will report it on the next compile.
-
-        User-correctable failures raise typed
-        ``CommandError(INVALID_ARGS, …)``:
-        - blank ``new_friendly_name``
-        - source not found
-        - source's ``esphome:`` is in flow-style
-          (``esphome: { … }``) or a tagged value
-          (``esphome: !include …``); the line-based upsert can't
-          safely edit either shape, so the user has to convert
-          to block style first.
-        - the rewritten YAML doesn't pass ESPHome's config
-          validation. The friendly_name only reaches the device
-          via the next install, so writing a YAML that won't
-          compile would leave the dashboard stuck displaying the
-          old label forever (no fresh mDNS broadcast to update
-          the running firmware's announced name). Refusing the
-          write here is the only way to keep dashboard label and
-          device hostname in sync; the dialog surfaces the
-          validation errors so the user can fix them in the
-          editor and retry.
-        """
-        new_friendly_name = new_friendly_name.strip()
-        if not new_friendly_name:
-            raise CommandError(ErrorCode.INVALID_ARGS, "new_friendly_name is required")
-
-        loop = asyncio.get_running_loop()
-        config_path = self._db.settings.rel_path(configuration)
-
-        def _read() -> str | None:
-            # Single ``read_text`` call — no preceding ``exists()``
-            # check, since a file deleted between the two would
-            # leak ``FileNotFoundError`` past us as an unhandled
-            # exception (surfaces as ``INTERNAL_ERROR`` instead of
-            # the typed ``INVALID_ARGS`` we want for "device gone").
-            # Catching here folds the race + the genuinely-missing
-            # case into the same branch.
-            try:
-                return config_path.read_text(encoding="utf-8")
-            except FileNotFoundError:
-                return None
-
-        content = await loop.run_in_executor(None, _read)
-        if content is None:
-            raise CommandError(
-                ErrorCode.INVALID_ARGS,
-                f"Device {configuration} not found",
-            )
-
-        # ``upsert_yaml_leaf_under_top_block`` handles three shapes:
-        # rewrite an existing leaf (substitution-aware), insert
-        # ``friendly_name:`` into an existing ``esphome:`` block,
-        # or prepend a new ``esphome:`` block when the YAML doesn't
-        # have one (package / ``!include``-driven configs). For a
-        # display label the override-from-package case is exactly
-        # what the user wants — they're saying "call THIS device
-        # something different" — and ESPHome's package merge gives
-        # our local leaf precedence over the included one.
-        #
-        # We deliberately don't try to synthesise ``esphome.name``
-        # for configs where the literal YAML doesn't have one. A
-        # text-level check can't see ``name:`` supplied by
-        # ``packages:`` / ``!include`` / substitutions, and a
-        # synthesised slug landing here would silently override
-        # the package-supplied hostname — breaking API discovery,
-        # OTA, and mDNS without warning. If a config genuinely
-        # has no ``name:`` from any source, ESPHome's schema will
-        # surface "required key not provided" on the next compile,
-        # which the user can address explicitly.
-        try:
-            new_content = upsert_yaml_leaf_under_top_block(
-                content, "esphome", "friendly_name", new_friendly_name
-            )
-        except YamlUpsertNotSupportedError as exc:
-            # Flow-style ``esphome: { ... }`` or a tagged value
-            # (``esphome: !include …``). The line-based walker
-            # can't safely insert into either shape — surface as
-            # an actionable error so the dialog tells the user to
-            # switch to block style rather than landing a
-            # duplicate ``esphome:`` key.
-            raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
-
-        # Round-trip check: parse the rewritten YAML through the
-        # same reader the scanner uses (``parse_esphome_meta``) and
-        # verify it sees the new ``friendly_name``. Cheap defence
-        # against the line-based upsert producing a YAML shape that
-        # serializes fine but the reader misinterprets — a real bug
-        # we shipped once where wizard-emitted column-0 ``# Board:``
-        # / ``# Definition:`` comments ended up between an inserted
-        # ``name:`` and ``friendly_name:``, the reader hit ``# Board:``
-        # at column 0, treated it as a fresh top-level key, dropped
-        # the ``esphome:`` context, and silently lost
-        # ``friendly_name`` on every subsequent load. The user saw
-        # "renamed but the dashboard still shows the old name." Run
-        # the verification before writing so a future rewriter bug
-        # surfaces as a typed error instead of silently corrupting
-        # the user's config.
-        _, parsed_friendly, _, _ = parse_esphome_meta(new_content)
-        if parsed_friendly != new_friendly_name:
-            raise CommandError(
-                ErrorCode.INTERNAL_ERROR,
-                "Edited YAML doesn't round-trip through the reader — "
-                "the line-based upsert produced a shape the parser "
-                "misinterprets. This is a dashboard bug; please file "
-                "an issue with a redacted snippet of just the "
-                "esphome: / substitutions: blocks (strip Wi-Fi "
-                "credentials, API keys, and static IPs) so we can "
-                "extend the rewriter's coverage.",
-            )
-        if new_content == content:
-            # Idempotent — user submitted the same value (or the
-            # leaf was already that value). Skip the write and
-            # signal to the caller that no install is needed
-            # either; the dialog can close without queuing a
-            # redundant OTA job. Skip the validation pass too —
-            # the file isn't changing, so revalidating just to
-            # mirror its existing state would burn ~hundreds of
-            # ms on the editor subprocess for nothing.
-            return {"configuration": configuration, "rewritten": False}
-
-        # Same-shape rewrites that don't actually change anything
-        # in the YAML aren't worth the validator round-trip — see
-        # ``_validate_rewritten_yaml_or_raise``. Run validation
-        # here, before the write, so a YAML that won't compile is
-        # rejected with the editor's actual errors instead of
-        # silently landing on disk for an install that will never
-        # take effect.
-        await self._validate_rewritten_yaml_or_raise(
-            configuration, new_content, action="update friendly name"
+        """Rewrite ``esphome.friendly_name:`` in the device YAML."""
+        return await mutations_simple.edit_friendly_name(
+            self,
+            configuration=configuration,
+            new_friendly_name=new_friendly_name,
         )
-
-        await self._persist_yaml_mutation(configuration, new_content)
-        return {"configuration": configuration, "rewritten": True}
 
     def _yaml_content_for_create(
         self,

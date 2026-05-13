@@ -33,6 +33,9 @@ resolving after the subpackage split. Submodules:
 - ``mutations_create`` — ``devices/create`` WS command body
   (the wizard's three-flow YAML creation: file_content /
   template / stub).
+- ``mutations_simple`` — the smaller four mutation WS
+  commands: ``devices/update``, ``devices/set_labels``,
+  ``devices/rename``, ``devices/edit_friendly_name``.
 - ``mutations_yaml`` — shared helpers for the device-mutation
   WS commands (``yaml_content_for_create`` provenance pick,
   ``validate_rewritten_yaml_or_raise`` editor-validate gate).

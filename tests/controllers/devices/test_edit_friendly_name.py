@@ -637,7 +637,7 @@ async def test_edit_friendly_name_raises_internal_error_on_round_trip_mismatch(
     (tmp_path / "kitchen.yaml").write_text(SOURCE_YAML, "utf-8")
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.parse_esphome_meta",
+        "esphome_device_builder.controllers.devices.mutations_simple.parse_esphome_meta",
         lambda _content: (None, None, None, None),
     )
 
