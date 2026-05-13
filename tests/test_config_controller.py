@@ -40,14 +40,18 @@ from esphome.util import SerialPort
 from esphome_device_builder.controllers.config import (
     _APP_DESC_MAGIC,
     _APP_DESC_SIZE,
+    _DETECT_UNKNOWN,
     _PROJECT_NAME_OFFSET,
     _PROJECT_NAME_SIZE,
     ConfigController,
     _chip_family_to_descriptor,
+    _classify_esptool_failure,
     _is_valid_port_name,
     _load_metadata,
     _parse_chip_family_line,
     _parse_project_name,
+    _read_descriptor_file,
+    _run_esptool,
     _save_metadata,
     delete_label_cascade,
     get_device_ip,
@@ -1120,6 +1124,126 @@ def test_parse_project_name_returns_none_when_empty() -> None:
         b"\x00" * _PROJECT_NAME_SIZE
     )
     assert _parse_project_name(bytes(blob)) is None
+
+
+def test_parse_project_name_returns_none_when_blob_truncated() -> None:
+    """Short blob (less than offset+size) returns None instead of slicing past it."""
+    assert _parse_project_name(b"\x00" * 16) is None
+
+
+def test_parse_project_name_returns_none_on_unicode_decode_error() -> None:
+    """Invalid UTF-8 in project_name returns None rather than raising."""
+    blob = bytearray(_app_descriptor_blob("placeholder"))
+    # Stuff invalid UTF-8 continuation bytes in front of the NUL.
+    blob[_PROJECT_NAME_OFFSET : _PROJECT_NAME_OFFSET + 4] = b"\xff\xfe\xfd\x00"
+    assert _parse_project_name(bytes(blob)) is None
+
+
+def test_classify_esptool_failure_returns_unknown_for_unrecognised_output() -> None:
+    """Output that matches no busy / permission / no-response pattern → ``_DETECT_UNKNOWN``."""
+    assert _classify_esptool_failure("some unfamiliar esptool error") == _DETECT_UNKNOWN
+
+
+def test_read_descriptor_file_returns_none_on_oserror(tmp_path: Path) -> None:
+    """Missing file → ``None`` (read failure surfaced as "no manifest")."""
+    assert _read_descriptor_file(str(tmp_path / "does-not-exist.bin")) is None
+
+
+@pytest.mark.asyncio
+async def test_run_esptool_calls_run_subprocess_capture_with_resolved_cmd(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_run_esptool`` resolves the CLI via ``_find_esptool_cmd`` and forwards args.
+
+    Mocks ``run_subprocess_capture`` (the underlying one-shot helper) and
+    asserts the full argv shape — sibling-script first slot, then the
+    caller's args — plus that the captured ``(rc, stdout, timed_out)``
+    tuple is propagated verbatim.
+    """
+    captured_args: list[tuple[Any, ...]] = []
+    captured_kwargs: dict[str, Any] = {}
+
+    class _FakeCaptured:
+        def __init__(self) -> None:
+            self.returncode = 0
+            self.stdout = b"Chip type:          ESP32-C3\n"
+            self.timed_out = False
+
+    async def fake_capture(*args: Any, **kwargs: Any) -> _FakeCaptured:
+        captured_args.append(args)
+        captured_kwargs.update(kwargs)
+        return _FakeCaptured()
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.config.run_subprocess_capture", fake_capture
+    )
+
+    rc, stdout, timed_out = await _run_esptool(["--port", "/dev/ttyUSB0", "chip-id"], 30.0)
+
+    assert rc == 0
+    assert stdout == b"Chip type:          ESP32-C3\n"
+    assert timed_out is False
+    # Forwarded args land after the resolved CLI prefix, timeout is keyword.
+    assert captured_args[0][-3:] == ("--port", "/dev/ttyUSB0", "chip-id")
+    assert captured_kwargs == {"timeout": 30.0}
+
+
+@pytest.mark.asyncio
+async def test_run_esptool_substitutes_minus_one_when_returncode_is_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_run_esptool`` maps a None returncode (timeout-kill) to ``-1``.
+
+    Otherwise a falsy ``None`` could pass for a clean exit and the
+    caller would treat the empty stdout as a parse failure.
+    """
+
+    class _FakeCaptured:
+        def __init__(self) -> None:
+            self.returncode = None
+            self.stdout = b""
+            self.timed_out = True
+
+    async def fake_capture(*args: Any, **kwargs: Any) -> _FakeCaptured:
+        return _FakeCaptured()
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.config.run_subprocess_capture", fake_capture
+    )
+
+    rc, _stdout, timed_out = await _run_esptool(["--port", "/dev/ttyUSB0", "chip-id"], 1.0)
+    assert rc == -1
+    assert timed_out is True
+
+
+@pytest.mark.asyncio
+async def test_detect_chip_omits_board_id_when_read_flash_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Manifest read returning non-zero → ``board_id`` omitted, chip info kept.
+
+    Exercises the ``timed_out or returncode != 0`` early-return inside
+    ``_read_app_descriptor_board_id`` — the other manifest tests
+    write a blob unconditionally, so they don't reach this branch.
+    """
+
+    def fake(args: list[str]) -> tuple[int, bytes]:
+        if "chip-id" in args:
+            return 0, b"Chip type:          ESP32-C3\n"
+        # read-flash fails — non-zero exit, no blob written.
+        return 1, b"timeout reading flash"
+
+    _mock_run_esptool(monkeypatch, fake)
+    controller = _make_controller(tmp_path)
+
+    result = await controller.detect_chip_cmd(port="/dev/ttyUSB0")
+
+    assert result == {
+        "chip_family": "ESP32-C3",
+        "variant": "esp32c3",
+        "platform": "esp32",
+    }
+    assert "board_id" not in result
 
 
 def test_is_valid_port_name_accepts_real_paths() -> None:
