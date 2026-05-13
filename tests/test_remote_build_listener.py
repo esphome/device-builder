@@ -269,8 +269,16 @@ async def test_start_registers_advertiser_with_all_txt_keys_in_one_announce(
     _hermetic_lifecycle: None,
 ) -> None:
     """``DeviceBuilder.start()`` publishes one ServiceInfo carrying all 4 TXT keys."""
-    with remote_build_settings_transaction(tmp_path) as txn:
-        txn.enabled = True
+
+    def _enable() -> None:
+        with remote_build_settings_transaction(tmp_path) as txn:
+            txn.enabled = True
+
+    # ``remote_build_settings_transaction`` does an atomic-write
+    # (``tempfile.mkstemp`` → ``os.path.abspath``); hop through
+    # the executor so blockbuster doesn't trip on the sync I/O
+    # while the test is on the event loop.
+    await asyncio.get_running_loop().run_in_executor(None, _enable)
 
     # Inject a fake zeroconf via the property so the advertise
     # branch actually runs; ``_hermetic_lifecycle`` leaves it at
