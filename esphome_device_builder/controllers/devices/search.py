@@ -33,22 +33,9 @@ async def search_yaml(
     """
     Substring-search every configured device's raw YAML file.
 
-    Returns one dict per device with hits, shaped as
-    ``{"configuration", "device_name", "friendly_name",
-    "matches": [{"line_number", "line_text"}]}``. Empty /
-    whitespace-only queries return ``[]``. Iterates the
-    scanner's existing snapshot rather than triggering a fresh
-    scan (the frontend fires once per debounced keystroke;
-    per-keystroke disk scans would dominate the round-trip).
-
-    *context_lines* clamps to ``[0, MAX_CONTEXT_LINES]`` so a
-    caller asking for a very large value gets the maximum
-    rather than silently falling back to the default.
-
-    The :class:`YamlSearchCache` on the controller keeps per-
-    file split-line lists keyed on ``(mtime, size, inode)`` so
-    a quiet fleet costs one stat per device per keystroke after
-    the first; only files whose mtime changed get re-read.
+    Empty / whitespace-only queries return ``[]``. Iterates
+    the scanner's existing snapshot, not a fresh scan;
+    ``context_lines`` clamps to ``[0, MAX_CONTEXT_LINES]``.
     """
     needle_raw = query.strip()
     if not needle_raw:
