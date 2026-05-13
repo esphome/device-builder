@@ -213,7 +213,7 @@ def test_derive_swallows_persist_failure_and_still_returns_id(
         raise OSError(msg)
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.set_device_metadata",
+        "esphome_device_builder.controllers.devices.metadata.set_device_metadata",
         _boom,
     )
 

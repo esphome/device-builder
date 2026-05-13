@@ -283,7 +283,7 @@ async def test_refresh_after_compile_persists_hash_and_reloads(
         return "1a2b3c4d"
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.set_device_metadata",
+        "esphome_device_builder.controllers.devices.metadata.set_device_metadata",
         _fake_set_metadata,
     )
     monkeypatch.setattr(
@@ -320,7 +320,7 @@ async def test_refresh_after_compile_skips_persist_on_hash_failure(
         return None  # YAML didn't validate, subprocess failed, etc.
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.set_device_metadata",
+        "esphome_device_builder.controllers.devices.metadata.set_device_metadata",
         _fake_set_metadata,
     )
     monkeypatch.setattr(

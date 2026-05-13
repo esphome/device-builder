@@ -565,7 +565,7 @@ def stub_create_device_metadata_helpers(monkeypatch: pytest.MonkeyPatch, tmp_pat
         lambda _filename: storage_path,
     )
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.set_device_metadata",
+        "esphome_device_builder.controllers.devices.metadata.set_device_metadata",
         lambda *_args, **_kwargs: None,
     )
     monkeypatch.setattr(
