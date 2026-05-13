@@ -468,7 +468,7 @@ async def test_drive_initiator_round_trip_handshake_not_complete_raises_client_e
     # such as ``remote_static_pub`` would affect both sides and fail
     # the test before the initiator's post-handshake access.
     monkeypatch.setattr(
-        remote_build_peer_link_client.PeerLinkNoiseSession,
+        remote_build_peer_link_client.one_shot.PeerLinkNoiseSession,
         "initiator",
         staticmethod(_broken_factory),
     )
@@ -2255,7 +2255,7 @@ async def test_await_pair_status_unknown_intent_response_raises_client_error(
         )
 
     monkeypatch.setattr(
-        remote_build_peer_link_client, "drive_initiator_round_trip", _fake_round_trip
+        remote_build_peer_link_client.one_shot, "drive_initiator_round_trip", _fake_round_trip
     )
 
     with pytest.raises(PeerLinkClientError, match="unknown intent_response"):
@@ -2552,7 +2552,9 @@ async def _drive_session_with_frames(
     async def _idle_heartbeat(**_kwargs: Any) -> None:
         await closed_event.wait()
 
-    monkeypatch.setattr(remote_build_peer_link_client, "run_peer_link_heartbeat", _idle_heartbeat)
+    monkeypatch.setattr(
+        remote_build_peer_link_client.client, "run_peer_link_heartbeat", _idle_heartbeat
+    )
 
     drive_task = asyncio.create_task(client._run_session_loops(channel))
     try:
@@ -2739,7 +2741,9 @@ async def test_peer_link_client_reconnects_on_transport_error(
     1-second backoff (monkey-patches the initial backoff to
     near-zero so the test finishes promptly).
     """
-    monkeypatch.setattr(remote_build_peer_link_client, "_RECONNECT_INITIAL_BACKOFF_SECONDS", 0.01)
+    monkeypatch.setattr(
+        remote_build_peer_link_client.client, "_RECONNECT_INITIAL_BACKOFF_SECONDS", 0.01
+    )
 
     server, receiver, _, receiver_pub = receiver_server
     initiator_priv = secrets.token_bytes(32)
@@ -2817,7 +2821,9 @@ async def test_run_session_loops_send_ping_routes_through_channel(
         await send_ping(42)
         await closed_event.wait()
 
-    monkeypatch.setattr(remote_build_peer_link_client, "run_peer_link_heartbeat", _ping_then_park)
+    monkeypatch.setattr(
+        remote_build_peer_link_client.client, "run_peer_link_heartbeat", _ping_then_park
+    )
 
     client = PeerLinkClient(
         receiver_hostname="127.0.0.1",
@@ -2869,7 +2875,9 @@ async def test_run_session_loops_returns_heartbeat_timeout_when_dead(
     ) -> None:
         await on_dead()
 
-    monkeypatch.setattr(remote_build_peer_link_client, "run_peer_link_heartbeat", _fake_heartbeat)
+    monkeypatch.setattr(
+        remote_build_peer_link_client.client, "run_peer_link_heartbeat", _fake_heartbeat
+    )
 
     client = PeerLinkClient(
         receiver_hostname="127.0.0.1",
@@ -2908,9 +2916,9 @@ async def test_peer_link_client_backoff_advances_when_session_never_opens(
     initial = 1.0
     cap = 30.0
     monkeypatch.setattr(
-        remote_build_peer_link_client, "_RECONNECT_INITIAL_BACKOFF_SECONDS", initial
+        remote_build_peer_link_client.client, "_RECONNECT_INITIAL_BACKOFF_SECONDS", initial
     )
-    monkeypatch.setattr(remote_build_peer_link_client, "_RECONNECT_MAX_BACKOFF_SECONDS", cap)
+    monkeypatch.setattr(remote_build_peer_link_client.client, "_RECONNECT_MAX_BACKOFF_SECONDS", cap)
 
     backoffs_observed: list[float] = []
     real_sleep = asyncio.sleep
@@ -2920,7 +2928,7 @@ async def test_peer_link_client_backoff_advances_when_session_never_opens(
             backoffs_observed.append(delay)
         await real_sleep(0)
 
-    monkeypatch.setattr(remote_build_peer_link_client.asyncio, "sleep", _capturing_sleep)
+    monkeypatch.setattr(remote_build_peer_link_client.client.asyncio, "sleep", _capturing_sleep)
 
     bus = EventBus()
     client = PeerLinkClient(
@@ -3002,7 +3010,7 @@ async def test_peer_link_client_returns_transport_error_on_type_error(
         raise TypeError("Received non-binary message")
 
     monkeypatch.setattr(
-        remote_build_peer_link_client,
+        remote_build_peer_link_client.client,
         "_drive_initiator_handshake_and_read_response",
         _typeerror_handshake,
     )
@@ -3047,7 +3055,7 @@ async def test_peer_link_client_returns_transport_error_on_noise_failure(
         raise NoiseInvalidMessage("forced for test")
 
     monkeypatch.setattr(
-        remote_build_peer_link_client,
+        remote_build_peer_link_client.client,
         "_drive_initiator_handshake_and_read_response",
         _bad_handshake,
     )
@@ -3095,7 +3103,7 @@ async def test_peer_link_client_close_event_carries_error_detail_on_noise_failur
         raise NoiseInvalidMessage("forced for test")
 
     monkeypatch.setattr(
-        remote_build_peer_link_client,
+        remote_build_peer_link_client.client,
         "_drive_initiator_handshake_and_read_response",
         _bad_handshake,
     )
@@ -3282,7 +3290,9 @@ async def test_run_session_loops_responds_to_peer_ping(
     async def _idle_heartbeat(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
         await closed_event.wait()
 
-    monkeypatch.setattr(remote_build_peer_link_client, "run_peer_link_heartbeat", _idle_heartbeat)
+    monkeypatch.setattr(
+        remote_build_peer_link_client.client, "run_peer_link_heartbeat", _idle_heartbeat
+    )
 
     client = PeerLinkClient(
         receiver_hostname="127.0.0.1",
@@ -3343,7 +3353,7 @@ async def test_run_session_loops_bumps_last_pong_on_pong(
         await closed_event.wait()
 
     monkeypatch.setattr(
-        remote_build_peer_link_client, "run_peer_link_heartbeat", _capturing_heartbeat
+        remote_build_peer_link_client.client, "run_peer_link_heartbeat", _capturing_heartbeat
     )
 
     client = PeerLinkClient(
@@ -3398,7 +3408,9 @@ async def test_run_session_loops_returns_transport_error_on_malformed_frame(
     async def _idle_heartbeat(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
         await closed_event.wait()
 
-    monkeypatch.setattr(remote_build_peer_link_client, "run_peer_link_heartbeat", _idle_heartbeat)
+    monkeypatch.setattr(
+        remote_build_peer_link_client.client, "run_peer_link_heartbeat", _idle_heartbeat
+    )
 
     client = PeerLinkClient(
         receiver_hostname="127.0.0.1",
@@ -3441,7 +3453,9 @@ async def test_run_session_loops_ignores_unknown_msg_type(
     async def _idle_heartbeat(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
         await closed_event.wait()
 
-    monkeypatch.setattr(remote_build_peer_link_client, "run_peer_link_heartbeat", _idle_heartbeat)
+    monkeypatch.setattr(
+        remote_build_peer_link_client.client, "run_peer_link_heartbeat", _idle_heartbeat
+    )
 
     client = PeerLinkClient(
         receiver_hostname="127.0.0.1",
@@ -3503,7 +3517,9 @@ async def test_run_session_loops_on_dead_swallows_aiohttp_close_error(
     async def _fire_on_dead(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
         await on_dead()
 
-    monkeypatch.setattr(remote_build_peer_link_client, "run_peer_link_heartbeat", _fire_on_dead)
+    monkeypatch.setattr(
+        remote_build_peer_link_client.client, "run_peer_link_heartbeat", _fire_on_dead
+    )
 
     client = PeerLinkClient(
         receiver_hostname="127.0.0.1",
@@ -3741,7 +3757,9 @@ async def test_run_session_loops_fires_queue_status_event_on_inbound_frame(
     async def _idle_heartbeat(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
         await closed_event.wait()
 
-    monkeypatch.setattr(remote_build_peer_link_client, "run_peer_link_heartbeat", _idle_heartbeat)
+    monkeypatch.setattr(
+        remote_build_peer_link_client.client, "run_peer_link_heartbeat", _idle_heartbeat
+    )
 
     bus = EventBus()
     captured = capture_events(bus, EventType.OFFLOADER_QUEUE_STATUS_CHANGED)
@@ -3823,7 +3841,9 @@ async def test_run_session_loops_drops_malformed_queue_status(
     async def _idle_heartbeat(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
         await closed_event.wait()
 
-    monkeypatch.setattr(remote_build_peer_link_client, "run_peer_link_heartbeat", _idle_heartbeat)
+    monkeypatch.setattr(
+        remote_build_peer_link_client.client, "run_peer_link_heartbeat", _idle_heartbeat
+    )
 
     bus = EventBus()
     captured = capture_events(bus, EventType.OFFLOADER_QUEUE_STATUS_CHANGED)
@@ -4053,7 +4073,9 @@ async def test_submit_job_sends_header_chunks_and_returns_ack(
     async def _idle_heartbeat(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
         await closed_event.wait()
 
-    monkeypatch.setattr(remote_build_peer_link_client, "run_peer_link_heartbeat", _idle_heartbeat)
+    monkeypatch.setattr(
+        remote_build_peer_link_client.client, "run_peer_link_heartbeat", _idle_heartbeat
+    )
 
     bus = EventBus()
     client = _make_offloader_client(bus)
@@ -4099,7 +4121,9 @@ async def test_submit_job_times_out_when_no_ack_arrives(
     The timeout constant is monkeypatched down so the test
     finishes quickly; production keeps the 60s wall.
     """
-    monkeypatch.setattr(remote_build_peer_link_client, "_SUBMIT_JOB_ACK_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(
+        remote_build_peer_link_client.client, "_SUBMIT_JOB_ACK_TIMEOUT_SECONDS", 0.05
+    )
     bus = EventBus()
     client = _make_offloader_client(bus)
     # No frames delivered — the receive loop parks immediately,
