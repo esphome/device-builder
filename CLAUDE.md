@@ -652,7 +652,7 @@ When changing the sync script or catalog handling, watch for these:
   drops the whole run. Follow the existing pattern in
   `tests/benchmarks/test_log_streaming.py` and
   `tests/benchmarks/test_peer_link_noise_xx.py`:
-  `pytest.param(_LARGE_PAYLOAD, id="newline_1k")`,
+  `pytest.param(_NEWLINE_PAYLOAD, 1000, id="newline_1k")`,
   `pytest.param(1024, id="1KiB")`. Bare ints / short slugs whose
   autogen ID is already terse
   (`parametrize("fleet_size", [50, 200])` -> `[50]` / `[200]`)
