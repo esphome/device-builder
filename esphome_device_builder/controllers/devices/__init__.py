@@ -9,6 +9,9 @@ resolving after the subpackage split. Submodules:
 - ``helpers`` — pure free functions (``_remove_device_sidecars``,
   ``_apply_featured_presets``, ``_build_address_cache_args``,
   ``friendly_name_slugify`` re-export).
+- ``add_component`` — ``devices/add_component`` WS command
+  body (featured-id resolution + manifest-driven preset
+  merge + atomic YAML rewrite).
 - ``api_key`` — Native API encryption-key resolver
   (in-process YAML loader fast path + ``esphome config``
   subprocess fallback).

@@ -1,0 +1,83 @@
+"""``devices/add_component`` WS command body."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
+from ...helpers.yaml import merge_component_yaml
+from ...models import AddComponentResponse
+from .helpers import _apply_featured_presets, _drop_unconfigured_dependent_fields
+
+if TYPE_CHECKING:
+    from .controller import DevicesController
+
+
+async def add_component(
+    controller: DevicesController,
+    *,
+    configuration: str,
+    component_id: str,
+    fields: dict[str, Any] | None,
+) -> AddComponentResponse:
+    """
+    Add a component block to an existing device YAML.
+
+    ``fields`` is a flat mapping of config-entry key → value. For
+    NESTED config entries the value is itself a dict matching the
+    nested entry's structure (recursive).
+
+    Featured-component ids (``featured.<board>.<local>``) are
+    recognised here: the backend resolves them to the underlying
+    catalog component, validates user input against the manifest's
+    ``locked`` / ``suggestions`` constraints, and merges the
+    manifest's preset values into ``fields`` before delegating to
+    the regular merge logic.
+    """
+    assert controller._db.components is not None  # type narrowing
+
+    fields = dict(fields or {})
+    underlying_component_id = component_id
+
+    if component_id.startswith("featured."):
+        record = controller._db.components.get_featured_record(component_id)
+        if record is None:
+            msg = f"Unknown featured component: {component_id}"
+            raise ValueError(msg)
+        underlying_component_id = record.underlying_id
+        fields = _apply_featured_presets(record, fields)
+        # The frontend's catalog-derived id suggestion for featured
+        # components is the dashed ``featured_<board>_<local>`` form
+        # (e.g. ``featured_athom-smart-plug-v3_power_monitor_1`` —
+        # the board id still carries dashes), which ESPHome rejects.
+        # Reset to empty when the supplied id contains a dash so
+        # ``generate_component_yaml`` produces a valid auto-id from
+        # the underlying component + name; a user-typed custom id
+        # without dashes passes through.
+        user_id = fields.get("id")
+        if isinstance(user_id, str) and "-" in user_id:
+            fields["id"] = ""
+
+    component = await controller._db.components.get_component(component_id=underlying_component_id)
+    if component is None:
+        msg = f"Unknown component: {underlying_component_id}"
+        raise ValueError(msg)
+
+    for entry in component.config_entries:
+        if entry.required and entry.key not in fields:
+            msg = f"Missing required field: {entry.key}"
+            raise ValueError(msg)
+
+    config_path = controller._db.settings.rel_path(configuration)
+    existing = await controller._read_yaml_async(config_path)
+    # Honour each field's ``depends_on_component`` gate against
+    # what's actually in the device YAML; drops MQTT-only options
+    # (``availability:``, ``state_topic:``, ...) when the device
+    # has no ``mqtt:`` block, mirroring what the frontend already
+    # does field-by-field on the input form.
+    fields = _drop_unconfigured_dependent_fields(fields, component, existing)
+    new_yaml = merge_component_yaml(existing, component, fields)
+    # Atomic write; wizard-driven add-component should not be able
+    # to corrupt the source YAML on a mid-write crash.
+    await controller._persist_yaml_mutation(configuration, new_yaml)
+
+    return AddComponentResponse(yaml=new_yaml)

@@ -34,7 +34,6 @@ from ...helpers.storage_path import resolve_storage_path
 from ...helpers.yaml import (
     YamlUpsertNotSupportedError,
     generate_api_encryption_key,
-    merge_component_yaml,
     rewrite_api_encryption_key,
     rewrite_name_or_substitution,
     upsert_yaml_leaf_under_top_block,
@@ -66,7 +65,16 @@ from ..config import (
     set_device_metadata,
 )
 from ..firmware.helpers import _find_esphome_cmd
-from . import api_key, archive, firmware_sync, importable, logs, reachability, storage_regen
+from . import (
+    add_component,
+    api_key,
+    archive,
+    firmware_sync,
+    importable,
+    logs,
+    reachability,
+    storage_regen,
+)
 from ._yaml_search import (
     DEFAULT_CONTEXT_LINES,
     MAX_CONTEXT_LINES,
@@ -74,9 +82,7 @@ from ._yaml_search import (
 )
 from ._yaml_search_cache import YamlSearchCache
 from .helpers import (
-    _apply_featured_presets,
     _build_address_cache_args,
-    _drop_unconfigured_dependent_fields,
     _redact_concealed_secrets,
     _rewrite_required_yaml_leaf,
     _validate_archive_configuration,
@@ -1461,68 +1467,13 @@ class DevicesController:  # noqa: PLR0904 (grandfathered; new public methods nee
         fields: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> AddComponentResponse:
-        """
-        Add a component block to an existing device YAML.
-
-        ``fields`` is a flat mapping of config-entry key → value. For
-        NESTED config entries the value is itself a dict matching the
-        nested entry's structure (recursive).
-
-        Featured-component ids (``featured.<board>.<local>``) are
-        recognised here: the backend resolves them to the underlying
-        catalog component, validates user input against the manifest's
-        ``locked`` / ``suggestions`` constraints, and merges the
-        manifest's preset values into ``fields`` before delegating to
-        the regular merge logic.
-        """
-        assert self._db.components is not None  # type narrowing
-
-        fields = dict(fields or {})
-        underlying_component_id = component_id
-
-        if component_id.startswith("featured."):
-            record = self._db.components.get_featured_record(component_id)
-            if record is None:
-                msg = f"Unknown featured component: {component_id}"
-                raise ValueError(msg)
-            underlying_component_id = record.underlying_id
-            fields = _apply_featured_presets(record, fields)
-            # The frontend's catalog-derived id suggestion for featured
-            # components is the dashed ``featured_<board>_<local>``
-            # form (e.g. ``featured_athom-smart-plug-v3_power_monitor_1``
-            # — the board id still carries dashes), which ESPHome rejects.
-            # Reset to empty when the supplied id contains a dash so
-            # ``generate_component_yaml`` produces a valid auto-id from
-            # the underlying component + name — a user-typed custom id
-            # without dashes passes through.
-            user_id = fields.get("id")
-            if isinstance(user_id, str) and "-" in user_id:
-                fields["id"] = ""
-
-        component = await self._db.components.get_component(component_id=underlying_component_id)
-        if component is None:
-            msg = f"Unknown component: {underlying_component_id}"
-            raise ValueError(msg)
-
-        for entry in component.config_entries:
-            if entry.required and entry.key not in fields:
-                msg = f"Missing required field: {entry.key}"
-                raise ValueError(msg)
-
-        config_path = self._db.settings.rel_path(configuration)
-        existing = await self._read_yaml_async(config_path)
-        # Honour each field's ``depends_on_component`` gate against
-        # what's actually in the device YAML — drops MQTT-only options
-        # (``availability:``, ``state_topic:``, ...) when the device
-        # has no ``mqtt:`` block, mirroring what the frontend already
-        # does field-by-field on the input form.
-        fields = _drop_unconfigured_dependent_fields(fields, component, existing)
-        new_yaml = merge_component_yaml(existing, component, fields)
-        # Atomic write — wizard-driven add-component should not be
-        # able to corrupt the source YAML on a mid-write crash.
-        await self._persist_yaml_mutation(configuration, new_yaml)
-
-        return AddComponentResponse(yaml=new_yaml)
+        """Add a component block to an existing device YAML."""
+        return await add_component.add_component(
+            self,
+            configuration=configuration,
+            component_id=component_id,
+            fields=fields,
+        )
 
     @api_command("devices/import")
     async def import_device(
