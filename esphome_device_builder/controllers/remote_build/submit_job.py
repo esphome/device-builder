@@ -586,13 +586,14 @@ class SubmitJobReceiver:
 
         loop = asyncio.get_running_loop()
         try:
-            extracted_yaml: Path = await loop.run_in_executor(
+            configuration = await loop.run_in_executor(
                 None,
                 _validate_write_extract_bundle,
                 bundle_path,
                 bundle_bytes,
                 target_dir,
                 remote_builds_root,
+                self._config_dir,
             )
         except _PathEscapeError as exc:
             _LOGGER.warning(
@@ -610,26 +611,6 @@ class SubmitJobReceiver:
                 exc,
             )
             raise _SubmitJobRejectionError(_REASON_EXTRACT_FAILED) from exc
-
-        # ``configuration`` on FirmwareJob is the path relative to
-        # the controller's config_dir (``rel_path`` joins back on
-        # the way out). The extracted YAML lives under
-        # ``.esphome/.remote_builds/<dashboard_id>/<device_name>/``
-        # inside the same config_dir, so ``relative_to`` always
-        # succeeds here. ``as_posix`` keeps the wire-side
-        # ``configuration`` string stable across receiver
-        # platforms — ``str(rel_yaml)`` would emit
-        # ``\\``-separated paths on Windows, drifting the
-        # ``FirmwareJob.configuration`` field's shape between a
-        # dashboard running on Linux vs Windows even though the
-        # filesystem-level join works either way.
-        # ``.resolve()`` on the config_dir: ``prepare_bundle_for_compile``
-        # always returns an absolute path; ``self._config_dir`` may
-        # be relative when the dashboard was launched with a relative
-        # ``configuration`` arg, and ``Path.relative_to`` is purely
-        # lexical (#678).
-        rel_yaml = extracted_yaml.relative_to(self._config_dir.resolve())
-        configuration = rel_yaml.as_posix()
 
         # Snapshot the offloader's display label so the
         # firmware-tasks UI can render "from {label}" without
@@ -765,11 +746,12 @@ def _validate_write_extract_bundle(
     bundle_bytes: bytes,
     target_dir: Path,
     remote_builds_root: Path,
-) -> Path:
-    """Sync helper: validate path is under root, write tarball, extract.
+    config_dir: Path,
+) -> str:
+    """Sync helper: validate path, write tarball, extract, return wire-shape ``configuration``.
 
-    All three steps run in the executor so the receiver's WS
-    dispatch coroutine stays non-blocking through both the
+    All four steps run in the executor so the receiver's WS
+    dispatch coroutine stays non-blocking through every
     ``Path.resolve`` walk (which calls ``os.path.realpath``,
     which calls the blocking ``os.path.abspath`` syscall) and
     the multi-MB tarball write. ``Path.resolve`` is a stat-y
@@ -781,7 +763,12 @@ def _validate_write_extract_bundle(
     materialise even an empty tarball outside the remote-builds
     subtree. (2) Write the tarball. (3) Extract via
     ``prepare_bundle_for_compile`` (preserves ``.esphome`` /
-    ``.pioenvs`` for incremental compiles).
+    ``.pioenvs`` for incremental compiles). (4) Compute the
+    POSIX-relative ``configuration`` string for the
+    :class:`FirmwareJob` wire field, resolving *config_dir* so a
+    receiver started with a relative configuration arg
+    (#678) still produces an absolute-vs-absolute
+    ``relative_to`` pair.
 
     Raises :class:`_PathEscapeError` on the path-escape branch
     so the caller can distinguish "bad input shape" from
@@ -804,4 +791,7 @@ def _validate_write_extract_bundle(
     bundle_path.parent.mkdir(parents=True, exist_ok=True)
     bundle_path.write_bytes(bundle_bytes)
     extracted: Path = prepare_bundle_for_compile(bundle_path, target_dir)
-    return extracted
+    # ``as_posix`` keeps the wire-side ``configuration`` string
+    # stable across receiver platforms — ``str(rel_yaml)`` would
+    # emit ``\\``-separated paths on Windows.
+    return extracted.relative_to(config_dir.resolve()).as_posix()
