@@ -86,7 +86,7 @@ from .helpers import (
     _validate_archive_configuration,
     friendly_name_slugify,
 )
-from .metadata import DeviceMetadataMixin
+from .metadata import DeviceMetadataBase
 
 if TYPE_CHECKING:
     from ...device_builder import DeviceBuilder
@@ -127,12 +127,12 @@ _YAML_SEARCH_PER_FILE_MATCH_CAP = 5
 
 
 class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods need a refactor first)
-    DeviceMetadataMixin,
+    DeviceMetadataBase,
 ):
     """Manage device configurations, file watching, and CLI operations."""
 
     def __init__(self, device_builder: DeviceBuilder) -> None:
-        self._db = device_builder
+        super().__init__(device_builder)
         self._esphome_cmd: list[str] = []
         # Unsubscribe handle for the firmware-job-completion listener
         # wired up in start(); held so stop() can detach cleanly.
