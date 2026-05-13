@@ -374,26 +374,13 @@ class DeviceBuilder:
                 esphome_version=esphome_version,
                 dashboard_id=dashboard_identity.dashboard_id,
             )
-            # ``register`` is deferred until after the peer-link
-            # site has bound below, so the initial ServiceInfo
-            # carries pin_sha256 + remote_build_port baked into
-            # TXT instead of registering with just 2 keys and then
-            # firing an ``async_update_service`` that races
-            # python-zeroconf's background announce of the
-            # original 2-key state (which made the wire-visible
-            # TXT flap between 2 and 4 keys for the first few
-            # seconds of dashboard startup).
 
         await self.remote_build_receiver.start()
 
-        # Bind the peer-link Noise WS receiver site at
-        # ``/remote-build/peer-link`` if the user has opted in via
-        # ``RemoteBuildSettings.enabled``. Default-off so a fresh
-        # install never opens an inbound port without a deliberate
-        # operator action. Runs BEFORE the advertiser registers so
-        # the bind's pin + port land in the initial TXT via
-        # ``_publish_remote_build_advertise``'s set_*-only path
-        # (refresh is a no-op until ``register``).
+        # Bind the peer-link site BEFORE advertiser register so pin
+        # and port land in the initial ServiceInfo; a post-register
+        # ``async_update_service`` would race python-zeroconf's
+        # initial announce and flap the wire-visible TXT keys.
         await self._maybe_start_remote_build_site()
 
         if self._dashboard_advertiser is not None and zeroconf is not None:
