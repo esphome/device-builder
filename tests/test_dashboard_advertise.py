@@ -312,6 +312,46 @@ def test_local_addresses_drops_loopback_ip_on_real_adapter(monkeypatch: pytest.M
     assert _local_addresses() == ["192.168.1.10"]
 
 
+@pytest.mark.parametrize(
+    "bridge_name",
+    [
+        "docker0",
+        "docker_gwbridge",
+        "br-1a2b3c4d5e6f",
+        "veth1234abcd",
+        "cni0",
+        "virbr0",
+    ],
+    ids=["docker0", "docker-named", "br-userdef", "veth-peer", "cni0", "virbr0"],
+)
+def test_local_addresses_drops_virtual_bridge_by_name(
+    monkeypatch: pytest.MonkeyPatch, bridge_name: str
+) -> None:
+    """Container / virtualisation bridges are filtered by their interface name."""
+    adapters = [
+        _adapter(bridge_name, ips=["172.17.0.1"]),
+        _adapter("en0", ips=["192.168.1.10"]),
+    ]
+    monkeypatch.setattr(dashboard_advertise.ifaddr, "get_adapters", lambda: adapters)
+    assert _local_addresses() == ["192.168.1.10"]
+
+
+def test_local_addresses_drops_hyperv_virtual_switch_by_nice_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Windows Hyper-V virtual switches (``vEthernet (...)``) are filtered."""
+    adapters = [
+        _adapter(
+            "\\Device\\NPF_vEthernet_WSL",
+            nice_name="vEthernet (WSL)",
+            ips=["172.20.0.1"],
+        ),
+        _adapter("Ethernet", ips=["192.168.1.10"]),
+    ]
+    monkeypatch.setattr(dashboard_advertise.ifaddr, "get_adapters", lambda: adapters)
+    assert _local_addresses() == ["192.168.1.10"]
+
+
 def test_local_addresses_skips_unparseable_strings(monkeypatch: pytest.MonkeyPatch) -> None:
     """Garbage from a flaky adapter doesn't blow up the whole walk."""
     adapters = [

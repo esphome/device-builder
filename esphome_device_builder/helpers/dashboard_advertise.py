@@ -118,6 +118,46 @@ def _is_loopback_adapter(adapter: ifaddr.Adapter) -> bool:
     return name.startswith("lo") or "loopback" in nice
 
 
+# Interface-name prefixes whose addresses are scoped to the host's
+# own virtualisation / container bridges and shouldn't reach the LAN
+# in an mDNS announce. Two hosts with the same Docker default
+# (``docker0`` at ``172.17.0.1``) would otherwise have one's mDNS
+# advertise direct the other's peer-link client at its own
+# listener — see the peer-link self-loopback bug.
+#
+# * ``docker``  — Docker default bridge (``docker0``) and named
+#   gateway bridges (``docker_gwbridge``).
+# * ``br-``     — Docker user-defined network bridges
+#   (``br-<network-id>``).
+# * ``veth``    — virtual ethernet pair peer on the host side.
+# * ``cni``     — Kubernetes CNI plugin bridges (``cni0``).
+# * ``virbr``   — libvirt default bridges (``virbr0``).
+# * ``vethernet`` — Windows Hyper-V virtual switches (``vEthernet
+#   (WSL)``, ``vEthernet (Default Switch)``).
+_VIRTUAL_BRIDGE_PREFIXES: tuple[str, ...] = (
+    "docker",
+    "br-",
+    "veth",
+    "cni",
+    "virbr",
+    "vethernet",
+)
+
+
+def _is_virtual_bridge_adapter(adapter: ifaddr.Adapter) -> bool:
+    """
+    Return ``True`` when *adapter* is a virtualisation / container bridge.
+
+    Addresses on these adapters are bridge-namespace-scoped — a
+    peer receiving the IP either has no route to it (mismatched
+    bridge config) or, worse, routes to its own equivalent bridge
+    and lands on its own listener.
+    """
+    name = (adapter.name or "").lower()
+    nice = (adapter.nice_name or "").lower()
+    return any(name.startswith(p) or nice.startswith(p) for p in _VIRTUAL_BRIDGE_PREFIXES)
+
+
 def _local_addresses() -> list[str]:
     """
     Return the IPv4 / IPv6 addresses to advertise.
@@ -125,7 +165,7 @@ def _local_addresses() -> list[str]:
     Enumerates every adapter via :mod:`ifaddr` (already a
     python-zeroconf dependency) and returns the bare addresses as
     plain strings suitable for :class:`~zeroconf.ServiceInfo`'s
-    ``parsed_addresses`` keyword. Drops three classes of addresses
+    ``parsed_addresses`` keyword. Drops four classes of addresses
     that would land on the wire but never help a peer:
 
     * **Loopback interfaces.** Filtering by interface (``lo`` /
@@ -145,6 +185,16 @@ def _local_addresses() -> list[str]:
       comes back. Hosts with many virtual interfaces (VPN, awdl,
       utun*) can carry a dozen link-local addresses that just
       inflate the announcement without adding reachability.
+    * **Virtualisation / container bridges** — Docker default
+      (``docker0``), user-defined networks (``br-*``), virtual
+      ethernet pair peers (``veth*``), Kubernetes CNI (``cni*``),
+      libvirt (``virbr*``), Windows Hyper-V virtual switches
+      (``vEthernet (…)``). The default Docker bridge in particular
+      uses the same RFC 1918 subnet (``172.17.0.0/16``) on most
+      hosts; advertising ``172.17.0.1`` from one host would direct
+      a peer that also has Docker installed at its own equivalent
+      bridge IP — the TCP connect routes locally and the peer hits
+      its own listener, surfacing as a peer-link "pin drift".
 
     Setting ``parsed_addresses`` explicitly is what fixes the
     "127.0.0.1 / ::1 / fe80::1 only" advertise we saw on macOS:
@@ -169,7 +219,7 @@ def _local_addresses() -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
     for adapter in ifaddr.get_adapters():
-        if _is_loopback_adapter(adapter):
+        if _is_loopback_adapter(adapter) or _is_virtual_bridge_adapter(adapter):
             continue
         for ip in adapter.ips:
             # ``ifaddr.IP.ip`` is a ``str`` for IPv4 and a 3-tuple
