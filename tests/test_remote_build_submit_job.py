@@ -33,6 +33,7 @@ from esphome_device_builder.controllers.remote_build.submit_job import (
     _validate_configuration_filename,
 )
 from esphome_device_builder.helpers.peer_link_bundle import BUNDLE_CHUNK_SIZE_BYTES
+from esphome_device_builder.helpers.remote_build_layout import RemoteBuildPath
 from esphome_device_builder.models import (
     JobType,
     SubmitJobChunkFrameData,
@@ -585,11 +586,9 @@ async def test_submit_job_happy_path_with_relative_config_dir(
     # what real ``prepare_bundle_for_compile`` produces.
     abs_config_dir = rel_config_dir.resolve()
     expected_yaml = (
-        abs_config_dir
-        / ".esphome"
-        / ".remote_builds"
-        / "alpha-dashboard"
-        / "kitchen"
+        RemoteBuildPath(dashboard_id="alpha-dashboard", device_name="kitchen").subtree(
+            abs_config_dir
+        )
         / "kitchen.yaml"
     )
 

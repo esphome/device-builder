@@ -58,6 +58,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from esphome_device_builder.helpers.remote_build_layout import RemoteBuildPath
 from esphome_device_builder.models import (
     EventType,
     FirmwareJob,
@@ -220,11 +221,10 @@ async def test_submit_job_round_trip_extracts_real_bundle_and_queues_job(
 
     receiver_config_dir = paired_instances.receiver._db.settings.config_dir
     extracted_yaml = (
-        receiver_config_dir
-        / ".esphome"
-        / ".remote_builds"
-        / paired_instances.offloader_dashboard_id
-        / "kitchen"
+        RemoteBuildPath(
+            dashboard_id=paired_instances.offloader_dashboard_id,
+            device_name="kitchen",
+        ).subtree(receiver_config_dir)
         / "kitchen.yaml"
     )
     assert extracted_yaml.is_file(), (
@@ -274,18 +274,17 @@ async def test_submit_job_round_trip_with_relative_receiver_config_dir(
     # the wire-side ``job.configuration`` is the POSIX-relative
     # path under config_dir (same shape as the absolute-config-dir
     # case).
-    receiver_config_dir = instances.receiver._db.settings.config_dir
+    receiver_config_dir = instances.receiver._db.settings.config_dir.resolve()
     extracted_yaml = (
-        receiver_config_dir.resolve()
-        / ".esphome"
-        / ".remote_builds"
-        / instances.offloader_dashboard_id
-        / "kitchen"
+        RemoteBuildPath(
+            dashboard_id=instances.offloader_dashboard_id,
+            device_name="kitchen",
+        ).subtree(receiver_config_dir)
         / "kitchen.yaml"
     )
     assert extracted_yaml.is_file()
     assert extracted_yaml.read_bytes() == b"esphome:\n  name: kitchen\n"
-    assert job.configuration == extracted_yaml.relative_to(receiver_config_dir.resolve()).as_posix()
+    assert job.configuration == extracted_yaml.relative_to(receiver_config_dir).as_posix()
 
 
 @pytest.mark.asyncio
