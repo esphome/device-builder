@@ -1,28 +1,4 @@
-"""
-Background ``--only-generate`` regeneration helpers.
-
-After every YAML write (and once per device on startup), the
-controller schedules a background ``esphome compile
---only-generate <yaml>`` so the StorageJSON sidecar reflects the
-latest config without waiting for a real build. Three guards
-keep the spawn rate bounded:
-
-* In-memory ``_regenerate_pending`` dedupes within a session.
-* In-memory ``_regenerate_failed`` short-circuits a YAML whose
-  last attempt failed; entries are cleared in
-  ``_on_scan_change`` when the file's cache key changes (i.e.
-  the user actually edited it).
-* On-disk ``regen_failed_mtime`` + ``regen_failed_at`` in the
-  metadata sidecar carries the same skip across restarts. A
-  successful regen clears both atomically alongside the
-  ``expected_config_hash`` write.
-
-Three sets + one lock live on the controller (``_regenerate_pending``,
-``_regenerate_failed``, ``_regenerate_lock``); the functions here
-reach in via the ``controller`` arg rather than holding their own
-state, so the scan-change callback can clear ``_regenerate_failed``
-when a YAML edit invalidates the marker.
-"""
+"""Background ``--only-generate`` regeneration helpers."""
 
 from __future__ import annotations
 
@@ -40,16 +16,12 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-# How long the persisted "regen failed" stamp is honoured before a
-# restart-time check is allowed to re-spawn ``--only-generate`` for
-# the same untouched YAML. The in-memory ``_regenerate_failed`` set
-# blocks within a session until the user edits the YAML; the TTL
-# only applies cross-restart, so a transient external problem
-# (git package server flaky, DNS hiccup) eventually recovers
-# without forcing the user to touch the file. One hour is short
-# enough that "I'll come back to this in a bit and restart" works,
-# long enough that a debugger restarting the dashboard 10x in a
-# row doesn't churn through 10 spawns on the same broken config.
+# How long the persisted "regen failed" stamp is honoured before
+# a restart-time check is allowed to re-spawn ``--only-generate``
+# for the same untouched YAML. One hour: short enough that a
+# debugger restart-loop doesn't churn through 10 spawns on the
+# same broken config, long enough that the user can come back
+# later without having to touch the file.
 _REGEN_FAILURE_TTL_SECONDS: float = 3600.0
 
 
@@ -57,53 +29,17 @@ def schedule(controller: DevicesController, configuration: str) -> None:
     """
     Run ``esphome compile --only-generate <yaml>`` in the background.
 
-    ``--only-generate`` walks ESPHome's full config validation
-    pipeline (resolving ``!secret`` / ``!include`` / packages /
-    ``dashboard_import``) and writes the resulting StorageJSON
-    without doing a real build. That populates ``address``,
-    ``loaded_integrations``, ``target_platform``, etc. for devices
-    that have never been compiled (the typical "wr2-test was just
-    added and shows UNKNOWN forever" path) and refreshes them
-    whenever the YAML changes.
-
-    Three guards keep this from running away:
-    * ``_regenerate_pending`` skips duplicate schedules for a
-      configuration that's already in flight.
-    * ``_regenerate_failed`` skips YAMLs whose last attempt
-      failed; entries are cleared in ``_on_scan_change`` when the
-      file's cache key changes (i.e. the user actually edited it).
-    * ``regen_failed_mtime`` + ``regen_failed_at`` in the
-      metadata sidecar is the *cross-restart* version of the
-      same skip. The previous backend stamped the YAML's
-      mtime alongside ``time.time()``; a fresh start that
-      finds those two intact and within
-      ``_REGEN_FAILURE_TTL_SECONDS`` short-circuits without
-      spawning another ``esphome compile`` on the same broken
-      config. The check itself runs in an executor so the
-      per-device ``stat()`` and metadata read don't stall the
-      event loop on a fleet-wide cold start. Two retry
-      signals release the guard:
-
-      * The user edits the YAML — its mtime moves past the
-        stamp, so the equality check fails naturally.
-      * The TTL elapses — covers transient external problems
-        (git package server flaky, DNS hiccup) where the
-        user shouldn't have to touch the YAML to recover.
-    * ``_regenerate_lock`` serialises the subprocess itself so we
-      never spawn more than one esphome compile at a time.
-
-    Fire-and-forget: a follow-up ``_scanner.reload(configuration)``
-    on success picks up the new storage and re-emits a
-    ``DEVICE_UPDATED`` event so the frontend reflects the new
-    address / integrations.
+    Three guards bound the spawn rate: in-memory pending +
+    failed sets (per-session), an on-disk failure stamp
+    (cross-restart, TTL-gated), and ``_regenerate_lock``
+    serialising the subprocess itself.
     """
     if not controller._esphome_cmd:
-        return  # ``start()`` hasn't run yet — skip the regenerate.
+        return  # ``start()`` hasn't run yet.
     if configuration in controller._regenerate_pending:
-        return  # already scheduled, don't queue a duplicate.
+        return  # already scheduled.
     if configuration in controller._regenerate_failed:
-        # Last attempt this session failed and the YAML hasn't
-        # changed since; rerunning would produce the same error.
+        # Same-session retry would replay the same error.
         return
 
     # Mark synchronously so a second same-tick call sees the
@@ -115,29 +51,15 @@ def schedule(controller: DevicesController, configuration: str) -> None:
 
 async def _run(controller: DevicesController, configuration: str) -> None:
     try:
-        # Cross-restart skip: the previous backend persisted
-        # the YAML's mtime + wall-clock when the regen
-        # failed. If the file hasn't been touched since
-        # *and* the failure stamp is still within the TTL,
-        # replay would fail the same way — turn it into a
-        # no-op. The check itself batches its disk reads
-        # into one executor hop. Routed through the
-        # controller's bound delegates so tests that patch
-        # any of the four async helpers on the class still
-        # intercept.
+        # Routed through the controller's bound delegates so
+        # tests patching any of the four async helpers on the
+        # class still intercept.
         if await controller._regen_already_failed_recently_async(configuration):
             controller._regenerate_failed.add(configuration)
             return
         async with controller._regenerate_lock:
             success = await controller._spawn_only_generate(configuration)
         if success:
-            # ``--only-generate`` writes build_info.json
-            # with the canonical config_hash before
-            # exiting, same as a real compile. The single
-            # executor hop below reads that hash and
-            # writes the sidecar in one transaction, also
-            # clearing the regen-failure stamp now that
-            # the YAML generates cleanly.
             await controller._finalize_regen_success(configuration)
             await controller._scanner.reload(configuration)
         else:
@@ -151,12 +73,8 @@ async def spawn_only_generate(controller: DevicesController, configuration: str)
     """
     Run ``esphome compile --only-generate`` once. Return True iff exit-0.
 
-    Both failure modes (spawn raised, or the subprocess exited
-    non-zero) get logged at debug and produce ``False`` so the
-    caller takes the same persist-failure-stamp branch in
-    either case. Pulled out of :func:`_run` so the two failure
-    paths don't have to duplicate the marker-set + persist
-    sequence.
+    Spawn-raised and non-zero-exit both produce False so the
+    caller takes the same persist-failure-stamp branch.
     """
     config_path = str(controller._db.settings.rel_path(configuration))
     cmd = [*controller._esphome_cmd, "--dashboard", "compile", "--only-generate", config_path]
@@ -185,33 +103,20 @@ async def already_failed_recently_async(controller: DevicesController, configura
     """
     Return True iff the persisted failure stamp is unchanged-and-fresh.
 
-    Both halves have to hold for the guard to fire:
-
-    * The YAML's current ``stat.st_mtime`` equals the cached
-      ``regen_failed_mtime`` — same file as last time (any
-      edit moves the mtime forward).
-    * Less than ``_REGEN_FAILURE_TTL_SECONDS`` has elapsed
-      since the cached ``regen_failed_at`` — covers transient
-      external causes (git package server, DNS, ESPHome
-      mid-flight) by allowing a re-check after the TTL.
-
-    Disk reads (``Path.stat``, the ``.device-builder.json``
-    parse) batch into a single executor job so a cold-start
-    fleet sweep neither stalls the event loop nor double-books
-    the default thread pool. A negative age (clock skew, NTP
-    step, future-dated stamp) clamps to zero; without that
-    clamp a bad sidecar value could lock out the regen
-    indefinitely.
+    Both halves must hold: the YAML's ``stat.st_mtime`` equals
+    the cached ``regen_failed_mtime``, and the cached
+    ``regen_failed_at`` is within ``_REGEN_FAILURE_TTL_SECONDS``
+    (clamped against future-dated stamps so clock skew can't
+    lock the regen out indefinitely).
     """
     loop = asyncio.get_running_loop()
     config_dir = controller._db.settings.config_dir
     config_path = controller._db.settings.rel_path(configuration)
 
     def _read() -> tuple[float, dict[str, Any]] | None:
-        # One executor hop for both reads — paying for two
-        # parallel ``run_in_executor`` jobs would just consume
-        # two slots in the shared default thread pool for work
-        # that's already serial on disk anyway.
+        # One executor hop for both reads; the work is serial on
+        # disk anyway and two parallel jobs would just consume
+        # two thread-pool slots for no win.
         try:
             mtime = config_path.stat().st_mtime
         except OSError:
@@ -236,17 +141,11 @@ async def already_failed_recently_async(controller: DevicesController, configura
 
 async def stamp_failure(controller: DevicesController, configuration: str) -> None:
     """
-    Persist the cross-restart "we already tried, gave up" marker — one executor hop.
+    Persist the cross-restart "we already tried, gave up" marker.
 
-    Combines the YAML ``stat()`` and the sidecar write into a
-    single closure handed to ``run_in_executor``. The earlier
-    standalone-stamp shape took two hops (one to stat, one to
-    write); on a fleet-wide cold-start each saved hop is a
-    thread-pool slot back to the pool.
-
-    The wall-clock half is sampled inside the closure too, so
-    the stamp captures the same instant the file's mtime was
-    observed instead of straddling a hop.
+    Combines ``stat()`` + sidecar write into a single executor
+    hop and samples wall-clock inside the closure so the stamp
+    captures the same instant the file's mtime was observed.
     """
     config_dir = controller._db.settings.config_dir
     config_path = controller._db.settings.rel_path(configuration)
@@ -255,7 +154,7 @@ async def stamp_failure(controller: DevicesController, configuration: str) -> No
         try:
             mtime = config_path.stat().st_mtime
         except OSError:
-            return  # file vanished mid-regen; nothing useful to stamp
+            return  # file vanished mid-regen; nothing to stamp.
         set_device_metadata(
             config_dir,
             configuration,
@@ -268,20 +167,12 @@ async def stamp_failure(controller: DevicesController, configuration: str) -> No
 
 async def finalize_success(controller: DevicesController, configuration: str) -> None:
     """
-    Read the post-only-generate hash and clear the failure stamp — one executor hop.
+    Read the post-only-generate hash and clear the failure stamp.
 
-    Used to be three separate awaits — read ``build_info.json``,
-    write the hash, write the cleared regen stamp — totalling
-    three executor hops and two sidecar transactions. The
-    closure here folds them together: one ``read_build_info_hash``
-    call, one ``set_device_metadata`` transaction that writes
-    ``expected_config_hash`` and clears
+    Single executor hop folds the ``read_build_info_hash`` call
+    and the ``set_device_metadata`` transaction together; the
+    transaction writes ``expected_config_hash`` and clears
     ``regen_failed_mtime`` / ``regen_failed_at`` atomically.
-
-    See :meth:`DevicesController._persist_expected_config_hash` for the
-    rationale on why the hash is read off ``build_info.json`` rather
-    than recomputed in-process — a missing / malformed file is
-    unexpected on this code path so the warning log lives there.
     """
     config_dir = controller._db.settings.config_dir
     yaml_path = controller._db.settings.rel_path(configuration)
@@ -300,9 +191,9 @@ async def finalize_success(controller: DevicesController, configuration: str) ->
     new_hash = await asyncio.get_running_loop().run_in_executor(None, _finalize)
     if not new_hash:
         _LOGGER.warning(
-            "Could not read config_hash from build_info.json for %s — "
-            "the drawer's Local hash may stay stale until the next flash. "
-            "If this persists across compiles, check that ESPHome's "
+            "Could not read config_hash from build_info.json for %s; "
+            "the drawer's Local hash may stay stale until the next "
+            "flash. If this persists, check that ESPHome's "
             "build_info.json schema hasn't changed.",
             configuration,
         )
