@@ -20,25 +20,23 @@ if TYPE_CHECKING:
 
 
 # Job types that produce build artifacts a clean would destroy.
-# A clean against an in-flight one of these is rejected loudly
-# rather than supersede-cancelled.
+# A clean is rejected loudly (not supersede-cancelled) while any
+# of these is in-flight for the same configuration.
 _BUILD_PRODUCING_JOB_TYPES: frozenset[JobType] = frozenset(
     {JobType.COMPILE, JobType.UPLOAD, JobType.INSTALL, JobType.RENAME}
 )
 
 
 async def clean(controller: FirmwareController, *, configuration: str) -> FirmwareJob:
-    """Queue a clean job + one per connected paired receiver; return the LOCAL job.
+    """
+    Queue a clean job + one per connected paired receiver; return the LOCAL job.
 
     Per-peer REMOTE clean jobs surface through the firmware-jobs
-    ``subscribe_events`` stream rather than the WS reply — the
-    operator sees N+1 rows in the firmware-tasks panel.
-
-    Rejects with ``CommandError(INVALID_ARGS)`` when an active
-    compile / upload / install / rename job exists for the same
-    configuration; the supersede path would silently cancel a
-    build the user didn't intend to abandon. Two clean jobs for
-    the same configuration still supersede each other.
+    ``subscribe_events`` stream, not the WS reply. Rejects with
+    ``CommandError(INVALID_ARGS)`` while a compile / upload /
+    install / rename is in flight for the same configuration —
+    supersede would silently abandon a build the user didn't
+    mean to cancel. Two clean jobs still supersede each other.
     """
     await controller._validate_configuration_boundary(configuration)
     if blocker := _active_build_for(controller, configuration):
@@ -57,11 +55,10 @@ async def clean(controller: FirmwareController, *, configuration: str) -> Firmwa
 async def _fan_out_clean_to_connected_peers(
     controller: FirmwareController, configuration: str
 ) -> None:
-    """Queue one REMOTE clean job per APPROVED+connected paired peer.
+    """
+    Queue one REMOTE clean job per APPROVED+connected paired peer.
 
-    Silently skips PENDING pairings and disconnected approved peers;
-    a regression that lost the fan-out shows up as "I clicked Clean
-    but my receiver still has the old build".
+    Silently skips PENDING pairings and disconnected approved peers.
     """
     offloader = controller._db.remote_build_offloader
     if offloader is None:
