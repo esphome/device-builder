@@ -63,11 +63,10 @@ from ...models import (
     RemoteBuildPeer,
     StoredPairing,
 )
-from . import discovery, rebind
+from . import discovery, peer_link_lifecycle, rebind
 from ._mdns import endpoints_equal
 from ._models import (
     EDIT_PAIRING_PROBE_ERRORS,
-    PeerLinkClientHandle,
     RebindProbeOutcome,
     RebindProbeResult,
 )
@@ -95,7 +94,6 @@ from .artifacts_tarball import UnpackArtifactsError, unpack_artifacts_response
 from .peer_link_client import (
     DownloadArtifactsError,
     PairStatusResult,
-    PeerLinkClient,
     PeerLinkClientError,
     PeerLinkNoSessionError,
     SubmitJobSessionLostError,
@@ -115,6 +113,8 @@ if TYPE_CHECKING:
     from ...device_builder import DeviceBuilder
     from ...helpers.dashboard_identity import DashboardIdentity
     from ...helpers.peer_link_identity import PeerLinkIdentity
+    from ._models import PeerLinkClientHandle
+    from .peer_link_client import PeerLinkClient
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -855,31 +855,8 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         return configuration, yaml_path
 
     def _lookup_open_peer_link_client(self, pin_sha256: str, *, label: str) -> PeerLinkClient:
-        """Return the live :class:`PeerLinkClient` for *pin_sha256*, raising on miss.
-
-        ``NOT_FOUND`` for a missing pairing; ``PRECONDITION_FAILED``
-        for any of the not-ready states (PENDING, client not
-        spawned, orphaned, mid-reconnect) — all four fold into
-        one raise since the user's recovery is the same (wait +
-        retry); the distinguishing reason rides in the log line.
-        *label* names the calling op in the error message.
-        """
-        pairing = self._pairings.get(pin_sha256)
-        if pairing is None:
-            msg = f"{label}: no pairing for pin_sha256={pin_sha256!r}"
-            raise CommandError(ErrorCode.NOT_FOUND, msg)
-        if pairing.status is not PeerStatus.APPROVED:
-            reason = f"status is {pairing.status.value!r}, not APPROVED"
-        elif (handle := self._peer_link_clients.get(pin_sha256)) is None:
-            reason = "client not yet spawned"
-        elif handle.task.done():
-            reason = "client orphaned (pin mismatch / superseded)"
-        elif not handle.client.is_session_open:
-            reason = "session not connected (mid-reconnect / receiver offline)"
-        else:
-            return handle.client
-        msg = f"{label}: peer-link to {pairing.label!r} not ready ({reason})"
-        raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
+        """Return the live :class:`PeerLinkClient` for *pin_sha256*, raising on miss."""
+        return peer_link_lifecycle.lookup_open_peer_link_client(self, pin_sha256, label=label)
 
     async def _build_submit_job_bundle(self, configuration: str, yaml_path: Path) -> bytes:
         """Build the bundle bytes for *yaml_path*.
@@ -1141,90 +1118,20 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
             task.cancel()
 
     def _spawn_peer_link_client(self, pairing: StoredPairing) -> None:
-        """Spawn the long-lived peer-link client for *pairing*.
-
-        Idempotent on already-running clients — returns early if
-        a client for the row's ``pin_sha256`` is still alive.
-        Skips if the offloader-side identities haven't been
-        loaded yet (start order: identities load before any
-        spawn). Skips if the bus isn't wired (e.g. a unit test
-        path).
-        """
-        if (
-            self._offloader_dashboard_id is None
-            or self._offloader_peer_link_priv is None
-            or self._db.bus is None
-        ):
-            return
-        key = pairing.pin_sha256
-        existing = self._peer_link_clients.get(key)
-        if existing is not None and not existing.task.done():
-            return
-        client = PeerLinkClient(
-            receiver_hostname=pairing.receiver_hostname,
-            receiver_port=pairing.receiver_port,
-            identity_priv=self._offloader_peer_link_priv,
-            dashboard_id=self._offloader_dashboard_id,
-            # Pin the receiver's static pubkey from the
-            # OOB-verified pair flow so the long-lived peer-link
-            # handshake fails fast on identity drift instead of
-            # admitting an attacker with their own keypair to
-            # the application channel.
-            pinned_static_x25519_pub=pairing.static_x25519_pub,
-            pin_sha256=pairing.pin_sha256,
-            receiver_label=pairing.label,
-            bus=self._db.bus,
-            resolver=self._peer_link_resolver,
-        )
-        task = asyncio.create_task(
-            client.run(),
-            name=f"peer-link-client-{pairing.receiver_hostname}:{pairing.receiver_port}",
-        )
-        self._peer_link_clients[key] = PeerLinkClientHandle(client=client, task=task)
+        """Spawn the long-lived peer-link client for *pairing*."""
+        peer_link_lifecycle.spawn_peer_link_client(self, pairing)
 
     def _cancel_peer_link_client(self, pin_sha256: str) -> None:
         """Cancel the peer-link client for *pin_sha256*. No-op if none running."""
-        handle = self._peer_link_clients.pop(pin_sha256, None)
-        if handle is not None and not handle.task.done():
-            handle.task.cancel()
+        peer_link_lifecycle.cancel_peer_link_client(self, pin_sha256)
 
     def _sweep_stale_pairings_at_endpoint(
         self, hostname: str, port: int, *, keep_pin_sha256: str
     ) -> None:
-        """Drop any pairing or alert at ``(hostname, port)`` whose pin isn't *keep_pin_sha256*.
-
-        Cleans up after a re-pair against the same endpoint
-        under a fresh pin (receiver rotated identity, or a
-        different receiver took the hostname). Without the
-        sweep the old row + listener task + alert would leak
-        under pin-keying.
-
-        Walks both ``_pairings`` and ``_offloader_alerts``
-        because an alert can outlive its pairing on the
-        pin-drift branch. Snapshots to lists before iterating
-        to avoid mutate-during-iteration.
-        """
-        for stale_pin, pairing in list(self._pairings.items()):
-            if stale_pin == keep_pin_sha256:
-                continue
-            if pairing.receiver_hostname != hostname or pairing.receiver_port != port:
-                continue
-            self._pairings.pop(stale_pin, None)
-            self._cancel_pair_status_listener(stale_pin)
-            self._cancel_peer_link_client(stale_pin)
-            self._peer_queue_status.pop(stale_pin, None)
-            self._open_peer_links.discard(stale_pin)
-        # Alerts can outlive pairings — sweep them in a second
-        # pass keyed on the alert's stored ``receiver_hostname``
-        # / ``receiver_port`` (also walks the pin-keyed dict so
-        # an alert under the keep_pin_sha256 stays put if the
-        # user is re-confirming the same identity).
-        for stale_pin, alert in list(self._offloader_alerts.items()):
-            if stale_pin == keep_pin_sha256:
-                continue
-            if alert["receiver_hostname"] != hostname or alert["receiver_port"] != port:
-                continue
-            self._dismiss_offloader_alert(stale_pin, hostname, port)
+        """Drop any pairing or alert at ``(hostname, port)`` whose pin isn't *keep_pin_sha256*."""
+        peer_link_lifecycle.sweep_stale_pairings_at_endpoint(
+            self, hostname, port, keep_pin_sha256=keep_pin_sha256
+        )
 
     async def _await_pair_status_flip(self, pairing: StoredPairing) -> None:
         """Hold a Noise WS to the receiver until the row flips status.
