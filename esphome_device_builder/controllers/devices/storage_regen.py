@@ -71,10 +71,11 @@ async def _run(controller: DevicesController, configuration: str) -> None:
 
 async def spawn_only_generate(controller: DevicesController, configuration: str) -> bool:
     """
-    Run ``esphome compile --only-generate`` once. Return True iff exit-0.
+    Run ``esphome compile --only-generate`` once. Return True iff exit code 0.
 
-    Spawn-raised and non-zero-exit both produce False so the
-    caller takes the same persist-failure-stamp branch.
+    Exceptions during spawn and non-zero exit codes both
+    produce False so the caller takes the same
+    persist-failure-stamp branch.
     """
     config_path = str(controller._db.settings.rel_path(configuration))
     cmd = [*controller._esphome_cmd, "--dashboard", "compile", "--only-generate", config_path]
@@ -167,7 +168,7 @@ async def stamp_failure(controller: DevicesController, configuration: str) -> No
 
 async def finalize_success(controller: DevicesController, configuration: str) -> None:
     """
-    Read the post-only-generate hash and clear the failure stamp.
+    Read ``config_hash`` from ``build_info.json`` and clear the failure stamp.
 
     Single executor hop folds the ``read_build_info_hash`` call
     and the ``set_device_metadata`` transaction together; the
@@ -192,9 +193,10 @@ async def finalize_success(controller: DevicesController, configuration: str) ->
     if not new_hash:
         _LOGGER.warning(
             "Could not read config_hash from build_info.json for %s; "
-            "the drawer's Local hash may stay stale until the next "
-            "flash. If this persists, check that ESPHome's "
-            "build_info.json schema hasn't changed.",
+            "the displayed local config hash may stay stale until the "
+            "next flash. If this persists, verify build_info.json is "
+            "present in the build dir and that ESPHome's schema "
+            "hasn't changed.",
             configuration,
         )
         return
