@@ -918,17 +918,13 @@ def delete_label_cascade(config_dir: Path, label_id: str) -> tuple[bool, set[str
 # Chip / variant detection helpers (config/detect_chip)
 # ---------------------------------------------------------------------------
 
-# Maps esptool's "Detecting chip type… <X>" family string (lower-cased)
-# to (chip_family, variant, platform) where:
-#
-# - ``chip_family`` matches a ``WIZARD_BOARD_PLATFORMS.label`` value
-#   in the frontend so callers can hand it straight to the board-
-#   picker filter (e.g. ``"ESP32-C3"``). Families that aren't in
-#   the frontend table are still returned verbatim — the frontend
-#   gracefully falls through to "no filter" rather than crashing.
-# - ``variant`` / ``platform`` mirror ESPHome's own variant + platform
-#   keys (the lowercase values that show up in StorageJSON and the
-#   board catalogue).
+# Maps esptool's chip family string (lower-cased) to
+# ``(chip_family, variant, platform)``. ``chip_family`` matches a
+# ``WIZARD_BOARD_PLATFORMS.label`` value in the frontend so callers
+# can hand it straight to the board-picker filter; ``variant`` and
+# ``platform`` mirror ESPHome's own keys. Families not in this
+# table cause ``_chip_family_to_descriptor`` to return ``None``,
+# which the WS handler surfaces as ``_DETECT_UNKNOWN_CHIP``.
 #
 # esptool can only identify ESP chips. Non-ESP platforms (RP2040 /
 # RP2350, BK72xx, RTL87xx, LN882x, nRF52) need their own probe path;
@@ -969,9 +965,9 @@ _APP_DESC_MAGIC = 0xABCD5432
 _PROJECT_NAME_OFFSET = 48
 _PROJECT_NAME_SIZE = 32
 
-# Windows port names (COM1 … COM256). Linux / macOS ports start with
+# Windows ``COM<n>`` port names. Linux / macOS ports start with
 # ``/dev/`` and are validated separately. Catches accidental command
-# injection via the port arg — only well-formed paths reach esptool.
+# injection via the port arg — only well-formed names reach esptool.
 _WINDOWS_PORT_RE = re.compile(r"^COM\d{1,3}$", re.IGNORECASE)
 
 
@@ -1075,19 +1071,23 @@ def _classify_esptool_failure(output: str) -> str:
 
     Pattern-matches on substrings the esptool CLI prints today —
     fragile in principle, but the patterns have been stable across
-    v4 → v5 (busy / no-response are OS-level errors that ride
-    through unchanged from pyserial).
+    v4 → v5 (the underlying errors come from pyserial / the OS,
+    not esptool itself).
     """
     lower = output.lower()
     if "no module named" in lower or "modulenotfounderror" in lower:
         return _DETECT_NO_ESPTOOL
+    # POSIX EACCES (errno 13) and pyserial's PermissionError typically
+    # mean the user isn't in the dialout group on Linux — different
+    # fix from EBUSY (close another app), so they get their own bucket.
+    if "errno 13" in lower or "permissionerror" in lower or "permission denied" in lower:
+        return _DETECT_PERMISSION
     if (
         "resource busy" in lower
         or "could not open port" in lower
         or "port is busy" in lower
         or "errno 16" in lower
         or "access is denied" in lower  # Windows equivalent of EBUSY
-        or "permissionerror" in lower
     ):
         return _DETECT_BUSY
     if (
@@ -1154,7 +1154,7 @@ def _parse_chip_family_line(output: str) -> dict[str, str] | None:
     return None
 
 
-async def _run_esptool(args: list[str], timeout: float) -> tuple[int, bytes]:
+async def _run_esptool(args: list[str], timeout: float) -> tuple[int, bytes, bool]:
     """Spawn esptool with *args* and capture stdout+stderr.
 
     Uses :func:`_find_esptool_cmd` to pick the right invocation
@@ -1163,14 +1163,15 @@ async def _run_esptool(args: list[str], timeout: float) -> tuple[int, bytes]:
     same one-shot helper :func:`_verify_esphome_importable` uses
     for the esphome CLI sanity check.
 
-    Returns ``(returncode, stdout)``. On timeout, returncode is the
-    one assigned by the OS to the killed process (typically negative
-    on POSIX). Caller checks the return code; non-zero gets
-    classified by :func:`_classify_esptool_failure`.
+    Returns ``(returncode, stdout, timed_out)``. The caller treats
+    ``timed_out`` separately from a normal non-zero exit so the WS
+    error message can recommend an unplug/replug rather than
+    pointing at the cable.
     """
     cmd = _find_esptool_cmd()
     result = await run_subprocess_capture(*cmd, *args, timeout=timeout)
-    return result.returncode if result.returncode is not None else -1, result.stdout
+    rc = result.returncode if result.returncode is not None else -1
+    return rc, result.stdout, result.timed_out
 
 
 async def _detect_chip_via_esptool(
@@ -1183,7 +1184,12 @@ async def _detect_chip_via_esptool(
     of the ``_DETECT_*`` constants — the handler maps it to a
     user-facing message.
     """
-    returncode, stdout = await _run_esptool(["--port", port, "chip-id"], _CHIP_DETECT_TIMEOUT)
+    returncode, stdout, timed_out = await _run_esptool(
+        ["--port", port, "chip-id"], _CHIP_DETECT_TIMEOUT
+    )
+    if timed_out:
+        _LOGGER.debug("esptool chip-id on %s timed out after %ss", port, _CHIP_DETECT_TIMEOUT)
+        return None, _DETECT_TIMEOUT
     output = stdout.decode("utf-8", errors="replace")
     if returncode != 0:
         _LOGGER.debug("esptool chip-id on %s exited %d: %s", port, returncode, output)
@@ -1210,7 +1216,7 @@ async def _read_app_descriptor_board_id(port: str) -> str | None:
     fd, path = tempfile.mkstemp(prefix="esp_app_desc_", suffix=".bin")
     os.close(fd)
     try:
-        returncode, _stdout = await _run_esptool(
+        returncode, _stdout, timed_out = await _run_esptool(
             [
                 "--port",
                 port,
@@ -1221,7 +1227,7 @@ async def _read_app_descriptor_board_id(port: str) -> str | None:
             ],
             _READ_FLASH_TIMEOUT,
         )
-        if returncode != 0:
+        if timed_out or returncode != 0:
             return None
         try:
             blob = Path(path).read_bytes()
@@ -1242,6 +1248,7 @@ async def _read_app_descriptor_board_id(port: str) -> str | None:
 # misleading "is a device connected?" message even though the cable
 # is plugged in.
 _DETECT_BUSY = "busy"
+_DETECT_PERMISSION = "permission"
 _DETECT_NO_RESPONSE = "no_response"
 _DETECT_TIMEOUT = "timeout"
 _DETECT_NO_ESPTOOL = "no_esptool"
@@ -1249,40 +1256,49 @@ _DETECT_UNKNOWN_CHIP = "unknown_chip"
 _DETECT_UNKNOWN = "unknown"
 
 
-def _detect_failure_message(reason: str | None, port: str) -> str:
-    """Translate a ``_DETECT_*`` reason into a user-facing message.
+# Per-reason message templates. ``{port}`` is interpolated by
+# ``_detect_failure_message`` so each template stays a plain string
+# literal — easier to scan than nested f-strings inside a branchy
+# function (and keeps ruff happy about the if/elif chain length).
+_DETECT_FAILURE_MESSAGES: dict[str, str] = {
+    _DETECT_BUSY: (
+        "{port} is already in use by another application. Close any "
+        "browser tab using Web Serial or any serial monitor connected "
+        "to this port, then try again."
+    ),
+    _DETECT_PERMISSION: (
+        "Permission denied opening {port}. On Linux your user may "
+        "need to be in the ``dialout`` group "
+        "(``sudo usermod -a -G dialout $USER`` and log back in)."
+    ),
+    _DETECT_NO_RESPONSE: (
+        "No response from a chip on {port}. Check the USB cable, "
+        "and on boards without auto-reset try holding the BOOT button "
+        "while you plug it in."
+    ),
+    _DETECT_TIMEOUT: (
+        "esptool didn't finish in time on {port}. The chip may be "
+        "unresponsive — unplug and replug, then try again."
+    ),
+    _DETECT_UNKNOWN_CHIP: (
+        "Detected a device on {port}, but it isn't a recognised ESP "
+        "chip family. This command only supports ESP32 / ESP8266 "
+        "variants — pick a board manually from the list."
+    ),
+    _DETECT_NO_ESPTOOL: (
+        "Could not run esptool on the server. Make sure esptool is "
+        "installed in the dashboard's Python environment."
+    ),
+}
 
-    These reach the user directly via the WS error's ``details``
-    field, which the frontend renders inline in the wizard's
-    detection-failed state. Keep them short, specific, and
-    action-oriented — the user just clicked a port and got a red
-    box; they need to know what to do next, not what went wrong
-    internally.
-    """
-    if reason == _DETECT_BUSY:
-        return (
-            f"{port} is already in use by another application. Close any "
-            "browser tab using Web Serial or any serial monitor connected "
-            "to this port, then try again."
-        )
-    if reason == _DETECT_NO_RESPONSE:
-        return (
-            f"No response from a chip on {port}. Check the USB cable, "
-            "and on boards without auto-reset try holding the BOOT button "
-            "while you plug it in."
-        )
-    if reason == _DETECT_UNKNOWN_CHIP:
-        return (
-            f"Detected a device on {port}, but it isn't a recognised ESP "
-            "chip family. This command only supports ESP32 / ESP8266 "
-            "variants — pick a board manually from the list."
-        )
-    if reason == _DETECT_NO_ESPTOOL:
-        return (
-            "Could not run esptool on the server. Make sure esptool is "
-            "installed in the dashboard's Python environment."
-        )
-    return f"Could not detect a chip on {port}. Is a supported ESP device connected?"
+
+def _detect_failure_message(reason: str | None, port: str) -> str:
+    """Translate a ``_DETECT_*`` reason into a user-facing message."""
+    template = _DETECT_FAILURE_MESSAGES.get(
+        reason or "",
+        "Could not detect a chip on {port}. Is a supported ESP device connected?",
+    )
+    return template.format(port=port)
 
 
 # ---------------------------------------------------------------------------

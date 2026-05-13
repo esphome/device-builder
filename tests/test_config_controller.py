@@ -1044,11 +1044,7 @@ def _app_descriptor_blob(project_name: str = "starter-kit") -> bytes:
 
 
 def test_parse_chip_family_line_from_chip_type_line() -> None:
-    """Primary path — the post-stage ``Chip type:`` line.
-
-    Pins the parser against the exact output esptool v5.2 produces
-    against an M5Stamp-C3 (captured from a live device).
-    """
+    """Parser picks the family out of esptool v5.2's ``Chip type:`` line."""
     output = (
         "esptool v5.2.0\n"
         "Serial port /dev/cu.usbserial-54FC0197371:\n"
@@ -1066,11 +1062,7 @@ def test_parse_chip_family_line_from_chip_type_line() -> None:
 
 
 def test_parse_chip_family_line_falls_back_to_connected_to() -> None:
-    """Fallback when ``Chip type:`` is absent.
-
-    Secure Download Mode prints a different shape but still emits
-    ``Connected to X on …`` before bailing.
-    """
+    """Parser falls back to ``Connected to X on …`` when ``Chip type:`` is absent."""
     output = (
         "Connecting....\n"
         "Connected to ESP32-S3 on /dev/cu.usbmodem1234:\n"
@@ -1084,10 +1076,7 @@ def test_parse_chip_family_line_falls_back_to_connected_to() -> None:
 
 
 def test_parse_chip_family_line_legacy_detecting_line() -> None:
-    """Legacy fallback — the pre-stage ``Detecting chip type`` line.
-
-    Same shape ``_verify_chip`` in the firmware controller parses.
-    """
+    """Parser still handles esptool's legacy ``Detecting chip type…`` line."""
     output = "Detecting chip type... ESP32-C3"
     assert _parse_chip_family_line(output) == {
         "chip_family": "ESP32-C3",
@@ -1107,14 +1096,7 @@ def test_parse_chip_family_line_returns_none_for_unknown_family() -> None:
 def test_find_esptool_cmd_prefers_sibling_script(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """When an ``esptool`` script lives next to ``sys.executable``, use it.
-
-    Mirrors ``_find_esphome_cmd``'s sibling-script preference — and
-    dodges the ``python -m esptool`` failure mode we hit under VS
-    Code debugpy launches where the wrapper layer breaks ``-m``
-    module resolution even though ``import esptool`` works fine in
-    the parent process.
-    """
+    """A sibling ``esptool`` next to ``sys.executable`` wins over ``-m esptool``."""
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     fake_python = fake_bin / "python3"
@@ -1194,14 +1176,17 @@ def test_is_valid_port_name_rejects_traversal_and_metacharacters() -> None:
 def _mock_run_esptool(monkeypatch: pytest.MonkeyPatch, side_effect):
     """Wire a fake ``_run_esptool`` that dispatches by argv shape.
 
-    ``side_effect`` is a callable ``(args: list[str]) → (rc, stdout_bytes)``.
-    The dashboard's two esptool calls are ``--port X chip-id`` and
-    ``--port X read-flash 0x10020 256 <tempfile>``; *side_effect*
-    inspects ``args`` to decide which response to return.
+    ``side_effect`` is a callable ``(args: list[str]) → (rc, stdout_bytes)``
+    or ``(rc, stdout_bytes, timed_out)``; the wrapper pads a missing
+    ``timed_out`` to ``False`` so happy-path tests stay concise.
     """
 
-    async def fake(args: list[str], timeout: float) -> tuple[int, bytes]:
-        return side_effect(args)
+    async def fake(args: list[str], timeout: float) -> tuple[int, bytes, bool]:
+        result = side_effect(args)
+        if len(result) == 2:
+            rc, stdout = result
+            return rc, stdout, False
+        return result
 
     monkeypatch.setattr("esphome_device_builder.controllers.config._run_esptool", fake)
 
@@ -1277,14 +1262,7 @@ async def test_detect_chip_rejects_missing_or_invalid_port(tmp_path: Path) -> No
 async def test_detect_chip_surfaces_port_busy_message(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Port-busy is the #1 detection failure in practice.
-
-    A stale WebSerial session or serial monitor holding the port
-    needs the user to close that other app rather than poking at
-    the cable. The classifier pattern-matches on the esptool error
-    blob (EBUSY on POSIX → "Resource busy", on Windows → "Access is
-    denied").
-    """
+    """Port-busy errors surface a message that points at closing the other app."""
     posix_blob = (
         b"esptool v5.2.0\n"
         b"A fatal error occurred: Could not open /dev/ttyUSB0, the port is busy or doesn't exist.\n"
@@ -1306,11 +1284,7 @@ async def test_detect_chip_surfaces_port_busy_message(
 async def test_detect_chip_surfaces_no_response_message(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Chip didn't answer — surface cable / BOOT-button advice.
-
-    Esptool ran and the port was free, but the chip is silent. The
-    user needs hardware-side advice, not a "port busy" hint.
-    """
+    """A silent chip surfaces a message that points at the cable / BOOT button."""
     _mock_run_esptool(
         monkeypatch,
         lambda args: (
@@ -1327,15 +1301,45 @@ async def test_detect_chip_surfaces_no_response_message(
 
 
 @pytest.mark.asyncio
+async def test_detect_chip_surfaces_permission_denied_message(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Linux EACCES surfaces a ``dialout`` group hint, not the busy-port copy."""
+    _mock_run_esptool(
+        monkeypatch,
+        lambda args: (
+            1,
+            b"[Errno 13] could not open port /dev/ttyUSB0: "
+            b"PermissionError(13, 'Permission denied')",
+        ),
+    )
+    controller = _make_controller(tmp_path)
+
+    with pytest.raises(CommandError) as exc:
+        await controller.detect_chip_cmd(port="/dev/ttyUSB0")
+    assert exc.value.code == ErrorCode.UNAVAILABLE
+    assert "dialout" in exc.value.message.lower()
+
+
+@pytest.mark.asyncio
+async def test_detect_chip_surfaces_timeout_message(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A subprocess timeout surfaces unplug/replug advice, not the unknown-error copy."""
+    _mock_run_esptool(monkeypatch, lambda args: (-1, b"", True))
+    controller = _make_controller(tmp_path)
+
+    with pytest.raises(CommandError) as exc:
+        await controller.detect_chip_cmd(port="/dev/ttyUSB0")
+    assert exc.value.code == ErrorCode.UNAVAILABLE
+    assert "didn't finish in time" in exc.value.message.lower()
+
+
+@pytest.mark.asyncio
 async def test_detect_chip_surfaces_unknown_chip_message(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Detected chip family isn't in our table.
-
-    A future Espressif part or a non-ESP impostor that somehow
-    answered — point the user at the manual board picker instead
-    of silently filtering against nothing.
-    """
+    """An unrecognised chip family points the user at the manual board picker."""
     _mock_run_esptool(
         monkeypatch,
         lambda args: (0, b"Chip type:          ESP32-Z99 (revision v9.9)\n"),
@@ -1352,13 +1356,7 @@ async def test_detect_chip_surfaces_unknown_chip_message(
 async def test_detect_chip_surfaces_no_esptool_message(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Esptool isn't reachable from the spawned interpreter.
-
-    Very rare — esphome drags esptool in transitively — but possible
-    under a debug-launched dashboard whose sibling-script lookup
-    falls back to ``python -m esptool`` for an interpreter that
-    doesn't have esptool on ``sys.path``.
-    """
+    """A ``No module named esptool`` output surfaces an esptool-install hint."""
     _mock_run_esptool(
         monkeypatch,
         lambda args: (1, b"/usr/bin/python3: No module named esptool\n"),
