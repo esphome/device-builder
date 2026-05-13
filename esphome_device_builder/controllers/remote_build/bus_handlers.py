@@ -52,7 +52,8 @@ _OFFLOADER_REMOTE_JOB_TERMINAL_STATUSES: frozenset[str] = frozenset(
 def on_offloader_pair_pin_mismatch(
     controller: OffloaderController, event: Event[OffloaderPairPinMismatchData]
 ) -> None:
-    """Cache the alert in ``_offloader_alerts`` for late-subscriber snapshot.
+    """
+    Cache the alert in ``_offloader_alerts`` for late-subscriber snapshot.
 
     Keyed on ``pin_sha256`` (matches the synchronous
     mutation site in :meth:`_apply_pair_status_result`).
@@ -84,7 +85,8 @@ def on_offloader_pair_pin_mismatch(
 def on_offloader_peer_link_opened(
     controller: OffloaderController, event: Event[OffloaderPeerLinkOpenedData]
 ) -> None:
-    """Add ``pin_sha256`` to ``_open_peer_links`` and refresh the receiver version.
+    """
+    Add ``pin_sha256`` to ``_open_peer_links`` and refresh the receiver version.
 
     Receiver's ``esphome_version`` rides on every
     ``intent_response`` so a receiver upgrade picks up on
@@ -137,7 +139,8 @@ def on_offloader_queue_status_changed(
 def on_offloader_job_state_changed(
     controller: OffloaderController, event: Event[OffloaderJobStateChangedData]
 ) -> None:
-    """Maintain the offloader-side in-flight remote-job cache.
+    """
+    Maintain the offloader-side in-flight remote-job cache.
 
     Upserts the entry on ``queued`` / ``running``; drops on
     terminal (``completed`` / ``failed`` / ``cancelled``)
