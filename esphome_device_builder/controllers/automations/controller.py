@@ -139,7 +139,8 @@ class AutomationsController:
         render the right dropdown.
         """
         text = await self._read_config(configuration)
-        scoped = _scope_from_yaml(text)
+        loop = asyncio.get_running_loop()
+        scoped = await loop.run_in_executor(None, _scope_from_yaml, text)
         triggers = catalog.triggers_for_domains(scoped.domains)
         return AvailableAutomations(
             triggers=triggers,
