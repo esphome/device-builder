@@ -54,9 +54,12 @@ from esphome_device_builder.controllers.remote_build.peer_link import (
     _DispatchInput,
     _drive_peer_link_session,
     _HandshakeStep,
-    _receive_loop,
     make_peer_link_handler,
 )
+from esphome_device_builder.controllers.remote_build.peer_link import (
+    session as _peer_link_session_module,
+)
+from esphome_device_builder.controllers.remote_build.peer_link.session import _receive_loop
 from esphome_device_builder.controllers.remote_build.peer_link.wire_io import (
     _PEER_LABEL_MAX_CHARS,
     _normalize_label,
@@ -723,7 +726,7 @@ async def test_drive_session_handshake_not_complete_logs_and_returns(
 
     real_session = PeerLinkNoiseSession.responder(responder_priv)
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.peer_link.PeerLinkNoiseSession.responder",
+        "esphome_device_builder.controllers.remote_build.peer_link.handshake.PeerLinkNoiseSession.responder",
         lambda priv: real_session,
     )
 
@@ -2031,9 +2034,9 @@ async def test_run_peer_link_heartbeat_terminates_on_pong_timeout(
     the miss threshold on the next ``_monotonic`` read so the
     very first iteration trips the timeout branch.
     """
-    monkeypatch.setattr(_peer_link_module, "HEARTBEAT_INTERVAL_SECONDS", 0.001)
-    monkeypatch.setattr(_peer_link_module, "HEARTBEAT_DEAD_AFTER_SECONDS", 0.0)
-    monkeypatch.setattr(_peer_link_module, "_monotonic", lambda: 1000.0)
+    monkeypatch.setattr(_peer_link_session_module, "HEARTBEAT_INTERVAL_SECONDS", 0.001)
+    monkeypatch.setattr(_peer_link_session_module, "HEARTBEAT_DEAD_AFTER_SECONDS", 0.0)
+    monkeypatch.setattr(_peer_link_session_module, "_monotonic", lambda: 1000.0)
 
     pings: list[int] = []
     deaths: list[bool] = []
@@ -2045,7 +2048,7 @@ async def test_run_peer_link_heartbeat_terminates_on_pong_timeout(
     async def _on_dead() -> None:
         deaths.append(True)
 
-    await _peer_link_module.run_peer_link_heartbeat(
+    await _peer_link_session_module.run_peer_link_heartbeat(
         send_ping=_send_ping,
         last_pong_at=lambda: 0.0,
         on_dead=_on_dead,
@@ -2063,8 +2066,8 @@ async def test_run_peer_link_heartbeat_terminates_on_send_failure(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """If ``send_ping`` reports failure (WS dead), the heartbeat invokes ``on_dead``."""
-    monkeypatch.setattr(_peer_link_module, "HEARTBEAT_INTERVAL_SECONDS", 0.001)
-    monkeypatch.setattr(_peer_link_module, "_monotonic", lambda: 0.0)
+    monkeypatch.setattr(_peer_link_session_module, "HEARTBEAT_INTERVAL_SECONDS", 0.001)
+    monkeypatch.setattr(_peer_link_session_module, "_monotonic", lambda: 0.0)
 
     deaths: list[bool] = []
 
@@ -2074,7 +2077,7 @@ async def test_run_peer_link_heartbeat_terminates_on_send_failure(
     async def _on_dead() -> None:
         deaths.append(True)
 
-    await _peer_link_module.run_peer_link_heartbeat(
+    await _peer_link_session_module.run_peer_link_heartbeat(
         send_ping=_send_ping_fail,
         last_pong_at=lambda: 0.0,
         on_dead=_on_dead,
@@ -2129,7 +2132,7 @@ async def test_run_peer_link_session_heartbeat_closures_route_to_session(
         # Park until the test signals via cancellation.
         await asyncio.Event().wait()
 
-    monkeypatch.setattr(_peer_link_module, "run_peer_link_heartbeat", _capturing_heartbeat)
+    monkeypatch.setattr(_peer_link_session_module, "run_peer_link_heartbeat", _capturing_heartbeat)
 
     run_task = asyncio.create_task(
         _peer_link_module._run_peer_link_session(
@@ -2187,8 +2190,8 @@ async def test_run_peer_link_heartbeat_propagates_cancellation(
     """
     # Use a long interval so the task is reliably parked in
     # ``asyncio.sleep`` when we cancel.
-    monkeypatch.setattr(_peer_link_module, "HEARTBEAT_INTERVAL_SECONDS", 10.0)
-    monkeypatch.setattr(_peer_link_module, "_monotonic", lambda: 0.0)
+    monkeypatch.setattr(_peer_link_session_module, "HEARTBEAT_INTERVAL_SECONDS", 10.0)
+    monkeypatch.setattr(_peer_link_session_module, "_monotonic", lambda: 0.0)
 
     async def _noop_send(_nonce: int) -> bool:
         return True
@@ -2197,7 +2200,7 @@ async def test_run_peer_link_heartbeat_propagates_cancellation(
         pass
 
     task = asyncio.create_task(
-        _peer_link_module.run_peer_link_heartbeat(
+        _peer_link_session_module.run_peer_link_heartbeat(
             send_ping=_noop_send,
             last_pong_at=lambda: 0.0,
             on_dead=_noop_dead,

@@ -25,6 +25,7 @@ from ....helpers.peer_link_noise import (
     pin_sha256_for_pubkey,
 )
 from ....models import IntentResponse, PeerLinkIntent
+from .session import _run_peer_link_session
 from .wire_io import (
     _normalize_label,
     _parse_intent,
@@ -164,11 +165,6 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
     # intent — including a ``REJECTED`` peer_link — closes the WS
     # via the handler's ``finally`` (the legacy one-shot shape).
     if intent is PeerLinkIntent.PEER_LINK and response is IntentResponse.OK:
-        # Lazy import: ``_run_peer_link_session`` lives in the
-        # parent package's ``__init__.py``, which imports this
-        # module — a top-level import would deadlock the load.
-        from . import _run_peer_link_session  # noqa: PLC0415
-
         await _run_peer_link_session(
             controller=controller,
             ws=ws,

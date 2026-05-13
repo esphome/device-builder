@@ -86,7 +86,9 @@ class PeerLinkChannel:
         through. See :func:`parse_app_frame` for the per-branch
         log + ``None``-on-malformed contract.
         """
-        from . import parse_app_frame  # noqa: PLC0415
+        # Lazy import: ``session.py`` imports ``PeerLinkChannel``
+        # from this module — a top-level import would be circular.
+        from .session import parse_app_frame  # noqa: PLC0415
 
         return parse_app_frame(self.noise, msg, log_label=self.log_label)
 
