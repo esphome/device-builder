@@ -885,9 +885,7 @@ def _normalize_label(value: object) -> str:
     return raw[:_PEER_LABEL_MAX_CHARS]
 
 
-# Re-export goes at the bottom of __init__.py so ``_send_bytes_safely``
-# and ``parse_app_frame`` are defined as package attributes by the time
-# ``channel.py``'s lazy imports look them up. Subsequent split PRs move
-# those helpers into sibling submodules and the lazy import becomes a
-# plain module-level one.
+# Re-export at the bottom: ``channel.py``'s lazy imports look up
+# ``_send_bytes_safely`` / ``parse_app_frame`` as package attributes,
+# so the channel module must load after they're defined above.
 from .channel import PeerLinkChannel as PeerLinkChannel  # noqa: E402
