@@ -524,7 +524,8 @@ async def test_submit_job_happy_path_extracts_and_queues(
     # plumbing; the real extraction is covered by esphome's own
     # tests + the e2e harness later.
     expected_yaml = (
-        tmp_path / ".esphome" / ".remote_builds" / "alpha-dashboard" / "kitchen" / "kitchen.yaml"
+        RemoteBuildPath(dashboard_id="alpha-dashboard", device_name="kitchen").subtree(tmp_path)
+        / "kitchen.yaml"
     )
 
     def _stub_prepare(bundle_path: Path, target_dir: Path) -> Path:
@@ -642,7 +643,8 @@ async def test_submit_job_clean_target_creates_clean_job(
     bundle = make_tar_bundle("kitchen.yaml", b"esphome:\n  name: kitchen\n")
 
     expected_yaml = (
-        tmp_path / ".esphome" / ".remote_builds" / "alpha-dashboard" / "kitchen" / "kitchen.yaml"
+        RemoteBuildPath(dashboard_id="alpha-dashboard", device_name="kitchen").subtree(tmp_path)
+        / "kitchen.yaml"
     )
 
     def _stub_prepare(bundle_path: Path, target_dir: Path) -> Path:
@@ -705,7 +707,8 @@ async def test_submit_job_carries_display_fields_through_to_firmware_job(
     session = _make_session(dashboard_id="alpha-dashboard")
     bundle = make_tar_bundle("kitchen.yaml", b"esphome:\n  name: kitchen\n")
     expected_yaml = (
-        tmp_path / ".esphome" / ".remote_builds" / "alpha-dashboard" / "kitchen" / "kitchen.yaml"
+        RemoteBuildPath(dashboard_id="alpha-dashboard", device_name="kitchen").subtree(tmp_path)
+        / "kitchen.yaml"
     )
 
     def _stub_prepare(bundle_path: Path, target_dir: Path) -> Path:
@@ -761,7 +764,8 @@ async def test_submit_job_malformed_display_fields_coerce_to_empty(
     session = _make_session(dashboard_id="alpha-dashboard")
     bundle = make_tar_bundle("kitchen.yaml", b"esphome:\n  name: kitchen\n")
     expected_yaml = (
-        tmp_path / ".esphome" / ".remote_builds" / "alpha-dashboard" / "kitchen" / "kitchen.yaml"
+        RemoteBuildPath(dashboard_id="alpha-dashboard", device_name="kitchen").subtree(tmp_path)
+        / "kitchen.yaml"
     )
 
     def _stub_prepare(bundle_path: Path, target_dir: Path) -> Path:
@@ -816,7 +820,8 @@ async def test_submit_job_missing_display_fields_falls_through_to_empty_strings(
     session = _make_session(dashboard_id="alpha-dashboard")
     bundle = make_tar_bundle("kitchen.yaml", b"esphome:\n  name: kitchen\n")
     expected_yaml = (
-        tmp_path / ".esphome" / ".remote_builds" / "alpha-dashboard" / "kitchen" / "kitchen.yaml"
+        RemoteBuildPath(dashboard_id="alpha-dashboard", device_name="kitchen").subtree(tmp_path)
+        / "kitchen.yaml"
     )
 
     def _stub_prepare(bundle_path: Path, target_dir: Path) -> Path:
@@ -893,7 +898,8 @@ async def test_submit_job_bundle_path_survives_prepare_bundle_wipe(
     session = _make_session(dashboard_id="alpha-dashboard")
     bundle = make_tar_bundle("kitchen.yaml", b"esphome:\n  name: kitchen\n")
     expected_yaml = (
-        tmp_path / ".esphome" / ".remote_builds" / "alpha-dashboard" / "kitchen" / "kitchen.yaml"
+        RemoteBuildPath(dashboard_id="alpha-dashboard", device_name="kitchen").subtree(tmp_path)
+        / "kitchen.yaml"
     )
 
     # Mirror upstream prepare_bundle_for_compile's preserve set
