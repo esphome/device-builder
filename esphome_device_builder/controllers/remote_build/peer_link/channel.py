@@ -32,13 +32,10 @@ class PeerLinkChannel:
     """
     Wire-level send / parse / terminate seam shared by both ends.
 
-    Wraps the post-handshake :class:`PeerLinkNoiseSession` plus
-    its WS endpoint and a send lock. Each side's session class
-    composes one of these so the encrypt-then-send pattern (and
-    the validate-decrypt-parse-dict-check parse pattern, and the
-    structured terminate-frame-then-close pattern) only lives in
-    one module. ``log_label`` is what callers want in their log
-    lines: receiver passes its ``dashboard_id``, offloader
+    Wraps the post-handshake :class:`PeerLinkNoiseSession`, its
+    WS endpoint, and a send lock so the encrypt-then-send pattern
+    lives in one place. ``log_label`` is what each side wants in
+    its log lines: receiver passes its ``dashboard_id``, offloader
     passes ``"<hostname>:<port>"``.
     """
 
@@ -78,14 +75,7 @@ class PeerLinkChannel:
             return await _send_bytes_safely(self.ws, ciphertext, log_label="app frame")
 
     def parse_frame(self, msg: Any) -> dict[str, Any] | None:
-        """
-        Validate, decrypt, and JSON-parse one inbound frame.
-
-        Thin wrapper around :func:`parse_app_frame` so callers
-        don't have to thread :attr:`noise` and :attr:`log_label`
-        through. See :func:`parse_app_frame` for the per-branch
-        log + ``None``-on-malformed contract.
-        """
+        """Validate, decrypt, and JSON-parse one inbound frame; ``None`` on malformed."""
         # Lazy import: ``session.py`` imports ``PeerLinkChannel``
         # from this module — a top-level import would be circular.
         from .session import parse_app_frame  # noqa: PLC0415
@@ -96,23 +86,15 @@ class PeerLinkChannel:
         """
         Send a structured ``terminate`` frame and close the WS, best-effort.
 
-        The terminate frame routes through :meth:`send_frame` so
-        the encrypt + lock invariants hold; the close that
-        follows is best-effort because a peer that has already
-        gone away won't accept either, and we want the call site
-        idempotent across "WS still up" and "WS dead" states.
-        Narrow suppress to transport-level errors only — including
-        :class:`aiohttp.ClientError` because this channel runs on
-        both sides of the wire (offloader side's ``self.ws`` is a
-        :class:`aiohttp.ClientWebSocketResponse` whose ``.close()``
-        can raise ``ClientConnectionError`` / ``ClientError``
-        when the peer has already gone away). A ``ClientError``
-        escaping here would block the caller's
-        :class:`CancelledError` propagation when used inside a
-        :meth:`PeerLinkClient._run_one_session` cancellation
-        handler. Python 3.8+ already excludes ``CancelledError``
-        from ``Exception``, so the wider suppression below stays
-        compatible with the no-swallow contract.
+        The frame routes through :meth:`send_frame` so the encrypt
+        + lock invariants hold. The close that follows must
+        suppress ``aiohttp.ClientError`` too: offloader-side
+        ``ClientWebSocketResponse.close()`` raises it when the peer
+        has gone away, and an escape here would block
+        ``CancelledError`` propagation inside
+        :meth:`PeerLinkClient._run_one_session`'s cancel handler.
+        ``CancelledError`` doesn't inherit from ``Exception`` since
+        Py3.8, so the wider suppression stays no-swallow safe.
         """
         await self.send_frame({"type": AppMessageType.TERMINATE.value, "reason": reason})
         with contextlib.suppress(OSError, RuntimeError, aiohttp.ClientError):
