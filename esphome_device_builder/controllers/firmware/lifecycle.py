@@ -57,7 +57,10 @@ def finalize_cancelled(controller: FirmwareController, job: FirmwareJob) -> None
     couple the runtime-cancel sites to disk I/O.
     """
     controller._cancel_requested.discard(job.job_id)
-    finalize_terminal(controller, job, JobStatus.CANCELLED)
+    # Route through the bound-method delegate so test patches
+    # on ``controller._finalize_terminal`` intercept the cancel
+    # path the same way they do every other finalisation site.
+    controller._finalize_terminal(job, JobStatus.CANCELLED)
 
 
 def raise_if_cancelled(controller: FirmwareController, job: FirmwareJob, phase: str) -> None:
