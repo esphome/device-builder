@@ -858,11 +858,11 @@ async def test_stream_subprocess_applies_line_transform(
         return proc
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.iter_lines_with_progress",
+        "esphome_device_builder.controllers.devices.logs.iter_lines_with_progress",
         _fake_iter_lines,
     )
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.create_subprocess_exec",
+        "esphome_device_builder.controllers.devices.logs.create_subprocess_exec",
         _fake_create_subprocess_exec,
     )
 

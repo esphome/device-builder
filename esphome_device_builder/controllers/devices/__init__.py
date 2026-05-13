@@ -20,6 +20,10 @@ resolving after the subpackage split. Submodules:
 - ``importable`` — discovery / adoption helpers
   (``import_device``, ``toggle_ignore``, importable-cache
   callbacks, ignored-set load / save).
+- ``logs`` — per-connection log streaming
+  (``stream_logs``, ``stop_stream``) plus the shared
+  ``stream_subprocess`` helper that ``validate_config``
+  reuses.
 - ``reachability`` — per-device reachability streaming + the
   on-subscription mDNS A-record refresh loop.
 - ``storage_regen`` — background ``--only-generate`` scheduler

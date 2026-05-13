@@ -9,9 +9,7 @@ MQTT-coordinator glue. Pure data and free helpers live in
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
-import os
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -32,9 +30,7 @@ from ...helpers.device_yaml import (
 )
 from ...helpers.event_bus import Event
 from ...helpers.mac_addresses import derive_interface_macs
-from ...helpers.process import kill_quietly
 from ...helpers.storage_path import resolve_storage_path
-from ...helpers.subprocess import create_subprocess_exec, iter_lines_with_progress
 from ...helpers.yaml import (
     YamlUpsertNotSupportedError,
     generate_api_encryption_key,
@@ -55,7 +51,6 @@ from ...models import (
     ErrorCode,
     EventType,
     JobLifecycleData,
-    StreamEvent,
     UpdateDeviceResponse,
     WizardResponse,
 )
@@ -71,7 +66,7 @@ from ..config import (
     set_device_metadata,
 )
 from ..firmware.helpers import _find_esphome_cmd
-from . import api_key, archive, firmware_sync, importable, reachability, storage_regen
+from . import api_key, archive, firmware_sync, importable, logs, reachability, storage_regen
 from ._yaml_search import (
     DEFAULT_CONTEXT_LINES,
     MAX_CONTEXT_LINES,
@@ -1607,39 +1602,15 @@ class DevicesController:  # noqa: PLR0904 (grandfathered; new public methods nee
         message_id: str = "",
         **kwargs: Any,
     ) -> None:
-        """
-        Stream live device logs. Per-connection, not queued.
-
-        ``port`` is forwarded to ``esphome logs`` as ``--device``
-        and defaults to ``OTA`` when missing or empty. ``no_states``
-        passes ``--no-states`` through so component state-publish
-        lines (sensor / binary_sensor / switch / cover / climate ...)
-        are suppressed at the source — mirrors the legacy
-        dashboard's "Show entity state changes" toggle.
-        """
-        config_path = str(self._db.settings.rel_path(configuration))
-        # Always pass --device. Without one, ``esphome logs`` enters
-        # an interactive port-choice prompt when multiple targets
-        # are visible (serial + OTA); the stdin-less subprocess
-        # then crashes with EOFError. (#636)
-        resolved_port = port or "OTA"
-        # Cache args must come before the subcommand — esphome parses
-        # ``--mdns/--dns-address-cache`` on the top-level parser, not
-        # ``logs``'s. Skip the round-trip the legacy dashboard already
-        # avoided.
-        cache_args = self.get_ota_address_cache_args(configuration, resolved_port)
-        cmd = [
-            *self._esphome_cmd,
-            "--dashboard",
-            *cache_args,
-            "logs",
-            config_path,
-            "--device",
-            resolved_port,
-        ]
-        if no_states:
-            cmd.append("--no-states")
-        await self._stream_subprocess(cmd, client, message_id)
+        """Stream live device logs. Per-connection, not queued."""
+        await logs.stream_logs(
+            self,
+            configuration=configuration,
+            port=port,
+            no_states=no_states,
+            client=client,
+            message_id=message_id,
+        )
 
     @api_command("devices/stop_stream")
     async def stop_stream(
@@ -1649,17 +1620,8 @@ class DevicesController:  # noqa: PLR0904 (grandfathered; new public methods nee
         client: Any = None,
         **kwargs: Any,
     ) -> dict:
-        """
-        Cancel a streaming command (``devices/logs`` or ``devices/validate``) on this connection.
-
-        ``stream_id`` is the ``message_id`` returned when the streaming
-        command was issued. Returns ``{"cancelled": True}`` if a matching
-        in-flight stream was found; ``{"cancelled": False}`` otherwise
-        (already finished, never registered, or no client context).
-        """
-        if client is None:
-            return {"cancelled": False}
-        return {"cancelled": client.cancel_stream(stream_id)}
+        """Cancel a streaming command on this connection."""
+        return logs.stop_stream(client, stream_id)
 
     @api_command("devices/subscribe_reachability")
     async def subscribe_reachability(
@@ -2231,68 +2193,4 @@ class DevicesController:  # noqa: PLR0904 (grandfathered; new public methods nee
         *,
         line_transform: Callable[[str], str] | None = None,
     ) -> None:
-        """Run a CLI subprocess and stream its merged stdout/stderr to a single client.
-
-        Registers the running task with the client so a peer ``devices/stop_stream``
-        command (or a WS disconnect) can cancel it; cancellation kills the
-        subprocess so it doesn't keep running detached.
-
-        ``line_transform``, if given, is applied to every output line
-        before it leaves the WS handler. Used by ``validate_config``
-        to scrub the resolved ``!secret`` values out of the stream
-        when ``show_secrets`` is off (``esphome config`` doesn't
-        actually redact in that mode — it wraps values with the ANSI
-        conceal SGR, which browsers don't honour).
-        """
-        # Register before the first await so an early ``stop_stream`` (during
-        # subprocess spawn) still finds and cancels this task.
-        task = asyncio.current_task()
-        assert task is not None  # always running inside a Task
-        client.register_stream(message_id, task)
-
-        env = {**os.environ, "PLATFORMIO_FORCE_ANSI": "true"}
-        proc: asyncio.subprocess.Process | None = None
-        try:
-            proc = await create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-                env=env,
-            )
-            assert proc.stdout is not None
-            # Use the shared `\n`/`\r` splitter so esptool / PlatformIO
-            # carriage-return progress lines surface live instead of
-            # buffering until the next newline. Strip the terminator
-            # from each event payload — the frontend's logs view
-            # appends every event as a new line, unlike the firmware
-            # job-output path which preserves terminators for in-place
-            # overwrites.
-            async for line in iter_lines_with_progress(proc.stdout):
-                payload = line.rstrip("\n\r")
-                if line_transform is not None:
-                    payload = line_transform(payload)
-                await client.send_event(message_id, StreamEvent.OUTPUT, payload)
-            exit_code = await proc.wait()
-        except asyncio.CancelledError:
-            # Synchronous kill only — no awaits in the cancel path. The
-            # ``finally`` block reaps the process and ``devices/stop_stream``
-            # is what tells the frontend the cancel succeeded. ``proc`` may
-            # be ``None`` if cancellation arrived before spawn returned.
-            if proc is not None and proc.returncode is None:
-                kill_quietly(proc)
-            # Honour the cancellation contract — only swallow if no
-            # outstanding cancel requests remain on this task.
-            if (current := asyncio.current_task()) and current.cancelling():
-                raise
-            return
-        finally:
-            client.unregister_stream(message_id)
-            if proc is not None and proc.returncode is None:
-                # Reap so the transport closes cleanly; shielded so an
-                # additional cancellation doesn't strand the subprocess.
-                with contextlib.suppress(asyncio.CancelledError):
-                    await asyncio.shield(proc.wait())
-
-        await client.send_event(
-            message_id, "result", {"success": exit_code == 0, "code": exit_code}
-        )
+        await logs.stream_subprocess(self, cmd, client, message_id, line_transform=line_transform)
