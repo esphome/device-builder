@@ -39,11 +39,11 @@ class AppMessageType(StrEnum):
     """
     Wire ``type`` discriminator on post-handshake application frames.
 
-    JSON-encoded plaintext is wrapped in a ChaCha20-Poly1305
-    transport frame (one per WS message). Bundle bytes ride
-    inside JSON as base64 (``submit_job_chunk``); the b64
-    overhead is acceptable for ESPHome-bundle sizes and keeps
-    every frame on one parse branch.
+    Each frame is one JSON object, Noise-encrypted with
+    ChaCha20-Poly1305 by the established session before going
+    on the wire (one frame per WS message). Bundle bytes ride
+    inside JSON as base64 (``submit_job_chunk``) so the dispatch
+    seam stays on one parse branch.
     """
 
     PING = "ping"
@@ -62,15 +62,16 @@ class AppMessageType(StrEnum):
     JOB_STATE_CHANGED = "job_state_changed"
     JOB_OUTPUT = "job_output"
     # Offloader → receiver cooperative cancel. Fire-and-forget;
-    # the resulting ``job_state_changed{cancelled}`` is the
-    # confirmation.
+    # the resulting ``job_state_changed`` with ``status="cancelled"``
+    # is the confirmation.
     CANCEL_JOB = "cancel_job"
     # Offloader → receiver build-artifact fetch (#106). The
-    # receiver streams a gzipped tarball back as
-    # ``artifacts_start`` (header + sha256) → ``artifacts_chunk``
-    # (b64 in JSON) → ``artifacts_end`` (success or failure).
-    # Single stream so the offloader gets bootloader / partitions
-    # / firmware / idedata.json atomically with one SHA-256.
+    # receiver streams a gzipped tarball back: ``artifacts_start``
+    # carries ``total_bytes`` + ``num_chunks`` + ``artifacts_sha256``,
+    # then N ``artifacts_chunk`` frames (b64 in JSON), then
+    # ``artifacts_end`` (success or failure-with-reason). Single
+    # stream so the offloader gets bootloader / partitions /
+    # firmware / idedata.json atomically with one SHA-256.
     DOWNLOAD_ARTIFACTS = "download_artifacts"
     ARTIFACTS_START = "artifacts_start"
     ARTIFACTS_CHUNK = "artifacts_chunk"
