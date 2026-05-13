@@ -565,6 +565,73 @@ async def test_submit_job_happy_path_extracts_and_queues(
 
 
 @pytest.mark.asyncio
+async def test_submit_job_happy_path_with_relative_config_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Receiver started with a relative ``config_dir`` still queues the job (#678).
+
+    ``esphome-device-builder esphome-configs`` lands a relative
+    ``Path('esphome-configs')`` on ``settings.config_dir``. The
+    bundle extractor resolves ``target_dir`` to absolute internally,
+    so the post-extract ``extracted_yaml`` is absolute. Pre-fix,
+    ``relative_to(self._config_dir)`` raised ``ValueError`` because
+    ``Path.relative_to`` is purely lexical and rejects the
+    relative-vs-absolute pair, even though both refer to the same
+    on-disk subtree.
+    """
+    monkeypatch.chdir(tmp_path)
+    rel_config_dir = Path("esphome-configs")
+    rel_config_dir.mkdir()
+
+    firmware = _make_firmware_controller()
+    receiver = SubmitJobReceiver(
+        config_dir=rel_config_dir,
+        firmware_controller=firmware,
+    )
+    session = _make_session(dashboard_id="alpha-dashboard")
+    bundle = make_tar_bundle("kitchen.yaml", b"esphome:\n  name: kitchen\n")
+
+    # Stub ``prepare_bundle_for_compile`` to mirror its real
+    # behaviour: return an ABSOLUTE path under the (resolved)
+    # target_dir. The bug only surfaces when the returned path is
+    # absolute while ``self._config_dir`` is relative.
+    abs_config_dir = rel_config_dir.resolve()
+    expected_yaml = (
+        abs_config_dir
+        / ".esphome"
+        / ".remote_builds"
+        / "alpha-dashboard"
+        / "kitchen"
+        / "kitchen.yaml"
+    )
+
+    def _stub_prepare(bundle_path: Path, target_dir: Path) -> Path:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        expected_yaml.parent.mkdir(parents=True, exist_ok=True)
+        expected_yaml.write_bytes(b"esphome:\n  name: kitchen\n")
+        return expected_yaml
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.submit_job.prepare_bundle_for_compile",
+        _stub_prepare,
+    )
+
+    await receiver.handle_submit_job(session, _header(bundle=bundle))
+    for chunk in _frame_chunks("job-1", bundle):
+        await receiver.handle_submit_job_chunk(session, chunk)
+
+    payload = _ack_payload(session)
+    assert payload["accepted"] is True, payload
+    assert payload["job_id"] == "job-1"
+    assert "reason" not in payload
+
+    assert len(firmware.created_jobs) == 1
+    job = firmware.created_jobs[0]
+    assert job.configuration == expected_yaml.relative_to(abs_config_dir).as_posix()
+    firmware._enqueue.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_submit_job_clean_target_creates_clean_job(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

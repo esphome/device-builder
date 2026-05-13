@@ -241,6 +241,70 @@ async def test_submit_job_round_trip_extracts_real_bundle_and_queues_job(
 
 
 @pytest.mark.asyncio
+async def test_submit_job_round_trip_with_relative_receiver_config_dir(
+    paired_instances_relative_receiver_config_dir: PairedInstances,
+) -> None:
+    """``submit_job`` round-trip succeeds when the receiver's config_dir is relative (#678).
+
+    Reproduces the user-reported failure mode of starting the
+    receiver-side dashboard with a relative path
+    (``esphome-device-builder esphome-configs``). The real upstream
+    bundle extractor resolves ``target_dir`` to absolute internally,
+    so the post-extract YAML path is absolute; pre-fix, the
+    receiver's ``extracted_yaml.relative_to(self._config_dir)``
+    raised ``ValueError`` because ``Path.relative_to`` is purely
+    lexical and refuses to match a relative path against an
+    absolute one. The ack flowed back as
+    ``accepted=False / extract_failed`` and the offloader logged
+    ``peer-link session ended before ack``.
+    """
+    instances = paired_instances_relative_receiver_config_dir
+    await instances.wait_until_session_opened()
+    created_jobs = _wire_receiver_firmware_recorder(instances)
+
+    bundle_bytes = _build_real_bundle()
+    handle = instances.offloader._peer_link_clients[instances.pin_sha256]
+    ack = await handle.client.submit_job(
+        job_id="off-job-678",
+        configuration_filename="kitchen.yaml",
+        target="compile",
+        bundle_bytes=bundle_bytes,
+    )
+
+    assert ack["accepted"] is True, ack
+    assert ack["job_id"] == "off-job-678"
+    assert "reason" not in ack
+
+    assert len(created_jobs) == 1
+    job = created_jobs[0]
+    assert job.remote_peer == instances.offloader_dashboard_id
+    assert job.remote_job_id == "off-job-678"
+    assert job.job_type is JobType.COMPILE
+    instances.receiver._db.firmware._enqueue.assert_awaited_once_with(job)
+
+    # Receiver-side path math reconciles: the YAML lands at the
+    # absolute location even though config_dir is relative, and
+    # the wire-side ``job.configuration`` is the POSIX-relative
+    # path under config_dir (same shape as the absolute-config-dir
+    # case).
+    receiver_config_dir = instances.receiver._db.settings.config_dir
+    extracted_yaml = (
+        receiver_config_dir.resolve()
+        / ".esphome"
+        / ".remote_builds"
+        / instances.offloader_dashboard_id
+        / "kitchen"
+        / "kitchen.yaml"
+    )
+    assert extracted_yaml.is_file(), (
+        f"extracted YAML missing at {extracted_yaml} — extract "
+        "failed (regression of #678 or unrelated extractor break)"
+    )
+    assert extracted_yaml.read_bytes() == b"esphome:\n  name: kitchen\n"
+    assert job.configuration == extracted_yaml.relative_to(receiver_config_dir.resolve()).as_posix()
+
+
+@pytest.mark.asyncio
 async def test_submit_job_round_trip_then_fanout_to_offloader_bus(
     paired_instances: PairedInstances,
 ) -> None:
