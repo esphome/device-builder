@@ -40,70 +40,37 @@ class AppMessageType(StrEnum):
     Wire ``type`` discriminator on post-handshake application frames.
 
     JSON-encoded plaintext is wrapped in a ChaCha20-Poly1305
-    transport frame via the established Noise session (one frame
-    per WS message) before going on the wire.
-
-    Bundle bytes ride inside JSON frames as base64-encoded
-    chunks (``submit_job_chunk``) rather than a parallel
-    binary-only path. The 33 % b64 overhead doesn't matter on
-    typical 5-50 KiB ESPHome bundles, and keeping every frame
-    JSON-shaped lets the dispatch seam stay uniform (one parse
-    branch, easier to trace). Profiling can motivate a binary
-    variant later if multi-MB bundles become common.
+    transport frame (one per WS message). Bundle bytes ride
+    inside JSON as base64 (``submit_job_chunk``); the b64
+    overhead is acceptable for ESPHome-bundle sizes and keeps
+    every frame on one parse branch.
     """
 
     PING = "ping"
     PONG = "pong"
     TERMINATE = "terminate"
     QUEUE_STATUS = "queue_status"
-    # 5c-1: bundle upload + job lifecycle. ``submit_job`` is the
-    # offloader-initiated header (job_id + configuration +
-    # bundle metadata); the bundle bytes follow as one or more
-    # ``submit_job_chunk`` frames in monotonic order, the last
-    # carrying ``is_last=True``. The receiver replies with a
-    # single ``submit_job_ack`` (``accepted: bool`` plus an
-    # optional ``reason``) once the full bundle has reassembled.
-    # Mid-build, the receiver pushes ``job_state_changed``
-    # (lifecycle transitions) and ``job_output`` (per-line
-    # stdout/stderr) back to the offloader. Wires into the
-    # firmware queue + controller seams.
+    # Bundle upload + job lifecycle. ``submit_job`` is the
+    # offloader-initiated header; bundle bytes follow as ordered
+    # ``submit_job_chunk`` frames, the last with ``is_last=True``.
+    # Receiver replies with one ``submit_job_ack`` after
+    # reassembly. Mid-build the receiver pushes
+    # ``job_state_changed`` and ``job_output`` back.
     SUBMIT_JOB = "submit_job"
     SUBMIT_JOB_CHUNK = "submit_job_chunk"
     SUBMIT_JOB_ACK = "submit_job_ack"
     JOB_STATE_CHANGED = "job_state_changed"
     JOB_OUTPUT = "job_output"
-    # Offloader → receiver cooperative cancel. Carries the
-    # offloader-local ``job_id`` from the original ``submit_job``
-    # header; receiver resolves it to the matching
-    # ``FirmwareJob`` via the :class:`JobFanout` correlation
-    # cache and calls ``FirmwareController.cancel``. No ack
-    # frame in the reverse direction — cancellation is fire-
-    # and-forget; the next ``job_state_changed`` with
-    # ``status="cancelled"`` is the confirmation the offloader
-    # already has plumbing for.
+    # Offloader → receiver cooperative cancel. Fire-and-forget;
+    # the resulting ``job_state_changed{cancelled}`` is the
+    # confirmation.
     CANCEL_JOB = "cancel_job"
-    # Offloader → receiver build-artifact fetch. The
-    # offloader sends ``download_artifacts`` carrying the
-    # offloader-supplied ``job_id`` from the original
-    # ``submit_job`` header. The receiver resolves it to the
-    # matching :class:`FirmwareJob` (must be in ``COMPLETED``
-    # status — only completed builds have artifacts on disk),
-    # packs the build directory's ``.pioenvs/<name>/*.bin`` /
-    # ``*.uf2`` outputs plus ``idedata.json`` (esphome already
-    # emits the latter — it carries the per-image flash
-    # offsets the offloader's Web Serial / esptool path
-    # needs) into a gzipped tar in an executor, then streams
-    # the assembled bytes back as ``artifacts_start`` (header
-    # with total_bytes + num_chunks + artifacts_sha256)
-    # followed by ``artifacts_chunk`` frames (base64 inside
-    # the JSON envelope, same shape as ``submit_job_chunk``)
-    # followed by ``artifacts_end`` (success+sha256-confirmed
-    # or failure-with-reason). Single stream rather than one
-    # frame per artifact: the offloader gets bootloader.bin +
-    # partitions.bin + firmware.bin + idedata.json in one
-    # atomic transport with a single SHA-256, and the wire
-    # format doesn't grow when a future platform adds another
-    # required output. See issue #106.
+    # Offloader → receiver build-artifact fetch (#106). The
+    # receiver streams a gzipped tarball back as
+    # ``artifacts_start`` (header + sha256) → ``artifacts_chunk``
+    # (b64 in JSON) → ``artifacts_end`` (success or failure).
+    # Single stream so the offloader gets bootloader / partitions
+    # / firmware / idedata.json atomically with one SHA-256.
     DOWNLOAD_ARTIFACTS = "download_artifacts"
     ARTIFACTS_START = "artifacts_start"
     ARTIFACTS_CHUNK = "artifacts_chunk"
