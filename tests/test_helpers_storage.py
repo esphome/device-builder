@@ -84,7 +84,10 @@ async def test_async_load_decodes_existing_file(store_path: Path, store: Store[b
 async def test_async_delay_save_writes_after_delay(store_path: Path, store: Store[bytes]) -> None:
     """A scheduled save lands on disk after the delay elapses."""
     store.async_delay_save(lambda: b"delayed", delay=0.05)
-    await _drain_loop_until(store_path.exists)
+    # 2s rather than the 1s default; busy Windows xdist workers can take
+    # longer than 1s for the executor hop + atomic rename after the 50ms
+    # timer fires.
+    await _drain_loop_until(store_path.exists, timeout=2.0)
     assert store_path.read_bytes() == b"delayed"
 
 
