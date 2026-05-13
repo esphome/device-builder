@@ -22,16 +22,13 @@ async def add_component(
     """
     Add a component block to an existing device YAML.
 
-    ``fields`` is a flat mapping of config-entry key → value. For
-    NESTED config entries the value is itself a dict matching the
-    nested entry's structure (recursive).
-
-    Featured-component ids (``featured.<board>.<local>``) are
-    recognised here: the backend resolves them to the underlying
-    catalog component, validates user input against the manifest's
-    ``locked`` / ``suggestions`` constraints, and merges the
-    manifest's preset values into ``fields`` before delegating to
-    the regular merge logic.
+    ``fields`` is a flat mapping of config-entry key → value;
+    nested entries map to nested dicts. Featured ids
+    (``featured.<board>.<local>``) resolve to the underlying
+    catalog component, validate user input against the manifest's
+    ``locked`` / ``suggestions`` constraints, and merge the
+    manifest's preset values into ``fields`` before the regular
+    merge.
     """
     assert controller._db.components is not None  # type narrowing
 
@@ -45,14 +42,10 @@ async def add_component(
             raise ValueError(msg)
         underlying_component_id = record.underlying_id
         fields = _apply_featured_presets(record, fields)
-        # The frontend's catalog-derived id suggestion for featured
-        # components is the dashed ``featured_<board>_<local>`` form
-        # (e.g. ``featured_athom-smart-plug-v3_power_monitor_1`` —
-        # the board id still carries dashes), which ESPHome rejects.
-        # Reset to empty when the supplied id contains a dash so
-        # ``generate_component_yaml`` produces a valid auto-id from
-        # the underlying component + name; a user-typed custom id
-        # without dashes passes through.
+        # The frontend's featured-id suggestion contains the board's
+        # dashes (e.g. ``featured_athom-smart-plug-v3_power_monitor_1``),
+        # which ESPHome rejects. Reset to empty so generate_component_yaml
+        # produces a valid auto-id; user-typed dashless ids pass through.
         user_id = fields.get("id")
         if isinstance(user_id, str) and "-" in user_id:
             fields["id"] = ""
