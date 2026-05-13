@@ -638,6 +638,26 @@ When changing the sync script or catalog handling, watch for these:
   partial write is recoverable on next compile / scan can stay
   on direct-write paths — the criterion is "would losing this
   file lose user-authored content."
+- **CodSpeed parametrize values need explicit
+  `pytest.param(value, id="<short>")` IDs when the value isn't
+  already a short primitive.** pytest's auto-generated test ID
+  concatenates the parameter values verbatim, so a multi-KB
+  YAML body / bytes payload / anything whose `repr()` runs more
+  than a few dozen characters bakes into the test name. The
+  benchmark run itself passes and the data uploads fine, but
+  the server-side "CodSpeed Performance Analysis" check fails
+  with "Unable to generate the performance report" / "internal
+  error while processing the run's data"; the report ingest
+  hits a length limit on the test identifier and silently
+  drops the whole run. Follow the existing pattern in
+  `tests/benchmarks/test_log_streaming.py` and
+  `tests/benchmarks/test_peer_link_noise_xx.py`:
+  `pytest.param(_LARGE_PAYLOAD, id="newline_1k")`,
+  `pytest.param(1024, id="1KiB")`. Bare ints / short slugs whose
+  autogen ID is already terse
+  (`parametrize("fleet_size", [50, 200])` -> `[50]` / `[200]`)
+  are fine as-is; the trap is parametrize values that carry
+  large content.
 
 ## Useful entry points
 
