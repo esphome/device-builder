@@ -65,17 +65,17 @@ import aiohttp
 from aiohttp import WSMsgType, web
 from esphome.const import __version__ as esphome_version
 
-from ...api.ws import WEBSOCKETS_KEY
-from ...helpers import json as _json
-from ...helpers.dashboard_identity import DASHBOARD_ID_MAX_CHARS, DASHBOARD_ID_PATTERN
-from ...helpers.peer_link_identity import get_or_create_peer_link_identity
-from ...helpers.peer_link_noise import (
+from ....api.ws import WEBSOCKETS_KEY
+from ....helpers import json as _json
+from ....helpers.dashboard_identity import DASHBOARD_ID_MAX_CHARS, DASHBOARD_ID_PATTERN
+from ....helpers.peer_link_identity import get_or_create_peer_link_identity
+from ....helpers.peer_link_noise import (
     NOISE_ERRORS,
     HandshakeNotCompleteError,
     PeerLinkNoiseSession,
     pin_sha256_for_pubkey,
 )
-from ...models import (
+from ....models import (
     IntentResponse,
     PeerLinkIntent,
     SubmitJobChunkFrameData,
@@ -126,7 +126,7 @@ class _DispatchInput:
 
 
 if TYPE_CHECKING:
-    from .receiver import ReceiverController
+    from ..receiver import ReceiverController
 
 _LOGGER = logging.getLogger(__name__)
 
