@@ -54,14 +54,11 @@ from ...models import (
     StreamEvent,
 )
 from ...models.remote_build import PeerStatus
-from ..config import _load_metadata, metadata_transaction
+from . import persistence
 from .constants import (
+    _ACTIVE_JOB_STATUSES,
     _ERROR_PATTERNS,
-    _JOBS_KEY,
-    _MAX_AUX_TERMINAL_JOBS,
-    _MAX_PRIMARY_TERMINAL_JOBS,
     _OTA_ADDRESS_CACHE_JOB_TYPES,
-    _PRIMARY_JOB_TYPES,
     ESPHOME_SUBPROCESS_ENV,
 )
 from .helpers import (
@@ -112,11 +109,6 @@ _LIBRETINY_TARGET_PLATFORMS: frozenset[str] = frozenset(_LIBRETINY_FAMILY_COMPON
 _BUILD_PRODUCING_JOB_TYPES: frozenset[JobType] = frozenset(
     {JobType.COMPILE, JobType.UPLOAD, JobType.INSTALL, JobType.RENAME}
 )
-
-# Statuses a job has *while in flight*. ``_jobs`` retains terminal
-# entries for the recent-jobs history, so any "is something
-# running for this configuration?" check has to filter for these.
-_ACTIVE_JOB_STATUSES: frozenset[JobStatus] = frozenset({JobStatus.QUEUED, JobStatus.RUNNING})
 
 # Maps each terminal :class:`JobStatus` to the lifecycle event the
 # runner fires when a job reaches that status. Routes through
@@ -1973,111 +1965,14 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
                 await self.cancel(job_id=job_id)
 
     def _prune_history(self) -> None:
-        """
-        Trim ``self._jobs`` to the configured history limits.
-
-        Active (queued/running) jobs are always kept. Terminal
-        compile/upload/install jobs collapse to one entry per
-        configuration (newest wins) and are capped at
-        ``_MAX_PRIMARY_TERMINAL_JOBS``. Terminal clean/reset jobs are
-        kept in a separate pool capped at ``_MAX_AUX_TERMINAL_JOBS``.
-        Caller persists the result.
-        """
-        terminal_states = TERMINAL_JOB_STATUSES
-
-        active: list[FirmwareJob] = []
-        primary: list[FirmwareJob] = []
-        aux: list[FirmwareJob] = []
-        for job in self._jobs.values():
-            if job.status not in terminal_states:
-                active.append(job)
-            elif job.job_type in _PRIMARY_JOB_TYPES:
-                primary.append(job)
-            else:
-                aux.append(job)
-
-        # Sort newest-first so dedup keeps the most recent entry per
-        # device and the cap retains the most recent N overall.
-        primary.sort(key=attrgetter("created_at"), reverse=True)
-        seen_configs: set[str] = set()
-        deduped_primary: list[FirmwareJob] = []
-        for job in primary:
-            if job.configuration:
-                if job.configuration in seen_configs:
-                    continue
-                seen_configs.add(job.configuration)
-            deduped_primary.append(job)
-        deduped_primary = deduped_primary[:_MAX_PRIMARY_TERMINAL_JOBS]
-
-        aux.sort(key=attrgetter("created_at"), reverse=True)
-        aux = aux[:_MAX_AUX_TERMINAL_JOBS]
-
-        self._jobs = {j.job_id: j for j in (*active, *deduped_primary, *aux)}
+        persistence.prune_history(self)
 
     # ------------------------------------------------------------------
     # Internals — persistence
     # ------------------------------------------------------------------
 
     async def _load_jobs(self) -> None:
-        """
-        Load persisted jobs and re-queue any incomplete ones.
-
-        - ``QUEUED`` and ``RUNNING`` both re-queue. The user
-          asked for the build; even though the subprocess died
-          with the dashboard, the request is still pending in
-          their head. Worst case the rebuilt-and-reflashed
-          firmware is identical to what was already on the
-          device — that's idempotent, the user pays a couple
-          minutes of compile time, no harm done.
-        - Terminal (``COMPLETED`` / ``FAILED`` / ``CANCELLED``):
-          load into the in-memory map for the recent-jobs panel
-          but don't touch ``_queue``.
-
-        ``RUNNING`` jobs go through ``FirmwareJob.reset()``
-        before being re-queued so the rebuild looks like a
-        fresh run in the per-run-state fields (``progress`` /
-        ``error`` / ``started_at`` / ``completed_at`` /
-        ``exit_code``) but keeps the pre-crash ``output`` log
-        as diagnostic history with a separator marker showing
-        where the rebuild starts. ``reset`` lives on the model
-        rather than as a free helper here so a future per-run
-        field added to ``FirmwareJob`` lands right next to the
-        method that has to clear it.
-
-        See esphome/device-builder#147 for the policy discussion.
-        """
-        loop = asyncio.get_running_loop()
-        data = await loop.run_in_executor(None, _load_metadata, self._db.settings.config_dir)
-        for job_data in data.get(_JOBS_KEY, []):
-            try:
-                job = FirmwareJob.from_dict(job_data)
-                self._jobs[job.job_id] = job
-                if job.status in _ACTIVE_JOB_STATUSES:
-                    if job.status == JobStatus.RUNNING:
-                        job.reset()
-                    job.status = JobStatus.QUEUED
-                    await self._queue.put(job)
-            except Exception:
-                # ``job_data`` is normally a dict, but a corrupt
-                # persistence file could contain a primitive (string,
-                # int, ``None``) where a dict was expected. ``.get``
-                # would raise ``AttributeError`` on those, defeating
-                # the "skip and continue" intent of this branch.
-                # Probe by isinstance and fall back to the raw repr.
-                identity = (
-                    job_data.get("job_id", "?")
-                    if isinstance(job_data, dict)
-                    else f"<non-dict entry: {job_data!r}>"
-                )
-                _LOGGER.warning("Failed to restore job: %s", identity, exc_info=True)
+        await persistence.load_jobs(self)
 
     async def _persist_jobs(self) -> None:
-        """Save all jobs to disk."""
-        loop = asyncio.get_running_loop()
-        config_dir = self._db.settings.config_dir
-
-        def _save() -> None:
-            with metadata_transaction(config_dir) as data:
-                data[_JOBS_KEY] = [j.to_dict() for j in self._jobs.values()]
-
-        await loop.run_in_executor(None, _save)
+        await persistence.persist_jobs(self)
