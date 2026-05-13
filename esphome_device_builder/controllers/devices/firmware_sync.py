@@ -20,11 +20,13 @@ def on_job_completed(controller: DevicesController, event: Event[JobLifecycleDat
     """
     Refresh a device's cached state after a successful firmware job.
 
-    Without this hook a freshly-flashed device keeps its stale
+    Without this hook, a freshly-flashed device keeps its stale
     ``has_pending_changes=True`` (the still-orange "update
     pending" dot) since the disk scanner only re-evaluates on
-    YAML stat change. COMPILE / INSTALL also recompute
-    ``expected_config_hash``; UPLOAD reuses the prior compile's.
+    YAML stat change.
+
+    COMPILE / INSTALL also recompute ``expected_config_hash``;
+    UPLOAD reuses the prior compile's.
     """
     job = event.data["job"]
     if job.status != JobStatus.COMPLETED:
@@ -100,9 +102,9 @@ async def persist_expected_config_hash(controller: DevicesController, configurat
     apply, so reproducing the build's hash in-process is
     fragile (verified against ``acfloatmonitor32.yaml``:
     pre-codegen ``f3e21d5a`` vs firmware-baked ``5a94a12d``).
-    Logs a warning rather than failing on a missing /
-    malformed file so an upstream ESPHome shape change
-    surfaces visibly.
+    Logs a warning rather than failing on a missing or
+    malformed ``build_info.json`` so an upstream ESPHome
+    shape change surfaces visibly.
     """
     yaml_path = controller._db.settings.rel_path(configuration)
     new_hash = await compute_yaml_config_hash(yaml_path)
@@ -127,8 +129,8 @@ def sync_deployed_hash_after_flash(controller: DevicesController, configuration:
     existing ``_on_config_hash_change`` callback handle the
     device-field write + ``DEVICE_UPDATED`` event, and seeds
     the monitor's per-name cache so the rebooted device's
-    matching announce de-dups instead of firing a redundant
-    event.
+    matching announce deduplicates instead of firing a
+    redundant event.
     """
     device = next(
         (d for d in controller._scanner.devices if d.configuration == configuration),
