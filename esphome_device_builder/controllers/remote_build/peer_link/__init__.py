@@ -81,9 +81,13 @@ from ....models import (
     SubmitJobChunkFrameData,
     SubmitJobFrameData,
 )
-from .wire import AppMessageType, TerminateReason
 
-__all__ = ["AppMessageType", "TerminateReason"]
+# Redundant aliases mark these as intentional re-exports for both
+# ruff (F401) and mypy (no-redef) — preserves external imports like
+# ``from .peer_link import TerminateReason`` without an ``__all__``
+# that would also accidentally narrow ``import *`` semantics.
+from .wire import AppMessageType as AppMessageType
+from .wire import TerminateReason as TerminateReason
 
 
 class _HandshakeStep(StrEnum):
