@@ -51,11 +51,13 @@ class StoredPeer(DataClassORJSONMixin):
         """
         Update the fields a fresh ``intent="pair_request"`` supplies.
 
-        ``dashboard_id`` (the row's primary key) and ``status``
-        (only the receiver-side admin's Accept / Reject changes
-        it) are intentionally left out. Caller is responsible for
-        the no-demote-when-APPROVED check before invoking — see
-        ``record_pair_request`` for the gating logic.
+        ``dashboard_id`` (the row's primary key) is intentionally
+        left out of the refresh set. Caller is responsible for the
+        no-demote-when-APPROVED check before invoking — see
+        ``record_pair_request`` for the gating logic. (PENDING vs
+        APPROVED is tracked outside this row: PENDING rows live
+        in ``ReceiverController._pending_peers``, APPROVED in
+        ``ReceiverPeers.peers``.)
         """
         self.pin_sha256 = pin_sha256
         self.static_x25519_pub = static_x25519_pub
@@ -75,8 +77,9 @@ class PeerSummary(DataClassORJSONMixin):
     receiver's RAM-canonical session registry and is always
     ``False`` for PENDING peers (peer-link is APPROVED-gated).
     Live updates flow through ``RECEIVER_PEER_LINK_SESSION_OPENED``
-    / ``_CLOSED`` events, so a tab subscribing AFTER an
-    open / close still sees current state from the snapshot.
+    / ``RECEIVER_PEER_LINK_SESSION_CLOSED`` events, so a tab
+    subscribing AFTER an open / close still sees current state
+    from the snapshot.
     """
 
     dashboard_id: str
