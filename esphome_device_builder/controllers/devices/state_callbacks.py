@@ -29,10 +29,10 @@ def on_state_change(
             state,
             source,
         )
-        # Frontend's ``DeviceStateChangedEventData`` is the flat
-        # ``{configuration, state}`` shape; sending the full ``device``
-        # object made the destructure resolve both fields to
-        # ``undefined`` and the table never updated.
+        # Match ``DeviceStateChangedEventData``'s flat
+        # ``{configuration, state}`` shape; firing the full
+        # ``device`` object made the frontend's destructure resolve
+        # both fields to ``undefined``.
         controller._db.bus.fire(
             EventType.DEVICE_STATE_CHANGED,
             DeviceStateChangedData(
@@ -46,11 +46,9 @@ def on_ip_change(controller: DevicesController, name: str, ip: str, addresses: l
     """
     Forward IP updates onto the event bus and persist the primary value.
 
-    ``ip=""`` (with an empty *addresses* list) means the device
-    dropped off mDNS; the last-known primary stays on disk so
-    the OTA address cache survives the offline window. Only
-    ``ip`` is persisted; ``addresses`` is the live mDNS view
-    and gets repopulated by the next monitor pass.
+    ``ip=""`` (empty *addresses*) means the device dropped off
+    mDNS; the last-known primary stays on disk so the OTA
+    address cache survives the offline window.
     """
     new_addresses = list(addresses)
     for device in controller._devices_by_name(name):
@@ -79,8 +77,7 @@ def on_version_change(controller: DevicesController, name: str, version: str) ->
             continue
 
         # StorageJSON.load/save are blocking; push to a background
-        # task so any error gets surfaced via the loop's exception
-        # handler.
+        # task so the loop's exception handler surfaces failures.
         controller._db.create_background_task(
             controller._persist_storage_version_async(device.configuration, version)
         )
@@ -102,13 +99,10 @@ def on_mac_address_change(controller: DevicesController, name: str, mac: str) ->
     """
     Apply a MAC address observed via mDNS and derive interface MACs.
 
-    The mDNS broadcast is always the device's primary MAC.
-    When the YAML loads ``ethernet`` or any
-    ``esp32_ble*`` / ``bluetooth_*`` integration the
-    corresponding interface MAC is derived via
-    :func:`derive_interface_macs`. Only the primary is
-    persisted; derived MACs recompute on the next reload from
-    primary + ``loaded_integrations``.
+    Only the primary MAC is persisted; ``ethernet_mac`` /
+    ``bluetooth_mac`` are recomputed via
+    :func:`derive_interface_macs` from primary +
+    ``loaded_integrations`` on each apply.
     """
     for device in controller._devices_by_name(name):
         if device.mac_address == mac:
@@ -124,19 +118,15 @@ def on_mac_address_change(controller: DevicesController, name: str, mac: str) ->
 
 
 def on_api_encryption_change(controller: DevicesController, name: str, encryption: str) -> None:
-    r"""
+    """
     Apply the API-encryption state observed via mDNS.
 
-    Stores the broadcast value (or empty string for "TXT
-    absent, device is plaintext") on the in-memory device.
-    Also promotes ``api_encrypted`` to True when a truthy
-    cipher arrives, since ESPHome's Jinja-templated
-    ``packages`` (issue #437) can leave the scan-time YAML
-    pass with ``api_encrypted=False`` for a fully-encrypted
-    device. The empty-string broadcast deliberately doesn't
-    clear ``api_encrypted``: wire-says-no with YAML-says-yes
-    is the legitimate "mismatch" / "pending" shape the
-    existing state machine handles.
+    Promotes ``api_encrypted`` to True on a truthy cipher; the
+    scan-time YAML pass misses Jinja-templated ``packages`` so
+    the wire signal is the truthful one (issue #437). The
+    empty-string broadcast deliberately doesn't clear the flag,
+    leaving the wire-says-no / YAML-says-yes "mismatch" /
+    "pending" shape to the existing state machine.
     """
     for device in controller._devices_by_name(name):
         wire_promotes_encrypted = bool(encryption) and not device.api_encrypted
@@ -152,11 +142,9 @@ def on_config_hash_change(controller: DevicesController, name: str, config_hash:
     """
     Apply a running-firmware config hash observed via mDNS.
 
-    Stores the hash on the in-memory device and, when both
-    expected and deployed hashes are known, flips
-    ``has_pending_changes`` to reflect the comparison.
-    Devices on firmware that predates the ``config_hash`` TXT
-    broadcast never trigger this callback and stay on the
+    Flips ``has_pending_changes`` against the expected hash when
+    both are known; firmware predating the ``config_hash`` TXT
+    broadcast never triggers this callback and stays on the
     legacy mtime check.
     """
     for device in controller._devices_by_name(name):
@@ -165,8 +153,8 @@ def on_config_hash_change(controller: DevicesController, name: str, config_hash:
         old_hash = device.deployed_config_hash
         device.deployed_config_hash = config_hash
         # Mtime side stays with the periodic scanner poll so this
-        # callback can stay off-disk and non-blocking. A YAML edit
-        # between polls (~5s) self-corrects on the next scan.
+        # callback can stay off-disk; a YAML edit between polls
+        # (~5s) self-corrects on the next scan.
         if device.expected_config_hash:
             device.has_pending_changes = device.expected_config_hash != config_hash
         _LOGGER.info(
