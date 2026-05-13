@@ -102,3 +102,25 @@ def write_storage_json(
 
     sidecar.write_text(json.dumps(payload), encoding="utf-8")
     return sidecar
+
+
+def write_build_info(build_path: Path, **fields: Any) -> Path:
+    """
+    Drop a ``build_info.json`` under *build_path*; return its path.
+
+    Defaults match what ESPHome's writer emits (see
+    ``esphome.writer.copy_src_tree``): a 32-bit unsigned int
+    ``config_hash``, a unix ``build_time``, etc. Callers override
+    whichever fields the test under examination cares about.
+    """
+    build_path.mkdir(parents=True, exist_ok=True)
+    payload: dict[str, Any] = {
+        "config_hash": 0xDEADBEEF,
+        "build_time": 1700000000,
+        "build_time_str": "2025-11-14 12:00:00 -0500",
+        "esphome_version": "2026.5.0-dev",
+    }
+    payload.update(fields)
+    build_info = build_path / "build_info.json"
+    build_info.write_text(json.dumps(payload), encoding="utf-8")
+    return build_info

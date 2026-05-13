@@ -12,7 +12,6 @@ re-flashed every device.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -22,7 +21,7 @@ import pytest
 from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.models import Device, EventType
-from tests._storage_fixtures import write_storage_json
+from tests._storage_fixtures import write_build_info, write_storage_json
 
 from .conftest import CaptureDevicesEventsFactory, RecordingStateMonitor
 
@@ -69,22 +68,6 @@ def _write_storage_pointer(config_dir: Path, filename: str, build_path: Path) ->
     )
 
 
-def _write_build_info(build_path: Path, config_hash: int) -> None:
-    """Drop a ``build_info.json`` carrying *config_hash* under *build_path*."""
-    build_path.mkdir(parents=True, exist_ok=True)
-    (build_path / "build_info.json").write_text(
-        json.dumps(
-            {
-                "config_hash": config_hash,
-                "build_time": 1700000000,
-                "build_time_str": "2025-11-14 12:00:00 -0500",
-                "esphome_version": "2026.5.0-dev",
-            }
-        ),
-        encoding="utf-8",
-    )
-
-
 def test_build_info_hash_wins_over_stale_sidecar(tmp_path: Path, monkeypatch: Any) -> None:
     """``build_info.json`` is authoritative; sidecar's stale value is ignored."""
     config_dir = tmp_path
@@ -102,7 +85,7 @@ def test_build_info_hash_wins_over_stale_sidecar(tmp_path: Path, monkeypatch: An
     # build_info.json carries the firmware-canonical value.
     build_path = config_dir / ".esphome" / "build" / "kitchen"
     _write_storage_pointer(config_dir, filename, build_path)
-    _write_build_info(build_path, config_hash=0x5A94A12D)
+    write_build_info(build_path, config_hash=0x5A94A12D)
 
     controller = _make_controller(monkeypatch)
     metadata = controller._resolve_device_metadata(config_dir, filename)
@@ -174,7 +157,7 @@ def test_build_info_hash_used_even_when_sidecar_empty(tmp_path: Path, monkeypatc
 
     build_path = config_dir / ".esphome" / "build" / "kitchen"
     _write_storage_pointer(config_dir, filename, build_path)
-    _write_build_info(build_path, config_hash=0x12345678)
+    write_build_info(build_path, config_hash=0x12345678)
 
     controller = _make_controller(monkeypatch)
     metadata = controller._resolve_device_metadata(config_dir, filename)
