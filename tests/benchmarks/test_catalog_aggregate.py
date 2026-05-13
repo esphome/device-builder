@@ -1,13 +1,4 @@
-"""Aggregate catalog-load benchmarks.
-
-``test_startup.py`` covers the per-unit cost of one component
-dataclass build and one mashumaro ``from_dict`` walk. The
-aggregate ``ComponentCatalog.load()`` (orjson decode of the
-~20 MB blob, 896x ``_load_component``, featured-registry build)
-is the dominant slice of dashboard startup wall-time on HA
-Green and isn't covered by the per-unit benches; a regression
-in the load-side wiring would only surface here.
-"""
+"""Aggregate catalog-load benchmarks: full ``ComponentCatalog.load`` + ``BoardCatalog.load``."""
 
 from __future__ import annotations
 

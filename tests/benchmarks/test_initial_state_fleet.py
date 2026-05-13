@@ -1,15 +1,4 @@
-"""``subscribe_events`` initial_state fleet-size benchmarks.
-
-Every WS client connect triggers ``_send_initial``
-(``device_builder.py:585``) which projects the device list via
-``[d.to_dict() for d in self.devices.get_devices()]``. The
-projection is sync (CLAUDE.md: "snapshot reads must be sync ...
-an executor hop on every connect is the kind of thing that
-slows down dashboard cold-load on large fleets") and runs on
-the WS dispatch hot path; per-device cost is dominated by
-mashumaro's codegen'd ``Device.to_dict`` multiplied by fleet
-size.
-"""
+"""``Device.to_dict`` projection benchmarks at fleet sizes 50 / 200."""
 
 from __future__ import annotations
 

@@ -1,16 +1,4 @@
-"""DeviceScanner fleet-size benchmarks.
-
-``_load_devices`` is the per-device inner loop that fans out on
-every cold-start scan AND on every CRUD mutation (``create``,
-``clone``, ``archive`` each call ``await scanner.scan()``). On a
-50-device fleet that's 50x YAML parse + sidecar read + metadata
-resolve per mutation; eMMC serializes this badly.
-
-Bench targets the sync inner method instead of ``scan()`` itself
-because the executor-hop + cache-key diff machinery would smear
-the per-device signal; the project convention (see
-``test_yaml_search.py``) is to bench the sync inner pieces.
-"""
+"""DeviceScanner inner-loop benchmarks at fleet sizes 50 / 200."""
 
 from __future__ import annotations
 

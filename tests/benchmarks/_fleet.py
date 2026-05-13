@@ -1,10 +1,4 @@
-"""Synthetic device-fleet builders for the benchmark suite.
-
-Materialises N device YAMLs + StorageJSON sidecars + build_info.json
-files on a tmp_path so benchmarks can measure per-device work at
-realistic fleet sizes. Per-device write goes through the shared
-``write_synthetic_device`` helper so a schema bump lands in one place.
-"""
+"""Synthetic device-fleet builder for the benchmark suite."""
 
 from __future__ import annotations
 

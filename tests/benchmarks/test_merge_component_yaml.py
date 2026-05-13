@@ -1,12 +1,4 @@
-"""``merge_component_yaml`` benchmarks across YAML sizes.
-
-Every wizard "add component" round-trip calls
-``merge_component_yaml`` (``controllers/devices/controller.py:1525``).
-PyYAML is DOM-only so the cost is O(existing config size). On a
-fresh ~30-line device the merge is instant; on a packaged config
-(ratgdo, Apollo) it's 500-1000+ lines and the merge fires for
-every component the user adds.
-"""
+"""``merge_component_yaml`` benchmarks across 100 / 500 / 1000-line existing YAMLs."""
 
 from __future__ import annotations
 
@@ -85,16 +77,15 @@ _YAML_1000 = _generate_yaml(1000)
 
 
 @pytest.mark.parametrize(
-    ("size_label", "existing_yaml"),
+    "existing_yaml",
     [
-        ("100", _YAML_100),
-        ("500", _YAML_500),
-        ("1000", _YAML_1000),
+        pytest.param(_YAML_100, id="100"),
+        pytest.param(_YAML_500, id="500"),
+        pytest.param(_YAML_1000, id="1000"),
     ],
 )
 def test_merge_component_yaml_sizes(
     benchmark: BenchmarkFixture,
-    size_label: str,
     existing_yaml: str,
 ) -> None:
     """Splice-into-existing-block cost scales with existing-config line count."""
