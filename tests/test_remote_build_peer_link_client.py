@@ -3199,10 +3199,11 @@ async def test_peer_link_client_pin_mismatch_aborts_and_orphans(
        hammering whatever's at the wrong endpoint.
     4. NOT fire ``OFFLOADER_PEER_LINK_OPENED`` — application
        frames must not flow against the wrong identity.
-    5. Emit one ``WARNING`` log line carrying both pin_sha256
-       fingerprints and the raw 32-byte hex of each pubkey
-       (the diagnostic that distinguishes "wire bytes differ"
-       from "bytes match but ``!=`` tripped anyway").
+    5. Emit one ``WARNING`` log line carrying the on-disk
+       ``stored_pin``, both pin_sha256 fingerprints, and the
+       raw 32-byte hex of each pubkey (the diagnostic that
+       distinguishes "stored row corruption" / "wire bytes
+       differ" / "bytes match but ``!=`` tripped anyway").
     """
     server, receiver, _, receiver_pub = receiver_server
     initiator_priv = secrets.token_bytes(32)
@@ -3222,6 +3223,13 @@ async def test_peer_link_client_pin_mismatch_aborts_and_orphans(
     # XOR-with-0x01 form has none.
     wrong_pub = bytes([receiver_pub[0] ^ 0x01]) + receiver_pub[1:]
     assert wrong_pub != receiver_pub
+    # Real pair-row invariant: ``pin_sha256 == sha256(static_x25519_pub)``
+    # (both are set from the same ``result.remote_static_pub`` in
+    # :meth:`OffloaderController.request_pair`). The pin-drift
+    # warning logs both so an operator can spot a stored-row
+    # corruption (``stored_pin != expected_pin``); we mirror the
+    # production invariant here.
+    wrong_pin = pin_sha256_for_pubkey(wrong_pub)
 
     client = PeerLinkClient(
         receiver_hostname="127.0.0.1",
@@ -3229,7 +3237,7 @@ async def test_peer_link_client_pin_mismatch_aborts_and_orphans(
         identity_priv=initiator_priv,
         dashboard_id="alpha",
         pinned_static_x25519_pub=wrong_pub,
-        pin_sha256="a" * 64,
+        pin_sha256=wrong_pin,
         receiver_label="my-laptop",
         bus=bus,
     )
@@ -3262,19 +3270,21 @@ async def test_peer_link_client_pin_mismatch_aborts_and_orphans(
             assert task.done()
             assert client.is_orphaned is True
 
-            # Exactly one drift warning, carrying both fingerprints
-            # AND the raw 32-byte hex of each pubkey so an operator
-            # can tell a bytes-comparison bug from a wire-level
-            # identity mismatch from a single log line.
+            # Exactly one drift warning, carrying ``stored_pin``,
+            # both fingerprints AND the raw 32-byte hex of each
+            # pubkey so an operator can tell a stored-row corruption
+            # from a bytes-comparison bug from a wire-level identity
+            # mismatch from a single log line.
             drift_records = [
                 rec for rec in caplog.records if "observed pin drift" in rec.getMessage()
             ]
             assert len(drift_records) == 1
             msg = drift_records[0].getMessage()
-            assert pin_sha256_for_pubkey(wrong_pub) in msg
-            assert pin_sha256_for_pubkey(receiver_pub) in msg
-            assert wrong_pub.hex() in msg
-            assert receiver_pub.hex() in msg
+            assert f"stored_pin={wrong_pin}" in msg
+            assert f"expected_pin={pin_sha256_for_pubkey(wrong_pub)}" in msg
+            assert f"expected_bytes={wrong_pub.hex()}" in msg
+            assert f"observed_pin={pin_sha256_for_pubkey(receiver_pub)}" in msg
+            assert f"observed_bytes={receiver_pub.hex()}" in msg
         finally:
             await cancel_and_drain(task)
 

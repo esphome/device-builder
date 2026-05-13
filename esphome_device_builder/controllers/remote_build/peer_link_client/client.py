@@ -353,15 +353,24 @@ class PeerLinkClient:
                 # it advertised; a mismatched pubkey means a
                 # legitimate rotation or a MITM / mDNS spoof.
                 # Abort either way before any application frames.
-                if session.remote_static_pub != self._pinned_static_x25519_pub:
-                    observed = session.remote_static_pub
+                observed = session.remote_static_pub
+                if observed != self._pinned_static_x25519_pub:
+                    # ``stored_pin`` is the sha256 written to disk at
+                    # pair time; ``expected_pin`` is what the raw
+                    # pinned bytes hash to right now. They must agree
+                    # (set from the same ``result.remote_static_pub``
+                    # in :meth:`OffloaderController.request_pair`);
+                    # logging both surfaces a divergence as a
+                    # stored-row corruption symptom instead of a
+                    # wire-level one.
                     _LOGGER.warning(
                         "peer-link client to %s:%d observed pin drift "
-                        "(expected_pin=%s expected_bytes=%s observed_pin=%s "
-                        "observed_bytes=%s); orphaning until the operator "
-                        "re-pairs or unpairs",
+                        "(stored_pin=%s expected_pin=%s expected_bytes=%s "
+                        "observed_pin=%s observed_bytes=%s); orphaning "
+                        "until the operator re-pairs or unpairs",
                         self._hostname,
                         self._port,
+                        self._pin_sha256,
                         pin_sha256_for_pubkey(self._pinned_static_x25519_pub),
                         self._pinned_static_x25519_pub.hex(),
                         pin_sha256_for_pubkey(observed),
