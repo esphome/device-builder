@@ -5724,15 +5724,7 @@ async def test_run_one_session_logs_connected_peer_after_tcp_connect(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A successful TCP connect logs the actual connected peer address.
-
-    Logging via aiohttp's ``on_connection_create_end`` trace hook
-    means the line fires once per real connect (after the
-    TCPConnector already resolved + established the socket); failed
-    connect attempts during an outage stay at DEBUG via the
-    existing transport-error path. Pairs with the pin-drift
-    warning's ``observed_bytes`` for the WSL2 mDNS-flap branch.
-    """
+    """A successful WS connect logs the actual peer address from ``ws.get_extra_info``."""
     server, receiver, _, receiver_pub = receiver_server
     initiator_priv = secrets.token_bytes(32)
     await _seed_approved_peer_for_initiator(

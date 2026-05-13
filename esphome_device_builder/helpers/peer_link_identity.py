@@ -151,14 +151,7 @@ def rotate_peer_link_identity(config_dir: Path) -> PeerLinkIdentity:
 
 
 def _log_loaded_identity(key_path: Path, public_bytes: bytes, pin_sha256: str) -> None:
-    """
-    Log the loaded identity with file stat + raw pubkey hex for drift diagnosis.
-
-    Pairs with the offloader-side pin-drift warning's
-    ``observed_bytes`` so an operator can compare what this
-    process loaded against what a paired offloader actually
-    observed on the wire.
-    """
+    """Emit one INFO line with key-file stat, raw pubkey hex, and pin."""
     try:
         stat = key_path.stat()
     except OSError as exc:
