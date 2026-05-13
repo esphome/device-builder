@@ -29,7 +29,6 @@ from esphome_device_builder.controllers.remote_build import (
     OffloaderController,
     ReceiverController,
 )
-from esphome_device_builder.controllers.remote_build import offloader as rb
 from esphome_device_builder.controllers.remote_build import rebind as rb_rebind
 from esphome_device_builder.controllers.remote_build import receiver as rb_rcv
 from esphome_device_builder.controllers.remote_build._mdns import (
@@ -469,7 +468,7 @@ async def test_rebind_probe_unreachable_does_not_mutate(
     _patch_probe_internals(
         monkeypatch,
         controller,
-        preview_side_effect=rb.PeerLinkClientError("connect refused"),
+        preview_side_effect=rb_rebind.PeerLinkClientError("connect refused"),
         seed_cooldown_for=pin,
     )
 
@@ -821,7 +820,7 @@ async def test_edit_pairing_endpoint_unreachable_raises_unavailable(
     cancel, spawn = _patch_probe_internals(
         monkeypatch,
         controller,
-        preview_side_effect=rb.PeerLinkClientError("connect refused"),
+        preview_side_effect=rb_rebind.PeerLinkClientError("connect refused"),
     )
 
     with pytest.raises(CommandError) as exc_info:

@@ -890,7 +890,7 @@ async def test_controller_request_pair_unexpected_status_raises_internal_error(
         )
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader.peer_link_request_pair",
+        "esphome_device_builder.controllers.remote_build.pair_commands.peer_link_request_pair",
         _fake_request_pair,
     )
 
@@ -1753,7 +1753,7 @@ async def test_request_pair_clears_offloader_alert_for_same_receiver(
         )
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader.peer_link_request_pair",
+        "esphome_device_builder.controllers.remote_build.pair_commands.peer_link_request_pair",
         _fake_request_pair,
     )
     fake_identity = MagicMock()
@@ -1862,7 +1862,7 @@ async def test_request_pair_repair_then_unpair_clean_state(
         return fake_results.pop(0)
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader.peer_link_request_pair",
+        "esphome_device_builder.controllers.remote_build.pair_commands.peer_link_request_pair",
         _fake_request_pair,
     )
 
@@ -2033,7 +2033,7 @@ async def test_request_pair_repair_against_pending_cancels_old_listener(
         )
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader.peer_link_request_pair",
+        "esphome_device_builder.controllers.remote_build.pair_commands.peer_link_request_pair",
         _fake_request_pair,
     )
 
