@@ -22,7 +22,6 @@ from ...helpers.api import CommandError, api_command
 from ...helpers.device_yaml import (
     configuration_stem,
     parse_esphome_meta,
-    parse_platform_from_yaml,
 )
 from ...helpers.event_bus import Event
 from ...helpers.storage_path import resolve_storage_path
@@ -54,7 +53,6 @@ from .._device_state_monitor import DeviceStateMonitor
 from .._reachability_tracker import ReachabilityTracker
 from ..config import (
     get_device_metadata,
-    remove_device_metadata,
     set_device_labels,
     set_device_metadata,
 )
@@ -66,6 +64,7 @@ from . import (
     firmware_sync,
     importable,
     logs,
+    mutations_create,
     mutations_yaml,
     reachability,
     scan_change,
@@ -444,7 +443,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     # ------------------------------------------------------------------
 
     @api_command("devices/create")
-    async def create_device(  # noqa: PLR0915
+    async def create_device(
         self,
         *,
         name: str,
@@ -454,191 +453,15 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         file_content: str | None = None,
         **kwargs: Any,
     ) -> WizardResponse:
-        """
-        Create a new device configuration.
-
-        Three flows, decided by which arguments are provided:
-
-        1. ``file_content`` given → write it as-is (user supplied full YAML).
-        2. ``board_id`` given → generate a basic config from the board template.
-        3. Neither given → emit a minimal valid esp32 stub via
-           :func:`generate_minimal_stub_yaml`. The wizard's
-           "Empty Configuration — for manually writing or pasting"
-           button hits this path; the user wants a starter they
-           can fully rewrite, but the starter must validate so
-           downstream operations don't refuse it. esp32 is the
-           default platform (most common); a leading comment in
-           the stub tells the user to swap the platform block if
-           their hardware differs.
-
-        The two *generated* flows (template, stub) run the result
-        through ``EditorController``'s schema check before the
-        file lands on disk — those are *our* outputs, so an
-        invalid one is our regression to fix and surfaces as
-        ``INTERNAL_ERROR``.
-
-        The user-upload flow deliberately skips validation. The
-        whole point of "upload an existing YAML" is to get a
-        config the user already has into the dashboard so they
-        can edit it; many real-world cases are configs from older
-        ESPHome versions whose components have since changed
-        schema, and refusing to write them would lock the user
-        out of the editor — the only place they can fix the YAML
-        in the first place. The next compile / install will
-        surface the actual schema errors with line numbers, which
-        is what the user wants when they're repairing an old
-        config.
-
-        After writing, we always try to derive a board_id by parsing
-        the resulting YAML's platform/board/variant fields and matching
-        against the catalog. The derived (or supplied) board_id is
-        stored in metadata for later reference.
-        """
-        name = name.strip()
-        if not name:
-            raise CommandError(ErrorCode.INVALID_ARGS, "name is required")
-
-        filename = f"{name}.yaml"
-        config_path = self._db.settings.rel_path(filename)
-
-        # Fast collision check before the (~hundreds of ms) validator
-        # round-trip so a duplicate-name attempt fails on the right
-        # diagnostic instead of surfacing a "config doesn't validate"
-        # for a YAML we weren't about to write anyway. The ``open(...,
-        # "x")`` further down is the actual race-safe write — the
-        # check here is a UX optimisation, not a TOCTOU guard.
-        loop_for_check = asyncio.get_running_loop()
-        if await loop_for_check.run_in_executor(None, config_path.exists):
-            msg = f"Configuration {filename} already exists"
-            raise CommandError(ErrorCode.INVALID_ARGS, msg)
-
-        # Surface user-correctable failures (unknown board, name
-        # collision) as typed ``INVALID_ARGS`` so the wizard can show
-        # a specific message instead of the WS layer's generic
-        # "Command failed" fallback. The collision check happens at
-        # write time below via exclusive-create — see there for why.
-        board = None
-        if board_id:
-            if self._db.boards:
-                board = await self._db.boards.get_board(board_id=board_id)
-            if board is None:
-                msg = f"Unknown board: {board_id}"
-                raise CommandError(ErrorCode.INVALID_ARGS, msg)
-
-        friendly = friendly_name_slugify(name)
-        yaml_content, source = self._yaml_content_for_create(
-            name, friendly, board, file_content, ssid, psk
+        """Create a new device configuration."""
+        return await mutations_create.create_device(
+            self,
+            name=name,
+            board_id=board_id,
+            ssid=ssid,
+            psk=psk,
+            file_content=file_content,
         )
-
-        # Validate generated YAML before write so a regression in
-        # ``generate_device_yaml`` / ``generate_minimal_stub_yaml``
-        # surfaces as ``INTERNAL_ERROR`` (our bug to report) rather
-        # than landing an unflashable YAML on disk. User uploads
-        # are deliberately *not* validated here — the upload flow
-        # exists so users can bring an existing config (often from
-        # an older ESPHome version with since-changed component
-        # schemas) into the builder and repair it in the editor.
-        # Refusing the write would strand them; the next compile
-        # / install surfaces the real schema errors with line
-        # numbers, which is what they need to fix it.
-        if source != "user":
-            await self._validate_rewritten_yaml_or_raise(
-                filename,
-                yaml_content,
-                action="create",
-                on_failure=ErrorCode.INTERNAL_ERROR,
-            )
-
-        # Derive board_id from YAML when not explicitly provided.
-        # Mirrors the scanner's resolution chain: pio_board match first,
-        # then platform+variant fallback for generic ``esp32:``-style
-        # configs without a specific PlatformIO board id.
-        #
-        # Skip derivation for the stub branch. ``generate_minimal_stub_yaml``
-        # hard-codes ``esp32: board: esp32dev`` because the user
-        # hasn't picked hardware yet, but many catalog entries share
-        # that PIO board — running the lookup would pin the new
-        # device to whatever catalog entry the index happens to
-        # surface first, and the wrong entry would stay bound even
-        # after the user rewrites the platform block. ``parsed_platform``
-        # is still set so :func:`StorageJSON` gets a sensible
-        # ``target_platform`` for the initial sidecar.
-        parsed_platform = ""
-        if not board_id and self._db.boards:
-            parsed_platform, pio_board, variant = parse_platform_from_yaml(yaml_content)
-            if source != "stub":
-                matched = None
-                if pio_board:
-                    matched = self._db.boards.find_by_pio_board(pio_board, variant)
-                if matched is None and parsed_platform:
-                    matched = self._db.boards.find_by_platform_variant(parsed_platform, variant)
-                if matched:
-                    board = matched
-                    board_id = matched.id
-
-        loop = asyncio.get_running_loop()
-
-        def _write_exclusive() -> None:
-            # Exclusive-create so a concurrent ``devices/create`` (or
-            # any other writer) can't slip between a preflight check
-            # and the write and silently clobber an in-flight config.
-            with open(config_path, "x", encoding="utf-8") as f:
-                f.write(yaml_content)
-
-        try:
-            await loop.run_in_executor(None, _write_exclusive)
-        except FileExistsError as exc:
-            msg = f"Configuration {filename} already exists"
-            raise CommandError(ErrorCode.INVALID_ARGS, msg) from exc
-
-        def _init_storage() -> None:
-            platform = str(board.esphome.platform) if board else parsed_platform
-            storage = StorageJSON(
-                storage_version=1,
-                name=name,
-                friendly_name=friendly,
-                comment=None,
-                esphome_version=None,
-                src_version=None,
-                address=f"{name}.local",
-                web_port=None,
-                target_platform=platform,
-                build_path=None,
-                firmware_bin_path=None,
-                loaded_integrations=[],
-                loaded_platforms=[],
-                no_mdns=False,
-            )
-            storage_path = resolve_storage_path(filename)
-            storage_path.parent.mkdir(parents=True, exist_ok=True)
-            storage.save(storage_path)
-
-            # Clear any residual metadata entry under this filename
-            # before we write the new one. Archive preserves
-            # identity fields (``board_id`` / ``friendly_name`` /
-            # ``comment``) so an unarchive of the same YAML restores
-            # state, but a *new* device created at the same filename
-            # must start fresh — otherwise an archived device's
-            # ``board_id`` would silently mis-bind the new device's
-            # YAML to the wrong catalog entry, and the persisted
-            # ``friendly_name`` would override the new YAML's. The
-            # stub create path (no ``board_id`` provided, no derive
-            # match) wouldn't otherwise overwrite the entry, so the
-            # explicit wipe runs unconditionally.
-            remove_device_metadata(self._db.settings.config_dir, filename)
-            if board_id:
-                set_device_metadata(self._db.settings.config_dir, filename, board_id=board_id)
-
-        await loop.run_in_executor(None, _init_storage)
-        # ``_scanner.scan`` fires ``_on_scan_change(ADDED)`` for the
-        # new YAML, and that callback already runs ``probe_device`` —
-        # don't double-probe here. ``file_content`` may carry an
-        # ``esphome.name`` that differs from the URL ``name``, in
-        # which case the scan-change handler probes the YAML's name
-        # (the right one) and an explicit second probe here would
-        # target the wrong service.
-        await self._scanner.scan()
-        return WizardResponse(configuration=filename)
 
     @api_command("devices/update")
     async def update_device(

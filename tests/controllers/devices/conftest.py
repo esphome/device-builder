@@ -561,7 +561,7 @@ def stub_create_device_metadata_helpers(monkeypatch: pytest.MonkeyPatch, tmp_pat
     """
     storage_path = tmp_path / "storage.json"
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.resolve_storage_path",
+        "esphome_device_builder.controllers.devices.mutations_create.resolve_storage_path",
         lambda _filename: storage_path,
     )
     monkeypatch.setattr(
@@ -569,7 +569,11 @@ def stub_create_device_metadata_helpers(monkeypatch: pytest.MonkeyPatch, tmp_pat
         lambda *_args, **_kwargs: None,
     )
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.remove_device_metadata",
+        "esphome_device_builder.controllers.devices.mutations_create.set_device_metadata",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.mutations_create.remove_device_metadata",
         lambda *_args, **_kwargs: None,
     )
 

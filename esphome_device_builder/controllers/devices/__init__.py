@@ -27,6 +27,9 @@ resolving after the subpackage split. Submodules:
   (``stream_logs``, ``stop_stream``) plus the shared
   ``stream_subprocess`` helper that ``validate_config``
   reuses.
+- ``mutations_create`` — ``devices/create`` WS command body
+  (the wizard's three-flow YAML creation: file_content /
+  template / stub).
 - ``mutations_yaml`` — shared helpers for the device-mutation
   WS commands (``yaml_content_for_create`` provenance pick,
   ``validate_rewritten_yaml_or_raise`` editor-validate gate).
