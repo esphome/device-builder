@@ -1,0 +1,7 @@
+esphome:
+  name: x
+interval:
+  - interval: 60s
+    then:
+      - lambda: |
+          ESP_LOGI("app", "tick");

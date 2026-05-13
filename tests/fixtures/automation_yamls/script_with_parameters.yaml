@@ -1,0 +1,11 @@
+esphome:
+  name: x
+script:
+  - id: morning_alarm
+    mode: single
+    parameters:
+      hour: int
+      message: string
+    then:
+      - logger.log: 'wake up'
+      - delay: 1s

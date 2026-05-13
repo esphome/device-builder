@@ -1,24 +1,10 @@
-"""Tests for ``controllers/automations.py`` — context-aware triggers / actions.
+"""Tests for the automations controller WS commands.
 
-The module pre-defines two static catalogues — device-level
-triggers (always available), component-level triggers (gated on
-the device's configured platform types), plus a flat list of
-actions — and exposes three WS commands that slice them:
-
-* ``automations/get_triggers`` — full list, optionally narrowed
-  by a single ``platform_type`` filter.
-* ``automations/get_actions`` — every action in the catalogue.
-* ``automations/get_available`` — reads the device's YAML, scans
-  for top-level keys matching the platform-type allowlist, and
-  returns the union of device-level triggers + every
-  component-level trigger whose ``platform_types`` intersects
-  the present set.
-
-The pin points for these tests are the slicing rules — each
-``platform_types`` arm needs to be exercised so a regression that
-swaps ``any`` for ``all`` (a real trap given the trigger list
-mixes shared platform_types like ``binary_sensor`` + ``button``)
-shows up immediately.
+Pins the catalog-loader path (the four ``get_*`` commands), the
+context-scoping behaviour of ``get_available``, and the basic
+parse / upsert / delete round-trips. The deep parser and writer
+tests live in ``test_automations_parse.py`` and
+``test_automations_writer.py`` respectively.
 """
 
 from __future__ import annotations
@@ -28,24 +14,16 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from esphome_device_builder.controllers.automations import (
-    _ACTIONS,
-    _COMPONENT_TRIGGERS,
-    _DEVICE_TRIGGERS,
-    AutomationsController,
-)
+from esphome_device_builder.controllers.automations import AutomationsController, catalog
+from esphome_device_builder.helpers.api import CommandError
 
 
 def _make_controller(config_dir: Path) -> AutomationsController:
-    """Build an ``AutomationsController`` with a stub ``DeviceBuilder``.
+    """Build a controller wired to a tmp config dir.
 
-    ``__init__`` only stashes the device_builder reference; the
-    only attribute the controller actually reaches for is
-    ``self._db.settings.rel_path``, used by
-    ``get_available_for_device`` to resolve the configuration
-    filename to an on-disk Path. Wiring ``rel_path`` to
-    ``config_dir.joinpath`` mirrors what production does and
-    keeps the test free of Settings construction.
+    The controller's only DeviceBuilder interaction is
+    ``self._db.settings.rel_path(configuration)`` — wire it to the
+    tmp path's joinpath so each test sees its own filesystem.
     """
     db = MagicMock()
     db.settings.rel_path = config_dir.joinpath
@@ -53,235 +31,261 @@ def _make_controller(config_dir: Path) -> AutomationsController:
 
 
 # ---------------------------------------------------------------------------
-# get_triggers
+# Catalog list commands
 # ---------------------------------------------------------------------------
 
 
-async def test_get_triggers_without_filter_returns_full_catalogue() -> None:
-    """No ``platform_type`` keyword → device + component triggers, in order.
-
-    The unfiltered call returns everything; pin both halves of
-    the catalogue land in the response so a regression that
-    accidentally switched the no-arg branch to "device only" or
-    "component only" surfaces here.
-    """
+async def test_get_triggers_returns_full_catalog() -> None:
+    """``automations/get_triggers`` returns every catalog trigger."""
     controller = _make_controller(Path("/unused"))
     result = await controller.get_triggers()
-
-    ids = [t["id"] for t in result]
-    assert len(result) == len(_DEVICE_TRIGGERS) + len(_COMPONENT_TRIGGERS)
-    assert ids[: len(_DEVICE_TRIGGERS)] == [t.id for t in _DEVICE_TRIGGERS]
-    # Every component-level id is also present.
-    assert {t.id for t in _COMPONENT_TRIGGERS} <= set(ids)
+    catalog_ids = {t.id for t in catalog.all_triggers()}
+    assert {t["id"] for t in result} == catalog_ids
+    assert "on_boot" in catalog_ids  # device-level
+    assert "binary_sensor.on_press" in catalog_ids  # component-level
 
 
-async def test_get_triggers_filters_by_platform_type() -> None:
-    """``platform_type="sensor"`` keeps device-level + sensor-only triggers.
-
-    Device-level triggers carry ``platform_types=[]`` (the empty
-    list is the "always-applicable" sentinel) so they pass the
-    ``not t.platform_types`` half of the predicate. Component-
-    level triggers pass when their ``platform_types`` list
-    contains the requested type. Pin both arms by asserting (a)
-    every device-level trigger is present, (b) ``on_value`` (a
-    sensor-only trigger) is present, (c) ``on_press`` (button /
-    binary_sensor only — no sensor) is absent.
-    """
-    controller = _make_controller(Path("/unused"))
-    result = await controller.get_triggers(platform_type="sensor")
-    ids = {t["id"] for t in result}
-
-    assert {t.id for t in _DEVICE_TRIGGERS} <= ids
-    assert "on_value" in ids
-    assert "on_press" not in ids
-
-
-async def test_get_triggers_filter_excludes_unrelated_component_types() -> None:
-    """Filtering by ``light`` drops binary_sensor-only triggers.
-
-    Pin the negative case: ``on_release`` is binary_sensor-only,
-    while ``on_turn_on`` lists ``light`` among its platform_types.
-    A regression that flipped the membership check (``not in``
-    vs ``in``) would invert these and pass other less-specific
-    tests, so call out both sides.
-    """
-    controller = _make_controller(Path("/unused"))
-    result = await controller.get_triggers(platform_type="light")
-    ids = {t["id"] for t in result}
-
-    assert "on_turn_on" in ids
-    assert "on_turn_off" in ids
-    assert "on_release" not in ids
-    assert "on_value" not in ids
-
-
-# ---------------------------------------------------------------------------
-# get_actions
-# ---------------------------------------------------------------------------
-
-
-async def test_get_actions_returns_full_catalogue() -> None:
-    """Every entry in ``_ACTIONS`` is serialised and returned.
-
-    No filtering on actions today — pin the full dump so a
-    refactor that introduces conditional gating (e.g. "hide
-    light.* when no light component is configured") needs to
-    update this test deliberately.
-    """
+async def test_get_actions_returns_full_catalog() -> None:
+    """``automations/get_actions`` returns every catalog action."""
     controller = _make_controller(Path("/unused"))
     result = await controller.get_actions()
+    assert {a["id"] for a in result} == {a.id for a in catalog.all_actions()}
+    # A few load-bearing built-ins we expect to always be present.
+    ids = {a["id"] for a in result}
+    for required in ("if", "delay", "lambda", "switch.turn_on", "light.turn_on"):
+        assert required in ids, f"{required} missing from action catalog"
 
-    assert [a["id"] for a in result] == [a.id for a in _ACTIONS]
+
+async def test_get_conditions_returns_full_catalog() -> None:
+    """``automations/get_conditions`` returns every catalog condition."""
+    controller = _make_controller(Path("/unused"))
+    result = await controller.get_conditions()
+    ids = {c["id"] for c in result}
+    for required in ("and", "or", "not", "lambda", "switch.is_on", "binary_sensor.is_on"):
+        assert required in ids, f"{required} missing from condition catalog"
+
+
+async def test_get_light_effects_returns_full_catalog() -> None:
+    """``automations/get_light_effects`` returns every catalog effect."""
+    controller = _make_controller(Path("/unused"))
+    result = await controller.get_light_effects()
+    ids = {e["id"] for e in result}
+    for required in ("flicker", "pulse"):
+        assert required in ids, f"{required} missing from light effects catalog"
 
 
 # ---------------------------------------------------------------------------
-# get_available_for_device
+# get_available
 # ---------------------------------------------------------------------------
 
 
-async def test_get_available_for_device_includes_only_present_platform_types(
-    tmp_path: Path,
-) -> None:
-    """A device with ``binary_sensor:`` configured surfaces button-style triggers.
+async def test_get_available_scopes_triggers_to_present_domains(tmp_path: Path) -> None:
+    """Component-level triggers only surface for configured domains.
 
-    The scan walks the YAML line-by-line looking for non-indented
-    lines containing ``:``, then intersects the extracted key with
-    the controller's platform-type allowlist. A device with only
-    ``binary_sensor:`` should see ``on_press`` / ``on_release`` /
-    ``on_click`` / ``on_state`` but not ``on_value`` (which is
-    sensor-specific).
+    A YAML with ``binary_sensor:`` configured should include
+    ``binary_sensor.on_press`` (and other binary_sensor triggers)
+    plus every device-level trigger. ``sensor.on_value`` is gated
+    on having a ``sensor:`` block and must NOT leak through.
     """
     config = tmp_path / "kitchen.yaml"
     config.write_text(
-        "esphome:\n  name: kitchen\nbinary_sensor:\n  - platform: gpio\n    pin: GPIO0\n",
+        "esphome:\n  name: kitchen\n"
+        "binary_sensor:\n  - platform: gpio\n    name: b\n    id: btn\n    pin: GPIO0\n",
         encoding="utf-8",
     )
     controller = _make_controller(tmp_path)
-
-    result = await controller.get_available_for_device(configuration="kitchen.yaml")
-
-    assert result["present_platform_types"] == ["binary_sensor"]
+    result = await controller.get_available(configuration="kitchen.yaml")
     trigger_ids = {t["id"] for t in result["triggers"]}
-    assert {t.id for t in _DEVICE_TRIGGERS} <= trigger_ids
-    assert "on_press" in trigger_ids
-    assert "on_release" in trigger_ids
-    assert "on_value" not in trigger_ids
-    # Actions are unconditional.
-    assert [a["id"] for a in result["actions"]] == [a.id for a in _ACTIONS]
+    # Device-level triggers are unconditional.
+    assert {"on_boot", "on_loop", "on_shutdown"} <= trigger_ids
+    # Binary-sensor triggers surface.
+    assert "binary_sensor.on_press" in trigger_ids
+    # Sensor-only triggers do not.
+    assert "sensor.on_value" not in trigger_ids
 
 
-async def test_get_available_for_device_with_no_components_returns_only_device_triggers(
+async def test_get_available_returns_configured_scripts_with_parameters(
     tmp_path: Path,
 ) -> None:
-    """A device YAML carrying no platform-type blocks yields only device-level triggers.
+    """``scripts:`` declarations surface with their ``parameters:`` map.
 
-    Component-level triggers all require *some* platform_type to
-    be present (their list is non-empty); a config with just
-    ``esphome:`` and ``wifi:`` (neither in the allowlist) leaves
-    the present-set empty and the ``any(...)`` predicate folds
-    every component-level trigger out.
+    ``script.execute`` renders a dynamic parameter form keyed on the
+    selected script's id; without parameters the form would have
+    nothing to render. Pin that the controller surfaces both name
+    and type per declared parameter.
     """
-    config = tmp_path / "minimal.yaml"
-    config.write_text("esphome:\n  name: m\nwifi:\n  ssid: x\n", encoding="utf-8")
-    controller = _make_controller(tmp_path)
-
-    result = await controller.get_available_for_device(configuration="minimal.yaml")
-
-    assert result["present_platform_types"] == []
-    assert [t["id"] for t in result["triggers"]] == [t.id for t in _DEVICE_TRIGGERS]
-
-
-async def test_get_available_for_device_unions_triggers_across_multiple_components(
-    tmp_path: Path,
-) -> None:
-    """``binary_sensor:`` plus ``sensor:`` returns the union of both arms.
-
-    The component-level trigger filter uses ``any(pt in
-    present_types for pt in trigger.platform_types)`` — a
-    trigger that lists multiple platform_types lights up as
-    soon as *any* is present. Pin that ``on_state`` (which
-    carries both ``binary_sensor`` and ``sensor``) appears
-    once, not twice.
-    """
-    config = tmp_path / "mix.yaml"
+    config = tmp_path / "alarm.yaml"
     config.write_text(
-        "esphome:\n  name: mix\n"
-        "binary_sensor:\n  - platform: gpio\n    pin: GPIO0\n"
-        "sensor:\n  - platform: dht\n    pin: GPIO4\n",
+        "esphome:\n  name: a\n"
+        "script:\n"
+        "  - id: morning_alarm\n"
+        "    parameters:\n"
+        "      hour: int\n"
+        "      message: string\n"
+        "    then:\n"
+        "      - logger.log: 'wake up'\n",
         encoding="utf-8",
     )
     controller = _make_controller(tmp_path)
-
-    result = await controller.get_available_for_device(configuration="mix.yaml")
-
-    assert result["present_platform_types"] == ["binary_sensor", "sensor"]
-    trigger_ids = [t["id"] for t in result["triggers"]]
-    assert "on_press" in trigger_ids
-    assert "on_value" in trigger_ids
-    # ``on_state`` lists both — pin that the union doesn't
-    # double-count it. The component-level loop iterates the
-    # static list once per trigger, so de-duplication is
-    # implicit; pin it so a refactor that switches to "for each
-    # platform_type, append matching triggers" doesn't slip in
-    # silent duplicates.
-    assert trigger_ids.count("on_state") == 1
+    result = await controller.get_available(configuration="alarm.yaml")
+    assert len(result["scripts"]) == 1
+    script = result["scripts"][0]
+    assert script["id"] == "morning_alarm"
+    params = {p["name"]: p["type"] for p in script["parameters"]}
+    assert params == {"hour": "int", "message": "string"}
 
 
-async def test_get_available_for_device_ignores_indented_keys(tmp_path: Path) -> None:
-    """Only column-zero keys count — indented ``sensor:`` under another block is skipped.
+async def test_get_available_lists_configured_component_instances(tmp_path: Path) -> None:
+    """Configured component instances are surfaced for id-picker dropdowns.
 
-    The scan key-detection rule is "first character is non-
-    whitespace and the line contains a colon". A nested ``-
-    sensor:`` (the platform of a list item) is indented and
-    must not register as a top-level platform-type block —
-    otherwise every sensor-only trigger leaks into a config
-    with no real ``sensor:`` block.
+    Action params that ``references_component`` (e.g.
+    ``switch.turn_on``'s ``id`` field references the ``switch``
+    domain) need the list of configured ids in the YAML so the
+    frontend can render the picker.
     """
-    config = tmp_path / "edge.yaml"
-    # ``binary_sensor:`` exists at the top level; the indented
-    # ``    sensor:`` key under the list item is decorative and
-    # must NOT register the device as having a sensor block.
+    config = tmp_path / "device.yaml"
     config.write_text(
-        "esphome:\n  name: edge\n"
-        "binary_sensor:\n"
+        "esphome:\n  name: d\n"
+        "switch:\n"
         "  - platform: gpio\n"
-        "    pin: GPIO0\n"
-        "    sensor: not-a-real-key\n",
+        "    id: relay_one\n"
+        "    name: 'Relay 1'\n"
+        "    pin: GPIO5\n"
+        "  - platform: gpio\n"
+        "    id: relay_two\n"
+        "    pin: GPIO6\n",
+        encoding="utf-8",
+    )
+    controller = _make_controller(tmp_path)
+    result = await controller.get_available(configuration="device.yaml")
+    devices = {(d["component_id"], d["id"]): d for d in result["devices"]}
+    assert ("switch.gpio", "relay_one") in devices
+    assert devices[("switch.gpio", "relay_one")]["name"] == "Relay 1"
+    assert ("switch.gpio", "relay_two") in devices
+
+
+async def test_get_available_actions_and_conditions_are_returned_in_full(
+    tmp_path: Path,
+) -> None:
+    """``actions`` / ``conditions`` are not scoped to present domains.
+
+    The frontend's id-pickers handle scoping by filtering on
+    ``references_component``; the catalog is returned unfiltered so
+    the user can pick e.g. ``light.turn_on`` even on a device that
+    has no light yet (they'll add one).
+    """
+    config = tmp_path / "min.yaml"
+    config.write_text("esphome:\n  name: m\n", encoding="utf-8")
+    controller = _make_controller(tmp_path)
+    result = await controller.get_available(configuration="min.yaml")
+    assert len(result["actions"]) == len(catalog.all_actions())
+    assert len(result["conditions"]) == len(catalog.all_conditions())
+
+
+# ---------------------------------------------------------------------------
+# parse / upsert / delete
+# ---------------------------------------------------------------------------
+
+
+async def test_parse_returns_empty_list_for_yaml_without_automations(
+    tmp_path: Path,
+) -> None:
+    """A device YAML with no automations parses to an empty list."""
+    config = tmp_path / "empty.yaml"
+    config.write_text("esphome:\n  name: e\n", encoding="utf-8")
+    controller = _make_controller(tmp_path)
+    result = await controller.parse(configuration="empty.yaml")
+    assert result == []
+
+
+async def test_parse_round_trip_device_on_boot(tmp_path: Path) -> None:
+    """Parsing a device with on_boot returns one device_on entry."""
+    config = tmp_path / "boot.yaml"
+    config.write_text(
+        "esphome:\n  name: b\n  on_boot:\n    then:\n      - delay: 1s\n",
+        encoding="utf-8",
+    )
+    controller = _make_controller(tmp_path)
+    result = await controller.parse(configuration="boot.yaml")
+    assert len(result) == 1
+    parsed = result[0]
+    assert parsed["location"] == {"kind": "device_on", "trigger": "on_boot"}
+    assert parsed["automation"]["trigger_id"] == "on_boot"
+    assert parsed["automation"]["actions"][0]["action_id"] == "delay"
+
+
+async def test_upsert_device_on_boot_returns_yaml_diff(tmp_path: Path) -> None:
+    """Upserting on_boot on a device without one returns a splice diff."""
+    config = tmp_path / "u.yaml"
+    config.write_text("esphome:\n  name: u\n", encoding="utf-8")
+    controller = _make_controller(tmp_path)
+    result = await controller.upsert(
+        configuration="u.yaml",
+        automation={
+            "trigger_id": "on_boot",
+            "trigger_params": {},
+            "conditions": [],
+            "actions": [
+                {
+                    "action_id": "delay",
+                    "params": {"id": "1s"},
+                    "children": {},
+                    "conditions": [],
+                },
+            ],
+        },
+        location={"kind": "device_on", "trigger": "on_boot"},
+    )
+    diff = result["yaml_diff"]
+    assert diff["fromLine"] >= 1
+    # The replacement contains the new on_boot handler.
+    assert "on_boot" in diff["replacement"]
+
+
+async def test_upsert_rejects_unknown_location_kind(tmp_path: Path) -> None:
+    """An unknown location.kind discriminator surfaces as INVALID_ARGS."""
+    config = tmp_path / "u.yaml"
+    config.write_text("esphome:\n  name: u\n", encoding="utf-8")
+    controller = _make_controller(tmp_path)
+
+    with pytest.raises(CommandError):
+        await controller.upsert(
+            configuration="u.yaml",
+            automation={
+                "trigger_id": "on_boot",
+                "trigger_params": {},
+                "conditions": [],
+                "actions": [],
+            },
+            location={"kind": "bogus", "id": "x"},
+        )
+
+
+async def test_delete_device_on_returns_empty_replacement(tmp_path: Path) -> None:
+    """Deleting on_boot returns a diff whose replacement is empty."""
+    config = tmp_path / "d.yaml"
+    config.write_text(
+        "esphome:\n  name: d\n  on_boot:\n    then:\n      - delay: 1s\n",
+        encoding="utf-8",
+    )
+    controller = _make_controller(tmp_path)
+    result = await controller.delete(
+        configuration="d.yaml",
+        location={"kind": "device_on", "trigger": "on_boot"},
+    )
+    diff = result["yaml_diff"]
+    assert diff["replacement"] == ""
+    assert diff["toLine"] >= diff["fromLine"]
+
+
+async def test_parse_raises_on_unknown_action_id(tmp_path: Path) -> None:
+    """Unknown action ids surface as ``CommandError(INVALID_ARGS)``."""
+    config = tmp_path / "x.yaml"
+    config.write_text(
+        "esphome:\n  name: x\n  on_boot:\n    then:\n      - made_up_action: foo\n",
         encoding="utf-8",
     )
     controller = _make_controller(tmp_path)
 
-    result = await controller.get_available_for_device(configuration="edge.yaml")
-
-    assert result["present_platform_types"] == ["binary_sensor"]
-    assert "on_value" not in {t["id"] for t in result["triggers"]}
-
-
-@pytest.mark.parametrize(
-    "line",
-    [
-        "# binary_sensor: in a comment\n",
-        "binary_sensor without colon\n",
-    ],
-    ids=["comment-line", "no-colon"],
-)
-async def test_get_available_for_device_skips_lines_without_colon(
-    tmp_path: Path,
-    line: str,
-) -> None:
-    """Lines without a ``:`` (or whose ``:`` is inside a comment) don't match.
-
-    The ``":" in line`` check is the second half of the
-    top-level-key heuristic. A YAML comment that mentions a
-    platform-type name and a stray non-key line both fail the
-    membership test and must not seed the present-set. Pin both
-    so a regression that drops the colon check (or moves it)
-    surfaces here.
-    """
-    config = tmp_path / "edge.yaml"
-    config.write_text(f"esphome:\n  name: edge\n{line}", encoding="utf-8")
-    controller = _make_controller(tmp_path)
-
-    result = await controller.get_available_for_device(configuration="edge.yaml")
-
-    assert result["present_platform_types"] == []
+    with pytest.raises(CommandError):
+        await controller.parse(configuration="x.yaml")

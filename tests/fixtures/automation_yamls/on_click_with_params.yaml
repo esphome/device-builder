@@ -1,0 +1,12 @@
+esphome:
+  name: x
+binary_sensor:
+  - platform: gpio
+    name: 'Switch'
+    id: sw
+    pin: GPIO0
+    on_click:
+      min_length: 50ms
+      max_length: 350ms
+      then:
+        - switch.toggle: relay1

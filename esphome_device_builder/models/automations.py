@@ -1,0 +1,301 @@
+"""Automation catalog + round-trip data models.
+
+Split from the legacy hardcoded ``controllers/automations.py`` stub.
+The catalog dataclasses (``AutomationTrigger`` / ``AutomationAction``
+/ ``AutomationCondition`` / ``LightEffect``) are loaded from the
+``definitions/automations.json`` bundle that
+``script/sync_components.py`` emits. The round-trip dataclasses
+(``AutomationTree`` / ``ActionNode`` / ``ConditionNode`` /
+``ParsedAutomation``) carry the structured shape the frontend's
+automation editor exchanges with the backend through
+``automations/parse`` and ``automations/upsert``.
+
+Lambda sentinel: ``{"_lambda": "<C++ source>"}`` in any ``params``
+dict value flags that the value round-trips as a ``!lambda |- ...``
+block scalar in YAML. Distinguishes a templatable literal string
+from a templatable lambda body; the writer emits the matching
+ruamel ``LiteralScalarString``, the parser inverts.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Annotated, Any, Literal
+
+from mashumaro.mixins.orjson import DataClassORJSONMixin
+from mashumaro.types import Discriminator
+
+from .common import ConfigEntry
+
+# ---------------------------------------------------------------------------
+# Catalog
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class AutomationTrigger(DataClassORJSONMixin):
+    """A trigger that can start an automation."""
+
+    id: str
+    name: str
+    description: str
+    docs_url: str
+    applies_to: list[str] = field(default_factory=list)
+    is_device_level: bool = False
+    config_entries: list[ConfigEntry] = field(default_factory=list)
+
+
+@dataclass
+class AutomationAction(DataClassORJSONMixin):
+    """An action that can run inside an automation."""
+
+    id: str
+    name: str
+    description: str
+    docs_url: str
+    domain: str
+    config_entries: list[ConfigEntry] = field(default_factory=list)
+    is_control_flow: bool = False
+    has_else_branch: bool = False
+    accepts_action_list: list[str] = field(default_factory=list)
+
+
+@dataclass
+class AutomationCondition(DataClassORJSONMixin):
+    """A condition usable inside an ``if`` / ``while`` / ``wait_until``."""
+
+    id: str
+    name: str
+    description: str
+    docs_url: str
+    domain: str
+    config_entries: list[ConfigEntry] = field(default_factory=list)
+    accepts_condition_list: bool = False
+
+
+@dataclass
+class LightEffect(DataClassORJSONMixin):
+    """A light effect (pulse, flicker, addressable_lambda, ...)."""
+
+    id: str
+    name: str
+    config_entries: list[ConfigEntry] = field(default_factory=list)
+    applies_to: list[str] = field(default_factory=list)
+
+
+@dataclass
+class AutomationCatalog(DataClassORJSONMixin):
+    """Top-level shape of ``definitions/automations.json``."""
+
+    esphome_schema_version: str = ""
+    triggers: list[AutomationTrigger] = field(default_factory=list)
+    actions: list[AutomationAction] = field(default_factory=list)
+    conditions: list[AutomationCondition] = field(default_factory=list)
+    light_effects: list[LightEffect] = field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Location (discriminated union)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ScriptLocation(DataClassORJSONMixin):
+    """A top-level ``script:`` list item, keyed by the script's ``id``."""
+
+    id: str
+    kind: Literal["script"] = "script"
+
+
+@dataclass
+class IntervalLocation(DataClassORJSONMixin):
+    """A top-level ``interval:`` list item, indexed by list position."""
+
+    index: int
+    kind: Literal["interval"] = "interval"
+
+
+@dataclass
+class ComponentOnLocation(DataClassORJSONMixin):
+    """An inline ``on_*:`` handler under a configured component instance."""
+
+    component_id: str
+    trigger: str
+    kind: Literal["component_on"] = "component_on"
+
+
+@dataclass
+class DeviceOnLocation(DataClassORJSONMixin):
+    """A device-level ``on_boot`` / ``on_loop`` / ``on_shutdown`` under ``esphome:``."""
+
+    trigger: str
+    kind: Literal["device_on"] = "device_on"
+
+
+@dataclass
+class LightEffectLocation(DataClassORJSONMixin):
+    """A user-defined effect inside a light's ``effects:`` list."""
+
+    component_id: str
+    index: int
+    kind: Literal["light_effect"] = "light_effect"
+
+
+AutomationLocation = Annotated[
+    ScriptLocation
+    | IntervalLocation
+    | ComponentOnLocation
+    | DeviceOnLocation
+    | LightEffectLocation,
+    Discriminator(field="kind", include_supertypes=True),
+]
+
+
+# ---------------------------------------------------------------------------
+# Round-trip tree
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ConditionNode(DataClassORJSONMixin):
+    """A single condition node.
+
+    ``children`` is populated for boolean combinators (``and``, ``or``,
+    ``all``, ``any``, ``not``, ``xor``) — their ``params`` is empty and
+    the recursive condition list lives in ``children``. Leaf conditions
+    (``binary_sensor.is_on``, ``lambda``, ``for``, ...) carry their
+    arguments under ``params`` and leave ``children`` empty.
+    """
+
+    condition_id: str
+    params: dict[str, Any] = field(default_factory=dict)
+    children: list[ConditionNode] = field(default_factory=list)
+
+
+@dataclass
+class ActionNode(DataClassORJSONMixin):
+    """A single action node.
+
+    ``children`` carries nested action lists for control-flow actions,
+    keyed by the action's ``accepts_action_list`` entries (e.g.
+    ``{"then": [...], "else": [...]}`` for ``if``,
+    ``{"then": [...]}`` for ``while`` and ``repeat``).
+    ``conditions`` is the boolean gate — populated only for ``if`` /
+    ``wait_until``.
+    """
+
+    action_id: str
+    params: dict[str, Any] = field(default_factory=dict)
+    children: dict[str, list[ActionNode]] = field(default_factory=dict)
+    conditions: list[ConditionNode] = field(default_factory=list)
+
+
+@dataclass
+class AutomationTree(DataClassORJSONMixin):
+    """The structured form of one automation.
+
+    ``trigger_id`` is ``None`` for top-level ``script:`` /
+    ``interval:`` blocks (the block kind is implied by the location,
+    not by a ``trigger:`` key in YAML). ``conditions`` is the
+    optional trigger-level "only run if" gate that ESPHome supports
+    on every automation.
+    """
+
+    trigger_id: str | None = None
+    trigger_params: dict[str, Any] = field(default_factory=dict)
+    conditions: list[ConditionNode] = field(default_factory=list)
+    actions: list[ActionNode] = field(default_factory=list)
+
+
+@dataclass
+class ParsedAutomation(DataClassORJSONMixin):
+    """One automation extracted from a device YAML.
+
+    ``from_line`` / ``to_line`` are 1-indexed CodeMirror line numbers
+    so the navigator can map a click to the right YAML range without
+    re-parsing. ``raw_yaml`` is the verbatim slice the parser
+    consumed — kept for the read-only fallback when an automation
+    references a non-catalog action id.
+    """
+
+    location: AutomationLocation
+    label: str
+    automation: AutomationTree
+    from_line: int
+    to_line: int
+    raw_yaml: str
+
+
+# ---------------------------------------------------------------------------
+# get_available response
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class AvailableScriptParameter(DataClassORJSONMixin):
+    """A single declared parameter of a ``script:`` block."""
+
+    name: str
+    type: str
+
+
+@dataclass
+class AvailableScript(DataClassORJSONMixin):
+    """A declared ``script: id`` in the device YAML."""
+
+    id: str
+    parameters: list[AvailableScriptParameter] = field(default_factory=list)
+
+
+@dataclass
+class AvailableComponentInstance(DataClassORJSONMixin):
+    """A configured component instance the user can target from an action."""
+
+    component_id: str
+    id: str
+    name: str | None = None
+
+
+@dataclass
+class AvailableAutomations(DataClassORJSONMixin):
+    """Context-aware catalog scoped to one device's YAML.
+
+    ``triggers`` is filtered to component types present in the config
+    plus device-level triggers. ``actions`` / ``conditions`` are
+    returned in full (id-pickers filter on the frontend).
+    ``scripts`` and ``devices`` feed action-parameter dropdowns.
+    """
+
+    triggers: list[AutomationTrigger] = field(default_factory=list)
+    actions: list[AutomationAction] = field(default_factory=list)
+    conditions: list[AutomationCondition] = field(default_factory=list)
+    scripts: list[AvailableScript] = field(default_factory=list)
+    devices: list[AvailableComponentInstance] = field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Splice diff
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class YamlDiff(DataClassORJSONMixin):
+    """A splice instruction the frontend applies to the editor pane.
+
+    Identical shape to the diffs the existing component flow uses, so
+    the device-editor's optimistic-update pipeline applies these
+    through the same machinery. ``fromLine`` / ``toLine`` are
+    1-indexed (matching the parse output); ``toLine`` is inclusive of
+    the last line being replaced.
+    """
+
+    fromLine: int  # noqa: N815 — wire-shape matches frontend
+    toLine: int  # noqa: N815
+    replacement: str
+
+
+@dataclass
+class UpsertResponse(DataClassORJSONMixin):
+    """Wraps the splice diff returned by upsert / delete."""
+
+    yaml_diff: YamlDiff
