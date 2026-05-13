@@ -14,12 +14,16 @@ class StoredPeer(DataClassORJSONMixin):
     """
     Receiver-side record of a paired (or pending) offloader.
 
-    Persisted under ``_remote_build.peers``. Created by the
-    pair-request flow over the peer-link WS: an offloader runs
-    a Noise XX handshake with ``intent="pair_request"`` and a
-    payload carrying its ``label`` + ``dashboard_id``. The
-    receiver reads the offloader's static X25519 pubkey from
-    the Noise handshake itself (no cert involved) and stores it.
+    Persisted in its own per-file
+    :class:`~helpers.storage.Store` at
+    ``<config_dir>/.receiver_peers.json`` (the
+    :class:`ReceiverPeers` container wraps the list at that
+    path). Created by the pair-request flow over the peer-link
+    WS: an offloader runs a Noise XX handshake with
+    ``intent="pair_request"`` and a payload carrying its
+    ``label`` + ``dashboard_id``. The receiver reads the
+    offloader's static X25519 pubkey from the Noise handshake
+    itself (no cert involved) and stores it.
 
     ``static_x25519_pub`` is the canonical identifier the
     Noise handshake binds to. ``pin_sha256`` is its lowercase-
