@@ -60,14 +60,14 @@ duplicating across call sites.
 
 from __future__ import annotations
 
+import socket
 from typing import TYPE_CHECKING
 
 import aiohttp
+from aiohttp.abc import AbstractResolver, ResolveResult
 from aiohttp_asyncmdnsresolver.api import AsyncDualMDNSResolver
 
 if TYPE_CHECKING:
-    from aiohttp.abc import ResolveResult
-    from aiohttp.resolver import AbstractResolver
     from zeroconf.asyncio import AsyncZeroconf
 
 
@@ -92,14 +92,16 @@ class PeerLinkDNSResolver(AsyncDualMDNSResolver):
         """No-op so per-request connectors don't tear down the shared resolver."""
 
 
-class _BlocklistingResolver:
+class _BlocklistingResolver(AbstractResolver):
     """Wraps an aiohttp resolver; drops results whose host is in the *blocked* set."""
 
     def __init__(self, inner: AbstractResolver, blocked: set[str]) -> None:
         self._inner = inner
         self._blocked = blocked
 
-    async def resolve(self, host: str, port: int = 0, family: int = 0) -> list[ResolveResult]:
+    async def resolve(
+        self, host: str, port: int = 0, family: socket.AddressFamily = socket.AF_INET
+    ) -> list[ResolveResult]:
         results = await self._inner.resolve(host, port, family)
         return [r for r in results if r.get("host") not in self._blocked]
 

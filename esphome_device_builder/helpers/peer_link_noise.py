@@ -280,7 +280,7 @@ def pin_sha256_for_pubkey(static_x25519_pub: bytes) -> str:
 
 def public_bytes_for_priv(static_priv: bytes) -> bytes:
     """Return the cached raw 32-byte X25519 pubkey derived from *static_priv*."""
-    return _cached_static_keypair(static_priv).public_bytes
+    return cast(bytes, _cached_static_keypair(static_priv).public_bytes)
 
 
 def _install_cached_static_keypair(nc: NoiseConnection, static_priv: bytes) -> None:
