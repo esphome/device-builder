@@ -813,7 +813,7 @@ def _format_yaml_value(value: Any) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, str):
-        if value in ("true", "false", "null", "yes", "no", "on", "off"):
+        if value in ("true", "false", "null", "yes", "no", "on", "off", "%"):
             return f'"{value}"'
         if value.startswith("!") or ":" in value or "#" in value:
             return f'"{value}"'

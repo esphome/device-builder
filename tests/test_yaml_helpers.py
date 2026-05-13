@@ -993,18 +993,18 @@ def test_generate_component_yaml_quotes_yaml_keyword_strings(keyword: str) -> No
 
 @pytest.mark.parametrize(
     "value",
-    ["foo:bar", "foo#bar", "!secret api_key"],
-    ids=["colon", "hash", "tag-prefix"],
+    ["foo:bar", "foo#bar", "!secret api_key", "%"],
+    ids=["colon", "hash", "tag-prefix", "percent"],
 )
 def test_generate_component_yaml_quotes_strings_with_special_chars(value: str) -> None:
-    """Strings containing ``:`` / ``#`` or starting with ``!`` get quoted.
+    """Strings containing ``:`` / ``#`` or equal to a YAML reserved scalar get quoted.
 
-    Each of these is YAML structural punctuation: ``:`` opens a
-    mapping value, ``#`` opens a comment, and ``!`` introduces a tag.
-    Emitting any of them unquoted either breaks the parse or
-    silently changes the meaning (``key: foo#bar`` becomes ``key:
-    foo`` with a trailing comment). Pin all three so a refactor that
-    drops one of the disjuncts surfaces here.
+    ``:`` opens a mapping value, ``#`` opens a comment, ``!``
+    introduces a tag. ``%`` is the regression case from issue #675 —
+    a humidity sensor's ``unit_of_measurement: "%"`` default was
+    being emitted unquoted as ``unit_of_measurement: %`` and
+    crashing the downstream ``esphome`` load (``%`` is a YAML
+    indicator character reserved for directives).
     """
     component = _component(component_id="myc", category=ComponentCategory.MISC)
     out = generate_component_yaml(component, {"v": value})
