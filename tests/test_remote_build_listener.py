@@ -196,6 +196,57 @@ async def test_maybe_start_remote_build_site_fails_soft_on_bind_error(
 
 
 @pytest.mark.asyncio
+async def test_maybe_start_remote_build_site_refuses_port_zero_with_multi_host(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """
+    Ephemeral port + interface name resolving to >1 address refuses to bind.
+
+    Each ``TCPSite(port=0)`` would get a different OS-assigned
+    port, but only one port can be carried in the mDNS
+    ``remote_build_port`` TXT field. Refuses loudly at bind time;
+    the dashboard keeps running without a receiver listener.
+    """
+    loop = asyncio.get_running_loop()
+
+    def _enable() -> None:
+        with remote_build_settings_transaction(tmp_path) as txn:
+            txn.enabled = True
+
+    await loop.run_in_executor(None, _enable)
+
+    monkeypatch.setattr(
+        "esphome_device_builder.device_builder.resolve_bind_host",
+        lambda _: ["192.168.1.10", "192.168.1.11"],
+    )
+
+    settings = DashboardSettings(config_dir=tmp_path)
+    settings.remote_build_host = "eth0"
+    settings.remote_build_port = 0
+    db = DeviceBuilder(settings)
+    db.loop = loop
+    db.remote_build_receiver = MagicMock()
+    db.remote_build_receiver._db.settings.config_dir = tmp_path
+
+    with caplog.at_level("ERROR", logger="esphome_device_builder.device_builder"):
+        await db._maybe_start_remote_build_site()
+
+    assert db._remote_build_runner is None
+    # The fail-soft handler logs via ``logger.exception`` — the
+    # RuntimeError text lives on the captured ``exc_info``, not the
+    # main message. Check both so a refactor that swaps the log
+    # call shape (or drops the exc_info) still gets caught.
+    refusal_logged = any(
+        rec.exc_info is not None
+        and "incompatible with --remote-build-host resolving to multiple" in str(rec.exc_info[1])
+        for rec in caplog.records
+    )
+    assert refusal_logged, "expected the operator-facing refusal on the fail-soft log's exc_info"
+
+
+@pytest.mark.asyncio
 async def test_strip_server_header_middleware_overrides_to_empty(tmp_path: Path) -> None:
     """
     The Server header is overridden to empty string.

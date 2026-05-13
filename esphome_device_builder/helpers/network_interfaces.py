@@ -14,9 +14,7 @@ for the legacy Tornado dashboard.
 
 from __future__ import annotations
 
-import socket
-
-import psutil
+import ifaddr
 
 
 def resolve_bind_host(host: str) -> list[str]:
@@ -25,23 +23,21 @@ def resolve_bind_host(host: str) -> list[str]:
 
     Raises :class:`OSError` when *host* names an interface with no bindable address.
     """
-    addrs = psutil.net_if_addrs().get(host)
-    if addrs is None:
+    adapter = next(
+        (a for a in ifaddr.get_adapters() if host in (a.name, a.nice_name)),
+        None,
+    )
+    if adapter is None:
         return [host]
 
     out: list[str] = []
-    for addr in addrs:
-        if addr.family == socket.AF_INET:
-            out.append(addr.address)
-        elif addr.family == socket.AF_INET6:
-            address = addr.address
-            # Link-local IPv6 (fe80::/10) is per-interface; the
-            # kernel needs a zone identifier to disambiguate which
-            # interface to send through. psutil sometimes already
-            # carries one (``fe80::1%eth0``) on some platforms; skip
-            # when present.
-            if address.lower().startswith("fe80:") and "%" not in address:
-                address = f"{address}%{socket.if_nametoindex(host)}"
+    for ip in adapter.ips:
+        if ip.is_IPv4:
+            out.append(str(ip.ip))
+        elif ip.is_IPv6:
+            address, _flowinfo, scope_id = ip.ip
+            if scope_id:
+                address = f"{address}%{scope_id}"
             out.append(address)
 
     if not out:

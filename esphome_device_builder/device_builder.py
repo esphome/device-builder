@@ -1115,7 +1115,24 @@ class DeviceBuilder:
             # (default 6055) cross-platform. The ephemeral-port test
             # path masks this risk because the OS picks a fresh port
             # each rebuild; production deploys with a fixed port.
-            for host in resolve_bind_host(self.settings.remote_build_host):
+            hosts = resolve_bind_host(self.settings.remote_build_host)
+            # Ephemeral port + multi-host fan-out is refused: each
+            # ``TCPSite(port=0)`` would get its own OS-assigned port,
+            # but only one port can be carried in the mDNS
+            # ``remote_build_port`` TXT field. Reusing the first
+            # site's port for subsequent binds isn't safe either —
+            # the OS doesn't guarantee it's free on the second
+            # adapter. Fail loud at startup; the operator picks an
+            # IP literal or a fixed port (Copilot review on PR
+            # #674).
+            if configured_port == 0 and len(hosts) > 1:
+                raise RuntimeError(
+                    "Refusing to bind: --remote-build-port 0 (ephemeral) is "
+                    "incompatible with --remote-build-host resolving to "
+                    f"multiple addresses ({hosts!r}). Pick a fixed port, or "
+                    "pass a single IP literal."
+                )
+            for host in hosts:
                 site = web.TCPSite(
                     runner,
                     host,
