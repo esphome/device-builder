@@ -11,10 +11,14 @@ class OffloaderPairStatusChangedData(TypedDict):
 
     Fires from the per-row pair-status listener when a PENDING
     :class:`StoredPairing` flips to APPROVED (admin Accept) or
-    drops on REJECTED (admin Reject, window close, row never
-    existed, pin rotated). Also fires from ``unpair`` so other
-    tabs on the global ``subscribe_events`` stream see the
-    removal without re-fetching the pairings snapshot.
+    when the row is removed. Removal paths: the receiver returns
+    REJECTED (admin Reject, window close, row never existed, or
+    the *offloader's* own peer-link identity rotated), or the
+    receiver returns APPROVED but the observed pubkey differs
+    from the stored ``pin_sha256`` (receiver-side rotation; also
+    fires ``OFFLOADER_PAIR_PIN_MISMATCH``). Also fires from
+    ``unpair`` so other tabs on the global ``subscribe_events``
+    stream see the removal without re-fetching the snapshot.
 
     ``pin_sha256`` is the canonical identifier — offloader-side
     state is pin-keyed, not ``(hostname, port)``.
@@ -221,10 +225,12 @@ class OffloaderPeerLinkClosedData(TypedDict):
     branches on this — ``"superseded"`` orphans (another
     instance with our ``dashboard_id`` took our slot).
 
-    ``error_detail`` carries one-line context for categories
-    that have it (transport / Noise / auth / pin-mismatch);
-    empty when the category *is* the explanation
-    (``"client_stopped"``, ``"superseded"``).
+    ``error_detail`` is one-line context (e.g.
+    ``"ConnectionRefusedError: [Errno 61] Connection refused"``)
+    populated only for ``"transport_error"``, ``"auth_rejected"``,
+    and ``"pin_mismatch"`` where the exception detail is the
+    operator-actionable info. Empty for the remaining reasons —
+    the category name is the full explanation there.
     """
 
     receiver_hostname: str
