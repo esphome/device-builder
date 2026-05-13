@@ -31,13 +31,9 @@ _LOGGER = logging.getLogger(__name__)
 # isn't a real offloader.
 _HANDSHAKE_READ_TIMEOUT_SECONDS = 10.0
 
-# Cap msg3's offloader-supplied ``label`` before it lands in
-# settings + the event payload. Peer-supplied input over the wire
-# could be arbitrarily large within the WS frame limit; truncation
-# (rather than rejection) matches the "two-side flow, usually one
-# user" framing — a too-long label is cosmetic noise, not a reason
-# to fail pairing. 128 chars matches the cap the legacy token-label
-# path uses (``_TOKEN_LABEL_MAX`` in :mod:`controllers.remote_build`).
+# Cap msg3's offloader-supplied ``label`` before it lands on disk
+# + on the event bus. Truncation (not rejection) — a too-long label
+# is cosmetic noise, not a reason to fail pairing.
 _PEER_LABEL_MAX_CHARS = 128
 
 
@@ -75,14 +71,10 @@ async def _send_bytes_safely(
     """
     Write *encoded* to *ws* and return True on success.
 
-    Any send-side failure — peer hung up
-    (``ConnectionResetError``), aiohttp/WS-state error, OS-level
-    socket error — is debug-logged and surfaces as a False
-    return so the caller can short-circuit the rest of the
-    handshake / response sequence. Disconnects are normal-
-    operation events on flaky LANs; ``api/ws.py`` similarly
-    treats ``ConnectionResetError`` on send as not worth a
-    traceback.
+    Any send-side failure (peer hung up, WS-state error, OS-level
+    socket error) is debug-logged and surfaces as ``False`` so the
+    caller can short-circuit the rest of the handshake / response
+    sequence. Disconnects are normal operation on flaky LANs.
     """
     try:
         await ws.send_bytes(encoded)
@@ -114,18 +106,12 @@ async def _send_response(
 ) -> None:
     """Send the post-handshake intent_response as a single ChaCha20-Poly1305 frame.
 
-    The payload carries the response discriminator
-    (``intent_response``) plus the receiver's
-    :data:`esphome.const.__version__` (``esphome_version``).
-    Both halves run the same shared field on every intent so a
-    caller that opens any flow — preview / pair_request /
-    pair_status / peer_link — gets the receiver's version
-    alongside the discriminator. Offloader-side consumption
-    centres on the long-lived ``peer_link`` session, where the
-    captured value lands on :attr:`StoredPairing.esphome_version`
-    and refreshes on every reconnect so a receiver upgrade
-    surfaces in pick_build_path's version-compat gate on the
-    next session-open without operator action.
+    Payload carries the response discriminator plus the receiver's
+    ``esphome_version`` on every intent. The long-lived
+    ``peer_link`` session captures the version onto
+    :attr:`StoredPairing.esphome_version` so a receiver upgrade
+    surfaces in pick_build_path's version-compat gate on the next
+    session-open without operator action.
     """
     body = _json.dumps({"intent_response": response.value, "esphome_version": esphome_version})
     try:
@@ -140,12 +126,12 @@ def _parse_intent(payload: bytes) -> PeerLinkIntent | None:
     """
     Pull the ``intent`` field out of the cleartext msg1 payload.
 
-    Returns the parsed :class:`PeerLinkIntent` member or ``None``
-    when the payload doesn't carry a recognised intent (missing
-    field, non-string, unknown wire value, malformed JSON). The
-    caller maps ``None`` to ``IntentResponse.REJECTED`` and
-    closes the WS after completing the handshake (so the
-    rejection arrives in an authenticated transport frame).
+    Returns the parsed :class:`PeerLinkIntent` or ``None`` on any
+    malformed branch (missing field, non-string, unknown value,
+    bad JSON). Caller maps ``None`` to
+    ``IntentResponse.REJECTED`` and closes the WS *after*
+    completing the handshake so the rejection arrives in an
+    authenticated transport frame.
     """
     parsed = _parse_json(payload)
     if not isinstance(parsed, dict):
@@ -178,13 +164,10 @@ def _normalize_label(value: object) -> str:
     """
     Normalise an msg3-supplied ``label`` to a stripped, length-bounded form.
 
-    Peer-supplied input lands on disk + on the event bus; an
-    unbounded label would let a misbehaving offloader push
-    multi-megabyte strings into ``.device-builder.json`` and
-    every receiver-UI subscriber. Strip whitespace and truncate
-    at :data:`_PEER_LABEL_MAX_CHARS`; non-string / missing
-    values fall through to ``""`` so the receiver UI just shows
-    no label rather than failing the pairing.
+    Strips whitespace and truncates at
+    :data:`_PEER_LABEL_MAX_CHARS`; non-string / missing values
+    fall through to ``""``. Bounding matters because the value
+    lands on disk and on the event bus.
     """
     raw = _str_or_empty(value).strip()
     return raw[:_PEER_LABEL_MAX_CHARS]
