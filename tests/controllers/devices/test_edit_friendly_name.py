@@ -75,6 +75,25 @@ async def test_edit_friendly_name_rewrites_literal_leaf_and_scans(
     assert ctrl._scanner.calls == [("scan",)]
 
 
+async def test_edit_friendly_name_schedules_storage_regenerate(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Rewrite refreshes ``StorageJSON`` so ``config_hash`` reflects the new YAML (#676)."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "kitchen.yaml").write_text(SOURCE_YAML, "utf-8")
+    scheduled: list[str] = []
+    monkeypatch.setattr(ctrl, "_schedule_storage_regenerate", scheduled.append, raising=False)
+
+    await ctrl.edit_friendly_name(
+        configuration="kitchen.yaml",
+        new_friendly_name="Reading Lamp",
+    )
+
+    assert scheduled == ["kitchen.yaml"]
+
+
 async def test_edit_friendly_name_redirects_through_substitution(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
