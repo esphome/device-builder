@@ -26,7 +26,7 @@ import importlib
 import pytest
 from esphome.components.esp32 import VARIANTS as ESP32_VARIANTS
 
-from esphome_device_builder.controllers.firmware.controller import (
+from esphome_device_builder.controllers.firmware.download import (
     _LIBRETINY_TARGET_PLATFORMS,
     _resolve_download_component,
 )

@@ -32,7 +32,7 @@ import esphome.components as parent
 import pytest
 from esphome.components.esp32 import VARIANTS as _ESP32_VARIANTS
 
-from esphome_device_builder.controllers.firmware.controller import (
+from esphome_device_builder.controllers.firmware.download import (
     _LIBRETINY_TARGET_PLATFORMS,
     _resolve_download_component,
 )
@@ -49,7 +49,7 @@ def _redirect_ext_storage_path(monkeypatch: Any, tmp_path: Path) -> None:
     binding gets the tmpfs layout instead.
     """
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.firmware.controller.resolve_storage_path",
+        "esphome_device_builder.controllers.firmware.download.resolve_storage_path",
         lambda configuration: tmp_path / ".esphome" / "storage" / f"{configuration}.json",
     )
 

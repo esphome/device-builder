@@ -280,7 +280,7 @@ def _validated_yaml_is_fresh(validated_yaml: Path, storage_json: Path) -> bool:
 
 def _download_type_files(storage: StorageJSON) -> list[str]:
     """Return paths (relative to firmware_bin_path.parent) listed by ``get_download_types``."""
-    from ..firmware.controller import _resolve_download_component  # noqa: PLC0415
+    from ..firmware.download import _resolve_download_component  # noqa: PLC0415
 
     component = _resolve_download_component(storage.target_platform)
     if not component:

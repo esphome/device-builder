@@ -67,7 +67,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from esphome_device_builder.controllers.firmware import FirmwareController
-from esphome_device_builder.controllers.firmware import controller as controller_module
+from esphome_device_builder.controllers.firmware import download as download_module
 from esphome_device_builder.controllers.firmware import runner as runner_module
 from esphome_device_builder.models import EventType, JobStatus
 from tests._storage_fixtures import write_storage_json
@@ -172,7 +172,7 @@ def _redirect_ext_storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     def _ext(configuration: str) -> Path:
         return storage_dir / f"{configuration}.json"
 
-    monkeypatch.setattr(controller_module, "resolve_storage_path", _ext)
+    monkeypatch.setattr(download_module, "resolve_storage_path", _ext)
 
 
 def _is_esptool_spawn(args: tuple[Any, ...]) -> bool:

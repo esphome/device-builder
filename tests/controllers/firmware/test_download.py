@@ -30,7 +30,7 @@ from typing import Any
 
 import pytest
 
-import esphome_device_builder.controllers.firmware.controller as controller_module
+import esphome_device_builder.controllers.firmware.download as download_module
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
 from tests._storage_fixtures import write_storage_json
@@ -48,7 +48,7 @@ def _redirect_ext_storage_path(monkeypatch: Any, tmp_path: Path) -> None:
     reads through).
     """
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.firmware.controller.resolve_storage_path",
+        "esphome_device_builder.controllers.firmware.download.resolve_storage_path",
         lambda configuration: tmp_path / ".esphome" / "storage" / f"{configuration}.json",
     )
 
@@ -206,7 +206,7 @@ async def test_download_validator_runs_before_ext_storage_path(
         return tmp_path / ".esphome" / "storage" / f"{configuration}.json"
 
     # Replace the autouse redirect with our spy for this test.
-    controller_module.resolve_storage_path = _spy
+    download_module.resolve_storage_path = _spy
 
     controller = firmware_controller_factory()
     with pytest.raises(CommandError) as excinfo:
