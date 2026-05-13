@@ -522,7 +522,7 @@ async def test_clone_device_handles_filesystem_race_on_target_filename(
 
     with (
         patch(
-            "esphome_device_builder.controllers.devices.controller.open",
+            "esphome_device_builder.controllers.devices.mutations_clone.open",
             _raising_open,
             create=True,
         ),

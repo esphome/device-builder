@@ -27,6 +27,9 @@ resolving after the subpackage split. Submodules:
   (``stream_logs``, ``stop_stream``) plus the shared
   ``stream_subprocess`` helper that ``validate_config``
   reuses.
+- ``mutations_clone`` — ``devices/clone`` WS command body
+  (duplicate an existing YAML under a fresh hostname,
+  fresh friendly_name, and fresh API encryption key).
 - ``mutations_create`` — ``devices/create`` WS command body
   (the wizard's three-flow YAML creation: file_content /
   template / stub).
