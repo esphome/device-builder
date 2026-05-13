@@ -1,4 +1,5 @@
-"""Peer-link low-level WS / Noise plumbing helpers.
+"""
+Peer-link low-level WS / Noise plumbing helpers.
 
 Handshake-message read / write, intent-response send, JSON /
 intent parsing, and label normalisation. Pure leaf helpers
