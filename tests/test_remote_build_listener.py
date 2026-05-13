@@ -263,18 +263,7 @@ async def test_maybe_start_remote_build_site_updates_advertiser_on_success(
 async def test_maybe_start_remote_build_site_against_unregistered_advertiser_stages_only(
     tmp_path: Path,
 ) -> None:
-    """A bind before advertiser registration stages pin+port without firing an update.
-
-    Pins the startup-ordering contract: at process start the bind
-    runs BEFORE ``DashboardAdvertiser.register`` so the initial
-    ServiceInfo carries all 4 TXT keys in one announce. A bind
-    against an unregistered advertiser must therefore stage the
-    pin and port via the setters, and the ``refresh`` call must
-    be a no-op (the real refresh short-circuits on
-    ``info is None``); firing ``async_update_service`` here would
-    race python-zeroconf's background announce of the initial
-    register and flap the wire-visible TXT between 2 and 4 keys.
-    """
+    """A bind before advertiser registration stages pin+port and fires no update."""
     loop = asyncio.get_running_loop()
 
     def _enable() -> None:
@@ -313,7 +302,7 @@ async def test_maybe_start_remote_build_site_against_unregistered_advertiser_sta
         assert advertiser._info is None
         assert advertiser._zeroconf is None
         # A subsequent ``build_service_info`` carries all 4 TXT keys
-        # in one shot — what ``register`` will publish.
+        # in one shot; what ``register`` will publish.
         info = advertiser.build_service_info(addresses=["127.0.0.1"])
         decoded = {k.decode(): v.decode() for k, v in info.properties.items()}
         assert set(decoded) == {
