@@ -41,7 +41,7 @@ from esphome_device_builder.controllers.remote_build import (
     ReceiverController,
 )
 from esphome_device_builder.controllers.remote_build import _models as rb_models
-from esphome_device_builder.controllers.remote_build import offloader as rb
+from esphome_device_builder.controllers.remote_build import pair_status as rb_pair_status
 from esphome_device_builder.controllers.remote_build import (
     peer_link_client as remote_build_peer_link_client,
 )
@@ -1775,7 +1775,7 @@ async def test_request_pair_clears_offloader_alert_for_same_receiver(
         raise AssertionError("park event should never be set in this test")
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader.peer_link_await_pair_status",
+        "esphome_device_builder.controllers.remote_build.pair_status.peer_link_await_pair_status",
         _fake_await_pair_status,
     )
 
@@ -1889,7 +1889,7 @@ async def test_request_pair_repair_then_unpair_clean_state(
         raise AssertionError("park event should never be set in this test")
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader.peer_link_await_pair_status",
+        "esphome_device_builder.controllers.remote_build.pair_status.peer_link_await_pair_status",
         _fake_await_pair_status,
     )
     fake_identity = MagicMock()
@@ -2307,7 +2307,7 @@ async def test_pair_status_listener_loop_backs_off_on_transport_error(
     on the first call and returns APPROVED on the second.
     """
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader._PAIR_STATUS_RECONNECT_BACKOFF_SECONDS",
+        "esphome_device_builder.controllers.remote_build.pair_status._PAIR_STATUS_RECONNECT_BACKOFF_SECONDS",
         0.0,
     )
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
@@ -2334,7 +2334,7 @@ async def test_pair_status_listener_loop_backs_off_on_transport_error(
         )
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader.peer_link_await_pair_status",
+        "esphome_device_builder.controllers.remote_build.pair_status.peer_link_await_pair_status",
         _fake_poll,
     )
     # Stub identity load so it doesn't try to read real key files.
@@ -2367,7 +2367,7 @@ async def test_pair_status_listener_loop_backs_off_on_unexpected_status(
     tight-loop against it.
     """
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader._PAIR_STATUS_RECONNECT_BACKOFF_SECONDS",
+        "esphome_device_builder.controllers.remote_build.pair_status._PAIR_STATUS_RECONNECT_BACKOFF_SECONDS",
         0.0,
     )
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
@@ -2397,7 +2397,7 @@ async def test_pair_status_listener_loop_backs_off_on_unexpected_status(
         )
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader.peer_link_await_pair_status",
+        "esphome_device_builder.controllers.remote_build.pair_status.peer_link_await_pair_status",
         _fake_poll,
     )
     fake_identity = MagicMock()
@@ -3600,7 +3600,7 @@ async def test_await_pair_status_flip_self_removes_listener_on_terminal_exit(
     async def _approved_round_trip(**kwargs: Any) -> PairStatusResult:
         return PairStatusResult(status=IntentResponse.APPROVED, pin_sha256="a" * 64)
 
-    monkeypatch.setattr(rb, "peer_link_await_pair_status", _approved_round_trip)
+    monkeypatch.setattr(rb_pair_status, "peer_link_await_pair_status", _approved_round_trip)
 
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
     offloader._db.bus = MagicMock()

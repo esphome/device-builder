@@ -45,12 +45,9 @@ from ...models import (
     OffloaderJobStateChangedData,
     OffloaderPairAlertDismissedData,
     OffloaderPairingEnabledChangedData,
-    OffloaderPairPeerRevokedData,
     OffloaderPairPinMismatchData,
-    OffloaderPairStatusChangedData,
     OffloaderPeerLinkClosedData,
     OffloaderPeerLinkOpenedData,
-    OffloaderPeerRevokedAlert,
     OffloaderPinMismatchAlert,
     OffloaderQueueStatusChangedData,
     OffloaderRemoteBuildSettings,
@@ -63,7 +60,7 @@ from ...models import (
     RemoteBuildPeer,
     StoredPairing,
 )
-from . import discovery, peer_link_lifecycle, rebind
+from . import discovery, pair_status, peer_link_lifecycle, rebind
 from ._mdns import endpoints_equal
 from ._models import (
     EDIT_PAIRING_PROBE_ERRORS,
@@ -100,9 +97,6 @@ from .peer_link_client import (
     SubmitJobTimeoutError,
 )
 from .peer_link_client import (
-    await_pair_status as peer_link_await_pair_status,
-)
-from .peer_link_client import (
     preview_pair as peer_link_preview_pair,
 )
 from .peer_link_client import (
@@ -135,11 +129,6 @@ def _load_offloader_identities(
 _OFFLOADER_REMOTE_JOB_TERMINAL_STATUSES: frozenset[str] = frozenset(
     {"completed", "failed", "cancelled"}
 )
-
-# Reconnect backoff for a pair-status listener whose Noise WS
-# died on transport error — bounds tight-looping against a
-# hard-down receiver.
-_PAIR_STATUS_RECONNECT_BACKOFF_SECONDS = 2.0
 
 # Debounce window for the offloader-side pairings-store write
 # so a burst of approvals collapses to one disk write.
@@ -1102,20 +1091,11 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
 
     def _spawn_pair_status_listener(self, pairing: StoredPairing) -> None:
         """Spawn the pair-status listener task for *pairing* if not already running."""
-        key = pairing.pin_sha256
-        existing = self._pair_status_listeners.get(key)
-        if existing is not None and not existing.done():
-            return
-        self._pair_status_listeners[key] = asyncio.create_task(
-            self._await_pair_status_flip(pairing),
-            name=f"pair-status-{pairing.receiver_hostname}:{pairing.receiver_port}",
-        )
+        pair_status.spawn_pair_status_listener(self, pairing)
 
     def _cancel_pair_status_listener(self, pin_sha256: str) -> None:
         """Cancel the listener for *pin_sha256*. No-op if none running."""
-        task = self._pair_status_listeners.pop(pin_sha256, None)
-        if task is not None and not task.done():
-            task.cancel()
+        pair_status.cancel_pair_status_listener(self, pin_sha256)
 
     def _spawn_peer_link_client(self, pairing: StoredPairing) -> None:
         """Spawn the long-lived peer-link client for *pairing*."""
@@ -1134,147 +1114,14 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         )
 
     async def _await_pair_status_flip(self, pairing: StoredPairing) -> None:
-        """Hold a Noise WS to the receiver until the row flips status.
-
-        Single-shot: opens one Noise WS with ``intent="pair_status"``,
-        awaits the receiver's response (which the receiver-side
-        responder holds open until its own bus fires
-        ``REMOTE_BUILD_PAIR_STATUS_CHANGED`` for the matching
-        ``dashboard_id``), persists the result + fires
-        ``OFFLOADER_PAIR_STATUS_CHANGED``, then exits. On transport
-        error, sleeps :data:`_PAIR_STATUS_RECONNECT_BACKOFF_SECONDS`
-        and reconnects.
-        """
-        peer_link_identity, dashboard_identity = await self._load_offloader_identities_async()
-        try:
-            while True:
-                try:
-                    result = await peer_link_await_pair_status(
-                        hostname=pairing.receiver_hostname,
-                        port=pairing.receiver_port,
-                        identity_priv=peer_link_identity.private_bytes,
-                        dashboard_id=dashboard_identity.dashboard_id,
-                        resolver=self._peer_link_resolver,
-                    )
-                except PeerLinkClientError as exc:
-                    _LOGGER.debug(
-                        "pair-status listener for %s:%s reconnecting: %s",
-                        pairing.receiver_hostname,
-                        pairing.receiver_port,
-                        exc,
-                    )
-                    await asyncio.sleep(_PAIR_STATUS_RECONNECT_BACKOFF_SECONDS)
-                    continue
-                terminal = await self._apply_pair_status_result(pairing, result)
-                if terminal:
-                    return
-                # Non-terminal result reached the apply path —
-                # only happens on a misbehaving receiver returning
-                # an unexpected ``intent_response`` (PENDING / OK /
-                # NO_PAIRING_WINDOW from a `pair_status` query
-                # shouldn't happen). Back off before reconnecting
-                # so a bug in the receiver doesn't burn CPU /
-                # spam logs in a tight reconnect loop.
-                await asyncio.sleep(_PAIR_STATUS_RECONNECT_BACKOFF_SECONDS)
-        finally:
-            # Only clear the slot if it still points at this task.
-            # On a re-pair, ``_cancel_pair_status_listener`` has
-            # already popped this task and ``_spawn_pair_status_listener``
-            # has put the replacement in the slot — blindly
-            # ``pop()``-ing here would evict the replacement and
-            # orphan it (no entry left for ``unpair`` to cancel,
-            # the new listener parks forever).
-            key = pairing.pin_sha256
-            if self._pair_status_listeners.get(key) is asyncio.current_task():
-                del self._pair_status_listeners[key]
+        """Hold a Noise WS to the receiver until the row flips status."""
+        await pair_status.await_pair_status_flip(self, pairing)
 
     async def _apply_pair_status_result(
         self, pairing: StoredPairing, result: PairStatusResult
     ) -> bool:
-        """Apply a pair-status response. Return True when the listener should exit.
-
-        * APPROVED + matching pin → flip the row to APPROVED.
-        * APPROVED + drifted pin → drop the row (peer-revoked;
-          new pubkey under existing trust requires re-pair).
-        * REJECTED → drop the row (admin rejected, window
-          closed, offloader rotated, or row never existed).
-        * Anything else → log + reconnect.
-
-        Race-safe against ``unpair``: every branch keys on
-        ``self._pairings.pop(key, None)``, so if the user
-        unpaired between the await and this branch we skip
-        promotion + event-firing silently.
-        """
-        host = pairing.receiver_hostname
-        port = pairing.receiver_port
-        # Captured before the dict mutates — alerts fire
-        # alongside ``status="removed"`` and need the label.
-        label = pairing.label
-        stored_pin = pairing.pin_sha256
-        key = pairing.pin_sha256
-        if result.status is IntentResponse.APPROVED:
-            if result.pin_sha256 != pairing.pin_sha256:
-                _LOGGER.warning(
-                    "pair-status pin drift for %s:%s; dropping row (stored=%s observed=%s)",
-                    host,
-                    port,
-                    pairing.pin_sha256,
-                    result.pin_sha256,
-                )
-                if self._pairings.pop(key, None) is not None:
-                    self._schedule_pairings_save()
-                    pin_alert: OffloaderPinMismatchAlert = {
-                        "kind": "pin_mismatch",
-                        "receiver_hostname": host,
-                        "receiver_port": port,
-                        "pin_sha256": stored_pin,
-                        "receiver_label": label,
-                        "expected_pin": stored_pin,
-                        "observed_pin": result.pin_sha256,
-                        "fired_at": time.time(),
-                    }
-                    self._offloader_alerts[key] = pin_alert
-                    # Fire diagnostic first so subscribers see
-                    # the full payload before the row drops.
-                    self._fire_offloader_pair_pin_mismatch(
-                        host, port, key, label, stored_pin, result.pin_sha256
-                    )
-                    self._fire_offloader_pair_status_changed(host, port, key, "removed")
-                return True
-            # PENDING → APPROVED in place. If ``unpair`` raced
-            # us between the await and this branch the row's
-            # gone; exit silently rather than resurrect state
-            # the user just deleted.
-            existing = self._pairings.get(key)
-            if existing is None:
-                return True
-            existing.status = PeerStatus.APPROVED
-            self._schedule_pairings_save()
-            self._fire_offloader_pair_status_changed(host, port, key, "approved")
-            self._spawn_peer_link_client(existing)
-            return True
-        if result.status is IntentResponse.REJECTED:
-            if self._pairings.pop(key, None) is not None:
-                self._schedule_pairings_save()
-                revoked_alert: OffloaderPeerRevokedAlert = {
-                    "kind": "peer_revoked",
-                    "receiver_hostname": host,
-                    "receiver_port": port,
-                    "pin_sha256": stored_pin,
-                    "receiver_label": label,
-                    "fired_at": time.time(),
-                }
-                self._offloader_alerts[key] = revoked_alert
-                self._fire_offloader_pair_peer_revoked(host, port, key, label)
-                self._fire_offloader_pair_status_changed(host, port, key, "removed")
-            return True
-        _LOGGER.warning(
-            "pair-status returned unexpected status %r for %s:%s",
-            result.status,
-            host,
-            port,
-        )
-        return False
+        """Apply a pair-status response. Return True when the listener should exit."""
+        return await pair_status.apply_pair_status_result(self, pairing, result)
 
     def _fire_offloader_pair_status_changed(
         self,
@@ -1284,49 +1131,9 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         status: Literal["approved", "removed"],
     ) -> None:
         """Fire ``OFFLOADER_PAIR_STATUS_CHANGED`` for a pairing flip."""
-        payload: OffloaderPairStatusChangedData = {
-            "receiver_hostname": receiver_hostname,
-            "receiver_port": receiver_port,
-            "pin_sha256": pin_sha256,
-            "status": status,
-        }
-        self._db.bus.fire(EventType.OFFLOADER_PAIR_STATUS_CHANGED, payload)
-
-    def _fire_offloader_pair_pin_mismatch(
-        self,
-        receiver_hostname: str,
-        receiver_port: int,
-        pin_sha256: str,
-        receiver_label: str,
-        expected_pin: str,
-        observed_pin: str,
-    ) -> None:
-        """Fire ``OFFLOADER_PAIR_PIN_MISMATCH`` for a drifted-pin pair_status."""
-        payload: OffloaderPairPinMismatchData = {
-            "receiver_hostname": receiver_hostname,
-            "receiver_port": receiver_port,
-            "receiver_label": receiver_label,
-            "pin_sha256": pin_sha256,
-            "expected_pin": expected_pin,
-            "observed_pin": observed_pin,
-        }
-        self._db.bus.fire(EventType.OFFLOADER_PAIR_PIN_MISMATCH, payload)
-
-    def _fire_offloader_pair_peer_revoked(
-        self,
-        receiver_hostname: str,
-        receiver_port: int,
-        pin_sha256: str,
-        receiver_label: str,
-    ) -> None:
-        """Fire ``OFFLOADER_PAIR_PEER_REVOKED`` for a REJECTED pair_status."""
-        payload: OffloaderPairPeerRevokedData = {
-            "receiver_hostname": receiver_hostname,
-            "receiver_port": receiver_port,
-            "receiver_label": receiver_label,
-            "pin_sha256": pin_sha256,
-        }
-        self._db.bus.fire(EventType.OFFLOADER_PAIR_PEER_REVOKED, payload)
+        pair_status.fire_offloader_pair_status_changed(
+            self, receiver_hostname, receiver_port, pin_sha256, status
+        )
 
     # ------------------------------------------------------------------
     # Identity — surface the receiver's own dashboard_id + cert pin to
