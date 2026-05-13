@@ -771,10 +771,11 @@ def upsert_inline_handler(
     Used by the automation writer for inline ``on_*:`` triggers under
     component instances (``binary_sensor[i].on_press``, ``light[i].on_turn_on``,
     ...) and for ``effects:`` entries under a light. Returns
-    ``(new_yaml_text, from_line, to_line)`` where the line range is
-    1-indexed and inclusive of the replaced lines — the caller emits
-    this as the splice diff. ``None`` when the component instance
-    can't be located (no ``id:`` match under ``<component_domain>:``).
+    ``(new_yaml_text, from_line, to_line)`` matching the
+    :class:`automations.YamlDiff` convention — ``from_line <= to_line``
+    for a replace, ``to_line == from_line - 1`` for a pure insert.
+    ``None`` when the component instance can't be located (no
+    ``id:`` match under ``<component_domain>:``).
 
     Adjacent siblings are preserved: this only touches the lines
     spanning ``<handler_key>:`` and its indented children. The
@@ -825,9 +826,9 @@ def upsert_inline_handler(
         insert_at -= 1
     new_lines = [*lines[:insert_at], rendered_text, *lines[insert_at:]]
     new_text = "".join(new_lines)
-    # The splice spans only the newly inserted lines.
-    new_count = rendered_text.count("\n")
-    return new_text, insert_at + 1, insert_at + new_count
+    # Pure-insert: ``toLine == fromLine - 1`` flags the empty
+    # replaced range. See :class:`automations.YamlDiff`.
+    return new_text, insert_at + 1, insert_at
 
 
 def remove_inline_handler(

@@ -315,23 +315,24 @@ def _scope_component_instances(
     return out
 
 
-_LOCATION_CLS_BY_KIND = {
-    "script": ScriptLocation,
-    "interval": IntervalLocation,
-    "component_on": ComponentOnLocation,
-    "device_on": DeviceOnLocation,
-    "light_effect": LightEffectLocation,
-}
-
-
 def _decode_location(raw: dict) -> AutomationLocation:
     """Convert a wire-shape ``{kind: ...}`` dict into a typed location."""
     if not isinstance(raw, dict) or "kind" not in raw:
         msg = f"location must carry a 'kind' discriminator; got {raw!r}"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     kind = raw.get("kind")
-    cls = _LOCATION_CLS_BY_KIND.get(str(kind))
-    if cls is None:
-        msg = f"Unknown location kind: {kind!r}"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    return cls.from_dict(raw)
+    # The discriminator narrowing is by-string so mypy can pin the
+    # concrete type per branch — a single dict mapping would widen
+    # the return to ``Any`` (every value is a different subclass).
+    if kind == "script":
+        return ScriptLocation.from_dict(raw)
+    if kind == "interval":
+        return IntervalLocation.from_dict(raw)
+    if kind == "component_on":
+        return ComponentOnLocation.from_dict(raw)
+    if kind == "device_on":
+        return DeviceOnLocation.from_dict(raw)
+    if kind == "light_effect":
+        return LightEffectLocation.from_dict(raw)
+    msg = f"Unknown location kind: {kind!r}"
+    raise CommandError(ErrorCode.INVALID_ARGS, msg)

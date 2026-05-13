@@ -282,11 +282,21 @@ class AvailableAutomations(DataClassORJSONMixin):
 class YamlDiff(DataClassORJSONMixin):
     """A splice instruction the frontend applies to the editor pane.
 
-    Identical shape to the diffs the existing component flow uses, so
-    the device-editor's optimistic-update pipeline applies these
-    through the same machinery. ``fromLine`` / ``toLine`` are
-    1-indexed (matching the parse output); ``toLine`` is inclusive of
-    the last line being replaced.
+    ``fromLine`` / ``toLine`` are 1-indexed line numbers in the *old*
+    YAML text. Two shapes:
+
+    - **Replace** — ``fromLine <= toLine``. Lines ``[fromLine, toLine]``
+      (inclusive) are replaced with ``replacement``.
+    - **Pure insert** — ``toLine == fromLine - 1``. No lines are
+      replaced; ``replacement`` is inserted before line ``fromLine``.
+      Equivalent to CodeMirror's ``replaceRange(text, pos, pos)``
+      where ``pos`` is the start of line ``fromLine``.
+
+    The frontend applies both shapes through a single
+    ``lines.slice(0, fromLine - 1) + replacement + lines.slice(toLine)``
+    pattern — pure inserts and replaces share one code path.
+    ``replacement`` includes its own trailing newline when the
+    inserted block is multi-line.
     """
 
     fromLine: int  # noqa: N815 — wire-shape matches frontend

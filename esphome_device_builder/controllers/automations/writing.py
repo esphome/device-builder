@@ -277,14 +277,11 @@ def _replace_top_level_list_item(
     indented = _indent_for_top_list(rendered_item)
     new_lines = [*lines[:start], indented, *lines[end:]]
     new_text = "".join(new_lines)
-    new_line_count = indented.count("\n")
-    diff = YamlDiff(
+    return new_text, YamlDiff(
         fromLine=start + 1,
         toLine=end,
         replacement=indented,
     )
-    del new_line_count
-    return new_text, diff
 
 
 def _upsert_under_top_key(
@@ -338,10 +335,12 @@ def _upsert_under_top_key(
         insert_at -= 1
     new_lines = [*lines[:insert_at], rendered_text, *lines[insert_at:]]
     new_text = "".join(new_lines)
-    new_count = rendered_text.count("\n")
+    # Pure-insert convention: ``toLine == fromLine - 1`` encodes
+    # "no lines replaced; insert before fromLine". See
+    # :class:`YamlDiff`'s docstring.
     return new_text, YamlDiff(
         fromLine=insert_at + 1,
-        toLine=insert_at + new_count,
+        toLine=insert_at,
         replacement=rendered_text,
     )
 

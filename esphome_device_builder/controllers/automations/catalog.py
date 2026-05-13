@@ -111,6 +111,22 @@ def light_effect_by_id(effect_id: str) -> LightEffect | None:
     return None
 
 
+def _prewarm() -> None:
+    """Force the catalog into memory at module-import time.
+
+    ``load_catalog`` reads the bundled ``automations.json`` from
+    disk on the first call. Triggering it eagerly here pulls the I/O
+    forward to module-import time so the runtime never trips
+    blockbuster on the async request path — same shape the
+    components catalog uses (``ComponentCatalog.load`` runs at
+    controller construction, not on a request).
+    """
+    load_catalog()
+
+
+_prewarm()
+
+
 def triggers_for_domains(domains: Iterable[str]) -> list[AutomationTrigger]:
     """Return device-level triggers + every trigger applying to *domains*.
 

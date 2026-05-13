@@ -80,6 +80,24 @@ def test_parse_inline_on_press_with_bare_action_list() -> None:
     assert [a.params for a in bare_tree.actions] == [a.params for a in explicit_tree.actions]
 
 
+def test_parse_inline_on_press_with_single_action_shortcut() -> None:
+    """The single-action shortcut ``on_press: switch.toggle: relay1`` parses.
+
+    A trigger body that's a bare mapping of one (or more) known
+    catalog action ids becomes an action list with no trigger
+    params — the same shape as the explicit-``then:`` form. Pin
+    the action surfaces correctly and ``trigger_params`` stays
+    empty (an earlier shape erroneously absorbed the action key
+    into ``trigger_params``).
+    """
+    parsed = parse_device_yaml(_load("inline_on_press_single_action.yaml"))
+    assert len(parsed) == 1
+    tree = parsed[0].automation
+    assert tree.trigger_params == {}
+    assert [a.action_id for a in tree.actions] == ["switch.toggle"]
+    assert tree.actions[0].params == {"id": "relay1"}
+
+
 def test_parse_inline_on_click_surfaces_trigger_params() -> None:
     """``on_click.min_length`` / ``max_length`` are trigger_params, not actions."""
     parsed = parse_device_yaml(_load("on_click_with_params.yaml"))
