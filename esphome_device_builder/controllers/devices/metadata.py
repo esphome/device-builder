@@ -5,25 +5,20 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from ...helpers.build_size import coerce_sidecar_int
 from ...helpers.config_hash import read_build_info_hash
 from ...helpers.device_yaml import parse_platform_from_yaml
+from .._device_builder_base import DeviceBuilderBase
 from .._device_scanner import DeviceFileMetadata
 from ..config import get_device_metadata, set_device_metadata
-
-if TYPE_CHECKING:
-    from ...device_builder import DeviceBuilder
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class DeviceMetadataBase:
-    """Owns ``_db`` and the metadata resolution + persistence helpers."""
-
-    def __init__(self, device_builder: DeviceBuilder) -> None:
-        self._db = device_builder
+class DeviceMetadataBase(DeviceBuilderBase):
+    """Metadata resolution + persistence; inherits ``_db`` from ``DeviceBuilderBase``."""
 
     def _resolve_device_metadata(self, config_dir: Path, filename: str) -> DeviceFileMetadata:
         """

@@ -31,9 +31,11 @@ resolving after the subpackage split. Submodules:
   ``_resolve_device_metadata`` /
   ``_derive_board_id_from_yaml`` /
   ``_persist_device_ip_async`` /
-  ``_persist_device_metadata_async``. Owns ``self._db``
-  via its ``__init__``; ``DevicesController`` inherits
-  linearly and calls ``super().__init__(device_builder)``.
+  ``_persist_device_metadata_async``. Inherits from
+  ``controllers._device_builder_base.DeviceBuilderBase`` so
+  ``self._db`` comes via ``super().__init__(device_builder)``;
+  ``DevicesController`` inherits ``DeviceMetadataBase``
+  linearly, no mixin protocol.
 - ``reachability`` — per-device reachability streaming + the
   on-subscription mDNS A-record refresh loop.
 - ``storage_regen`` — background ``--only-generate`` scheduler
