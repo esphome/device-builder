@@ -529,11 +529,10 @@ def _estimate_end_line(value: Any, start: int) -> int:
                         max_line = max(max_line, entry[2] + 1)
         elif isinstance(node, list):
             stack.extend(node)
-            data = getattr(lc, "data", None) if lc else None
-            if data:
-                for entry in data.values():
-                    if isinstance(entry, (list, tuple)) and len(entry) >= 3:
-                        max_line = max(max_line, entry[2] + 1)
+            # ruamel sequence ``lc.data`` entries are 2-tuples
+            # (dash_line, dash_col) — they don't carry a value-line
+            # we could use, so we rely on the recursive walk into
+            # the inner mapping for the actual end line.
     return max_line
 
 

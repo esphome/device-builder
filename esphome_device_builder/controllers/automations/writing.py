@@ -174,8 +174,8 @@ def _upsert_light_effect(
     if catalog_entry is None:
         msg = f"Unknown light effect id: {effect_id!r}"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    rendered = dump(
-        [emit_effect_item(catalog_entry, str(effect_id), params or {})],
+    rendered = _wrap_effects_block(
+        dump([emit_effect_item(catalog_entry, str(effect_id), params or {})]),
     )
     res = upsert_inline_handler(
         yaml_text,
@@ -355,8 +355,12 @@ def _delete_top_level(
         return _delete_top_level_list_by_index(yaml_text, "interval", location.index)
     if isinstance(location, DeviceOnLocation):
         return _delete_under_top_key(yaml_text, "esphome", location.trigger)
-    msg = f"Unsupported delete location: {type(location).__name__}"
-    raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    # Unreachable when called from ``render_delete`` (the dispatch
+    # there only forwards the three union members above). Kept as
+    # a defensive guard against future location types being added
+    # without updating both dispatchers.
+    msg = f"Unsupported delete location: {type(location).__name__}"  # pragma: no cover
+    raise CommandError(ErrorCode.INVALID_ARGS, msg)  # pragma: no cover
 
 
 def _delete_top_level_list_by_id(
@@ -484,7 +488,7 @@ def _delete_light_effect(
         # Re-render the inline handler block to splice through
         # ``upsert_inline_handler`` (or remove it when empty).
         if "effects" in instance:
-            rendered = dump(effects)
+            rendered = _wrap_effects_block(dump(effects))
             res = upsert_inline_handler(
                 yaml_text,
                 component_domain="light",
@@ -492,7 +496,7 @@ def _delete_light_effect(
                 handler_key="effects",
                 rendered_yaml=rendered,
             )
-            if res is None:
+            if res is None:  # pragma: no cover — instance found above
                 msg = f"light id={location.component_id!r} not found in splice"
                 raise CommandError(ErrorCode.INTERNAL_ERROR, msg)
             new_text, from_line, to_line = res
@@ -507,7 +511,7 @@ def _delete_light_effect(
             component_id=location.component_id,
             handler_key="effects",
         )
-        if res is None:
+        if res is None:  # pragma: no cover — instance found above
             msg = f"effects: not found on light id={location.component_id!r}"
             raise CommandError(ErrorCode.NOT_FOUND, msg)
         new_text, from_line, to_line = res
@@ -546,6 +550,16 @@ def _component_domain(location: ComponentOnLocation) -> str:
         # tests are deterministic.
         matches.sort(key=lambda t: t.applies_to[0] if t.applies_to else "")
     return matches[0].applies_to[0] if matches[0].applies_to else ""
+
+
+def _wrap_effects_block(rendered_list: str) -> str:
+    """Prefix a rendered ``- effect: ...`` list with the ``effects:`` key."""
+    # ``upsert_inline_handler`` writes ``rendered_yaml`` verbatim under the
+    # component instance — for trigger handlers the renderer already
+    # emits ``on_press:\n  ...``; for effects the list dump is bare, so
+    # add the ``effects:`` header here.
+    body = rendered_list.rstrip()
+    return "effects:\n" + body + "\n"
 
 
 def _indent_block(block_text: str, indent: str) -> list[str]:
