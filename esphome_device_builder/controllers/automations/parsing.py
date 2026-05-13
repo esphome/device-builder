@@ -1,36 +1,25 @@
-"""YAML → :class:`ParsedAutomation` list.
+"""
+YAML → :class:`ParsedAutomation` list.
 
 ruamel.yaml round-trip mode preserves the user's comments, key
 order, blank lines, and quoting so a "no-op" round-trip through
 parse → upsert leaves the document visually identical. The parser
 walks four shapes:
 
-- Top-level ``script:`` and ``interval:`` list blocks → one
-  :class:`ParsedAutomation` per list item.
-- ``esphome:`` block's ``on_boot`` / ``on_loop`` / ``on_shutdown``
-  → device-level automations.
-- Configured component instances with inline ``on_*:`` handlers
-  (binary_sensor's ``on_press``, light's ``on_turn_on``, ...) →
-  one ``ParsedAutomation`` per inline handler.
-- A light component's ``effects:`` list → one
-  :class:`ParsedAutomation` per user-authored effect entry.
-
-Two trigger shortcut forms parse identically and canonicalise to
-the explicit ``then:`` form on the way back out:
-
-* ``on_press: - light.turn_on: id`` (bare action list)
-* ``on_press: light.turn_on: id`` (single action shortcut)
+- Top-level ``script:`` and ``interval:`` list blocks.
+- ``esphome.on_boot`` / ``on_loop`` / ``on_shutdown``.
+- Configured component instances with inline ``on_*:`` handlers.
+- Light ``effects:`` lists.
 
 Unknown action / condition ids raise
 ``CommandError(INVALID_ARGS, ...)`` rather than best-effort
-rebuilding. The frontend renders that as a "this automation
-references a non-catalog action — edit raw YAML" hint.
+rebuilding — the frontend renders that as "edit raw YAML".
 """
 
 from __future__ import annotations
 
 from io import StringIO
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from ruamel.yaml import YAML
 from ruamel.yaml.scalarstring import LiteralScalarString
@@ -50,23 +39,17 @@ from ...models.automations import (
 )
 from . import catalog
 
-if TYPE_CHECKING:
-    pass
-
-
-# ---------------------------------------------------------------------------
-# Public entry point
-# ---------------------------------------------------------------------------
+# Device-level trigger keys under the ``esphome:`` block.
+_DEVICE_TRIGGER_KEYS: tuple[str, ...] = ("on_boot", "on_loop", "on_shutdown")
 
 
 def make_yaml() -> YAML:
-    """Build the round-trip YAML parser/emitter the controller shares.
+    """
+    Build the round-trip YAML parser/emitter the controller shares.
 
-    Indent matches ESPHome's canonical two-space layout. The
-    ``preserve_quotes`` flag keeps quoted scalars quoted so a YAML
-    that uses ``"on"`` to disable boolean coercion round-trips
-    unchanged. ``width`` is set high so long action lists don't get
-    folded across lines.
+    Two-space mapping indent matches ESPHome's canonical layout;
+    ``preserve_quotes`` keeps quoted scalars like ``"on"`` intact so
+    a quoted boolean-looking string round-trips unchanged.
     """
     yaml = YAML(typ="rt")
     yaml.preserve_quotes = True
@@ -75,40 +58,14 @@ def make_yaml() -> YAML:
     return yaml
 
 
-# Component domains whose entries can carry inline ``on_*:`` handlers.
-# Read from the catalog at first call so the set stays in sync with
-# whatever the schema bundle declares.
-_COMPONENT_TRIGGER_DOMAINS: set[str] | None = None
-
-
-def _component_trigger_domains() -> set[str]:
-    """Return every top-level domain that hosts inline component triggers."""
-    global _COMPONENT_TRIGGER_DOMAINS  # noqa: PLW0603 — module-level cache
-    if _COMPONENT_TRIGGER_DOMAINS is not None:
-        return _COMPONENT_TRIGGER_DOMAINS
-    out: set[str] = set()
-    for trigger in catalog.all_triggers():
-        if trigger.is_device_level:
-            continue
-        out.update(trigger.applies_to)
-    _COMPONENT_TRIGGER_DOMAINS = out
-    return out
-
-
-# Device-level trigger keys under the ``esphome:`` block.
-_DEVICE_TRIGGER_KEYS: tuple[str, ...] = ("on_boot", "on_loop", "on_shutdown")
-
-
 def parse_device_yaml(yaml_text: str) -> list[ParsedAutomation]:
     """
     Walk *yaml_text* and return every automation we recognise.
 
-    The list mirrors document order — top-level blocks first
-    (``script:`` / ``interval:`` / ``esphome.on_*``), then inline
-    component handlers, then light effects. ``from_line`` /
-    ``to_line`` line numbers are 1-indexed from ruamel's ``lc``
-    attribute so the navigator can map a click back to the YAML
-    pane.
+    Output mirrors document order: device-level → scripts → intervals →
+    inline component handlers → light effects. ``from_line`` /
+    ``to_line`` are 1-indexed against the input YAML so the navigator
+    can map a click to the right range without re-parsing.
     """
     yaml = make_yaml()
     try:
@@ -129,8 +86,27 @@ def parse_device_yaml(yaml_text: str) -> list[ParsedAutomation]:
 
 
 # ---------------------------------------------------------------------------
-# Per-shape parsers
+# Internals
 # ---------------------------------------------------------------------------
+
+
+# Cache of component domains that host inline ``on_*:`` triggers,
+# derived from the catalog on first use.
+_COMPONENT_TRIGGER_DOMAINS: set[str] | None = None
+
+
+def _component_trigger_domains() -> set[str]:
+    """Return every top-level domain that hosts inline component triggers."""
+    global _COMPONENT_TRIGGER_DOMAINS  # noqa: PLW0603 — module-level cache
+    if _COMPONENT_TRIGGER_DOMAINS is not None:
+        return _COMPONENT_TRIGGER_DOMAINS
+    out: set[str] = set()
+    for trigger in catalog.all_triggers():
+        if trigger.is_device_level:
+            continue
+        out.update(trigger.applies_to)
+    _COMPONENT_TRIGGER_DOMAINS = out
+    return out
 
 
 def _parse_device_level(root: Any) -> list[ParsedAutomation]:
@@ -313,23 +289,13 @@ def _parse_light_effects(root: Any) -> list[ParsedAutomation]:
     return out
 
 
-# ---------------------------------------------------------------------------
-# Tree decomposition
-# ---------------------------------------------------------------------------
-
-
 def _decompose_trigger_body(body: Any, *, trigger_id: str) -> AutomationTree:
-    """Build an :class:`AutomationTree` from a trigger handler's body.
+    """
+    Build an :class:`AutomationTree` from a trigger handler's body.
 
-    Three YAML shortcut forms collapse into one tree:
-
-    1. ``on_press: - light.turn_on: id`` (bare action list)
-    2. ``on_press: light.turn_on: id`` (single bare action)
-    3. ``on_press: then: - light.turn_on: id`` (explicit then)
-
-    The trigger's own parameters (``on_click.min_length`` etc.) and
-    its optional ``condition:`` gate live on the resulting
-    :class:`AutomationTree` regardless of shortcut form.
+    Accepts three YAML shortcut forms that all collapse to the same
+    tree: bare action list (``on_press: - action: ...``), single
+    bare action (``on_press: action: ...``), explicit ``then:``.
     """
     trigger_params: dict[str, Any] = {}
     conditions: list[ConditionNode] = []
@@ -344,10 +310,8 @@ def _decompose_trigger_body(body: Any, *, trigger_id: str) -> AutomationTree:
         )
 
     if isinstance(body, list):
-        # Bare action list shortcut.
         actions = _decompose_action_list(body)
     elif isinstance(body, dict):
-        # Explicit form with ``then:`` and/or trigger params.
         trigger_params = _collect_block_params(body, action_list_keys={"then"})
         cond_value = body.get("condition")
         if cond_value is not None:
@@ -355,11 +319,11 @@ def _decompose_trigger_body(body: Any, *, trigger_id: str) -> AutomationTree:
         if "then" in body:
             actions = _decompose_action_list(body["then"])
         else:
-            # Bare single-action shortcut: the body's keys are a
-            # mix of trigger params and known catalog action ids.
+            # Single-action shortcut: the body's keys are a mix of
+            # trigger params and known catalog action ids.
             # ``_collect_block_params`` naively absorbed both; pull
             # the action keys back out by catalog lookup and rebuild
-            # the trigger_params dict without them.
+            # ``trigger_params`` without them.
             action_body = {
                 k: v
                 for k, v in body.items()
@@ -378,11 +342,11 @@ def _decompose_trigger_body(body: Any, *, trigger_id: str) -> AutomationTree:
 
 
 def _decompose_action_list(body: Any) -> list[ActionNode]:
-    """Recursively turn a YAML action-list body into a list of nodes.
+    """
+    Recursively turn a YAML action-list body into a list of nodes.
 
-    Accepts a list of action dicts, a single action dict, or
-    ``None``. Each list item is a single-entry mapping
-    ``{<action_id>: <params>}`` per ESPHome's registry shape.
+    Accepts a list of action mappings, a single mapping, or ``None``.
+    Each mapping is the registry-shape ``{<action_id>: <params>}``.
     """
     if body is None:
         return []
@@ -418,10 +382,9 @@ def _decompose_action(action_id: str, raw_params: Any) -> ActionNode:
                 continue
             params[key] = _render_value(value)
     else:
-        # Templated / shortcut form — e.g. ``light.turn_on: id``
-        # where the value is a bare id literal. Surface as a single
-        # ``id`` parameter so the round-trip writer reconstructs the
-        # short form when no other params are set.
+        # Bare-id shortcut (e.g. ``light.turn_on: living_room``):
+        # surface the scalar under the ``id`` key so the writer can
+        # reconstruct the short form on round-trip.
         params = {"id": _render_value(raw_params)}
 
     return ActionNode(
@@ -433,7 +396,7 @@ def _decompose_action(action_id: str, raw_params: Any) -> ActionNode:
 
 
 def _decompose_condition_list(body: Any) -> list[ConditionNode]:
-    """Turn a condition / and / or / not body into a list of nodes."""
+    """Turn a ``condition`` / ``and`` / ``or`` / ``not`` body into nodes."""
     if body is None:
         return []
     if isinstance(body, list):
@@ -471,17 +434,12 @@ def _decompose_condition(raw: dict) -> ConditionNode:
     )
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
 def _collect_block_params(
     block: dict,
     *,
     action_list_keys: set[str],
 ) -> dict[str, Any]:
-    """Collect non-then / non-action keys as plain ``params`` values."""
+    """Collect non-then / non-condition keys as plain ``params`` values."""
     out: dict[str, Any] = {}
     for key, value in block.items():
         if key in action_list_keys or key == "condition":
@@ -492,17 +450,11 @@ def _collect_block_params(
 
 def _render_value(value: Any) -> Any:
     """
-    Convert a ruamel-parsed value into the JSON-wire shape.
+    Convert a ruamel-parsed value to its JSON-wire shape.
 
-    Handles three special cases:
-
-    - ``LiteralScalarString`` / ``FoldedScalarString`` (the
-      ``!lambda |- ...`` / ``|`` blocks) → ``{"_lambda": "<source>"}``
-      sentinel so the frontend can distinguish a lambda from a
-      literal string.
-    - ruamel ordered mappings → plain dicts (mashumaro doesn't speak
-      ``CommentedMap`` directly).
-    - ruamel lists → plain lists, recursively.
+    Lambda block scalars (``|`` or ``!lambda`` tagged) become the
+    ``{"_lambda": "<source>"}`` sentinel; ruamel maps and lists
+    become plain dicts/lists, recursively.
     """
     if isinstance(value, LiteralScalarString):
         return {"_lambda": str(value)}
@@ -530,19 +482,12 @@ def _render_params(value: Any) -> Any:
 
 
 def _pretty_name(key: str) -> str:
-    """Cheap title-case of an ``on_x_y`` key for display labels."""
+    """Title-case an ``on_x_y`` key for display labels."""
     return key.replace("_", " ").title()
 
 
 def _key_range(mapping: Any, key: str) -> tuple[int, int]:
-    """Return 1-indexed line range covering ``mapping[key]``.
-
-    ruamel attaches ``lc`` (LineCol) metadata to every block-style
-    container; ``.data[key]`` carries the ``(key_line, key_col,
-    value_line, value_col)`` tuple of one entry. The end line falls
-    back to the start when ruamel can't compute one (single-line
-    flow-style entries).
-    """
+    """Return the 1-indexed line range covering ``mapping[key]``."""
     lc = getattr(mapping, "lc", None)
     if lc is None or not getattr(lc, "data", None) or key not in lc.data:
         return 1, 1
@@ -553,15 +498,12 @@ def _key_range(mapping: Any, key: str) -> tuple[int, int]:
 
 
 def _item_range(seq: Any, idx: int) -> tuple[int, int]:
-    """Return 1-indexed line range for the *idx*'th list item.
-
-    ``seq.lc.data[idx]`` carries the dash-line / dash-col / value-
-    line / value-col tuple; we use the dash line so blank or
-    comment lines preceding the item don't shift the range.
-    """
+    """Return the 1-indexed line range for the *idx*'th list item."""
     lc = getattr(seq, "lc", None)
     if lc is None or not getattr(lc, "data", None) or idx not in lc.data:
         return 1, 1
+    # Use the dash-line index so leading blank / comment lines
+    # don't shift the start.
     dash_line = lc.data[idx][0]
     start = dash_line + 1
     end = _estimate_end_line(seq[idx], start)
@@ -582,7 +524,7 @@ def _estimate_end_line(value: Any, start: int) -> int:
             data = getattr(lc, "data", None) if lc else None
             if data:
                 for entry in data.values():
-                    # entries are (key_line, key_col, val_line, val_col)
+                    # ruamel entries are (key_line, key_col, val_line, val_col)
                     if isinstance(entry, (list, tuple)) and len(entry) >= 3:
                         max_line = max(max_line, entry[2] + 1)
         elif isinstance(node, list):

@@ -838,13 +838,12 @@ def remove_inline_handler(
     component_id: str,
     handler_key: str,
 ) -> tuple[str, int, int] | None:
-    """Inverse of :func:`upsert_inline_handler`: delete an inline handler.
+    """
+    Delete an inline handler under a configured component.
 
-    Returns ``(new_yaml_text, from_line, to_line)`` for the removed
-    range (or ``None`` when the handler isn't there to begin with).
-    The line range mirrors what ``upsert_inline_handler`` would have
-    returned for the existing handler, so the frontend can issue the
-    same splice-apply machinery for both upsert and delete.
+    Returns ``(new_yaml_text, from_line, to_line)`` matching the
+    same :class:`automations.YamlDiff` shape ``upsert_inline_handler``
+    emits, or ``None`` when the handler isn't there.
     """
     lines = yaml_text.splitlines(keepends=True)
     span = _locate_component_instance(lines, component_domain, component_id)
@@ -874,13 +873,12 @@ def _locate_component_instance(
     domain: str,
     component_id: str,
 ) -> tuple[int, int, str] | None:
-    """Find the line range of a specific ``- id: <component_id>`` block.
+    """
+    Find the line range of a specific ``- id: <component_id>`` block.
 
-    Returns ``(start_idx, end_idx, child_indent)`` where ``start_idx``
-    is the dash-line index, ``end_idx`` is one past the last line of
-    the block, and ``child_indent`` is the leading whitespace of the
-    instance's child fields (so callers know where to land a new
-    ``key:`` at the right column).
+    Returns ``(start_idx, end_idx, child_indent)`` — dash-line
+    index, one-past-last-line index, and the leading whitespace of
+    the instance's child fields.
     """
     header_re = re.compile(rf"^{re.escape(domain)}:\s*(?:#.*)?$")
     domain_start: int | None = None
@@ -932,13 +930,12 @@ def _instance_id_matches(
     child_indent: str,
     component_id: str,
 ) -> bool:
-    """Return True iff the instance at *start* carries ``id: component_id``.
+    """
+    Return True iff the instance at *start* carries ``id: component_id``.
 
     Two shapes the schema permits: ``- id: <comp_id>`` on the dash
-    line itself (inline shortcut), or ``id:`` as a regular child
-    field on a subsequent line at ``child_indent``. Pick whichever
-    matches; nested dashes inside the body never count because they
-    sit deeper than ``child_indent``.
+    line itself, or ``id:`` as a regular child field at
+    ``child_indent`` on a later line.
     """
     first_line = lines[start].rstrip("\n\r")
     inline_match = re.match(r"^\s*-\s*id:\s*(?P<id>\S+)", first_line)

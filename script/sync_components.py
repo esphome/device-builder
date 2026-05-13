@@ -4018,27 +4018,13 @@ _CORE_AUTOMATION_DOCS = "https://esphome.io/automations/actions"
 
 
 def build_automations(*, schema_dir: Path) -> dict[str, list[dict]]:
-    """Walk every schema file and emit the automation catalog.
+    """
+    Walk every schema file and emit the automation catalog.
 
-    Four output sections:
-
-    - ``triggers``: every ``config_var`` whose ``type == "trigger"``
-      across all component schemas, plus the device-level
-      ``esphome.on_boot`` / ``on_loop`` / ``on_shutdown``.
-    - ``actions``: every ``<file>.<domain>.action.<name>`` entry plus
-      the core actions from ``esphome.json``.
-    - ``conditions``: every ``<file>.<domain>.condition.<name>`` plus
-      the core conditions.
-    - ``light_effects``: every ``light.effects.<name>`` entry.
-
-    Parameter schemas are converted with the same machinery the
-    component catalog uses (:func:`_convert_config_vars`) so the
-    frontend's form renderer reuses one code path for component and
-    automation parameter forms. ``then:`` placeholders are stripped
-    and surfaced on the action as ``accepts_action_list``;
-    boolean-gate keys (``condition`` / ``all`` / ``any``) become the
-    action's ``conditions`` array on the round-trip side, so they
-    don't appear under ``config_entries`` either.
+    Returns a dict with ``triggers`` / ``actions`` / ``conditions`` /
+    ``light_effects`` lists. Parameter schemas come out in the same
+    ``ConfigEntry[]`` shape the component catalog uses, so the
+    frontend renders both through one form pipeline.
     """
     triggers: list[dict] = []
     actions: list[dict] = []
@@ -4102,15 +4088,7 @@ def build_automations(*, schema_dir: Path) -> dict[str, list[dict]]:
 
 
 def _automation_domain(top_key: str) -> str:
-    """Return the domain we surface for automation entries from *top_key*.
-
-    Component schema files key their content under the platform
-    domain (``light``, ``binary_sensor``, ...) or under the component
-    id directly when the file is a single-component bundle
-    (``api``, ``mqtt``, ``script``). ``esphome.json`` carries the
-    core registries under ``core`` — surface those as ``"core"`` so
-    the wire shape distinguishes built-ins from component actions.
-    """
+    """Return the surface domain for automation entries from *top_key*."""
     if top_key in _PLATFORM_DOMAINS:
         return top_key
     if top_key == "core":
@@ -4224,24 +4202,12 @@ def _extract_triggers_from_section(
     section: dict,
     schema_dir: Path,
 ) -> list[dict]:
-    """Scan a section's schemas for keys whose ``type == "trigger"``.
+    """
+    Scan a section's schemas for keys whose ``type == "trigger"``.
 
-    Every schema file's ``schemas`` map carries one or more named
-    schema definitions, each with its own ``config_vars`` dict. A
-    ``config_var`` whose ``type`` is ``"trigger"`` is a YAML key the
-    user can attach an automation under — ``on_press``,
-    ``on_value_range``, ``on_boot``, etc. The trigger's own
-    parameters (``min_length``, ``max_length`` for ``on_click``;
-    ``priority`` for ``on_boot``) come from a nested
-    ``schema.config_vars`` if one exists; otherwise the trigger is
-    parameter-less.
-
-    Returns one entry per (schema_file, trigger_key) pair. The
-    ``applies_to`` list reflects the domain the trigger lives under
-    — typically a single platform-type for component triggers
-    (``binary_sensor``), empty for device-level triggers (the
-    ``esphome.on_*`` family). ``is_device_level`` is true when the
-    trigger lives on ``esphome.CONFIG_SCHEMA`` itself.
+    Returns one entry per (schema_file, trigger_key) pair, with the
+    trigger's own ``config_vars`` (e.g. ``on_click.min_length``)
+    surfaced as :class:`ConfigEntry`-shaped params.
     """
     schemas = section.get("schemas") or {}
     out: list[dict] = []
@@ -4282,18 +4248,11 @@ def _extract_automation_param_schema(
     schema_dir: Path,
 ) -> tuple[list[dict], list[str], bool]:
     """
-    Convert an automation entry's parameter ``schema`` to ConfigEntry[].
+    Convert a parameter ``schema`` to ``(config_entries, accepts_action_list, has_condition_gate)``.
 
-    Returns ``(config_entries, accepts_action_list, has_condition_gate)``.
-
-    - ``accepts_action_list`` is the list of keys whose value is itself
-      a list of actions (``then`` / ``else`` for ``if``,
-      ``then`` for ``while``/``repeat``, etc.). These are stripped
-      from ``config_entries`` so the frontend renders them as nested
-      recursive action lists, not as fields.
-    - ``has_condition_gate`` is True when one of the
-      ``_CONDITION_GATE_KEYS`` was present — the editor uses this to
-      add a condition-tree panel to the action's params form.
+    ``accepts_action_list`` and ``has_condition_gate`` are stripped
+    from ``config_entries`` so the editor renders them as recursive
+    sub-trees instead of plain form fields.
     """
     if not schema:
         return [], [], False
@@ -4339,15 +4298,13 @@ def _extract_automation_param_schema(
 
 
 def _automation_label(domain: str, name: str, docs_name: str | None) -> str:
-    """Pretty-print an automation registry entry's human-facing name.
+    """
+    Pretty-print an automation registry entry's human-facing name.
 
     Precedence: core label table → ``"Domain → Name"`` for
-    component-scoped entries (``Light → Turn on``) → bare
-    ``key.replace("_", " ").title()`` for device-level / core. The
-    ``docs_name`` ("See also" link target on the schema's docs
-    trailer) is *ignored* because it's the docs page title
-    (``"Binary Sensor Component"``), not the entry name — useful for
-    docs_url, useless for a label.
+    component-scoped entries → titlecased *name* for device-level
+    and core. The ``docs_name`` ("See also" link target) is ignored
+    because it's the docs page title, not the entry name.
     """
     del docs_name
     if domain == "core" and name in _CORE_AUTOMATION_LABELS:
@@ -4362,12 +4319,12 @@ def _automation_label(domain: str, name: str, docs_name: str | None) -> str:
 
 
 def _dedupe_by_id(entries: list[dict]) -> list[dict]:
-    """Drop duplicate ids, keeping the first occurrence.
+    """
+    Drop duplicate ids; keep the first occurrence; sort by id.
 
-    The same id can land twice when a component schema file references
-    a registry entry through both an explicit ``action`` map and a
-    shared ``schemas`` block (rare, but harmless). Sorted output keeps
-    the JSON diff stable across syncs.
+    The same id can land twice when a registry entry surfaces
+    through both an ``action`` map and a shared ``schemas`` block.
+    Sorting keeps the on-disk JSON diff stable across syncs.
     """
     seen: set[str] = set()
     out: list[dict] = []

@@ -1,24 +1,16 @@
-"""AutomationTree → YAML + splice diff.
+"""
+:class:`AutomationTree` → YAML + splice diff.
 
-The frontend exchanges an :class:`AutomationTree` blob; we render
-it as the equivalent YAML and produce a :class:`YamlDiff` the
-device-editor applies in place. Three splice paths:
+Top-level ``script:`` / ``interval:`` / ``esphome.on_*`` route
+through :func:`helpers.yaml._splice_into_domain_block`; inline
+``on_*:`` handlers and light ``effects:`` entries route through
+:func:`helpers.yaml.upsert_inline_handler` so adjacent siblings are
+left untouched. Delete is the inverse splice.
 
-- Top-level ``script:`` / ``interval:`` / ``esphome.on_*`` reuse
-  :func:`helpers.yaml._splice_into_domain_block` to add new list
-  items, or rewrite the whole top-level block when replacing.
-- Inline ``on_*:`` handlers under configured components and light
-  ``effects:`` entries route through
-  :func:`helpers.yaml.upsert_inline_handler` so adjacent siblings
-  are left untouched.
-- Delete is the inverse, removing the spliced range.
-
-Lambdas render as ruamel :class:`LiteralScalarString` with
-``|-`` block-scalar style. Default-valued fields are omitted so an
-unchanged round-trip doesn't grow noise. Trigger handlers always
-emit the explicit ``then:`` form (we never emit the bare action-
-list shortcut) — the parser accepts both forms but emitting one
-shape keeps tests deterministic.
+Trigger handlers always emit the explicit ``then:`` form — the
+parser accepts both shortcut forms but emitting one shape keeps
+round-trips deterministic. Lambdas render as ruamel
+:class:`LiteralScalarString` block scalars.
 """
 
 from __future__ import annotations
@@ -62,14 +54,11 @@ def render_upsert(
     location: AutomationLocation,
 ) -> tuple[str, YamlDiff]:
     """
-    Apply *tree* at *location* in *yaml_text*; return ``(new_yaml, diff)``.
+    Apply *tree* at *location*; return ``(new_yaml, diff)``.
 
-    The returned diff is a 1-indexed ``(fromLine, toLine, replacement)``
-    splice the frontend feeds to CodeMirror; the new yaml is the
-    post-splice document so tests and callers don't need to re-derive
-    it. The caller (the controller) returns the diff to the frontend;
-    persisting the YAML happens through the existing config write
-    flow.
+    *diff* is the :class:`YamlDiff` splice the frontend applies to
+    the editor pane. *new_yaml* is the post-splice document — caller
+    convenience so tests and callers don't re-derive it.
     """
     if isinstance(location, ScriptLocation):
         return _upsert_script(yaml_text, tree, location)
@@ -670,6 +659,6 @@ def _build_diff_for_append(old_yaml: str, new_yaml: str) -> YamlDiff:
 
 
 def _extract_replacement(yaml_text: str, from_line: int, to_line: int) -> str:
-    """Return the lines spanning the 1-indexed inclusive range."""
+    """Return the post-splice text spanned by the :class:`YamlDiff` range."""
     lines = yaml_text.splitlines(keepends=True)
     return "".join(lines[from_line - 1 : to_line])

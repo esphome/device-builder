@@ -1,20 +1,17 @@
-"""Automation catalog + round-trip data models.
+"""
+Automation catalog + round-trip data models.
 
-Split from the legacy hardcoded ``controllers/automations.py`` stub.
-The catalog dataclasses (``AutomationTrigger`` / ``AutomationAction``
-/ ``AutomationCondition`` / ``LightEffect``) are loaded from the
-``definitions/automations.json`` bundle that
-``script/sync_components.py`` emits. The round-trip dataclasses
+Catalog dataclasses (``AutomationTrigger`` / ``AutomationAction`` /
+``AutomationCondition`` / ``LightEffect``) load from
+``definitions/automations.json``. The round-trip dataclasses
 (``AutomationTree`` / ``ActionNode`` / ``ConditionNode`` /
-``ParsedAutomation``) carry the structured shape the frontend's
-automation editor exchanges with the backend through
-``automations/parse`` and ``automations/upsert``.
+``ParsedAutomation``) carry the structured shape the frontend
+exchanges with the backend through ``automations/parse`` /
+``automations/upsert``.
 
-Lambda sentinel: ``{"_lambda": "<C++ source>"}`` in any ``params``
-dict value flags that the value round-trips as a ``!lambda |- ...``
-block scalar in YAML. Distinguishes a templatable literal string
-from a templatable lambda body; the writer emits the matching
-ruamel ``LiteralScalarString``, the parser inverts.
+The lambda sentinel ``{"_lambda": "<C++ source>"}`` in any
+``params`` value round-trips to a YAML block scalar — distinguishes
+a templatable literal from a templatable lambda body.
 """
 
 from __future__ import annotations
@@ -158,13 +155,12 @@ AutomationLocation = Annotated[
 
 @dataclass
 class ConditionNode(DataClassORJSONMixin):
-    """A single condition node.
+    """
+    A single condition node.
 
-    ``children`` is populated for boolean combinators (``and``, ``or``,
-    ``all``, ``any``, ``not``, ``xor``) — their ``params`` is empty and
-    the recursive condition list lives in ``children``. Leaf conditions
-    (``binary_sensor.is_on``, ``lambda``, ``for``, ...) carry their
-    arguments under ``params`` and leave ``children`` empty.
+    Combinators (``and`` / ``or`` / ``all`` / ``any`` / ``not`` /
+    ``xor``) carry their sub-conditions under ``children``; leaf
+    conditions carry their arguments under ``params``.
     """
 
     condition_id: str
@@ -174,14 +170,13 @@ class ConditionNode(DataClassORJSONMixin):
 
 @dataclass
 class ActionNode(DataClassORJSONMixin):
-    """A single action node.
+    """
+    A single action node.
 
-    ``children`` carries nested action lists for control-flow actions,
-    keyed by the action's ``accepts_action_list`` entries (e.g.
-    ``{"then": [...], "else": [...]}`` for ``if``,
-    ``{"then": [...]}`` for ``while`` and ``repeat``).
-    ``conditions`` is the boolean gate — populated only for ``if`` /
-    ``wait_until``.
+    Control-flow actions carry nested action lists under
+    ``children`` (e.g. ``{"then": [...], "else": [...]}`` for
+    ``if``). ``conditions`` is the boolean gate, populated only for
+    ``if`` / ``wait_until``.
     """
 
     action_id: str
@@ -192,13 +187,12 @@ class ActionNode(DataClassORJSONMixin):
 
 @dataclass
 class AutomationTree(DataClassORJSONMixin):
-    """The structured form of one automation.
+    """
+    The structured form of one automation.
 
     ``trigger_id`` is ``None`` for top-level ``script:`` /
-    ``interval:`` blocks (the block kind is implied by the location,
-    not by a ``trigger:`` key in YAML). ``conditions`` is the
-    optional trigger-level "only run if" gate that ESPHome supports
-    on every automation.
+    ``interval:`` blocks — the block kind is implied by the
+    location. ``conditions`` is the optional "only run if" gate.
     """
 
     trigger_id: str | None = None
@@ -209,13 +203,12 @@ class AutomationTree(DataClassORJSONMixin):
 
 @dataclass
 class ParsedAutomation(DataClassORJSONMixin):
-    """One automation extracted from a device YAML.
+    """
+    One automation extracted from a device YAML.
 
-    ``from_line`` / ``to_line`` are 1-indexed CodeMirror line numbers
-    so the navigator can map a click to the right YAML range without
-    re-parsing. ``raw_yaml`` is the verbatim slice the parser
-    consumed — kept for the read-only fallback when an automation
-    references a non-catalog action id.
+    ``from_line`` / ``to_line`` are 1-indexed line numbers for the
+    navigator. ``raw_yaml`` is the verbatim slice — kept as the
+    read-only fallback when the structured form is unrecoverable.
     """
 
     location: AutomationLocation
@@ -258,12 +251,13 @@ class AvailableComponentInstance(DataClassORJSONMixin):
 
 @dataclass
 class AvailableAutomations(DataClassORJSONMixin):
-    """Context-aware catalog scoped to one device's YAML.
+    """
+    Context-aware catalog scoped to one device's YAML.
 
-    ``triggers`` is filtered to component types present in the config
-    plus device-level triggers. ``actions`` / ``conditions`` are
-    returned in full (id-pickers filter on the frontend).
-    ``scripts`` and ``devices`` feed action-parameter dropdowns.
+    ``triggers`` is filtered to component domains present in the
+    YAML plus device-level. ``actions`` / ``conditions`` are
+    returned in full; ``scripts`` and ``devices`` feed the
+    action-parameter dropdowns.
     """
 
     triggers: list[AutomationTrigger] = field(default_factory=list)
@@ -280,23 +274,21 @@ class AvailableAutomations(DataClassORJSONMixin):
 
 @dataclass
 class YamlDiff(DataClassORJSONMixin):
-    """A splice instruction the frontend applies to the editor pane.
+    """
+    A splice instruction the frontend applies to the editor pane.
 
-    ``fromLine`` / ``toLine`` are 1-indexed line numbers in the *old*
-    YAML text. Two shapes:
+    ``fromLine`` / ``toLine`` are 1-indexed line numbers in the
+    *old* YAML text. Two shapes:
 
-    - **Replace** — ``fromLine <= toLine``. Lines ``[fromLine, toLine]``
-      (inclusive) are replaced with ``replacement``.
-    - **Pure insert** — ``toLine == fromLine - 1``. No lines are
-      replaced; ``replacement`` is inserted before line ``fromLine``.
-      Equivalent to CodeMirror's ``replaceRange(text, pos, pos)``
-      where ``pos`` is the start of line ``fromLine``.
+    - **Replace** — ``fromLine <= toLine``: lines ``[fromLine,
+      toLine]`` (inclusive) are replaced with ``replacement``.
+    - **Pure insert** — ``toLine == fromLine - 1``: no lines are
+      replaced; ``replacement`` is inserted before ``fromLine``,
+      matching CodeMirror's empty-range ``replaceRange``.
 
-    The frontend applies both shapes through a single
-    ``lines.slice(0, fromLine - 1) + replacement + lines.slice(toLine)``
-    pattern — pure inserts and replaces share one code path.
-    ``replacement`` includes its own trailing newline when the
-    inserted block is multi-line.
+    Both shapes are applied through one ``lines.slice(0, fromLine
+    - 1) + replacement + lines.slice(toLine)`` pattern on the
+    frontend.
     """
 
     fromLine: int  # noqa: N815 — wire-shape matches frontend

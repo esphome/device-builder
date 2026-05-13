@@ -1,4 +1,5 @@
-"""Automation catalog loader.
+"""
+Automation catalog loader.
 
 Reads ``definitions/automations.json`` once at module-import time
 and caches the four parsed lists. The catalog ships frozen inside
@@ -31,15 +32,11 @@ _CATALOG_FILE = "automations.json"
 @cache
 def load_catalog() -> dict[str, list]:
     """
-    Load and parse ``definitions/automations.json`` once per process.
+    Return the four catalog lists keyed by section.
 
-    Returns a dict with four keys (``triggers`` / ``actions`` /
-    ``conditions`` / ``light_effects``) holding the typed
-    dataclasses. Empty lists when the bundle is missing — the
-    runtime still answers the get_* commands, just with nothing in
-    them. The sync script's failure mode is "no automations.json" so
-    a fresh checkout without ``sync_components.py`` having run yet
-    doesn't crash the dashboard on startup.
+    Empty lists when ``automations.json`` is missing — a fresh
+    checkout that hasn't run ``script/sync_components.py`` yet
+    boots cleanly with an empty catalog instead of crashing.
     """
     try:
         raw_bytes = resources.files(_DEFINITIONS_PACKAGE).joinpath(_CATALOG_FILE).read_bytes()
@@ -111,31 +108,13 @@ def light_effect_by_id(effect_id: str) -> LightEffect | None:
     return None
 
 
-def _prewarm() -> None:
-    """Force the catalog into memory at module-import time.
-
-    ``load_catalog`` reads the bundled ``automations.json`` from
-    disk on the first call. Triggering it eagerly here pulls the I/O
-    forward to module-import time so the runtime never trips
-    blockbuster on the async request path — same shape the
-    components catalog uses (``ComponentCatalog.load`` runs at
-    controller construction, not on a request).
-    """
-    load_catalog()
-
-
-_prewarm()
-
-
 def triggers_for_domains(domains: Iterable[str]) -> list[AutomationTrigger]:
-    """Return device-level triggers + every trigger applying to *domains*.
+    """
+    Return device-level triggers + every trigger applying to *domains*.
 
-    Used by :meth:`AutomationsController.get_available` to filter the
-    trigger catalogue down to what the user can actually use on
-    their device — device-level triggers always apply, component-
-    level triggers only when the matching domain is configured. The
-    list is stable-sorted: device-level first (in catalogue order),
-    then component triggers grouped by their applying domain.
+    Device-level triggers always come first (in catalogue order),
+    followed by component-level triggers whose ``applies_to`` includes
+    a member of *domains*.
     """
     domain_set = set(domains)
     device_level: list[AutomationTrigger] = []
@@ -147,3 +126,10 @@ def triggers_for_domains(domains: Iterable[str]) -> list[AutomationTrigger]:
         if any(d in domain_set for d in trigger.applies_to):
             component.append(trigger)
     return device_level + component
+
+
+# Pre-warm the catalog at module-import time so the first request
+# never trips blockbuster on the disk read — same pattern the
+# components catalog uses (``ComponentCatalog.load`` runs at
+# controller construction, not on a request).
+load_catalog()

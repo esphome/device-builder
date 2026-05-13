@@ -1,21 +1,20 @@
-"""Tree → ruamel data structures.
+"""
+Tree → ruamel data structures.
 
-Turns :class:`AutomationTree` / :class:`ActionNode` / :class:`ConditionNode`
-into ruamel ``CommentedMap`` / ``CommentedSeq`` shapes the writer's
-``_dump`` helper serialises. Each ``render_*`` returns a YAML
-*string* (not a ruamel object) so the splice paths in
-:mod:`controllers.automations.writing` only have to indent and
-splice strings — they never see ruamel internals.
+Turns :class:`AutomationTree` / :class:`ActionNode` /
+:class:`ConditionNode` into ruamel ``CommentedMap`` / ``CommentedSeq``
+shapes. The ``render_*`` entry points return a YAML *string* so the
+writer only indents and splices strings — it never sees ruamel
+internals.
 
-Two ergonomic shortcuts the emitter applies (the parser already
-accepts both shapes, so this just picks the more readable one for
-fresh writes):
+Two ergonomic shortcuts the emitter applies on fresh writes (the
+parser accepts both shapes, so the choice is purely cosmetic):
 
-- An action node with exactly one param ``id`` and no children /
-  conditions renders as ``- <action_id>: <id>`` (the registry
-  shortcut) instead of the explicit ``{id: <id>}`` mapping.
+- An action with one param ``id`` and no children / conditions
+  renders as ``- <action_id>: <id>`` (registry shortcut) instead
+  of the explicit ``{id: <id>}`` mapping.
 - A condition list of length one collapses to the single condition
-  mapping; ESPHome treats both shapes identically.
+  mapping.
 """
 
 from __future__ import annotations
@@ -54,12 +53,12 @@ def render_interval_item(tree: AutomationTree) -> str:
 
 
 def render_trigger_handler(tree: AutomationTree, *, key: str) -> str:
-    """Render a ``<trigger_key>:`` mapping with then / condition / params.
+    """
+    Render a ``<trigger_key>:`` mapping with then / condition / params.
 
-    Canonicalises to the explicit ``then:`` form, even when the
-    user originally typed the bare-action-list shortcut. The parser
-    accepts either shape — emitting one keeps round-trips
-    deterministic.
+    Canonicalises to the explicit ``then:`` form on every write so
+    round-trips stay deterministic (the parser accepts both
+    shortcut shapes too).
     """
     body = CommentedMap()
     for param_key, value in tree.trigger_params.items():
@@ -143,17 +142,19 @@ def emit_effect_item(effect: LightEffect | None, effect_id: str, params: dict) -
 
 
 def encode_value(value: Any) -> Any:
-    """Encode a JSON-wire value back into a ruamel-native scalar.
+    """
+    Encode a JSON-wire value back into a ruamel-native scalar.
 
     The lambda sentinel (``{"_lambda": "..."}``) becomes a
-    :class:`LiteralScalarString` (``|`` block scalar). ESPHome
-    treats unquoted block scalars on templatable fields as lambdas
-    without needing an explicit ``!lambda`` tag — matching the
-    editor's preferred shape so a fresh write doesn't gain a tag
-    the user wouldn't have typed. The parser detects both bare-
-    block and ``!lambda``-tagged forms, so round-trip remains
-    stable.
+    :class:`LiteralScalarString` (``|`` block scalar); nested
+    dicts and lists recurse.
     """
+    # ESPHome treats unquoted ``|`` block scalars on templatable
+    # fields as lambdas without needing an explicit ``!lambda``
+    # tag — matching that shape on fresh writes so a freshly-emitted
+    # YAML doesn't gain a tag the user wouldn't have typed. The
+    # parser still detects both bare-block and ``!lambda``-tagged
+    # forms, so a hand-tagged input round-trips intact.
     if (
         isinstance(value, dict)
         and set(value.keys()) == {"_lambda"}

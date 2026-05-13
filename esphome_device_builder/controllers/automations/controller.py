@@ -1,28 +1,10 @@
-"""Automations controller — the eight WS commands the frontend speaks.
+"""
+Automations controller — the eight WS commands the frontend speaks.
 
-| Command                            | Returns                            |
-|------------------------------------|------------------------------------|
-| automations/get_triggers           | ``list[AutomationTrigger]``        |
-| automations/get_actions            | ``list[AutomationAction]``         |
-| automations/get_conditions         | ``list[AutomationCondition]``      |
-| automations/get_light_effects      | ``list[LightEffect]``              |
-| automations/get_available          | ``AvailableAutomations``           |
-| automations/parse                  | ``list[ParsedAutomation]``         |
-| automations/upsert                 | ``UpsertResponse``                 |
-| automations/delete                 | ``UpsertResponse``                 |
-
-``get_available`` enumerates the device's YAML to scope the trigger
-list to component types actually configured, and surface the
-declared script ids + parameters + configured component instances
-so the frontend's action / condition param forms can render
-context-aware id pickers without separate WS round-trips.
-
-``parse`` walks the YAML for every automation the catalog knows
-about (script / interval / esphome.on_* / inline component on_* /
-light effects). ``upsert`` and ``delete`` route through the writer
-to produce a :class:`YamlDiff` the frontend applies in place; the
-backend does not persist the YAML in this command (the existing
-config-write debounce on the device editor handles that).
+See ``docs/API.md`` for the per-command contract. ``upsert`` /
+``delete`` return a :class:`YamlDiff` the frontend applies in
+place; the backend does not persist the YAML — the existing
+config-write debounce on the device editor handles that.
 """
 
 from __future__ import annotations
@@ -72,12 +54,12 @@ class AutomationsController:
         platform: str | None = None,
         **_kwargs: Any,
     ) -> list[dict]:
-        """Return every trigger in the catalog.
+        """
+        Return every trigger in the catalog.
 
-        ``platform`` (``"esp32"`` / ``"esp8266"`` / ...) is reserved
-        for future platform-gating; not consulted today because no
-        trigger carries platform constraints. ``board_id`` is
-        accepted and ignored for the same reason.
+        ``platform`` / ``board_id`` are reserved for future
+        platform-gating and ignored today (no trigger carries
+        platform constraints).
         """
         del platform
         return [t.to_dict() for t in catalog.all_triggers()]
@@ -126,17 +108,14 @@ class AutomationsController:
         configuration: str,
         **_kwargs: Any,
     ) -> dict:
-        """Return the scoped catalog + script / device id surfaces.
+        """
+        Return the scoped catalog + script / device id surfaces.
 
-        ``triggers`` is filtered to component types present in the
-        YAML plus device-level triggers. ``actions`` / ``conditions``
-        are returned in full — id-pickers filter on the frontend.
-        ``scripts`` enumerates declared ``script: id`` blocks with
-        their ``parameters:`` so ``script.execute`` can render a
-        dynamic param form for the picked script. ``devices`` lists
-        every configured component instance with its ``id`` /
-        ``name`` so action params with ``references_component`` can
-        render the right dropdown.
+        ``triggers`` is filtered to component domains present in
+        *configuration* plus device-level. ``actions`` /
+        ``conditions`` are returned in full (id-pickers filter on
+        the frontend). ``scripts`` and ``devices`` feed the
+        context-aware param dropdowns.
         """
         text = await self._read_config(configuration)
         loop = asyncio.get_running_loop()
@@ -234,15 +213,7 @@ class _ScopedYaml:
 
 
 def _scope_from_yaml(text: str) -> _ScopedYaml:
-    """Walk *text* and surface the targets ``get_available`` returns.
-
-    Uses ruamel round-trip so we share one parser path across parse
-    and scoping. The walk is shallow: top-level keys give the
-    configured domains, ``script:`` list items give the declared
-    script ids + their declared ``parameters:`` map, and every list
-    item under a known component domain contributes a configured
-    instance (``id``, optional ``name``) for the id-picker surface.
-    """
+    """Walk *text* and surface the targets ``get_available`` returns."""
     yaml = parsing.make_yaml()
     try:
         data = yaml.load(text)
