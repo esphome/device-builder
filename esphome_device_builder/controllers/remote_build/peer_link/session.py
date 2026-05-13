@@ -143,6 +143,109 @@ class PeerLinkSession:
         await self._channel.send_terminate(reason.value)
 
 
+def parse_app_frame(
+    noise: PeerLinkNoiseSession, msg: Any, *, log_label: str
+) -> dict[str, Any] | None:
+    """
+    Validate, decrypt, and JSON-parse one inbound peer-link frame.
+
+    Returns the parsed dict on success or ``None`` on any of the
+    malformed-frame branches: wrong WS message type (not BINARY),
+    oversize body, Noise decrypt failure, or post-decrypt JSON
+    that isn't an object. Concentrating the per-branch logging
+    here keeps each side's dispatch loop a single straight line —
+    receiver and offloader callers both respond to ``None`` by
+    closing the session (the offloader maps it to
+    ``transport_error``, the receiver to a structured
+    ``terminate{malformed_frame}`` frame).
+
+    Public so the offloader-side :class:`PeerLinkClient` can share
+    the same validation seam with the receiver-side
+    :class:`PeerLinkSession` without duplicating the four
+    log-and-return branches. ``log_label`` is what each side wants
+    in its log lines — the receiver passes its
+    ``dashboard_id``, the offloader passes
+    ``"<hostname>:<port>"``.
+    """
+    if msg.type != WSMsgType.BINARY:
+        _LOGGER.debug(
+            "peer-link expected binary frame from %s; got %s",
+            log_label,
+            msg.type,
+        )
+        return None
+    if len(msg.data) > APP_FRAME_MAX_BYTES:
+        _LOGGER.warning(
+            "peer-link oversize frame from %s (%d bytes); closing",
+            log_label,
+            len(msg.data),
+        )
+        return None
+    try:
+        plaintext = noise.decrypt(msg.data)
+    except NOISE_ERRORS:
+        _LOGGER.warning(
+            "peer-link Noise decrypt failed from %s",
+            log_label,
+            exc_info=True,
+        )
+        return None
+    parsed = _parse_json(plaintext)
+    if not isinstance(parsed, dict):
+        _LOGGER.debug(
+            "peer-link frame from %s did not decode to a JSON object",
+            log_label,
+        )
+        return None
+    return parsed
+
+
+async def run_peer_link_heartbeat(
+    *,
+    send_ping: Callable[[int], Awaitable[bool]],
+    last_pong_at: Callable[[], float],
+    on_dead: Callable[[], Awaitable[None]],
+) -> None:
+    """
+    Run a heartbeat loop driving either end of a peer-link session.
+
+    Sleeps :data:`HEARTBEAT_INTERVAL_SECONDS`, then either bails
+    out via *on_dead* (if no pong has landed within
+    :data:`HEARTBEAT_DEAD_AFTER_SECONDS`) or sends a ping via
+    *send_ping*. ``send_ping`` returns whether the wire write
+    succeeded; a ``False`` return triggers *on_dead* too (the WS
+    is presumed dead so the session shouldn't keep trying).
+
+    Lets :class:`asyncio.CancelledError` propagate out of
+    ``asyncio.sleep`` — callers spawn this as a task and cancel
+    it under ``contextlib.suppress(CancelledError)``; catching
+    here would swallow the signal at the wrong layer.
+
+    Each side's *on_dead* is what differs: the receiver sends a
+    structured ``terminate{heartbeat_timeout}`` via the session
+    registry's close path, the offloader just calls
+    ``ws.close()`` (the receive loop sees the close and unwinds
+    naturally). Each side's *send_ping* is what gates the send —
+    the receiver routes through :meth:`PeerLinkSession.send_app_frame`
+    so the ``_closing`` short-circuit holds; the offloader routes
+    through :meth:`PeerLinkChannel.send_frame` directly because
+    its lifecycle has no equivalent gate.
+    """
+    nonce = 0
+    while True:
+        await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
+        # Liveness check first — if we haven't heard a pong in
+        # the threshold window, bail before sending another ping.
+        if _monotonic() - last_pong_at() > HEARTBEAT_DEAD_AFTER_SECONDS:
+            await on_dead()
+            return
+        nonce += 1
+        if not await send_ping(nonce):
+            # send_ping already logged; the WS is presumed dead.
+            await on_dead()
+            return
+
+
 async def _run_peer_link_session(
     controller: ReceiverController,
     ws: web.WebSocketResponse,
@@ -288,109 +391,6 @@ async def _receive_loop(session: PeerLinkSession, controller: ReceiverController
             msg_type,
             session.dashboard_id,
         )
-
-
-def parse_app_frame(
-    noise: PeerLinkNoiseSession, msg: Any, *, log_label: str
-) -> dict[str, Any] | None:
-    """
-    Validate, decrypt, and JSON-parse one inbound peer-link frame.
-
-    Returns the parsed dict on success or ``None`` on any of the
-    malformed-frame branches: wrong WS message type (not BINARY),
-    oversize body, Noise decrypt failure, or post-decrypt JSON
-    that isn't an object. Concentrating the per-branch logging
-    here keeps each side's dispatch loop a single straight line —
-    receiver and offloader callers both respond to ``None`` by
-    closing the session (the offloader maps it to
-    ``transport_error``, the receiver to a structured
-    ``terminate{malformed_frame}`` frame).
-
-    Public so the offloader-side :class:`PeerLinkClient` can share
-    the same validation seam with the receiver-side
-    :class:`PeerLinkSession` without duplicating the four
-    log-and-return branches. ``log_label`` is what each side wants
-    in its log lines — the receiver passes its
-    ``dashboard_id``, the offloader passes
-    ``"<hostname>:<port>"``.
-    """
-    if msg.type != WSMsgType.BINARY:
-        _LOGGER.debug(
-            "peer-link expected binary frame from %s; got %s",
-            log_label,
-            msg.type,
-        )
-        return None
-    if len(msg.data) > APP_FRAME_MAX_BYTES:
-        _LOGGER.warning(
-            "peer-link oversize frame from %s (%d bytes); closing",
-            log_label,
-            len(msg.data),
-        )
-        return None
-    try:
-        plaintext = noise.decrypt(msg.data)
-    except NOISE_ERRORS:
-        _LOGGER.warning(
-            "peer-link Noise decrypt failed from %s",
-            log_label,
-            exc_info=True,
-        )
-        return None
-    parsed = _parse_json(plaintext)
-    if not isinstance(parsed, dict):
-        _LOGGER.debug(
-            "peer-link frame from %s did not decode to a JSON object",
-            log_label,
-        )
-        return None
-    return parsed
-
-
-async def run_peer_link_heartbeat(
-    *,
-    send_ping: Callable[[int], Awaitable[bool]],
-    last_pong_at: Callable[[], float],
-    on_dead: Callable[[], Awaitable[None]],
-) -> None:
-    """
-    Run a heartbeat loop driving either end of a peer-link session.
-
-    Sleeps :data:`HEARTBEAT_INTERVAL_SECONDS`, then either bails
-    out via *on_dead* (if no pong has landed within
-    :data:`HEARTBEAT_DEAD_AFTER_SECONDS`) or sends a ping via
-    *send_ping*. ``send_ping`` returns whether the wire write
-    succeeded; a ``False`` return triggers *on_dead* too (the WS
-    is presumed dead so the session shouldn't keep trying).
-
-    Lets :class:`asyncio.CancelledError` propagate out of
-    ``asyncio.sleep`` — callers spawn this as a task and cancel
-    it under ``contextlib.suppress(CancelledError)``; catching
-    here would swallow the signal at the wrong layer.
-
-    Each side's *on_dead* is what differs: the receiver sends a
-    structured ``terminate{heartbeat_timeout}`` via the session
-    registry's close path, the offloader just calls
-    ``ws.close()`` (the receive loop sees the close and unwinds
-    naturally). Each side's *send_ping* is what gates the send —
-    the receiver routes through :meth:`PeerLinkSession.send_app_frame`
-    so the ``_closing`` short-circuit holds; the offloader routes
-    through :meth:`PeerLinkChannel.send_frame` directly because
-    its lifecycle has no equivalent gate.
-    """
-    nonce = 0
-    while True:
-        await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
-        # Liveness check first — if we haven't heard a pong in
-        # the threshold window, bail before sending another ping.
-        if _monotonic() - last_pong_at() > HEARTBEAT_DEAD_AFTER_SECONDS:
-            await on_dead()
-            return
-        nonce += 1
-        if not await send_ping(nonce):
-            # send_ping already logged; the WS is presumed dead.
-            await on_dead()
-            return
 
 
 def _monotonic() -> float:
