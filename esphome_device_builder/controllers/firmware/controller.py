@@ -26,8 +26,8 @@ from ...models import (
     JobStatus,
     JobType,
 )
+from . import bulk, cli, factories, follow, jobs, lifecycle, persistence, runner
 from . import clean as clean_mod
-from . import cli, factories, follow, jobs, lifecycle, persistence, runner
 from . import download as download_mod
 from .helpers import (
     _find_esphome_cmd,
@@ -345,64 +345,13 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         force_local: bool = False,
         **kwargs: Any,
     ) -> list[FirmwareJob]:
-        """Queue compile for multiple devices.
-
-        Per-device errors (most commonly the rename lock) skip that
-        device and keep going. Each job routes through
-        :meth:`_resolve_install_source` so paired-build auto-routing
-        applies (mirrors :meth:`compile` / :meth:`install_bulk`);
-        ``force_local=True`` keeps every job LOCAL.
-        """
-        await self._validate_configurations_boundary(configurations)
-        jobs: list[FirmwareJob] = []
-        for config in configurations:
-            try:
-                build_source = self._resolve_install_source(force_local=force_local)
-                job = self._create_job(
-                    config,
-                    JobType.COMPILE,
-                    build_source=build_source,
-                )
-                await self._enqueue(job)
-            except CommandError as exc:
-                _LOGGER.info("Skipping %s in compile_bulk: %s", config, exc.message)
-                continue
-            jobs.append(job)
-        return jobs
+        return await bulk.compile_bulk(self, configurations=configurations, force_local=force_local)
 
     @api_command("firmware/install_bulk")
     async def install_bulk(
         self, *, configurations: list[str], port: str = "OTA", **kwargs: Any
     ) -> list[FirmwareJob]:
-        """Queue update (compile + upload) for multiple devices. Defaults to OTA.
-
-        ``port`` is shared across every queued job; pass an explicit
-        IP only when you really want every device installed against
-        the same target (rare — almost always callers want the
-        per-device default of ``"OTA"``).
-
-        Per-device errors (most commonly the rename lock) skip that
-        device and keep going — a rename-in-flight on one of the
-        selected devices shouldn't abort the install for the rest.
-        """
-        _validate_port(port)
-        await self._validate_configurations_boundary(configurations)
-        jobs: list[FirmwareJob] = []
-        for config in configurations:
-            try:
-                build_source = self._resolve_install_source()
-                job = self._create_job(
-                    config,
-                    JobType.INSTALL,
-                    port=port,
-                    build_source=build_source,
-                )
-                await self._enqueue(job)
-            except CommandError as exc:
-                _LOGGER.info("Skipping %s in install_bulk: %s", config, exc.message)
-                continue
-            jobs.append(job)
-        return jobs
+        return await bulk.install_bulk(self, configurations=configurations, port=port)
 
     # ------------------------------------------------------------------
     # API commands — job inspection
