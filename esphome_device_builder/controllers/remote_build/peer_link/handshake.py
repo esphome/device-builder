@@ -177,9 +177,9 @@ async def _dispatch_intent(
 
     # Reject malformed dashboard_id before any controller call.
     # Same alphabet + length contract as
-    # :func:`_validators.validate_dashboard_id` on the WS-command
-    # path; both consume from ``helpers.dashboard_identity`` so
-    # they can't drift.
+    # :func:`controllers.remote_build._validators.validate_dashboard_id`
+    # on the WS-command path; both consume from
+    # ``helpers.dashboard_identity`` so they can't drift.
     if (
         not inp.dashboard_id
         or len(inp.dashboard_id) > DASHBOARD_ID_MAX_CHARS
