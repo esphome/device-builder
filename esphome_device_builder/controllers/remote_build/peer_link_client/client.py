@@ -362,11 +362,12 @@ class PeerLinkClient:
                 make_peer_link_http_session(timeout=timeout, resolver=resolver) as http,
                 http.ws_connect(url, max_msg_size=APP_FRAME_MAX_BYTES) as ws,
             ):
+                peer = ws.get_extra_info("peername")
                 _LOGGER.info(
                     "peer-link client connected to %s:%d (peer=%s)",
                     self._hostname,
                     self._port,
-                    ws.get_extra_info("peername"),
+                    peer,
                 )
                 session = PeerLinkNoiseSession.initiator(self._identity_priv)
                 msg3_payload = _json.dumps({"dashboard_id": self._dashboard_id})
@@ -385,30 +386,7 @@ class PeerLinkClient:
                 # Abort either way before any application frames.
                 observed = session.remote_static_pub
                 if observed == self._identity_pub:
-                    # mDNS resolved the receiver's hostname to an
-                    # IP that routes back to this process's own
-                    # peer-link listener (the canonical case is a
-                    # shared Docker bridge gateway like ``172.17.0.1``
-                    # on both hosts; the receiver advertises it,
-                    # the offloader's routing reaches its own
-                    # listener instead). Refuse, blocklist the peer
-                    # IP so the next reconnect's resolver wrapper
-                    # skips it, and return a transport-error close
-                    # so the reconnect loop keeps trying.
-                    peer = ws.get_extra_info("peername")
-                    if isinstance(peer, tuple) and peer and isinstance(peer[0], str):
-                        self._blocked_peer_ips.add(peer[0])
-                    _LOGGER.error(
-                        "peer-link client to %s:%d looped back to own listener "
-                        "(peer=%s pin=%s); check mDNS / routing — the receiver's "
-                        "hostname is resolving to one of this host's own IPs",
-                        self._hostname,
-                        self._port,
-                        peer,
-                        self._pin_sha256,
-                    )
-                    self._last_connect_error = "self loopback"
-                    return _LOCAL_CLOSE_TRANSPORT_ERROR
+                    return self._on_self_static_observed(peer)
                 if observed != self._pinned_static_x25519_pub:
                     # ``stored_pin`` is the sha256 written to disk at
                     # pair time; ``expected_pin`` is what the raw
@@ -659,3 +637,44 @@ class PeerLinkClient:
 
     def _fire_queue_status(self, idle: bool, running: bool, queue_depth: int) -> None:
         _dispatch.fire_queue_status(self, idle, running, queue_depth)
+
+    def _on_self_static_observed(self, peer: object) -> str:
+        """
+        Handle a handshake where the responder presented our own static key.
+
+        Two production causes lead here, neither involving the other
+        peer's identity going wrong:
+
+        * **Routing loopback** (the canonical case). mDNS resolved
+          the receiver's hostname to an IP that routes back to this
+          process's own peer-link listener — e.g. a shared Docker
+          bridge gateway like ``172.17.0.1`` present on both hosts:
+          the receiver's announce carries it, the offloader's
+          routing reaches its own listener instead.
+        * **Identity collision.** The receiver was misconfigured
+          with a copy of this dashboard's
+          ``.device-builder-peer-link-key.bin`` — two peers can't
+          share one X25519 identity. Operator action: rotate
+          identity on one side.
+
+        Blocklist the peer IP so the next reconnect's resolver
+        wrapper skips it (recovers automatically from the
+        loopback case); the identity-collision case keeps firing
+        until the operator fixes the receiver side, but the
+        ``check mDNS / routing or identity collision`` text
+        steers them at both causes.
+        """
+        if isinstance(peer, tuple) and peer and isinstance(peer[0], str):
+            self._blocked_peer_ips.add(peer[0])
+        _LOGGER.error(
+            "peer-link client to %s:%d observed our own static pubkey from the responder "
+            "(peer=%s pin=%s); check mDNS / routing (hostname resolves to one of this "
+            "host's own IPs) or identity collision (receiver running with a copy of our "
+            "peer-link key)",
+            self._hostname,
+            self._port,
+            peer,
+            self._pin_sha256,
+        )
+        self._last_connect_error = "self loopback"
+        return _LOCAL_CLOSE_TRANSPORT_ERROR

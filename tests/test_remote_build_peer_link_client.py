@@ -3294,11 +3294,13 @@ async def test_peer_link_client_self_loopback_logs_error_and_retries(
     caplog: pytest.LogCaptureFixture,
     tmp_path: Path,
 ) -> None:
-    """Handshake against our own listener logs ERROR, closes transport_error, retries."""
+    """Responder presenting our own static key logs ERROR, closes transport_error, retries."""
     server, _, _, receiver_pub = receiver_server
-    # Same priv on both sides models a TCP connect that landed on
-    # our own listener; the post-handshake ``observed`` is then our
-    # own ``_identity_pub``.
+    # Same priv on both sides exercises the ``observed ==
+    # _identity_pub`` branch — production hits this either via
+    # routing loopback (mDNS resolves to our own listener) or
+    # via identity collision (receiver running with a copy of
+    # this dashboard's peer-link key).
     identity = await asyncio.get_running_loop().run_in_executor(
         None, get_or_create_peer_link_identity, tmp_path
     )
@@ -3332,11 +3334,15 @@ async def test_peer_link_client_self_loopback_logs_error_and_retries(
             # the same cached resolution and land on this IP forever).
             assert "127.0.0.1" in client._blocked_peer_ips
             loopback = [
-                rec for rec in caplog.records if "looped back to own listener" in rec.getMessage()
+                rec
+                for rec in caplog.records
+                if "observed our own static pubkey" in rec.getMessage()
             ]
             assert len(loopback) >= 1
             assert loopback[0].levelname == "ERROR"
-            assert "check mDNS / routing" in loopback[0].getMessage()
+            msg = loopback[0].getMessage()
+            assert "check mDNS / routing" in msg
+            assert "identity collision" in msg
         finally:
             await cancel_and_drain(task)
 
