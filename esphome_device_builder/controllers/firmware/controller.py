@@ -15,13 +15,11 @@ import base64
 import gzip
 import importlib
 import logging
-import os
 import sys
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from operator import attrgetter
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
@@ -29,14 +27,12 @@ from esphome.components.esp32 import VARIANTS as ESP32_VARIANTS
 from esphome.components.libretiny.const import (
     FAMILY_COMPONENT as _LIBRETINY_FAMILY_COMPONENT,
 )
-from esphome.core import CORE
 from esphome.storage_json import StorageJSON
 
 from ...helpers.api import CommandError, api_command
 from ...helpers.build_scheduler import BuildPath, pick_build_path
 from ...helpers.event_bus import StreamControls, stream_events
 from ...helpers.process import terminate_subtree_with_grace
-from ...helpers.remote_build_layout import parse_from_configuration as parse_remote_build_path
 from ...helpers.storage_path import resolve_storage_path
 from ...helpers.subprocess import create_subprocess_exec, iter_lines_with_progress
 from ...models import (
@@ -54,12 +50,10 @@ from ...models import (
     StreamEvent,
 )
 from ...models.remote_build import PeerStatus
-from . import persistence
+from . import cli, persistence
 from .constants import (
     _ACTIVE_JOB_STATUSES,
     _ERROR_PATTERNS,
-    _OTA_ADDRESS_CACHE_JOB_TYPES,
-    ESPHOME_SUBPROCESS_ENV,
 )
 from .helpers import (
     _find_esphome_cmd,
@@ -1498,155 +1492,10 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         )
 
     async def _verify_chip(self, job: FirmwareJob) -> None:
-        """
-        Verify the chip on the serial port matches the device config.
-
-        Runs ``esptool chip-id`` to detect the actual chip, then
-        compares against the chip variant recorded in StorageJSON.
-        Raises ValueError on mismatch so the job fails early with a
-        clear error message.
-
-        Reads from ``StorageJSON.target_platform`` (the upstream-
-        canonical chip variant — ``ESP32S3`` / ``ESP32C3`` / plain
-        ``ESP8266``) rather than ``Device.target_platform`` (which
-        carries the lowercase platform *key*, e.g. ``esp32`` for
-        every ESP32 family member, and would false-positive on a
-        chip-vs-variant mismatch). Skipped when StorageJSON is
-        absent — pre-compile installs have no compile-time truth
-        to compare against, and esphome's own flash error covers
-        the wrong-chip case there.
-
-        The verify subprocess is registered as ``_current_process``
-        for the duration of its run so an early ``firmware/cancel``
-        — typical when the user picked the wrong serial port and
-        esptool is hanging waiting for a device that won't answer
-        — actually lands on the spawned esptool process, instead
-        of no-op'ing because the main install hadn't been spawned
-        yet. ``start_new_session=True`` puts the process in its
-        own group so the SIGTERM signal walks the whole tree the
-        same way the main install spawn site does.
-        """
-        if not job.port or job.port.upper() == "OTA" or not job.port.startswith("/dev"):
-            return  # only check serial ports
-
-        loop = asyncio.get_running_loop()
-        storage = await loop.run_in_executor(
-            None, lambda: StorageJSON.load(resolve_storage_path(job.configuration))
-        )
-        if storage is None or not storage.target_platform:
-            return  # never compiled or no platform recorded — nothing to verify
-
-        expected_platform = storage.target_platform.lower()
-
-        async with self._tracked_subprocess(
-            sys.executable,
-            "-m",
-            "esptool",
-            "--port",
-            job.port,
-            "chip-id",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            start_new_session=True,
-        ) as proc:
-            assert proc.stdout is not None  # type narrowing
-            output = (await proc.stdout.read()).decode("utf-8", errors="replace")
-            await proc.wait()
-
-        # Honour an early cancel that arrived during chip detection
-        # (the main install hasn't spawned yet, so the post-wait
-        # check below in ``_execute_job`` would otherwise let the
-        # full install run before reporting CANCELLED). Reusing
-        # the ``ValueError`` shape keeps the error path identical
-        # to a chip mismatch.
-        self._raise_if_cancelled(job, "chip verification")
-
-        # Parse "Detecting chip type... ESP32-C3"
-        detected = ""
-        for line in output.splitlines():
-            if "Detecting chip type" in line:
-                detected = line.split("...")[-1].strip().lower().replace("-", "")
-                break
-
-        if not detected:
-            _LOGGER.warning("Could not detect chip type on %s", job.port)
-            return
-
-        # Normalise: "esp32c3" matches "esp32c3", "esp32" matches "esp32".
-        # The target_platform from StorageJSON might be "ESP32S3" (uppercase).
-        expected_normalized = expected_platform.lower().replace("-", "").replace("_", "")
-        detected_normalized = detected.replace(" ", "")
-
-        if expected_normalized != detected_normalized:
-            msg = (
-                f"Chip mismatch: config expects {expected_platform} "
-                f"but {job.port} has {detected}. Wrong board selected?"
-            )
-            raise ValueError(msg)
-
-        _LOGGER.debug("Chip verified: %s on %s", detected, job.port)
+        await cli.verify_chip(self, job)
 
     def _compose_subprocess_env(self, job: FirmwareJob) -> dict[str, str]:
-        """Return the env dict for *job*'s ``esphome`` subprocess.
-
-        Layers, in order:
-
-        1. ``os.environ`` (inherits the dashboard's deployment-mode
-           context: ``ESPHOME_DATA_DIR`` on the HA addon, etc.).
-        2. :data:`ESPHOME_SUBPROCESS_ENV` (force ANSI colour /
-           unbuffered output regardless of TTY — see the constant's
-           docstring for the rationale).
-        3. For a receiver-side remote-build job (configuration
-           parses through
-           :func:`helpers.remote_build_layout.parse_from_configuration`
-           — i.e. the YAML lives under
-           ``.esphome/.remote_builds/<dashboard_id>/<device>/``):
-           pin ``ESPHOME_DATA_DIR`` to the per-build subtree so
-           every per-config artefact (storage sidecar, idedata
-           cache, build directory, PlatformIO project) lands under
-           one ``(dashboard_id, device)``-keyed directory.
-
-        Without step 3 the subprocess would inherit the
-        dashboard's own ``ESPHOME_DATA_DIR`` and write storage /
-        build / idedata into the same keyspace as the user's
-        local builds — same-basename collisions across paired
-        offloaders silently mix builds. The override pins each
-        offloader's remote builds to a per-dashboard subdirectory
-        of ``CORE.data_dir``
-        (``<config_dir>/.esphome/.remote_builds/<id>/.esphome``
-        in default mode, ``/data/.remote_builds/<id>/.esphome``
-        on the HA addon). Anchoring on ``CORE.data_dir`` (not on
-        ``settings.config_dir``) keeps the multi-GB toolchain +
-        build cache off the user's ``/config`` mount on the HA
-        addon, where it lives on the addon's per-instance data
-        volume instead.
-
-        Reclaim semantics (see
-        :meth:`RemoteBuildPath.data_dir` for the full notes):
-        the 6c TTL sweep
-        (:func:`helpers.remote_build_cleanup.sweep_remote_builds`)
-        still walks ``config_dir / REMOTE_BUILDS_SUBDIR`` and
-        reclaims cold per-device subtrees (the YAML extract +
-        bundle sibling) via :meth:`RemoteBuildPath.subtree`.
-        The shared per-dashboard ``.esphome/`` under
-        ``CORE.data_dir`` is intentionally not swept — that's
-        what keeps the toolchain warm across submits — at the
-        cost of per-device ``build/<name>/`` /
-        ``storage/<basename>.json`` / ``idedata/<name>.json``
-        becoming orphaned when their subtree gets reclaimed.
-        A future cleanup pass keyed on "no devices remain
-        under this dashboard_id" will reclaim the whole shared
-        tree on unpair / TTL expiry.
-
-        Factored out of :meth:`_execute_job` so the receiver-side
-        env override is unit-testable without standing up a real
-        subprocess.
-        """
-        env = {**os.environ, **ESPHOME_SUBPROCESS_ENV}
-        remote_build_path = parse_remote_build_path(job.configuration)
-        if remote_build_path is not None:
-            env["ESPHOME_DATA_DIR"] = str(remote_build_path.data_dir(Path(CORE.data_dir)))
-        return env
+        return cli.compose_subprocess_env(job)
 
     def _build_command(
         self,
@@ -1656,56 +1505,12 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         cache_args: list[str] | None = None,
         new_name: str = "",
     ) -> list[str]:
-        """Build the esphome CLI command for a given job type."""
-        cmd_map = {
-            JobType.COMPILE: "compile",
-            JobType.UPLOAD: "upload",
-            JobType.INSTALL: "run",
-            JobType.CLEAN: "clean",
-            JobType.RENAME: "rename",
-            # ``clean-all`` takes the config *directory* as its
-            # positional, not a YAML file. ``reset_build_env`` queues
-            # with ``configuration=""`` so ``rel_path("")`` resolves
-            # back to the config_dir at the call site — same shape
-            # as the legacy dashboard's ``EsphomeCleanAllHandler``.
-            JobType.RESET_BUILD_ENV: "clean-all",
-        }
-        # cache_args go before the subcommand — esphome's argparse parses
-        # them on the top-level parser, not the per-subcommand one.
-        # ``--dashboard`` flips ESPHome's log formatter into "escape ANSI
-        # as literal text" mode, which survives the colorama strip when
-        # stdout is piped to us; the frontend's ansi-log component then
-        # un-escapes and renders the colours.
-        cmd = [
-            *self._esphome_cmd,
-            "--dashboard",
-            *(cache_args or []),
-            cmd_map[job_type],
-            config_path,
-        ]
-        if job_type == JobType.INSTALL:
-            # Without --no-logs the CLI tails logs forever after the
-            # upload, never returning — the job would never complete.
-            cmd.append("--no-logs")
-        if job_type in (JobType.UPLOAD, JobType.INSTALL) and port:
-            cmd.extend(["--device", port])
-        if job_type == JobType.RENAME:
-            # ``esphome rename`` takes the new name as a positional
-            # arg. The CLI handles the inner compile + install + old
-            # YAML cleanup itself; we let the queue runner stream its
-            # output the same way it does for any other build.
-            cmd.append(new_name)
-        return cmd
+        return cli.build_command(
+            self._esphome_cmd, job_type, config_path, port, cache_args, new_name
+        )
 
     def _build_cache_args(self, job: FirmwareJob) -> list[str]:
-        """Return ``--mdns/--dns-address-cache`` args for *job*, or empty."""
-        if job.job_type not in _OTA_ADDRESS_CACHE_JOB_TYPES or self._db.devices is None:
-            return []
-        # ``rename``'s ``port`` is the post-rename re-install target;
-        # the inner ``esphome run`` against the *old* address is
-        # always OTA, so skip the gate with ``None``.
-        port: str | None = None if job.job_type == JobType.RENAME else job.port
-        return self._db.devices.get_ota_address_cache_args(job.configuration, port)
+        return cli.build_cache_args(self, job)
 
     # ------------------------------------------------------------------
     # Internals — job management
