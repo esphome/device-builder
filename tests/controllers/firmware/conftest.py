@@ -158,6 +158,7 @@ def firmware_controller_factory(
         # silent-fallback-LOCAL semantic.
         db_attrs: dict[str, Any] = {
             "bus": bus,
+            "devices": None,
             "remote_build_offloader": None,
             "remote_build_receiver": None,
         }
