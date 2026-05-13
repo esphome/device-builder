@@ -32,13 +32,13 @@ def resolve_bind_host(host: str) -> list[str]:
 
     out: list[str] = []
     for ip in adapter.ips:
-        if ip.is_IPv4:
-            out.append(str(ip.ip))
-        elif ip.is_IPv6:
-            address, _flowinfo, scope_id = ip.ip
-            if scope_id:
-                address = f"{address}%{scope_id}"
-            out.append(address)
+        match ip.ip:
+            case str() as address:
+                out.append(address)
+            case (address, _flowinfo, scope_id):
+                if scope_id:
+                    address = f"{address}%{scope_id}"
+                out.append(address)
 
     if not out:
         raise OSError(
