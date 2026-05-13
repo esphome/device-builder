@@ -69,6 +69,7 @@ from . import (
     importable,
     logs,
     reachability,
+    scan_change,
     state_callbacks,
     storage_regen,
     validate,
@@ -1622,75 +1623,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         return await loop.run_in_executor(None, path.read_text, "utf-8")
 
     def _on_scan_change(self, kind: ScanChange, device: Device) -> None:
-        """Forward scanner changes onto the event bus."""
-        event = {
-            ScanChange.ADDED: EventType.DEVICE_ADDED,
-            ScanChange.UPDATED: EventType.DEVICE_UPDATED,
-            ScanChange.REMOVED: EventType.DEVICE_REMOVED,
-        }[kind]
-        self._db.bus.fire(event, DeviceEventData(device=device))
-        # Eagerly probe mDNS for newly-added devices. Catches the
-        # YAML-dropped-on-disk case the API entrypoints
-        # (``devices/import``, ``devices/create``) can't see — e.g.
-        # the user copies a config into ``config_dir`` from another
-        # dashboard or git clones their setup. Without this the new
-        # card sits at "Unknown" until the next periodic ping sweep
-        # or mDNS announcement, even when the device is already on
-        # the network. ``probe_device`` short-circuits to the
-        # zeroconf cache when present; otherwise it spawns a
-        # fire-and-forget resolve task.
-        if kind is ScanChange.ADDED:
-            self._state_monitor.probe_device(device.name)
-        # The YAML cache key changed (mtime / size / inode) — clear
-        # any prior failure marker so an edit gets a fresh chance at
-        # ``--only-generate``. Same for REMOVED so re-creating the
-        # file later doesn't inherit the old failure.
-        if kind in (ScanChange.UPDATED, ScanChange.REMOVED):
-            self._regenerate_failed.discard(device.configuration)
-        # First-sight devices that have no compile output yet end up
-        # carrying the ``<filename>.local`` address fallback and an
-        # empty ``loaded_integrations`` list. Schedule a background
-        # ``--only-generate`` so the next scan picks up the real
-        # ``StorageJSON``-derived values without making the user wait
-        # for a real compile. Same upstream pattern used in
-        # ``async_schedule_storage_json_update``.
-        #
-        # Also fire when ``expected_config_hash`` is empty even
-        # though ``loaded_integrations`` is populated. That happens
-        # for devices configured before build_info.json existed (or
-        # imported from an older dashboard) — they have a working
-        # ``StorageJSON`` so the integrations / address / version
-        # all come through, but the build directory either pre-dates
-        # the build_info.json era or was wiped. Without this nudge
-        # the drawer's "Local config hash" shows a permanent em-dash
-        # for those devices because nothing else triggers a
-        # ``--only-generate`` until the user edits the YAML.
-        needs_storage_regen = kind is ScanChange.ADDED and (
-            not device.loaded_integrations or not device.expected_config_hash
-        )
-        if needs_storage_regen:
-            self._schedule_storage_regenerate(device.configuration)
-        # When a configured device is deleted, re-emit cached
-        # discoveries. Upstream's ``DashboardImportDiscovery`` only
-        # fires ``on_update`` on first sight (``is_new`` check), so
-        # without this nudge a device stays silent until it
-        # re-announces — which can be many minutes for a quiet device.
-        # Use the "revisit all" variant rather than matching on
-        # ``device.name``: the user may have adopted with a YAML name
-        # that differs from the discovered hostname (e.g. they edited
-        # the MAC suffix off), in which case a name-keyed lookup
-        # would miss. ``_on_import_update`` already filters configured
-        # + ignored entries so re-emitting the full set is cheap and
-        # only surfaces what should actually appear.
-        if kind is ScanChange.REMOVED:
-            self._state_monitor.revisit_all_importables()
-            # Drop reachability history for the gone device. Without
-            # this, the four per-signal maps would accumulate one
-            # entry per device that's ever lived in the catalog,
-            # since nothing else clears them — the mDNS Removed
-            # branch only fires when the device's broadcast goes
-            # away, not when its YAML is deleted.
-            self._reachability.clear(device.name)
+        scan_change.on_scan_change(self, kind, device)
 
     def _devices_by_name(self, name: str) -> list[Device]:
         """Every configured device whose ``name`` field matches ``name``.

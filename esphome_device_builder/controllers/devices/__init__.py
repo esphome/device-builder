@@ -38,6 +38,10 @@ resolving after the subpackage split. Submodules:
   linearly, no mixin protocol.
 - ``reachability`` — per-device reachability streaming + the
   on-subscription mDNS A-record refresh loop.
+- ``scan_change`` — scan-handler backbone: forwards ADDED /
+  UPDATED / REMOVED scanner changes onto the event bus and
+  fans out side effects (mDNS probe, regen scheduling,
+  reachability cleanup).
 - ``state_callbacks`` — the six per-attribute mDNS callbacks
   (state / ip / version / mac / api_encryption / config_hash).
 - ``validate`` — ``devices/validate`` WS command body
