@@ -618,20 +618,16 @@ class SubmitJobReceiver:
         # inside the same config_dir, so ``relative_to`` always
         # succeeds here. ``as_posix`` keeps the wire-side
         # ``configuration`` string stable across receiver
-        # platforms; ``str(rel_yaml)`` would emit
+        # platforms — ``str(rel_yaml)`` would emit
         # ``\\``-separated paths on Windows, drifting the
         # ``FirmwareJob.configuration`` field's shape between a
         # dashboard running on Linux vs Windows even though the
         # filesystem-level join works either way.
-        #
-        # ``self._config_dir`` is whatever the user passed to the
-        # CLI (``esphome-device-builder esphome-configs`` ⇒ relative
-        # ``Path('esphome-configs')``), but ``prepare_bundle_for_compile``
-        # internally resolves ``target_dir`` so ``extracted_yaml`` is
-        # always absolute. ``Path.relative_to`` is purely lexical;
-        # a relative-vs-absolute pairing raises ``ValueError`` even
-        # when both refer to the same on-disk location. Resolve the
-        # config_dir half so the comparison always matches (#678).
+        # ``.resolve()`` on the config_dir: ``prepare_bundle_for_compile``
+        # always returns an absolute path; ``self._config_dir`` may
+        # be relative when the dashboard was launched with a relative
+        # ``configuration`` arg, and ``Path.relative_to`` is purely
+        # lexical (#678).
         rel_yaml = extracted_yaml.relative_to(self._config_dir.resolve())
         configuration = rel_yaml.as_posix()
 

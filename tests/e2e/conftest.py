@@ -174,14 +174,41 @@ async def _paired_instances_ctx(
     receiver_dir: Path,
     offloader_dir: Path,
 ) -> AsyncIterator[PairedInstances]:
-    """Drive the real pair flow against two in-process controllers.
+    """Yield two :class:`RemoteBuildController` instances paired via the real flow.
 
-    The fixture body that used to live inline in ``paired_instances``,
-    factored so a sibling fixture can rerun the same setup with a
-    differently-shaped ``receiver_dir`` (e.g. relative-path
-    reproduction for #678). Both ``receiver_dir`` and ``offloader_dir``
-    must already exist on disk; the helper only owns the controllers,
-    the TestServer, and their teardown.
+    Drives the production pair sequence end-to-end against two
+    in-process controllers — no dict-mocking shortcuts:
+
+    1. Both controllers ``start()`` (loads identities,
+       installs the long-poll listener slot for any future
+       PENDING rows, etc.).
+    2. Receiver opens its pairing window
+       (``set_pairing_window(open=True)``).
+    3. Offloader runs ``preview_pair`` over a real Noise XX WS
+       to capture the receiver's pubkey + pin from the
+       handshake transcript.
+    4. Offloader runs ``request_pair`` (also a real Noise WS)
+       carrying the offloader's ``dashboard_id``; receiver's
+       handler creates a PENDING :class:`StoredPeer` row and
+       fires ``REMOTE_BUILD_PAIR_REQUEST_RECEIVED``.
+    5. Receiver runs ``approve_peer`` to flip PENDING →
+       APPROVED; fires ``REMOTE_BUILD_PAIR_STATUS_CHANGED``.
+    6. Offloader's pair-status listener (spawned in step 4)
+       observes the flip via its long-poll WS, updates the
+       local :class:`StoredPairing` to APPROVED, and spawns
+       the long-lived :class:`PeerLinkClient`.
+
+    Per-side event buses are real, so production-shape event
+    fan-out runs end-to-end. The handshake reads pin + dashboard_id
+    from the live Noise transcript, so any wire-shape regression
+    on either side surfaces here rather than being hidden behind
+    a pre-seeded RAM dict.
+
+    Teardown drains both controllers in dependency order:
+    offloader first (its client task sends a
+    ``terminate{client_stopped}`` to the receiver, the
+    receiver's session loop unwinds), then the receiver (closing
+    any remaining server-side state), then the TestServer.
     """
     receiver_bus = EventBus()
     offloader_bus = EventBus()
@@ -290,13 +317,7 @@ async def _paired_instances_ctx(
 async def paired_instances(
     tmp_path: Path,
 ) -> AsyncGenerator[PairedInstances, None]:
-    """Yield two :class:`RemoteBuildController` instances paired via the real flow.
-
-    Drives the production pair sequence end-to-end against two
-    in-process controllers; the full ordering / handshake notes
-    live on :func:`_paired_instances_ctx`. Receiver and offloader
-    each get an absolute config_dir under ``tmp_path``.
-    """
+    """Yield two :class:`RemoteBuildController` instances paired via the real flow."""
     receiver_dir = tmp_path / "receiver"
     receiver_dir.mkdir()
     offloader_dir = tmp_path / "offloader"
@@ -309,26 +330,10 @@ async def paired_instances(
 async def paired_instances_relative_receiver_config_dir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> AsyncGenerator[PairedInstances, None]:
-    """Run :func:`paired_instances` with the receiver's config_dir as a relative path.
-
-    Regression cover for #678 (``esphome-device-builder esphome-configs``
-    landed a relative ``Path('esphome-configs')`` on
-    ``settings.config_dir``; the receiver-side
-    ``extracted_yaml.relative_to(self._config_dir)`` in
-    ``submit_job._extract_and_queue`` raised ``ValueError`` because
-    ``prepare_bundle_for_compile`` had resolved the extracted YAML
-    to absolute while ``self._config_dir`` was still relative).
-
-    ``monkeypatch.chdir`` parks the test in ``tmp_path`` so a
-    relative ``Path('receiver')`` resolves under it; the receiver
-    then sees the same shape the CLI delivers in production.
-    """
+    """Like :func:`paired_instances` but the receiver's ``config_dir`` is relative (#678)."""
     monkeypatch.chdir(tmp_path)
     receiver_dir = Path("receiver")
     receiver_dir.mkdir()
-    # The offloader half stays absolute; the bug only ever surfaced
-    # on the receiver because that's where bundle extract + the
-    # buggy ``relative_to`` lived.
     offloader_dir = tmp_path / "offloader"
     offloader_dir.mkdir()
     async with _paired_instances_ctx(receiver_dir, offloader_dir) as instances:

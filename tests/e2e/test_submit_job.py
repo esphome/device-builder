@@ -244,20 +244,7 @@ async def test_submit_job_round_trip_extracts_real_bundle_and_queues_job(
 async def test_submit_job_round_trip_with_relative_receiver_config_dir(
     paired_instances_relative_receiver_config_dir: PairedInstances,
 ) -> None:
-    """``submit_job`` round-trip succeeds when the receiver's config_dir is relative (#678).
-
-    Reproduces the user-reported failure mode of starting the
-    receiver-side dashboard with a relative path
-    (``esphome-device-builder esphome-configs``). The real upstream
-    bundle extractor resolves ``target_dir`` to absolute internally,
-    so the post-extract YAML path is absolute; pre-fix, the
-    receiver's ``extracted_yaml.relative_to(self._config_dir)``
-    raised ``ValueError`` because ``Path.relative_to`` is purely
-    lexical and refuses to match a relative path against an
-    absolute one. The ack flowed back as
-    ``accepted=False / extract_failed`` and the offloader logged
-    ``peer-link session ended before ack``.
-    """
+    """``submit_job`` round-trip succeeds when the receiver's config_dir is relative (#678)."""
     instances = paired_instances_relative_receiver_config_dir
     await instances.wait_until_session_opened()
     created_jobs = _wire_receiver_firmware_recorder(instances)
@@ -296,10 +283,7 @@ async def test_submit_job_round_trip_with_relative_receiver_config_dir(
         / "kitchen"
         / "kitchen.yaml"
     )
-    assert extracted_yaml.is_file(), (
-        f"extracted YAML missing at {extracted_yaml} — extract "
-        "failed (regression of #678 or unrelated extractor break)"
-    )
+    assert extracted_yaml.is_file()
     assert extracted_yaml.read_bytes() == b"esphome:\n  name: kitchen\n"
     assert job.configuration == extracted_yaml.relative_to(receiver_config_dir.resolve()).as_posix()
 
