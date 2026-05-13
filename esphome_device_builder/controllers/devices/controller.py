@@ -12,7 +12,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 from esphome.helpers import write_file as atomic_write_file
 from esphome.storage_json import StorageJSON
@@ -21,8 +21,6 @@ from esphome.zeroconf import AsyncEsphomeZeroconf
 from ...helpers.api import CommandError, api_command
 from ...helpers.device_yaml import (
     configuration_stem,
-    generate_device_yaml,
-    generate_minimal_stub_yaml,
     parse_esphome_meta,
     parse_platform_from_yaml,
 )
@@ -68,6 +66,7 @@ from . import (
     firmware_sync,
     importable,
     logs,
+    mutations_yaml,
     reachability,
     scan_change,
     state_callbacks,
@@ -93,18 +92,6 @@ if TYPE_CHECKING:
     from ...models import BoardCatalogEntry
 
 _LOGGER = logging.getLogger(__name__)
-
-# Provenance tag for ``_yaml_content_for_create``'s return tuple.
-# ``"user"`` → caller-supplied ``file_content`` (validation
-# failure surfaces as ``INVALID_ARGS``).
-# ``"template"`` → :func:`generate_device_yaml` against a known
-# catalog entry (validation failure → ``INTERNAL_ERROR``).
-# ``"stub"`` → :func:`generate_minimal_stub_yaml` (no inputs;
-# validation failure → ``INTERNAL_ERROR``; caller skips the YAML-
-# driven board-id derivation since the stub's hard-coded
-# ``board: esp32dev`` would otherwise pin metadata to whatever
-# catalog entry happens to share that PIO board).
-_CreateYamlSource = Literal["user", "template", "stub"]
 
 # How long the persisted "regen failed" stamp is honoured before a
 # restart-time check is allowed to re-spawn ``--only-generate`` for
@@ -1196,19 +1183,10 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         file_content: str | None,
         ssid: str,
         psk: str,
-    ) -> tuple[str, _CreateYamlSource]:
-        """
-        Pick the YAML body for ``devices/create`` based on the inputs.
-
-        Returns ``(yaml_content, source)``; see :data:`_CreateYamlSource`
-        for the meaning of each tag and which post-processing the
-        caller applies per branch.
-        """
-        if file_content:
-            return file_content, "user"
-        if board:
-            return generate_device_yaml(name, friendly, board, ssid, psk), "template"
-        return generate_minimal_stub_yaml(name, friendly), "stub"
+    ) -> tuple[str, mutations_yaml.CreateYamlSource]:
+        return mutations_yaml.yaml_content_for_create(
+            name, friendly, board, file_content, ssid, psk
+        )
 
     async def _validate_rewritten_yaml_or_raise(
         self,
@@ -1219,96 +1197,14 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         on_failure: ErrorCode = ErrorCode.INVALID_ARGS,
         on_error_cleanup: Callable[[], None] | None = None,
     ) -> None:
-        """
-        Schema-validate *content* via the editor; raise if invalid.
-
-        Used by commands that produce a YAML and depend on a follow-
-        up install to apply the change (``create_device``,
-        ``edit_friendly_name``, future rename / save handlers). A
-        YAML that won't validate means the install fails and the
-        device-on-network keeps its old state — the dashboard ends
-        up showing a half-finished change that will never reach the
-        device. Refusing the write here keeps on-disk state and
-        live state in lockstep.
-
-        Reuses :class:`EditorController`'s warm validator subprocess
-        (one per configuration), so the cost is single-digit hundreds
-        of ms when the session is warm. ``self._db.editor`` is None
-        during dashboard boot before
-        :meth:`EditorController.start` finishes; that window is too
-        narrow for a user to hit in practice, but the guard means
-        the controller still behaves coherently if the editor is
-        unavailable (e.g. the ``esphome`` CLI not on PATH) — better
-        to skip validation than reject every write.
-
-        *action* is interpolated into the error message ("Can't
-        <action> — config doesn't validate: …"); pass the user-
-        facing verb the dialog will show ("rename", "save",
-        "create"). *on_failure* picks the ``ErrorCode`` raised:
-        default ``INVALID_ARGS`` when the user can fix the input
-        themselves, ``INTERNAL_ERROR`` when the broken YAML came
-        from one of *our* generators (``generate_device_yaml``,
-        clone's leaf rewrite, ...) and the user can't do anything
-        but report it. The error list is capped at three entries so
-        a long error pile collapses to "first three + (+N more)"
-        rather than overflowing the toast.
-
-        *on_error_cleanup* is a sync callback that runs in a
-        ``finally`` if validation didn't reach a clean success
-        (rejected, subprocess-wedged, anything). For commands that
-        write the YAML *before* calling this helper (currently
-        ``import_device``, where upstream ``import_config`` writes
-        unconditionally), the callback unlinks the half-imported
-        file so a retry doesn't trip ``FileExistsError``. Unset
-        for commands that haven't written yet (``create_device``,
-        ``clone_device``, ``edit_friendly_name``) — there's
-        nothing to roll back. Runs through ``run_in_executor`` so
-        ``blockbuster`` doesn't flag the sync syscall in tests.
-        """
-        editor = self._db.editor
-        if editor is None:
-            return
-        succeeded = False
-        try:
-            result = await editor.validate_yaml(configuration=configuration, content=content)
-            errors = [
-                *(err.get("message", "") for err in result.get("yaml_errors", [])),
-                *(err.get("message", "") for err in result.get("validation_errors", [])),
-            ]
-            errors = [msg for msg in errors if msg]
-            if not errors:
-                succeeded = True
-                return
-            shown = errors[:3]
-            suffix = f" (+{len(errors) - len(shown)} more)" if len(errors) > len(shown) else ""
-            message_tail = (
-                ". Please report this with a redacted snippet of just the "
-                "esphome: / substitutions: blocks (strip Wi-Fi credentials, "
-                "API keys, and static IPs) so the dashboard generator can "
-                "be fixed."
-                if on_failure is ErrorCode.INTERNAL_ERROR
-                else ". Fix the errors in the editor and try again."
-            )
-            raise CommandError(
-                on_failure,
-                f"Can't {action} — config doesn't validate: "
-                + "; ".join(shown)
-                + suffix
-                + message_tail,
-            )
-        finally:
-            if not succeeded and on_error_cleanup is not None:
-                # Swallow + log cleanup failures so a permission /
-                # FS error during rollback doesn't replace the
-                # original validation diagnostic (or the validator
-                # subprocess error) the caller is about to see. The
-                # leftover YAML is the lesser foot-gun here — the
-                # user can ``devices/delete`` it once they understand
-                # what failed.
-                try:
-                    await asyncio.get_running_loop().run_in_executor(None, on_error_cleanup)
-                except Exception:
-                    _LOGGER.exception("on_error_cleanup raised; original error preserved")
+        await mutations_yaml.validate_rewritten_yaml_or_raise(
+            self,
+            configuration,
+            content,
+            action=action,
+            on_failure=on_failure,
+            on_error_cleanup=on_error_cleanup,
+        )
 
     @api_command("devices/delete")
     async def delete_device(self, *, configuration: str, **kwargs: Any) -> None:
