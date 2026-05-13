@@ -4122,7 +4122,7 @@ async def test_submit_job_times_out_when_no_ack_arrives(
     finishes quickly; production keeps the 60s wall.
     """
     monkeypatch.setattr(
-        remote_build_peer_link_client.client, "_SUBMIT_JOB_ACK_TIMEOUT_SECONDS", 0.05
+        remote_build_peer_link_client._submit, "_SUBMIT_JOB_ACK_TIMEOUT_SECONDS", 0.05
     )
     bus = EventBus()
     client = _make_offloader_client(bus)
