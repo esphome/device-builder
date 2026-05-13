@@ -71,7 +71,6 @@ def stop_stream(client: Any, stream_id: str) -> dict:
 
 
 async def stream_subprocess(
-    controller: DevicesController,
     cmd: list[str],
     client: Any,
     message_id: str,
