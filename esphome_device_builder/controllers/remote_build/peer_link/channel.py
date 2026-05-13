@@ -87,14 +87,15 @@ class PeerLinkChannel:
         Send a structured ``terminate`` frame and close the WS, best-effort.
 
         The frame routes through :meth:`send_frame` so the encrypt
-        + lock invariants hold. The close that follows must
-        suppress ``aiohttp.ClientError`` too: offloader-side
+        + lock invariants hold. The close must also suppress
+        ``aiohttp.ClientError``: offloader-side
         ``ClientWebSocketResponse.close()`` raises it when the peer
         has gone away, and an escape here would block
         ``CancelledError`` propagation inside
         :meth:`PeerLinkClient._run_one_session`'s cancel handler.
-        ``CancelledError`` doesn't inherit from ``Exception`` since
-        Py3.8, so the wider suppression stays no-swallow safe.
+        The suppression is narrow (``OSError``, ``RuntimeError``,
+        ``aiohttp.ClientError`` — all ``Exception`` subclasses), so
+        cancellation propagates unaffected.
         """
         await self.send_frame({"type": AppMessageType.TERMINATE.value, "reason": reason})
         with contextlib.suppress(OSError, RuntimeError, aiohttp.ClientError):
