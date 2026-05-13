@@ -6,7 +6,7 @@
 > remote / offload functions are in early beta. Expect undocumented
 > breaking changes until the project is marked stable. Issues
 > and feedback welcome — please check existing issues / the
-> [project board](https://github.com/orgs/esphome/projects/7/views/1?filterQuery=project%3A%22device-builder-dashboard%22)
+> [project board](https://github.com/orgs/esphome/projects/7/views/1?filterQuery=project%3A%22device-builder%22)
 > first, and join the [Discord channel](https://discord.gg/Rf2jWGVjaK)
 > for live discussion.
 
