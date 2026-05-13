@@ -1,0 +1,7 @@
+esphome:
+  name: kitchen
+  on_boot:
+    priority: 200
+    then:
+      - delay: 1s
+      - light.turn_on: living_room

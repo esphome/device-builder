@@ -22,8 +22,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Iterator
-from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import uuid4
@@ -33,10 +31,8 @@ from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo
 
 from ...helpers.api import CommandError, api_command
 from ...helpers.build_scheduler import BuildSchedulerInputs
-from ...helpers.dashboard_advertise import SERVICE_TYPE
 from ...helpers.dashboard_identity import get_or_create_identity
 from ...helpers.event_bus import Event
-from ...helpers.hostname import normalize_hostname
 from ...helpers.peer_link_identity import get_or_create_peer_link_identity
 from ...helpers.peer_link_resolver import PeerLinkDNSResolver, make_peer_link_resolver
 from ...helpers.storage import Store
@@ -48,7 +44,6 @@ from ...models import (
     OffloaderAlertSnapshotEntry,
     OffloaderJobStateChangedData,
     OffloaderPairAlertDismissedData,
-    OffloaderPairEndpointReboundData,
     OffloaderPairingEnabledChangedData,
     OffloaderPairPeerRevokedData,
     OffloaderPairPinMismatchData,
@@ -65,14 +60,13 @@ from ...models import (
     PairingSummary,
     PeerQueueStatusSnapshotEntry,
     PeerStatus,
-    RemoteBuildHostRemovedData,
     RemoteBuildPeer,
     StoredPairing,
 )
-from ._mdns import endpoints_equal, peer_from_service_info
+from . import discovery, peer_link_lifecycle, rebind
+from ._mdns import endpoints_equal
 from ._models import (
     EDIT_PAIRING_PROBE_ERRORS,
-    PeerLinkClientHandle,
     RebindProbeOutcome,
     RebindProbeResult,
 )
@@ -100,7 +94,6 @@ from .artifacts_tarball import UnpackArtifactsError, unpack_artifacts_response
 from .peer_link_client import (
     DownloadArtifactsError,
     PairStatusResult,
-    PeerLinkClient,
     PeerLinkClientError,
     PeerLinkNoSessionError,
     SubmitJobSessionLostError,
@@ -120,6 +113,8 @@ if TYPE_CHECKING:
     from ...device_builder import DeviceBuilder
     from ...helpers.dashboard_identity import DashboardIdentity
     from ...helpers.peer_link_identity import PeerLinkIdentity
+    from ._models import PeerLinkClientHandle
+    from .peer_link_client import PeerLinkClient
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -135,11 +130,6 @@ def _load_offloader_identities(
     return get_or_create_peer_link_identity(config_dir), get_or_create_identity(config_dir)
 
 
-# Cache-miss resolve timeout for the dashboard service-info
-# fetch. Longer than the device-state monitor's because peer
-# dashboards run on full hosts that may be more LAN hops away.
-_RESOLVE_TIMEOUT_MS = 3000
-
 # Terminal status set for the offloader-side remote-job cache
 # drop-on-terminal logic.
 _OFFLOADER_REMOTE_JOB_TERMINAL_STATUSES: frozenset[str] = frozenset(
@@ -154,11 +144,6 @@ _PAIR_STATUS_RECONNECT_BACKOFF_SECONDS = 2.0
 # Debounce window for the offloader-side pairings-store write
 # so a burst of approvals collapses to one disk write.
 _PAIRINGS_SAVE_DELAY_SECONDS = 1.0
-
-# Per-pin sliding window between mDNS rebind probes. Doubles
-# as in-flight guard + retry throttle so a permanently-down
-# host doesn't trigger a probe per mDNS Updated burst.
-_REBIND_PROBE_COOLDOWN_SECONDS = 30.0
 
 
 class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
@@ -322,47 +307,8 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
             self._peer_link_resolver = None
 
     def _start_discovery(self) -> None:
-        """
-        Bring up the mDNS service browser for peer discovery.
-
-        Captures the dashboard's own service-instance name (so
-        our own advertise doesn't show up in ``list_hosts``) and
-        constructs the :class:`AsyncServiceBrowser` against the
-        shared zeroconf. Skips silently if either the devices
-        controller or its zeroconf isn't available (peer
-        discovery is opt-in fail-soft); on browser-construction
-        failure logs the exception and leaves :attr:`_browser`
-        as ``None``.
-        """
-        if self._db.devices is None:
-            _LOGGER.debug("remote-build discovery skipped: devices controller unavailable")
-            return
-        zeroconf = self._db.devices.zeroconf
-        if zeroconf is None:
-            _LOGGER.debug("remote-build discovery skipped: zeroconf unavailable")
-            return
-        # Capture own service-instance name so our own advertise
-        # doesn't show up in ``list_hosts``. Reads through the
-        # public ``service_instance_name`` accessor on
-        # ``DashboardAdvertiser`` rather than reaching into
-        # ``_info``; keeps this controller decoupled from the
-        # advertiser's private layout.
-        advertiser = self._db._dashboard_advertiser
-        if advertiser is not None:
-            self._own_instance_name = advertiser.service_instance_name
-        # Wrap browser construction so a zeroconf-side failure
-        # (e.g. the underlying socket got torn down between
-        # ``DeviceStateMonitor.start`` and now, or the cache is in
-        # an unexpected state) doesn't abort dashboard startup.
-        try:
-            self._browser = AsyncServiceBrowser(
-                zeroconf.zeroconf,
-                [SERVICE_TYPE],
-                handlers=[self._on_service_state_change],
-            )
-        except Exception:
-            _LOGGER.exception("Could not start remote-build browser; peer discovery disabled")
-            self._browser = None
+        """Bring up the mDNS service browser for peer discovery."""
+        discovery.start_discovery(self)
 
     def _on_offloader_pair_pin_mismatch(self, event: Event[OffloaderPairPinMismatchData]) -> None:
         """Cache the alert in ``_offloader_alerts`` for late-subscriber snapshot.
@@ -494,91 +440,24 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         name: str,
         state_change: ServiceStateChange,
     ) -> None:
-        """
-        Browser callback; resolve the service info and update the peer map.
-
-        Filters our own service-instance name so we don't surface
-        our own advertise as a discovered host. ``Removed`` events
-        delete the peer immediately and fire
-        :attr:`EventType.REMOTE_BUILD_HOST_REMOVED`; ``Added`` /
-        ``Updated`` resolve either from the zeroconf cache (sync,
-        fires :attr:`EventType.REMOTE_BUILD_HOST_ADDED` inline) or
-        via a fire-and-forget task (async, fires from
-        :meth:`_resolve_and_apply` once the SRV / TXT round-trip
-        completes).
-        """
-        if name == self._own_instance_name:
-            return
-        if state_change == ServiceStateChange.Removed:
-            popped = self._peers.pop(name, None)
-            if popped is not None:
-                # Event keys on the wire-friendly ``peer.name``
-                # (leftmost label) so frontend dicts keyed on the
-                # ``RemoteBuildPeer.name`` field upsert/delete
-                # consistently. The FQDN ``name`` is the
-                # ``self._peers`` dict key only.
-                self._fire_host_removed(popped.name)
-            return
-        info = AsyncServiceInfo(service_type, name)
-        if info.load_from_cache(zeroconf):
-            self._upsert_host(name, info)
-            return
-        self._track_task(self._resolve_and_apply(zeroconf, info, name))
+        """Browser callback; resolve the service info and update the peer map."""
+        discovery.on_service_state_change(self, zeroconf, service_type, name, state_change)
 
     async def _resolve_and_apply(self, zeroconf: Any, info: AsyncServiceInfo, name: str) -> None:
         """Async resolve path for cache misses."""
-        try:
-            resolved = await info.async_request(zeroconf, timeout=_RESOLVE_TIMEOUT_MS)
-        except Exception:
-            _LOGGER.debug("Resolve failed for %s", name, exc_info=True)
-            return
-        if not resolved:
-            return
-        self._upsert_host(name, info)
+        await discovery.resolve_and_apply(self, zeroconf, info, name)
 
     def _upsert_host(self, name: str, info: AsyncServiceInfo) -> None:
-        """Replace the row keyed on *name* and fire ``REMOTE_BUILD_HOST_ADDED``.
-
-        Drops entries whose ``(server, port)`` matches our own
-        advertise — the instance-name filter handles the common
-        case, but a rename-on-conflict bounce can leave the
-        captured name stale.
-        """
-        peer = peer_from_service_info(name, info)
-        if self._is_self_endpoint(peer.hostname, peer.port):
-            return
-        self._peers[name] = peer
-        self._db.bus.fire(EventType.REMOTE_BUILD_HOST_ADDED, peer.to_dict())
-        # mDNS auto-rebind: if this broadcast's pin matches a
-        # stored pairing whose ``(host, port)`` differs, the
-        # probe-then-rebind background task verifies the new
-        # endpoint really is our paired receiver before mutating.
-        self._maybe_schedule_rebind_probe(peer)
+        """Replace the row keyed on *name* and fire ``REMOTE_BUILD_HOST_ADDED``."""
+        discovery.upsert_host(self, name, info)
 
     def _is_self_endpoint(self, hostname: str, port: int) -> bool:
-        """Return True when *(hostname, port)* matches our published advertise.
-
-        Reads the live ``service_target_endpoint`` off the
-        :class:`DashboardAdvertiser` rather than a captured-at-start
-        value so a post-start register / re-register isn't missed.
-        Hostname comparison goes through
-        :func:`normalize_hostname` so the resolved peer hostname
-        and the advertiser's published target compare equal
-        regardless of trailing-dot / case.
-        """
-        advertiser = self._db._dashboard_advertiser
-        if advertiser is None:
-            return False
-        endpoint = advertiser.service_target_endpoint
-        if endpoint is None:
-            return False
-        own_host, own_port = endpoint
-        return endpoints_equal(hostname, port, own_host, own_port)
+        """Return True when *(hostname, port)* matches our published advertise."""
+        return discovery.is_self_endpoint(self, hostname, port)
 
     def _fire_host_removed(self, name: str) -> None:
         """Fire ``REMOTE_BUILD_HOST_REMOVED`` for *name*."""
-        payload: RemoteBuildHostRemovedData = {"name": name}
-        self._db.bus.fire(EventType.REMOTE_BUILD_HOST_REMOVED, payload)
+        discovery.fire_host_removed(self, name)
 
     def _schedule_pairings_save(self) -> None:
         """Debounce-write the offloader pairings store via the per-file Store."""
@@ -593,189 +472,30 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         new_hostname: str,
         new_port: int,
     ) -> RebindProbeResult:
-        """Probe + identity-verify a candidate endpoint without mutating state.
-
-        Shared by the mDNS auto-rebind path and the user-driven
-        endpoint edit; each caller maps the typed outcome onto
-        its own surface. One ``intent="preview"`` round-trip
-        covers three checks: reachability (TCP + handshake),
-        identity (pubkey vs stored pin), and race-safety
-        (captured pairing object still in the dict, still
-        APPROVED).
-        """
-        assert self._offloader_peer_link_priv is not None
-        try:
-            observed_pin = await peer_link_preview_pair(
-                hostname=new_hostname,
-                port=new_port,
-                identity_priv=self._offloader_peer_link_priv,
-                resolver=self._peer_link_resolver,
-            )
-        except PeerLinkClientError as exc:
-            return RebindProbeResult(RebindProbeOutcome.UNREACHABLE, transport_error=exc)
-        if observed_pin != pairing.pin_sha256:
-            return RebindProbeResult(RebindProbeOutcome.PIN_MISMATCH, observed_pin=observed_pin)
-        current = self._pairings.get(pairing.pin_sha256)
-        if current is not pairing:
-            return RebindProbeResult(RebindProbeOutcome.PAIRING_REPLACED)
-        if current.status is not PeerStatus.APPROVED:
-            return RebindProbeResult(RebindProbeOutcome.STATUS_CHANGED)
-        return RebindProbeResult(RebindProbeOutcome.OK)
+        """Probe + identity-verify a candidate endpoint without mutating state."""
+        return await rebind.probe_pairing_endpoint(
+            self, pairing=pairing, new_hostname=new_hostname, new_port=new_port
+        )
 
     def _commit_endpoint_rebind(self, pairing: StoredPairing, *, hostname: str, port: int) -> None:
-        """Mutate *pairing* to (*hostname*, *port*) and run the rebind epilogue.
-
-        Clears the per-pin probe cooldown — a successful rebind
-        means the next mDNS Updated should probe immediately.
-        Caller owns the probe + identity verify; no checks here.
-        """
-        pairing.receiver_hostname = hostname
-        pairing.receiver_port = port
-        self._schedule_pairings_save()
-        self._respawn_peer_link_at_new_endpoint(pairing)
-        self._rebind_probe_until.pop(pairing.pin_sha256, None)
-
-    def _respawn_peer_link_at_new_endpoint(self, pairing: StoredPairing) -> None:
-        """Cancel + respawn the peer-link client and fire the rebind event.
-
-        The caller has already mutated *pairing*'s
-        hostname/port; this is the shared epilogue.
-        """
-        self._cancel_peer_link_client(pairing.pin_sha256)
-        self._spawn_peer_link_client(pairing)
-        self._fire_offloader_pair_endpoint_rebound(
-            pin_sha256=pairing.pin_sha256,
-            receiver_hostname=pairing.receiver_hostname,
-            receiver_port=pairing.receiver_port,
-        )
+        """Mutate *pairing* to (*hostname*, *port*) and run the rebind epilogue."""
+        rebind.commit_endpoint_rebind(self, pairing, hostname=hostname, port=port)
 
     # ------------------------------------------------------------------
     # mDNS auto-rebind
     # ------------------------------------------------------------------
 
     def _maybe_schedule_rebind_probe(self, peer: RemoteBuildPeer) -> None:
-        """Spawn a probe-and-rebind task if *peer* is a known pin at a new endpoint.
-
-        Called from :meth:`_upsert_host` on every resolved
-        broadcast. Cheap early-returns dominate (most discoveries
-        are unpaired peers or steady-state re-announces); only a
-        rare hostname / port change for an APPROVED pairing
-        spawns a probe task. The probe slot is rate-limited via
-        :attr:`_rebind_probe_until` so a burst of zeroconf
-        Updated callbacks or a permanently-unreachable host both
-        collapse to one probe per
-        :data:`_REBIND_PROBE_COOLDOWN_SECONDS`.
-        """
-        pin = peer.pin_sha256
-        new_port = peer.remote_build_port
-        if not pin or new_port == 0:
-            return
-        pairing = self._pairings.get(pin)
-        if pairing is None or pairing.status is not PeerStatus.APPROVED:
-            return
-        new_hostname = normalize_hostname(peer.hostname)
-        if endpoints_equal(
-            pairing.receiver_hostname, pairing.receiver_port, new_hostname, new_port
-        ):
-            return
-        if self._offloader_peer_link_priv is None:
-            return
-        now = time.monotonic()
-        if self._rebind_probe_until.get(pin, 0.0) > now:
-            return
-        self._rebind_probe_until[pin] = now + _REBIND_PROBE_COOLDOWN_SECONDS
-        self._track_task(
-            self._probe_and_rebind_endpoint(
-                pairing=pairing, new_hostname=new_hostname, new_port=new_port
-            ),
-            name=f"rebind-probe-{pin[:8]}",
-        )
+        """Spawn a probe-and-rebind task if *peer* is a known pin at a new endpoint."""
+        rebind.maybe_schedule_rebind_probe(self, peer)
 
     async def _probe_and_rebind_endpoint(
         self, *, pairing: StoredPairing, new_hostname: str, new_port: int
     ) -> None:
-        """Probe the candidate endpoint; rebind the pairing iff the pin still matches.
-
-        One ``preview`` round-trip checks reachability + identity
-        in one call. ``preview`` bypasses the pairing window so a
-        quiet receiver doesn't deadlock the rebind path. On a
-        successful match, mutate :class:`StoredPairing` in place,
-        schedule the debounced save, cancel + respawn the
-        peer-link client at the new coordinates, fire
-        :attr:`EventType.OFFLOADER_PAIR_ENDPOINT_REBOUND`, and
-        clear the cooldown so a future move is probed
-        immediately. Failure paths leave the cooldown in place.
-        """
-        pin = pairing.pin_sha256
-        with self._clear_cooldown_on_unexpected_exit(pin):
-            result = await self._probe_pairing_endpoint(
-                pairing=pairing, new_hostname=new_hostname, new_port=new_port
-            )
-            if result.outcome is RebindProbeOutcome.UNREACHABLE:
-                # Pass the captured ``PeerLinkClientError`` as
-                # ``exc_info=`` so the debug log carries the
-                # full traceback for diagnosing handshake /
-                # connect failures in the field — same shape
-                # the inline ``except`` block had before this
-                # path was factored into ``_probe_pairing_endpoint``.
-                _LOGGER.debug(
-                    "rebind probe %s -> %s:%d failed (unreachable / handshake error)",
-                    pin,
-                    new_hostname,
-                    new_port,
-                    exc_info=result.transport_error,
-                )
-                return
-            if result.outcome is RebindProbeOutcome.PIN_MISMATCH:
-                _LOGGER.warning(
-                    "rebind probe %s -> %s:%d observed pin %s; ignoring (spoof or rotation)",
-                    pin,
-                    new_hostname,
-                    new_port,
-                    result.observed_pin,
-                )
-                return
-            if result.outcome is not RebindProbeOutcome.OK:
-                # PAIRING_REPLACED / STATUS_CHANGED — silent skip;
-                # cooldown stays in place so a burst of mDNS
-                # Updated callbacks doesn't re-fire the probe
-                # against state that's already moved on.
-                return
-            self._commit_endpoint_rebind(pairing, hostname=new_hostname, port=new_port)
-            _LOGGER.info("rebound pairing %s to %s:%d", pin, new_hostname, new_port)
-
-    @contextmanager
-    def _clear_cooldown_on_unexpected_exit(self, pin: str) -> Iterator[None]:
-        """Pop *pin* from ``_rebind_probe_until`` iff the wrapped block raises.
-
-        Graceful failure paths inside the probe (unreachable
-        host, pin mismatch, mid-probe re-pair) preserve the
-        cooldown entry to throttle retries. Cancellation /
-        unexpected exceptions shouldn't lock the pin out of
-        future legitimate rebind attempts, so on any escaped
-        exception we drop the entry before the exception
-        propagates.
-        """
-        try:
-            yield
-        except BaseException:
-            self._rebind_probe_until.pop(pin, None)
-            raise
-
-    def _fire_offloader_pair_endpoint_rebound(
-        self,
-        *,
-        pin_sha256: str,
-        receiver_hostname: str,
-        receiver_port: int,
-    ) -> None:
-        """Fire ``OFFLOADER_PAIR_ENDPOINT_REBOUND`` after a successful rebind."""
-        payload: OffloaderPairEndpointReboundData = {
-            "pin_sha256": pin_sha256,
-            "receiver_hostname": receiver_hostname,
-            "receiver_port": receiver_port,
-        }
-        self._db.bus.fire(EventType.OFFLOADER_PAIR_ENDPOINT_REBOUND, payload)
+        """Probe the candidate endpoint; rebind the pairing iff the pin still matches."""
+        await rebind.probe_and_rebind_endpoint(
+            self, pairing=pairing, new_hostname=new_hostname, new_port=new_port
+        )
 
     def hosts_snapshot(self) -> list[RemoteBuildPeer]:
         """Return the current mDNS-discovered hosts for ``subscribe_events`` seeding."""
@@ -1135,31 +855,8 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         return configuration, yaml_path
 
     def _lookup_open_peer_link_client(self, pin_sha256: str, *, label: str) -> PeerLinkClient:
-        """Return the live :class:`PeerLinkClient` for *pin_sha256*, raising on miss.
-
-        ``NOT_FOUND`` for a missing pairing; ``PRECONDITION_FAILED``
-        for any of the not-ready states (PENDING, client not
-        spawned, orphaned, mid-reconnect) — all four fold into
-        one raise since the user's recovery is the same (wait +
-        retry); the distinguishing reason rides in the log line.
-        *label* names the calling op in the error message.
-        """
-        pairing = self._pairings.get(pin_sha256)
-        if pairing is None:
-            msg = f"{label}: no pairing for pin_sha256={pin_sha256!r}"
-            raise CommandError(ErrorCode.NOT_FOUND, msg)
-        if pairing.status is not PeerStatus.APPROVED:
-            reason = f"status is {pairing.status.value!r}, not APPROVED"
-        elif (handle := self._peer_link_clients.get(pin_sha256)) is None:
-            reason = "client not yet spawned"
-        elif handle.task.done():
-            reason = "client orphaned (pin mismatch / superseded)"
-        elif not handle.client.is_session_open:
-            reason = "session not connected (mid-reconnect / receiver offline)"
-        else:
-            return handle.client
-        msg = f"{label}: peer-link to {pairing.label!r} not ready ({reason})"
-        raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
+        """Return the live :class:`PeerLinkClient` for *pin_sha256*, raising on miss."""
+        return peer_link_lifecycle.lookup_open_peer_link_client(self, pin_sha256, label=label)
 
     async def _build_submit_job_bundle(self, configuration: str, yaml_path: Path) -> bytes:
         """Build the bundle bytes for *yaml_path*.
@@ -1421,90 +1118,20 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
             task.cancel()
 
     def _spawn_peer_link_client(self, pairing: StoredPairing) -> None:
-        """Spawn the long-lived peer-link client for *pairing*.
-
-        Idempotent on already-running clients — returns early if
-        a client for the row's ``pin_sha256`` is still alive.
-        Skips if the offloader-side identities haven't been
-        loaded yet (start order: identities load before any
-        spawn). Skips if the bus isn't wired (e.g. a unit test
-        path).
-        """
-        if (
-            self._offloader_dashboard_id is None
-            or self._offloader_peer_link_priv is None
-            or self._db.bus is None
-        ):
-            return
-        key = pairing.pin_sha256
-        existing = self._peer_link_clients.get(key)
-        if existing is not None and not existing.task.done():
-            return
-        client = PeerLinkClient(
-            receiver_hostname=pairing.receiver_hostname,
-            receiver_port=pairing.receiver_port,
-            identity_priv=self._offloader_peer_link_priv,
-            dashboard_id=self._offloader_dashboard_id,
-            # Pin the receiver's static pubkey from the
-            # OOB-verified pair flow so the long-lived peer-link
-            # handshake fails fast on identity drift instead of
-            # admitting an attacker with their own keypair to
-            # the application channel.
-            pinned_static_x25519_pub=pairing.static_x25519_pub,
-            pin_sha256=pairing.pin_sha256,
-            receiver_label=pairing.label,
-            bus=self._db.bus,
-            resolver=self._peer_link_resolver,
-        )
-        task = asyncio.create_task(
-            client.run(),
-            name=f"peer-link-client-{pairing.receiver_hostname}:{pairing.receiver_port}",
-        )
-        self._peer_link_clients[key] = PeerLinkClientHandle(client=client, task=task)
+        """Spawn the long-lived peer-link client for *pairing*."""
+        peer_link_lifecycle.spawn_peer_link_client(self, pairing)
 
     def _cancel_peer_link_client(self, pin_sha256: str) -> None:
         """Cancel the peer-link client for *pin_sha256*. No-op if none running."""
-        handle = self._peer_link_clients.pop(pin_sha256, None)
-        if handle is not None and not handle.task.done():
-            handle.task.cancel()
+        peer_link_lifecycle.cancel_peer_link_client(self, pin_sha256)
 
     def _sweep_stale_pairings_at_endpoint(
         self, hostname: str, port: int, *, keep_pin_sha256: str
     ) -> None:
-        """Drop any pairing or alert at ``(hostname, port)`` whose pin isn't *keep_pin_sha256*.
-
-        Cleans up after a re-pair against the same endpoint
-        under a fresh pin (receiver rotated identity, or a
-        different receiver took the hostname). Without the
-        sweep the old row + listener task + alert would leak
-        under pin-keying.
-
-        Walks both ``_pairings`` and ``_offloader_alerts``
-        because an alert can outlive its pairing on the
-        pin-drift branch. Snapshots to lists before iterating
-        to avoid mutate-during-iteration.
-        """
-        for stale_pin, pairing in list(self._pairings.items()):
-            if stale_pin == keep_pin_sha256:
-                continue
-            if pairing.receiver_hostname != hostname or pairing.receiver_port != port:
-                continue
-            self._pairings.pop(stale_pin, None)
-            self._cancel_pair_status_listener(stale_pin)
-            self._cancel_peer_link_client(stale_pin)
-            self._peer_queue_status.pop(stale_pin, None)
-            self._open_peer_links.discard(stale_pin)
-        # Alerts can outlive pairings — sweep them in a second
-        # pass keyed on the alert's stored ``receiver_hostname``
-        # / ``receiver_port`` (also walks the pin-keyed dict so
-        # an alert under the keep_pin_sha256 stays put if the
-        # user is re-confirming the same identity).
-        for stale_pin, alert in list(self._offloader_alerts.items()):
-            if stale_pin == keep_pin_sha256:
-                continue
-            if alert["receiver_hostname"] != hostname or alert["receiver_port"] != port:
-                continue
-            self._dismiss_offloader_alert(stale_pin, hostname, port)
+        """Drop any pairing or alert at ``(hostname, port)`` whose pin isn't *keep_pin_sha256*."""
+        peer_link_lifecycle.sweep_stale_pairings_at_endpoint(
+            self, hostname, port, keep_pin_sha256=keep_pin_sha256
+        )
 
     async def _await_pair_status_flip(self, pairing: StoredPairing) -> None:
         """Hold a Noise WS to the receiver until the row flips status.

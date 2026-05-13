@@ -208,13 +208,38 @@ The subscription stays open for the connection's lifetime; closing the WebSocket
 
 ### Automations
 
-> Controller: [`AutomationsController`](../esphome_device_builder/controllers/automations.py)
+> Controller: [`AutomationsController`](../esphome_device_builder/controllers/automations/controller.py)
+>
+> Models: [`AutomationTrigger`, `AutomationAction`, `AutomationCondition`, `LightEffect`, `AutomationTree`, `ActionNode`, `ConditionNode`, `ParsedAutomation`, `AutomationLocation`, `YamlDiff`](../esphome_device_builder/models/automations.py)
+
+The automations API is the structured editor's wire surface. The catalog (triggers / actions / conditions / light effects) ships pre-rendered as `definitions/automations.json`, emitted at sync time by `script/sync_components.py`. Parameter schemas come out in the same `ConfigEntry[]` shape the component form already speaks — the editor reuses one form pipeline.
+
+Parsing and writing live on the backend: the frontend exchanges structured `AutomationTree` blobs through `parse` / `upsert` / `delete`, and the writer returns a `YamlDiff = {fromLine, toLine, replacement}` the device editor splices into the YAML pane through the existing optimistic-update path. The backend does *not* persist the YAML in `upsert` / `delete` — the device editor's config-write debounce handles that.
+
+**Lambda sentinel.** Templatable field values can be either a literal of the field's declared type or `{"_lambda": "<C++ source>"}`. The writer emits the latter as a ruamel `LiteralScalarString` (`|`-style block scalar), the parser inverts.
+
+**Location discriminator.** Every parsed automation carries a tagged-union `AutomationLocation`:
+
+```
+{kind: "script",        id: string}
+{kind: "interval",      index: int}
+{kind: "component_on",  component_id: string, trigger: string}
+{kind: "device_on",     trigger: string}
+{kind: "light_effect",  component_id: string, index: int}
+```
+
+`upsert` / `delete` consume the same shape so the writer knows the exact YAML range to splice.
 
 | Command | Args | Response | Description |
 |---------|------|----------|-------------|
-| `automations/get_triggers` | `{platform_type?}` | `[AutomationTrigger]` | List triggers by platform type |
-| `automations/get_actions` | — | `[AutomationAction]` | List all actions |
-| `automations/get_available` | `{configuration}` | `{triggers, actions, present_platform_types}` | Context-aware for a device |
+| `automations/get_triggers` | `{platform?, board_id?}` | `[AutomationTrigger]` | Full trigger catalog. `platform` / `board_id` are reserved for future platform gating and ignored today. |
+| `automations/get_actions` | `{platform?, board_id?}` | `[AutomationAction]` | Full action catalog (includes core control-flow: `if`, `while`, `repeat`, `wait_until`, `delay`, `lambda`). |
+| `automations/get_conditions` | `{platform?, board_id?}` | `[AutomationCondition]` | Full condition catalog (includes core combinators: `and`, `or`, `all`, `any`, `not`, `xor`, `for`, `lambda`). |
+| `automations/get_light_effects` | `{platform?, board_id?}` | `[LightEffect]` | Full light-effects catalog. |
+| `automations/get_available` | `{configuration}` | `{triggers, actions, conditions, scripts, devices}` | Scoped catalog for a single device. `triggers` filtered to component types present in the YAML + device-level; `actions` / `conditions` returned in full (id-pickers filter on the frontend). `scripts` lists declared `script: id`s with their `parameters:` map. `devices` lists every configured component instance with its `id` / `name` for id-picker dropdowns. |
+| `automations/parse` | `{configuration}` | `[ParsedAutomation]` | Walk the device YAML and return every recognised automation (top-level `script:` / `interval:`, device-level `esphome.on_*`, inline component `on_*:`, light `effects:` entries). Unknown action / condition ids raise `INVALID_ARGS` rather than best-effort rebuilding. |
+| `automations/upsert` | `{configuration, automation, location}` | `{yaml_diff: YamlDiff}` | Insert or replace one automation at `location`. Returns the splice the frontend applies in place. |
+| `automations/delete` | `{configuration, location}` | `{yaml_diff: YamlDiff}` | Remove the automation at `location`. |
 
 ### Config
 

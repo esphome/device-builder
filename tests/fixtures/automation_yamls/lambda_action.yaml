@@ -1,0 +1,8 @@
+esphome:
+  name: x
+  on_boot:
+    then:
+      - lambda: |-
+          ESP_LOGI("app", "boot");
+          int x = 42;
+          ESP_LOGI("app", "x=%d", x);

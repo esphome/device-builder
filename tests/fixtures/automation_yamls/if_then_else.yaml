@@ -1,0 +1,11 @@
+esphome:
+  name: x
+  on_boot:
+    then:
+      - if:
+          condition:
+            switch.is_on: relay1
+          then:
+            - switch.turn_off: relay1
+          else:
+            - switch.turn_on: relay1

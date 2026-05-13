@@ -1,0 +1,688 @@
+"""
+:class:`AutomationTree` → YAML + splice diff.
+
+Top-level ``script:`` / ``interval:`` / ``esphome.on_*`` route
+through :func:`helpers.yaml._splice_into_domain_block`; inline
+``on_*:`` handlers and light ``effects:`` entries route through
+:func:`helpers.yaml.upsert_inline_handler` so adjacent siblings are
+left untouched. Delete is the inverse splice.
+
+Trigger handlers always emit the explicit ``then:`` form — the
+parser accepts both shortcut forms but emitting one shape keeps
+round-trips deterministic. Lambdas render as ruamel
+:class:`LiteralScalarString` block scalars.
+"""
+
+from __future__ import annotations
+
+from ...helpers.api import CommandError
+from ...helpers.yaml import (
+    _splice_into_domain_block,
+    remove_inline_handler,
+    upsert_inline_handler,
+)
+from ...models.api import ErrorCode
+from ...models.automations import (
+    AutomationLocation,
+    AutomationTree,
+    ComponentOnLocation,
+    DeviceOnLocation,
+    IntervalLocation,
+    LightEffectLocation,
+    ScriptLocation,
+    YamlDiff,
+)
+from . import catalog
+from .emitter import (
+    dump,
+    emit_effect_item,
+    render_interval_item,
+    render_script_item,
+    render_trigger_handler,
+)
+from .parsing import make_yaml
+
+# ---------------------------------------------------------------------------
+# Public entry points
+# ---------------------------------------------------------------------------
+
+
+def render_upsert(
+    yaml_text: str,
+    *,
+    tree: AutomationTree,
+    location: AutomationLocation,
+) -> tuple[str, YamlDiff]:
+    """
+    Apply *tree* at *location*; return ``(new_yaml, diff)``.
+
+    *diff* is the :class:`YamlDiff` splice the frontend applies to
+    the editor pane. *new_yaml* is the post-splice document — caller
+    convenience so tests and callers don't re-derive it.
+    """
+    if isinstance(location, ScriptLocation):
+        return _upsert_script(yaml_text, tree, location)
+    if isinstance(location, IntervalLocation):
+        return _upsert_interval(yaml_text, tree, location)
+    if isinstance(location, DeviceOnLocation):
+        return _upsert_device_on(yaml_text, tree, location)
+    if isinstance(location, ComponentOnLocation):
+        return _upsert_component_on(yaml_text, tree, location)
+    if isinstance(location, LightEffectLocation):
+        return _upsert_light_effect(yaml_text, tree, location)
+    msg = f"Unsupported AutomationLocation: {type(location).__name__}"
+    raise CommandError(ErrorCode.INVALID_ARGS, msg)
+
+
+def render_delete(
+    yaml_text: str,
+    *,
+    location: AutomationLocation,
+) -> tuple[str, YamlDiff]:
+    """Remove the automation at *location*; return ``(new_yaml, diff)``."""
+    if isinstance(location, (ScriptLocation, IntervalLocation, DeviceOnLocation)):
+        return _delete_top_level(yaml_text, location)
+    if isinstance(location, ComponentOnLocation):
+        return _delete_component_on(yaml_text, location)
+    if isinstance(location, LightEffectLocation):
+        return _delete_light_effect(yaml_text, location)
+    msg = f"Unsupported AutomationLocation: {type(location).__name__}"
+    raise CommandError(ErrorCode.INVALID_ARGS, msg)
+
+
+# ---------------------------------------------------------------------------
+# Per-location upsert paths
+# ---------------------------------------------------------------------------
+
+
+def _upsert_script(
+    yaml_text: str,
+    tree: AutomationTree,
+    location: ScriptLocation,
+) -> tuple[str, YamlDiff]:
+    """Splice or replace a top-level ``script:`` list item."""
+    rendered = render_script_item(tree, location.id)
+    return _upsert_top_level_list(yaml_text, "script", rendered, location.id, "id")
+
+
+def _upsert_interval(
+    yaml_text: str,
+    tree: AutomationTree,
+    location: IntervalLocation,
+) -> tuple[str, YamlDiff]:
+    """Splice or replace a top-level ``interval:`` list item by index."""
+    rendered = render_interval_item(tree)
+    return _upsert_top_level_list_indexed(yaml_text, "interval", rendered, location.index)
+
+
+def _upsert_device_on(
+    yaml_text: str,
+    tree: AutomationTree,
+    location: DeviceOnLocation,
+) -> tuple[str, YamlDiff]:
+    """Splice a device-level ``on_*:`` handler under ``esphome:``."""
+    rendered = render_trigger_handler(tree, key=location.trigger)
+    return _upsert_under_top_key(yaml_text, "esphome", location.trigger, rendered)
+
+
+def _upsert_component_on(
+    yaml_text: str,
+    tree: AutomationTree,
+    location: ComponentOnLocation,
+) -> tuple[str, YamlDiff]:
+    """Splice an inline ``on_*:`` handler under a configured component."""
+    trigger = catalog.trigger_by_id(f"{_component_domain(location)}.{location.trigger}")
+    if trigger is None:
+        msg = f"Unknown trigger id {location.trigger!r} on component {location.component_id!r}"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    domain = trigger.applies_to[0] if trigger.applies_to else ""
+    rendered = render_trigger_handler(tree, key=location.trigger)
+    res = upsert_inline_handler(
+        yaml_text,
+        component_domain=domain,
+        component_id=location.component_id,
+        handler_key=location.trigger,
+        rendered_yaml=rendered,
+    )
+    if res is None:
+        msg = (
+            f"Component instance id={location.component_id!r} not found "
+            f"under {domain!r}; can't splice handler {location.trigger!r}"
+        )
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    new_text, from_line, to_line = res
+    return new_text, YamlDiff(
+        fromLine=from_line,
+        toLine=to_line,
+        replacement=_extract_replacement(new_text, from_line, to_line),
+    )
+
+
+def _upsert_light_effect(
+    yaml_text: str,
+    tree: AutomationTree,
+    location: LightEffectLocation,
+) -> tuple[str, YamlDiff]:
+    """Splice an ``effects:`` list item under a configured light."""
+    # The tree carries the effect id under ``trigger_params`` (one
+    # key mapping to its params dict). Reverse the parser's shape.
+    if not tree.trigger_params or len(tree.trigger_params) != 1:
+        msg = "LightEffect upsert requires exactly one effect-id key in trigger_params"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    effect_id, params = next(iter(tree.trigger_params.items()))
+    catalog_entry = catalog.light_effect_by_id(str(effect_id))
+    if catalog_entry is None:
+        msg = f"Unknown light effect id: {effect_id!r}"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    rendered = _wrap_effects_block(
+        dump([emit_effect_item(catalog_entry, str(effect_id), params or {})]),
+    )
+    res = upsert_inline_handler(
+        yaml_text,
+        component_domain="light",
+        component_id=location.component_id,
+        handler_key="effects",
+        rendered_yaml=rendered,
+    )
+    if res is None:
+        msg = f"Light instance id={location.component_id!r} not found; can't splice effect entry"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    new_text, from_line, to_line = res
+    return new_text, YamlDiff(
+        fromLine=from_line,
+        toLine=to_line,
+        replacement=_extract_replacement(new_text, from_line, to_line),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Top-level list splice helpers
+# ---------------------------------------------------------------------------
+
+
+def _upsert_top_level_list(
+    yaml_text: str,
+    domain: str,
+    rendered_item: str,
+    item_id: str,
+    id_key: str,
+) -> tuple[str, YamlDiff]:
+    """Insert / replace a list item identified by a string id field."""
+    yaml = make_yaml()
+    data = yaml.load(yaml_text) or {}
+    items = data.get(domain) if isinstance(data, dict) else None
+    existing_idx: int | None = None
+    if isinstance(items, list):
+        for idx, raw in enumerate(items):
+            if isinstance(raw, dict) and str(raw.get(id_key, "")) == item_id:
+                existing_idx = idx
+                break
+    if existing_idx is None:
+        return _append_top_level_list(yaml_text, domain, rendered_item)
+    return _replace_top_level_list_item(yaml_text, domain, existing_idx, rendered_item)
+
+
+def _upsert_top_level_list_indexed(
+    yaml_text: str,
+    domain: str,
+    rendered_item: str,
+    index: int,
+) -> tuple[str, YamlDiff]:
+    """Insert (at the end) or replace a list item by positional index."""
+    yaml = make_yaml()
+    data = yaml.load(yaml_text) or {}
+    items = data.get(domain) if isinstance(data, dict) else None
+    if isinstance(items, list) and 0 <= index < len(items):
+        return _replace_top_level_list_item(yaml_text, domain, index, rendered_item)
+    return _append_top_level_list(yaml_text, domain, rendered_item)
+
+
+def _append_top_level_list(
+    yaml_text: str,
+    domain: str,
+    rendered_item: str,
+) -> tuple[str, YamlDiff]:
+    """Append *rendered_item* under ``<domain>:`` (creating the block if needed)."""
+    block = f"{domain}:\n{rendered_item.rstrip()}\n"
+    spliced = _splice_into_domain_block(yaml_text, domain, block)
+    if spliced is None:
+        # Append a fresh top-level block at end-of-file.
+        base = yaml_text.rstrip()
+        separator = "\n\n" if base else ""
+        spliced = f"{base}{separator}{block}"
+    diff = _build_diff_for_append(yaml_text, spliced)
+    return spliced, diff
+
+
+def _replace_top_level_list_item(
+    yaml_text: str,
+    domain: str,
+    index: int,
+    rendered_item: str,
+) -> tuple[str, YamlDiff]:
+    """Replace the *index*'th list item under ``<domain>:`` with rendered_item."""
+    lines = yaml_text.splitlines(keepends=True)
+    start, end = _locate_top_list_item(lines, domain, index)
+    indented = _indent_for_top_list(rendered_item)
+    new_lines = [*lines[:start], indented, *lines[end:]]
+    new_text = "".join(new_lines)
+    return new_text, YamlDiff(
+        fromLine=start + 1,
+        toLine=end,
+        replacement=indented,
+    )
+
+
+def _upsert_under_top_key(
+    yaml_text: str,
+    block_key: str,
+    handler_key: str,
+    rendered_yaml: str,
+) -> tuple[str, YamlDiff]:
+    """Splice ``<handler_key>:`` under a singleton block (``esphome:``)."""
+    lines = yaml_text.splitlines(keepends=True)
+    span = _locate_singleton_block(lines, block_key)
+    if span is None:
+        # Block doesn't exist — append both block and handler.
+        rendered_lines = _indent_block(rendered_yaml, "  ")
+        block = f"{block_key}:\n" + "\n".join(rendered_lines) + "\n"
+        base = yaml_text.rstrip()
+        separator = "\n\n" if base else ""
+        new_text = f"{base}{separator}{block}"
+        diff = _build_diff_for_append(yaml_text, new_text)
+        return new_text, diff
+    start, end, indent = span
+    handler_re_prefix = f"{indent}{handler_key}:"
+    handler_start: int | None = None
+    handler_end: int | None = None
+    for idx in range(start + 1, end):
+        text = lines[idx].rstrip("\n\r")
+        if text == handler_re_prefix or text.startswith(handler_re_prefix + " "):
+            handler_start = idx
+            for jdx in range(idx + 1, end):
+                content = lines[jdx].rstrip("\n\r")
+                if not content:
+                    continue
+                leading = len(content) - len(content.lstrip(" "))
+                if leading <= len(indent):
+                    handler_end = jdx
+                    break
+            if handler_end is None:
+                handler_end = end
+            break
+    rendered_text = "\n".join(_indent_block(rendered_yaml, indent)) + "\n"
+    if handler_start is not None and handler_end is not None:
+        new_lines = [*lines[:handler_start], rendered_text, *lines[handler_end:]]
+        new_text = "".join(new_lines)
+        return new_text, YamlDiff(
+            fromLine=handler_start + 1,
+            toLine=handler_end,
+            replacement=rendered_text,
+        )
+    insert_at = end
+    while insert_at > start + 1 and not lines[insert_at - 1].strip():
+        insert_at -= 1
+    new_lines = [*lines[:insert_at], rendered_text, *lines[insert_at:]]
+    new_text = "".join(new_lines)
+    # Pure-insert convention: ``toLine == fromLine - 1`` encodes
+    # "no lines replaced; insert before fromLine". See
+    # :class:`YamlDiff`'s docstring.
+    return new_text, YamlDiff(
+        fromLine=insert_at + 1,
+        toLine=insert_at,
+        replacement=rendered_text,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Delete paths
+# ---------------------------------------------------------------------------
+
+
+def _delete_top_level(
+    yaml_text: str,
+    location: AutomationLocation,
+) -> tuple[str, YamlDiff]:
+    """Drop a top-level script / interval / device-on block."""
+    if isinstance(location, ScriptLocation):
+        return _delete_top_level_list_by_id(
+            yaml_text,
+            "script",
+            "id",
+            location.id,
+        )
+    if isinstance(location, IntervalLocation):
+        return _delete_top_level_list_by_index(yaml_text, "interval", location.index)
+    if isinstance(location, DeviceOnLocation):
+        return _delete_under_top_key(yaml_text, "esphome", location.trigger)
+    # Unreachable when called from ``render_delete`` (the dispatch
+    # there only forwards the three union members above). Kept as
+    # a defensive guard against future location types being added
+    # without updating both dispatchers.
+    msg = f"Unsupported delete location: {type(location).__name__}"  # pragma: no cover
+    raise CommandError(ErrorCode.INVALID_ARGS, msg)  # pragma: no cover
+
+
+def _delete_top_level_list_by_id(
+    yaml_text: str,
+    domain: str,
+    id_key: str,
+    item_id: str,
+) -> tuple[str, YamlDiff]:
+    """Remove the list item under ``<domain>:`` whose ``id`` matches."""
+    yaml = make_yaml()
+    data = yaml.load(yaml_text) or {}
+    items = data.get(domain) if isinstance(data, dict) else None
+    if not isinstance(items, list):
+        msg = f"Block {domain!r} not present; nothing to delete"
+        raise CommandError(ErrorCode.NOT_FOUND, msg)
+    for idx, raw in enumerate(items):
+        if isinstance(raw, dict) and str(raw.get(id_key, "")) == item_id:
+            return _delete_top_level_list_by_index(yaml_text, domain, idx)
+    msg = f"{domain}:[{id_key}={item_id!r}] not present"
+    raise CommandError(ErrorCode.NOT_FOUND, msg)
+
+
+def _delete_top_level_list_by_index(
+    yaml_text: str,
+    domain: str,
+    index: int,
+) -> tuple[str, YamlDiff]:
+    """Remove the *index*'th list item under ``<domain>:``."""
+    lines = yaml_text.splitlines(keepends=True)
+    start, end = _locate_top_list_item(lines, domain, index)
+    new_lines = [*lines[:start], *lines[end:]]
+    new_text = "".join(new_lines)
+    return new_text, YamlDiff(
+        fromLine=start + 1,
+        toLine=end,
+        replacement="",
+    )
+
+
+def _delete_under_top_key(
+    yaml_text: str,
+    block_key: str,
+    handler_key: str,
+) -> tuple[str, YamlDiff]:
+    """Remove ``<handler_key>:`` from under ``<block_key>:``."""
+    lines = yaml_text.splitlines(keepends=True)
+    span = _locate_singleton_block(lines, block_key)
+    if span is None:
+        msg = f"Block {block_key!r} not present; nothing to delete"
+        raise CommandError(ErrorCode.NOT_FOUND, msg)
+    start, end, indent = span
+    handler_prefix = f"{indent}{handler_key}:"
+    for idx in range(start + 1, end):
+        text = lines[idx].rstrip("\n\r")
+        if text == handler_prefix or text.startswith(handler_prefix + " "):
+            handler_end = end
+            for jdx in range(idx + 1, end):
+                content = lines[jdx].rstrip("\n\r")
+                if not content:
+                    continue
+                leading = len(content) - len(content.lstrip(" "))
+                if leading <= len(indent):
+                    handler_end = jdx
+                    break
+            new_lines = [*lines[:idx], *lines[handler_end:]]
+            return "".join(new_lines), YamlDiff(
+                fromLine=idx + 1,
+                toLine=handler_end,
+                replacement="",
+            )
+    msg = f"{block_key}.{handler_key} not present"
+    raise CommandError(ErrorCode.NOT_FOUND, msg)
+
+
+def _delete_component_on(
+    yaml_text: str,
+    location: ComponentOnLocation,
+) -> tuple[str, YamlDiff]:
+    """Drop an inline ``on_*:`` handler from a configured component."""
+    trigger = catalog.trigger_by_id(f"{_component_domain(location)}.{location.trigger}")
+    domain = trigger.applies_to[0] if trigger and trigger.applies_to else ""
+    res = remove_inline_handler(
+        yaml_text,
+        component_domain=domain,
+        component_id=location.component_id,
+        handler_key=location.trigger,
+    )
+    if res is None:
+        msg = (
+            f"Component instance id={location.component_id!r} not found "
+            f"under {domain!r}; can't delete handler {location.trigger!r}"
+        )
+        raise CommandError(ErrorCode.NOT_FOUND, msg)
+    new_text, from_line, to_line = res
+    return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement="")
+
+
+def _delete_light_effect(
+    yaml_text: str,
+    location: LightEffectLocation,
+) -> tuple[str, YamlDiff]:
+    """Drop one entry from a light's ``effects:`` list."""
+    # Easiest path: parse, mutate the list, re-emit. We don't have a
+    # line-precise splice helper for "remove list item at index N
+    # inside an inline handler" — this keeps the writer simple at
+    # the cost of touching the whole ``effects:`` block in the diff.
+    yaml = make_yaml()
+    data = yaml.load(yaml_text) or {}
+    lights = data.get("light") if isinstance(data, dict) else None
+    if not isinstance(lights, list):
+        msg = "No light: block; can't delete effect"
+        raise CommandError(ErrorCode.NOT_FOUND, msg)
+    for instance in lights:
+        if not isinstance(instance, dict):
+            continue
+        if str(instance.get("id", "")) != location.component_id:
+            continue
+        effects = instance.get("effects")
+        if not isinstance(effects, list) or not 0 <= location.index < len(effects):
+            msg = f"effects[{location.index}] not present on light id={location.component_id!r}"
+            raise CommandError(ErrorCode.NOT_FOUND, msg)
+        del effects[location.index]
+        if not effects:
+            del instance["effects"]
+        # Re-render the inline handler block to splice through
+        # ``upsert_inline_handler`` (or remove it when empty).
+        if "effects" in instance:
+            rendered = _wrap_effects_block(dump(effects))
+            res = upsert_inline_handler(
+                yaml_text,
+                component_domain="light",
+                component_id=location.component_id,
+                handler_key="effects",
+                rendered_yaml=rendered,
+            )
+            if res is None:  # pragma: no cover — instance found above
+                msg = f"light id={location.component_id!r} not found in splice"
+                raise CommandError(ErrorCode.INTERNAL_ERROR, msg)
+            new_text, from_line, to_line = res
+            return new_text, YamlDiff(
+                fromLine=from_line,
+                toLine=to_line,
+                replacement=_extract_replacement(new_text, from_line, to_line),
+            )
+        res = remove_inline_handler(
+            yaml_text,
+            component_domain="light",
+            component_id=location.component_id,
+            handler_key="effects",
+        )
+        if res is None:  # pragma: no cover — instance found above
+            msg = f"effects: not found on light id={location.component_id!r}"
+            raise CommandError(ErrorCode.NOT_FOUND, msg)
+        new_text, from_line, to_line = res
+        return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement="")
+    msg = f"Light id={location.component_id!r} not found"
+    raise CommandError(ErrorCode.NOT_FOUND, msg)
+
+
+# ---------------------------------------------------------------------------
+# Low-level utilities
+# ---------------------------------------------------------------------------
+
+
+def _component_domain(location: ComponentOnLocation) -> str:
+    """Return the inferred domain from a ComponentOnLocation.
+
+    The location object carries ``component_id`` (a YAML id) and a
+    trigger key, but not a domain. The trigger catalog maps the
+    trigger key + domain to a full id; we resolve by enumerating
+    every domain a known trigger of that key applies to and picking
+    the first one. ``binary_sensor.on_press`` and ``switch.on_press``
+    don't collide because their applies_to lists are disjoint.
+    """
+    matches = [
+        t
+        for t in catalog.all_triggers()
+        if not t.is_device_level and t.id.endswith("." + location.trigger)
+    ]
+    if not matches:
+        return ""
+    if len(matches) > 1:
+        # Multiple domains share this trigger key. We don't know
+        # which one the caller intended; the caller must disambiguate
+        # via the trigger.applies_to list on a fully-qualified
+        # location. For now pick the alphabetically-first domain so
+        # tests are deterministic.
+        matches.sort(key=lambda t: t.applies_to[0] if t.applies_to else "")
+    return matches[0].applies_to[0] if matches[0].applies_to else ""
+
+
+def _wrap_effects_block(rendered_list: str) -> str:
+    """Prefix a rendered ``- effect: ...`` list with the ``effects:`` key."""
+    # ``upsert_inline_handler`` writes ``rendered_yaml`` verbatim under the
+    # component instance — for trigger handlers the renderer already
+    # emits ``on_press:\n  ...``; for effects the list dump is bare, so
+    # add the ``effects:`` header here.
+    body = rendered_list.rstrip()
+    return "effects:\n" + body + "\n"
+
+
+def _indent_block(block_text: str, indent: str) -> list[str]:
+    """Prefix every non-empty line of *block_text* with *indent*."""
+    out: list[str] = []
+    for line in block_text.splitlines():
+        if not line:
+            out.append("")
+            continue
+        out.append(indent + line)
+    return out
+
+
+def _indent_for_top_list(rendered_item: str) -> str:
+    """Indent *rendered_item* (one ``- ...`` block) for top-level list use."""
+    # ``dump([item])`` already produces the dashed list form; we
+    # use it as-is. The block is left at column-0 so it lands
+    # correctly under any top-level domain.
+    if not rendered_item.endswith("\n"):
+        rendered_item += "\n"
+    return rendered_item
+
+
+def _locate_top_list_item(
+    lines: list[str],
+    domain: str,
+    index: int,
+) -> tuple[int, int]:
+    """Return the line range of the *index*'th item under ``<domain>:``."""
+    domain_start: int | None = None
+    for idx, line in enumerate(lines):
+        stripped = line.rstrip("\n\r")
+        if stripped == f"{domain}:" or stripped.startswith(f"{domain}:"):
+            domain_start = idx
+            break
+    if domain_start is None:
+        msg = f"Block {domain!r} not present"
+        raise CommandError(ErrorCode.NOT_FOUND, msg)
+    domain_end = len(lines)
+    for idx in range(domain_start + 1, len(lines)):
+        stripped = lines[idx].rstrip("\n\r")
+        if stripped and stripped[0].isalpha() and not stripped.startswith(" "):
+            domain_end = idx
+            break
+    # Only column-2 dashes count as top-level list items; deeper
+    # dashes belong to nested action lists inside the item body.
+    item_indent: str | None = None
+    item_starts: list[int] = []
+    for idx in range(domain_start + 1, domain_end):
+        raw = lines[idx].rstrip("\n\r")
+        stripped = raw.lstrip(" ")
+        if not stripped.startswith("- "):
+            continue
+        prefix = raw[: len(raw) - len(stripped)]
+        if item_indent is None:
+            item_indent = prefix
+        if prefix != item_indent:
+            continue
+        item_starts.append(idx)
+    if index < 0 or index >= len(item_starts):
+        msg = f"{domain}[{index}] out of range (have {len(item_starts)})"
+        raise CommandError(ErrorCode.NOT_FOUND, msg)
+    start = item_starts[index]
+    end = item_starts[index + 1] if index + 1 < len(item_starts) else domain_end
+    return start, end
+
+
+def _locate_singleton_block(
+    lines: list[str],
+    block_key: str,
+) -> tuple[int, int, str] | None:
+    """Return ``(start, end, child_indent)`` for a singleton mapping block."""
+    header = f"{block_key}:"
+    start: int | None = None
+    indent = "  "
+    for idx, line in enumerate(lines):
+        stripped = line.rstrip("\n\r")
+        if stripped == header or stripped.startswith(header + " "):
+            start = idx
+            break
+    if start is None:
+        return None
+    end = len(lines)
+    captured = False
+    for idx in range(start + 1, len(lines)):
+        stripped = lines[idx].rstrip("\n\r")
+        if not stripped:
+            continue
+        if stripped[0].isalpha() and not stripped.startswith(" "):
+            end = idx
+            break
+        if not captured:
+            indent = " " * (len(stripped) - len(stripped.lstrip(" ")))
+            captured = True
+    return start, end, indent
+
+
+def _build_diff_for_append(old_yaml: str, new_yaml: str) -> YamlDiff:
+    """Build a diff describing the lines added by an append-style write.
+
+    Walks both texts to find the first divergent line, then takes
+    everything after that on the new side as the inserted range.
+    Good enough for the append case where we always grow the file
+    at the end (or just after the matched top-level block).
+    """
+    old_lines = old_yaml.splitlines()
+    new_lines = new_yaml.splitlines()
+    common = 0
+    while (
+        common < len(old_lines)
+        and common < len(new_lines)
+        and old_lines[common] == new_lines[common]
+    ):
+        common += 1
+    from_line = common + 1
+    to_line = common  # exclusive; equal start ⇒ pure insert
+    replacement = "\n".join(new_lines[common:])
+    if replacement and not replacement.endswith("\n"):
+        replacement += "\n"
+    return YamlDiff(fromLine=from_line, toLine=to_line, replacement=replacement)
+
+
+def _extract_replacement(yaml_text: str, from_line: int, to_line: int) -> str:
+    """Return the post-splice text spanned by the :class:`YamlDiff` range."""
+    lines = yaml_text.splitlines(keepends=True)
+    return "".join(lines[from_line - 1 : to_line])

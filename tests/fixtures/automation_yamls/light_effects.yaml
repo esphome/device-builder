@@ -1,0 +1,14 @@
+esphome:
+  name: x
+light:
+  - platform: binary
+    name: 'Lamp'
+    id: my_lamp
+    output: lamp_out
+    effects:
+      - flicker:
+          alpha: 0.9
+          intensity: 0.02
+      - pulse:
+          name: pulse_fast
+          transition_length: 0.5s

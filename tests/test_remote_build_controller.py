@@ -30,6 +30,7 @@ from esphome_device_builder.controllers.remote_build import (
     ReceiverController,
 )
 from esphome_device_builder.controllers.remote_build import offloader as rb
+from esphome_device_builder.controllers.remote_build import rebind as rb_rebind
 from esphome_device_builder.controllers.remote_build import receiver as rb_rcv
 from esphome_device_builder.controllers.remote_build._mdns import (
     decode_txt_value,
@@ -362,10 +363,12 @@ def _patch_probe_internals(
     monkeypatch.setattr(controller.offloader, "_spawn_peer_link_client", spawn)
     if preview_side_effect is not None:
         monkeypatch.setattr(
-            rb, "peer_link_preview_pair", AsyncMock(side_effect=preview_side_effect)
+            rb_rebind, "peer_link_preview_pair", AsyncMock(side_effect=preview_side_effect)
         )
     elif preview_return is not None:
-        monkeypatch.setattr(rb, "peer_link_preview_pair", AsyncMock(return_value=preview_return))
+        monkeypatch.setattr(
+            rb_rebind, "peer_link_preview_pair", AsyncMock(return_value=preview_return)
+        )
     if seed_cooldown_for is not None:
         controller.offloader._rebind_probe_until[seed_cooldown_for] = cooldown_until
     return cancel, spawn
@@ -684,7 +687,7 @@ async def test_maybe_schedule_rebind_probe_dedupes_within_cooldown(
         await blocked.wait()
         return pin
 
-    monkeypatch.setattr(rb, "peer_link_preview_pair", _hanging_preview)
+    monkeypatch.setattr(rb_rebind, "peer_link_preview_pair", _hanging_preview)
     monkeypatch.setattr(controller.offloader, "_cancel_peer_link_client", MagicMock())
     monkeypatch.setattr(controller.offloader, "_spawn_peer_link_client", MagicMock())
 
@@ -923,7 +926,7 @@ async def test_edit_pairing_endpoint_raises_not_found_when_pairing_replaced_mid_
         controller.offloader._pairings[pin] = fresh
         return pin
 
-    monkeypatch.setattr(rb, "peer_link_preview_pair", _replace_during_preview)
+    monkeypatch.setattr(rb_rebind, "peer_link_preview_pair", _replace_during_preview)
     cancel = MagicMock()
     spawn = MagicMock()
     monkeypatch.setattr(controller.offloader, "_cancel_peer_link_client", cancel)
@@ -994,7 +997,7 @@ async def test_edit_pairing_endpoint_status_changed_mid_probe_raises_preconditio
         pairing.status = PeerStatus.PENDING
         return pin
 
-    monkeypatch.setattr(rb, "peer_link_preview_pair", _flip_status_during_preview)
+    monkeypatch.setattr(rb_rebind, "peer_link_preview_pair", _flip_status_during_preview)
     cancel = MagicMock()
     spawn = MagicMock()
     monkeypatch.setattr(controller.offloader, "_cancel_peer_link_client", cancel)
@@ -1163,7 +1166,7 @@ def test_on_service_state_change_uses_cache_when_available(
     fake_info = _fake_service_info(name="desktop")
     fake_info.load_from_cache = MagicMock(return_value=True)
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader.AsyncServiceInfo",
+        "esphome_device_builder.controllers.remote_build.discovery.AsyncServiceInfo",
         MagicMock(return_value=fake_info),
     )
     zeroconf = MagicMock()
@@ -1495,7 +1498,7 @@ async def test_start_swallows_browser_construction_errors(
     not crash dashboard startup.
     """
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader.AsyncServiceBrowser",
+        "esphome_device_builder.controllers.remote_build.discovery.AsyncServiceBrowser",
         MagicMock(side_effect=RuntimeError("zeroconf socket gone")),
     )
     controller = _make_controller(config_dir=tmp_path)
@@ -1518,7 +1521,7 @@ async def test_start_captures_own_instance_name(
     fake_browser = MagicMock()
     fake_browser.async_cancel = AsyncMock()
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader.AsyncServiceBrowser",
+        "esphome_device_builder.controllers.remote_build.discovery.AsyncServiceBrowser",
         MagicMock(return_value=fake_browser),
     )
     controller = _make_controller(config_dir=tmp_path)
@@ -1541,7 +1544,7 @@ async def test_start_skips_self_capture_when_advertiser_unregistered(
     fake_browser = MagicMock()
     fake_browser.async_cancel = AsyncMock()
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader.AsyncServiceBrowser",
+        "esphome_device_builder.controllers.remote_build.discovery.AsyncServiceBrowser",
         MagicMock(return_value=fake_browser),
     )
     controller = _make_controller(config_dir=tmp_path)
@@ -1566,7 +1569,7 @@ async def test_start_skips_self_capture_when_no_advertiser(
     fake_browser = MagicMock()
     fake_browser.async_cancel = AsyncMock()
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader.AsyncServiceBrowser",
+        "esphome_device_builder.controllers.remote_build.discovery.AsyncServiceBrowser",
         MagicMock(return_value=fake_browser),
     )
     controller = _make_controller(config_dir=tmp_path)
@@ -1586,7 +1589,7 @@ async def test_stop_swallows_browser_cancel_errors(
     fake_browser = MagicMock()
     fake_browser.async_cancel = AsyncMock(side_effect=RuntimeError("boom"))
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader.AsyncServiceBrowser",
+        "esphome_device_builder.controllers.remote_build.discovery.AsyncServiceBrowser",
         MagicMock(return_value=fake_browser),
     )
     controller = _make_controller(config_dir=tmp_path)
@@ -1608,7 +1611,7 @@ async def test_on_service_state_change_spawns_resolve_task_on_cache_miss(
     fake_info.load_from_cache = MagicMock(return_value=False)
     fake_info.async_request = AsyncMock(return_value=True)
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader.AsyncServiceInfo",
+        "esphome_device_builder.controllers.remote_build.discovery.AsyncServiceInfo",
         MagicMock(return_value=fake_info),
     )
     zeroconf = MagicMock()

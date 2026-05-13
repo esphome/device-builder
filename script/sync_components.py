@@ -59,6 +59,9 @@ _LOGGER = logging.getLogger("sync_components")
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _OUTPUT_FILE = _REPO_ROOT / "esphome_device_builder" / "definitions" / "components.json"
+_AUTOMATIONS_OUTPUT_FILE = (
+    _REPO_ROOT / "esphome_device_builder" / "definitions" / "automations.json"
+)
 _CACHE_ROOT = _REPO_ROOT / ".cache"
 
 _RELEASES_API = "https://api.github.com/repos/esphome/esphome-schema/releases"
@@ -758,6 +761,24 @@ def main() -> int:
     # deflate.
     _OUTPUT_FILE.write_bytes(orjson.dumps(payload, option=orjson.OPT_APPEND_NEWLINE))
     _LOGGER.info("Wrote %s", _OUTPUT_FILE)
+
+    # Second pass: walk the same schema bundle for action / condition /
+    # trigger / effect registries and emit the automation catalog. Runs
+    # after ``build_catalog`` so the per-component schema cache (extends
+    # resolution, _convert_field's bookkeeping) is already warm.
+    automations = build_automations(schema_dir=schema_dir)
+    _LOGGER.info(
+        "Built automations catalog: %d triggers, %d actions, %d conditions, %d effects",
+        len(automations["triggers"]),
+        len(automations["actions"]),
+        len(automations["conditions"]),
+        len(automations["light_effects"]),
+    )
+    automations_payload = {"esphome_schema_version": version, **automations}
+    _AUTOMATIONS_OUTPUT_FILE.write_bytes(
+        orjson.dumps(automations_payload, option=orjson.OPT_APPEND_NEWLINE),
+    )
+    _LOGGER.info("Wrote %s", _AUTOMATIONS_OUTPUT_FILE)
     return 0
 
 
@@ -3947,6 +3968,373 @@ def _implicit_dependencies() -> frozenset[str]:
         # to no filtering rather than risk dropping real deps.
         return frozenset()
     return frozenset(set.intersection(*closures))
+
+
+# ---------------------------------------------------------------------------
+# Automation catalog
+# ---------------------------------------------------------------------------
+
+
+# Per-domain catalog of registry entries (action / condition / trigger
+# / effect) found in a single schema file.
+_AutomationRegistries = dict[str, dict[str, dict]]
+
+
+# ``then:`` / ``else:`` / ``while.then:`` etc. are placeholders for
+# the recursive action list — the frontend renders them as nested
+# action lists, not form fields. Same for the boolean-gate keys
+# ``condition`` / ``all`` / ``any`` on control-flow actions, which
+# the editor renders as a condition tree.
+_ACTION_LIST_KEYS: frozenset[str] = frozenset({"then", "else"})
+_CONDITION_GATE_KEYS: frozenset[str] = frozenset({"condition", "all", "any"})
+
+
+# Pretty labels for the small set of esphome.json ``core`` registry
+# entries — the schema doesn't carry human names for those. Anything
+# not in the table falls back to ``key.replace("_", " ").title()``.
+_CORE_AUTOMATION_LABELS: dict[str, str] = {
+    "delay": "Delay",
+    "if": "If",
+    "while": "While",
+    "repeat": "Repeat",
+    "wait_until": "Wait until",
+    "lambda": "Lambda",
+    "and": "And",
+    "or": "Or",
+    "not": "Not",
+    "xor": "Xor",
+    "all": "All",
+    "any": "Any",
+    "for": "For",
+}
+
+
+# Default docs URLs for the core automation registry — the schema's
+# ``docs`` field is sometimes empty / generic so we point both at
+# the canonical Automations page on esphome.io. Component-scoped
+# actions / conditions get their docs_url from the schema's
+# ``See also`` link via :func:`clean_docs`.
+_CORE_AUTOMATION_DOCS = "https://esphome.io/automations/actions"
+
+
+def build_automations(*, schema_dir: Path) -> dict[str, list[dict]]:
+    """
+    Walk every schema file and emit the automation catalog.
+
+    Returns a dict with ``triggers`` / ``actions`` / ``conditions`` /
+    ``light_effects`` lists. Parameter schemas come out in the same
+    ``ConfigEntry[]`` shape the component catalog uses, so the
+    frontend renders both through one form pipeline.
+    """
+    triggers: list[dict] = []
+    actions: list[dict] = []
+    conditions: list[dict] = []
+    effects: list[dict] = []
+
+    for path in iter_schema_files(schema_dir):
+        try:
+            raw = json.loads(path.read_text())
+        except Exception:
+            _LOGGER.exception("Failed to read %s", path.name)
+            continue
+        for top_key, section in raw.items():
+            if not isinstance(section, dict):
+                continue
+            domain = _automation_domain(top_key)
+            # Component-scoped action / condition registries.
+            for name, body in (section.get("action") or {}).items():
+                entry = _convert_automation_action(
+                    domain=domain,
+                    name=name,
+                    body=body,
+                    schema_dir=schema_dir,
+                )
+                if entry is not None:
+                    actions.append(entry)
+            for name, body in (section.get("condition") or {}).items():
+                entry = _convert_automation_condition(
+                    domain=domain,
+                    name=name,
+                    body=body,
+                    schema_dir=schema_dir,
+                )
+                if entry is not None:
+                    conditions.append(entry)
+            # Light effect registry (only present on light.json).
+            for name, body in (section.get("effects") or {}).items():
+                entry = _convert_light_effect(
+                    name=name,
+                    body=body,
+                    schema_dir=schema_dir,
+                )
+                if entry is not None:
+                    effects.append(entry)
+            # Triggers — surfaced through CONFIG_SCHEMA's config_vars
+            # (and any other ``_SCHEMA`` the file declares).
+            triggers.extend(
+                _extract_triggers_from_section(
+                    domain=domain,
+                    section=section,
+                    schema_dir=schema_dir,
+                )
+            )
+
+    return {
+        "triggers": _dedupe_by_id(triggers),
+        "actions": _dedupe_by_id(actions),
+        "conditions": _dedupe_by_id(conditions),
+        "light_effects": _dedupe_by_id(effects),
+    }
+
+
+def _automation_domain(top_key: str) -> str:
+    """Return the surface domain for automation entries from *top_key*."""
+    if top_key in _PLATFORM_DOMAINS:
+        return top_key
+    if top_key == "core":
+        return "core"
+    return top_key
+
+
+def _convert_automation_action(
+    *,
+    domain: str,
+    name: str,
+    body: dict,
+    schema_dir: Path,
+) -> dict | None:
+    """Build one ``AutomationAction`` dict from a schema registry entry."""
+    if not isinstance(body, dict):
+        return None
+    docs = clean_docs(body.get("docs"))
+    schema = body.get("schema") if isinstance(body.get("schema"), dict) else None
+    config_entries, accepts_action_list, has_condition_gate = _extract_automation_param_schema(
+        schema, schema_dir
+    )
+    # Stabilise the ordering — ``then`` always precedes ``else`` so
+    # the wire shape doesn't churn across syncs.
+    accepts_action_list = sorted(
+        accepts_action_list,
+        key=lambda k: (k != "then", k),
+    )
+    is_control_flow = bool(accepts_action_list) or has_condition_gate
+    has_else_branch = "else" in (accepts_action_list or [])
+    qualified = f"{domain}.{name}" if domain != "core" else name
+    return {
+        "id": qualified,
+        "name": _automation_label(domain, name, docs.name),
+        "description": docs.text,
+        "docs_url": docs.url or _CORE_AUTOMATION_DOCS,
+        "domain": domain,
+        "config_entries": [_strip_entry_defaults(e) for e in config_entries],
+        "is_control_flow": is_control_flow,
+        "has_else_branch": has_else_branch,
+        "accepts_action_list": accepts_action_list,
+    }
+
+
+def _convert_automation_condition(
+    *,
+    domain: str,
+    name: str,
+    body: dict,
+    schema_dir: Path,
+) -> dict | None:
+    """Build one ``AutomationCondition`` dict from a schema registry entry."""
+    if not isinstance(body, dict):
+        return None
+    docs = clean_docs(body.get("docs"))
+    schema = body.get("schema") if isinstance(body.get("schema"), dict) else None
+    config_entries, _accepts_action_list, _has_condition_gate = _extract_automation_param_schema(
+        schema, schema_dir
+    )
+    # Boolean combinators have ``is_list: true`` + ``registry:
+    # condition`` directly on the body, not inside a ``schema``.
+    accepts_condition_list = bool(body.get("is_list") and body.get("registry") == "condition")
+    qualified = f"{domain}.{name}" if domain != "core" else name
+    return {
+        "id": qualified,
+        "name": _automation_label(domain, name, docs.name),
+        "description": docs.text,
+        "docs_url": docs.url or _CORE_AUTOMATION_DOCS,
+        "domain": domain,
+        "config_entries": [_strip_entry_defaults(e) for e in config_entries],
+        "accepts_condition_list": accepts_condition_list,
+    }
+
+
+def _convert_light_effect(
+    *,
+    name: str,
+    body: dict,
+    schema_dir: Path,
+) -> dict | None:
+    """Build one ``LightEffect`` dict from a light.effects registry entry."""
+    if not isinstance(body, dict):
+        return None
+    docs = clean_docs(body.get("docs"))
+    schema = body.get("schema") if isinstance(body.get("schema"), dict) else None
+    config_entries, _alist, _hcg = _extract_automation_param_schema(schema, schema_dir)
+    # The schema doesn't carry a clean "this effect applies to which
+    # light platforms" map. Heuristic: effects whose id starts with
+    # ``addressable_`` need an addressable platform; everything else
+    # is valid on any light platform.
+    applies_to: list[str] = []
+    if name.startswith("addressable_"):
+        applies_to = [
+            "light.addressable_rgb",
+            "light.fastled_clockless",
+            "light.fastled_spi",
+            "light.neopixelbus",
+            "light.rgb",
+        ]
+    return {
+        "id": name,
+        "name": _automation_label("light", name, docs.name),
+        "config_entries": [_strip_entry_defaults(e) for e in config_entries],
+        "applies_to": applies_to,
+    }
+
+
+def _extract_triggers_from_section(
+    *,
+    domain: str,
+    section: dict,
+    schema_dir: Path,
+) -> list[dict]:
+    """
+    Scan a section's schemas for keys whose ``type == "trigger"``.
+
+    Returns one entry per (schema_file, trigger_key) pair, with the
+    trigger's own ``config_vars`` (e.g. ``on_click.min_length``)
+    surfaced as :class:`ConfigEntry`-shaped params.
+    """
+    schemas = section.get("schemas") or {}
+    out: list[dict] = []
+    is_device_level = domain == "esphome"
+    # The applies_to list for ``binary_sensor.on_press`` is
+    # ``["binary_sensor"]`` — the platform domain the user
+    # configures the trigger under in YAML.
+    applies_to = [] if is_device_level or domain == "core" else [domain]
+    for schema_body in schemas.values():
+        if not isinstance(schema_body, dict):
+            continue
+        inner = schema_body.get("schema") if isinstance(schema_body.get("schema"), dict) else None
+        cvs = (inner or {}).get("config_vars") or {}
+        for key, raw in cvs.items():
+            if not isinstance(raw, dict) or raw.get("type") != "trigger":
+                continue
+            docs = clean_docs(raw.get("docs"))
+            param_entries, _accepts, _cond_gate = _extract_automation_param_schema(
+                raw.get("schema") if isinstance(raw.get("schema"), dict) else None,
+                schema_dir,
+            )
+            out.append(
+                {
+                    "id": key if is_device_level else f"{domain}.{key}",
+                    "name": _automation_label(domain, key, docs.name),
+                    "description": docs.text,
+                    "docs_url": docs.url or _CORE_AUTOMATION_DOCS,
+                    "applies_to": applies_to,
+                    "is_device_level": is_device_level,
+                    "config_entries": [_strip_entry_defaults(e) for e in param_entries],
+                }
+            )
+    return out
+
+
+def _extract_automation_param_schema(
+    schema: dict | None,
+    schema_dir: Path,
+) -> tuple[list[dict], list[str], bool]:
+    """
+    Convert a parameter ``schema`` to ``(config_entries, accepts_action_list, has_condition_gate)``.
+
+    ``accepts_action_list`` and ``has_condition_gate`` are stripped
+    from ``config_entries`` so the editor renders them as recursive
+    sub-trees instead of plain form fields.
+    """
+    if not schema:
+        return [], [], False
+    raw_entries = _convert_config_vars(schema, schema_dir)
+    accepts_action_list: list[str] = []
+    has_condition_gate = False
+    out: list[dict] = []
+    # ``_convert_config_vars`` doesn't see registry-typed fields the
+    # way it sees normal config_vars; specifically, ``then: { type:
+    # trigger }`` and ``then: { type: registry, registry: action }``
+    # get coerced into something we'd render. Walk the raw schema
+    # directly to detect those, and strip them from the entry list.
+    raw_cvs = schema.get("config_vars") or {}
+    for key, raw in raw_cvs.items():
+        if not isinstance(raw, dict):
+            continue
+        rtype = raw.get("type")
+        registry = raw.get("registry")
+        if rtype == "trigger" or (rtype == "registry" and registry == "action"):
+            if key in _ACTION_LIST_KEYS:
+                accepts_action_list.append(key)
+            # Drop the key from the converted entry list — the
+            # frontend renders it as a recursive action list, not
+            # as a form field.
+            raw_entries = [e for e in raw_entries if e.get("key") != key]
+            continue
+        if key in _CONDITION_GATE_KEYS:
+            # ``condition`` / ``all`` / ``any`` on a control-flow
+            # action are always boolean gates, never user-typed
+            # values. The schema sometimes tags them with
+            # ``type: registry, registry: condition`` and sometimes
+            # carries only a ``docs`` string (e.g. ``if.any``); the
+            # by-name strip catches both shapes uniformly.
+            has_condition_gate = True
+            raw_entries = [e for e in raw_entries if e.get("key") != key]
+            continue
+    # The walker uses ``_AUTOMATION_KEY_PREFIXES`` to skip ``on_``
+    # config_vars, which is correct for the *component form* path but
+    # wrong here — a triggered automation has no ``on_`` keys as
+    # parameters anyway, so it's a no-op for us.
+    out.extend(raw_entries)
+    return out, accepts_action_list, has_condition_gate
+
+
+def _automation_label(domain: str, name: str, docs_name: str | None) -> str:
+    """
+    Pretty-print an automation registry entry's human-facing name.
+
+    Precedence: core label table → ``"Domain → Name"`` for
+    component-scoped entries → titlecased *name* for device-level
+    and core. The ``docs_name`` ("See also" link target) is ignored
+    because it's the docs page title, not the entry name.
+    """
+    del docs_name
+    if domain == "core" and name in _CORE_AUTOMATION_LABELS:
+        return _CORE_AUTOMATION_LABELS[name]
+    pretty_name = name.replace("_", " ").replace(".", " ").title()
+    # Device-level triggers (esphome.on_boot / on_loop / on_shutdown)
+    # render bare — they're not scoped to a configured component.
+    if domain in ("core", "esphome") or not domain:
+        return pretty_name
+    domain_label = domain.replace("_", " ").title()
+    return f"{domain_label} → {pretty_name}"
+
+
+def _dedupe_by_id(entries: list[dict]) -> list[dict]:
+    """
+    Drop duplicate ids; keep the first occurrence; sort by id.
+
+    The same id can land twice when a registry entry surfaces
+    through both an ``action`` map and a shared ``schemas`` block.
+    Sorting keeps the on-disk JSON diff stable across syncs.
+    """
+    seen: set[str] = set()
+    out: list[dict] = []
+    for entry in entries:
+        eid = entry.get("id")
+        if eid in seen:
+            continue
+        seen.add(eid)
+        out.append(entry)
+    return sorted(out, key=lambda e: e["id"])
 
 
 if __name__ == "__main__":

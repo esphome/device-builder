@@ -61,26 +61,32 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-import aiohttp
 from aiohttp import WSMsgType, web
 from esphome.const import __version__ as esphome_version
 
-from ...api.ws import WEBSOCKETS_KEY
-from ...helpers import json as _json
-from ...helpers.dashboard_identity import DASHBOARD_ID_MAX_CHARS, DASHBOARD_ID_PATTERN
-from ...helpers.peer_link_identity import get_or_create_peer_link_identity
-from ...helpers.peer_link_noise import (
+from ....api.ws import WEBSOCKETS_KEY
+from ....helpers import json as _json
+from ....helpers.dashboard_identity import DASHBOARD_ID_MAX_CHARS, DASHBOARD_ID_PATTERN
+from ....helpers.peer_link_identity import get_or_create_peer_link_identity
+from ....helpers.peer_link_noise import (
     NOISE_ERRORS,
     HandshakeNotCompleteError,
     PeerLinkNoiseSession,
     pin_sha256_for_pubkey,
 )
-from ...models import (
+from ....models import (
     IntentResponse,
     PeerLinkIntent,
     SubmitJobChunkFrameData,
     SubmitJobFrameData,
 )
+
+# Redundant aliases mark these as intentional re-exports for both
+# ruff (F401) and mypy (no-redef) — preserves external imports like
+# ``from .peer_link import TerminateReason`` without an ``__all__``
+# that would also accidentally narrow ``import *`` semantics.
+from .wire import AppMessageType as AppMessageType
+from .wire import TerminateReason as TerminateReason
 
 
 class _HandshakeStep(StrEnum):
@@ -126,7 +132,7 @@ class _DispatchInput:
 
 
 if TYPE_CHECKING:
-    from .receiver import ReceiverController
+    from ..receiver import ReceiverController
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -180,111 +186,6 @@ HEARTBEAT_DEAD_AFTER_SECONDS = HEARTBEAT_INTERVAL_SECONDS * HEARTBEAT_MISS_THRES
 # requirements (the original comment anticipated this bump).
 # Forward-compatible: smaller frames are always accepted.
 APP_FRAME_MAX_BYTES = 60 * 1024
-
-
-class TerminateReason(StrEnum):
-    """
-    Wire ``reason`` value on a structured ``terminate`` close frame.
-
-    Sent inside an :attr:`AppMessageType.TERMINATE` application
-    frame so the offloader's reconnect logic can branch
-    on the reason rather than guessing from the WS close code.
-
-    * ``SUPERSEDED`` — a fresh peer-link connect from the same
-      ``dashboard_id`` displaces this older session. Standard
-      "restarted offloader" path.
-    * ``HEARTBEAT_TIMEOUT`` — three pings in a row without a
-      matching pong. The session loop closes itself; the wire
-      frame may not actually reach the peer (TCP is presumed
-      dead) but the WS close is still graceful from the
-      receiver's side.
-    * ``SERVER_SHUTTING_DOWN`` — the receiver controller is
-      stopping. Sent to every active session before
-      :meth:`ReceiverController.stop` returns.
-    * ``MALFORMED_FRAME`` — a frame fails Noise decrypt /
-      JSON parse / shape validation. Closes the session
-      immediately; peer can reconnect after the next handshake.
-    """
-
-    SUPERSEDED = "superseded"
-    HEARTBEAT_TIMEOUT = "heartbeat_timeout"
-    SERVER_SHUTTING_DOWN = "server_shutting_down"
-    MALFORMED_FRAME = "malformed_frame"
-
-
-class AppMessageType(StrEnum):
-    """
-    Wire ``type`` discriminator on post-handshake application frames.
-
-    JSON-encoded plaintext is wrapped in a ChaCha20-Poly1305
-    transport frame via the established Noise session (one frame
-    per WS message) before going on the wire.
-
-    Bundle bytes ride inside JSON frames as base64-encoded
-    chunks (``submit_job_chunk``) rather than a parallel
-    binary-only path. The 33 % b64 overhead doesn't matter on
-    typical 5-50 KiB ESPHome bundles, and keeping every frame
-    JSON-shaped lets the dispatch seam stay uniform (one parse
-    branch, easier to trace). Profiling can motivate a binary
-    variant later if multi-MB bundles become common.
-    """
-
-    PING = "ping"
-    PONG = "pong"
-    TERMINATE = "terminate"
-    QUEUE_STATUS = "queue_status"
-    # 5c-1: bundle upload + job lifecycle. ``submit_job`` is the
-    # offloader-initiated header (job_id + configuration +
-    # bundle metadata); the bundle bytes follow as one or more
-    # ``submit_job_chunk`` frames in monotonic order, the last
-    # carrying ``is_last=True``. The receiver replies with a
-    # single ``submit_job_ack`` (``accepted: bool`` plus an
-    # optional ``reason``) once the full bundle has reassembled.
-    # Mid-build, the receiver pushes ``job_state_changed``
-    # (lifecycle transitions) and ``job_output`` (per-line
-    # stdout/stderr) back to the offloader. Wires into the
-    # firmware queue + controller seams.
-    SUBMIT_JOB = "submit_job"
-    SUBMIT_JOB_CHUNK = "submit_job_chunk"
-    SUBMIT_JOB_ACK = "submit_job_ack"
-    JOB_STATE_CHANGED = "job_state_changed"
-    JOB_OUTPUT = "job_output"
-    # Offloader → receiver cooperative cancel. Carries the
-    # offloader-local ``job_id`` from the original ``submit_job``
-    # header; receiver resolves it to the matching
-    # ``FirmwareJob`` via the :class:`JobFanout` correlation
-    # cache and calls ``FirmwareController.cancel``. No ack
-    # frame in the reverse direction — cancellation is fire-
-    # and-forget; the next ``job_state_changed`` with
-    # ``status="cancelled"`` is the confirmation the offloader
-    # already has plumbing for.
-    CANCEL_JOB = "cancel_job"
-    # Offloader → receiver build-artifact fetch. The
-    # offloader sends ``download_artifacts`` carrying the
-    # offloader-supplied ``job_id`` from the original
-    # ``submit_job`` header. The receiver resolves it to the
-    # matching :class:`FirmwareJob` (must be in ``COMPLETED``
-    # status — only completed builds have artifacts on disk),
-    # packs the build directory's ``.pioenvs/<name>/*.bin`` /
-    # ``*.uf2`` outputs plus ``idedata.json`` (esphome already
-    # emits the latter — it carries the per-image flash
-    # offsets the offloader's Web Serial / esptool path
-    # needs) into a gzipped tar in an executor, then streams
-    # the assembled bytes back as ``artifacts_start`` (header
-    # with total_bytes + num_chunks + artifacts_sha256)
-    # followed by ``artifacts_chunk`` frames (base64 inside
-    # the JSON envelope, same shape as ``submit_job_chunk``)
-    # followed by ``artifacts_end`` (success+sha256-confirmed
-    # or failure-with-reason). Single stream rather than one
-    # frame per artifact: the offloader gets bootloader.bin +
-    # partitions.bin + firmware.bin + idedata.json in one
-    # atomic transport with a single SHA-256, and the wire
-    # format doesn't grow when a future platform adds another
-    # required output. See issue #106.
-    DOWNLOAD_ARTIFACTS = "download_artifacts"
-    ARTIFACTS_START = "artifacts_start"
-    ARTIFACTS_CHUNK = "artifacts_chunk"
-    ARTIFACTS_END = "artifacts_end"
 
 
 async def make_peer_link_handler(
@@ -488,101 +389,6 @@ async def _dispatch_intent(
     return await controller.lookup_peer_for_status(
         dashboard_id=inp.dashboard_id, pin_sha256=inp.pin_sha256
     )
-
-
-# ---------------------------------------------------------------------------
-# Shared peer-link application channel — receiver-side ``PeerLinkSession``
-# and offloader-side ``PeerLinkClient`` both compose around this so the
-# encrypt-and-send / parse-inbound / structured-terminate logic lives in
-# one place. ``ws`` is duck-typed (``send_bytes`` / ``close`` /
-# async-iter); the same channel works against aiohttp's server-side
-# ``web.WebSocketResponse`` and client-side ``ClientWebSocketResponse``.
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class PeerLinkChannel:
-    """
-    Wire-level send / parse / terminate seam shared by both ends.
-
-    Wraps the post-handshake :class:`PeerLinkNoiseSession` plus
-    its WS endpoint and a send lock. Each side's session class
-    composes one of these so the encrypt-then-send pattern (and
-    the validate-decrypt-parse-dict-check parse pattern, and the
-    structured terminate-frame-then-close pattern) only lives in
-    one module. ``log_label`` is what callers want in their log
-    lines: receiver passes its ``dashboard_id``, offloader
-    passes ``"<hostname>:<port>"``.
-    """
-
-    noise: PeerLinkNoiseSession
-    ws: Any  # WebSocketResponse | ClientWebSocketResponse — duck-typed (see class docstring)
-    log_label: str
-    _send_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-
-    async def send_frame(self, payload: dict[str, Any]) -> bool:
-        """Encrypt *payload* under the send lock and send as a binary WS frame.
-
-        Returns ``True`` on success, ``False`` on JSON-encode /
-        Noise-encrypt / WS-side failure. The lock serialises
-        concurrent callers (heartbeat + future application-message
-        senders) so the Noise nonce advances in one direction only
-        — the Noise cipher state is not safe to share across
-        concurrent encrypts.
-        """
-        try:
-            plaintext = _json.dumps(payload)
-        except (TypeError, ValueError):
-            _LOGGER.warning(
-                "peer-link app frame for %s failed JSON encode", self.log_label, exc_info=True
-            )
-            return False
-        async with self._send_lock:
-            try:
-                ciphertext = self.noise.encrypt(plaintext)
-            except NOISE_ERRORS:
-                _LOGGER.warning(
-                    "peer-link app frame for %s failed Noise encrypt",
-                    self.log_label,
-                    exc_info=True,
-                )
-                return False
-            return await _send_bytes_safely(self.ws, ciphertext, log_label="app frame")
-
-    def parse_frame(self, msg: Any) -> dict[str, Any] | None:
-        """Validate, decrypt, and JSON-parse one inbound frame.
-
-        Thin wrapper around :func:`parse_app_frame` so callers
-        don't have to thread :attr:`noise` and :attr:`log_label`
-        through. See :func:`parse_app_frame` for the per-branch
-        log + ``None``-on-malformed contract.
-        """
-        return parse_app_frame(self.noise, msg, log_label=self.log_label)
-
-    async def send_terminate(self, reason: str) -> None:
-        """Send a structured ``terminate`` frame and close the WS, best-effort.
-
-        The terminate frame routes through :meth:`send_frame` so
-        the encrypt + lock invariants hold; the close that
-        follows is best-effort because a peer that has already
-        gone away won't accept either, and we want the call site
-        idempotent across "WS still up" and "WS dead" states.
-        Narrow suppress to transport-level errors only — including
-        :class:`aiohttp.ClientError` because this channel runs on
-        both sides of the wire (offloader side's ``self.ws`` is a
-        :class:`aiohttp.ClientWebSocketResponse` whose ``.close()``
-        can raise ``ClientConnectionError`` / ``ClientError``
-        when the peer has already gone away). A ``ClientError``
-        escaping here would block the caller's
-        :class:`CancelledError` propagation when used inside a
-        :meth:`PeerLinkClient._run_one_session` cancellation
-        handler. Python 3.8+ already excludes ``CancelledError``
-        from ``Exception``, so the wider suppression below stays
-        compatible with the no-swallow contract.
-        """
-        await self.send_frame({"type": AppMessageType.TERMINATE.value, "reason": reason})
-        with contextlib.suppress(OSError, RuntimeError, aiohttp.ClientError):
-            await self.ws.close()
 
 
 # ---------------------------------------------------------------------------
@@ -1077,3 +883,9 @@ def _normalize_label(value: object) -> str:
     """
     raw = _str_or_empty(value).strip()
     return raw[:_PEER_LABEL_MAX_CHARS]
+
+
+# Re-export at the bottom: ``channel.py``'s lazy imports look up
+# ``_send_bytes_safely`` / ``parse_app_frame`` as package attributes,
+# so the channel module must load after they're defined above.
+from .channel import PeerLinkChannel as PeerLinkChannel  # noqa: E402

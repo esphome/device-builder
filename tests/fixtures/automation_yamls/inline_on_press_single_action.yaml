@@ -1,0 +1,9 @@
+esphome:
+  name: x
+binary_sensor:
+  - platform: gpio
+    name: 'Button'
+    id: kitchen_button
+    pin: GPIO0
+    on_press:
+      switch.toggle: relay1
