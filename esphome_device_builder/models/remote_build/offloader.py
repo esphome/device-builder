@@ -399,23 +399,17 @@ class RemoteBuildPeer(DataClassORJSONMixin):
     """
     A peer dashboard known to this dashboard.
 
-    Wire shape returned from ``remote_build/list_hosts``. Two
-    sources land in the same row shape:
-
-    * ``source=MDNS``: discovered via the
-      ``_esphomebuilder._tcp.local.`` browse. ``name`` is the
-      mDNS service-instance name (leftmost label, e.g.
-      ``desktop``); ``hostname`` is the SRV target (e.g.
-      ``desktop.local.``); ``addresses`` is the parsed A / AAAA
-      list with IPv6 scope preserved; versions come from TXT.
-    * ``source=MANUAL``: user-supplied via
-      ``remote_build/add_manual_host``. ``name`` is the full
-      hostname verbatim (NOT the leftmost label) so an IP-only
-      entry like ``192.168.1.10`` reads sensibly in the UI rather
-      than truncating to ``"192"``. ``hostname`` is the same
-      user-entered string, ``port`` is the user-entered port,
-      ``addresses`` is empty, and version fields are blank until
-      a pairing attempt runs the connection.
+    Wire shape returned from ``remote_build/list_hosts``. The
+    only source today is ``source=MDNS``: discovered via the
+    ``_esphomebuilder._tcp.local.`` browse. ``name`` is the
+    mDNS service-instance name (leftmost label, e.g.
+    ``desktop``); ``hostname`` is the SRV target (e.g.
+    ``desktop.local.``); ``addresses`` is the parsed A / AAAA
+    list with IPv6 scope preserved; versions come from TXT.
+    Cross-subnet pair flows bypass discovery entirely and go
+    straight through ``request_pair`` — see
+    :class:`RemoteBuildPeerSource` for why no manual-host enum
+    member exists.
     """
 
     name: str
@@ -435,12 +429,8 @@ class RemoteBuildPeer(DataClassORJSONMixin):
     # ``helpers/peer_link_identity.py``). The offloader uses
     # both to match a discovered broadcast against a stored
     # pairing's ``pin_sha256`` and dial the right peer-link
-    # port for the auto-rebind probe. Empty string / 0 for:
-    # receivers that haven't bound the
-    # peer-link listener (default-off mode), and ``MANUAL``
-    # rows (which never go through the mDNS resolve path; the
-    # user typed the hostname/port and the pair flow captures
-    # the pin into ``StoredPairing`` rather than back onto this
-    # row).
+    # port for the auto-rebind probe. Empty string / 0 for
+    # receivers that haven't bound the peer-link listener
+    # (default-off mode).
     pin_sha256: str = ""
     remote_build_port: int = 0
