@@ -139,7 +139,6 @@ featured_components:
     basement.
   fields:
     id: aht20
-    name: AHT20 Temperature & Humidity Module
     variant: AHT20
 # Uses ESPHome's max17043 driver for the MAX17048 chip. Same I²C
 # protocol (fixed address 0x36, VCELL + SOC register layout).
