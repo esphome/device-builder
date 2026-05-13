@@ -30,6 +30,7 @@ from ....helpers import json as _json
 from ....helpers.peer_link_noise import (
     NOISE_ERRORS,
     PeerLinkNoiseSession,
+    pin_sha256_for_pubkey,
 )
 from ....helpers.peer_link_resolver import make_peer_link_http_session
 from ....models import (
@@ -291,12 +292,9 @@ class PeerLinkClient:
                     self._orphaned = True
                     return
                 if close_reason == _LOCAL_CLOSE_PIN_MISMATCH:
-                    _LOGGER.warning(
-                        "peer-link client to %s:%d observed pin drift; orphaning "
-                        "until the operator re-pairs or unpairs",
-                        self._hostname,
-                        self._port,
-                    )
+                    # Detection site in :meth:`_run_one_session` logs
+                    # the warning with both pubkeys; this branch only
+                    # owns the orphan transition.
                     self._orphaned = True
                     return
                 # Reset on session that reached ``intent_response: ok``
@@ -356,7 +354,20 @@ class PeerLinkClient:
                 # legitimate rotation or a MITM / mDNS spoof.
                 # Abort either way before any application frames.
                 if session.remote_static_pub != self._pinned_static_x25519_pub:
-                    self._fire_pin_mismatch(observed=session.remote_static_pub)
+                    observed = session.remote_static_pub
+                    _LOGGER.warning(
+                        "peer-link client to %s:%d observed pin drift "
+                        "(expected_pin=%s expected_bytes=%s observed_pin=%s "
+                        "observed_bytes=%s); orphaning until the operator "
+                        "re-pairs or unpairs",
+                        self._hostname,
+                        self._port,
+                        pin_sha256_for_pubkey(self._pinned_static_x25519_pub),
+                        self._pinned_static_x25519_pub.hex(),
+                        pin_sha256_for_pubkey(observed),
+                        observed.hex(),
+                    )
+                    self._fire_pin_mismatch(observed=observed)
                     self._last_connect_error = "pin mismatch"
                     return _LOCAL_CLOSE_PIN_MISMATCH
                 response = _json.loads(session.decrypt(response_ct))
