@@ -55,6 +55,31 @@ class JobSource(StrEnum):
     REMOTE = "remote"
 
 
+@dataclass(frozen=True, slots=True)
+class JobBuildSource:
+    """
+    Bundle of :class:`FirmwareJob` ``source_*`` dispatch-origin fields.
+
+    Resolved up-front by
+    :meth:`FirmwareController._resolve_install_source` (or constructed
+    directly by callers that already know the peer, e.g. the
+    ``firmware/clean`` fan-out) and threaded as a single arg through
+    :meth:`FirmwareController._create_job`. Adding a new dispatch-
+    origin field requires editing this dataclass + the matching
+    :class:`FirmwareJob` field, not the kwarg list of every call site.
+    """
+
+    source: JobSource = JobSource.LOCAL
+    source_pin_sha256: str = ""
+    source_label: str = ""
+
+
+# Module-level singleton for the common LOCAL case — every caller
+# that defaults to local routing shares this instance instead of
+# building a fresh dataclass each call.
+LOCAL_JOB_BUILD_SOURCE = JobBuildSource()
+
+
 # Terminal job states — a job in any of these isn't running and
 # isn't waiting to run.
 TERMINAL_JOB_STATUSES: frozenset[JobStatus] = frozenset(

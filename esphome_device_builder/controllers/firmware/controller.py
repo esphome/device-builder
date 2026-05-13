@@ -40,11 +40,13 @@ from ...helpers.remote_build_layout import parse_from_configuration as parse_rem
 from ...helpers.storage_path import resolve_storage_path
 from ...helpers.subprocess import create_subprocess_exec, iter_lines_with_progress
 from ...models import (
+    LOCAL_JOB_BUILD_SOURCE,
     TERMINAL_JOB_EVENTS,
     TERMINAL_JOB_STATUSES,
     ErrorCode,
     EventType,
     FirmwareJob,
+    JobBuildSource,
     JobLifecycleData,
     JobSource,
     JobStatus,
@@ -268,16 +270,11 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         despite an available paired receiver.
         """
         await self._validate_configuration_boundary(configuration)
-        if force_local:
-            source, pin_sha256, label = JobSource.LOCAL, "", ""
-        else:
-            source, pin_sha256, label = self._resolve_install_source(configuration)
+        build_source = self._resolve_install_source(configuration, force_local=force_local)
         job = self._create_job(
             configuration,
             JobType.COMPILE,
-            source=source,
-            source_pin_sha256=pin_sha256,
-            source_label=label,
+            build_source=build_source,
         )
         return await self._enqueue(job)
 
@@ -421,9 +418,11 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             remote_job = self._create_job(
                 configuration,
                 JobType.CLEAN,
-                source=JobSource.REMOTE,
-                source_pin_sha256=pairing.pin_sha256,
-                source_label=pairing.label,
+                build_source=JobBuildSource(
+                    source=JobSource.REMOTE,
+                    source_pin_sha256=pairing.pin_sha256,
+                    source_label=pairing.label,
+                ),
             )
             # ``supersede=False``: the fan-out batch is N+1 jobs
             # all sharing one ``configuration``, so default
@@ -526,17 +525,12 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         """
         _validate_port(port)
         await self._validate_configuration_boundary(configuration)
-        if force_local:
-            source, pin_sha256, label = JobSource.LOCAL, "", ""
-        else:
-            source, pin_sha256, label = self._resolve_install_source(configuration)
+        build_source = self._resolve_install_source(configuration, force_local=force_local)
         job = self._create_job(
             configuration,
             JobType.INSTALL,
             port=port,
-            source=source,
-            source_pin_sha256=pin_sha256,
-            source_label=label,
+            build_source=build_source,
         )
         return await self._enqueue(job)
 
@@ -617,16 +611,11 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         jobs: list[FirmwareJob] = []
         for config in configurations:
             try:
-                if force_local:
-                    source, pin_sha256, label = JobSource.LOCAL, "", ""
-                else:
-                    source, pin_sha256, label = self._resolve_install_source(config)
+                build_source = self._resolve_install_source(config, force_local=force_local)
                 job = self._create_job(
                     config,
                     JobType.COMPILE,
-                    source=source,
-                    source_pin_sha256=pin_sha256,
-                    source_label=label,
+                    build_source=build_source,
                 )
                 await self._enqueue(job)
             except CommandError as exc:
@@ -655,14 +644,12 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         jobs: list[FirmwareJob] = []
         for config in configurations:
             try:
-                source, pin_sha256, label = self._resolve_install_source(config)
+                build_source = self._resolve_install_source(config)
                 job = self._create_job(
                     config,
                     JobType.INSTALL,
                     port=port,
-                    source=source,
-                    source_pin_sha256=pin_sha256,
-                    source_label=label,
+                    build_source=build_source,
                 )
                 await self._enqueue(job)
             except CommandError as exc:
@@ -1801,9 +1788,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         remote_peer: str = "",
         remote_peer_label: str = "",
         remote_job_id: str = "",
-        source: JobSource = JobSource.LOCAL,
-        source_pin_sha256: str = "",
-        source_label: str = "",
+        build_source: JobBuildSource = LOCAL_JOB_BUILD_SOURCE,
         device_name: str = "",
         device_friendly_name: str = "",
     ) -> FirmwareJob:
@@ -1839,14 +1824,12 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         (the dashboard's own Device list already carries the
         friendly name).
 
-        ``source`` / ``source_pin_sha256`` / ``source_label`` are
-        the offloader-side dispatch-origin fields: ``LOCAL`` for
-        jobs the offloader compiles itself, ``REMOTE`` for jobs
-        the offloader dispatches to a paired receiver via the
-        source-routed runner. ``source_pin_sha256``
-        identifies the receiver; ``source_label`` is the display
-        name. Defaults make every existing call site continue to
-        produce LOCAL jobs.
+        ``build_source`` is the offloader-side dispatch-origin
+        bundle: :class:`JobSource` (``LOCAL`` / ``REMOTE``) plus
+        the receiver's ``pin_sha256`` and display label.
+        Defaults to :data:`LOCAL_JOB_BUILD_SOURCE` so every
+        existing call site that doesn't pass an explicit source
+        continues to produce LOCAL jobs.
         """
         job = FirmwareJob(
             job_id=uuid4().hex[:12],
@@ -1858,34 +1841,44 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             remote_peer=remote_peer,
             remote_peer_label=remote_peer_label,
             remote_job_id=remote_job_id,
-            source=source,
-            source_pin_sha256=source_pin_sha256,
-            source_label=source_label,
+            source=build_source.source,
+            source_pin_sha256=build_source.source_pin_sha256,
+            source_label=build_source.source_label,
             device_name=device_name,
             device_friendly_name=device_friendly_name,
         )
         self._jobs[job.job_id] = job
         return job
 
-    def _resolve_install_source(self, configuration: str) -> tuple[JobSource, str, str]:
-        """Pick LOCAL or REMOTE for *configuration*; return ``(source, pin, label)``.
+    def _resolve_install_source(
+        self, configuration: str, *, force_local: bool = False
+    ) -> JobBuildSource:
+        """Pick LOCAL or REMOTE for *configuration*; return its build source.
 
-        Pure sync helper. Returns LOCAL when remote-build isn't
-        wired up yet (firmware-queue restart-recovery can fire
-        before remote-build's ``start()``).
+        Pure sync helper. Returns ``LOCAL_JOB_BUILD_SOURCE`` when
+        ``force_local`` is set (the install dialog's "Build locally
+        instead" override) and when remote-build isn't wired up yet
+        (firmware-queue restart-recovery can fire before remote-
+        build's ``start()``).
         """
+        if force_local:
+            return LOCAL_JOB_BUILD_SOURCE
         offloader = self._db.remote_build_offloader
         if offloader is None:
-            return JobSource.LOCAL, "", ""
+            return LOCAL_JOB_BUILD_SOURCE
         decision = pick_build_path(offloader.build_scheduler_snapshot())
         if decision.path is not BuildPath.REMOTE or decision.pin_sha256 is None:
-            return JobSource.LOCAL, "", ""
+            return LOCAL_JOB_BUILD_SOURCE
         pairing = offloader.get_pairing(decision.pin_sha256)
         if pairing is None:
             # Scheduler picked a pin that's no longer paired (race
             # vs an ``unpair`` on the same loop tick).
-            return JobSource.LOCAL, "", ""
-        return JobSource.REMOTE, pairing.pin_sha256, pairing.label
+            return LOCAL_JOB_BUILD_SOURCE
+        return JobBuildSource(
+            source=JobSource.REMOTE,
+            source_pin_sha256=pairing.pin_sha256,
+            source_label=pairing.label,
+        )
 
     async def _enqueue(self, job: FirmwareJob, *, supersede: bool = True) -> FirmwareJob:
         """
