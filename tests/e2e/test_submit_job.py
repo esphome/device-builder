@@ -269,11 +269,6 @@ async def test_submit_job_round_trip_with_relative_receiver_config_dir(
     assert job.job_type is JobType.COMPILE
     instances.receiver._db.firmware._enqueue.assert_awaited_once_with(job)
 
-    # Receiver-side path math reconciles: the YAML lands at the
-    # absolute location even though config_dir is relative, and
-    # the wire-side ``job.configuration`` is the POSIX-relative
-    # path under config_dir (same shape as the absolute-config-dir
-    # case).
     receiver_config_dir = instances.receiver._db.settings.config_dir.resolve()
     extracted_yaml = (
         RemoteBuildPath(
