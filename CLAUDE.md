@@ -16,7 +16,7 @@ board catalog. Frontend is a separate repo
 (`esphome/device-builder-dashboard-frontend`) and ships prebuilt
 inside our wheel.
 
-Roughly alpha closing on beta. Targeted to land as an opt-in preview
+Mid to late beta. Targeted to land as an opt-in preview
 toggle in the official ESPHome container and Home Assistant add-on.
 
 ## Code style

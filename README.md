@@ -2,7 +2,7 @@
 
 [![PyPI version](https://img.shields.io/pypi/v/esphome-device-builder.svg)](https://pypi.org/project/esphome-device-builder/) [![codecov](https://codecov.io/gh/esphome/device-builder/branch/main/graph/badge.svg)](https://codecov.io/gh/esphome/device-builder) [![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://codspeed.io/esphome/device-builder)
 
-> **Status:** in active development. Roughly alpha, closing on beta. Issues
+> **Status:** in active development, mid to late beta. Issues
 > and feedback welcome — please check existing issues / the
 > [project board](https://github.com/orgs/esphome/projects/7/views/1?filterQuery=project%3A%22device-builder-dashboard%22)
 > first, and join the [Discord channel](https://discord.gg/Rf2jWGVjaK)
