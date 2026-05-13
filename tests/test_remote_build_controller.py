@@ -2685,25 +2685,47 @@ async def test_set_pairing_window_rejects_non_bool(tmp_path: Path) -> None:
 async def test_pairing_window_auto_closes_when_clients_age_out(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The window auto-closes when every client's last-extend ages past the duration."""
-    controller = _make_controller(config_dir=tmp_path)
-    controller.offloader._db.bus = MagicMock()
+    """The window auto-closes when every client's last-extend ages past the duration.
 
-    # Patch the duration to ~0 so the auto-close fires almost immediately.
-    monkeypatch.setattr(rb_rcv, "_PAIRING_WINDOW_DURATION_SECONDS", 0.05)
+    Duration is deliberately well above CI scheduling jitter (matches
+    ``test_explicit_close_cancels_handle_no_duplicate_event``): a
+    too-short value can let the wall-clock gap between
+    ``set_pairing_window`` returning and the next
+    ``is_pairing_window_open`` call exceed the prune cutoff on a
+    loaded runner, so ``is_pairing_window_open`` returns False before
+    we've asserted the open transition. The close half is awaited on
+    a bus-fire side-effect — proper edge sync instead of a fixed
+    sleep — so the test takes ~duration plus one event-loop tick.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+
+    close_fired = asyncio.Event()
+
+    def _fire_side_effect(event_type: object, payload: object) -> None:
+        if (
+            event_type is EventType.REMOTE_BUILD_PAIRING_WINDOW_CHANGED
+            and isinstance(payload, dict)
+            and payload.get("open") is False
+        ):
+            close_fired.set()
+
+    bus = MagicMock()
+    bus.fire.side_effect = _fire_side_effect
+    controller.offloader._db.bus = bus
+
+    monkeypatch.setattr(rb_rcv, "_PAIRING_WINDOW_DURATION_SECONDS", 0.5)
 
     await controller.receiver.set_pairing_window(open=True, client="tab-1")
     assert controller.receiver.is_pairing_window_open() is True
-    controller.offloader._db.bus.fire.reset_mock()
+    bus.fire.reset_mock()
 
-    # Wait for the deadline to lapse + a hair for the task to settle.
-    await asyncio.sleep(0.2)
+    # Auto-close fires from a loop.call_later TimerHandle scheduled
+    # inside set_pairing_window; await its bus emit deterministically.
+    await asyncio.wait_for(close_fired.wait(), timeout=5.0)
 
     assert controller.receiver.is_pairing_window_open() is False
-    # An auto-close event fired (open=False).
-    fire = controller.offloader._db.bus.fire
-    assert fire.call_count >= 1
-    last_event_type, last_payload = fire.call_args.args
+    assert bus.fire.call_count >= 1
+    last_event_type, last_payload = bus.fire.call_args.args
     assert last_event_type is EventType.REMOTE_BUILD_PAIRING_WINDOW_CHANGED
     assert last_payload["open"] is False
 
