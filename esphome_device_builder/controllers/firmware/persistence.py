@@ -1,12 +1,4 @@
-"""
-Firmware-job persistence: load on startup, prune history, save on transition.
-
-Free functions taking :class:`FirmwareController` as the first
-arg (the canonical devices/firmware_sync.py pattern). The
-controller exposes thin ``_load_jobs`` / ``_persist_jobs`` /
-``_prune_history`` methods so existing test patches on those
-bound names keep working.
-"""
+"""Firmware-job persistence: load on startup, prune history, save on transition."""
 
 from __future__ import annotations
 
@@ -56,7 +48,7 @@ def prune_history(controller: FirmwareController) -> None:
             aux.append(job)
 
     # Sort newest-first so dedup keeps the most recent entry per
-    # device and the cap retains the most recent N overall.
+    # configuration and the cap retains the most recent N overall.
     primary.sort(key=attrgetter("created_at"), reverse=True)
     seen_configs: set[str] = set()
     deduped_primary: list[FirmwareJob] = []
@@ -78,16 +70,10 @@ async def load_jobs(controller: FirmwareController) -> None:
     """
     Load persisted jobs and re-queue any incomplete ones.
 
-    QUEUED and RUNNING both re-queue — the user asked for the
-    build, and a rebuild-and-reflash is idempotent (worst case
-    they pay a couple minutes of compile time on identical
-    firmware). RUNNING goes through :meth:`FirmwareJob.reset`
-    first so the per-run fields (progress / error / timestamps /
-    exit_code) look fresh, but the pre-crash ``output`` log is
-    kept as diagnostic history with a separator marker showing
-    where the rebuild starts. Terminal jobs load into the
-    in-memory map for the recent-jobs panel but don't touch
-    ``_queue``. See esphome/device-builder#147 for the policy.
+    QUEUED and RUNNING re-queue; RUNNING goes through
+    :meth:`FirmwareJob.reset` first to clear per-run state while
+    preserving the pre-crash ``output`` log as history. Terminal
+    jobs load into the in-memory map but don't touch ``_queue``.
     """
     loop = asyncio.get_running_loop()
     data = await loop.run_in_executor(None, _load_metadata, controller._db.settings.config_dir)
