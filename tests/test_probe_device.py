@@ -38,12 +38,12 @@ def _make_monitor() -> DeviceStateMonitor:
 
     monitor._mdns = MdnsSource(monitor)
 
+    monitor._presence = None
     monitor._ping = PingSource(monitor)
     monitor._mdns._zeroconf = MagicMock()
     monitor._mdns._zeroconf.zeroconf = MagicMock()
     monitor._tasks = set()
     monitor.state.reachability = None
-    monitor._presence = None
     return monitor
 
 
@@ -163,6 +163,7 @@ def test_probe_device_no_zeroconf_is_a_noop() -> None:
 
     monitor._mdns = MdnsSource(monitor)
 
+    monitor._presence = None
     monitor._ping = PingSource(monitor)
     monitor._mdns._zeroconf = None
     monitor._tasks = set()

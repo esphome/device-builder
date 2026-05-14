@@ -206,31 +206,43 @@ async def test_wait_for_no_subscribers_wakes_on_drop_to_zero() -> None:
 
 
 def test_no_subscriber_callback_fires_on_each_drop_to_zero() -> None:
-    """Registered callbacks fire synchronously on every count→0 transition.
-
-    The ICMP ping loop registers ``self._wake.set`` here so its
-    idle wait can collapse subscriber-drop into the same wake
-    event as ``probe_device_ping`` — one ``wait_for`` per
-    iteration instead of a per-iteration two-task race.
-    """
+    """Registered callback fires on every 1→0; not on 0→1; not on intermediate exits."""
     p = SubscriberPresence()
     fires: list[None] = []
     p.add_no_subscriber_callback(lambda: fires.append(None))
 
-    # Already at 0; no transition, no callback.
     assert fires == []
 
     with p.subscriber():
-        assert fires == []  # 0→1 doesn't fire
-    assert fires == [None]  # 1→0 fires once
+        assert fires == []
+    assert fires == [None]
 
-    # Cycle again to confirm callbacks are not one-shot.
     with p.subscriber():
         pass
     assert fires == [None, None]
 
-    # Nested subscribers: only the outermost exit fires the
-    # callback (count returns to 0 only once).
     with p.subscriber(), p.subscriber():
         pass
     assert fires == [None, None, None]
+
+
+def test_no_subscriber_callback_isolation_protects_siblings_and_count(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A raising callback is logged; siblings still fire and the gate accounting still resets."""
+    p = SubscriberPresence()
+
+    def _bad() -> None:
+        raise RuntimeError("boom")
+
+    fires: list[None] = []
+    p.add_no_subscriber_callback(_bad)
+    p.add_no_subscriber_callback(lambda: fires.append(None))
+
+    with caplog.at_level("ERROR"), p.subscriber():
+        pass
+
+    assert fires == [None]
+    assert p.count == 0
+    assert p._no_subscribers.is_set()
+    assert any("no-subscriber callback raised" in rec.message for rec in caplog.records)

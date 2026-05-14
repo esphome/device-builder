@@ -404,14 +404,7 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         self._importable.probe_device(device_name, service_name)
 
     def probe_device_ping(self, device_name: str) -> None:
-        """
-        Wake the ICMP sweep loop so a newly added device isn't waiting on the periodic interval.
-
-        The *device_name* is unused — every caller setting a wake
-        collapses into a single early sweep, so a herd of N
-        scanner-ADDED events (e.g. cold start, bulk dashboard
-        import) pays one sweep instead of N per-device tasks.
-        """
+        """Wake the ICMP sweep loop; a herd of N adds collapses into one early sweep."""
         self._ping.wake()
 
     def revisit_importable(self, device_name: str) -> None:

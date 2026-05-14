@@ -92,6 +92,7 @@ def _make_monitor(
 
     monitor._mdns = MdnsSource(monitor)
 
+    monitor._presence = None  # ping loop runs unconditionally in tests
     monitor._ping = PingSource(monitor)
     monitor._get_devices = lambda: devices
     monitor._get_devices_by_name = lambda name: [d for d in devices if d.name == name]
@@ -115,7 +116,6 @@ def _make_monitor(
     monitor._on_importable_removed = callbacks.on_importable_removed
     monitor.state.reachability = None
     monitor.state.dns_cache = MagicMock()
-    monitor._presence = None  # ping loop runs unconditionally in tests
     return monitor, callbacks
 
 
@@ -173,18 +173,7 @@ async def _start_with_captured_dispatch(
 
 
 async def _let_ping_loop_run_briefly(monitor: DeviceStateMonitor) -> None:
-    """Yield long enough for the ping loop to bootstrap + run a couple of sweeps.
-
-    Pairs with ``_shrink_ping_intervals`` — the shrunk
-    ``_PING_INTERVAL`` lets several sweeps land within this short
-    wait. The follow-up ``_stop_and_drain`` cancels the task
-    cleanly, so this helper doesn't need to drain it.
-
-    Tests assert on observable side-effects (``device.state``
-    flipped, mock called or *not* called) after this returns.
-    For negative assertions in particular, the fixed wait gives a
-    buggy loop a fair chance to do the wrong thing.
-    """
+    """Yield long enough for the ping loop (paired with ``_shrink_ping_intervals``) to sweep."""
     if monitor._ping_task is None:
         return
     await asyncio.sleep(0.05)
@@ -1254,13 +1243,7 @@ def test_revisit_importable_seeds_nothing_on_cache_miss(
 
 
 def _shrink_ping_intervals(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Collapse the bootstrap delay + interval so the loop ticks fast enough for tests.
-
-    Pairs with ``_let_ping_loop_run_briefly`` — caller hands the loop a few
-    real-time ticks under a tiny ``_PING_INTERVAL`` and lets the
-    sweep fire a couple of times, then ``_stop_and_drain`` handles
-    cancellation cleanly.
-    """
+    """Collapse the bootstrap delay + interval so ``_let_ping_loop_run_briefly`` sees sweeps."""
     monkeypatch.setattr(ping_module, "_PING_BOOTSTRAP_DELAY", 0)
     monkeypatch.setattr(ping_module, "_PING_INTERVAL", 0.001)
 

@@ -96,6 +96,7 @@ def _make_monitor(
 
     monitor._mdns = MdnsSource(monitor)
 
+    monitor._presence = None
     monitor._ping = PingSource(monitor)
     monitor._get_devices = lambda: devices
     monitor._get_devices_by_name = lambda name: [d for d in devices if d.name == name]
@@ -116,7 +117,6 @@ def _make_monitor(
     monitor._on_importable_added = None
     monitor._on_importable_removed = None
     monitor.state.dns_cache = MagicMock()
-    monitor._presence = None
     return monitor
 
 

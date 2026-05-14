@@ -1,13 +1,4 @@
-"""
-Tests for ``DeviceStateMonitor.probe_device_ping`` waking the ICMP sweep loop.
-
-A YAML dropped on disk for a ping-only device (no
-``_esphomelib._tcp`` broadcast) would otherwise sit at UNKNOWN
-until the next scheduled ICMP sweep (up to ``_PING_INTERVAL``
-seconds), blocking the log-stream UI on the freshly-created
-card. Waking the loop closes that window down to one sweep
-round, with N concurrent adds collapsing into a single set.
-"""
+"""Tests for ``DeviceStateMonitor.probe_device_ping`` waking the ICMP sweep loop."""
 
 from __future__ import annotations
 
@@ -66,13 +57,7 @@ def _install_sweep_probe(
 
 
 def _patch_loop_for_wake_tests(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Skip bootstrap; stretch the interval so only wakes drive subsequent sweeps.
-
-    A 3600s ``_PING_INTERVAL`` makes the periodic timer effectively
-    infinite for the test window, leaving the wake event as the
-    only path to a second sweep — any test that observes one
-    proves the wake actually drove it.
-    """
+    """Skip bootstrap and stretch the interval so only wakes can drive a second sweep."""
     monkeypatch.setattr(ping_module, "_PING_BOOTSTRAP_DELAY", 0)
     monkeypatch.setattr(ping_module, "_PING_INTERVAL", 3600)
 
@@ -113,14 +98,7 @@ def test_probe_device_ping_sets_wake_event() -> None:
 
 
 def test_probe_device_ping_herd_collapses_to_single_set() -> None:
-    """N concurrent scanner-ADDEDs collapse into one wake — no per-device task explosion.
-
-    The thundering-herd guard: a cold-start fleet of 100 cached
-    YAMLs fires 100 ``ScanChange.ADDED`` events, but the loop's
-    next sweep covers them all in one pass instead of spawning
-    100 redundant probe tasks competing for the
-    ``_PING_BATCH_SIZE`` semaphore.
-    """
+    """N concurrent scanner-ADDEDs collapse into one wake; no per-device task explosion."""
     devices = [_ping_only_device(f"dev-{i}") for i in range(100)]
     monitor, _ = make_state_monitor_with_callbacks(devices)
 
@@ -150,15 +128,7 @@ async def test_wake_bails_idle_wait_early(monkeypatch: pytest.MonkeyPatch) -> No
 
 @pytest.mark.asyncio
 async def test_wake_during_sweep_triggers_followup(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A wake set while a sweep is in flight survives to fire one more sweep.
-
-    Pins the ``_wake.clear()``-before-sweep ordering: a device
-    added after the sweep snapshotted ``_get_devices()`` would
-    otherwise be missed entirely until the next scheduled
-    interval. Clearing before the sweep means a wake fired
-    mid-sweep stays set into the idle wait, which bails
-    immediately and triggers a follow-up.
-    """
+    """A wake fired mid-sweep survives the pre-sweep ``_wake.clear()`` to drive one follow-up."""
     _patch_loop_for_wake_tests(monkeypatch)
     monitor, _ = make_state_monitor_with_callbacks([_ping_only_device()])
     sweeps = _install_sweep_probe(monkeypatch, block_first=True)

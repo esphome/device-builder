@@ -40,21 +40,20 @@ class PingSource:
 
     def __init__(self, monitor: DeviceStateMonitor) -> None:
         self._monitor = monitor
-        # Set by ``wake()`` to collapse a herd of newly added
-        # devices into a single early sweep instead of N per-device
-        # probe tasks. Cleared at the top of each sweep so a wake
-        # fired mid-sweep (covering a device added after the
-        # snapshot) survives to re-trigger the next idle.
+        # Cleared at the top of each sweep so a wake fired mid-sweep
+        # still triggers the next idle.
         self._wake = asyncio.Event()
-        # Caps in-flight ICMP at icmplib's reliability ceiling so
-        # large fleets don't stampede the ping group when the sweep
-        # fans out.
         self._concurrency = asyncio.Semaphore(_PING_BATCH_SIZE)
         # Tuple of ``(name, address)`` from the last DEBUG-logged
         # sweep; suppresses re-logging the identical line every
         # 60s when the target set hasn't changed. New devices,
         # mDNS claims, and removals re-surface the line.
         self._last_logged_targets: tuple[tuple[str, str], ...] = ()
+        # Multiplexed into the same wake event so ``_idle`` is a
+        # single ``wait_for``. Registered here (not ``run()``) so
+        # start→stop→start doesn't duplicate.
+        if monitor._presence is not None:
+            monitor._presence.add_no_subscriber_callback(self._wake.set)
 
     async def run(self) -> None:
         await asyncio.sleep(_PING_BOOTSTRAP_DELAY)
@@ -65,12 +64,6 @@ class PingSource:
         # via ``wait_for_subscriber`` — mDNS keeps running
         # unconditionally because it's passive.
         monitor = self._monitor
-        if monitor._presence is not None:
-            # Subscriber drops feed into the same wake event as
-            # ``probe_device_ping`` so the post-sweep idle wait is
-            # a single ``asyncio.wait_for`` — no per-iteration
-            # ``asyncio.Task`` churn from racing two events.
-            monitor._presence.add_no_subscriber_callback(self._wake.set)
         while True:
             if monitor._presence is not None:
                 await monitor._presence.wait_for_subscriber()
@@ -84,15 +77,7 @@ class PingSource:
         self._wake.set()
 
     async def _idle(self) -> None:
-        """
-        Sleep up to ``_PING_INTERVAL``; bail early on a wake or last-subscriber-leaves.
-
-        Wakes collapse a herd of new-device adds into one early
-        sweep. Subscriber-drops bail through the same event via
-        the callback registered in :meth:`run`, so the next
-        subscriber to connect doesn't sit through the rest of a
-        stale interval.
-        """
+        """Sleep up to ``_PING_INTERVAL`` or until the wake event fires."""
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(self._wake.wait(), timeout=_PING_INTERVAL)
 

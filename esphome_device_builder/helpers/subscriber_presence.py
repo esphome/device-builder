@@ -21,8 +21,11 @@ responsibilities single-purpose.
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class SubscriberPresence:
@@ -52,11 +55,6 @@ class SubscriberPresence:
         self._has_subscriber = asyncio.Event()
         self._no_subscribers = asyncio.Event()
         self._no_subscribers.set()  # initial state: gate is closed
-        # Synchronous notifications fired on every count→0
-        # transition. Lets a consumer (the ICMP ping loop) collapse
-        # its "bail the idle wait when subscribers leave" branch
-        # into a shared interrupt event, avoiding per-iteration
-        # task creation in the consumer's idle loop.
         self._no_subscriber_callbacks: list[Callable[[], None]] = []
 
     def has_subscribers(self) -> bool:
@@ -78,15 +76,7 @@ class SubscriberPresence:
         await self._has_subscriber.wait()
 
     def add_no_subscriber_callback(self, callback: Callable[[], None]) -> None:
-        """
-        Register *callback* to fire synchronously on every count→0 transition.
-
-        Lets a consumer collapse its idle-wait branch on
-        :meth:`wait_for_no_subscribers` into a shared interrupt
-        ``asyncio.Event`` it already awaits — avoids creating a
-        per-iteration ``asyncio.Task`` just to multiplex two events.
-        Fires on the loop thread; *callback* must not block or raise.
-        """
+        """Register *callback* to fire synchronously on every count→0 transition."""
         self._no_subscriber_callbacks.append(callback)
 
     async def wait_for_no_subscribers(self) -> None:
@@ -130,4 +120,9 @@ class SubscriberPresence:
                 self._has_subscriber.clear()
                 self._no_subscribers.set()
                 for callback in self._no_subscriber_callbacks:
-                    callback()
+                    # Isolate so a misbehaving consumer can't break
+                    # presence accounting or skip sibling callbacks.
+                    try:
+                        callback()
+                    except Exception:
+                        _LOGGER.exception("no-subscriber callback raised")
