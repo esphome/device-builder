@@ -46,9 +46,9 @@ def atomic_write(path: Path, data: bytes, *, mode: int | None = None) -> None:
             raise
         with fh:
             if mode is not None:
-                os.chmod(tmp_path, mode)
+                tmp_path.chmod(mode)
             fh.write(data)
-        os.replace(tmp_path, path)
+        tmp_path.replace(path)
     except Exception:
         # Suppress all OSError on cleanup so the original write
         # failure isn't masked by a secondary unlink permission

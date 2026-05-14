@@ -408,7 +408,7 @@ def _stage_offloader_validated_yaml(
     finally:
         os.close(fd)
     if sys.platform != "win32":
-        os.chmod(path, 0o600)
+        path.chmod(0o600)
     now = time.time()
     os.utime(path, (now, now))
 

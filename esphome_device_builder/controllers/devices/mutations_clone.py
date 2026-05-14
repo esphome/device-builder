@@ -129,7 +129,7 @@ async def clone_device(
     carry_board_id = source_meta.get("board_id") if source_meta else None
 
     def _commit() -> None:
-        with open(new_path, "x", encoding="utf-8") as f:
+        with new_path.open("x", encoding="utf-8") as f:
             f.write(new_content)
         if carry_board_id:
             set_device_metadata(config_dir, new_filename, board_id=carry_board_id)

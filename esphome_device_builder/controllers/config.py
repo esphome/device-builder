@@ -356,7 +356,7 @@ def _load_metadata(config_dir: Path) -> dict[str, Any]:
 
 def _save_metadata(config_dir: Path, data: dict[str, Any]) -> None:
     path = config_dir / _METADATA_FILE
-    # tempfile + os.replace so lock-free readers never observe a partial write.
+    # tempfile + Path.replace so lock-free readers never observe a partial write.
     fd, tmp_name = tempfile.mkstemp(prefix=f"{_METADATA_FILE}.", suffix=".tmp", dir=str(config_dir))
     tmp_path = Path(tmp_name)
     try:
@@ -364,7 +364,7 @@ def _save_metadata(config_dir: Path, data: dict[str, Any]) -> None:
         # binary mode. The on-disk file stays readable / diffable.
         with os.fdopen(fd, "wb") as fh:
             fh.write(dumps_indent(data))
-        os.replace(tmp_path, path)
+        tmp_path.replace(path)
     except Exception:
         with suppress(OSError):
             tmp_path.unlink()
@@ -1198,9 +1198,9 @@ def _read_descriptor_file(path: str) -> str | None:
 
 
 def _unlink_quietly(path: str) -> None:
-    """``os.unlink(path)`` swallowing ``OSError``."""
+    """``Path(path).unlink()`` swallowing ``OSError``."""
     with suppress(OSError):
-        os.unlink(path)
+        Path(path).unlink()
 
 
 async def _read_app_descriptor_board_id(port: str) -> str | None:

@@ -114,7 +114,7 @@ async def create_device(  # noqa: PLR0915
         # Exclusive-create so a concurrent ``devices/create`` (or
         # any other writer) can't slip between a preflight check
         # and the write and silently clobber an in-flight config.
-        with open(config_path, "x", encoding="utf-8") as f:
+        with config_path.open("x", encoding="utf-8") as f:
             f.write(yaml_content)
 
     try:

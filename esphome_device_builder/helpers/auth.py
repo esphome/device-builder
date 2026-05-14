@@ -6,7 +6,6 @@ import asyncio
 import base64
 import hashlib
 import logging
-import os
 import secrets
 import time
 from collections import deque
@@ -183,8 +182,8 @@ class SessionStore:
         data = {"sessions": [asdict(s) for s in self._sessions.values()]}
         tmp = self._path.with_suffix(self._path.suffix + ".tmp")
         tmp.write_bytes(dumps(data))
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, self._path)
+        tmp.chmod(0o600)
+        tmp.replace(self._path)
 
 
 # ---------------------------------------------------------------------------

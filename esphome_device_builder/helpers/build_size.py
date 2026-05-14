@@ -254,9 +254,10 @@ def compute_build_dir_size(build_dir: Path) -> int:
     # permission denied at root). Per-file errors are caught
     # below.
     for dirpath, _dirnames, filenames in os.walk(build_dir, onerror=lambda _e: None):
+        dir_path = Path(dirpath)
         for filename in filenames:
             try:
-                total += os.path.getsize(os.path.join(dirpath, filename))
+                total += (dir_path / filename).stat().st_size
             except OSError:
                 continue
     return total

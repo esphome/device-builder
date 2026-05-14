@@ -152,6 +152,7 @@ select = [
   "N", # pep8-naming
   "PERF", # performance
   "PL", # pylint
+  "PTH", # flake8-use-pathlib — prefer pathlib over os.path/os primitives
   "PLR0904", # too-many-public-methods (preview) — cap new god-classes at 20
   "RET", # flake8-return
   "RUF", # ruff-specific
@@ -194,8 +195,10 @@ select = [
 # file path is a runner-controlled location not user input. SLF001 is also
 # waived so action unit tests can call into helper-private methods directly.
 # INP001 (implicit namespace package) is waived because action directories
-# are standalone scripts, not part of the Python package tree.
-".github/actions/**" = ["T20", "S108", "PLC0415", "BLE001", "SLF001", "INP001"]
+# are standalone scripts, not part of the Python package tree. PTH123
+# (use Path.open) is waived for the same reason — action scripts open
+# files via plain ``open()`` for legibility, no pathlib churn warranted.
+".github/actions/**" = ["T20", "S108", "PLC0415", "BLE001", "SLF001", "INP001", "PTH123"]
 
 [tool.codespell]
 skip = "*.json,*/definitions/*"

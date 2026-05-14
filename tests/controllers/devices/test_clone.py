@@ -508,24 +508,18 @@ async def test_clone_device_handles_filesystem_race_on_target_filename(
     ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
     (tmp_path / "kitchen.yaml").write_text(SOURCE_YAML, "utf-8")
 
-    # Patch the executor's ``_commit`` body via the underlying
-    # ``open`` call. The clone command's commit closure does
-    # ``with open(new_path, "x", ...)`` — flipping that to raise
-    # ``FileExistsError`` simulates the race without needing real
-    # cross-process scheduling.
-    real_open = open
+    # Patch ``Path.open`` so the clone command's
+    # ``with new_path.open("x", ...)`` raises ``FileExistsError``
+    # without needing real cross-process scheduling.
+    real_open = Path.open
 
-    def _raising_open(path, mode="r", *args, **kwargs):  # type: ignore[no-untyped-def]
-        if "x" in mode and str(path).endswith("bedroom-bulb.yaml"):
-            raise FileExistsError(str(path))
-        return real_open(path, mode, *args, **kwargs)
+    def _raising_open(self, mode="r", *args, **kwargs):  # type: ignore[no-untyped-def]
+        if "x" in mode and str(self).endswith("bedroom-bulb.yaml"):
+            raise FileExistsError(str(self))
+        return real_open(self, mode, *args, **kwargs)
 
     with (
-        patch(
-            "esphome_device_builder.controllers.devices.mutations_clone.open",
-            _raising_open,
-            create=True,
-        ),
+        patch.object(Path, "open", _raising_open),
         pytest.raises(CommandError) as excinfo,
     ):
         await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
