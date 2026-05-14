@@ -91,10 +91,9 @@ async def register_peer_link_session(
 
     Install runs before the terminate await so concurrent
     dispatches see the freshest entry. Pushes an initial
-    ``queue_status`` to the offloader — without it,
-    cold-connected pairings never get an entry in
-    ``_peer_queue_status`` and ``pick_build_path`` silently
-    falls back to LOCAL (#568 regression).
+    ``queue_status`` to the offloader so cold-connected
+    pairings get an idle / running signal without waiting
+    on the next firmware transition.
     """
     existing = controller.state.peer_link_sessions.get(session.dashboard_id)
     controller.state.peer_link_sessions[session.dashboard_id] = session
@@ -124,40 +123,6 @@ async def register_peer_link_session(
         )
 
 
-async def _send_initial_queue_status(
-    session: PeerLinkSession,
-    idle: bool,
-    running: bool,
-    queue_depth: int,
-) -> None:
-    """Push a one-shot ``queue_status`` frame to a freshly-connected session.
-
-    Single-session counterpart of :func:`broadcast_queue_status` —
-    invoked from :func:`register_peer_link_session` so the
-    offloader gets an idle / running signal on cold-connect
-    rather than waiting for the receiver's next firmware
-    queue transition. Best-effort: a session that has already
-    torn down between the registry insert and this send
-    no-ops cleanly (``send_app_frame`` is gated on the
-    session's ``_closing`` flag) and the offloader's next
-    reconnect tries again.
-    """
-    payload = QueueStatusFrameData(
-        type="queue_status",
-        idle=idle,
-        running=running,
-        queue_depth=queue_depth,
-    )
-    try:
-        await session.send_app_frame(dict(payload))
-    except Exception:
-        _LOGGER.exception(
-            "initial queue_status to session %s raised; "
-            "offloader will catch up on the next queue transition",
-            session.dashboard_id,
-        )
-
-
 def unregister_peer_link_session(controller: ReceiverController, session: PeerLinkSession) -> None:
     """
     Drop *session* from the active peer-link registry.
@@ -181,9 +146,6 @@ def unregister_peer_link_session(controller: ReceiverController, session: PeerLi
         # populated by the time we get here.
         if controller.state.submit_job_receiver is not None:
             controller.state.submit_job_receiver.discard_session(session.dashboard_id)
-        # Same shape — discard any in-flight artifacts
-        # download for this session so the slot doesn't
-        # outlive the session it was streaming over.
         if controller.state.artifacts_download_sender is not None:
             controller.state.artifacts_download_sender.discard_session(session.dashboard_id)
         # Fire only when we actually dropped the slot — the
@@ -245,4 +207,27 @@ async def handle_cancel_job(
             session.dashboard_id,
             firmware_job_id,
             exc.message,
+        )
+
+
+async def _send_initial_queue_status(
+    session: PeerLinkSession,
+    idle: bool,
+    running: bool,
+    queue_depth: int,
+) -> None:
+    """Push a one-shot ``queue_status`` frame to a freshly-connected session."""
+    payload = QueueStatusFrameData(
+        type="queue_status",
+        idle=idle,
+        running=running,
+        queue_depth=queue_depth,
+    )
+    try:
+        await session.send_app_frame(dict(payload))
+    except Exception:
+        _LOGGER.exception(
+            "initial queue_status to session %s raised; "
+            "offloader will catch up on the next queue transition",
+            session.dashboard_id,
         )
