@@ -53,6 +53,19 @@ _KEY_LENGTH = 32  # X25519 private keys are 32 raw bytes
 # the lock handles test-style races + future contention safely.
 _IDENTITY_LOCK = threading.Lock()
 
+# Per-config-dir cache for the loaded identity. The bytes on disk
+# only mutate via :func:`rotate_peer_link_identity` (in-process,
+# under the same lock); cross-process tampering would defeat the
+# cache but isn't a real deployment shape (single-process
+# dashboard, single-process tests with per-test ``tmp_path``).
+# Without this cache, startup loads the identity 4× because the
+# bind path (``device_builder._build_and_start_remote_build_runner``
+# → ``make_peer_link_handler``) and the offloader path
+# (``OffloaderController.start`` → ``_load_offloader_identities``
+# → ``get_or_create_identity`` which re-loads the peer-link half)
+# each call into this helper twice.
+_CACHED_IDENTITIES: dict[Path, PeerLinkIdentity] = {}
+
 
 @dataclass(frozen=True)
 class PeerLinkIdentity:
@@ -91,26 +104,27 @@ def get_or_create_peer_link_identity(config_dir: Path) -> PeerLinkIdentity:
     always usable: any 32-byte string is a valid X25519 private
     key after the curve's clamping, so no parse-validation step
     is needed.
+
+    The result is cached per *config_dir*; subsequent calls return
+    the same :class:`PeerLinkIdentity` without re-reading disk or
+    re-deriving the pubkey. :func:`rotate_peer_link_identity`
+    refreshes the cache.
     """
     key_path = config_dir / _KEY_FILENAME
 
     with _IDENTITY_LOCK:
+        cached = _CACHED_IDENTITIES.get(key_path)
+        if cached is not None:
+            return cached
         private_bytes = _load_key(key_path)
         if private_bytes is None:
             private_bytes = _generate_key()
             atomic_write(key_path, private_bytes, mode=_KEY_MODE)
             _LOGGER.info("Generated new peer-link identity at %s", key_path)
-
-    public_bytes = (
-        X25519PrivateKey.from_private_bytes(private_bytes).public_key().public_bytes_raw()
-    )
-    pin_sha256 = hashlib.sha256(public_bytes).hexdigest()
-    _log_loaded_identity(key_path, public_bytes, pin_sha256)
-    return PeerLinkIdentity(
-        private_bytes=private_bytes,
-        public_bytes=public_bytes,
-        pin_sha256=pin_sha256,
-    )
+        identity = _build_identity(private_bytes)
+        _log_loaded_identity(key_path, identity.public_bytes, identity.pin_sha256)
+        _CACHED_IDENTITIES[key_path] = identity
+        return identity
 
 
 def rotate_peer_link_identity(config_dir: Path) -> PeerLinkIdentity:
@@ -132,12 +146,18 @@ def rotate_peer_link_identity(config_dir: Path) -> PeerLinkIdentity:
         private_bytes = _generate_key()
         atomic_write(key_path, private_bytes, mode=_KEY_MODE)
         _LOGGER.info("Rotated peer-link identity at %s", key_path)
+        identity = _build_identity(private_bytes)
+        _log_loaded_identity(key_path, identity.public_bytes, identity.pin_sha256)
+        _CACHED_IDENTITIES[key_path] = identity
+        return identity
 
+
+def _build_identity(private_bytes: bytes) -> PeerLinkIdentity:
+    """Derive the pubkey + pin_sha256 from *private_bytes*."""
     public_bytes = (
         X25519PrivateKey.from_private_bytes(private_bytes).public_key().public_bytes_raw()
     )
     pin_sha256 = hashlib.sha256(public_bytes).hexdigest()
-    _log_loaded_identity(key_path, public_bytes, pin_sha256)
     return PeerLinkIdentity(
         private_bytes=private_bytes,
         public_bytes=public_bytes,

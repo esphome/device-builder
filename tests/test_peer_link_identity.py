@@ -267,3 +267,29 @@ def test_loaded_identity_log_fires_on_rotate(
     msg = records[0].getMessage()
     assert f"pub={rotated.public_bytes.hex()}" in msg
     assert f"pin={rotated.pin_sha256}" in msg
+
+
+def test_repeat_calls_hit_cache_and_log_only_once(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Subsequent calls return the cached instance and don't re-log."""
+    with caplog.at_level("INFO", logger=identitymod.__name__):
+        first = get_or_create_peer_link_identity(tmp_path)
+        second = get_or_create_peer_link_identity(tmp_path)
+        third = get_or_create_peer_link_identity(tmp_path)
+
+    assert first is second
+    assert first is third
+    load_records = [
+        rec for rec in caplog.records if "Loaded peer-link identity from" in rec.getMessage()
+    ]
+    assert len(load_records) == 1
+
+
+def test_rotate_invalidates_cache(tmp_path: Path) -> None:
+    """``rotate_peer_link_identity`` refreshes the per-path cache."""
+    before = get_or_create_peer_link_identity(tmp_path)
+    rotated = rotate_peer_link_identity(tmp_path)
+    after = get_or_create_peer_link_identity(tmp_path)
+    assert before is not rotated
+    assert after is rotated
