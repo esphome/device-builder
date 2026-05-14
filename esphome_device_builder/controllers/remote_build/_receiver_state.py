@@ -1,25 +1,4 @@
-"""
-Mutable domain state for :class:`ReceiverController`.
-
-Receiver-side counterpart to :class:`OffloaderState` in
-``_state.py``. Single-file controller today; the State
-extraction is upfront so when the eventual sibling-module
-split happens, sibling helpers reach through
-``controller.state.X`` from PR 1 instead of relitigating the
-abstraction post-split.
-
-What lives here vs on the controller:
-
-* **Here**: every attr that mutates after ``__init__``
-  (pairing-window dicts + handle, pending / approved peer
-  registries, peer-link session table, the rotation
-  in-flight flag, the lifecycle service refs that
-  ``start()`` constructs and ``stop()`` clears).
-* **On the controller**: ``_db``, base infrastructure
-  (``_listeners``, ``_tasks``, ``_shutdown_callbacks``),
-  ``_peers_store`` (constructed once in ``__init__``,
-  never reassigned).
-"""
+"""Mutable domain state for :class:`ReceiverController`."""
 
 from __future__ import annotations
 

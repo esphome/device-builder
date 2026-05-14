@@ -148,6 +148,12 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         if self.state.job_fanout is not None:
             self.state.job_fanout.stop()
             self.state.job_fanout = None
+        # Drop the receiver-side handler refs so a subsequent
+        # ``get_*`` call after ``stop()`` fails its
+        # ``RuntimeError`` guard cleanly instead of returning a
+        # stale firmware-controller-bound instance.
+        self.state.submit_job_receiver = None
+        self.state.artifacts_download_sender = None
         await drain_tasks(self._tasks)
         self._tasks.clear()
         if self.state.pairing_window_handle is not None:
@@ -173,8 +179,9 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
 
         Carries the ``enabled`` master toggle +
         ``cleanup_ttl_seconds`` knobs, which aren't mirrored in
-        RAM (the RAM-canonical state is :attr:`_approved_peers`
-        / :attr:`_pairings`).
+        RAM (the RAM-canonical state is
+        :attr:`ReceiverState.approved_peers` /
+        :attr:`ReceiverState.pending_peers`).
         """
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
@@ -474,7 +481,7 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         """Merge PENDING + APPROVED into a single ``PeerSummary`` list.
 
         APPROVED rows read ``connected`` off
-        ``_peer_link_sessions``; PENDING always
+        ``state.peer_link_sessions``; PENDING always
         ``connected=False`` since the peer-link dispatch
         refuses non-APPROVED rows.
         """
@@ -653,7 +660,7 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         Promote a PENDING peer to APPROVED.
 
         Pops the in-memory PENDING entry, inserts it into the
-        RAM-canonical ``_approved_peers`` dict, schedules a
+        RAM-canonical ``state.approved_peers`` dict, schedules a
         debounced write to the receiver-peers store, and fires
         :attr:`EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED` with
         ``{dashboard_id, status: "approved"}``. The offloader's
@@ -696,7 +703,7 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
           ``status="removed"`` event so any offloader currently
           long-polling pair_status sees the cancellation and
           drops its local state.
-        * Removing an APPROVED row from ``_approved_peers``
+        * Removing an APPROVED row from ``state.approved_peers``
           (RAM-canonical, debounced to disk) is *revocation* —
           fires the same
           :attr:`EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED`
@@ -721,7 +728,7 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         return await self._current_settings_view()
 
     def _serialize_peers(self) -> ReceiverPeers:
-        """Build the on-disk peers shape from the in-RAM ``_approved_peers`` dict."""
+        """Build the on-disk peers shape from the in-RAM ``state.approved_peers`` dict."""
         return ReceiverPeers(peers=list(self.state.approved_peers.values()))
 
     async def _current_settings_view(self) -> RemoteBuildSettingsView:
@@ -906,8 +913,8 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         """
         # PENDING dict first — most pair-flow traffic is pending
         # peers polling pair_status. Both lookups are RAM reads
-        # (the APPROVED list moved off disk into ``_approved_peers``
-        # at startup).
+        # (the APPROVED list moved off disk into
+        # ``state.approved_peers`` at startup).
         pending = self.state.pending_peers.get(dashboard_id)
         if pending is not None:
             if pending.pin_sha256 != pin_sha256:
