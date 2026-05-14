@@ -1,11 +1,12 @@
 """
 Firmware build queue + WS command surface.
 
-Owns the persistent single-job queue, the subprocess spawn loop,
-mid-flight output capping, progress detection, and the lifecycle
-event broadcasts. Public API is the ``@api_command``-decorated
-methods; everything else is private. Pure data and free helpers
-live in ``constants.py`` and ``helpers.py``.
+Owns the persistent single-job queue and the lifecycle event
+broadcasts; the bulk of each concern lives in sibling submodules
+(``runner`` / ``factories`` / ``jobs`` / ``follow`` / ``clean`` /
+``download`` / ``bulk`` / ``cli`` / ``persistence`` / ``lifecycle``).
+Public API is the ``@api_command``-decorated methods; everything
+else is private.
 """
 
 from __future__ import annotations
@@ -59,30 +60,18 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         self._current_process: asyncio.subprocess.Process | None = None
         self._runner_task: asyncio.Task | None = None
         self._esphome_cmd: list[str] = []
-        # Job ids the user asked to cancel. Consulted by the runner
-        # when the subprocess exits so we can mark the job CANCELLED
-        # rather than the default FAILED-on-non-zero-exit.
+        # Job ids the user asked to cancel; the runner consults this
+        # on subprocess exit to mark CANCELLED instead of FAILED.
         self._cancel_requested: set[str] = set()
-        # Per-job ``asyncio.Event`` that the cancel handler signals
-        # so an in-flight runner can wake instantly instead of
-        # polling. Only the remote-source runner registers an event
-        # today (the local subprocess path's cancel landing is
-        # driven by SIGTERM on the spawned process). The remote
-        # runner adds an entry before parking on the terminal wait
-        # and clears it on exit.
+        # Per-job wake event for the remote runner — set by the
+        # cancel handler so a remote job waiting on its terminal
+        # frame unblocks instantly. The local subprocess path uses
+        # SIGTERM instead and doesn't register here.
         self._cancel_events: dict[str, asyncio.Event] = {}
 
     @property
     def bus(self) -> EventBus:
-        """The event bus this controller fires lifecycle / output events on.
-
-        Shorthand for ``self._db.bus`` so collaborators
-        (notably ``remote_runner``) don't reach across two
-        underscore-prefixed attributes to get at the canonical
-        offloader-side bus. Read-only — the bus reference is
-        installed by :class:`DeviceBuilder` at construction
-        and doesn't move.
-        """
+        """The event bus for lifecycle / output events — read-only shorthand for ``_db.bus``."""
         return self._db.bus
 
     # ------------------------------------------------------------------
@@ -90,25 +79,13 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     # ------------------------------------------------------------------
 
     def queue_status_snapshot(self) -> tuple[bool, bool, int]:
-        """Return ``(idle, running, queue_depth)`` for the firmware queue.
+        """Return ``(idle, running, queue_depth)`` for the firmware queue; sync, no I/O.
 
-        Pure synchronous read of the controller's RAM state — no
-        executor hop, no disk read. Used by the remote-build
-        controller's :meth:`_broadcast_queue_status` to compose
-        the receiver-side snapshot for paired offloaders on every
-        ``JOB_QUEUED`` / ``JOB_STARTED`` / terminal event tick.
-
-        ``running`` is ``True`` while a single job occupies the
-        single-job runner slot (``_current_job is not None``);
-        ``queue_depth`` is the count of pending jobs waiting
-        their turn (``_queue.qsize()``); ``idle`` is the
-        nothing-running-and-nothing-queued state. The three
-        fields aren't strictly redundant — the
-        ``running=False, queue_depth>0`` window exists between
-        ``await _queue.put(job)`` and the runner's ``_queue.get()``
-        landing the same item, so a scheduler that reads only
-        ``running`` would misclassify a fully-loaded receiver
-        as accepting more work.
+        ``idle`` and ``running`` aren't redundant with each other:
+        ``running=False, queue_depth>0`` is the window between
+        ``_queue.put`` and the runner's ``_queue.get``, so a
+        scheduler reading only ``running`` would misclassify a
+        fully-loaded receiver as accepting more work.
         """
         running = self._current_job is not None
         queue_depth = self._queue.qsize()
@@ -149,18 +126,11 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         force_local: bool = False,
         **kwargs: Any,
     ) -> FirmwareJob:
-        """Queue a compile job.
+        """Queue a compile job; paired-receiver auto-routing unless *force_local*.
 
-        Routes through :func:`helpers.build_scheduler.pick_build_path`
-        same as :meth:`install`: a paired-connected receiver makes
-        the resulting job ``source=REMOTE`` so the remote runner
-        dispatches the compile to the build server and the
-        offloader-side materialiser stages the artifacts back
-        locally. The frontend's "Download firmware binary" button
-        reads from the staged tree via ``firmware/download``.
-
-        ``force_local`` opts out so a user can build locally
-        despite an available paired receiver.
+        A paired-connected receiver makes the job ``source=REMOTE``
+        and the artifacts stage back locally for the frontend's
+        "Download firmware binary" button.
         """
         await self._validate_configuration_boundary(configuration)
         build_source = self._resolve_install_source(force_local=force_local)
@@ -173,20 +143,12 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
     @api_command("firmware/upload")
     async def upload(self, *, configuration: str, port: str = "", **kwargs: Any) -> FirmwareJob:
-        """Queue an upload job.
+        """Queue an upload job; ``port`` is forwarded as ``--device`` to esphome.
 
-        ``port`` is forwarded to the esphome CLI via ``--device``.
-        Accepts:
-
-        * ``"OTA"`` — let the CLI resolve the configured device's
-          address from the YAML's ``esphome.address``.
-        * A serial path (``/dev/ttyUSB0``, ``COM3``) — wired flash.
-        * An IPv4 / IPv6 address or ``.local`` hostname — explicit
-          OTA target. Useful for "install to a specific address"
-          flows (re-flashing a device whose address has drifted, or
-          flashing a known-good IP when mDNS is broken). The address
-          cache is bypassed since the user has named the target
-          explicitly.
+        ``port`` accepts ``"OTA"`` (CLI resolves the YAML's
+        ``esphome.address``), a serial path (``/dev/ttyUSB0``,
+        ``COM3``), or an explicit IPv4 / IPv6 / ``.local``
+        hostname (bypasses the address cache).
         """
         _validate_port(port)
         await self._validate_configuration_boundary(configuration)
@@ -200,27 +162,15 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     @api_command("firmware/reset_build_env")
     async def reset_build_env(self, **kwargs: Any) -> FirmwareJob:
         """
-        Queue a full reset of the build environment.
+        Queue a full reset of the build environment via ``esphome clean-all``.
 
-        Shells out to ``esphome clean-all <config_dir>`` (matching
-        the legacy dashboard's ``EsphomeCleanAllHandler``), which:
-
-        * wipes every ``<config_dir>/.esphome/`` subdir except
-          ``storage/``, plus every top-level non-``.json`` file, and
-        * wipes PlatformIO's own ``cache_dir`` / ``packages_dir`` /
-          ``platforms_dir`` / ``core_dir`` resolved from PlatformIO's
-          config. ``core_dir`` is the umbrella that contains the
-          other three by default, so for venv users this collapses
-          to wiping the entire ``~/.platformio/`` tree — toolchains,
-          framework packages, and the download cache. The HA add-on
-          / docker images keep these inside the data dir so the
-          blast radius is contained there.
-
-        The next compile re-fetches external components and
-        re-downloads toolchains from scratch — slow to recover from
-        but the most thorough way to escape a poisoned cache. Runs
-        through the same single-job queue as compile/upload so it
-        can't race a build in progress.
+        Wipes ``<config_dir>/.esphome/`` (except ``storage/``) plus
+        PlatformIO's ``core_dir`` / ``cache_dir`` / ``packages_dir``
+        / ``platforms_dir`` — for venv users that's the whole
+        ``~/.platformio/`` tree; the addon / docker images contain
+        the blast radius inside the data dir. The next compile
+        re-fetches everything from scratch (slow but thorough).
+        Runs through the single-job queue so it can't race a build.
         """
         job = self._create_job("", JobType.RESET_BUILD_ENV)
         return await self._enqueue(job)
@@ -234,40 +184,15 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         force_local: bool = False,
         **kwargs: Any,
     ) -> FirmwareJob:
-        """Queue a device update (compile + upload).
+        """Queue a device update (compile + upload); paired-receiver auto-routing.
 
-        ``port`` defaults to ``"OTA"`` — the CLI resolves the
-        configured device's address from the YAML's
-        ``esphome.address``. Accepts the same values as
-        :meth:`upload`: a serial path for wired flashing, or an
-        explicit IP / hostname for "install to a specific address"
-        — the address cache is bypassed when the user names the
-        target directly.
-
-        Routes through :func:`helpers.build_scheduler.pick_build_path`
-        before queuing: when a paired receiver is APPROVED +
-        peer-link-connected, the resulting job carries
-        ``source=REMOTE`` + ``source_pin_sha256=<pin>`` +
-        ``source_label=<receiver_label>`` so the source-routed
-        runner dispatches the compile to that receiver and stages
-        the resulting artifacts back for the local flash step.
-        Otherwise the job stays ``source=LOCAL`` and runs through
-        the existing in-process subprocess
-        pipeline. Silent fallback by design — the user doesn't
-        choose a build location; the scheduler routes
-        transparently.
-
-        ``force_local`` opts out of the scheduler decision: the
-        install runs LOCAL regardless of what
-        :func:`pick_build_path` would have picked. Used by the
-        install dialog's "Build locally instead" override link
-        next to the "Building on {receiver}" sub-line — the
-        operator sees the scheduler picked REMOTE, decides
-        they want LOCAL anyway (cache hot locally, paired
-        receiver slow this week, network flakey, …), cancels
-        the in-flight remote and resubmits with this flag.
-        Default ``False`` preserves the transparent-install
-        behaviour for every existing caller.
+        ``port`` defaults to ``"OTA"`` and accepts the same values
+        as :meth:`upload`. When a paired receiver is APPROVED +
+        peer-link-connected, the scheduler picks REMOTE — the
+        compile dispatches to the receiver and artifacts stage back
+        locally for the flash step. ``force_local=True`` overrides
+        the scheduler (used by the install dialog's "Build locally
+        instead" link).
         """
         _validate_port(port)
         await self._validate_configuration_boundary(configuration)
@@ -282,51 +207,34 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
     @api_command("firmware/rename")
     async def rename(self, *, configuration: str, new_name: str, **kwargs: Any) -> FirmwareJob:
-        """Queue a rename: compile + OTA-install the new firmware.
+        """Queue a rename: compile + OTA-install the new firmware, then swap the YAML.
 
-        Atomically swap the YAML on the dashboard once the install
-        succeeds.
-
-        Routed through the same single-job queue so it can't race a
-        compile or install — and so it appears in the firmware-tasks
-        list with live output instead of running silently in the
-        background as it used to. ``esphome rename`` itself is
-        responsible for keeping the old YAML around until the install
-        succeeds; if the install fails the CLI rolls back the
-        new-YAML write and the user can retry against the unchanged
-        old hostname.
+        Routed through the single-job queue so it can't race a
+        compile / install and appears in the firmware-tasks list
+        with live output. ``esphome rename`` keeps the old YAML
+        around until the install succeeds — a failed install rolls
+        back the new-YAML write so the user can retry against the
+        unchanged old hostname.
         """
         await self._validate_configuration_boundary(configuration)
-        # ``new_name`` becomes ``<new_name>.yaml`` in config_dir; validate
-        # the derived filename via ``rel_path`` at the WS boundary so a
-        # direct ``firmware/rename`` request can't pass a traversal-shaped
-        # name (``../etc/passwd``) and have it surface as a failed job
-        # later.
+        # Validate the derived ``<new_name>.yaml`` filename at the WS
+        # boundary so a direct request can't pass a traversal-shaped
+        # name and surface as a failed job later.
         new_filename = f"{new_name}.yaml"
         await self._validate_configuration_boundary(new_filename)
-        # Reject same-name renames up-front: the operation is a no-op
-        # at the YAML level but still queues a real ``esphome rename``
-        # job that re-compiles and OTA-flashes the device, so the
-        # waste is real. Force the caller to use ``firmware/install``
-        # instead — that's what they actually want.
+        # Same-name rename is a YAML no-op but still queues a real
+        # compile + flash — make the caller use ``firmware/install``.
         if new_filename == configuration:
             raise CommandError(
                 ErrorCode.INVALID_ARGS,
                 "new_name must differ from the current device name",
             )
-        # Reject up-front if the target filename is already in use.
-        # ``DevicesController.rename_device`` checks the same thing
-        # before forwarding to this handler — but a direct WS client
-        # can bypass that layer, and ``esphome rename`` itself does
-        # not check collisions: it blindly ``write_text``s the new
-        # YAML and OTA-installs it, silently overwriting the unrelated
-        # device's config and flashing that firmware to the wrong
-        # device. Same error-message shape as the controller-layer
-        # check so the frontend handles both identically.
-        # ``new_filename`` already passed ``rel_path`` validation
-        # above, so we can build the path directly and stat it in
-        # one executor hop instead of paying a second ``rel_path``
-        # round-trip just to get back the same result.
+        # Reject up-front if the target filename is in use. A direct
+        # WS client can bypass ``DevicesController.rename_device``'s
+        # check, and ``esphome rename`` doesn't check collisions
+        # itself — it would blindly overwrite the other device's YAML
+        # and flash the wrong firmware. ``new_filename`` already
+        # passed ``rel_path`` so build the path directly.
         new_path = self._db.settings.config_dir / new_filename
         loop = asyncio.get_running_loop()
         if await loop.run_in_executor(None, new_path.exists):
@@ -477,56 +385,31 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
     def _sync_validate_configuration_boundary(self, configuration: str) -> None:
         """
-        Run the synchronous ``rel_path`` check; raise ``CommandError`` on bad input.
+        Sync ``rel_path`` traversal check; raise ``CommandError`` on bad input.
 
-        Used by both ``_validate_configuration_boundary`` (the async
-        per-call wrapper) and ``_validate_configurations_boundary`` (which
-        already runs inside an executor). Centralises the rule so
-        future changes to validation logic land in exactly one place.
-
-        Empty strings raise too — ``reset_build_env`` is the only code
-        path that legitimately wants the empty configuration value, and
-        it bypasses this validator entirely. Without this check a
-        client could call ``firmware/compile`` with ``configuration=""``,
-        get a queued job, and only fail later when ``_execute_job`` hands
-        the empty string to the CLI.
-
-        Callers must NOT invoke this directly from the event loop —
-        ``rel_path`` calls ``Path.resolve``, a blocking
-        ``os.path.abspath`` syscall that blockbuster catches on CI.
+        Empty strings raise too — only ``reset_build_env`` wants the
+        empty value, and it bypasses this validator entirely. Must
+        NOT be called from the event loop directly; ``rel_path``
+        calls blocking ``Path.resolve``.
         """
         if not configuration:
             raise CommandError(ErrorCode.INVALID_ARGS, "configuration must not be empty")
         self._db.settings.rel_path(configuration)
 
     async def _validate_configuration_boundary(self, configuration: str) -> None:
-        """
-        Validate ``configuration`` inside an executor.
-
-        Single-config path; ``CommandError(INVALID_ARGS)`` on traversal
-        or empty input propagates through the awaited future to the
-        WS dispatcher unchanged.
-        """
+        """Validate one ``configuration`` inside an executor."""
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._sync_validate_configuration_boundary, configuration)
 
     async def _validate_configurations_boundary(self, configurations: list[str]) -> None:
         """
-        Validate every configuration in a single executor task; raise on bad input.
+        Validate every config in one executor task; raise ``INVALID_ARGS`` on any bad entry.
 
-        One ``run_in_executor`` for the whole batch instead of N — the
-        per-config ``rel_path`` call is cheap, but spinning up an
-        executor task per config adds context-switch overhead that
-        scales badly on a large bulk request.
-
-        Bad input (traversal, empty) raises ``CommandError(INVALID_ARGS)``
-        for the whole batch rather than silently dropping the entry —
-        a typo in one of N configurations is something the caller wants
-        to know about, not have masked by partial success. Transient
-        state conflicts (rename-lock rejections) are still handled with
-        skip-and-continue inside the bulk handlers' phase-2 loop;
-        validation is the upfront gate, queue contention is the
-        downstream best-effort step.
+        One executor task for the whole batch — per-config dispatch
+        adds context-switch overhead that scales badly. The whole
+        batch fails on a single bad entry rather than silently
+        dropping it; transient state conflicts (rename-lock) are
+        handled separately by the bulk handlers' skip-and-continue.
         """
 
         def _validate_all() -> None:
