@@ -349,6 +349,12 @@ def test_read_yaml_scalar_returns_empty_string_for_empty_value() -> None:
     assert read_yaml_scalar(yaml, ("esphome", "name")) == ""
 
 
+def test_read_yaml_scalar_returns_empty_for_comment_only_leaf() -> None:
+    """``name: # placeholder`` reads as empty, not as ``"# placeholder"``."""
+    yaml = "esphome:\n  name: # placeholder\n"
+    assert read_yaml_scalar(yaml, ("esphome", "name")) == ""
+
+
 # ---------------------------------------------------------------------------
 # rewrite_yaml_scalar (the generic walker)
 # ---------------------------------------------------------------------------
@@ -433,6 +439,13 @@ def test_rewrite_yaml_scalar_only_rewrites_first_match() -> None:
     # ESPHome at compile time — the helper doesn't fix duplicate
     # keys, just doesn't make them worse).
     assert "  name: second\n" in out
+
+
+def test_rewrite_yaml_scalar_preserves_comment_only_leaf() -> None:
+    """A value-less leaf with a trailing comment keeps the comment after rewrite."""
+    before = "esphome:\n  name: # placeholder\n"
+    after = rewrite_yaml_scalar(before, ("esphome", "name"), lambda _raw: "kitchen")
+    assert after == "esphome:\n  name: kitchen # placeholder\n"
 
 
 def test_rewrite_yaml_scalar_empty_path_is_a_noop() -> None:
