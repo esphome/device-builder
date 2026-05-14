@@ -127,15 +127,7 @@ async def test_happy_path(_stub_controller: DevicesController, tmp_path: Path) -
 async def test_loader_mutates_set_in_place_for_pre_captured_contains(
     _stub_controller: DevicesController, tmp_path: Path
 ) -> None:
-    """The loader mutates the existing set, not replace it.
-
-    ``DeviceStateMonitor`` captures
-    ``state.ignored_devices.__contains__`` at controller
-    ``__init__`` time, before ``_load_ignored_devices`` runs
-    in ``start()``. If the loader replaced the set, the
-    monitor's captured callable would point at the original
-    empty set and never see persisted entries.
-    """
+    """A pre-load capture of ``__contains__`` sees post-load entries."""
     captured_contains = _stub_controller.state.ignored_devices.__contains__
     original_set = _stub_controller.state.ignored_devices
     (tmp_path / "ignored-devices.json").write_bytes(
