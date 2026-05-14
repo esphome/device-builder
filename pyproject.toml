@@ -163,7 +163,9 @@ select = [
 [tool.ruff.lint.per-file-ignores]
 # CLI scripts: noisy print is fine, late imports gate optional esphome introspection
 # behind try/except ImportError, and several subprocess invocations are inherent.
-"script/*" = ["T20", "S108", "S310", "S110", "S603", "S607", "E501", "PLC0415"]
+# SLF001 is also waived here so smoke-test scripts (``check_catalog.py``) can
+# inspect catalog internals (``_by_id``, ``_components``) without per-line noqa.
+"script/*" = ["T20", "S108", "S310", "S110", "S603", "S607", "E501", "PLC0415", "SLF001"]
 # Discovery CLI: prints are the entire UX (mirrors aioesphomeapi-discover).
 "esphome_device_builder/discover.py" = ["T20"]
 # Tests need free access to controller privates for setup / assertion;
@@ -184,8 +186,9 @@ select = [
 "esphome_device_builder/controllers/**/*.py" = ["SLF001"]
 # GitHub Action helpers: prints are CI-log diagnostics, lazy imports keep the
 # module importable for unit tests without PyGithub installed, and the temp
-# file path is a runner-controlled location not user input.
-".github/actions/**" = ["T20", "S108", "PLC0415", "BLE001"]
+# file path is a runner-controlled location not user input. SLF001 is also
+# waived so action unit tests can call into helper-private methods directly.
+".github/actions/**" = ["T20", "S108", "PLC0415", "BLE001", "SLF001"]
 
 [tool.codespell]
 skip = "*.json,*/definitions/*"
