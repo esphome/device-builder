@@ -23,21 +23,7 @@ caller that hits a hot path should route through
 
 from __future__ import annotations
 
-import logging
-
 import ifaddr
-
-_LOGGER = logging.getLogger(__name__)
-
-
-_WELL_KNOWN_HOSTNAMES = frozenset({"localhost"})
-
-
-def _looks_like_interface_name(host: str) -> bool:
-    """Return True when *host* is shaped like a NIC name (no dots, no colons)."""
-    if not host or host in _WELL_KNOWN_HOSTNAMES:
-        return False
-    return "." not in host and ":" not in host
 
 
 def resolve_bind_host(host: str) -> list[str]:
@@ -51,18 +37,6 @@ def resolve_bind_host(host: str) -> list[str]:
         None,
     )
     if adapter is None:
-        if _looks_like_interface_name(host):
-            # Plausible NIC-shaped string that didn't match any
-            # adapter — almost certainly a typo (``eth01`` vs
-            # ``eth0``). The bind below will surface ``gaierror``
-            # which is opaque; log up front so the operator sees
-            # what happened.
-            _LOGGER.warning(
-                "Host %r did not match any local network interface; "
-                "treating as a literal hostname. Run ``ip link`` (or "
-                "``ipconfig``) to confirm the interface name.",
-                host,
-            )
         return [host]
 
     out: list[str] = []
