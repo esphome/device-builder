@@ -14,6 +14,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+from esphome.helpers import rmtree as _esphome_rmtree
 
 from esphome_device_builder.helpers.remote_build_cleanup import (
     _is_cold,
@@ -96,6 +97,81 @@ def test_sweep_prunes_empty_dashboard_parent(tmp_path: Path) -> None:
     sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
     parent = tmp_path / REMOTE_BUILDS_SUBDIR / "alpha"
     assert not parent.exists()
+
+
+def test_sweep_prunes_dashboard_parent_with_macos_metadata(tmp_path: Path) -> None:
+    """A dashboard_id parent containing only macOS .DS_Store / AppleDouble is still pruned.
+
+    Finder drops ``.DS_Store`` into every directory it browses
+    on a macOS dashboard host; without the cruft drain in
+    ``_reclaim_dashboard_dir`` these files would pin the parent
+    forever with ENOTEMPTY after the last device subtree is
+    swept.
+    """
+    now = 1_000_000.0
+    key = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
+    _populate(tmp_path, key, age_seconds=3600, now=now)
+    dashboard_dir = tmp_path / REMOTE_BUILDS_SUBDIR / "alpha"
+    (dashboard_dir / ".DS_Store").write_bytes(b"\x00\x00\x00\x01Bud1")
+    (dashboard_dir / "._kitchen").write_bytes(b"AppleDouble")
+
+    sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    assert not dashboard_dir.exists()
+
+
+@pytest.mark.parametrize(
+    "cruft_name",
+    [
+        "Thumbs.db",
+        "desktop.ini",
+        ".kitchen.yaml.swp",
+        ".nfs00000000abcdef01",
+        "random_operator_note.txt",
+    ],
+)
+def test_sweep_prunes_dashboard_parent_with_generic_cruft(tmp_path: Path, cruft_name: str) -> None:
+    """Disposable cruft (non-bundle, non-dir, non-symlink) gets drained at reclaim time.
+
+    The cruft drain isn't filename-keyed; anything the canonical
+    writer didn't produce (subdirs + ``.tar.gz`` bundles) is
+    treated as foreign and unlinked once the dashboard_dir has
+    no kept entries. Pins the contract that the helper handles
+    new filesystem shapes (Windows ``Thumbs.db`` /
+    ``desktop.ini``, editor swap files, NFS ``.nfsXXXX``
+    stragglers, etc.) without needing a per-filename allowlist.
+    """
+    now = 1_000_000.0
+    key = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
+    _populate(tmp_path, key, age_seconds=3600, now=now)
+    dashboard_dir = tmp_path / REMOTE_BUILDS_SUBDIR / "alpha"
+    (dashboard_dir / cruft_name).write_bytes(b"junk")
+
+    sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    assert not dashboard_dir.exists()
+
+
+def test_sweep_does_not_reclaim_when_only_kept_is_warm_subtree_plus_cruft(
+    tmp_path: Path,
+) -> None:
+    """A warm subtree pins the dashboard_dir even with cruft alongside.
+
+    Reclaim runs only when ``has_kept`` is False. A warm
+    subtree (or anything else legitimately kept) keeps the
+    cruft in place along with the parent.
+    """
+    now = 1_000_000.0
+    warm = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
+    _populate(tmp_path, warm, age_seconds=60, now=now)
+    dashboard_dir = tmp_path / REMOTE_BUILDS_SUBDIR / "alpha"
+    cruft = dashboard_dir / ".DS_Store"
+    cruft.write_bytes(b"junk")
+
+    sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    assert warm.subtree(tmp_path).is_dir()
+    assert dashboard_dir.is_dir()
+    # Cruft stays alongside the warm subtree — reclaim doesn't
+    # run when has_kept is True.
+    assert cruft.is_file()
 
 
 def test_sweep_keeps_dashboard_parent_when_sibling_still_warm(tmp_path: Path) -> None:
@@ -308,7 +384,7 @@ def test_sweep_skips_symlink_at_subtree_level(tmp_path: Path) -> None:
     assert (real_dir / "important.txt").is_file()
 
 
-def test_sweep_leaves_bare_dot_tar_gz_alone(tmp_path: Path) -> None:
+def test_sweep_handles_bare_dot_tar_gz_without_error(tmp_path: Path) -> None:
     """A pathological bare ``.tar.gz`` entry doesn't trip the orphan branch.
 
     ``device_name = bundle.name[: -len(BUNDLE_SUFFIX)]`` would
@@ -316,7 +392,8 @@ def test_sweep_leaves_bare_dot_tar_gz_alone(tmp_path: Path) -> None:
     explicit empty-name short-circuit in
     ``_reclaim_orphan_bundle`` avoids spurious work and the
     dashboard_dir-as-sibling false positive that would otherwise
-    follow.
+    follow. The pathological file lands in the cruft bucket and
+    gets reclaimed alongside the parent.
     """
     now = 1_000_000.0
     dashboard_dir = tmp_path / REMOTE_BUILDS_SUBDIR / "alpha"
@@ -326,7 +403,7 @@ def test_sweep_leaves_bare_dot_tar_gz_alone(tmp_path: Path) -> None:
     os.utime(weird, (now - 3600, now - 3600))
 
     sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
-    assert weird.is_file()
+    assert not dashboard_dir.exists()
 
 
 def test_safe_iterdir_returns_empty_on_oserror() -> None:
@@ -365,7 +442,10 @@ def test_sweep_logs_sibling_unlink_failure_but_still_counts_delete(
     reclamation; the bundle is a tiny cache file. A failed
     bundle unlink logs at warning but the sweep returns the
     subtree as "deleted" so the operator-facing count reflects
-    actual disk reclaimed.
+    actual disk reclaimed. The parent ``rmtree`` fallback then
+    sweeps the bundle along with the now-empty dashboard_dir,
+    so a transient inline ``unlink`` failure doesn't strand
+    the tarball.
     """
     now = 1_000_000.0
     key = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
@@ -382,9 +462,10 @@ def test_sweep_logs_sibling_unlink_failure_but_still_counts_delete(
     deleted = sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
     assert deleted == 1
     assert not key.subtree(tmp_path).exists()
-    # Bundle unlink failed → bundle still on disk; the next
-    # sweep will retry it via the orphan-bundle branch.
-    assert key.bundle(tmp_path).is_file()
+    # Inline bundle.unlink failed, but the parent rmtree
+    # fallback uses os-level removal and cleans the bundle up
+    # along with the now-empty dashboard_dir.
+    assert not key.bundle(tmp_path).exists()
 
 
 def test_sweep_logs_orphan_unlink_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -422,9 +503,10 @@ def test_sweep_continues_after_subtree_rmtree_failure(
     Permission errors / races against a concurrent submit /
     broken symlinks in the tree all happen in production; the
     sweep is best-effort hygiene, a single bad subtree
-    shouldn't poison the rest. Monkeypatches ``shutil.rmtree``
-    to fail on the first call and succeed on the second; the
-    second cold subtree should still get reclaimed.
+    shouldn't poison the rest. Monkeypatches the module's
+    ``rmtree`` binding (the esphome-helpers wrapper) to fail on
+    the first call and succeed on the rest; the second cold
+    subtree should still get reclaimed.
     """
     now = 1_000_000.0
     first = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
@@ -432,19 +514,20 @@ def test_sweep_continues_after_subtree_rmtree_failure(
     _populate(tmp_path, first, age_seconds=3600, now=now)
     _populate(tmp_path, second, age_seconds=3600, now=now)
 
-    real_rmtree = __import__("shutil").rmtree
     calls: list[Path] = []
 
     def _flaky(path: str | Path, *args: object, **kwargs: object) -> None:
         calls.append(Path(path))
         if len(calls) == 1:
             raise PermissionError("simulated denied")
-        real_rmtree(path, *args, **kwargs)
+        _esphome_rmtree(path, *args, **kwargs)
 
-    monkeypatch.setattr("esphome_device_builder.helpers.remote_build_cleanup.shutil.rmtree", _flaky)
+    monkeypatch.setattr("esphome_device_builder.helpers.remote_build_cleanup.rmtree", _flaky)
 
     deleted = sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
-    # One success out of two attempts; the failed subtree still
-    # exists, the successful one is gone.
+    # One subtree-level rmtree failed (has_kept stays True for
+    # that one), so deleted only counts the successful one. The
+    # parent rmtree is skipped because has_kept = True — that's
+    # the third call we'd otherwise have seen.
     assert deleted == 1
     assert len(calls) == 2

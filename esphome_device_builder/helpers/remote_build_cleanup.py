@@ -34,9 +34,10 @@ A single bad subtree doesn't kill the sweep for everything else.
 from __future__ import annotations
 
 import logging
-import shutil
 import time
 from pathlib import Path
+
+from esphome.helpers import rmtree
 
 from .remote_build_layout import BUNDLE_SUFFIX, REMOTE_BUILDS_SUBDIR, RemoteBuildPath
 
@@ -110,38 +111,75 @@ def sweep_remote_builds(
                 dashboard_dir,
             )
             continue
-        for entry in _safe_iterdir(dashboard_dir):
-            if entry.is_symlink():
-                _LOGGER.debug("remote-build cleanup: skipping symlink %s", entry)
-                continue
-            if entry.is_dir():
-                key = RemoteBuildPath(dashboard_id=dashboard_dir.name, device_name=entry.name)
-                if key in in_flight_keys:
-                    _LOGGER.debug("remote-build cleanup: skipping in-flight %s", key)
-                    continue
-                if not _is_cold(entry, cutoff):
-                    continue
-                if _delete_subtree_and_sibling(key, config_dir):
-                    deleted += 1
-            elif entry.is_file() and entry.name.endswith(BUNDLE_SUFFIX):
-                # Orphan bundle path: a ``.tar.gz`` whose sibling
-                # subtree is missing. Happens when the previous
-                # sweep's ``rmtree`` succeeded but the ``unlink``
-                # failed (logged as warning, sweep continued),
-                # when an operator hand-deleted the subtree, or
-                # any other transient failure that left only the
-                # tarball behind. Without this branch the orphan
-                # would accumulate forever — the subtree-path
-                # above never visits it because that branch
-                # requires ``is_dir()``. Pair with the same
-                # in-flight + cold gates the subtree path uses.
-                _reclaim_orphan_bundle(entry, dashboard_dir, in_flight_keys, cutoff)
+        dashboard_deleted, has_kept = _process_dashboard_dir(
+            dashboard_dir, config_dir, in_flight_keys, cutoff
+        )
+        deleted += dashboard_deleted
         # An offloader that was paired once and never came back
-        # leaves an otherwise-permanent empty dashboard_id dir;
-        # prune here so the filesystem stays tidy without a
-        # separate housekeeping pass.
-        _prune_empty_dir(dashboard_dir)
+        # leaves an otherwise-permanent dashboard_id dir; reclaim
+        # the whole subtree here when no entries were kept, so a
+        # macOS ``.DS_Store`` / Windows ``Thumbs.db`` / editor
+        # swap file dropped by a Finder or shell browse can't
+        # pin the parent forever. We own this directory; rmtree
+        # is the right hammer.
+        if not has_kept:
+            try:
+                rmtree(dashboard_dir)
+            except OSError as exc:
+                _LOGGER.debug("remote-build cleanup: rmtree(%s) skipped: %s", dashboard_dir, exc)
     return deleted
+
+
+def _process_dashboard_dir(
+    dashboard_dir: Path,
+    config_dir: Path,
+    in_flight_keys: frozenset[RemoteBuildPath],
+    cutoff: float,
+) -> tuple[int, bool]:
+    """Reclaim cold entries under *dashboard_dir*; report kept-state.
+
+    Returns ``(deleted_count, has_kept)``. ``has_kept`` is True
+    iff the dashboard_dir still owns real content after this
+    pass (in-flight or warm subtree, in-flight or fresh orphan
+    bundle, symlink we refused to touch, or a delete that
+    raised) — the signal the caller uses to decide whether to
+    reclaim the parent.
+    """
+    deleted = 0
+    has_kept = False
+    for entry in _safe_iterdir(dashboard_dir):
+        if entry.is_symlink():
+            _LOGGER.debug("remote-build cleanup: skipping symlink %s", entry)
+            has_kept = True
+            continue
+        if entry.is_dir():
+            key = RemoteBuildPath(dashboard_id=dashboard_dir.name, device_name=entry.name)
+            if key in in_flight_keys:
+                _LOGGER.debug("remote-build cleanup: skipping in-flight %s", key)
+                has_kept = True
+                continue
+            if not _is_cold(entry, cutoff):
+                has_kept = True
+                continue
+            if _delete_subtree_and_sibling(key, config_dir):
+                deleted += 1
+            else:
+                has_kept = True
+        elif entry.is_file() and entry.name.endswith(BUNDLE_SUFFIX):
+            # Orphan bundle path: a ``.tar.gz`` whose sibling
+            # subtree is missing. Happens when the previous
+            # sweep's ``rmtree`` succeeded but the ``unlink``
+            # failed (logged as warning, sweep continued),
+            # when an operator hand-deleted the subtree, or
+            # any other transient failure that left only the
+            # tarball behind. Without this branch the orphan
+            # would accumulate forever — the subtree-path
+            # above never visits it because that branch
+            # requires ``is_dir()``. Pair with the same
+            # in-flight + cold gates the subtree path uses.
+            if _reclaim_orphan_bundle(entry, dashboard_dir, in_flight_keys, cutoff):
+                has_kept = True
+    return deleted, has_kept
 
 
 def _safe_iterdir(directory: Path) -> list[Path]:
@@ -180,7 +218,11 @@ def _delete_subtree_and_sibling(key: RemoteBuildPath, config_dir: Path) -> bool:
     subtree = key.subtree(config_dir)
     bundle = key.bundle(config_dir)
     try:
-        shutil.rmtree(subtree)
+        # Goes through esphome's wrapper so Windows-side
+        # read-only files (PIO compile cache, git pack files
+        # inside the cached venv) clear instead of raising
+        # ``PermissionError``.
+        rmtree(subtree)
     except OSError as exc:
         _LOGGER.warning("remote-build cleanup: rmtree(%s) failed: %s", subtree, exc)
         return False
@@ -197,8 +239,16 @@ def _reclaim_orphan_bundle(
     dashboard_dir: Path,
     in_flight_keys: frozenset[RemoteBuildPath],
     cutoff: float,
-) -> None:
+) -> bool:
     """Unlink *bundle* when its sibling subtree is missing + it's cold + not in-flight.
+
+    Returns ``True`` when the bundle was kept as a true orphan
+    (in-flight, fresh, or unlink failure) so the caller's
+    ``has_kept`` accounting knows the dashboard_dir still owns
+    real content. Returns ``False`` for the paired case
+    (sibling subtree present — fate decided by the subtree
+    iteration), for successful reclaim, and for the bare
+    ``.tar.gz`` short-circuit.
 
     The "sibling subtree missing" gate is load-bearing: when
     both exist the subtree-path branch above already handles
@@ -222,7 +272,7 @@ def _reclaim_orphan_bundle(
     # short-circuit explicitly to avoid the spurious
     # ``RemoteBuildPath(..., device_name="")`` allocation.
     if not device_name:
-        return
+        return False
     sibling_subtree = dashboard_dir / device_name
     # Treat anything at the sibling position — real dir, real
     # file, broken symlink, live symlink to anywhere — as a
@@ -236,24 +286,17 @@ def _reclaim_orphan_bundle(
     # remote-builds root, so anything at this position is
     # operator-or-attacker-placed and outside our trust scope.
     if sibling_subtree.exists() or sibling_subtree.is_symlink():
-        return
+        return False
     key = RemoteBuildPath(dashboard_id=dashboard_dir.name, device_name=device_name)
     if key in in_flight_keys:
         _LOGGER.debug("remote-build cleanup: skipping in-flight orphan bundle %s", bundle)
-        return
+        return True
     if not _is_cold(bundle, cutoff):
-        return
+        return True
     try:
         bundle.unlink()
     except OSError as exc:
         _LOGGER.warning("remote-build cleanup: unlink orphan bundle(%s) failed: %s", bundle, exc)
-        return
+        return True
     _LOGGER.info("remote-build cleanup: removed orphan bundle %s", bundle)
-
-
-def _prune_empty_dir(directory: Path) -> None:
-    """Remove *directory* if empty; debug-log + continue otherwise."""
-    try:
-        directory.rmdir()
-    except OSError as exc:
-        _LOGGER.debug("remote-build cleanup: rmdir(%s) skipped: %s", directory, exc)
+    return False
