@@ -20,16 +20,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from collections.abc import Callable, Hashable
 from typing import TYPE_CHECKING, Any, Literal
 
-from ...helpers.api import CommandError, api_command
+from ...helpers.api import api_command
 from ...helpers.event_bus import Event
 from ...helpers.storage import Store
 from ...models import (
     TERMINAL_JOB_EVENTS,
-    ErrorCode,
     EventType,
     IdentityView,
     IntentResponse,
@@ -37,7 +35,6 @@ from ...models import (
     PeerStatus,
     PeerSummary,
     ReceiverPeers,
-    RemoteBuildPairingWindowChangedData,
     RemoteBuildSettings,
     RemoteBuildSettingsView,
 )
@@ -48,6 +45,7 @@ from . import (
     cleanup_loop,
     identity_commands,
     pair_flow,
+    pairing_window,
     peer_crud,
     peer_link_sessions,
     settings_receiver,
@@ -69,11 +67,6 @@ if TYPE_CHECKING:
     from ...device_builder import DeviceBuilder
 
 _LOGGER = logging.getLogger(__name__)
-
-
-# Pairing-window lifetime. Auto-closes after this much idle;
-# the frontend extends on each activity tick.
-_PAIRING_WINDOW_DURATION_SECONDS = 300.0
 
 
 class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
@@ -354,62 +347,12 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         client: Hashable,
         **kwargs: Any,
     ) -> PairingWindowState:
-        """
-        Open, extend, or close the pairing window for the calling client.
-
-        Refcounted per WS client: ``open=true`` adds/refreshes
-        the caller's entry, ``open=false`` removes it. Window is
-        open iff any client has a non-stale entry. Crashed tabs
-        age out via the 5min idle timeout; a graceful close from
-        one tab leaves the window open for others.
-
-        ``client`` is the WS connection injected by the
-        dispatcher — used as the refcount key so two tabs get
-        distinct entries. Required kwarg (a default would
-        silently bucket every caller under the same key).
-
-        Fires :attr:`EventType.REMOTE_BUILD_PAIRING_WINDOW_CHANGED`
-        only on real state transitions; idempotent calls don't.
-        """
-        if not isinstance(open, bool):
-            msg = "remote_build/set_pairing_window: 'open' must be a bool"
-            raise CommandError(ErrorCode.INVALID_ARGS, msg)
-
-        was_open = self.is_pairing_window_open()
-        if open:
-            self.state.pairing_window_clients[client] = time.monotonic()
-        else:
-            self.state.pairing_window_clients.pop(client, None)
-        self._reschedule_pairing_window_close()
-        is_open = bool(self.state.pairing_window_clients)
-
-        # Fire on state transitions AND on every extend (so the
-        # frontend countdown re-syncs against the bumped deadline).
-        if was_open != is_open or (open and is_open):
-            self._fire_pairing_window_changed()
-        if was_open and not is_open:
-            self._clear_pending_peers_on_window_close()
-        return self._pairing_window_state()
+        """Open, extend, or close the pairing window for the calling client."""
+        return await pairing_window.set_pairing_window(self, open=open, client=client)
 
     def is_pairing_window_open(self) -> bool:
         """Return whether the pairing window is currently open (post-prune)."""
-        self._prune_stale_pairing_window_clients()
-        return bool(self.state.pairing_window_clients)
-
-    def _pairing_window_remaining(self) -> float | None:
-        """Seconds until the latest-extend deadline, or ``None`` if closed."""
-        self._prune_stale_pairing_window_clients()
-        if not self.state.pairing_window_clients:
-            return None
-        latest_extend = max(self.state.pairing_window_clients.values())
-        return max(0.0, latest_extend + _PAIRING_WINDOW_DURATION_SECONDS - time.monotonic())
-
-    def _pairing_window_state(self) -> PairingWindowState:
-        """Project the in-memory client map into a wire-shape response."""
-        remaining = self._pairing_window_remaining()
-        if remaining is None:
-            return PairingWindowState(open=False, expires_in_seconds=None)
-        return PairingWindowState(open=True, expires_in_seconds=remaining)
+        return pairing_window.is_pairing_window_open(self)
 
     def _fire_pair_status_changed(
         self, dashboard_id: str, status: Literal["approved", "removed"]
@@ -417,77 +360,6 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         """Fire ``REMOTE_BUILD_PAIR_STATUS_CHANGED`` for a peer transition."""
         pair_flow.fire_pair_status_changed(self, dashboard_id, status)
 
-    def _fire_pairing_window_changed(self) -> None:
-        """Fire ``REMOTE_BUILD_PAIRING_WINDOW_CHANGED`` with the current state."""
-        state = self._pairing_window_state()
-        payload: RemoteBuildPairingWindowChangedData = {
-            "open": state.open,
-            "expires_in_seconds": state.expires_in_seconds,
-        }
-        self._db.bus.fire(EventType.REMOTE_BUILD_PAIRING_WINDOW_CHANGED, payload)
-
-    def _prune_stale_pairing_window_clients(self) -> None:
-        """Drop client entries whose last-extend timestamp aged out."""
-        if not self.state.pairing_window_clients:
-            return
-        cutoff = time.monotonic() - _PAIRING_WINDOW_DURATION_SECONDS
-        self.state.pairing_window_clients = {
-            client: extended_at
-            for client, extended_at in self.state.pairing_window_clients.items()
-            if extended_at >= cutoff
-        }
-
-    def _reschedule_pairing_window_close(self) -> None:
-        """
-        Cancel any pending close handle and schedule a fresh one.
-
-        Called after every :meth:`set_pairing_window` mutation. The
-        handle always reflects the current latest-extend deadline,
-        so on every extend we cancel and reschedule rather than
-        letting an old handle wake up and re-check; this avoids the
-        duplicate-close-event class of bug where an old handle
-        would fire after an explicit close.
-
-        When the client map is empty (the explicit-close case where
-        the last client just dropped out), no new handle is
-        scheduled and ``_pairing_window_handle`` stays ``None``.
-        """
-        if self.state.pairing_window_handle is not None:
-            self.state.pairing_window_handle.cancel()
-            self.state.pairing_window_handle = None
-        remaining = self._pairing_window_remaining()
-        if remaining is None:
-            return
-        loop = asyncio.get_running_loop()
-        self.state.pairing_window_handle = loop.call_later(
-            remaining, self._on_pairing_window_deadline
-        )
-
-    def _on_pairing_window_deadline(self) -> None:
-        """
-        Sync callback fired by the TimerHandle when the deadline lapses.
-
-        The handle was scheduled to the latest-extend deadline; if
-        any later extend had bumped the deadline, the handle would
-        have been cancelled and rescheduled, so by the time we run
-        every client has aged out. Clear the client refcount + the
-        in-memory PENDING peers dict, fire the close event +
-        cancellation events, done.
-        """
-        self.state.pairing_window_handle = None
-        self.state.pairing_window_clients.clear()
-        self._fire_pairing_window_changed()
-        self._clear_pending_peers_on_window_close()
-
     def _clear_pending_peers_on_window_close(self) -> None:
-        """Drop every PENDING peer + fire ``status="removed"`` for each.
-
-        Wakes any in-flight ``lookup_peer_for_status`` long-poll
-        so its offloader sees REJECTED.
-        """
-        if not self.state.pending_peers:
-            return
-        cleared = list(self.state.pending_peers)
-        self.state.pending_peers.clear()
-        for dashboard_id in cleared:
-            self._fire_pair_status_changed(dashboard_id, "removed")
+        """Drop every PENDING peer + fire ``status="removed"`` for each."""
+        pairing_window.clear_pending_peers_on_window_close(self)
