@@ -87,6 +87,7 @@ from esphome_device_builder.models import (
     ErrorCode,
     IntentResponse,
     PeerLinkIntent,
+    QueueStatus,
     StoredPeer,
 )
 
@@ -1628,7 +1629,7 @@ async def test_register_peer_link_session_pushes_initial_queue_status(tmp_path: 
     controller.offloader._db.bus = MagicMock()
     controller.offloader._db.firmware = MagicMock()
     controller.offloader._db.firmware.queue_status_snapshot = MagicMock(
-        return_value=(True, False, 0)
+        return_value=QueueStatus(idle=True, running=False, queue_depth=0)
     )
 
     session = MagicMock(spec=PeerLinkSession)
@@ -1726,7 +1727,7 @@ async def test_register_peer_link_session_swallows_send_app_frame_exception(
     controller.offloader._db.bus = MagicMock()
     controller.offloader._db.firmware = MagicMock()
     controller.offloader._db.firmware.queue_status_snapshot = MagicMock(
-        return_value=(True, False, 0)
+        return_value=QueueStatus(idle=True, running=False, queue_depth=0)
     )
 
     session = MagicMock(spec=PeerLinkSession)
