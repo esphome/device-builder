@@ -238,6 +238,21 @@ def test_reset_build_env_does_not_schedule_refresh() -> None:
     assert captured == []
 
 
+def test_receiver_side_remote_build_job_skips_refresh() -> None:
+    """Remote-build configurations skip the refresh and build-size hooks."""
+    controller, captured = _make_controller()
+    job = _job(
+        JobType.INSTALL,
+        JobStatus.COMPLETED,
+        configuration=".esphome/.remote_builds/abc/kitchen/kitchen.yaml",
+    )
+
+    controller._on_firmware_job_completed(Event(EventType.JOB_COMPLETED, {"job": job}))
+
+    assert captured == []
+    controller._build_size.request.assert_not_called()
+
+
 def test_unhandled_job_type_with_configuration_falls_through_silently() -> None:
     """Job types outside CLEAN/COMPILE/UPLOAD/INSTALL/RENAME bail at the type check.
 

@@ -8,6 +8,9 @@ from typing import TYPE_CHECKING
 
 from ...helpers.config_hash import compute_yaml_config_hash
 from ...helpers.event_bus import Event
+from ...helpers.remote_build_layout import (
+    parse_from_configuration as parse_remote_build_path,
+)
 from ...models import JobLifecycleData, JobStatus, JobType
 
 if TYPE_CHECKING:
@@ -40,6 +43,10 @@ def on_job_completed(controller: DevicesController, event: Event[JobLifecycleDat
         return
     configuration = job.configuration
     if not configuration:
+        return
+    if parse_remote_build_path(configuration) is not None:
+        # Receiver-side remote-build job; the YAML belongs to
+        # a paired offloader, not this dashboard.
         return
     if job_type == JobType.CLEAN:
         # ``esphome clean`` wipes the build tree; the
