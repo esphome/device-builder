@@ -53,6 +53,7 @@ from esphome_device_builder.controllers.remote_build.peer_link import (
     make_peer_link_handler,
 )
 from esphome_device_builder.helpers.event_bus import EventBus
+from esphome_device_builder.helpers.peer_link_identity import PeerLinkIdentityStore
 from esphome_device_builder.models import (
     EventType,
     FirmwareJob,
@@ -231,7 +232,9 @@ async def _paired_instances_ctx(
     # offloader dials ``("127.0.0.1", server.port)``.
     app = web.Application()
     init_ws_app(app)
-    handler = await make_peer_link_handler(receiver.receiver, receiver_dir)
+    handler = make_peer_link_handler(
+        receiver.receiver, await PeerLinkIdentityStore(receiver_dir).async_load()
+    )
     app.router.add_get(PEER_LINK_PATH, handler)
     server = TestServer(app)
     await server.start_server()

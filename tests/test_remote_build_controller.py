@@ -61,6 +61,7 @@ from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.build_scheduler import BuildSchedulerInputs
 from esphome_device_builder.helpers.dashboard_advertise import SERVICE_TYPE
 from esphome_device_builder.helpers.event_bus import EventBus
+from esphome_device_builder.helpers.peer_link_identity import PeerLinkIdentityStore
 from esphome_device_builder.helpers.remote_build_layout import RemoteBuildPath
 from esphome_device_builder.models import (
     ErrorCode,
@@ -1340,6 +1341,7 @@ async def test_start_skips_when_devices_controller_missing(tmp_path: Path) -> No
     db.devices = None
     db.settings = MagicMock()
     db.settings.config_dir = tmp_path
+    db.peer_link_identity_store = PeerLinkIdentityStore(tmp_path)
     controller = RemoteBuildController(
         offloader=OffloaderController(db),
         receiver=ReceiverController(db),
@@ -1373,6 +1375,7 @@ async def test_start_leaves_peer_link_resolver_none_when_devices_controller_miss
     db.devices = None
     db.settings = MagicMock()
     db.settings.config_dir = tmp_path
+    db.peer_link_identity_store = PeerLinkIdentityStore(tmp_path)
     controller = RemoteBuildController(
         offloader=OffloaderController(db),
         receiver=ReceiverController(db),
@@ -2000,6 +2003,44 @@ async def test_rotate_identity_concurrent_call_rejected(tmp_path: Path) -> None:
     release.set()
     first_result = await first
     assert isinstance(first_result, IdentityView)
+
+
+@pytest.mark.asyncio
+async def test_rotate_identity_in_flight_flag_tracks_shielded_work(tmp_path: Path) -> None:
+    """A cancelled awaiter doesn't release the flag while the shielded reload still runs."""
+    controller = _make_controller(config_dir=tmp_path)
+    gate = asyncio.Event()
+    release = asyncio.Event()
+    reload_calls = 0
+
+    async def _slow_reload(*, pin_sha256: str) -> bool:
+        nonlocal reload_calls
+        reload_calls += 1
+        gate.set()
+        await release.wait()
+        return True
+
+    controller.offloader._db.reload_remote_build_identity = _slow_reload
+    controller.offloader._db.is_remote_build_listener_bound = False
+    controller.offloader._db.bus = MagicMock()
+
+    first = asyncio.create_task(controller.receiver.rotate_identity())
+    await gate.wait()
+    first.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await first
+
+    with pytest.raises(CommandError) as exc:
+        await controller.receiver.rotate_identity()
+    assert exc.value.code == ErrorCode.ALREADY_EXISTS
+
+    release.set()
+    for _ in range(50):
+        if not controller.receiver.state.rotation_in_flight:
+            break
+        await asyncio.sleep(0.01)
+    assert controller.receiver.state.rotation_in_flight is False
+    assert reload_calls == 1
 
 
 @pytest.mark.asyncio
@@ -4019,7 +4060,7 @@ async def test_run_cleanup_loop_reclaims_cold_subtree_and_skips_in_flight(
         # body runs without waiting an hour.
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader.asyncio.sleep",
+        "esphome_device_builder.controllers.remote_build.cleanup_loop.asyncio.sleep",
         _short_sleep,
     )
 
@@ -4072,7 +4113,7 @@ async def test_run_cleanup_loop_logs_per_cycle_exception_and_continues(
             raise asyncio.CancelledError
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader.asyncio.sleep",
+        "esphome_device_builder.controllers.remote_build.cleanup_loop.asyncio.sleep",
         _short_sleep,
     )
 
@@ -4121,7 +4162,7 @@ async def test_run_cleanup_loop_short_circuits_when_firmware_missing(
             raise asyncio.CancelledError
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader.asyncio.sleep",
+        "esphome_device_builder.controllers.remote_build.cleanup_loop.asyncio.sleep",
         _short_sleep,
     )
 

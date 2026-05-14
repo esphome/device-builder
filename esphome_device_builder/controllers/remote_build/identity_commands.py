@@ -27,9 +27,9 @@ async def get_identity(controller: ReceiverController) -> IdentityView:
     ``pin_sha256`` (the fingerprint mDNS broadcasts and
     offloaders pin against).
     """
-    loop = asyncio.get_running_loop()
-    identity = await loop.run_in_executor(
-        None, get_or_create_identity, controller._db.settings.config_dir
+    identity = await get_or_create_identity(
+        controller._db.settings.config_dir,
+        controller._db.peer_link_identity_store,
     )
     return identity_view(identity, listener_bound=controller._db.is_remote_build_listener_bound)
 
@@ -60,10 +60,22 @@ async def rotate_identity(controller: ReceiverController) -> IdentityView:
         msg = "remote_build: an identity rotation is already in progress"
         raise CommandError(ErrorCode.ALREADY_EXISTS, msg)
     controller.state.rotation_in_flight = True
+    return await asyncio.shield(_rotate_and_reload(controller))
+
+
+async def _rotate_and_reload(controller: ReceiverController) -> IdentityView:
+    """
+    Rotate the keypair, rebind the listener, fire the bus event.
+
+    The flag clear lives in this function's ``finally`` (not
+    the caller's) so it tracks the shielded work; otherwise a
+    cancelled awaiter would let a second request slip in
+    mid-rebuild and double-fire the teardown.
+    """
     try:
-        loop = asyncio.get_running_loop()
-        identity = await loop.run_in_executor(
-            None, _dashboard_identity_helper.rotate_identity, controller._db.settings.config_dir
+        identity = await _dashboard_identity_helper.rotate_identity(
+            controller._db.settings.config_dir,
+            controller._db.peer_link_identity_store,
         )
         listener_bound = await controller._db.reload_remote_build_identity(
             pin_sha256=identity.pin_sha256,

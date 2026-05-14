@@ -32,16 +32,14 @@ the wire. Rewriting this module to delegate to
 
 from __future__ import annotations
 
+import asyncio
 import re
 import secrets
 from dataclasses import dataclass
 from pathlib import Path
 
 from ..controllers.config import metadata_transaction
-from .peer_link_identity import (
-    get_or_create_peer_link_identity,
-    rotate_peer_link_identity,
-)
+from .peer_link_identity import PeerLinkIdentity, PeerLinkIdentityStore
 
 _DASHBOARD_ID_BYTES = 24
 _REMOTE_BUILD_KEY = "_remote_build"
@@ -86,54 +84,45 @@ class DashboardIdentity:
         return " ".join(self.pin_sha256[i : i + 2] for i in range(0, len(self.pin_sha256), 2))
 
 
-def get_or_create_identity(config_dir: Path) -> DashboardIdentity:
-    """
-    Load the persistent identity, generating it on first call.
-
-    Idempotent. Lazy-creates the X25519 peer-link keypair via
-    :func:`get_or_create_peer_link_identity` and the
-    ``dashboard_id`` token via the internal helper below; both
-    are cheap repeat calls thereafter. The returned struct's
-    ``pin_sha256`` is the SHA-256 of the peer-link public key —
-    the same value the mDNS TXT advertises and the value
-    paired offloaders pin against on the next Noise handshake.
-
-    Thread-safety: this function holds no shared state of its
-    own, so concurrent callers are serialised by the two
-    underlying primitives' own locks
-    (:data:`helpers.peer_link_identity._IDENTITY_LOCK` for the
-    X25519 keypair file, and :func:`metadata_transaction`'s
-    ``_METADATA_LOCK`` for the dashboard_id JSON write). The
-    pre-rewrite module held its own
-    :class:`threading.Lock` to guard the Ed25519 cert
-    generation path; that lock is gone with the cert code,
-    and the composition pattern here re-derives equivalent
-    safety from the locks already present in the helpers it
-    delegates to.
-    """
-    peer_link = get_or_create_peer_link_identity(config_dir)
-    return DashboardIdentity(
-        dashboard_id=_get_or_create_dashboard_id(config_dir),
+async def get_or_create_identities(
+    config_dir: Path, identity_store: PeerLinkIdentityStore
+) -> tuple[PeerLinkIdentity, DashboardIdentity]:
+    """Load the peer-link keypair + composed dashboard identity in one shot."""
+    peer_link = await identity_store.async_load()
+    dashboard_id = await asyncio.get_running_loop().run_in_executor(
+        None, _get_or_create_dashboard_id, config_dir
+    )
+    return peer_link, DashboardIdentity(
+        dashboard_id=dashboard_id,
         pin_sha256=peer_link.pin_sha256,
     )
 
 
-def rotate_identity(config_dir: Path) -> DashboardIdentity:
-    """
-    Rotate the X25519 peer-link keypair, preserving ``dashboard_id``.
+async def get_or_create_identity(
+    config_dir: Path, identity_store: PeerLinkIdentityStore
+) -> DashboardIdentity:
+    """Return just the :class:`DashboardIdentity` half (UI / WS callers)."""
+    _, dashboard = await get_or_create_identities(config_dir, identity_store)
+    return dashboard
 
-    Mints a fresh X25519 keypair via
-    :func:`rotate_peer_link_identity` (replacing whatever's on
-    disk). Every paired peer that pinned the old ``pin_sha256``
-    will see a fingerprint mismatch on the next Noise handshake
-    and need to re-pair, which is the right user-visible
-    outcome when the operator deliberately rotates. The
-    ``dashboard_id`` is intentionally preserved across
-    rotations so the receiver-side audit trail stays readable.
+
+async def rotate_identity(
+    config_dir: Path, identity_store: PeerLinkIdentityStore
+) -> DashboardIdentity:
     """
-    peer_link = rotate_peer_link_identity(config_dir)
+    Mint a fresh X25519 peer-link keypair, preserving ``dashboard_id``.
+
+    Every paired peer pinned on the old ``pin_sha256`` sees a
+    fingerprint mismatch on the next Noise handshake and has
+    to re-pair; ``dashboard_id`` survives so the audit trail
+    stays readable across rotations.
+    """
+    peer_link = await identity_store.async_rotate()
+    dashboard_id = await asyncio.get_running_loop().run_in_executor(
+        None, _get_or_create_dashboard_id, config_dir
+    )
     return DashboardIdentity(
-        dashboard_id=_get_or_create_dashboard_id(config_dir),
+        dashboard_id=dashboard_id,
         pin_sha256=peer_link.pin_sha256,
     )
 

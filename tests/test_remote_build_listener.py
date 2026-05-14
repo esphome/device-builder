@@ -544,8 +544,7 @@ async def test_reload_remote_build_identity_no_op_when_listener_unbound(
     db._dashboard_advertiser = advertiser
     db._remote_build_runner = None
 
-    loop = asyncio.get_running_loop()
-    identity = await loop.run_in_executor(None, get_or_create_identity, tmp_path)
+    identity = await get_or_create_identity(tmp_path, db.peer_link_identity_store)
 
     listener_bound = await db.reload_remote_build_identity(pin_sha256=identity.pin_sha256)
 
@@ -589,7 +588,7 @@ async def test_reload_remote_build_identity_rebuilds_listener(tmp_path: Path) ->
 
         # Rotate the X25519 peer-link key on disk so the
         # rebuild loads the new identity.
-        new_identity = await loop.run_in_executor(None, rotate_identity, tmp_path)
+        new_identity = await rotate_identity(tmp_path, db.peer_link_identity_store)
         listener_bound = await db.reload_remote_build_identity(
             pin_sha256=new_identity.pin_sha256,
         )

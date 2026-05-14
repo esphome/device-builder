@@ -50,7 +50,7 @@ from .helpers.dashboard_advertise import DashboardAdvertiser
 from .helpers.dashboard_identity import get_or_create_identity as get_or_create_dashboard_identity
 from .helpers.event_bus import Event, EventBus, StreamControls, stream_events
 from .helpers.json import cors_middleware
-from .helpers.peer_link_identity import get_or_create_peer_link_identity
+from .helpers.peer_link_identity import PeerLinkIdentityStore
 from .helpers.subscriber_presence import SubscriberPresence
 from .models import EventType
 
@@ -223,6 +223,7 @@ class DeviceBuilder:
         """Initialize the Device Builder."""
         self.settings = settings
         self.bus = EventBus()
+        self.peer_link_identity_store = PeerLinkIdentityStore(settings.config_dir)
         # Reference-counted "is anyone watching the dashboard?" gate.
         # The ``subscribe_events`` body wraps itself in
         # ``presence.subscriber()`` so consumers — currently the
@@ -358,15 +359,10 @@ class DeviceBuilder:
             # ({short_hostname}-{short_dashboard_id}.local) so two
             # machines named ``mac`` on the same LAN advertise
             # distinct targets, and the system's FQDN
-            # (``mac.koston.org``) can't leak through. Loaded off
-            # disk via the identity helper; each call runs a locked
-            # read/transaction against the metadata sidecar plus the
-            # X25519 keypair file (idempotent, persistent across
-            # restarts, no in-memory cache). Same value that seeds
-            # the peer-link Noise handshake's identity, so the SRV
-            # target stays stable through identity rotations.
-            dashboard_identity = await self.loop.run_in_executor(
-                None, get_or_create_dashboard_identity, self.settings.config_dir
+            # (``mac.koston.org``) can't leak through.
+            dashboard_identity = await get_or_create_dashboard_identity(
+                self.settings.config_dir,
+                self.peer_link_identity_store,
             )
             self._dashboard_advertiser = DashboardAdvertiser(
                 port=self.settings.port,
@@ -798,11 +794,11 @@ class DeviceBuilder:
         gate — an unpaired peer can connect to the TCP port but
         the Noise XX handshake fails without a matching pubkey, so
         binding the port grants nothing on its own. Loads the
-        X25519 peer-link identity off disk via
-        :func:`get_or_create_peer_link_identity` — the sole
-        cryptographic identity used by this listener. Hops through
-        ``run_in_executor`` because the helper is sync-blocking by
-        design.
+        X25519 peer-link identity through
+        :attr:`peer_link_identity_store` — the sole
+        cryptographic identity used by this listener; the store
+        caches the identity so repeated binds don't re-read the
+        keypair file.
 
         **HA addon: default-off but operator-overridable.** The
         addon's docker container doesn't expose port 6055 to the
@@ -996,8 +992,8 @@ class DeviceBuilder:
         Rebuild the peer-link listener after an X25519 identity rotation.
 
         Wired up to ``ReceiverController.rotate_identity`` right
-        after :func:`rotate_peer_link_identity` writes the new
-        X25519 keypair to disk. The new ``pin_sha256`` is what
+        after :meth:`PeerLinkIdentityStore.async_rotate` writes
+        the new X25519 keypair to disk. The new ``pin_sha256`` is what
         every paired offloader pins against on the next Noise
         handshake — the rotation invalidates every existing
         pairing, peers see a fingerprint mismatch and surface the
@@ -1095,9 +1091,7 @@ class DeviceBuilder:
 
         runner: web.AppRunner | None = None
         try:
-            identity = await loop.run_in_executor(
-                None, get_or_create_peer_link_identity, self.settings.config_dir
-            )
+            identity = await self.peer_link_identity_store.async_load()
             app = web.Application(middlewares=[_strip_server_header_middleware])
             # Same WS init shape as the main /ws app: seed the
             # active-WS registry + the shutdown closer so an idle
@@ -1105,9 +1099,7 @@ class DeviceBuilder:
             # to aiohttp's 60s ``shutdown_timeout`` while its
             # handler sits in ``async for msg in session.ws``.
             init_ws_app(app)
-            handler = await make_peer_link_handler(
-                self.remote_build_receiver, self.settings.config_dir
-            )
+            handler = make_peer_link_handler(self.remote_build_receiver, identity)
             app.router.add_get(PEER_LINK_PATH, handler)
 
             runner = web.AppRunner(app)

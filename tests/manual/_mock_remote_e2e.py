@@ -32,6 +32,7 @@ from esphome_device_builder.controllers.remote_build.peer_link import (
     make_peer_link_handler,
 )
 from esphome_device_builder.device_builder import DeviceBuilder
+from esphome_device_builder.helpers.peer_link_identity import PeerLinkIdentityStore
 from esphome_device_builder.models import EventType
 
 
@@ -148,7 +149,8 @@ async def _start_receiver_peer_link_server(
     app = web.Application()
     init_ws_app(app)
     assert receiver.remote_build_receiver is not None
-    handler = await make_peer_link_handler(receiver.remote_build_receiver, receiver_dir)
+    identity = await PeerLinkIdentityStore(receiver_dir).async_load()
+    handler = make_peer_link_handler(receiver.remote_build_receiver, identity)
     app.router.add_get(PEER_LINK_PATH, handler)
     server = TestServer(app)
     await server.start_server()

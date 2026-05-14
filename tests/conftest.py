@@ -43,6 +43,7 @@ from esphome_device_builder.controllers.remote_build import (
     ReceiverController,
 )
 from esphome_device_builder.helpers.event_bus import Event, EventBus
+from esphome_device_builder.helpers.peer_link_identity import PeerLinkIdentityStore
 from esphome_device_builder.models import (
     AdoptableDevice,
     Device,
@@ -287,6 +288,7 @@ def make_remote_build_controller(
     db._dashboard_advertiser = None
     db.settings = MagicMock()
     db.settings.config_dir = config_dir
+    db.peer_link_identity_store = PeerLinkIdentityStore(config_dir)
     db.create_background_task = asyncio.create_task
     db.firmware.queue_status_snapshot = MagicMock(
         return_value=QueueStatus(idle=True, running=False, queue_depth=0)

@@ -22,12 +22,10 @@ and the WS dispatch resolve unchanged.
 
 from __future__ import annotations
 
-import asyncio
 import time
 from typing import TYPE_CHECKING
 
 from ...helpers.api import CommandError
-from ...helpers.peer_link_identity import get_or_create_peer_link_identity
 from ...models import (
     ErrorCode,
     EventType,
@@ -107,12 +105,7 @@ async def preview_pair(
     """
     clean_host = validate_hostname(hostname, context=HostFieldContext.RECEIVER)
     clean_port = validate_port(port, context=HostFieldContext.RECEIVER)
-    loop = asyncio.get_running_loop()
-    identity = await loop.run_in_executor(
-        None,
-        get_or_create_peer_link_identity,
-        controller._db.settings.config_dir,
-    )
+    identity = await controller._db.peer_link_identity_store.async_load()
     try:
         pin = await peer_link_preview_pair(
             hostname=clean_host,
