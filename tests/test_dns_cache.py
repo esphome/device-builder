@@ -14,9 +14,7 @@ from esphome_device_builder.controllers import (
     _dns_cache as dns_cache_mod,
 )
 from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
-from esphome_device_builder.controllers._device_state_monitor import (
-    controller as sm,
-)
+from esphome_device_builder.controllers._device_state_monitor import ping as ping_module
 from esphome_device_builder.controllers._dns_cache import DNSCache
 from esphome_device_builder.controllers.config import (
     get_board_id,
@@ -253,9 +251,9 @@ async def test_ping_sweep_pre_resolves_via_dns_cache(fake_resolver) -> None:
 
     with (
         patch.object(dns_cache_mod, "async_resolve", resolver),
-        patch.object(sm, "icmp_ping", fake_ping),
+        patch.object(ping_module, "icmp_ping", fake_ping),
     ):
-        await monitor._ping_sweep()
+        await monitor._ping._ping_sweep()
 
     assert pinged == ["10.0.0.1"]
     assert ip_changes == [("kitchen", "10.0.0.1", ["10.0.0.1"])]
@@ -295,9 +293,9 @@ async def test_ping_sweep_applies_ip_for_local_hosts(fake_resolver) -> None:
 
     with (
         patch.object(dns_cache_mod, "async_resolve", resolver),
-        patch.object(sm, "icmp_ping", fake_ping),
+        patch.object(ping_module, "icmp_ping", fake_ping),
     ):
-        await monitor._ping_sweep()
+        await monitor._ping._ping_sweep()
 
     assert ip_changes == [("kitchen", "192.168.1.50", ["192.168.1.50"])]
 
@@ -334,9 +332,9 @@ async def test_ping_sweep_rescues_local_device_from_zeroconf_cache() -> None:
 
     with (
         patch.object(monitor, "get_cached_addresses", lambda host: ["192.168.213.11"]),
-        patch.object(sm, "icmp_ping", fake_ping),
+        patch.object(ping_module, "icmp_ping", fake_ping),
     ):
-        await monitor._ping_sweep()
+        await monitor._ping._ping_sweep()
 
     assert pinged == []
     assert state_changes == [("winefridge", DeviceState.ONLINE, "mdns")]
@@ -374,9 +372,9 @@ async def test_ping_sweep_marks_offline_directly_on_dns_failure(fake_resolver) -
 
     with (
         patch.object(dns_cache_mod, "async_resolve", resolver),
-        patch.object(sm, "icmp_ping", fake_ping),
+        patch.object(ping_module, "icmp_ping", fake_ping),
     ):
-        await monitor._ping_sweep()
+        await monitor._ping._ping_sweep()
 
     # Crucially: ``icmp_ping`` was NOT called. The resolution failure
     # was enough to declare the device offline.
@@ -416,9 +414,9 @@ async def test_ping_sweep_skips_devices_with_cached_dns_failure(fake_resolver) -
 
     with (
         patch.object(dns_cache_mod, "async_resolve", resolver),
-        patch.object(sm, "icmp_ping", fake_ping),
+        patch.object(ping_module, "icmp_ping", fake_ping),
     ):
-        await monitor._ping_sweep()
+        await monitor._ping._ping_sweep()
 
     assert pinged == []
     assert resolver.calls == []
@@ -450,9 +448,9 @@ async def test_ping_marks_offline_when_icmp_raises(fake_resolver) -> None:
 
     with (
         patch.object(dns_cache_mod, "async_resolve", resolver),
-        patch.object(sm, "icmp_ping", raising_ping),
+        patch.object(ping_module, "icmp_ping", raising_ping),
     ):
-        await monitor._ping_sweep()
+        await monitor._ping._ping_sweep()
 
     assert state_changes == [("kitchen", DeviceState.OFFLINE, "ping")]
 

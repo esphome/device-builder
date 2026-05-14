@@ -28,19 +28,20 @@ import pytest
 
 from esphome_device_builder import device_builder as device_builder_module
 from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
-from esphome_device_builder.controllers._device_state_monitor import (
-    controller as state_monitor_module,
-)
+from esphome_device_builder.controllers._device_state_monitor import ping as ping_module
+from esphome_device_builder.controllers._device_state_monitor import shared as shared_module
 from esphome_device_builder.controllers._device_state_monitor._state import MonitorState
+from esphome_device_builder.controllers._device_state_monitor.ping import PingSource
 from esphome_device_builder.device_builder import DeviceBuilder
 from esphome_device_builder.helpers.subscriber_presence import SubscriberPresence
 
 
 def _build_monitor(presence: SubscriberPresence | None) -> DeviceStateMonitor:
-    """Bypass __init__ — ``_ping_loop`` only touches a few attrs."""
+    """Bypass __init__ — ``PingSource.run`` only touches a few attrs."""
     monitor = DeviceStateMonitor.__new__(DeviceStateMonitor)
     monitor.state = MonitorState()
     monitor._presence = presence
+    monitor._ping = PingSource(monitor)
     return monitor
 
 
@@ -56,17 +57,21 @@ def _instrument_loop(
     """
     counts = {"sweeps": 0, "resolves": 0, "sleeps": 0}
 
-    async def _resolve() -> None:
+    async def _resolve(_monitor: DeviceStateMonitor) -> None:
         counts["resolves"] += 1
 
     async def _sweep() -> None:
         counts["sweeps"] += 1
 
-    monitor._resolve_non_api_mdns_targets = _resolve  # type: ignore[method-assign]
-    monitor._ping_sweep = _sweep  # type: ignore[method-assign]
+    # ``resolve_non_api_mdns_targets`` is a free function in ``shared``;
+    # patch the module attribute so ``PingSource.run``'s call sees the
+    # stub. ``_ping_sweep`` is a method on ``PingSource``; replace it
+    # on the per-test instance.
+    monkeypatch.setattr(shared_module, "resolve_non_api_mdns_targets", _resolve)
+    monitor._ping._ping_sweep = _sweep  # type: ignore[method-assign]
 
     # Skip the bootstrap delay outright.
-    monkeypatch.setattr(state_monitor_module, "_PING_BOOTSTRAP_DELAY", 0)
+    monkeypatch.setattr(ping_module, "_PING_BOOTSTRAP_DELAY", 0)
 
     # Patch the module-local sleep so each "interval wait" is a
     # zero-cost yield and a tick count. The test ends the loop by
@@ -78,7 +83,7 @@ def _instrument_loop(
         # Yield back so the test coroutine can observe the counters.
         await real_sleep(0)
 
-    monkeypatch.setattr(state_monitor_module.asyncio, "sleep", _fast_sleep)
+    monkeypatch.setattr(ping_module.asyncio, "sleep", _fast_sleep)
     return counts
 
 
@@ -106,7 +111,7 @@ async def test_ping_loop_runs_unconditionally_without_presence(
     monitor = _build_monitor(presence=None)
     counts = _instrument_loop(monitor, monkeypatch)
 
-    task = asyncio.create_task(monitor._ping_loop())
+    task = asyncio.create_task(monitor._ping.run())
     try:
         await _drive_until(lambda: counts["sweeps"] >= 2)
     finally:
@@ -133,7 +138,7 @@ async def test_ping_loop_parks_until_first_subscriber(
     monitor = _build_monitor(presence=presence)
     counts = _instrument_loop(monitor, monkeypatch)
 
-    task = asyncio.create_task(monitor._ping_loop())
+    task = asyncio.create_task(monitor._ping.run())
     try:
         # Give the loop several scheduling ticks to confirm it
         # actually parks instead of running. Without the gate fix
@@ -168,7 +173,7 @@ async def test_ping_loop_pauses_again_after_last_subscriber_leaves(
     monitor = _build_monitor(presence=presence)
     counts = _instrument_loop(monitor, monkeypatch)
 
-    task = asyncio.create_task(monitor._ping_loop())
+    task = asyncio.create_task(monitor._ping.run())
     try:
         # Cycle one subscriber in, drive at least one sweep, then out.
         with presence.subscriber():
@@ -264,9 +269,9 @@ async def test_ping_loop_aborts_idle_sleep_when_last_subscriber_leaves(
         # short-circuits the wait when the subscriber drops.
         return await real_wait_for(coro, timeout=timeout)
 
-    monkeypatch.setattr(state_monitor_module.asyncio, "wait_for", _spy_wait_for)
+    monkeypatch.setattr(ping_module.asyncio, "wait_for", _spy_wait_for)
 
-    task = asyncio.create_task(monitor._ping_loop())
+    task = asyncio.create_task(monitor._ping.run())
     try:
         # Bring a subscriber in; wait until the loop has done at
         # least one sweep AND entered the idle wait.
@@ -321,7 +326,7 @@ async def test_ping_loop_resumes_immediately_when_new_subscriber_arrives_mid_int
     monitor = _build_monitor(presence=presence)
     counts = _instrument_loop(monitor, monkeypatch)
 
-    task = asyncio.create_task(monitor._ping_loop())
+    task = asyncio.create_task(monitor._ping.run())
     try:
         # Cycle subscriber A in, drive a sweep, then out.
         with presence.subscriber():

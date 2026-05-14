@@ -47,6 +47,7 @@ from esphome_device_builder.controllers._device_state_monitor import (
     controller as state_monitor_module,
 )
 from esphome_device_builder.controllers._device_state_monitor._state import MonitorState
+from esphome_device_builder.controllers._device_state_monitor.ping import PingSource
 from esphome_device_builder.controllers._reachability_tracker import (
     MdnsCacheInfo,
     ReachabilityTracker,
@@ -90,6 +91,8 @@ def _make_monitor(
     monitor = DeviceStateMonitor.__new__(DeviceStateMonitor)
 
     monitor.state = MonitorState()
+
+    monitor._ping = PingSource(monitor)
     monitor._get_devices = lambda: devices
     monitor._get_devices_by_name = lambda name: [d for d in devices if d.name == name]
     monitor._is_ignored = lambda _name: False
@@ -199,10 +202,10 @@ async def test_ping_success_records_rtt_and_observation() -> None:
     fake_result.is_alive = True
     fake_result.min_rtt = 4.2
     with patch(
-        "esphome_device_builder.controllers._device_state_monitor.controller.icmp_ping",
+        "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
         AsyncMock(return_value=fake_result),
     ):
-        await monitor._ping_device(devices[0], "10.0.0.42")
+        await monitor._ping._ping_device(devices[0], "10.0.0.42")
 
     snap = tracker.snapshot(
         "kitchen", state=DeviceState.ONLINE, active_source="ping", ip="10.0.0.42"
@@ -222,10 +225,10 @@ async def test_ping_failure_does_not_record_rtt() -> None:
     fake_result.is_alive = False
     fake_result.min_rtt = 0.0
     with patch(
-        "esphome_device_builder.controllers._device_state_monitor.controller.icmp_ping",
+        "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
         AsyncMock(return_value=fake_result),
     ):
-        await monitor._ping_device(devices[0], "10.0.0.42")
+        await monitor._ping._ping_device(devices[0], "10.0.0.42")
 
     snap = tracker.snapshot(
         "kitchen", state=DeviceState.OFFLINE, active_source="ping", ip="10.0.0.42"

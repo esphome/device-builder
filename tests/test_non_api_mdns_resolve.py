@@ -22,7 +22,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
+from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor, shared
 from esphome_device_builder.models import Device, DeviceState
 
 from .conftest import make_state_monitor_with_callbacks
@@ -89,7 +89,7 @@ async def test_non_api_device_marked_online_when_mdns_resolves() -> None:
     devices = [_device(loaded_integrations=["web_server"])]
     monitor, resolver = _make_monitor(devices, resolved={"kitchen.local": ["192.168.1.42"]})
 
-    await monitor._resolve_non_api_mdns_targets()
+    await shared.resolve_non_api_mdns_targets(monitor)
 
     assert devices[0].state == DeviceState.ONLINE
     assert devices[0].ip == "192.168.1.42"
@@ -107,7 +107,7 @@ async def test_api_device_skipped() -> None:
     devices = [_device(loaded_integrations=["api", "web_server"])]
     monitor, resolver = _make_monitor(devices)
 
-    await monitor._resolve_non_api_mdns_targets()
+    await shared.resolve_non_api_mdns_targets(monitor)
 
     resolver.assert_not_called()
     assert devices[0].state == DeviceState.UNKNOWN
@@ -126,7 +126,7 @@ async def test_uncompiled_device_skipped() -> None:
     devices = [_device(loaded_integrations=[])]
     monitor, resolver = _make_monitor(devices)
 
-    await monitor._resolve_non_api_mdns_targets()
+    await shared.resolve_non_api_mdns_targets(monitor)
 
     resolver.assert_not_called()
 
@@ -137,7 +137,7 @@ async def test_non_local_hostname_skipped() -> None:
     devices = [_device(address="device.example.com", loaded_integrations=["mqtt"])]
     monitor, resolver = _make_monitor(devices)
 
-    await monitor._resolve_non_api_mdns_targets()
+    await shared.resolve_non_api_mdns_targets(monitor)
 
     resolver.assert_not_called()
 
@@ -159,7 +159,7 @@ async def test_resolve_miss_is_silent_no_offline_branch_by_design() -> None:
     devices = [_device(loaded_integrations=["web_server"])]
     monitor, _resolver = _make_monitor(devices, resolved={"kitchen.local": None})
 
-    await monitor._resolve_non_api_mdns_targets()
+    await shared.resolve_non_api_mdns_targets(monitor)
 
     assert devices[0].state == DeviceState.UNKNOWN  # not OFFLINE
     assert devices[0].ip == ""
@@ -190,7 +190,7 @@ async def test_resolve_exception_does_not_propagate() -> None:
 
     monitor._zeroconf.async_resolve_host = AsyncMock(side_effect=_resolve)
 
-    await monitor._resolve_non_api_mdns_targets()
+    await shared.resolve_non_api_mdns_targets(monitor)
 
     # bedroom resolves cleanly even though kitchen blew up.
     bedroom = next(d for d in devices if d.name == "bedroom")
@@ -210,7 +210,7 @@ async def test_no_zeroconf_is_a_noop() -> None:
     monitor._zeroconf = None  # simulate ``async_setup`` failure
 
     # No exception, no state change.
-    await monitor._resolve_non_api_mdns_targets()
+    await shared.resolve_non_api_mdns_targets(monitor)
     assert devices[0].state == DeviceState.UNKNOWN
 
 
@@ -227,7 +227,7 @@ async def test_already_online_via_higher_priority_skipped() -> None:
     monitor, resolver = _make_monitor(devices)
     monitor.state.state_source["kitchen"] = "mdns"  # higher than ping
 
-    await monitor._resolve_non_api_mdns_targets()
+    await shared.resolve_non_api_mdns_targets(monitor)
 
     resolver.assert_not_called()
 
@@ -248,11 +248,11 @@ async def test_resolve_hit_locks_out_ping() -> None:
     devices = [_device(loaded_integrations=["web_server"])]
     monitor, _ = _make_monitor(devices, resolved={"kitchen.local": ["192.168.1.42"]})
 
-    await monitor._resolve_non_api_mdns_targets()
+    await shared.resolve_non_api_mdns_targets(monitor)
 
     assert devices[0].state == DeviceState.ONLINE
     assert monitor.priority_for("kitchen") == "mdns"
-    assert monitor._should_ping(devices[0]) is False
+    assert shared.should_ping(monitor, devices[0]) is False
 
 
 @pytest.mark.asyncio
@@ -268,7 +268,7 @@ async def test_offline_via_ping_still_resolved() -> None:
     monitor, resolver = _make_monitor(devices, resolved={"kitchen.local": ["192.168.1.42"]})
     monitor.state.state_source["kitchen"] = "ping"
 
-    await monitor._resolve_non_api_mdns_targets()
+    await shared.resolve_non_api_mdns_targets(monitor)
 
     resolver.assert_awaited_once()
     assert devices[0].state == DeviceState.ONLINE
@@ -289,7 +289,7 @@ async def test_resolve_picks_ipv4_for_apply_ip() -> None:
         resolved={"kitchen.local": ["fe80::1%en0", "192.168.1.42", "fe80::2%en0"]},
     )
 
-    await monitor._resolve_non_api_mdns_targets()
+    await shared.resolve_non_api_mdns_targets(monitor)
 
     assert devices[0].ip == "192.168.1.42"
     assert devices[0].ip_addresses == ["fe80::1%en0", "192.168.1.42", "fe80::2%en0"]
@@ -307,7 +307,7 @@ async def test_no_candidates_skips_zeroconf_call() -> None:
     devices = [_device(loaded_integrations=["api"])]
     monitor, resolver = _make_monitor(devices)
 
-    await monitor._resolve_non_api_mdns_targets()
+    await shared.resolve_non_api_mdns_targets(monitor)
 
     resolver.assert_not_called()
 
@@ -345,6 +345,6 @@ async def test_multiple_devices_resolve_in_parallel(monkeypatch: Any) -> None:
 
     monitor._zeroconf.async_resolve_host = AsyncMock(side_effect=_resolve)
 
-    await monitor._resolve_non_api_mdns_targets()
+    await shared.resolve_non_api_mdns_targets(monitor)
 
     assert max_concurrent == 3

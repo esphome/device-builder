@@ -31,7 +31,9 @@ from esphome_device_builder.controllers._device_state_monitor import DeviceState
 from esphome_device_builder.controllers._device_state_monitor import (
     controller as state_monitor_module,
 )
+from esphome_device_builder.controllers._device_state_monitor import ping as ping_module
 from esphome_device_builder.controllers._device_state_monitor._state import MonitorState
+from esphome_device_builder.controllers._device_state_monitor.ping import PingSource
 from esphome_device_builder.controllers._reachability_tracker import ReachabilityTracker
 from esphome_device_builder.models import Device, DeviceState
 
@@ -84,6 +86,8 @@ def _make_monitor(
     monitor = DeviceStateMonitor.__new__(DeviceStateMonitor)
 
     monitor.state = MonitorState()
+
+    monitor._ping = PingSource(monitor)
     monitor._get_devices = lambda: devices
     monitor._get_devices_by_name = lambda name: [d for d in devices if d.name == name]
     monitor._is_ignored = lambda _name: False
@@ -1275,10 +1279,10 @@ async def test_start_drives_ping_pipeline_to_online_state(
     async def _fake_ping(_target: str, **_kw: Any) -> Any:
         return MagicMock(is_alive=True)
 
-    monkeypatch.setattr(state_monitor_module, "icmp_ping", _fake_ping)
+    monkeypatch.setattr(ping_module, "icmp_ping", _fake_ping)
     monitor.state.dns_cache.async_resolve = AsyncMock(return_value=["192.0.2.5"])
     monitor.state.dns_cache.has_cached_failure = MagicMock(return_value=False)
-    monkeypatch.setattr(state_monitor_module.asyncio, "sleep", _bounded_sleep_factory())
+    monkeypatch.setattr(ping_module.asyncio, "sleep", _bounded_sleep_factory())
 
     await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
     try:
@@ -1301,9 +1305,9 @@ async def test_start_with_icmplib_unavailable_skips_dns_resolution(
     """
     monitor, _callbacks = _make_monitor()
 
-    monkeypatch.setattr(state_monitor_module, "icmp_ping", None)
+    monkeypatch.setattr(ping_module, "icmp_ping", None)
     monitor.state.dns_cache.async_resolve = AsyncMock()
-    monkeypatch.setattr(state_monitor_module.asyncio, "sleep", _bounded_sleep_factory(2))
+    monkeypatch.setattr(ping_module.asyncio, "sleep", _bounded_sleep_factory(2))
 
     await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
     try:
@@ -1333,10 +1337,10 @@ async def test_start_marks_offline_on_icmp_exception(
     async def _boom(*_a: Any, **_kw: Any) -> None:
         raise OSError("name lookup failed")
 
-    monkeypatch.setattr(state_monitor_module, "icmp_ping", _boom)
+    monkeypatch.setattr(ping_module, "icmp_ping", _boom)
     monitor.state.dns_cache.async_resolve = AsyncMock(return_value=["10.0.0.1"])
     monitor.state.dns_cache.has_cached_failure = MagicMock(return_value=False)
-    monkeypatch.setattr(state_monitor_module.asyncio, "sleep", _bounded_sleep_factory(2))
+    monkeypatch.setattr(ping_module.asyncio, "sleep", _bounded_sleep_factory(2))
 
     await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
     try:
@@ -1365,11 +1369,11 @@ async def test_start_skips_ping_for_cached_dns_failures(
         icmp_called.append(target)
         return MagicMock(is_alive=True)
 
-    monkeypatch.setattr(state_monitor_module, "icmp_ping", _icmp)
+    monkeypatch.setattr(ping_module, "icmp_ping", _icmp)
     monitor.state.dns_cache.has_cached_failure = MagicMock(return_value=True)
-    monkeypatch.setattr(state_monitor_module.asyncio, "sleep", _bounded_sleep_factory(2))
+    monkeypatch.setattr(ping_module.asyncio, "sleep", _bounded_sleep_factory(2))
 
-    with caplog.at_level(logging.DEBUG, logger=state_monitor_module.__name__):
+    with caplog.at_level(logging.DEBUG, logger=ping_module.__name__):
         await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
         try:
             await _drain_ping_task(monitor)
@@ -1393,12 +1397,12 @@ async def test_start_logs_ping_count_at_debug(
     async def _icmp(_target: str, **_kw: Any) -> Any:
         return MagicMock(is_alive=True)
 
-    monkeypatch.setattr(state_monitor_module, "icmp_ping", _icmp)
+    monkeypatch.setattr(ping_module, "icmp_ping", _icmp)
     monitor.state.dns_cache.async_resolve = AsyncMock(return_value=["192.0.2.5"])
     monitor.state.dns_cache.has_cached_failure = MagicMock(return_value=False)
-    monkeypatch.setattr(state_monitor_module.asyncio, "sleep", _bounded_sleep_factory(2))
+    monkeypatch.setattr(ping_module.asyncio, "sleep", _bounded_sleep_factory(2))
 
-    with caplog.at_level(logging.DEBUG, logger=state_monitor_module.__name__):
+    with caplog.at_level(logging.DEBUG, logger=ping_module.__name__):
         await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
         try:
             await _drain_ping_task(monitor)
@@ -1425,8 +1429,8 @@ async def test_start_skips_devices_without_address(
     async def _icmp(*_a: Any, **_kw: Any) -> Any:
         raise AssertionError("icmp_ping must not be called")
 
-    monkeypatch.setattr(state_monitor_module, "icmp_ping", _icmp)
-    monkeypatch.setattr(state_monitor_module.asyncio, "sleep", _bounded_sleep_factory(2))
+    monkeypatch.setattr(ping_module, "icmp_ping", _icmp)
+    monkeypatch.setattr(ping_module.asyncio, "sleep", _bounded_sleep_factory(2))
 
     await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
     try:
@@ -1521,8 +1525,8 @@ async def test_start_uses_v6_fallback_when_only_v6_in_mdns_cache(
         # claims ONLINE and skips the icmp probe.
         raise AssertionError("icmp_ping must not be called for cached-mdns devices")
 
-    monkeypatch.setattr(state_monitor_module, "icmp_ping", _icmp)
-    monkeypatch.setattr(state_monitor_module.asyncio, "sleep", _bounded_sleep_factory(2))
+    monkeypatch.setattr(ping_module, "icmp_ping", _icmp)
+    monkeypatch.setattr(ping_module.asyncio, "sleep", _bounded_sleep_factory(2))
 
     await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
     try:

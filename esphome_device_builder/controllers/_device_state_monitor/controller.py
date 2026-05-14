@@ -16,7 +16,6 @@ lower-priority source can never override the state set by a higher one.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 from collections.abc import Callable
 from operator import attrgetter
@@ -27,17 +26,14 @@ from esphome.zeroconf import (
     DashboardImportDiscovery,
     DiscoveredImport,
 )
-from zeroconf import AddressResolver, IPVersion, ServiceStateChange
+from zeroconf import (
+    AddressResolver,
+    IPVersion,
+    ServiceStateChange,
+    current_time_millis,
+    millis_to_seconds,
+)
 from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo
-
-try:
-    from icmplib import async_ping as icmp_ping
-    from icmplib.exceptions import ICMPLibError
-except ImportError:  # pragma: no cover — icmplib is optional
-    icmp_ping = None  # type: ignore[assignment]
-    ICMPLibError = Exception  # type: ignore[misc,assignment]
-
-from zeroconf import current_time_millis, millis_to_seconds
 from zeroconf.const import (
     _CLASS_IN,
     _TYPE_A,
@@ -46,7 +42,7 @@ from zeroconf.const import (
     _TYPE_TXT,
 )
 
-from ...helpers.hostname import is_local_hostname, normalize_hostname
+from ...helpers.hostname import normalize_hostname
 from ...helpers.subscriber_presence import SubscriberPresence
 from ...models import AdoptableDevice, Device, DeviceState, ReachabilitySource
 from .._reachability_tracker import MdnsCacheInfo, ReachabilityTracker
@@ -60,6 +56,8 @@ from .helpers import (
     _pick_ipv4,
     device_name_from_service,
 )
+from .ping import PingSource
+from .shared import _MDNS_HOSTNAME_RESOLVE_TIMEOUT, _SOURCE_PRIORITY, apply_resolved_addresses
 
 _LOGGER = logging.getLogger(__name__)
 # A second mDNS browser watches for HTTP services so we can light up
@@ -68,23 +66,6 @@ _LOGGER = logging.getLogger(__name__)
 # importable-discovery flow; configured devices already get their
 # web_port from the YAML (``web_server:``).
 _HTTP_SERVICE_TYPE = "_http._tcp.local."
-# Ping fallback runs every 60s after a short bootstrap window.
-# ``_PING_BOOTSTRAP_DELAY`` gives the mDNS browser a head start so the
-# common case (everything announces) doesn't fire a ping sweep that
-# the browser would have answered for free a few seconds later. 10s
-# tracks the upstream esphome dashboard's ``MDNS_BOOTSTRAP_TIME``
-# (~7.5s) closely enough to stay correct without making the user wait
-# a full minute to see UNKNOWN devices flip OFFLINE on first load.
-_PING_INTERVAL = 60  # seconds between ping sweeps
-_PING_BOOTSTRAP_DELAY = 10  # seconds before the first ping sweep
-# Batch size matches the upstream esphome dashboard's
-# ``GROUP_SIZE = MAX_EXECUTOR_WORKERS / 2 = 24``. Each batch's pings
-# run in parallel via ``asyncio.gather``; the cap exists because
-# icmplib gets unreliable past a few dozen concurrent probes. With a
-# small fleet (≤24 ping candidates) one batch covers everything and
-# the sweep finishes in a single ICMP timeout window instead of
-# stacking N timeouts back-to-back.
-_PING_BATCH_SIZE = 24
 _MDNS_RESOLVE_TIMEOUT_MS = 2000
 # Padding added to the cached A record's TTL when the drawer's
 # refresh loop schedules its next probe. We sleep ``ttl + this``
@@ -96,23 +77,6 @@ _MDNS_RESOLVE_TIMEOUT_MS = 2000
 # broadcast…" between the record's natural expiry and our
 # scheduled wake-up.
 _MDNS_REFRESH_PADDING_SECONDS = 1.0
-# Timeout for the per-sweep mDNS hostname resolves we issue for
-# non-API devices. 3s is enough on a working LAN even when the
-# device is briefly slow to respond, and keeps the whole resolve
-# pass under the ping interval even if every target misses the
-# cache and has to round-trip on the network.
-_MDNS_HOSTNAME_RESOLVE_TIMEOUT = 3.0
-
-# Source priority for state observations. A new observation can only
-# override an existing one when its priority is greater than or equal
-# to the current source's. Keep ``unknown`` at zero so any source can
-# claim a device that no source has yet labelled.
-_SOURCE_PRIORITY: dict[str, int] = {
-    ReachabilitySource.UNKNOWN: 0,
-    ReachabilitySource.PING: 1,
-    ReachabilitySource.MQTT: 2,
-    ReachabilitySource.MDNS: 3,
-}
 
 
 # Callback signature used by DeviceStateMonitor to push state changes
@@ -264,11 +228,12 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         # existing tests that build a monitor without a presence
         # gate keep working; ``None`` means "always run the loop".
         self._presence = presence
+        self._ping = PingSource(self)
 
     async def start(self) -> None:
         """Start the mDNS browser and the periodic ping sweep."""
         await self._start_mdns_browser()
-        self._ping_task = asyncio.create_task(self._ping_loop())
+        self._ping_task = asyncio.create_task(self._ping.run())
 
     async def stop(self) -> None:
         """Tear down the browser and cancel the ping loop."""
@@ -419,7 +384,7 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         except Exception:
             _LOGGER.debug("mDNS refresh of %s failed", name, exc_info=True)
             return
-        self._apply_resolved_addresses(name, addresses)
+        apply_resolved_addresses(self, name, addresses)
 
     def _get_address_records(self, name: str) -> list[Any]:
         """Return cached A and AAAA records for *name*, or ``[]``.
@@ -542,27 +507,6 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
             ttl_remaining_seconds=ttl_remaining_s,
             txt_records=_decode_mdns_txt_records(txt_dns_records),
         )
-
-    def _apply_resolved_addresses(
-        self, name: str, addresses: list[str] | BaseException | None
-    ) -> None:
-        """Funnel a successful active-resolve into the apply path.
-
-        Both the per-subscription :meth:`refresh_mdns` and the
-        batch :meth:`_resolve_non_api_mdns_targets` need the same
-        "non-empty address list → claim mDNS-ONLINE + record IPs"
-        treatment. Sharing the branch keeps the deliberate
-        no-OFFLINE-on-miss rule (documented at the call site in
-        :meth:`_resolve_non_api_mdns_targets`) consistent across
-        both paths.
-
-        ``addresses`` accepts the union ``asyncio.gather(...,
-        return_exceptions=True)`` produces so the batch path can
-        thread its results in without a per-element type check.
-        """
-        if isinstance(addresses, list) and addresses:
-            self.apply(name, DeviceState.ONLINE, "mdns", claim=True)
-            self.apply_ip_addresses(name, addresses)
 
     def apply_ip(self, name: str, ip: str) -> bool:
         """
@@ -1197,257 +1141,3 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
             self.apply_api_encryption(device_name, value if isinstance(value, str) else "")
         elif props:
             self.apply_api_encryption(device_name, "")
-
-    async def _ping_loop(self) -> None:
-        # First sweep after the short bootstrap window — gives mDNS a
-        # head start so we don't redundantly ping devices the browser
-        # is about to flip ONLINE for free, but still gets the UNKNOWN
-        # → OFFLINE transition in front of the user within ~10s of
-        # startup instead of after a full minute.
-        await asyncio.sleep(_PING_BOOTSTRAP_DELAY)
-        # Strict pause: when wired to a SubscriberPresence gate, only
-        # sweep while at least one dashboard client is subscribed.
-        # The 0→1 transition wakes ``wait_for_subscriber`` immediately
-        # so the first user to open the dashboard sees fresh ICMP-
-        # source state within one sweep instead of waiting up to
-        # ``_PING_INTERVAL``. mDNS browsing keeps running
-        # unconditionally (it's passive), so devices that announce
-        # flip ONLINE the moment the bus delivers their cached state
-        # to the new subscriber.
-        while True:
-            if self._presence is not None:
-                await self._presence.wait_for_subscriber()
-            await self._resolve_non_api_mdns_targets()
-            await self._ping_sweep()
-            if self._presence is not None:
-                # Interruptible idle wait: bail early if the last
-                # subscriber leaves so the next one to connect
-                # doesn't sit through the rest of a stale interval.
-                # ``wait_for`` raises ``TimeoutError`` after
-                # ``_PING_INTERVAL`` when the gate stays open the
-                # whole time (the normal "still subscribed, sweep
-                # again" path). Either branch loops back to the top
-                # where ``wait_for_subscriber`` parks if the gate
-                # has since closed.
-                with contextlib.suppress(TimeoutError):
-                    await asyncio.wait_for(
-                        self._presence.wait_for_no_subscribers(),
-                        timeout=_PING_INTERVAL,
-                    )
-                continue
-            await asyncio.sleep(_PING_INTERVAL)
-
-    async def _resolve_non_api_mdns_targets(self) -> None:
-        """Actively resolve ``.local`` hostnames for non-API devices.
-
-        Devices whose YAML doesn't load the ``api`` integration
-        (web_server-only, MQTT-only, OTA-only configs) never
-        broadcast on ``_esphomelib._tcp.local.`` so the browser
-        callback never fires for them. The cache-based fallback in
-        :meth:`_select_ping_targets` only catches them when the
-        zeroconf A-record cache happens to be primed (e.g. by an
-        unrelated query). On a quiet network where ICMP is also
-        filtered (some corporate / HA setups), those devices stay
-        UNKNOWN forever even though they're reachable.
-
-        Issue an active mDNS A-record resolve for each non-API
-        device every sweep so the indicator flips ONLINE even
-        without an esphomelib service announcement. Mirrors the
-        legacy dashboard's ``async_refresh_hosts`` poll path
-        (``esphome/dashboard/status/mdns.py``). No-op when the
-        zeroconf browser failed to start.
-        """
-        if self._zeroconf is None:
-            return
-        candidates = [
-            d
-            for d in self._get_devices()
-            if d.address
-            and is_local_hostname(d.address)
-            and d.loaded_integrations
-            and "api" not in d.loaded_integrations
-            and self._should_ping(d)
-        ]
-        if not candidates:
-            return
-        results = await asyncio.gather(
-            *(
-                self._zeroconf.async_resolve_host(d.address, _MDNS_HOSTNAME_RESOLVE_TIMEOUT)
-                for d in candidates
-            ),
-            return_exceptions=True,
-        )
-        for device, addresses in zip(candidates, results, strict=True):
-            # Trust mDNS for ONLINE — the active A-record query
-            # answered, so the device is live on this LAN. Claim
-            # under the ``mdns`` source (priority 3) so the
-            # subsequent ICMP sweep skips this device entirely.
-            # Keeping ping / DNS traffic to a minimum for fleets
-            # that broadcast is a deliberate trade-off: we want
-            # mDNS to be the single source of truth for devices
-            # that respond to it.
-            self._apply_resolved_addresses(device.name, addresses)
-            # No OFFLINE branch — deliberate. The browser path can
-            # trust mDNS in both directions because the
-            # ServiceBrowser delivers a ``Removed`` event when a
-            # cached record's TTL expires without renewal; that's
-            # the canonical "I'm gone" signal. The one-off active
-            # resolve we run here has no such subscription — a
-            # miss is just "this single query didn't get a reply
-            # in time", which conflates "device gone", "device
-            # slow", and "transient packet loss". Falling back to
-            # ICMP for the OFFLINE decision in this path is the
-            # right shape: an mDNS hit upgrades to mDNS-owned
-            # ONLINE; a miss leaves the source slot at whatever
-            # ping last claimed (or unknown), and ping decides.
-
-    async def _ping_sweep(self) -> None:
-        if icmp_ping is None:
-            return
-
-        devices_to_ping = self._select_ping_targets()
-        if not devices_to_ping:
-            return
-
-        if _LOGGER.isEnabledFor(logging.DEBUG):
-            _LOGGER.debug(
-                "Pinging %d devices: %s",
-                len(devices_to_ping),
-                ", ".join(f"{d.name} ({d.address})" for d in devices_to_ping),
-            )
-
-        for i in range(0, len(devices_to_ping), _PING_BATCH_SIZE):
-            batch = devices_to_ping[i : i + _PING_BATCH_SIZE]
-            # Pre-resolve every batch via the DNS cache. icmplib would
-            # otherwise re-resolve internally on every ping (going to
-            # the system resolver each time and ignoring our cache),
-            # and the OTA cache args would have nothing to draw on for
-            # non-mDNS hostnames.
-            resolved = await asyncio.gather(
-                *(self.state.dns_cache.async_resolve(d.address) for d in batch),
-                return_exceptions=True,
-            )
-            ping_targets: list[tuple[Device, str]] = []
-            for device, addresses in zip(batch, resolved, strict=True):
-                if isinstance(addresses, list) and addresses:
-                    target = addresses[0]
-                    # Apply the resolved target so the drawer / table
-                    # have an IP to show. ``apply_ip`` already
-                    # preserves an existing multi-IP set when the
-                    # incoming target is already in it (the typical
-                    # case for a ``.local`` host with an active
-                    # ``_esphomelib._tcp`` broadcast — the ping
-                    # target is the IPv4 primary the browser
-                    # callback already populated). For ``.local``
-                    # hosts that don't broadcast ``_esphomelib._tcp``
-                    # (non-API ESPHome devices, the
-                    # zwave-proxy-seeedw5500 case) this is the only
-                    # path that ever populates ``device.ip``, so a
-                    # ping-source-only device would otherwise show
-                    # an em-dash in the drawer's IP row even after
-                    # successful pings.
-                    self.apply_ip(device.name, target)
-                    ping_targets.append((device, target))
-                else:
-                    # DNS cache says we can't resolve this hostname
-                    # (the entry is cached as a failure for the cache
-                    # TTL). Don't hand the bare hostname to icmplib —
-                    # it would re-resolve via the system resolver every
-                    # sweep, hammering DNS for nothing. Treat the cache
-                    # miss as the "we tried, can't reach" signal and
-                    # apply OFFLINE via the same source ``_ping_device``
-                    # would have used.
-                    self.apply(device.name, DeviceState.OFFLINE, "ping")
-            if ping_targets:
-                await asyncio.gather(
-                    *(self._ping_device(device, target) for device, target in ping_targets),
-                    return_exceptions=True,
-                )
-
-    def _select_ping_targets(self) -> list[Device]:
-        """
-        Filter the device list down to actual ping candidates.
-
-        Devices already known to be ONLINE via a higher-priority source
-        are skipped. ``.local`` hosts that show up in zeroconf's cache
-        are claimed for mDNS so the bare-hostname DNS fallback can't
-        resolve them to an unreachable IP on a different subnet.
-        Hostnames with a fresh DNS-failure cache entry are flipped
-        OFFLINE without a ping attempt — there's nothing to resolve, so
-        re-trying every minute would just hammer the resolver.
-        """
-        devices_to_ping: list[Device] = []
-        dns_skipped: list[Device] = []
-        for device in self._get_devices():
-            if not device.address or not self._should_ping(device):
-                continue
-            if is_local_hostname(device.address) and (
-                cached := self.get_cached_addresses(device.address)
-            ):
-                self.apply(device.name, DeviceState.ONLINE, "mdns", claim=True)
-                # Forward every cached IP so the dashboard shows all
-                # of them; ``apply_ip_addresses`` picks an IPv4 primary
-                # for ``device.ip`` so ICMP probes and OTA cache args
-                # still hit the cross-subnet-friendly entry.
-                self.apply_ip_addresses(device.name, cached)
-                continue
-            if self.state.dns_cache.has_cached_failure(device.address):
-                dns_skipped.append(device)
-                self.apply(device.name, DeviceState.OFFLINE, "ping")
-                continue
-            devices_to_ping.append(device)
-
-        if dns_skipped and _LOGGER.isEnabledFor(logging.DEBUG):
-            _LOGGER.debug(
-                "Skipping ping for %d device(s) with cached DNS failure: %s",
-                len(dns_skipped),
-                ", ".join(f"{d.name} ({d.address})" for d in dns_skipped),
-            )
-        return devices_to_ping
-
-    def _should_ping(self, device: Device) -> bool:
-        """
-        Decide whether *device* needs an ICMP probe this sweep.
-
-        Mirrors the upstream dashboard's rule: skip the device only when
-        it's already ONLINE *and* a higher-priority source (mDNS / MQTT)
-        owns it. We still ping devices that are OFFLINE or UNKNOWN so an
-        off-network host — one mDNS can't reach because it's on a
-        different subnet — has a path to come online via DNS + ping.
-        """
-        if device.state != DeviceState.ONLINE:
-            return True
-        source = self.state.state_source.get(device.name, ReachabilitySource.UNKNOWN)
-        return _SOURCE_PRIORITY.get(source, 0) <= _SOURCE_PRIORITY[ReachabilitySource.PING]
-
-    async def _ping_device(self, device: Device, target: str) -> None:
-        # Treat any failure mode as "not reachable" → OFFLINE, not as
-        # "still unknown". An exception here means resolution failed
-        # (NameLookupError), the network refused us (NoRouteToHost,
-        # PermissionError, OSError), or icmplib couldn't open a socket.
-        # In every case the user wants the dot to flip red, not stay
-        # grey forever — once mDNS / MQTT / ping have all tried, the
-        # signal is "we couldn't reach this device". A subsequent
-        # successful ping will flip it right back to ONLINE.
-        rtt_ms: float | None = None
-        try:
-            result = await icmp_ping(target, count=1, timeout=3, privileged=False)
-            is_alive = result.is_alive
-            # icmplib's ``Host.min_rtt`` is the lowest round-trip in
-            # milliseconds across the count we sent (1 here). Capture
-            # it before discarding ``result`` so the drawer can show
-            # "4 ms" beside the Ping row. ``min_rtt`` is 0.0 on a
-            # failed ping which would surface as "0 ms" — gate on
-            # ``is_alive`` so failures stay null.
-            if is_alive:
-                rtt_ms = float(result.min_rtt)
-        except (ICMPLibError, OSError) as exc:
-            # ``.local`` hosts on systems without Avahi / mdnsd hit
-            # this every sweep; the traceback adds nothing and floods
-            # the logs. One-line debug is plenty.
-            _LOGGER.debug("Ping of %s (%s) failed: %s", device.name, target, exc)
-            is_alive = False
-        new_state = DeviceState.ONLINE if is_alive else DeviceState.OFFLINE
-        if is_alive and rtt_ms is not None and self.state.reachability is not None:
-            self.state.reachability.record_ping_rtt(device.name, rtt_ms)
-        self.apply(device.name, new_state, "ping")

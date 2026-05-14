@@ -21,6 +21,7 @@ from esphome_device_builder.controllers._device_state_monitor import (
     DeviceStateMonitor,
 )
 from esphome_device_builder.controllers._device_state_monitor._state import MonitorState
+from esphome_device_builder.controllers._device_state_monitor.ping import PingSource
 from esphome_device_builder.models import Device, DeviceState
 
 from .conftest import RecordingMonitorCallbacks
@@ -30,6 +31,8 @@ def _make_monitor() -> DeviceStateMonitor:
     monitor = DeviceStateMonitor.__new__(DeviceStateMonitor)
 
     monitor.state = MonitorState()
+
+    monitor._ping = PingSource(monitor)
     monitor._zeroconf = MagicMock()
     monitor._zeroconf.zeroconf = MagicMock()
     monitor._tasks = set()
@@ -149,6 +152,8 @@ def test_probe_device_no_zeroconf_is_a_noop() -> None:
     monitor = DeviceStateMonitor.__new__(DeviceStateMonitor)
 
     monitor.state = MonitorState()
+
+    monitor._ping = PingSource(monitor)
     monitor._zeroconf = None
     monitor._tasks = set()
 
