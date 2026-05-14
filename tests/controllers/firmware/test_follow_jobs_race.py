@@ -27,7 +27,7 @@ def _make_controller(
 ) -> FirmwareController:
     """Build a ``follow_jobs``-shaped controller via the shared factory.
 
-    ``follow_jobs`` reads ``self._jobs`` and ``self._db.bus`` only;
+    ``follow_jobs`` reads ``self.state.jobs`` and ``self._db.bus`` only;
     ``with_real_bus=True`` swaps in the real ``EventBus`` so the
     listener-attach + fire semantics match production, and
     ``with_settings=False`` skips the config-dir wiring this path

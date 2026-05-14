@@ -271,7 +271,7 @@ def _firmware_controller_with(devices_controller: Any) -> FirmwareController:
     db = MagicMock()
     db.devices = devices_controller
     controller = FirmwareController(db)
-    controller._esphome_cmd = ["esphome"]
+    controller.state.esphome_cmd = ["esphome"]
     return controller
 
 

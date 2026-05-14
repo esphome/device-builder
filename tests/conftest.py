@@ -291,6 +291,30 @@ def make_remote_build_controller(
     )
 
 
+def wire_firmware_remote_peer_api_mocks(firmware: Any, jobs_by_id: dict[str, Any]) -> None:
+    """Wire a MagicMock firmware controller's remote-peer lookup API against *jobs_by_id*.
+
+    Assigns ``firmware.state.jobs = jobs_by_id`` and installs
+    ``side_effect`` callables on ``find_remote_peer_job`` and
+    ``remote_peer_job_ids`` so they return what the real
+    :class:`FirmwareController` would. Single source of truth
+    so the e2e harness and unit tests share the same stub
+    semantics.
+    """
+    firmware.state.jobs = jobs_by_id
+    firmware.find_remote_peer_job.side_effect = lambda *, remote_peer, remote_job_id: next(
+        (
+            j
+            for j in jobs_by_id.values()
+            if j.remote_peer == remote_peer and j.remote_job_id == remote_job_id
+        ),
+        None,
+    )
+    firmware.remote_peer_job_ids.side_effect = lambda *, remote_peer: [
+        j.remote_job_id for j in jobs_by_id.values() if j.remote_peer == remote_peer
+    ]
+
+
 async def cancel_and_drain(task: asyncio.Task[Any]) -> None:
     """Cancel *task* and await its termination, swallowing the resulting CancelledError.
 

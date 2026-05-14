@@ -33,6 +33,7 @@ import pytest
 
 from esphome_device_builder.controllers.config import DashboardSettings
 from esphome_device_builder.controllers.firmware import FirmwareController
+from esphome_device_builder.controllers.firmware._state import FirmwareState
 from esphome_device_builder.helpers.event_bus import Event, EventBus
 from esphome_device_builder.models import EventType, FirmwareJob
 
@@ -144,7 +145,8 @@ def firmware_controller_factory(
         with_real_bus: bool = False,
     ) -> FirmwareController:
         controller = FirmwareController.__new__(FirmwareController)
-        controller._jobs = {j.job_id: j for j in jobs}
+        controller.state = FirmwareState()
+        controller.state.jobs = {j.job_id: j for j in jobs}
         if not with_real_persistence:
             controller._persist_jobs = AsyncMock()
 
@@ -182,15 +184,15 @@ def firmware_controller_factory(
         # don't drive the runner. Without this, cancel-queued /
         # supersede tests that fire JOB_CANCELLED through the
         # helper crash on ``AttributeError``.
-        controller._current_job = None
-        controller._current_process = None
+        controller.state.current_job = None
+        controller.state.current_process = None
 
         if with_queue:
-            controller._queue = AsyncMock()
+            controller.state.queue = AsyncMock()
 
         if with_terminate:
-            controller._cancel_requested = set()
-            controller._cancel_events = {}
+            controller.state.cancel_requested = set()
+            controller.state.cancel_events = {}
             controller._terminate_current_process = AsyncMock()
 
         return controller
@@ -240,7 +242,7 @@ def capture_firmware_events() -> Iterator[CaptureEventsFactory]:
 def capture_enqueue_order() -> Iterator[CaptureEnqueueOrderFactory]:
     """Yield a factory that traces ``_queue.put`` + ``bus.fire`` into one ordered log.
 
-    Each ``await self._queue.put(job)`` appends ``(EnqueueStep.PUT, job)``
+    Each ``await self.state.queue.put(job)`` appends ``(EnqueueStep.PUT, job)``
     and each broadcast for a subscribed ``EventType`` appends
     ``(EnqueueStep.FIRE, Event)``. Tests assert the put-then-fire
     ordering by index in the returned list — the previous shape
@@ -275,13 +277,13 @@ def capture_enqueue_order() -> Iterator[CaptureEnqueueOrderFactory]:
         for event_type in event_types:
             bus.add_listener(event_type, lambda event: log.append((EnqueueStep.FIRE, event)))
 
-        swaps.append((controller, controller._queue, controller._db.bus))
-        controller._queue = queue_proxy
+        swaps.append((controller, controller.state.queue, controller._db.bus))
+        controller.state.queue = queue_proxy
         controller._db.bus = bus
         return log
 
     yield _factory
 
     for controller, original_queue, original_bus in swaps:
-        controller._queue = original_queue
+        controller.state.queue = original_queue
         controller._db.bus = original_bus

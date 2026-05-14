@@ -16,7 +16,7 @@ the user-visible contract is:
   fires).
 - The ``exclude_job_id`` guard keeps the new submission from
   cancelling itself — without it, ``_supersede_active_jobs``
-  would iterate ``self._jobs.values()``, find the new
+  would iterate ``self.state.jobs.values()``, find the new
   ``QUEUED`` entry, and immediately cancel it.
 
 Drives through public API only — submit via ``compile`` /
@@ -89,7 +89,7 @@ async def test_resubmit_does_not_cancel_itself(
     """The new submission's own ``QUEUED`` entry is excluded from supersede.
 
     Without the ``exclude_job_id`` guard,
-    ``_supersede_active_jobs`` would iterate ``self._jobs.values()``,
+    ``_supersede_active_jobs`` would iterate ``self.state.jobs.values()``,
     find the new submission's own entry (already in
     ``_jobs`` by the time supersede runs), and cancel it
     along with the predecessor — leaving the user with no
@@ -134,7 +134,7 @@ async def test_resubmit_cancels_running_predecessor(
     # justified seam as ``test_persistence.py``'s RUNNING-carryover
     # test).
     first.status = JobStatus.RUNNING
-    controller._current_job = first
+    controller.state.current_job = first
 
     second = await controller.compile(configuration="kitchen.yaml")
 
@@ -142,7 +142,7 @@ async def test_resubmit_cancels_running_predecessor(
     # ``finally`` would convert this into terminal CANCELLED on
     # the next turn (not exercised here; ``_terminate_current_process``
     # is the AsyncMock from ``with_terminate=True``).
-    assert first.job_id in controller._cancel_requested
+    assert first.job_id in controller.state.cancel_requested
     controller._terminate_current_process.assert_awaited()
     # Second submission queued normally.
     jobs = {j.job_id: j for j in await controller.get_jobs()}

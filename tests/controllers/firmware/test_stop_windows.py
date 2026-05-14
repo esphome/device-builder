@@ -16,6 +16,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from esphome_device_builder.controllers.firmware import FirmwareController
+from esphome_device_builder.controllers.firmware._state import FirmwareState
 from esphome_device_builder.helpers import process as process_module
 from esphome_device_builder.helpers.process import _terminate_subtree_windows
 from esphome_device_builder.helpers.subprocess import create_subprocess_exec
@@ -36,8 +37,9 @@ windows_only = pytest.mark.skipif(
 def controller() -> FirmwareController:
     """Stand up a FirmwareController shell — only the bits termination touches."""
     ctrl = FirmwareController.__new__(FirmwareController)
-    ctrl._current_process = None  # type: ignore[attr-defined]
-    ctrl._current_job = MagicMock(job_id="test-job")  # type: ignore[attr-defined]
+    ctrl.state = FirmwareState()
+    ctrl.state.current_process = None  # type: ignore[attr-defined]
+    ctrl.state.current_job = MagicMock(job_id="test-job")  # type: ignore[attr-defined]
     return ctrl
 
 
@@ -53,7 +55,7 @@ async def test_terminate_kills_subprocess_via_taskkill(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )
-    controller._current_process = proc  # type: ignore[attr-defined]
+    controller.state.current_process = proc  # type: ignore[attr-defined]
 
     try:
         await controller._terminate_current_process()

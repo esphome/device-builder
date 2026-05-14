@@ -207,18 +207,16 @@ class ArtifactsDownloadSender:
             await self._send_reject(session, job_id, _REASON_DUPLICATE_DOWNLOAD)
             return
 
-        firmware_job = self._find_remote_job(session.dashboard_id, job_id)
+        firmware_job = self._firmware.find_remote_peer_job(
+            remote_peer=session.dashboard_id, remote_job_id=job_id
+        )
         if firmware_job is None:
             _LOGGER.warning(
                 "download_artifacts from %s: no matching firmware job for "
                 "remote_job_id=%s (peer's submitted jobs: %s)",
                 session.dashboard_id,
                 job_id,
-                [
-                    j.remote_job_id
-                    for j in self._firmware._jobs.values()
-                    if j.remote_peer == session.dashboard_id
-                ],
+                self._firmware.remote_peer_job_ids(remote_peer=session.dashboard_id),
             )
             await self._send_reject(session, job_id, _REASON_UNKNOWN_JOB)
             return
@@ -279,23 +277,6 @@ class ArtifactsDownloadSender:
             await self._send_stream(session, job_id, packed)
         finally:
             self._inflight.pop(session.dashboard_id, None)
-
-    def _find_remote_job(self, remote_peer: str, remote_job_id: str) -> Any:
-        """Linear scan over ``FirmwareController._jobs`` for a matching remote job.
-
-        Same shape as :meth:`JobFanout.resolve_firmware_job_id`
-        but unconditional on terminal status — the download
-        path needs to find COMPLETED jobs (which JobFanout
-        evicts on terminal events). Walks ``_jobs`` directly;
-        cardinality is bounded by the firmware queue's
-        retention so the linear scan is cheap.
-
-        Returns the :class:`FirmwareJob` or ``None`` on miss.
-        """
-        for job in self._firmware._jobs.values():
-            if job.remote_peer == remote_peer and job.remote_job_id == remote_job_id:
-                return job
-        return None
 
     async def _send_reject(self, session: PeerLinkSession, job_id: str, reason: str) -> None:
         """Send a single ``artifacts_end{accepted: false, reason}`` and return."""

@@ -83,16 +83,16 @@ if TYPE_CHECKING:
 
 
 def _wire_real_queue(controller: FirmwareController) -> None:
-    controller._queue = asyncio.Queue()
+    controller.state.queue = asyncio.Queue()
 
     async def _supersede(_configuration: str, *, exclude_job_id: str) -> None:
         return
 
     controller._supersede_active_jobs = _supersede  # type: ignore[assignment]
-    controller._current_job = None
-    controller._current_process = None
-    controller._cancel_requested = set()
-    controller._cancel_events = {}
+    controller.state.current_job = None
+    controller.state.current_process = None
+    controller.state.cancel_requested = set()
+    controller.state.cancel_events = {}
 
 
 def _seed_yaml(tmp_path: Path, name: str = "kitchen.yaml") -> None:
@@ -256,7 +256,7 @@ def _set_esphome_cmd(controller: FirmwareController) -> None:
     to be a list with at least one element so ``_build_command``
     has something to splat.
     """
-    controller._esphome_cmd = [sys.executable, "-c", "pass"]
+    controller.state.esphome_cmd = [sys.executable, "-c", "pass"]
 
 
 # ---------------------------------------------------------------------------
@@ -616,7 +616,7 @@ async def test_cancel_during_hanging_verify_chip_terminates_subprocess(
         # ``_terminate_current_process`` no-ops). The poll proves the
         # registration happens BEFORE the runner waits on the proc,
         # which is the contract that makes mid-verify cancel work.
-        while controller._current_process is None:
+        while controller.state.current_process is None:
             await asyncio.sleep(0.01)
         await controller.cancel(job_id=job.job_id)
 
@@ -669,8 +669,8 @@ async def test_cancel_during_verify_chip_marks_job_cancelled(
             # before the verify subprocess returns. The fake exits
             # quickly (no real hang) so the runner reaches the post-
             # wait cancel check inside ``_verify_chip`` and raises.
-            if controller._current_job is not None:
-                controller._cancel_requested.add(controller._current_job.job_id)
+            if controller.state.current_job is not None:
+                controller.state.cancel_requested.add(controller.state.current_job.job_id)
                 cancel_armed = True
             return await real(
                 sys.executable,
@@ -696,7 +696,7 @@ async def test_cancel_during_verify_chip_marks_job_cancelled(
     # The cancel flag is consumed by the except-branch finalisation —
     # not strictly required (no other path reads it after) but pin it
     # so a future refactor that forgets the discard surfaces here.
-    assert job.job_id not in controller._cancel_requested
+    assert job.job_id not in controller.state.cancel_requested
 
 
 # ---------------------------------------------------------------------------
@@ -732,7 +732,7 @@ async def test_tracked_subprocess_registers_and_clears_current_process(
     # is unused by this test (we never trip the CancelledError or
     # post-spawn cancel paths) but is harmless.
     controller = firmware_controller_factory(with_settings=False, with_terminate=True)
-    assert controller._current_process is None
+    assert controller.state.current_process is None
 
     async with controller._tracked_subprocess(
         sys.executable,
@@ -741,11 +741,11 @@ async def test_tracked_subprocess_registers_and_clears_current_process(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     ) as proc:
-        assert controller._current_process is proc
+        assert controller.state.current_process is proc
         await proc.wait()
 
     # Restored on exit.
-    assert controller._current_process is None
+    assert controller.state.current_process is None
 
 
 @pytest.mark.asyncio
@@ -768,7 +768,7 @@ async def test_tracked_subprocess_restores_prior_value_on_exit(
     # post-spawn cancel paths) but is harmless.
     controller = firmware_controller_factory(with_settings=False, with_terminate=True)
     sentinel = object()
-    controller._current_process = sentinel  # type: ignore[assignment]
+    controller.state.current_process = sentinel  # type: ignore[assignment]
 
     async with controller._tracked_subprocess(
         sys.executable,
@@ -777,10 +777,10 @@ async def test_tracked_subprocess_restores_prior_value_on_exit(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     ) as proc:
-        assert controller._current_process is proc  # registered for the duration
+        assert controller.state.current_process is proc  # registered for the duration
         await proc.wait()
 
-    assert controller._current_process is sentinel  # restored
+    assert controller.state.current_process is sentinel  # restored
 
 
 @pytest.mark.asyncio
@@ -802,7 +802,7 @@ async def test_tracked_subprocess_restores_prior_value_on_exception(
     # is unused by this test (we never trip the CancelledError or
     # post-spawn cancel paths) but is harmless.
     controller = firmware_controller_factory(with_settings=False, with_terminate=True)
-    assert controller._current_process is None
+    assert controller.state.current_process is None
 
     with pytest.raises(RuntimeError, match="boom"):
         async with controller._tracked_subprocess(
@@ -822,7 +822,7 @@ async def test_tracked_subprocess_restores_prior_value_on_exception(
             msg = "boom"
             raise RuntimeError(msg)
 
-    assert controller._current_process is None
+    assert controller.state.current_process is None
 
 
 @pytest.mark.asyncio
@@ -840,7 +840,7 @@ async def test_cancel_in_gap_between_verify_and_main_spawn_terminates(
     ``_cancel_requested`` but ``_terminate_current_process`` walked
     a ``None`` field and no-op'd. Without the post-spawn flag check
     inside ``_execute_job`` (the ``if job.job_id in
-    self._cancel_requested: await self._terminate_current_process()``
+    self.state.cancel_requested: await self._terminate_current_process()``
     branch right after the main spawn), the install would run to
     completion before the post-``proc.wait()`` cancel handler saw
     the flag — the issue-#136 symptom for the "cancel arrived
@@ -875,7 +875,7 @@ async def test_cancel_in_gap_between_verify_and_main_spawn_terminates(
     real_terminate = controller._terminate_current_process
 
     async def _spy_terminate() -> None:
-        terminate_calls.append(controller._current_process)
+        terminate_calls.append(controller.state.current_process)
         await real_terminate()
 
     monkeypatch.setattr(controller, "_terminate_current_process", _spy_terminate)
@@ -887,8 +887,8 @@ async def test_cancel_in_gap_between_verify_and_main_spawn_terminates(
         # returning the proc — this is the "cancel arrived in
         # the verify→main-spawn gap" scenario the post-spawn
         # check guards.
-        if controller._current_job is not None:
-            controller._cancel_requested.add(controller._current_job.job_id)
+        if controller.state.current_job is not None:
+            controller.state.cancel_requested.add(controller.state.current_job.job_id)
         return await real(sys.executable, "-c", _BUILD_SCRIPT_OK, **kwargs)
 
     monkeypatch.setattr(runner_module, "create_subprocess_exec", _wrapper)

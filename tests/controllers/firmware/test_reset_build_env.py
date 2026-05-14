@@ -34,6 +34,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from esphome_device_builder.controllers.firmware import FirmwareController
+from esphome_device_builder.controllers.firmware._state import FirmwareState
 from esphome_device_builder.models import EventType, JobStatus, JobType
 from tests.controllers.firmware.conftest import (
     CaptureEnqueueOrderFactory,
@@ -173,7 +174,8 @@ def test_build_command_for_reset_build_env_uses_clean_all_with_config_dir(
     device.
     """
     controller = FirmwareController.__new__(FirmwareController)
-    controller._esphome_cmd = ["esphome"]
+    controller.state = FirmwareState()
+    controller.state.esphome_cmd = ["esphome"]
     controller._db = MagicMock()
     controller._db.devices = None
 
@@ -205,7 +207,8 @@ def test_build_command_for_reset_build_env_ignores_port_and_cache_args(
     invocation could still pass them).
     """
     controller = FirmwareController.__new__(FirmwareController)
-    controller._esphome_cmd = ["esphome"]
+    controller.state = FirmwareState()
+    controller.state.esphome_cmd = ["esphome"]
     controller._db = MagicMock()
     controller._db.devices = None
 

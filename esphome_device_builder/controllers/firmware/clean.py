@@ -90,7 +90,7 @@ async def _fan_out_clean_to_connected_peers(
 
 def _active_build_for(controller: FirmwareController, configuration: str) -> FirmwareJob | None:
     """Return any in-flight build-producing job on *configuration*, else None."""
-    for active in controller._jobs.values():
+    for active in controller.state.jobs.values():
         if active.configuration != configuration:
             continue
         if active.status not in _ACTIVE_JOB_STATUSES:

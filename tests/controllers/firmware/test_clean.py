@@ -268,7 +268,7 @@ async def test_clean_supersedes_other_active_clean_on_same_configuration(
     controller = firmware_controller_factory(with_queue=True, with_terminate=True)
     first = await controller.clean(configuration="kitchen.yaml")
     first.status = JobStatus.RUNNING
-    controller._current_job = first
+    controller.state.current_job = first
 
     second = await controller.clean(configuration="kitchen.yaml")
 
@@ -341,7 +341,7 @@ async def test_clean_fans_out_to_connected_approved_peers(
     # Assert on status, not just existence, so a regression that
     # re-introduced supersede shows up here rather than as silent
     # cancellation of every clean but the last one in production.
-    clean_jobs = [j for j in controller._jobs.values() if j.job_type is JobType.CLEAN]
+    clean_jobs = [j for j in controller.state.jobs.values() if j.job_type is JobType.CLEAN]
     assert len(clean_jobs) == 3  # 1 local + 2 remote
     assert all(j.status is JobStatus.QUEUED for j in clean_jobs), (
         "every fan-out job must stay QUEUED; if any are CANCELLED the "
@@ -402,7 +402,7 @@ async def test_clean_fan_out_does_not_supersede_sibling_jobs(
 
     statuses = {
         (j.source.value, j.source_pin_sha256[:1] or "-"): j.status
-        for j in controller._jobs.values()
+        for j in controller.state.jobs.values()
         if j.job_type is JobType.CLEAN
     }
     assert statuses == {
@@ -444,7 +444,7 @@ async def test_repeat_clean_supersedes_entire_prior_fan_out_batch(
     first_local = await controller.clean(configuration="kitchen.yaml")
     first_remotes = [
         j
-        for j in controller._jobs.values()
+        for j in controller.state.jobs.values()
         if j.source is JobSource.REMOTE
         and j.job_type is JobType.CLEAN
         and j.job_id != first_local.job_id
@@ -462,14 +462,14 @@ async def test_repeat_clean_supersedes_entire_prior_fan_out_batch(
     # the second local + its two new remotes are active.
     active = [
         j
-        for j in controller._jobs.values()
+        for j in controller.state.jobs.values()
         if j.job_type is JobType.CLEAN and j.status is JobStatus.QUEUED
     ]
     assert {j.job_id for j in active} == {
         second_local.job_id,
         *(
             j.job_id
-            for j in controller._jobs.values()
+            for j in controller.state.jobs.values()
             if j.source is JobSource.REMOTE and j.status is JobStatus.QUEUED
         ),
     }
@@ -510,7 +510,7 @@ async def test_clean_skips_disconnected_or_pending_peers(
 
     remote_pins = {
         j.source_pin_sha256
-        for j in controller._jobs.values()
+        for j in controller.state.jobs.values()
         if j.source is JobSource.REMOTE and j.job_type is JobType.CLEAN
     }
     assert remote_pins == {"c".ljust(64, "0")}
@@ -538,4 +538,4 @@ async def test_clean_with_no_remote_build_controller_skips_fan_out(
 
     assert returned.source is JobSource.LOCAL
     # No REMOTE jobs queued.
-    assert not any(j.source is JobSource.REMOTE for j in controller._jobs.values())
+    assert not any(j.source is JobSource.REMOTE for j in controller.state.jobs.values())

@@ -63,7 +63,7 @@ def create_job(
         device_name=device_name,
         device_friendly_name=device_friendly_name,
     )
-    controller._jobs[job.job_id] = job
+    controller.state.jobs[job.job_id] = job
     return job
 
 
@@ -110,7 +110,7 @@ async def enqueue(
     RENAME has *job*'s configuration locked.
     """
     controller._check_rename_lock(job)
-    await controller._queue.put(job)
+    await controller.state.queue.put(job)
     queued_payload: JobLifecycleData = {"job": job}
     controller._db.bus.fire(EventType.JOB_QUEUED, queued_payload)
     if supersede and job.configuration:
@@ -131,7 +131,7 @@ def check_rename_lock(controller: FirmwareController, job: FirmwareJob) -> None:
     new_touches = _names_touched_by_job(job)
     if not new_touches:
         return
-    for active in controller._jobs.values():
+    for active in controller.state.jobs.values():
         if active.job_type != JobType.RENAME:
             continue
         if active.status not in _ACTIVE_JOB_STATUSES:
@@ -158,7 +158,7 @@ async def supersede_active_jobs(
     """Cancel queued/running jobs for ``configuration``."""
     to_cancel = [
         j.job_id
-        for j in controller._jobs.values()
+        for j in controller.state.jobs.values()
         if j.job_id != exclude_job_id
         and j.configuration == configuration
         and j.status in _ACTIVE_JOB_STATUSES

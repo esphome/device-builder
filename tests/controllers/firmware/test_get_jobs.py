@@ -1,6 +1,6 @@
 """Coverage for the read-only firmware-job inspectors.
 
-Two handlers, both pure read-throughs against ``self._jobs``:
+Two handlers, both pure read-throughs against ``self.state.jobs``:
 
 - ``firmware/get_jobs`` — filtered + sorted listing. Filters by
   ``status`` and ``configuration``; sorts newest-first by

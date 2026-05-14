@@ -23,6 +23,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from esphome_device_builder.controllers.firmware import FirmwareController
+from esphome_device_builder.controllers.firmware._state import FirmwareState
 from esphome_device_builder.controllers.firmware.helpers import (
     PortType,
     _validate_port,
@@ -34,13 +35,14 @@ from esphome_device_builder.models import ErrorCode, FirmwareJob, JobType
 def _controller() -> FirmwareController:
     """Build a controller skeleton with just the surface ``_build_command`` needs.
 
-    ``_build_command`` only reads ``self._esphome_cmd``; the rest of
+    ``_build_command`` only reads ``self.state.esphome_cmd``; the rest of
     the controller (queue, scanner, bus) isn't relevant for these
     tests. ``__new__`` skips ``__init__`` so we don't have to seed a
     full ``DeviceBuilder``.
     """
     controller = FirmwareController.__new__(FirmwareController)
-    controller._esphome_cmd = ["esphome"]
+    controller.state = FirmwareState()
+    controller.state.esphome_cmd = ["esphome"]
     controller._db = MagicMock()
     controller._db.devices = None  # cache args become a no-op
     return controller

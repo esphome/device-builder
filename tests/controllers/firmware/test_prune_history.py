@@ -1,7 +1,7 @@
 """End-to-end coverage for ``FirmwareController._prune_history``.
 
 The prune helper runs after every terminal-state transition (and
-on cancel / clear) to keep ``self._jobs`` from growing unbounded.
+on cancel / clear) to keep ``self.state.jobs`` from growing unbounded.
 The classification logic is a three-way fork — active / primary
 terminal / aux terminal — and the aux branch
 (``aux.append(job)``) was uncovered: the existing end-to-end
@@ -58,7 +58,7 @@ async def test_cancelling_aux_jobs_below_cap_keeps_them_all(
 
     await _cancel_all(controller, job_ids)
 
-    surviving = [j for j in controller._jobs.values() if j.job_type == JobType.CLEAN]
+    surviving = [j for j in controller.state.jobs.values() if j.job_type == JobType.CLEAN]
     assert len(surviving) == under_cap
     assert all(j.status == JobStatus.CANCELLED for j in surviving)
 
@@ -70,7 +70,7 @@ async def test_cancelling_aux_jobs_over_cap_drops_oldest(
 
     Pins the ``aux.append(job)`` + ``aux[:_MAX_AUX_TERMINAL_JOBS]``
     chain end-to-end. Without the cap, a user spamming
-    ``firmware/clean`` could grow ``self._jobs`` unbounded —
+    ``firmware/clean`` could grow ``self.state.jobs`` unbounded —
     clean jobs don't get the per-configuration dedup the primary
     pool uses, so a separate cap is the only thing keeping the
     pool bounded.
@@ -82,7 +82,7 @@ async def test_cancelling_aux_jobs_over_cap_drops_oldest(
 
     await _cancel_all(controller, job_ids)
 
-    surviving_ids = set(controller._jobs.keys())
+    surviving_ids = set(controller.state.jobs.keys())
     assert len(surviving_ids) == _MAX_AUX_TERMINAL_JOBS
     # Newest-first ordering: the most-recently submitted ids
     # survive, the oldest ``overflow`` are evicted.
@@ -111,9 +111,9 @@ async def test_aux_overflow_does_not_evict_compile_jobs(
     await _cancel_all(controller, clean_ids)
 
     # The compile (primary) survived the aux flood.
-    assert compile_job.job_id in controller._jobs
+    assert compile_job.job_id in controller.state.jobs
     # Aux pool got capped.
-    aux_kept = [j for j in controller._jobs.values() if j.job_type == JobType.CLEAN]
+    aux_kept = [j for j in controller.state.jobs.values() if j.job_type == JobType.CLEAN]
     assert len(aux_kept) == _MAX_AUX_TERMINAL_JOBS
 
 
@@ -139,12 +139,12 @@ async def test_active_aux_job_survives_aux_overflow(
     await _cancel_all(controller, overflow_ids)
 
     # Queued job is still in _jobs.
-    assert queued_job.job_id in controller._jobs
-    assert controller._jobs[queued_job.job_id].status == JobStatus.QUEUED
+    assert queued_job.job_id in controller.state.jobs
+    assert controller.state.jobs[queued_job.job_id].status == JobStatus.QUEUED
     # Terminal aux pool capped (queued job doesn't count toward the cap).
     terminal_cleans = [
         j
-        for j in controller._jobs.values()
+        for j in controller.state.jobs.values()
         if j.job_type == JobType.CLEAN and j.status != JobStatus.QUEUED
     ]
     assert len(terminal_cleans) == _MAX_AUX_TERMINAL_JOBS
@@ -178,6 +178,6 @@ async def test_aux_pool_keeps_repeated_cleans_against_same_configuration(
     # All three survived — supersede cancelled the first two (now
     # in the aux pool) and the third is still QUEUED. None were
     # collapsed by configuration.
-    assert set(job_ids).issubset(controller._jobs.keys())
-    statuses = {controller._jobs[jid].status for jid in job_ids}
+    assert set(job_ids).issubset(controller.state.jobs.keys())
+    statuses = {controller.state.jobs[jid].status for jid in job_ids}
     assert statuses == {JobStatus.CANCELLED, JobStatus.QUEUED}

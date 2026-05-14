@@ -6,7 +6,7 @@ implementation rewrite (separate ``jobs.json`` file, sqlite,
 whatever) keeps the tests passing as long as the user-visible
 behaviour is preserved. Two acknowledged seams remain:
 
-- The ``RUNNING``-carryover test mutates ``writer._jobs[id]``
+- The ``RUNNING``-carryover test mutates ``writer.state.jobs[id]``
   directly to simulate "the runner was mid-build when the
   dashboard died". There's no public API for putting a job
   into ``RUNNING`` status without spawning a real ``esphome``
@@ -22,7 +22,7 @@ behaviour is preserved. Two acknowledged seams remain:
 Some tests also assert on ``_queue.put`` (which the conftest
 factory installs as ``AsyncMock``) to confirm the load path
 actually exchanged the job onto the queue — ``get_jobs()``
-alone reads ``self._jobs`` and would pass even if the runner
+alone reads ``self.state.jobs`` and would pass even if the runner
 never saw the job. That's a defence-in-depth check on the
 ``"will run after restart"`` half of the policy.
 
@@ -145,11 +145,11 @@ async def test_queued_job_survives_dashboard_restart(
     assert after_restart[0].status == JobStatus.QUEUED
     assert after_restart[0].configuration == "kitchen.yaml"
     # Confirm the load path actually put the job back on the queue,
-    # not just into ``self._jobs``. ``get_jobs`` reads the in-memory
+    # not just into ``self.state.jobs``. ``get_jobs`` reads the in-memory
     # map, which would still pass if ``_load_jobs`` forgot to
-    # ``await self._queue.put(...)``.
-    reader._queue.put.assert_awaited_once()
-    queued_arg = reader._queue.put.await_args.args[0]
+    # ``await self.state.queue.put(...)``.
+    reader.state.queue.put.assert_awaited_once()
+    queued_arg = reader.state.queue.put.await_args.args[0]
     assert queued_arg.job_id == queued.job_id
 
 
@@ -179,7 +179,7 @@ async def test_running_job_re_queues_with_clean_state_after_restart(
     problem; without it the rebuild's lines would silently
     concatenate onto whatever the crash left behind.
 
-    Phase 1 has to mutate ``self._jobs[...].status`` directly to
+    Phase 1 has to mutate ``self.state.jobs[...].status`` directly to
     simulate the runner having picked up the job before the
     dashboard went down — there's no public API for "make the
     runner mid-build" without spawning a real ``esphome``.
@@ -193,7 +193,7 @@ async def test_running_job_re_queues_with_clean_state_after_restart(
     # the status flip + per-run state are what the real runner
     # would have set on its own. Persistence happens implicitly
     # via the next ``compile`` submission's enqueue path.
-    in_flight = writer._jobs[queued.job_id]
+    in_flight = writer.state.jobs[queued.job_id]
     in_flight.status = JobStatus.RUNNING
     in_flight.output = ["compile in progress …\n", "src/main.cpp\n"]
     in_flight.progress = 47
@@ -225,8 +225,8 @@ async def test_running_job_re_queues_with_clean_state_after_restart(
     # The load path put both jobs (the running carryover + the
     # follow-up queued sibling) onto the queue — confirms the
     # carryover will actually run, not just sit ``QUEUED`` in
-    # ``self._jobs`` forever.
-    queued_ids = {call.args[0].job_id for call in reader._queue.put.await_args_list}
+    # ``self.state.jobs`` forever.
+    queued_ids = {call.args[0].job_id for call in reader.state.queue.put.await_args_list}
     assert queued.job_id in queued_ids
 
 
@@ -255,7 +255,7 @@ async def test_resumed_running_job_completes_on_next_run(
     (tmp_path / "kitchen.yaml").write_text("")
     writer = _persistent_controller(firmware_controller_factory)
     queued = await writer.compile(configuration="kitchen.yaml")
-    in_flight = writer._jobs[queued.job_id]
+    in_flight = writer.state.jobs[queued.job_id]
     in_flight.status = JobStatus.RUNNING
     in_flight.output = ["compile in progress …\n"]
     in_flight.progress = 47
@@ -269,7 +269,7 @@ async def test_resumed_running_job_completes_on_next_run(
     # that just assert on calls, but the runner needs a real
     # ``asyncio.Queue`` so ``_load_jobs``'s ``put`` and
     # ``_run_queue``'s ``get`` actually exchange jobs.
-    reader._queue = asyncio.Queue()
+    reader.state.queue = asyncio.Queue()
 
     # Replace _execute_job with a fast COMPLETED transition so we
     # don't actually spawn ``esphome``. The runner's loop calls
@@ -348,7 +348,7 @@ async def test_cancelled_job_survives_restart_without_being_requeued(
     # job at status ``CANCELLED`` would pass even if the loader
     # accidentally put it on the queue too — assert the queue
     # interaction explicitly.
-    reader._queue.put.assert_not_awaited()
+    reader.state.queue.put.assert_not_awaited()
 
 
 @pytest.mark.asyncio

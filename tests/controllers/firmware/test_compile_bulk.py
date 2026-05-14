@@ -70,7 +70,7 @@ async def test_compile_bulk_rejects_whole_batch_on_traversal_entry(
     something the caller wants to know about, not have masked
     by partial success. Pin both halves: the validator raises
     ``CommandError(INVALID_ARGS)``, AND no jobs land in
-    ``self._jobs`` (the validator runs *before* the per-entry
+    ``self.state.jobs`` (the validator runs *before* the per-entry
     enqueue loop, so a single bad entry must keep every other
     entry's job from being created too).
     """

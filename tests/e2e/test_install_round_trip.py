@@ -26,7 +26,7 @@ fan-out, then download_artifacts, all keyed on the same
 ``(offloader dashboard_id, offloader-side job_id)`` correlation
 through to the receiver's
 ``ArtifactsDownloadSender._find_remote_job`` linear scan over
-``firmware._jobs``. A regression that breaks the correlation
+``firmware.state.jobs``. A regression that breaks the correlation
 between the submit-side and download-side reads, or one that
 fails to keep the session healthy across two application-
 message types, would slip past the per-flow tests but surface
@@ -86,7 +86,7 @@ from esphome_device_builder.models import (
 )
 
 from .._storage_fixtures import write_storage_json
-from ..conftest import capture_events
+from ..conftest import capture_events, wire_firmware_remote_peer_api_mocks
 from .conftest import PairedInstances
 
 
@@ -129,8 +129,8 @@ def _wire_receiver_firmware_recorder(instances: PairedInstances) -> list[Firmwar
     ``QUEUED`` → ``COMPLETED`` after firing the lifecycle events
     so the download-side ``_find_remote_job`` accepts it.
 
-    ``firmware._jobs`` is a real dict (not a mock) so the
-    receiver-side download path's ``firmware._jobs.values()``
+    ``firmware.state.jobs`` is a real dict (not a mock) so the
+    receiver-side download path's ``firmware.state.jobs.values()``
     iteration finds the recorded job. Production has the real
     queue populating this dict; here we populate it from
     ``_create_job``.
@@ -161,7 +161,7 @@ def _wire_receiver_firmware_recorder(instances: PairedInstances) -> list[Firmwar
     firmware = instances.receiver._db.firmware
     firmware._create_job = MagicMock(side_effect=_create_job)
     firmware._enqueue = AsyncMock(side_effect=lambda job: job)
-    firmware._jobs = receiver_jobs
+    wire_firmware_remote_peer_api_mocks(firmware, receiver_jobs)
     # ``_on_firmware_queue_transition`` (registered on every
     # JOB_QUEUED / JOB_STARTED / terminal event) reads
     # ``queue_status_snapshot()`` and tuple-unpacks the result.

@@ -33,6 +33,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from esphome_device_builder.controllers.firmware import FirmwareController
+from esphome_device_builder.controllers.firmware._state import FirmwareState
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import (
     ErrorCode,
@@ -147,12 +148,12 @@ async def test_follow_jobs_returns_immediately_when_client_is_none(
     The WS dispatcher passes ``client=None`` for in-process
     callers (e.g. the WS test harness driving the handler
     without a live socket). Without the early return, the
-    handler would later iterate ``self._jobs`` and call
+    handler would later iterate ``self.state.jobs`` and call
     ``client.send_event`` on ``None`` — an attribute error,
     not a clean shape mismatch.
     """
     controller = firmware_controller_factory()
-    controller._jobs = {
+    controller.state.jobs = {
         "j1": _job("j1", "kitchen.yaml", JobType.COMPILE, status=JobStatus.COMPLETED),
     }
 
@@ -180,9 +181,9 @@ async def test_run_queue_skips_cancelled_jobs_without_spawning(
     spawn a real subprocess for a job the user already gave up on.
     """
     controller = firmware_controller_factory()
-    controller._queue = asyncio.Queue()
+    controller.state.queue = asyncio.Queue()
     cancelled = _job("j1", "kitchen.yaml", JobType.COMPILE, status=JobStatus.CANCELLED)
-    await controller._queue.put(cancelled)
+    await controller.state.queue.put(cancelled)
 
     spawned = False
 
@@ -196,7 +197,7 @@ async def test_run_queue_skips_cancelled_jobs_without_spawning(
     # Give the runner a chance to dequeue + skip + return for next get.
     for _ in range(20):
         await asyncio.sleep(0)
-        if controller._queue.empty():
+        if controller.state.queue.empty():
             break
     runner.cancel()
     with contextlib.suppress(asyncio.CancelledError):
@@ -219,8 +220,8 @@ async def test_terminate_current_process_no_op_when_no_process(
     against ``None`` would surface as a hard error here.
     """
     controller = firmware_controller_factory()
-    controller._current_process = None
-    controller._current_job = None
+    controller.state.current_process = None
+    controller.state.current_job = None
 
     # Should return without raising; no process to terminate.
     await controller._terminate_current_process()
@@ -240,7 +241,8 @@ def test_build_command_for_rename_appends_new_name_positional() -> None:
     "rename failed" with no actionable hint. Pin the arg order.
     """
     controller = FirmwareController.__new__(FirmwareController)
-    controller._esphome_cmd = ["esphome"]
+    controller.state = FirmwareState()
+    controller.state.esphome_cmd = ["esphome"]
     controller._db = MagicMock()
     controller._db.devices = None
 
@@ -291,5 +293,5 @@ def test_prune_history_collapses_primary_jobs_to_newest_per_configuration(
 
     controller._prune_history()
 
-    surviving_ids = set(controller._jobs.keys())
+    surviving_ids = set(controller.state.jobs.keys())
     assert surviving_ids == {"new"}

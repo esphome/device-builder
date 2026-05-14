@@ -61,34 +61,34 @@ if TYPE_CHECKING:
 def _wire_real_queue(controller: FirmwareController) -> None:
     """Swap the conftest's ``AsyncMock`` queue for a real ``asyncio.Queue``.
 
-    The runner does ``await self._queue.get()``; an ``AsyncMock``
+    The runner does ``await self.state.queue.get()``; an ``AsyncMock``
     returns its default sentinel immediately and the runner would
     spin instead of waiting for a real submission. Pair the queue
     swap with the supersede stub (passthrough) and the
     cancel-tracking surface ``_execute_job`` reads.
     """
-    controller._queue = asyncio.Queue()
+    controller.state.queue = asyncio.Queue()
 
     async def _supersede(_configuration: str, *, exclude_job_id: str) -> None:
         return
 
     controller._supersede_active_jobs = _supersede  # type: ignore[assignment]
-    controller._current_job = None
-    controller._current_process = None
-    controller._cancel_requested = set()
-    controller._cancel_events = {}
+    controller.state.current_job = None
+    controller.state.current_process = None
+    controller.state.cancel_requested = set()
+    controller.state.cancel_events = {}
 
 
 def _fake_esphome(controller: FirmwareController, script: str) -> None:
     """Point ``_esphome_cmd`` at an inline Python script.
 
-    ``_build_command`` produces ``[*self._esphome_cmd, '--dashboard',
+    ``_build_command`` produces ``[*self.state.esphome_cmd, '--dashboard',
     *cache_args, '<subcommand>', '<config_path>', ...]`` — so the
     script will see ``sys.argv == [<script>, '--dashboard', 'compile',
     '<path>']``. Scripts ignore the args and just emit the output
     shape the test wants to exercise.
     """
-    controller._esphome_cmd = [sys.executable, "-c", script]
+    controller.state.esphome_cmd = [sys.executable, "-c", script]
 
 
 def _seed_yaml(tmp_path: Path, name: str = "kitchen.yaml") -> None:
@@ -312,7 +312,7 @@ async def test_compile_mid_run_cancel_marks_cancelled(
 
     The user-cancelled path: the runner subprocess gets terminated
     (or completes with a non-zero exit because we sent SIGTERM),
-    and the runner consults ``self._cancel_requested`` to
+    and the runner consults ``self.state.cancel_requested`` to
     distinguish "user pulled the plug" from "the build genuinely
     failed". Without this branch every cancel would render as a
     red FAILED row in the dashboard's job table, confusing the
@@ -356,7 +356,7 @@ async def test_compile_mid_run_cancel_marks_cancelled(
         captured.append({"type": event_type, "data": data})
         # First JOB_OUTPUT line means the subprocess is up,
         # streaming through ``iter_lines_with_progress``, and
-        # ``self._current_process`` has been assigned.
+        # ``self.state.current_process`` has been assigned.
         if event_type == EventType.JOB_OUTPUT:
             proc_alive.set()
         elif event_type == EventType.JOB_CANCELLED:
@@ -372,9 +372,9 @@ async def test_compile_mid_run_cancel_marks_cancelled(
         # Mark cancel + terminate the process — the runner picks
         # up the cancel flag when it loops back to read the next
         # line and sees EOF.
-        controller._cancel_requested.add(job.job_id)
-        assert controller._current_process is not None
-        controller._current_process.terminate()
+        controller.state.cancel_requested.add(job.job_id)
+        assert controller.state.current_process is not None
+        controller.state.current_process.terminate()
 
         # Wait for the cancel event from the runner's natural
         # post-``proc.wait()`` path, NOT from ``runner_task.cancel()``
@@ -397,7 +397,7 @@ async def test_compile_mid_run_cancel_marks_cancelled(
     assert any(c["type"] == EventType.JOB_CANCELLED for c in captured)
     assert not any(c["type"] == EventType.JOB_FAILED for c in captured)
     # Cancel id is consumed so a re-queue with the same id wouldn't auto-cancel.
-    assert job.job_id not in controller._cancel_requested
+    assert job.job_id not in controller.state.cancel_requested
 
 
 @pytest.mark.asyncio
@@ -454,8 +454,8 @@ async def test_execute_job_runner_shutdown_terminates_and_marks_cancelled(
     runner_task = asyncio.create_task(controller._run_queue())
     try:
         await asyncio.wait_for(proc_alive.wait(), timeout=10.0)
-        assert controller._current_process is not None
-        proc = controller._current_process
+        assert controller.state.current_process is not None
+        proc = controller.state.current_process
 
         # Cancel the runner task itself — this is the shutdown shape,
         # not the user-cancel one. Nothing is added to
@@ -480,7 +480,7 @@ async def test_execute_job_runner_shutdown_terminates_and_marks_cancelled(
     assert proc.returncode is not None, "runner-shutdown branch should have terminated the proc"
     # The discard is unconditional — it's a no-op when the id wasn't
     # in the set, which is exactly the shutdown case.
-    assert job.job_id not in controller._cancel_requested
+    assert job.job_id not in controller.state.cancel_requested
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX process-group semantics")

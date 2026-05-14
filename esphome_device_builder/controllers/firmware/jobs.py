@@ -29,7 +29,7 @@ async def get_jobs(
     configuration: str | None = None,
 ) -> list[FirmwareJob]:
     """List jobs, optionally filtered by status or configuration."""
-    jobs = list(controller._jobs.values())
+    jobs = list(controller.state.jobs.values())
     if status:
         jobs = [j for j in jobs if j.status == status]
     if configuration:
@@ -39,7 +39,7 @@ async def get_jobs(
 
 async def get_job(controller: FirmwareController, *, job_id: str) -> FirmwareJob | None:
     """Get a specific job with full output."""
-    return controller._jobs.get(job_id)
+    return controller.state.jobs.get(job_id)
 
 
 def active_remote_peer_jobs(controller: FirmwareController) -> Iterator[FirmwareJob]:
@@ -47,14 +47,42 @@ def active_remote_peer_jobs(controller: FirmwareController) -> Iterator[Firmware
 
     ``remote_peer`` is empty on locally-submitted jobs so they're
     filtered out; the public accessor exists so callers don't
-    reach into ``_jobs`` directly.
+    reach into ``state.jobs`` directly.
     """
-    for job in controller._jobs.values():
+    for job in controller.state.jobs.values():
         if job.status not in _ACTIVE_JOB_STATUSES:
             continue
         if not job.remote_peer:
             continue
         yield job
+
+
+def find_remote_peer_job(
+    controller: FirmwareController, *, remote_peer: str, remote_job_id: str
+) -> FirmwareJob | None:
+    """Return the FirmwareJob matching (*remote_peer*, *remote_job_id*), or None.
+
+    Linear scan over ``state.jobs.values()``; cardinality is
+    bounded by the firmware queue's retention so the scan is
+    cheap. Public accessor so cross-package callers (the
+    receiver's artifacts-download path) don't reach into
+    ``state.jobs`` directly.
+    """
+    for job in controller.state.jobs.values():
+        if job.remote_peer == remote_peer and job.remote_job_id == remote_job_id:
+            return job
+    return None
+
+
+def remote_peer_job_ids(controller: FirmwareController, *, remote_peer: str) -> list[str]:
+    """Return the ``remote_job_id`` of every job in the queue submitted by *remote_peer*.
+
+    Used by the artifacts-download reject-log to surface the
+    available ids when a requested one doesn't match. Public
+    accessor so the cross-package caller doesn't reach into
+    ``state.jobs`` directly.
+    """
+    return [j.remote_job_id for j in controller.state.jobs.values() if j.remote_peer == remote_peer]
 
 
 async def cancel(controller: FirmwareController, *, job_id: str) -> None:
@@ -72,7 +100,7 @@ async def cancel(controller: FirmwareController, *, job_id: str) -> None:
     status. State-out-of-sync stays as ``RuntimeError`` (server
     bug, not user input).
     """
-    job = controller._jobs.get(job_id)
+    job = controller.state.jobs.get(job_id)
     if not job:
         msg = f"Job not found: {job_id}"
         raise CommandError(ErrorCode.NOT_FOUND, msg)
@@ -90,14 +118,14 @@ async def cancel(controller: FirmwareController, *, job_id: str) -> None:
         return
 
     if job.status == JobStatus.RUNNING:
-        if controller._current_job is None or controller._current_job.job_id != job_id:
+        if controller.state.current_job is None or controller.state.current_job.job_id != job_id:
             msg = "Running job is not the active subprocess (state out of sync)"
             raise RuntimeError(msg)
-        controller._cancel_requested.add(job_id)
+        controller.state.cancel_requested.add(job_id)
         # Wake any runner parked on its cancel event — only the
         # remote runner registers one; the local subprocess path's
         # wake signal is SIGTERM on the spawned process.
-        cancel_event = controller._cancel_events.get(job_id)
+        cancel_event = controller.state.cancel_events.get(job_id)
         if cancel_event is not None:
             cancel_event.set()
         await controller._terminate_current_process()
@@ -112,9 +140,9 @@ async def clear(controller: FirmwareController, *, status: JobStatus | str | Non
     terminal = TERMINAL_JOB_STATUSES
     to_remove = [
         jid
-        for jid, job in controller._jobs.items()
+        for jid, job in controller.state.jobs.items()
         if (status and job.status == status) or (not status and job.status in terminal)
     ]
     for jid in to_remove:
-        del controller._jobs[jid]
+        del controller.state.jobs[jid]
     await controller._persist_jobs()

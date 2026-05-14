@@ -151,7 +151,7 @@ async def run_remote_job(
     # ``asyncio.wait({terminal, session_lost, cancel_event_task})``
     # and wakes on whichever fires first.
     cancel_event = asyncio.Event()
-    controller._cancel_events[job.job_id] = cancel_event
+    controller.state.cancel_events[job.job_id] = cancel_event
     # A cancel that landed during ``_execute_job``'s pre-runner
     # phase (``_current_job = job`` is set before the persist
     # await, so the cancel handler accepts the request and
@@ -160,7 +160,7 @@ async def run_remote_job(
     # ``_cancel_events.get(job_id)`` returns ``None`` and the
     # ``set()`` is skipped). Replay the late wake here so the
     # runner doesn't park on an event that will never fire.
-    if job.job_id in controller._cancel_requested:
+    if job.job_id in controller.state.cancel_requested:
         cancel_event.set()
 
     def _is_ours(data: OffloaderJobOutputData | OffloaderJobStateChangedData) -> bool:
@@ -215,7 +215,7 @@ async def run_remote_job(
         # Clean up the registration so a future job reusing the
         # id (theoretical — uuid4 collision aside) doesn't
         # signal a stale event.
-        controller._cancel_events.pop(job.job_id, None)
+        controller.state.cancel_events.pop(job.job_id, None)
 
 
 async def _dispatch_and_drive(
@@ -474,7 +474,7 @@ async def _await_terminal(
             cancel_wait.cancel()
 
     data = terminal.result()
-    if job.job_id in controller._cancel_requested:
+    if job.job_id in controller.state.cancel_requested:
         # User cancel beat the receiver's terminal frame to the
         # loop (receiver completed / failed while our cancel was
         # in flight). Mirror the local subprocess path: user
@@ -546,7 +546,7 @@ async def _fetch_and_materialise(
 
     # Honour a cancel that arrived between the receiver's
     # completed frame and us getting here.
-    if job.job_id in controller._cancel_requested:
+    if job.job_id in controller.state.cancel_requested:
         controller._finalize_cancelled(job)
         return False
     return True
@@ -569,7 +569,7 @@ async def _fetch_and_run_local_upload(
     # Cancel that landed after ``_fetch_and_materialise``'s
     # own check returned True — same race window the old
     # one-shot helper covered.
-    if job.job_id in controller._cancel_requested:
+    if job.job_id in controller.state.cancel_requested:
         controller._finalize_cancelled(job)
         return
 
@@ -596,7 +596,7 @@ async def _fetch_and_run_local_upload(
 
     cache_args = controller._build_cache_args(job)
     cmd = [
-        *controller._esphome_cmd,
+        *controller.state.esphome_cmd,
         "--dashboard",
         *cache_args,
         "upload",
@@ -651,7 +651,7 @@ async def _run_upload_subprocess(
     (``_ingest_output_line``) so the firmware-tasks UI sees
     one event stream regardless of which CPU produced the
     bytes. ``_tracked_subprocess`` registers the spawn with
-    ``controller._current_process`` so a concurrent
+    ``controller.state.current_process`` so a concurrent
     ``firmware/cancel`` lands SIGTERM on the upload chain
     just like it does for the local-only path.
     """
@@ -669,7 +669,7 @@ async def _run_upload_subprocess(
         # ``download_artifacts`` await and the spawn — without
         # this check, the subprocess gets started for a job
         # the user already aborted.
-        if job.job_id in controller._cancel_requested:
+        if job.job_id in controller.state.cancel_requested:
             await controller._terminate_current_process()
 
         assert proc.stdout is not None  # type narrowing
@@ -678,7 +678,7 @@ async def _run_upload_subprocess(
 
         exit_code = await proc.wait()
 
-    if job.job_id in controller._cancel_requested:
+    if job.job_id in controller.state.cancel_requested:
         controller._finalize_cancelled(job)
         return None
     job.exit_code = exit_code
@@ -777,7 +777,7 @@ def _fail_locally(
     subprocess path's contract.
     """
     error = f"{_REMOTE_BUILD_ERROR_PREFIX}{reason}"
-    if job.job_id in controller._cancel_requested:
+    if job.job_id in controller.state.cancel_requested:
         controller._finalize_cancelled(job)
         _LOGGER.info("Remote job %s cancelled (failure path: %s)", job.job_id, error)
         return

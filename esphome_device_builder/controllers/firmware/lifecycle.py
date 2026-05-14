@@ -37,9 +37,9 @@ def finalize_terminal(controller: FirmwareController, job: FirmwareJob, status: 
     must set it on the job before calling.
     """
     _mark_job_terminal(job, status)
-    if controller._current_job is job:
-        controller._current_job = None
-        controller._current_process = None
+    if controller.state.current_job is job:
+        controller.state.current_job = None
+        controller.state.current_process = None
     payload: JobLifecycleData = {"job": job}
     controller._db.bus.fire(_STATUS_TO_TERMINAL_EVENT[status], payload)
 
@@ -51,7 +51,7 @@ def finalize_cancelled(controller: FirmwareController, job: FirmwareJob) -> None
     :meth:`FirmwareController.cancel` runs (``_prune_history`` +
     ``_persist_jobs``); the runner has already seen the job.
     """
-    controller._cancel_requested.discard(job.job_id)
+    controller.state.cancel_requested.discard(job.job_id)
     # Route through the bound-method delegate so test patches on
     # ``controller._finalize_terminal`` intercept this path too.
     controller._finalize_terminal(job, JobStatus.CANCELLED)
@@ -64,7 +64,7 @@ def raise_if_cancelled(controller: FirmwareController, job: FirmwareJob, phase: 
     cancel-aware ``except Exception`` branch keys off to finalise
     as CANCELLED instead of FAILED.
     """
-    if job.job_id in controller._cancel_requested:
+    if job.job_id in controller.state.cancel_requested:
         msg = f"Cancelled during {phase}"
         raise ValueError(msg)
 
@@ -78,10 +78,12 @@ async def terminate_current_process(controller: FirmwareController) -> None:
     /T`` on Windows. The runner loop is what actually finalises
     the job on exit — this helper only nudges the process.
     """
-    proc = controller._current_process
+    proc = controller.state.current_process
     if proc is None:
         return
     await terminate_subtree_with_grace(
         proc,
-        job_label=f"job {controller._current_job.job_id}" if controller._current_job else "job ?",
+        job_label=f"job {controller.state.current_job.job_id}"
+        if controller.state.current_job
+        else "job ?",
     )

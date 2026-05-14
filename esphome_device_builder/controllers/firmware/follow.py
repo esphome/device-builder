@@ -37,7 +37,7 @@ async def follow_job(
     every line appended during replay, and the gap widened
     forever after the first in-flight ``_trim_job_output`` reassign.
     """
-    job = controller._jobs.get(job_id)
+    job = controller.state.jobs.get(job_id)
     if not job:
         msg = f"Job not found: {job_id}"
         raise ValueError(msg)
@@ -136,7 +136,10 @@ async def follow_jobs(
     # both the snapshot AND the listener, so the client sees the
     # same line twice.
     snapshot_payloads = (
-        [job.to_dict() for job in sorted(controller._jobs.values(), key=attrgetter("created_at"))]
+        [
+            job.to_dict()
+            for job in sorted(controller.state.jobs.values(), key=attrgetter("created_at"))
+        ]
         if snapshot
         else []
     )

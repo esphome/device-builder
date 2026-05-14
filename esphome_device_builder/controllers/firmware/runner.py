@@ -36,7 +36,7 @@ _LOGGER = logging.getLogger(__name__)
 async def run_queue(controller: FirmwareController) -> None:
     """Background loop: process one job at a time."""
     while True:
-        job = await controller._queue.get()
+        job = await controller.state.queue.get()
         if job.status == JobStatus.CANCELLED:
             continue
         await controller._execute_job(job)
@@ -48,7 +48,7 @@ async def execute_job(  # noqa: PLR0912, PLR0915
     """Execute a single firmware job."""
     job.status = JobStatus.RUNNING
     job.started_at = datetime.now(UTC).isoformat()
-    controller._current_job = job
+    controller.state.current_job = job
     _LOGGER.info(
         "Starting job %s: %s %s",
         job.job_id,
@@ -132,7 +132,7 @@ async def execute_job(  # noqa: PLR0912, PLR0915
             # the brief async window where ``_current_process`` was
             # ``None`` lets the install run to completion before the
             # post-``proc.wait()`` cancel check sees the flag.
-            if job.job_id in controller._cancel_requested:
+            if job.job_id in controller.state.cancel_requested:
                 await controller._terminate_current_process()
 
             assert proc.stdout is not None  # type narrowing
@@ -169,7 +169,7 @@ async def execute_job(  # noqa: PLR0912, PLR0915
         # If the user cancelled this job mid-run, the subprocess
         # exits non-zero (terminated by signal). Honour that
         # intent rather than reporting it as a generic failure.
-        if job.job_id in controller._cancel_requested:
+        if job.job_id in controller.state.cancel_requested:
             controller._finalize_cancelled(job)
             _LOGGER.info("Job %s cancelled mid-run (exit %s)", job.job_id, exit_code)
         else:
@@ -213,7 +213,7 @@ async def execute_job(  # noqa: PLR0912, PLR0915
         # to short-circuit the install — without this branch
         # that error would be reported as a generic failure
         # rather than the user-driven cancel it actually is.
-        if job.job_id in controller._cancel_requested:
+        if job.job_id in controller.state.cancel_requested:
             controller._finalize_cancelled(job)
             _LOGGER.info("Job %s cancelled before subprocess wait: %s", job.job_id, exc)
         else:
@@ -221,8 +221,8 @@ async def execute_job(  # noqa: PLR0912, PLR0915
             controller._finalize_terminal(job, JobStatus.FAILED)
             _LOGGER.exception("Job %s failed: %s", job.job_id, exc)
     finally:
-        controller._current_job = None
-        controller._current_process = None
+        controller.state.current_job = None
+        controller.state.current_process = None
         if job.status in (
             JobStatus.COMPLETED,
             JobStatus.FAILED,
@@ -317,8 +317,8 @@ async def tracked_subprocess(
     between this subprocess and the next one.
     """
     proc = await create_subprocess_exec(*args, **kwargs)
-    prev = controller._current_process
-    controller._current_process = proc
+    prev = controller.state.current_process
+    controller.state.current_process = proc
     try:
         yield proc
     except asyncio.CancelledError:
@@ -335,4 +335,4 @@ async def tracked_subprocess(
         await controller._terminate_current_process()
         raise
     finally:
-        controller._current_process = prev
+        controller.state.current_process = prev

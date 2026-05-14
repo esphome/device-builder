@@ -30,6 +30,7 @@ from ...models import (
 from . import bulk, cli, factories, follow, jobs, lifecycle, persistence, runner
 from . import clean as clean_mod
 from . import download as download_mod
+from ._state import FirmwareState
 from .helpers import (
     _find_esphome_cmd,
     _validate_port,
@@ -54,20 +55,8 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
     def __init__(self, device_builder: DeviceBuilder) -> None:
         self._db = device_builder
-        self._queue: asyncio.Queue[FirmwareJob] = asyncio.Queue()
-        self._jobs: dict[str, FirmwareJob] = {}
-        self._current_job: FirmwareJob | None = None
-        self._current_process: asyncio.subprocess.Process | None = None
+        self.state = FirmwareState()
         self._runner_task: asyncio.Task | None = None
-        self._esphome_cmd: list[str] = []
-        # Job ids the user asked to cancel; the runner consults this
-        # on subprocess exit to mark CANCELLED instead of FAILED.
-        self._cancel_requested: set[str] = set()
-        # Per-job wake event for the remote runner — set by the
-        # cancel handler so a remote job waiting on its terminal
-        # frame unblocks instantly. The local subprocess path uses
-        # SIGTERM instead and doesn't register here.
-        self._cancel_events: dict[str, asyncio.Event] = {}
 
     @property
     def bus(self) -> EventBus:
@@ -87,20 +76,20 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         scheduler reading only ``running`` would misclassify a
         fully-loaded receiver as accepting more work.
         """
-        running = self._current_job is not None
-        queue_depth = self._queue.qsize()
+        running = self.state.current_job is not None
+        queue_depth = self.state.queue.qsize()
         idle = not running and queue_depth == 0
         return idle, running, queue_depth
 
     async def start(self) -> None:
         """Start the queue processor and restore persisted jobs."""
-        self._esphome_cmd = _find_esphome_cmd()
+        self.state.esphome_cmd = _find_esphome_cmd()
         _LOGGER.info(
             "ESPHome command: %s (interpreter: %s)",
-            " ".join(self._esphome_cmd),
+            " ".join(self.state.esphome_cmd),
             sys.executable,
         )
-        ok, detail = await _verify_esphome_importable(self._esphome_cmd)
+        ok, detail = await _verify_esphome_importable(self.state.esphome_cmd)
         if ok:
             _LOGGER.info("ESPHome CLI sanity check OK — %s", detail)
         else:
@@ -282,6 +271,14 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     def active_remote_peer_jobs(self) -> Iterator[FirmwareJob]:
         return jobs.active_remote_peer_jobs(self)
 
+    def find_remote_peer_job(self, *, remote_peer: str, remote_job_id: str) -> FirmwareJob | None:
+        """Return the FirmwareJob matching (*remote_peer*, *remote_job_id*), or None."""
+        return jobs.find_remote_peer_job(self, remote_peer=remote_peer, remote_job_id=remote_job_id)
+
+    def remote_peer_job_ids(self, *, remote_peer: str) -> list[str]:
+        """Return the ``remote_job_id`` of every job submitted by *remote_peer*."""
+        return jobs.remote_peer_job_ids(self, remote_peer=remote_peer)
+
     @api_command("firmware/follow_job")
     async def follow_job(
         self, *, job_id: str, client: Any = None, message_id: str = "", **kwargs: Any
@@ -373,7 +370,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         new_name: str = "",
     ) -> list[str]:
         return cli.build_command(
-            self._esphome_cmd, job_type, config_path, port, cache_args, new_name
+            self.state.esphome_cmd, job_type, config_path, port, cache_args, new_name
         )
 
     def _build_cache_args(self, job: FirmwareJob) -> list[str]:

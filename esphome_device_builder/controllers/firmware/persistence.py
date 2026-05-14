@@ -25,7 +25,7 @@ _LOGGER = logging.getLogger(__name__)
 
 def prune_history(controller: FirmwareController) -> None:
     """
-    Trim ``controller._jobs`` to the configured history limits.
+    Trim ``controller.state.jobs`` to the configured history limits.
 
     Active (queued / running) jobs are always kept. Terminal
     compile / upload / install jobs collapse to one entry per
@@ -39,7 +39,7 @@ def prune_history(controller: FirmwareController) -> None:
     active: list[FirmwareJob] = []
     primary: list[FirmwareJob] = []
     aux: list[FirmwareJob] = []
-    for job in controller._jobs.values():
+    for job in controller.state.jobs.values():
         if job.status not in terminal_states:
             active.append(job)
         elif job.job_type in _PRIMARY_JOB_TYPES:
@@ -63,7 +63,7 @@ def prune_history(controller: FirmwareController) -> None:
     aux.sort(key=attrgetter("created_at"), reverse=True)
     aux = aux[:_MAX_AUX_TERMINAL_JOBS]
 
-    controller._jobs = {j.job_id: j for j in (*active, *deduped_primary, *aux)}
+    controller.state.jobs = {j.job_id: j for j in (*active, *deduped_primary, *aux)}
 
 
 async def load_jobs(controller: FirmwareController) -> None:
@@ -80,12 +80,12 @@ async def load_jobs(controller: FirmwareController) -> None:
     for job_data in data.get(_JOBS_KEY, []):
         try:
             job = FirmwareJob.from_dict(job_data)
-            controller._jobs[job.job_id] = job
+            controller.state.jobs[job.job_id] = job
             if job.status in _ACTIVE_JOB_STATUSES:
                 if job.status == JobStatus.RUNNING:
                     job.reset()
                 job.status = JobStatus.QUEUED
-                await controller._queue.put(job)
+                await controller.state.queue.put(job)
         except Exception:
             # ``job_data`` is normally a dict, but a corrupt
             # persistence file could contain a primitive
@@ -109,6 +109,6 @@ async def persist_jobs(controller: FirmwareController) -> None:
 
     def _save() -> None:
         with metadata_transaction(config_dir) as data:
-            data[_JOBS_KEY] = [j.to_dict() for j in controller._jobs.values()]
+            data[_JOBS_KEY] = [j.to_dict() for j in controller.state.jobs.values()]
 
     await loop.run_in_executor(None, _save)

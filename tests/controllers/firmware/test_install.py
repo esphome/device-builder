@@ -173,7 +173,7 @@ async def test_install_enqueues_before_firing_job_queued(
     the first ``JOB_OUTPUT`` line arrives (sometimes a few seconds
     later for cold-start compiles).
 
-    Ordering matters: ``_enqueue`` calls ``await self._queue.put``
+    Ordering matters: ``_enqueue`` calls ``await self.state.queue.put``
     *before* firing the bus event. A frontend that receives
     ``JOB_QUEUED`` and immediately calls ``firmware/follow_job``
     races the runner — if the event broadcast preceded the queue

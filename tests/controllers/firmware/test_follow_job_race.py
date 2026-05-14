@@ -34,7 +34,7 @@ def _make_controller_with_job(
 ) -> FirmwareController:
     """Build a controller shell that ``follow_job`` can drive end-to-end.
 
-    ``follow_job`` reads ``self._jobs`` and ``self._db.bus`` only —
+    ``follow_job`` reads ``self.state.jobs`` and ``self._db.bus`` only —
     everything else is unused for this path. ``with_real_bus=True``
     swaps in the real ``EventBus`` so the listener-attach + fire
     semantics match production; ``with_settings=False`` skips the

@@ -79,7 +79,7 @@ def _make_firmware_with_job(
     status: JobStatus = JobStatus.COMPLETED,
     configuration: str = "kitchen.yaml",
 ) -> Any:
-    """Stub ``FirmwareController`` with a single matching FirmwareJob in ``_jobs``."""
+    """Stub ``FirmwareController`` exposing one matching job via the public API."""
     job = MagicMock()
     job.remote_peer = remote_peer
     job.remote_job_id = remote_job_id
@@ -87,7 +87,16 @@ def _make_firmware_with_job(
     job.configuration = configuration
 
     firmware = MagicMock()
-    firmware._jobs = {"local-1": job}
+
+    def _find(*, remote_peer: str, remote_job_id: str) -> Any:
+        if job.remote_peer == remote_peer and job.remote_job_id == remote_job_id:
+            return job
+        return None
+
+    firmware.find_remote_peer_job.side_effect = _find
+    firmware.remote_peer_job_ids.side_effect = lambda *, remote_peer: (
+        [job.remote_job_id] if job.remote_peer == remote_peer else []
+    )
     return firmware
 
 

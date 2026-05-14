@@ -23,7 +23,7 @@ The chain (happy path):
                           receive loop
                        →  ``ArtifactsDownloadSender.handle_download_artifacts``
                           resolves ``(remote_peer, remote_job_id)``
-                          via linear scan over ``firmware._jobs``,
+                          via linear scan over ``firmware.state.jobs``,
                           calls real :func:`_pack_build_artifacts`
                           (StorageJSON sidecar + ``idedata.json``
                           + per-image bytes read off the autouse
@@ -46,7 +46,7 @@ pins ``CORE.data_dir`` to). Soft-reject tests don't need the
 packer to run; they short-circuit on the receiver's
 ``_find_remote_job`` / status gate.
 
-The receiver's ``db.firmware._jobs`` map is seeded with a
+The receiver's ``db.firmware.state.jobs`` map is seeded with a
 synthetic :class:`FirmwareJob` whose
 ``(remote_peer, remote_job_id)`` matches the dialogue —
 ``ArtifactsDownloadSender._find_remote_job`` walks that map
@@ -72,6 +72,7 @@ from esphome_device_builder.models import (
 )
 
 from .._storage_fixtures import write_storage_json
+from ..conftest import wire_firmware_remote_peer_api_mocks
 from .conftest import PairedInstances
 
 
@@ -86,7 +87,7 @@ def _seed_firmware_job(
     """Put a remote-peer :class:`FirmwareJob` on the receiver's firmware map.
 
     :meth:`ArtifactsDownloadSender._find_remote_job` linear-
-    scans ``firmware._jobs`` for a matching
+    scans ``firmware.state.jobs`` for a matching
     ``(remote_peer, remote_job_id)``; seeding here lets the
     e2e flow proceed past the ``unknown_job`` soft-reject
     without standing up a real firmware queue. The same
@@ -103,7 +104,7 @@ def _seed_firmware_job(
         remote_peer=instances.offloader_dashboard_id,
         remote_job_id=remote_job_id,
     )
-    instances.receiver._db.firmware._jobs = {job_id: job}
+    wire_firmware_remote_peer_api_mocks(instances.receiver._db.firmware, {job_id: job})
     return job
 
 
@@ -256,7 +257,7 @@ async def test_download_artifacts_unknown_job_surfaces_not_found(
     ``duplicate_download`` / ``pack_failed``). The receiver-
     side :meth:`_find_remote_job` returns ``None`` when the
     ``(remote_peer, remote_job_id)`` correlation isn't in
-    ``firmware._jobs``; the sender replies with a single
+    ``firmware.state.jobs``; the sender replies with a single
     ``artifacts_end{accepted: false, reason: "unknown_job"}``
     frame (no preceding ``artifacts_start``); the offloader-
     side WS layer maps that reason to
@@ -266,7 +267,7 @@ async def test_download_artifacts_unknown_job_surfaces_not_found(
     await paired_instances.wait_until_session_opened()
     # Deliberately don't seed the firmware map; the linear
     # scan finds nothing and the sender's first branch trips.
-    paired_instances.receiver._db.firmware._jobs = {}
+    wire_firmware_remote_peer_api_mocks(paired_instances.receiver._db.firmware, {})
 
     with pytest.raises(CommandError) as exc_info:
         await paired_instances.offloader.download_artifacts(

@@ -104,8 +104,9 @@ class JobFanout:
         # remote-peer job. Populated on JOB_QUEUED (the first
         # event for any job) so :meth:`_on_output`'s hot-path
         # lookup is a sync dict access against state we own,
-        # not a private reach into ``firmware._jobs``. Dropped
-        # on terminal events so a never-emitted JOB_OUTPUT for
+        # not a linear scan through ``firmware.find_remote_peer_job``
+        # on every output line. Dropped on terminal events so a
+        # never-emitted JOB_OUTPUT for
         # a long-finished job doesn't keep the entry around
         # forever (the firmware controller retains job rows
         # for post-mortem inspection).
