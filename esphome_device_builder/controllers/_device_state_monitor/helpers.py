@@ -83,8 +83,8 @@ def _decode_mdns_txt_records(txt_dns_records: list[Any]) -> dict[str, str]:
     (plaintext-confirmed) survives the round trip.
 
     Returns ``{}`` when no TXT records are passed or the freshest
-    record's ``text`` attribute is missing / not bytes-like. Keys
-    are sorted so the wire output is deterministic across snapshots.
+    record's ``text`` is not bytes-like. Keys are sorted so the
+    wire output is deterministic across snapshots.
     """
     if not txt_dns_records:
         return {}
