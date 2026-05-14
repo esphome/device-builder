@@ -31,7 +31,7 @@ from ...helpers.api import api_command
 from ...helpers.build_scheduler import BuildSchedulerInputs
 from ...helpers.dashboard_identity import get_or_create_identity
 from ...helpers.event_bus import Event
-from ...helpers.peer_link_identity import get_or_create_peer_link_identity
+from ...helpers.peer_link_identity import PeerLinkIdentityStore
 from ...helpers.peer_link_resolver import make_peer_link_resolver
 from ...helpers.storage import Store
 from ...models import (
@@ -84,13 +84,18 @@ _LOGGER = logging.getLogger(__name__)
 
 def _load_offloader_identities(
     config_dir: Path,
+    identity_store: PeerLinkIdentityStore,
 ) -> tuple[PeerLinkIdentity, DashboardIdentity]:
     """Load both offloader-side identities in one executor hop.
 
     Bundling keeps the async caller's body to a single
-    ``await`` instead of two.
+    ``await`` instead of two. Both calls go through
+    *identity_store* so the X25519 keypair is loaded from disk
+    at most once per process.
     """
-    return get_or_create_peer_link_identity(config_dir), get_or_create_identity(config_dir)
+    peer_link = identity_store.load()
+    dashboard = get_or_create_identity(config_dir, identity_store)
+    return peer_link, dashboard
 
 
 # Debounce window for the offloader-side pairings-store write
@@ -206,7 +211,10 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         """
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
-            None, _load_offloader_identities, self._db.settings.config_dir
+            None,
+            _load_offloader_identities,
+            self._db.settings.config_dir,
+            self._db.peer_link_identity_store,
         )
 
     def _setup_peer_link_resolver(self) -> None:

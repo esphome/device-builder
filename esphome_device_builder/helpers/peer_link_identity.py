@@ -30,6 +30,7 @@ hop through ``run_in_executor``.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import threading
@@ -45,26 +46,6 @@ _LOGGER = logging.getLogger(__name__)
 _KEY_FILENAME = ".device-builder-peer-link-key.bin"
 _KEY_MODE = 0o600
 _KEY_LENGTH = 32  # X25519 private keys are 32 raw bytes
-
-# Serialise first-time creation so two callers racing don't both
-# generate-and-persist a fresh keypair (the loser's atomic write
-# would silently invalidate every peer that had already paired
-# under the winner's key). Production calls this once at startup;
-# the lock handles test-style races + future contention safely.
-_IDENTITY_LOCK = threading.Lock()
-
-# Per-config-dir cache for the loaded identity. The bytes on disk
-# only mutate via :func:`rotate_peer_link_identity` (in-process,
-# under the same lock); cross-process tampering would defeat the
-# cache but isn't a real deployment shape (single-process
-# dashboard, single-process tests with per-test ``tmp_path``).
-# Without this cache, startup loads the identity 4× because the
-# bind path (``device_builder._build_and_start_remote_build_runner``
-# → ``make_peer_link_handler``) and the offloader path
-# (``OffloaderController.start`` → ``_load_offloader_identities``
-# → ``get_or_create_identity`` which re-loads the peer-link half)
-# each call into this helper twice.
-_CACHED_IDENTITIES: dict[Path, PeerLinkIdentity] = {}
 
 
 @dataclass(frozen=True)
@@ -92,64 +73,88 @@ class PeerLinkIdentity:
         return " ".join(self.pin_sha256[i : i + 2] for i in range(0, len(self.pin_sha256), 2))
 
 
-def get_or_create_peer_link_identity(config_dir: Path) -> PeerLinkIdentity:
+class PeerLinkIdentityStore:
     """
-    Load the persistent peer-link identity, generating it on first call.
+    Lazy, in-process cache for one dashboard's peer-link identity.
 
-    Idempotent. An unreadable or wrong-length key file is treated
-    as "missing" and regenerated; the previous identity's paired
-    peers then see ``pin_mismatch`` events on their next handshake
-    and have to re-pair, which is the right user-visible outcome
-    when on-disk identity has gone wrong. Length-correct bytes are
-    always usable: any 32-byte string is a valid X25519 private
-    key after the curve's clamping, so no parse-validation step
-    is needed.
+    One instance per :class:`DeviceBuilder` (constructed at
+    init, owned across the dashboard's lifetime). The store
+    serialises generation so two threads racing on a fresh
+    config dir don't both write a key, and caches the parsed
+    :class:`PeerLinkIdentity` so the disk read + X25519 derive
+    + SHA-256 + log line only fire once per process.
 
-    The result is cached per *config_dir*; subsequent calls return
-    the same :class:`PeerLinkIdentity` without re-reading disk or
-    re-deriving the pubkey. :func:`rotate_peer_link_identity`
-    refreshes the cache.
+    :meth:`rotate` updates the cache in-place under the same
+    lock, so a post-rotate :meth:`load` returns the new
+    identity without a stale-cache window.
     """
-    key_path = config_dir / _KEY_FILENAME
 
-    with _IDENTITY_LOCK:
-        cached = _CACHED_IDENTITIES.get(key_path)
-        if cached is not None:
-            return cached
-        private_bytes = _load_key(key_path)
-        if private_bytes is None:
+    def __init__(self, config_dir: Path) -> None:
+        self._key_path = config_dir / _KEY_FILENAME
+        self._lock = threading.Lock()
+        self._cached: PeerLinkIdentity | None = None
+
+    def load(self) -> PeerLinkIdentity:
+        """
+        Load the persistent peer-link identity, generating it on first call.
+
+        Idempotent. An unreadable or wrong-length key file is
+        treated as "missing" and regenerated; the previous
+        identity's paired peers then see ``pin_mismatch`` events
+        on their next handshake and have to re-pair, which is
+        the right user-visible outcome when on-disk identity has
+        gone wrong. Length-correct bytes are always usable: any
+        32-byte string is a valid X25519 private key after the
+        curve's clamping, so no parse-validation step is
+        needed.
+        """
+        with self._lock:
+            if self._cached is not None:
+                return self._cached
+            private_bytes = _load_key(self._key_path)
+            if private_bytes is None:
+                private_bytes = _generate_key()
+                atomic_write(self._key_path, private_bytes, mode=_KEY_MODE)
+                _LOGGER.info("Generated new peer-link identity at %s", self._key_path)
+            identity = _build_identity(private_bytes)
+            _log_loaded_identity(self._key_path, identity.public_bytes, identity.pin_sha256)
+            self._cached = identity
+            return identity
+
+    def rotate(self) -> PeerLinkIdentity:
+        """
+        Generate a fresh X25519 keypair, replacing whatever's on disk.
+
+        Forces every receiver that paired with us (when we run
+        as offloader) and every offloader paired with us (when
+        we run as receiver) to re-pair: their stored
+        ``pin_sha256`` for our dashboard no longer matches the
+        pubkey we present in the next Noise handshake, so the
+        receiver-side / offloader-side ``pin_mismatch`` event
+        fires and the UI prompts re-pair.
+
+        Sync and blocking. Async callers prefer
+        :meth:`async_rotate`.
+        """
+        with self._lock:
             private_bytes = _generate_key()
-            atomic_write(key_path, private_bytes, mode=_KEY_MODE)
-            _LOGGER.info("Generated new peer-link identity at %s", key_path)
-        identity = _build_identity(private_bytes)
-        _log_loaded_identity(key_path, identity.public_bytes, identity.pin_sha256)
-        _CACHED_IDENTITIES[key_path] = identity
-        return identity
+            atomic_write(self._key_path, private_bytes, mode=_KEY_MODE)
+            _LOGGER.info("Rotated peer-link identity at %s", self._key_path)
+            identity = _build_identity(private_bytes)
+            _log_loaded_identity(self._key_path, identity.public_bytes, identity.pin_sha256)
+            self._cached = identity
+            return identity
 
+    async def async_load(self) -> PeerLinkIdentity:
+        """Async wrapper that runs :meth:`load` on the default executor."""
+        # Cached path is sync — skip the executor hop after first load.
+        if self._cached is not None:
+            return self._cached
+        return await asyncio.get_running_loop().run_in_executor(None, self.load)
 
-def rotate_peer_link_identity(config_dir: Path) -> PeerLinkIdentity:
-    """
-    Generate a fresh X25519 keypair, replacing whatever's on disk.
-
-    Forces every receiver that paired with us (when we run as
-    offloader) and every offloader paired with us (when we run as
-    receiver) to re-pair: their stored ``pin_sha256`` for our
-    dashboard no longer matches the pubkey we present in the next
-    Noise handshake, so the receiver-side / offloader-side
-    ``pin_mismatch`` event fires and the UI prompts re-pair.
-
-    Sync and blocking; async callers must hop through
-    ``run_in_executor``.
-    """
-    key_path = config_dir / _KEY_FILENAME
-    with _IDENTITY_LOCK:
-        private_bytes = _generate_key()
-        atomic_write(key_path, private_bytes, mode=_KEY_MODE)
-        _LOGGER.info("Rotated peer-link identity at %s", key_path)
-        identity = _build_identity(private_bytes)
-        _log_loaded_identity(key_path, identity.public_bytes, identity.pin_sha256)
-        _CACHED_IDENTITIES[key_path] = identity
-        return identity
+    async def async_rotate(self) -> PeerLinkIdentity:
+        """Async wrapper that runs :meth:`rotate` on the default executor."""
+        return await asyncio.get_running_loop().run_in_executor(None, self.rotate)
 
 
 def _build_identity(private_bytes: bytes) -> PeerLinkIdentity:

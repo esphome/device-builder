@@ -76,7 +76,7 @@ from esphome_device_builder.helpers.peer_link_bundle import (
     encode_chunk,
 )
 from esphome_device_builder.helpers.peer_link_identity import (
-    get_or_create_peer_link_identity,
+    PeerLinkIdentityStore,
 )
 from esphome_device_builder.helpers.peer_link_noise import (
     HandshakeNotCompleteError,
@@ -134,12 +134,11 @@ async def receiver_server(
     handles.receiver._db.bus = MagicMock()
     controller = handles.receiver
 
-    loop = asyncio.get_running_loop()
-    identity = await loop.run_in_executor(None, get_or_create_peer_link_identity, tmp_path)
+    identity = await PeerLinkIdentityStore(tmp_path).async_load()
 
     app = web.Application()
     init_ws_app(app)
-    handler = await make_peer_link_handler(controller, tmp_path)
+    handler = await make_peer_link_handler(controller, PeerLinkIdentityStore(tmp_path))
     app.router.add_get(PEER_LINK_PATH, handler)
     server = TestServer(app)
     await server.start_server()
@@ -703,6 +702,7 @@ def _make_offloader_controller(*, config_dir: Path) -> OffloaderController:
     db._dashboard_advertiser = None
     db.settings = MagicMock()
     db.settings.config_dir = config_dir
+    db.peer_link_identity_store = PeerLinkIdentityStore(config_dir)
     return OffloaderController(db)
 
 
@@ -1763,7 +1763,7 @@ async def test_request_pair_clears_offloader_alert_for_same_receiver(
     fake_dashboard.dashboard_id = "dashboard-stub"
     monkeypatch.setattr(
         "esphome_device_builder.controllers.remote_build.offloader._load_offloader_identities",
-        lambda _config_dir: (fake_identity, fake_dashboard),
+        lambda _config_dir, _identity_store: (fake_identity, fake_dashboard),
     )
     # Park the spawned listener on an unfulfilled wait so the
     # test exits cleanly.
@@ -1899,7 +1899,7 @@ async def test_request_pair_repair_then_unpair_clean_state(
     fake_dashboard.dashboard_id = "dashboard-stub"
     monkeypatch.setattr(
         "esphome_device_builder.controllers.remote_build.offloader._load_offloader_identities",
-        lambda _config_dir: (fake_identity, fake_dashboard),
+        lambda _config_dir, _identity_store: (fake_identity, fake_dashboard),
     )
 
     # First pair lands PENDING with pin1.
@@ -2345,7 +2345,7 @@ async def test_pair_status_listener_loop_backs_off_on_transport_error(
     fake_dashboard.dashboard_id = "alpha"
     monkeypatch.setattr(
         "esphome_device_builder.controllers.remote_build.offloader._load_offloader_identities",
-        lambda _config_dir: (fake_identity, fake_dashboard),
+        lambda _config_dir, _identity_store: (fake_identity, fake_dashboard),
     )
 
     await offloader._await_pair_status_flip(pairing)
@@ -2407,7 +2407,7 @@ async def test_pair_status_listener_loop_backs_off_on_unexpected_status(
     fake_dashboard.dashboard_id = "alpha"
     monkeypatch.setattr(
         "esphome_device_builder.controllers.remote_build.offloader._load_offloader_identities",
-        lambda _config_dir: (fake_identity, fake_dashboard),
+        lambda _config_dir, _identity_store: (fake_identity, fake_dashboard),
     )
 
     await offloader._await_pair_status_flip(pairing)
@@ -3301,9 +3301,7 @@ async def test_peer_link_client_self_loopback_logs_error_and_retries(
     # routing loopback (mDNS resolves to our own listener) or
     # via identity collision (receiver running with a copy of
     # this dashboard's peer-link key).
-    identity = await asyncio.get_running_loop().run_in_executor(
-        None, get_or_create_peer_link_identity, tmp_path
-    )
+    identity = await PeerLinkIdentityStore(tmp_path).async_load()
     bus = EventBus()
     opened = capture_events(bus, EventType.OFFLOADER_PEER_LINK_OPENED)
     closed = capture_events(bus, EventType.OFFLOADER_PEER_LINK_CLOSED)

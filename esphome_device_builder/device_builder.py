@@ -50,7 +50,7 @@ from .helpers.dashboard_advertise import DashboardAdvertiser
 from .helpers.dashboard_identity import get_or_create_identity as get_or_create_dashboard_identity
 from .helpers.event_bus import Event, EventBus, StreamControls, stream_events
 from .helpers.json import cors_middleware
-from .helpers.peer_link_identity import get_or_create_peer_link_identity
+from .helpers.peer_link_identity import PeerLinkIdentityStore
 from .helpers.subscriber_presence import SubscriberPresence
 from .models import EventType
 
@@ -223,6 +223,13 @@ class DeviceBuilder:
         """Initialize the Device Builder."""
         self.settings = settings
         self.bus = EventBus()
+        # Single peer-link identity store per dashboard process.
+        # Lazy-loads the X25519 keypair from disk on first
+        # ``load()``, caches the result, and refreshes the cache
+        # on ``rotate()``. Without this single owner the bind
+        # path + the offloader path each loaded the identity
+        # twice during startup.
+        self.peer_link_identity_store = PeerLinkIdentityStore(settings.config_dir)
         # Reference-counted "is anyone watching the dashboard?" gate.
         # The ``subscribe_events`` body wraps itself in
         # ``presence.subscriber()`` so consumers — currently the
@@ -366,7 +373,10 @@ class DeviceBuilder:
             # the peer-link Noise handshake's identity, so the SRV
             # target stays stable through identity rotations.
             dashboard_identity = await self.loop.run_in_executor(
-                None, get_or_create_dashboard_identity, self.settings.config_dir
+                None,
+                get_or_create_dashboard_identity,
+                self.settings.config_dir,
+                self.peer_link_identity_store,
             )
             self._dashboard_advertiser = DashboardAdvertiser(
                 port=self.settings.port,
@@ -1095,9 +1105,7 @@ class DeviceBuilder:
 
         runner: web.AppRunner | None = None
         try:
-            identity = await loop.run_in_executor(
-                None, get_or_create_peer_link_identity, self.settings.config_dir
-            )
+            identity = await self.peer_link_identity_store.async_load()
             app = web.Application(middlewares=[_strip_server_header_middleware])
             # Same WS init shape as the main /ws app: seed the
             # active-WS registry + the shutdown closer so an idle
@@ -1106,7 +1114,7 @@ class DeviceBuilder:
             # handler sits in ``async for msg in session.ws``.
             init_ws_app(app)
             handler = await make_peer_link_handler(
-                self.remote_build_receiver, self.settings.config_dir
+                self.remote_build_receiver, self.peer_link_identity_store
             )
             app.router.add_get(PEER_LINK_PATH, handler)
 

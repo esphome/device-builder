@@ -29,7 +29,10 @@ async def get_identity(controller: ReceiverController) -> IdentityView:
     """
     loop = asyncio.get_running_loop()
     identity = await loop.run_in_executor(
-        None, get_or_create_identity, controller._db.settings.config_dir
+        None,
+        get_or_create_identity,
+        controller._db.settings.config_dir,
+        controller._db.peer_link_identity_store,
     )
     return identity_view(identity, listener_bound=controller._db.is_remote_build_listener_bound)
 
@@ -63,7 +66,10 @@ async def rotate_identity(controller: ReceiverController) -> IdentityView:
     try:
         loop = asyncio.get_running_loop()
         identity = await loop.run_in_executor(
-            None, _dashboard_identity_helper.rotate_identity, controller._db.settings.config_dir
+            None,
+            _dashboard_identity_helper.rotate_identity,
+            controller._db.settings.config_dir,
+            controller._db.peer_link_identity_store,
         )
         listener_bound = await controller._db.reload_remote_build_identity(
             pin_sha256=identity.pin_sha256,

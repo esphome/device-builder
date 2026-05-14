@@ -33,7 +33,7 @@ from esphome_device_builder.helpers.dashboard_identity import (
     rotate_identity,
 )
 from esphome_device_builder.helpers.peer_link_identity import (
-    get_or_create_peer_link_identity,
+    PeerLinkIdentityStore,
 )
 
 
@@ -43,7 +43,7 @@ def _read_metadata(config_dir: Path) -> dict:
 
 def test_first_call_generates_and_persists_identity(tmp_path: Path) -> None:
     """Fresh config dir → X25519 key, and dashboard_id all created."""
-    identity = get_or_create_identity(tmp_path)
+    identity = get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
 
     assert isinstance(identity, DashboardIdentity)
     assert identity.dashboard_id  # non-empty
@@ -66,21 +66,21 @@ def test_pin_sha256_matches_peer_link_identity(tmp_path: Path) -> None:
     SPKI hash while peers verified the X25519 peer-link key's
     hash on the wire.
     """
-    identity = get_or_create_identity(tmp_path)
-    peer_link = get_or_create_peer_link_identity(tmp_path)
+    identity = get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
+    peer_link = PeerLinkIdentityStore(tmp_path).load()
     assert identity.pin_sha256 == peer_link.pin_sha256
 
 
 def test_second_call_returns_identical_identity(tmp_path: Path) -> None:
     """Idempotent: post-generation, every call returns the same bytes."""
-    first = get_or_create_identity(tmp_path)
-    second = get_or_create_identity(tmp_path)
+    first = get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
+    second = get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
     assert first == second
 
 
 def test_pin_sha256_is_lowercase_hex_64_chars(tmp_path: Path) -> None:
     """SHA-256 fingerprint is 64 lowercase hex chars."""
-    identity = get_or_create_identity(tmp_path)
+    identity = get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
     assert len(identity.pin_sha256) == 64
     assert identity.pin_sha256 == identity.pin_sha256.lower()
     assert all(c in "0123456789abcdef" for c in identity.pin_sha256)
@@ -88,7 +88,7 @@ def test_pin_sha256_is_lowercase_hex_64_chars(tmp_path: Path) -> None:
 
 def test_pin_sha256_formatted_groups_in_pairs(tmp_path: Path) -> None:
     """Display form groups the hex into space-separated byte pairs."""
-    identity = get_or_create_identity(tmp_path)
+    identity = get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
     formatted = identity.pin_sha256_formatted
     parts = formatted.split(" ")
     assert len(parts) == 32
@@ -104,7 +104,9 @@ def test_concurrent_dashboard_id_generation_is_serialised(tmp_path: Path) -> Non
 
     def _worker() -> None:
         barrier.wait()
-        results.append(get_or_create_identity(tmp_path).dashboard_id)
+        results.append(
+            get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path)).dashboard_id
+        )
 
     threads = [threading.Thread(target=_worker) for _ in range(4)]
     for t in threads:
@@ -117,8 +119,8 @@ def test_concurrent_dashboard_id_generation_is_serialised(tmp_path: Path) -> Non
 
 def test_rotate_identity_keeps_dashboard_id(tmp_path: Path) -> None:
     """``rotate_identity`` swaps the X25519 key but preserves the id."""
-    first = get_or_create_identity(tmp_path)
-    rotated = rotate_identity(tmp_path)
+    first = get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
+    rotated = rotate_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
 
     assert rotated.dashboard_id == first.dashboard_id
     assert rotated.pin_sha256 != first.pin_sha256
@@ -126,8 +128,8 @@ def test_rotate_identity_keeps_dashboard_id(tmp_path: Path) -> None:
 
 def test_rotate_identity_persists_to_disk(tmp_path: Path) -> None:
     """A subsequent ``get_or_create_identity`` call returns the rotated values."""
-    rotated = rotate_identity(tmp_path)
-    next_call = get_or_create_identity(tmp_path)
+    rotated = rotate_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
+    next_call = get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
     assert next_call == rotated
 
 
@@ -141,7 +143,7 @@ def test_dashboard_id_survives_other_remote_build_mutations(tmp_path: Path) -> N
     external mutation that follows the same RMW shape must
     preserve ``dashboard_id``.
     """
-    identity = get_or_create_identity(tmp_path)
+    identity = get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
 
     # Simulate another phase writing other fields under the same key.
     metadata_path = tmp_path / ".device-builder.json"
@@ -150,7 +152,7 @@ def test_dashboard_id_survives_other_remote_build_mutations(tmp_path: Path) -> N
     metadata_path.write_bytes(json.dumps(data).encode())
 
     # Re-read the identity; dashboard_id still there.
-    second = get_or_create_identity(tmp_path)
+    second = get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
     assert second.dashboard_id == identity.dashboard_id
 
 
@@ -166,7 +168,7 @@ def test_init_after_id_only_mutation_preserves_other_fields(tmp_path: Path) -> N
     metadata_path = tmp_path / ".device-builder.json"
     metadata_path.write_bytes(b'{"_remote_build": {"enabled": true}}')
 
-    identity = get_or_create_identity(tmp_path)
+    identity = get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
     metadata = _read_metadata(tmp_path)
     assert metadata["_remote_build"]["dashboard_id"] == identity.dashboard_id
     assert metadata["_remote_build"]["enabled"] is True
@@ -185,7 +187,7 @@ def test_corrupt_metadata_does_not_block_generation(tmp_path: Path) -> None:
     metadata_path = tmp_path / ".device-builder.json"
     metadata_path.write_bytes(b"{ this isn't json")
 
-    identity = get_or_create_identity(tmp_path)
+    identity = get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
     assert identity.dashboard_id  # generated fresh
     metadata = _read_metadata(tmp_path)
     assert metadata["_remote_build"]["dashboard_id"] == identity.dashboard_id
@@ -196,7 +198,7 @@ def test_non_dict_metadata_root_falls_back(tmp_path: Path) -> None:
     metadata_path = tmp_path / ".device-builder.json"
     metadata_path.write_bytes(b"[1, 2, 3]")
 
-    identity = get_or_create_identity(tmp_path)
+    identity = get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
     assert identity.dashboard_id
 
 
@@ -205,13 +207,13 @@ def test_non_dict_remote_build_value_falls_back(tmp_path: Path) -> None:
     metadata_path = tmp_path / ".device-builder.json"
     metadata_path.write_bytes(b'{"_remote_build": "string-not-dict"}')
 
-    identity = get_or_create_identity(tmp_path)
+    identity = get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
     assert identity.dashboard_id
 
 
 def test_dashboard_id_is_url_safe(tmp_path: Path) -> None:
     """``secrets.token_urlsafe`` output: only ``[A-Za-z0-9_-]``."""
-    identity = get_or_create_identity(tmp_path)
+    identity = get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
     assert DASHBOARD_ID_PATTERN.fullmatch(identity.dashboard_id)
     # 24 bytes base64url-encoded = 32 chars (no padding in token_urlsafe).
     assert len(identity.dashboard_id) == 32
@@ -236,6 +238,6 @@ def test_no_legacy_cert_files_created(tmp_path: Path) -> None:
     X25519 key. A regression that re-introduced the cert helper
     would put these back; this test catches it.
     """
-    get_or_create_identity(tmp_path)
+    get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
     assert not (tmp_path / ".device-builder-cert.pem").exists()
     assert not (tmp_path / ".device-builder-key.pem").exists()

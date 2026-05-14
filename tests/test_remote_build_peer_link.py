@@ -76,7 +76,7 @@ from esphome_device_builder.controllers.remote_build.submit_job import (
 from esphome_device_builder.helpers import json as _json
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.peer_link_identity import (
-    get_or_create_peer_link_identity,
+    PeerLinkIdentityStore,
 )
 from esphome_device_builder.helpers.peer_link_noise import (
     HandshakeNotCompleteError,
@@ -542,7 +542,7 @@ async def test_handler_logs_unexpected_exception(
         _boom,
     )
 
-    handler = await make_peer_link_handler(controller.receiver, tmp_path)
+    handler = await make_peer_link_handler(controller.receiver, PeerLinkIdentityStore(tmp_path))
     request = MagicMock()
     request.remote = "10.0.0.5"
     ws_response = AsyncMock(spec=web.WebSocketResponse)
@@ -787,12 +787,11 @@ async def peer_link_app(
     # Pre-create the receiver's identity so the handler doesn't
     # race the test on first-call generation; capture the pubkey
     # for assertion.
-    loop = asyncio.get_running_loop()
-    identity = await loop.run_in_executor(None, get_or_create_peer_link_identity, tmp_path)
+    identity = await PeerLinkIdentityStore(tmp_path).async_load()
 
     app = web.Application()
     init_ws_app(app)
-    handler = await make_peer_link_handler(controller.receiver, tmp_path)
+    handler = await make_peer_link_handler(controller.receiver, PeerLinkIdentityStore(tmp_path))
     app.router.add_get(PEER_LINK_PATH, handler)
     server = TestServer(app)
     client = TestClient(server)

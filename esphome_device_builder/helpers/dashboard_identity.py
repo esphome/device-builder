@@ -38,10 +38,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..controllers.config import metadata_transaction
-from .peer_link_identity import (
-    get_or_create_peer_link_identity,
-    rotate_peer_link_identity,
-)
+from .peer_link_identity import PeerLinkIdentityStore
 
 _DASHBOARD_ID_BYTES = 24
 _REMOTE_BUILD_KEY = "_remote_build"
@@ -86,52 +83,47 @@ class DashboardIdentity:
         return " ".join(self.pin_sha256[i : i + 2] for i in range(0, len(self.pin_sha256), 2))
 
 
-def get_or_create_identity(config_dir: Path) -> DashboardIdentity:
+def get_or_create_identity(
+    config_dir: Path, identity_store: PeerLinkIdentityStore
+) -> DashboardIdentity:
     """
     Load the persistent identity, generating it on first call.
 
-    Idempotent. Lazy-creates the X25519 peer-link keypair via
-    :func:`get_or_create_peer_link_identity` and the
-    ``dashboard_id`` token via the internal helper below; both
-    are cheap repeat calls thereafter. The returned struct's
-    ``pin_sha256`` is the SHA-256 of the peer-link public key —
-    the same value the mDNS TXT advertises and the value
-    paired offloaders pin against on the next Noise handshake.
+    Idempotent. Loads the X25519 peer-link keypair via the
+    caller-supplied :class:`PeerLinkIdentityStore` (which caches
+    after first call) and the ``dashboard_id`` token via the
+    internal helper below. The returned struct's ``pin_sha256``
+    is the SHA-256 of the peer-link public key — the same value
+    the mDNS TXT advertises and the value paired offloaders pin
+    against on the next Noise handshake.
 
     Thread-safety: this function holds no shared state of its
-    own, so concurrent callers are serialised by the two
-    underlying primitives' own locks
-    (:data:`helpers.peer_link_identity._IDENTITY_LOCK` for the
-    X25519 keypair file, and :func:`metadata_transaction`'s
-    ``_METADATA_LOCK`` for the dashboard_id JSON write). The
-    pre-rewrite module held its own
-    :class:`threading.Lock` to guard the Ed25519 cert
-    generation path; that lock is gone with the cert code,
-    and the composition pattern here re-derives equivalent
-    safety from the locks already present in the helpers it
-    delegates to.
+    own; concurrent callers are serialised by the store's
+    internal lock + :func:`metadata_transaction`'s
+    ``_METADATA_LOCK`` for the dashboard_id JSON write.
     """
-    peer_link = get_or_create_peer_link_identity(config_dir)
+    peer_link = identity_store.load()
     return DashboardIdentity(
         dashboard_id=_get_or_create_dashboard_id(config_dir),
         pin_sha256=peer_link.pin_sha256,
     )
 
 
-def rotate_identity(config_dir: Path) -> DashboardIdentity:
+def rotate_identity(config_dir: Path, identity_store: PeerLinkIdentityStore) -> DashboardIdentity:
     """
     Rotate the X25519 peer-link keypair, preserving ``dashboard_id``.
 
     Mints a fresh X25519 keypair via
-    :func:`rotate_peer_link_identity` (replacing whatever's on
-    disk). Every paired peer that pinned the old ``pin_sha256``
-    will see a fingerprint mismatch on the next Noise handshake
-    and need to re-pair, which is the right user-visible
-    outcome when the operator deliberately rotates. The
-    ``dashboard_id`` is intentionally preserved across
-    rotations so the receiver-side audit trail stays readable.
+    :meth:`PeerLinkIdentityStore.rotate` (replacing whatever's
+    on disk). Every paired peer that pinned the old
+    ``pin_sha256`` will see a fingerprint mismatch on the next
+    Noise handshake and need to re-pair, which is the right
+    user-visible outcome when the operator deliberately
+    rotates. The ``dashboard_id`` is intentionally preserved
+    across rotations so the receiver-side audit trail stays
+    readable.
     """
-    peer_link = rotate_peer_link_identity(config_dir)
+    peer_link = identity_store.rotate()
     return DashboardIdentity(
         dashboard_id=_get_or_create_dashboard_id(config_dir),
         pin_sha256=peer_link.pin_sha256,

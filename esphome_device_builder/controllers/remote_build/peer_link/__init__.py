@@ -52,16 +52,14 @@ round-trip costs anything, and that's bounded by LAN latency.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from aiohttp import web
 
 from ....api.ws import WEBSOCKETS_KEY
-from ....helpers.peer_link_identity import get_or_create_peer_link_identity
+from ....helpers.peer_link_identity import PeerLinkIdentityStore
 
 # Redundant aliases mark these as intentional re-exports for both
 # ruff (F401) and mypy (no-redef) — preserves external imports like
@@ -95,7 +93,7 @@ PEER_LINK_PATH = "/remote-build/peer-link"
 
 async def make_peer_link_handler(
     controller: ReceiverController,
-    config_dir: Path,
+    identity_store: PeerLinkIdentityStore,
 ) -> Callable[[web.Request], Awaitable[web.WebSocketResponse]]:
     """
     Build the aiohttp handler for ``/remote-build/peer-link``.
@@ -108,15 +106,13 @@ async def make_peer_link_handler(
     lifetime; rotation tears down + rebuilds the runner, which
     re-enters this factory.
 
-    ``config_dir`` is passed in explicitly rather than read off
-    the controller's private ``_db`` chain — the caller
-    (``DeviceBuilder._build_and_start_remote_build_runner``)
-    already has it in hand, and a sibling module reaching
-    through ``controller._db.settings.config_dir`` would be
-    a single-leading-underscore boundary violation.
+    ``identity_store`` is the dashboard's
+    :class:`PeerLinkIdentityStore` — passed in explicitly rather
+    than read off the controller's private ``_db`` chain (a
+    sibling module reaching through ``controller._db.peer_link_identity_store``
+    would be a single-leading-underscore boundary violation).
     """
-    loop = asyncio.get_running_loop()
-    identity = await loop.run_in_executor(None, get_or_create_peer_link_identity, config_dir)
+    identity = await identity_store.async_load()
     identity_priv = identity.private_bytes
 
     async def handler(request: web.Request) -> web.WebSocketResponse:
