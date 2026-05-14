@@ -293,3 +293,119 @@ def test_active_remote_peer_jobs_empty_when_no_remote_jobs(
     )
 
     assert list(controller.active_remote_peer_jobs()) == []
+
+
+# ---------------------------------------------------------------------------
+# find_remote_peer_job / remote_peer_job_ids
+# ---------------------------------------------------------------------------
+
+
+def _remote_job(
+    job_id: str,
+    *,
+    remote_peer: str,
+    remote_job_id: str,
+    status: JobStatus = JobStatus.QUEUED,
+) -> FirmwareJob:
+    return FirmwareJob(
+        job_id=job_id,
+        configuration=f".esphome/.remote_builds/{remote_peer}/{job_id}/{job_id}.yaml",
+        job_type=JobType.COMPILE,
+        status=status,
+        remote_peer=remote_peer,
+        remote_job_id=remote_job_id,
+    )
+
+
+def test_find_remote_peer_job_returns_matching_job(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """Matching (remote_peer, remote_job_id) → the FirmwareJob instance.
+
+    The receiver's artifacts-download path uses this as the
+    single lookup that gates "is this offloader allowed to
+    fetch artifacts for this job?". Pin the positive match
+    against a peer/id pair that also has a sibling job under
+    the same peer (different id) so a regression that returned
+    the first peer match wouldn't pass.
+    """
+    target = _remote_job("target", remote_peer="alpha", remote_job_id="r-1")
+    sibling = _remote_job("sibling", remote_peer="alpha", remote_job_id="r-2")
+    controller = firmware_controller_factory(target, sibling, with_settings=False)
+
+    result = controller.find_remote_peer_job(remote_peer="alpha", remote_job_id="r-1")
+
+    assert result is target
+
+
+def test_find_remote_peer_job_returns_none_when_remote_job_id_mismatches(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """Right peer, wrong remote_job_id → None.
+
+    Both fields must match — the receiver path uses this to
+    reject artifacts requests for an id the peer never
+    submitted, so the per-field check has to be AND, not OR.
+    """
+    job = _remote_job("present", remote_peer="alpha", remote_job_id="r-1")
+    controller = firmware_controller_factory(job, with_settings=False)
+
+    result = controller.find_remote_peer_job(remote_peer="alpha", remote_job_id="r-ghost")
+
+    assert result is None
+
+
+def test_find_remote_peer_job_returns_none_when_state_is_empty(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """Empty state.jobs → None, no raise.
+
+    Cold-start contract: the receiver may query before any job
+    has landed. Linear scan over an empty dict returns None
+    cleanly.
+    """
+    controller = firmware_controller_factory(with_settings=False)
+
+    assert controller.find_remote_peer_job(remote_peer="alpha", remote_job_id="r-1") is None
+
+
+def test_remote_peer_job_ids_returns_remote_job_ids_for_peer(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """Every job under *remote_peer* contributes its ``remote_job_id``.
+
+    The artifacts-download reject log uses this list to surface
+    "available ids" when a requested one doesn't match. Pin a
+    two-id case so a regression that returned only the first
+    match would show up here.
+    """
+    a = _remote_job("alpha-a", remote_peer="alpha", remote_job_id="r-a")
+    b = _remote_job("alpha-b", remote_peer="alpha", remote_job_id="r-b")
+    controller = firmware_controller_factory(a, b, with_settings=False)
+
+    assert sorted(controller.remote_peer_job_ids(remote_peer="alpha")) == ["r-a", "r-b"]
+
+
+def test_remote_peer_job_ids_excludes_jobs_from_other_peers(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """Jobs whose ``remote_peer`` doesn't match are filtered out.
+
+    Receivers serve multiple offloaders simultaneously; the
+    reject log mustn't leak ids from a different peer's
+    queue.
+    """
+    mine = _remote_job("mine", remote_peer="alpha", remote_job_id="r-mine")
+    theirs = _remote_job("theirs", remote_peer="beta", remote_job_id="r-theirs")
+    controller = firmware_controller_factory(mine, theirs, with_settings=False)
+
+    assert controller.remote_peer_job_ids(remote_peer="alpha") == ["r-mine"]
+
+
+def test_remote_peer_job_ids_returns_empty_list_when_state_is_empty(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """Empty state.jobs → empty list, not None or a raise."""
+    controller = firmware_controller_factory(with_settings=False)
+
+    assert controller.remote_peer_job_ids(remote_peer="alpha") == []
