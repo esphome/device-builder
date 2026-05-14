@@ -44,7 +44,8 @@ class RecordingStateMonitor:
     ``apply_version`` / ``apply_api_encryption`` /
     ``apply_config_hash`` / ``get_cached_addresses`` /
     ``get_cached_dns_addresses`` / ``probe_device`` /
-    ``priority_for`` / ``revisit_importable`` /
+    ``probe_device_ping`` / ``priority_for`` /
+    ``revisit_importable`` /
     ``revisit_all_importables`` / ``get_importable_devices``)
     without any of the real monitor's I/O. Calls land in
     ``self.calls`` as flat tuples ``(method_name, *args)`` —
@@ -127,6 +128,9 @@ class RecordingStateMonitor:
 
     def probe_device(self, device_name: str, service_name: str | None = None) -> None:
         self.calls.append(("probe_device", device_name, service_name))
+
+    def probe_device_ping(self, device_name: str) -> None:
+        self.calls.append(("probe_device_ping", device_name))
 
     def priority_for(self, name: str) -> str:
         self.calls.append(("priority_for", name))

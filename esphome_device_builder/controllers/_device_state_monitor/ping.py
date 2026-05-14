@@ -40,9 +40,20 @@ class PingSource:
 
     def __init__(self, monitor: DeviceStateMonitor) -> None:
         self._monitor = monitor
+        # ``probe_device`` short-circuits while False so the
+        # cold-start scanner-ADDED storm doesn't fan out a
+        # full-fleet ping during the mDNS bootstrap window. Flipped
+        # True after the bootstrap sleep.
+        self._bootstrap_complete = False
+        # Shared across the periodic sweep and eager per-device
+        # probes so the combined concurrent-ICMP load can't exceed
+        # icmplib's reliability ceiling (`_PING_BATCH_SIZE`) when
+        # both paths fire at once.
+        self._concurrency = asyncio.Semaphore(_PING_BATCH_SIZE)
 
     async def run(self) -> None:
         await asyncio.sleep(_PING_BOOTSTRAP_DELAY)
+        self._bootstrap_complete = True
         # Strict pause when wired to a SubscriberPresence gate: only
         # sweep while at least one dashboard client is subscribed,
         # so a quiet network with no observers generates no ICMP
@@ -73,57 +84,31 @@ class PingSource:
     async def _ping_sweep(self) -> None:
         if icmp_ping is None:
             return
-
         devices_to_ping = self._select_ping_targets()
         if not devices_to_ping:
             return
-
-        monitor = self._monitor
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug(
                 "Pinging %d devices: %s",
                 len(devices_to_ping),
                 ", ".join(f"{d.name} ({d.address})" for d in devices_to_ping),
             )
-
-        for i in range(0, len(devices_to_ping), _PING_BATCH_SIZE):
-            batch = devices_to_ping[i : i + _PING_BATCH_SIZE]
-            # Pre-resolve through our DNS cache. icmplib would
-            # otherwise re-resolve internally on every ping,
-            # bypassing the cache that the OTA address-cache args
-            # also draw on for non-mDNS hostnames.
-            resolved = await asyncio.gather(
-                *(monitor.state.dns_cache.async_resolve(d.address) for d in batch),
-                return_exceptions=True,
-            )
-            ping_targets: list[tuple[Device, str]] = []
-            for device, addresses in zip(batch, resolved, strict=True):
-                if isinstance(addresses, list) and addresses:
-                    target = addresses[0]
-                    # ``apply_ip`` is the only path that populates
-                    # ``device.ip`` for ``.local`` hosts that don't
-                    # broadcast ``_esphomelib._tcp`` (non-API ESPHome
-                    # devices); without it those devices would show
-                    # an em-dash in the drawer's IP row even after
-                    # successful pings.
-                    monitor.apply_ip(device.name, target)
-                    ping_targets.append((device, target))
-                else:
-                    # DNS-failure cache entry — don't hand the bare
-                    # hostname to icmplib (it would hammer the system
-                    # resolver every sweep). Apply OFFLINE under the
-                    # ``ping`` source so a future successful resolve
-                    # can flip the device back.
-                    monitor.apply(device.name, DeviceState.OFFLINE, "ping")
-            if ping_targets:
-                await asyncio.gather(
-                    *(self._ping_device(device, target) for device, target in ping_targets),
-                    return_exceptions=True,
-                )
+        # Single ``gather`` plus ``self._concurrency`` semaphore
+        # caps in-flight ICMP at ``_PING_BATCH_SIZE`` across the
+        # sweep and any concurrent eager probes; no need to
+        # pre-chunk here.
+        await asyncio.gather(
+            *(self._resolve_and_ping(device) for device in devices_to_ping),
+            return_exceptions=True,
+        )
 
     def _select_ping_targets(self) -> list[Device]:
+        """Filter the device list down to actual ping candidates."""
+        return [d for d in self._monitor._get_devices() if self._classify_for_ping(d)]
+
+    def _classify_for_ping(self, device: Device) -> bool:
         """
-        Filter the device list down to actual ping candidates.
+        Return True iff *device* needs an ICMP probe; apply any short-circuit side-effects.
 
         Three filters apply: skip when a higher-priority source
         owns the device; claim ``.local`` cache hits for mDNS so
@@ -132,33 +117,45 @@ class PingSource:
         failed (no point hammering the resolver).
         """
         monitor = self._monitor
-        devices_to_ping: list[Device] = []
-        dns_skipped: list[Device] = []
-        for device in monitor._get_devices():
-            if not device.address or not shared.should_ping(monitor, device):
-                continue
-            if is_local_hostname(device.address) and (
-                cached := monitor.get_cached_addresses(device.address)
-            ):
-                monitor.apply(device.name, DeviceState.ONLINE, "mdns", claim=True)
-                # Forward every cached IP so the dashboard shows
-                # all of them; ``apply_ip_addresses`` picks the
-                # IPv4 primary for ICMP / OTA targeting.
-                monitor.apply_ip_addresses(device.name, cached)
-                continue
-            if monitor.state.dns_cache.has_cached_failure(device.address):
-                dns_skipped.append(device)
-                monitor.apply(device.name, DeviceState.OFFLINE, "ping")
-                continue
-            devices_to_ping.append(device)
-
-        if dns_skipped and _LOGGER.isEnabledFor(logging.DEBUG):
+        if not device.address or not shared.should_ping(monitor, device):
+            return False
+        if is_local_hostname(device.address) and (
+            cached := monitor.get_cached_addresses(device.address)
+        ):
+            monitor.apply(device.name, DeviceState.ONLINE, "mdns", claim=True)
+            # Forward every cached IP so the dashboard shows all
+            # of them; ``apply_ip_addresses`` picks the IPv4
+            # primary for ICMP / OTA targeting.
+            monitor.apply_ip_addresses(device.name, cached)
+            return False
+        if monitor.state.dns_cache.has_cached_failure(device.address):
+            # DNS-failure cache entry: don't hand the bare hostname
+            # to icmplib (it would hammer the system resolver every
+            # sweep). Apply OFFLINE under the ``ping`` source so a
+            # future successful resolve can flip the device back.
             _LOGGER.debug(
-                "Skipping ping for %d device(s) with cached DNS failure: %s",
-                len(dns_skipped),
-                ", ".join(f"{d.name} ({d.address})" for d in dns_skipped),
+                "Skipping ping for %s (%s): cached DNS failure", device.name, device.address
             )
-        return devices_to_ping
+            monitor.apply(device.name, DeviceState.OFFLINE, "ping")
+            return False
+        return True
+
+    async def _resolve_and_ping(self, device: Device) -> None:
+        """Resolve *device.address* through the DNS cache and ICMP it."""
+        monitor = self._monitor
+        async with self._concurrency:
+            addresses = await monitor.state.dns_cache.async_resolve(device.address)
+            if not addresses:
+                monitor.apply(device.name, DeviceState.OFFLINE, "ping")
+                return
+            target = addresses[0]
+            # ``apply_ip`` is the only path that populates
+            # ``device.ip`` for ``.local`` hosts that don't broadcast
+            # ``_esphomelib._tcp`` (non-API ESPHome devices); without
+            # it those devices would show an em-dash in the drawer's
+            # IP row even after successful pings.
+            monitor.apply_ip(device.name, target)
+            await self._ping_device(device, target)
 
     async def _ping_device(self, device: Device, target: str) -> None:
         # Any failure mode flips OFFLINE rather than staying
@@ -186,3 +183,12 @@ class PingSource:
         if is_alive and rtt_ms is not None and monitor.state.reachability is not None:
             monitor.state.reachability.record_ping_rtt(device.name, rtt_ms)
         monitor.apply(device.name, new_state, "ping")
+
+    async def probe_device(self, name: str) -> None:
+        """Eagerly ICMP-probe *name* instead of waiting on the next periodic sweep."""
+        if not self._bootstrap_complete or icmp_ping is None:
+            return
+        bucket = self._monitor._get_devices_by_name(name)
+        if not bucket or not self._classify_for_ping(bucket[0]):
+            return
+        await self._resolve_and_ping(bucket[0])

@@ -171,9 +171,13 @@ def test_added_device_without_hash_triggers_regenerate(
     assert [(e.event_type, e.data) for e in captured] == [
         (EventType.DEVICE_ADDED, {"device": device})
     ]
-    # Probe fires too — the eager mDNS probe on ADDED is what catches
-    # YAMLs dropped on disk outside the API path.
-    assert controller._state_monitor.calls == [("probe_device", "apollo", None)]
+    # Probes fire too — the eager mDNS probe on ADDED catches YAMLs
+    # dropped on disk outside the API path, and the paired ping probe
+    # covers ping-only devices that never broadcast ``_esphomelib._tcp``.
+    assert controller._state_monitor.calls == [
+        ("probe_device", "apollo", None),
+        ("probe_device_ping", "apollo"),
+    ]
 
 
 def test_added_device_fully_populated_does_not_regenerate(

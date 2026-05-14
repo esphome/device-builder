@@ -27,6 +27,10 @@ def on_scan_change(controller: DevicesController, kind: ScanChange, device: Devi
         # another dashboard) sit at "Unknown" until the next
         # periodic ping sweep.
         controller._state_monitor.probe_device(device.name)
+        # Paired ICMP probe covers ping-only devices that don't
+        # broadcast ``_esphomelib._tcp``; the bootstrap-window
+        # guard inside the monitor wrapper skips it on cold start.
+        controller._state_monitor.probe_device_ping(device.name)
     if kind in (ScanChange.UPDATED, ScanChange.REMOVED):
         # YAML cache key changed; clear any prior failure
         # marker so the next edit gets a fresh chance at
