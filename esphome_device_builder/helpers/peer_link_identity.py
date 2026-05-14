@@ -94,16 +94,27 @@ class PeerLinkIdentityStore:
         """
         Return the cached identity, loading from disk on first call.
 
-        Idempotent. An unreadable or wrong-length key file is
-        treated as "missing" and regenerated; the previous
-        identity's paired peers then see ``pin_mismatch`` events
-        on their next handshake and have to re-pair, which is
-        the right user-visible outcome when on-disk identity has
-        gone wrong. Length-correct bytes are always usable: any
-        32-byte string is a valid X25519 private key after the
-        curve's clamping, so no parse-validation step is
-        needed.
+        Length-mismatched or unreadable key files are treated
+        as missing and regenerated; the keypair file is the
+        source of truth, so a cancellation of the first-call
+        executor still leaves usable bytes on disk for the
+        next caller to pick up.
         """
+        return await asyncio.shield(self._do_load_locked())
+
+    async def async_rotate(self) -> PeerLinkIdentity:
+        """
+        Replace the on-disk keypair with a fresh X25519 secret.
+
+        Cancellation-safe via :func:`asyncio.shield`: the
+        executor write can't be stopped, so the locked
+        rotation runs to completion in the background and
+        keeps cache + disk in sync even if the awaiter is
+        cancelled mid-await.
+        """
+        return await asyncio.shield(self._do_rotate_locked())
+
+    async def _do_load_locked(self) -> PeerLinkIdentity:
         async with self._lock:
             if self._cached is not None:
                 return self._cached
@@ -111,24 +122,7 @@ class PeerLinkIdentityStore:
             self._cached = identity
             return identity
 
-    async def async_rotate(self) -> PeerLinkIdentity:
-        """
-        Generate a fresh X25519 keypair, replacing whatever's on disk.
-
-        Forces every receiver that paired with us (when we run
-        as offloader) and every offloader paired with us (when
-        we run as receiver) to re-pair: their stored
-        ``pin_sha256`` for our dashboard no longer matches the
-        pubkey we present in the next Noise handshake, so the
-        receiver-side / offloader-side ``pin_mismatch`` event
-        fires and the UI prompts re-pair.
-
-        Replaces the cache under the same lock as
-        :meth:`async_load`, so a concurrent loader either sees
-        the pre-rotate identity (lock acquired first) or waits
-        and sees the post-rotate one — never the pre-rotate
-        identity after the on-disk write has landed.
-        """
+    async def _do_rotate_locked(self) -> PeerLinkIdentity:
         async with self._lock:
             identity = await asyncio.get_running_loop().run_in_executor(None, self._rotate_blocking)
             self._cached = identity

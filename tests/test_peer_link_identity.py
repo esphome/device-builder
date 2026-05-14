@@ -213,6 +213,52 @@ async def test_async_load_waits_for_in_flight_async_rotate(tmp_path: Path) -> No
     assert loaded.private_bytes == rotated.private_bytes
 
 
+async def test_cancelled_async_rotate_keeps_cache_consistent_with_disk(tmp_path: Path) -> None:
+    """
+    A cancelled rotation must not leave the cache pointing at the pre-rotate key.
+
+    The executor write can't be stopped, so without
+    ``asyncio.shield`` a cancelled awaiter would release the
+    lock with ``_cached`` still set to the old identity while
+    disk holds the new one. The shield lets the locked
+    rotation complete in the background, keeping cache + disk
+    in sync.
+    """
+    store = PeerLinkIdentityStore(tmp_path)
+    initial = await store.async_load()
+
+    real_rotate = store._rotate_blocking
+    rotate_started = threading.Event()
+    rotate_release = threading.Event()
+    rotated_identity: list[PeerLinkIdentity] = []
+
+    def _slow_rotate() -> PeerLinkIdentity:
+        rotate_started.set()
+        rotate_release.wait(timeout=5.0)
+        identity = real_rotate()
+        rotated_identity.append(identity)
+        return identity
+
+    with patch.object(store, "_rotate_blocking", _slow_rotate):
+        rotate_task = asyncio.create_task(store.async_rotate())
+        await asyncio.get_running_loop().run_in_executor(None, rotate_started.wait, 5.0)
+        rotate_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await rotate_task
+        rotate_release.set()
+        # Wait for the shielded background rotation to finish so
+        # the cache update lands before we assert.
+        for _ in range(50):
+            if rotated_identity:
+                break
+            await asyncio.sleep(0.01)
+        assert rotated_identity, "executor never completed"
+
+    after = await store.async_load()
+    assert after.private_bytes == rotated_identity[0].private_bytes
+    assert after.private_bytes != initial.private_bytes
+
+
 async def test_returns_peer_link_identity_dataclass(tmp_path: Path) -> None:
     """Sanity: the public API returns the documented dataclass shape."""
     identity = await PeerLinkIdentityStore(tmp_path).async_load()

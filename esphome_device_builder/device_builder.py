@@ -225,10 +225,10 @@ class DeviceBuilder:
         self.bus = EventBus()
         # Single peer-link identity store per dashboard process.
         # Lazy-loads the X25519 keypair from disk on first
-        # ``load()``, caches the result, and refreshes the cache
-        # on ``rotate()``. Without this single owner the bind
-        # path + the offloader path each loaded the identity
-        # twice during startup.
+        # ``async_load()``, caches the result, and refreshes the
+        # cache on ``async_rotate()``. Without this single owner
+        # the bind path + the offloader path each loaded the
+        # identity twice during startup.
         self.peer_link_identity_store = PeerLinkIdentityStore(settings.config_dir)
         # Reference-counted "is anyone watching the dashboard?" gate.
         # The ``subscribe_events`` body wraps itself in
