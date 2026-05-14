@@ -22,13 +22,12 @@ import asyncio
 import logging
 import time
 from collections.abc import Callable, Hashable
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal
 
 from ...helpers import dashboard_identity as _dashboard_identity_helper
 from ...helpers.api import CommandError, api_command
 from ...helpers.dashboard_identity import get_or_create_identity
 from ...helpers.event_bus import Event
-from ...helpers.peer_link_frames import frame_schema, is_valid_frame
 from ...helpers.storage import Store
 from ...models import (
     MAX_CLEANUP_TTL_SECONDS,
@@ -41,9 +40,6 @@ from ...models import (
     PairingWindowState,
     PeerStatus,
     PeerSummary,
-    QueueStatusFrameData,
-    ReceiverPeerLinkSessionClosedData,
-    ReceiverPeerLinkSessionOpenedData,
     ReceiverPeers,
     RemoteBuildIdentityRotatedData,
     RemoteBuildPairingWindowChangedData,
@@ -57,7 +53,7 @@ from ..config import (
     load_remote_build_settings,
     remote_build_settings_transaction,
 )
-from . import cleanup_loop
+from . import cleanup_loop, peer_link_sessions
 from ._receiver_state import ReceiverState
 from ._shared import _RemoteBuildBase, drain_tasks
 from ._storage_codecs import (
@@ -83,9 +79,6 @@ _LOGGER = logging.getLogger(__name__)
 # Pairing-window lifetime. Auto-closes after this much idle;
 # the frontend extends on each activity tick.
 _PAIRING_WINDOW_DURATION_SECONDS = 300.0
-
-# Required fields on inbound ``cancel_job`` peer-link frames.
-_CANCEL_JOB_SCHEMA = frame_schema({"job_id": str})
 
 # Debounce window for the receiver-side peers-store write so a
 # burst of approvals collapses to one disk write.
@@ -183,214 +176,20 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         )
 
     def _on_firmware_queue_transition(self, event: Event[Any]) -> None:
-        """Bus listener: broadcast ``queue_status`` to paired offloaders.
-
-        Called on every ``JOB_QUEUED`` / ``JOB_STARTED`` /
-        terminal event. Builds a snapshot from the firmware
-        controller's RAM state (sync read, no awaitables in the
-        bus listener) and schedules a per-session broadcast as a
-        background task. The broadcast itself runs async because
-        it sends across N peer-link sessions and we don't want a
-        slow socket on one session to block other listeners
-        observing the same event.
-        """
-        if self._db.firmware is None:
-            return
-        idle, running, queue_depth = self._db.firmware.queue_status_snapshot()
-        if not self.state.peer_link_sessions:
-            return
-        self._db.create_background_task(self._broadcast_queue_status(idle, running, queue_depth))
-
-    async def _broadcast_queue_status(self, idle: bool, running: bool, queue_depth: int) -> None:
-        """Send a ``queue_status`` frame to every active peer-link session.
-
-        Snapshot the registry to a list before iterating so a
-        concurrent register / unregister mid-walk doesn't mutate
-        the dict under us. Each ``send_app_frame`` is gated on
-        the session's ``_closing`` flag, so a ``terminate``-in-
-        progress session no-ops cleanly here without raising.
-        Per-session failures (``send_app_frame`` returns
-        ``False``) are logged at the channel layer; we don't
-        retry — a session that can't accept the latest snapshot
-        will pick up the next transition's broadcast on its
-        next successful frame.
-        """
-        sessions = list(self.state.peer_link_sessions.values())
-        payload = QueueStatusFrameData(
-            type="queue_status",
-            idle=idle,
-            running=running,
-            queue_depth=queue_depth,
-        )
-        for session in sessions:
-            # Per-session try/except so one flaky peer can't
-            # starve broadcasts to its siblings; the next queue
-            # transition will retry.
-            try:
-                await session.send_app_frame(dict(payload))
-            except Exception:
-                _LOGGER.exception(
-                    "queue_status broadcast to session %s raised; continuing with siblings",
-                    session.dashboard_id,
-                )
+        """Bus listener: broadcast ``queue_status`` to paired offloaders."""
+        peer_link_sessions.on_firmware_queue_transition(self, event)
 
     async def register_peer_link_session(self, session: PeerLinkSession) -> None:
-        """Register *session*; evict a stale same-``dashboard_id`` slot via SUPERSEDED.
-
-        Install runs before the terminate await so concurrent
-        dispatches see the freshest entry. Pushes an initial
-        ``queue_status`` to the offloader — without it,
-        cold-connected pairings never get an entry in
-        ``_peer_queue_status`` and ``pick_build_path`` silently
-        falls back to LOCAL (#568 regression).
-        """
-        existing = self.state.peer_link_sessions.get(session.dashboard_id)
-        self.state.peer_link_sessions[session.dashboard_id] = session
-        if existing is not None and existing is not session:
-            await existing.terminate(TerminateReason.SUPERSEDED)
-        if self._db.firmware is not None:
-            try:
-                idle, running, queue_depth = self._db.firmware.queue_status_snapshot()
-            except Exception:
-                # Best-effort: the transition-driven broadcast
-                # catches up the offloader on the next change.
-                _LOGGER.exception(
-                    "firmware.queue_status_snapshot() raised on session register; "
-                    "skipping initial queue_status push to %s",
-                    session.dashboard_id,
-                )
-            else:
-                self._db.create_background_task(
-                    self._send_initial_queue_status(session, idle, running, queue_depth)
-                )
-        # Fire AFTER the dict insert so subscriber lookups see
-        # the just-registered session.
-        if self._db.bus is not None:
-            self._db.bus.fire(
-                EventType.RECEIVER_PEER_LINK_SESSION_OPENED,
-                ReceiverPeerLinkSessionOpenedData(dashboard_id=session.dashboard_id),
-            )
-
-    async def _send_initial_queue_status(
-        self,
-        session: PeerLinkSession,
-        idle: bool,
-        running: bool,
-        queue_depth: int,
-    ) -> None:
-        """Push a one-shot ``queue_status`` frame to a freshly-connected session.
-
-        Mirror of :meth:`_broadcast_queue_status` but addressed
-        to a single session — invoked from
-        :meth:`register_peer_link_session` so the offloader gets
-        an idle / running signal on cold-connect rather than
-        waiting for the receiver's next firmware queue
-        transition. Best-effort: a session that has already
-        torn down between the registry insert and this send
-        no-ops cleanly (``send_app_frame`` is gated on the
-        session's ``_closing`` flag) and the offloader's next
-        reconnect tries again.
-        """
-        payload = QueueStatusFrameData(
-            type="queue_status",
-            idle=idle,
-            running=running,
-            queue_depth=queue_depth,
-        )
-        try:
-            await session.send_app_frame(dict(payload))
-        except Exception:
-            _LOGGER.exception(
-                "initial queue_status to session %s raised; "
-                "offloader will catch up on the next queue transition",
-                session.dashboard_id,
-            )
+        """Register *session*; evict a stale same-``dashboard_id`` slot via SUPERSEDED."""
+        await peer_link_sessions.register_peer_link_session(self, session)
 
     def unregister_peer_link_session(self, session: PeerLinkSession) -> None:
-        """
-        Drop *session* from the active peer-link registry.
-
-        No-op when a different session has taken the slot (the
-        :meth:`register_peer_link_session` dedupe path replaces
-        the entry before the old session's loop unwinds; the old
-        loop's ``finally`` calls this and would otherwise evict
-        the new entry). Sync because it's just a dict pop — the
-        actual WS close + Noise teardown happens in the session
-        loop's ``finally`` chain.
-        """
-        if self.state.peer_link_sessions.get(session.dashboard_id) is session:
-            del self.state.peer_link_sessions[session.dashboard_id]
-            # Drop any in-flight ``submit_job`` upload state so a
-            # bundle reception that was mid-stream when the
-            # session ended doesn't outlive the session that owns
-            # it. ``_submit_job_receiver`` is set in :meth:`start`;
-            # this branch only runs for sessions registered after
-            # ``start`` (live wire), so the attribute is always
-            # populated by the time we get here.
-            if self.state.submit_job_receiver is not None:
-                self.state.submit_job_receiver.discard_session(session.dashboard_id)
-            # Same shape — discard any in-flight artifacts
-            # download for this session so the slot doesn't
-            # outlive the session it was streaming over.
-            if self.state.artifacts_download_sender is not None:
-                self.state.artifacts_download_sender.discard_session(session.dashboard_id)
-            # Fire only when we actually dropped the slot — the
-            # no-op path (a SUPERSEDED-evicted session running its
-            # finally-block after the new session has taken its
-            # place) would double-fire CLOSED for a single
-            # logical close otherwise.
-            if self._db.bus is not None:
-                self._db.bus.fire(
-                    EventType.RECEIVER_PEER_LINK_SESSION_CLOSED,
-                    ReceiverPeerLinkSessionClosedData(dashboard_id=session.dashboard_id),
-                )
+        """Drop *session* from the active peer-link registry."""
+        peer_link_sessions.unregister_peer_link_session(self, session)
 
     async def handle_cancel_job(self, session: PeerLinkSession, frame: dict[str, Any]) -> None:
-        """Receiver-side dispatch for inbound ``cancel_job`` frames.
-
-        Resolves the offloader's ``job_id`` to the receiver-local
-        :class:`FirmwareJob` via :class:`JobFanout` and routes
-        through :meth:`FirmwareController.cancel` — same path as
-        an operator-driven cancel. No wire ack; the fan-out's
-        ``job_state_changed{cancelled}`` carries the result.
-
-        Silent debug-log drops for malformed frames, unknown
-        correlations (race with a terminal transition), and
-        :class:`CommandError` from cancel (already-terminal).
-        """
-        if not is_valid_frame(_CANCEL_JOB_SCHEMA, frame):
-            _LOGGER.debug(
-                "peer-link cancel_job from %s: malformed frame; dropping: %r",
-                session.dashboard_id,
-                frame,
-            )
-            return
-        if self.state.job_fanout is None or self._db.firmware is None:
-            _LOGGER.debug(
-                "peer-link cancel_job from %s before controller fully started; dropping",
-                session.dashboard_id,
-            )
-            return
-        remote_job_id = cast(str, frame["job_id"])
-        firmware_job_id = self.state.job_fanout.resolve_firmware_job_id(
-            session.dashboard_id, remote_job_id
-        )
-        if firmware_job_id is None:
-            _LOGGER.debug(
-                "peer-link cancel_job from %s: no firmware job for remote_job_id=%r; dropping",
-                session.dashboard_id,
-                remote_job_id,
-            )
-            return
-        try:
-            await self._db.firmware.cancel(job_id=firmware_job_id)
-        except CommandError as exc:
-            _LOGGER.debug(
-                "peer-link cancel_job from %s: firmware refused cancel for job %s: %s",
-                session.dashboard_id,
-                firmware_job_id,
-                exc.message,
-            )
+        """Receiver-side dispatch for inbound ``cancel_job`` frames."""
+        await peer_link_sessions.handle_cancel_job(self, session, frame)
 
     def get_submit_job_receiver(self) -> SubmitJobReceiver:
         """Return the receiver-side ``submit_job`` flow handler, raising if not started.

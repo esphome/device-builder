@@ -29,6 +29,9 @@ from esphome_device_builder.controllers.remote_build import (
     OffloaderController,
     ReceiverController,
 )
+from esphome_device_builder.controllers.remote_build import (
+    peer_link_sessions as rb_peer_link_sessions,
+)
 from esphome_device_builder.controllers.remote_build import rebind as rb_rebind
 from esphome_device_builder.controllers.remote_build import receiver as rb_rcv
 from esphome_device_builder.controllers.remote_build._mdns import (
@@ -3784,10 +3787,10 @@ async def test_broadcast_queue_status_continues_past_failed_session(
     session (race with concurrent terminate), a transport
     error, or any other unexpected raise on one session must
     not cancel the broadcast for the others. The per-session
-    ``try/except`` in :meth:`_broadcast_queue_status` swallows
-    the raise (logged) and moves on. Without this contract a
-    single flaky peer would starve every paired offloader of
-    queue-status updates.
+    ``try/except`` in :func:`peer_link_sessions.broadcast_queue_status`
+    swallows the raise (logged) and moves on. Without this
+    contract a single flaky peer would starve every paired
+    offloader of queue-status updates.
     """
     controller = _make_controller(config_dir=tmp_path)
 
@@ -3798,7 +3801,9 @@ async def test_broadcast_queue_status_continues_past_failed_session(
     controller.receiver.state.peer_link_sessions["beta"] = beta
 
     with caplog.at_level("ERROR"):
-        await controller.receiver._broadcast_queue_status(idle=False, running=True, queue_depth=1)
+        await rb_peer_link_sessions.broadcast_queue_status(
+            controller.receiver, idle=False, running=True, queue_depth=1
+        )
     alpha.send_app_frame.assert_awaited_once()
     # Sibling session received the snapshot despite alpha raising.
     beta.send_app_frame.assert_awaited_once_with(
