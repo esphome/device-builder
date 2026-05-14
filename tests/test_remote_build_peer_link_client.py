@@ -138,7 +138,7 @@ async def receiver_server(
 
     app = web.Application()
     init_ws_app(app)
-    handler = await make_peer_link_handler(controller, PeerLinkIdentityStore(tmp_path))
+    handler = make_peer_link_handler(controller, await PeerLinkIdentityStore(tmp_path).async_load())
     app.router.add_get(PEER_LINK_PATH, handler)
     server = TestServer(app)
     await server.start_server()

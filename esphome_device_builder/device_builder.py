@@ -1099,9 +1099,7 @@ class DeviceBuilder:
             # to aiohttp's 60s ``shutdown_timeout`` while its
             # handler sits in ``async for msg in session.ws``.
             init_ws_app(app)
-            handler = await make_peer_link_handler(
-                self.remote_build_receiver, self.peer_link_identity_store
-            )
+            handler = make_peer_link_handler(self.remote_build_receiver, identity)
             app.router.add_get(PEER_LINK_PATH, handler)
 
             runner = web.AppRunner(app)

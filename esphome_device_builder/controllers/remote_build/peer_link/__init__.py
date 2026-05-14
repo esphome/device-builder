@@ -59,7 +59,7 @@ from typing import TYPE_CHECKING
 from aiohttp import web
 
 from ....api.ws import WEBSOCKETS_KEY
-from ....helpers.peer_link_identity import PeerLinkIdentityStore
+from ....helpers.peer_link_identity import PeerLinkIdentity
 
 # Redundant aliases mark these as intentional re-exports for both
 # ruff (F401) and mypy (no-redef) — preserves external imports like
@@ -91,28 +91,19 @@ _LOGGER = logging.getLogger(__name__)
 PEER_LINK_PATH = "/remote-build/peer-link"
 
 
-async def make_peer_link_handler(
+def make_peer_link_handler(
     controller: ReceiverController,
-    identity_store: PeerLinkIdentityStore,
+    identity: PeerLinkIdentity,
 ) -> Callable[[web.Request], Awaitable[web.WebSocketResponse]]:
     """
     Build the aiohttp handler for ``/remote-build/peer-link``.
 
-    Loads the X25519 peer-link identity once at handler-factory
-    time and captures it in the closure so each incoming WS
-    connection constructs its ``PeerLinkNoiseSession`` from
-    already-loaded bytes instead of hitting disk + an executor
-    hop on every handshake. Identity is stable for the process
-    lifetime; rotation tears down + rebuilds the runner, which
-    re-enters this factory.
-
-    ``identity_store`` is the dashboard's
-    :class:`PeerLinkIdentityStore` — passed in explicitly rather
-    than read off the controller's private ``_db`` chain (a
-    sibling module reaching through ``controller._db.peer_link_identity_store``
-    would be a single-leading-underscore boundary violation).
+    The caller passes the already-loaded identity so the
+    handler closure and the mDNS advertise share one source
+    of truth; loading separately here would let a concurrent
+    rotation flip the handler key out of sync with the
+    advertised pin.
     """
-    identity = await identity_store.async_load()
     identity_priv = identity.private_bytes
 
     async def handler(request: web.Request) -> web.WebSocketResponse:

@@ -199,6 +199,45 @@ async def test_async_load_waits_for_in_flight_async_rotate(tmp_path: Path) -> No
     assert loaded.private_bytes == rotated.private_bytes
 
 
+async def test_cancelled_first_async_load_still_populates_cache(tmp_path: Path) -> None:
+    """A cancelled first-time generator still lands a single key on disk + cache."""
+    store = PeerLinkIdentityStore(tmp_path)
+
+    real_load = store._load_blocking
+    load_started = threading.Event()
+    load_release = threading.Event()
+    load_call_count = 0
+    landed: list[PeerLinkIdentity] = []
+
+    def _slow_load() -> PeerLinkIdentity:
+        nonlocal load_call_count
+        load_call_count += 1
+        load_started.set()
+        load_release.wait(timeout=5.0)
+        identity = real_load()
+        landed.append(identity)
+        return identity
+
+    with patch.object(store, "_load_blocking", _slow_load):
+        first = asyncio.create_task(store.async_load())
+        await asyncio.get_running_loop().run_in_executor(None, load_started.wait, 5.0)
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        load_release.set()
+        for _ in range(50):
+            if landed:
+                break
+            await asyncio.sleep(0.01)
+        assert landed, "executor never completed"
+        cached_after = await store.async_load()
+
+    assert cached_after.private_bytes == landed[0].private_bytes
+    # Only the original generator ran; the post-cancel load hit
+    # the populated cache.
+    assert load_call_count == 1
+
+
 async def test_cancelled_async_rotate_keeps_cache_consistent_with_disk(tmp_path: Path) -> None:
     """A cancelled rotation still updates the cache to match the on-disk key."""
     store = PeerLinkIdentityStore(tmp_path)

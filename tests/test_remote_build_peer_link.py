@@ -542,7 +542,9 @@ async def test_handler_logs_unexpected_exception(
         _boom,
     )
 
-    handler = await make_peer_link_handler(controller.receiver, PeerLinkIdentityStore(tmp_path))
+    handler = make_peer_link_handler(
+        controller.receiver, await PeerLinkIdentityStore(tmp_path).async_load()
+    )
     request = MagicMock()
     request.remote = "10.0.0.5"
     ws_response = AsyncMock(spec=web.WebSocketResponse)
@@ -791,7 +793,9 @@ async def peer_link_app(
 
     app = web.Application()
     init_ws_app(app)
-    handler = await make_peer_link_handler(controller.receiver, PeerLinkIdentityStore(tmp_path))
+    handler = make_peer_link_handler(
+        controller.receiver, await PeerLinkIdentityStore(tmp_path).async_load()
+    )
     app.router.add_get(PEER_LINK_PATH, handler)
     server = TestServer(app)
     client = TestClient(server)
