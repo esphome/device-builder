@@ -16,39 +16,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from esphome_device_builder.controllers._device_state_monitor import (
-    DeviceStateMonitor,
-)
-from esphome_device_builder.controllers._device_state_monitor._state import MonitorState
-from esphome_device_builder.controllers._device_state_monitor.importable import ImportableDiscovery
-from esphome_device_builder.controllers._device_state_monitor.mdns import MdnsSource
-from esphome_device_builder.controllers._device_state_monitor.ping import PingSource
 from esphome_device_builder.models import Device, DeviceState
 
-from .conftest import RecordingMonitorCallbacks
-
-
-def _make_monitor(device: Device) -> tuple[DeviceStateMonitor, RecordingMonitorCallbacks]:
-    monitor = DeviceStateMonitor.__new__(DeviceStateMonitor)
-    monitor.state = MonitorState()
-    monitor._importable = ImportableDiscovery(monitor)
-    monitor._mdns = MdnsSource(monitor)
-    monitor._ping = PingSource(monitor)
-    monitor._mdns._zeroconf = MagicMock()
-    monitor._mdns._zeroconf.zeroconf = MagicMock()
-    monitor._tasks = set()
-    monitor._presence = None
-    monitor._get_devices = lambda: [device]
-    monitor._get_devices_by_name = lambda name: [device] if device.name == name else []
-    monitor._is_ignored = lambda _name: False
-    callbacks = RecordingMonitorCallbacks([device])
-    monitor._on_state_change = callbacks.on_state_change
-    monitor._on_ip_change = callbacks.on_ip_change
-    monitor._on_version_change = callbacks.on_version_change
-    monitor._on_config_hash_change = callbacks.on_config_hash_change
-    monitor._on_api_encryption_change = callbacks.on_api_encryption_change
-    monitor._on_mac_address_change = callbacks.on_mac_address_change
-    return monitor, callbacks
+from .conftest import make_state_monitor_with_callbacks
 
 
 def _ping_only_device() -> Device:
@@ -74,8 +44,7 @@ async def test_probe_device_noop_during_bootstrap() -> None:
     flag-gate makes the cold-start case fall back to the next
     scheduled sweep.
     """
-    device = _ping_only_device()
-    monitor, callbacks = _make_monitor(device)
+    monitor, callbacks = make_state_monitor_with_callbacks([_ping_only_device()])
     assert monitor._ping._bootstrap_complete is False
 
     await monitor._ping.probe_device("garage")
@@ -92,8 +61,7 @@ async def test_probe_device_pings_after_bootstrap(monkeypatch: pytest.MonkeyPatc
     device's newly-dropped YAML lands the card at ONLINE within
     one ICMP round-trip instead of waiting on ``_PING_INTERVAL``.
     """
-    device = _ping_only_device()
-    monitor, callbacks = _make_monitor(device)
+    monitor, callbacks = make_state_monitor_with_callbacks([_ping_only_device()])
     monitor._ping._bootstrap_complete = True
 
     ping_targets: list[str] = []
@@ -119,8 +87,7 @@ async def test_probe_device_pings_after_bootstrap(monkeypatch: pytest.MonkeyPatc
 @pytest.mark.asyncio
 async def test_probe_device_unknown_name_is_noop() -> None:
     """A probe for a name not in the catalog short-circuits silently."""
-    device = _ping_only_device()
-    monitor, callbacks = _make_monitor(device)
+    monitor, callbacks = make_state_monitor_with_callbacks([_ping_only_device()])
     monitor._ping._bootstrap_complete = True
 
     await monitor._ping.probe_device("not-a-device")
@@ -141,7 +108,7 @@ async def test_probe_device_skipped_when_higher_priority_source_owns(
     """
     device = _ping_only_device()
     device.state = DeviceState.ONLINE
-    monitor, _callbacks = _make_monitor(device)
+    monitor, _callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["garage"] = "mdns"
     monitor._ping._bootstrap_complete = True
 
@@ -172,8 +139,7 @@ async def test_probe_device_ping_skips_scheduling_during_bootstrap() -> None:
     makes the wrapper a no-op so the storm never reaches the
     scheduler.
     """
-    device = _ping_only_device()
-    monitor, _ = _make_monitor(device)
+    monitor, _ = make_state_monitor_with_callbacks([_ping_only_device()])
     assert monitor._ping._bootstrap_complete is False
 
     monitor.probe_device_ping("garage")
@@ -184,8 +150,7 @@ async def test_probe_device_ping_skips_scheduling_during_bootstrap() -> None:
 @pytest.mark.asyncio
 async def test_probe_device_ping_schedules_task_after_bootstrap() -> None:
     """Post-bootstrap the wrapper hands a coroutine to ``_track_task``."""
-    device = _ping_only_device()
-    monitor, _ = _make_monitor(device)
+    monitor, _ = make_state_monitor_with_callbacks([_ping_only_device()])
     monitor._ping._bootstrap_complete = True
 
     monitor.probe_device_ping("garage")
