@@ -273,6 +273,9 @@ def _emit_field(key: str, value: Any, indent: str) -> list[str]:
                 lines.append(f"{prefix}{sub_key}: {_format_yaml_value(sub_value)}")
                 first = False
         return lines
+    if isinstance(value, list):
+        rendered = ", ".join(_format_yaml_value(item) for item in value)
+        return [f"{indent}{key}: [{rendered}]"]
     return [f"{indent}{key}: {_format_yaml_value(value)}"]
 
 

@@ -1116,6 +1116,33 @@ def test_generate_component_yaml_emits_list_of_dicts_as_block_sequence() -> None
     assert "      b: y" in out
 
 
+def test_generate_component_yaml_emits_list_of_strings_as_flow_style() -> None:
+    """A list of strings renders as ``[a, b]`` flow-style, not Python repr."""
+    component = _component(component_id="myc", category=ComponentCategory.MISC)
+    out = generate_component_yaml(component, {"modes": ["heat", "cool"]})
+    assert "  modes: [heat, cool]" in out
+
+
+def test_generate_component_yaml_emits_list_of_booleans_lowercased() -> None:
+    """
+    A list of booleans renders as ``[true, false]``.
+
+    Python ``True`` / ``False`` would be invalid YAML; the flow-style
+    branch routes each element through ``_format_yaml_value`` so the
+    bool→``true`` / ``false`` lowering applies inside the brackets too.
+    """
+    component = _component(component_id="myc", category=ComponentCategory.MISC)
+    out = generate_component_yaml(component, {"levels": [True, False]})
+    assert "  levels: [true, false]" in out
+
+
+def test_generate_component_yaml_emits_list_of_ints_as_flow_style() -> None:
+    """A list of ints renders as ``[1, 2, 3]`` flow-style."""
+    component = _component(component_id="myc", category=ComponentCategory.MISC)
+    out = generate_component_yaml(component, {"ids": [1, 2, 3]})
+    assert "  ids: [1, 2, 3]" in out
+
+
 # ---------------------------------------------------------------------------
 # _splice_into_domain_block — defensive guards
 # ---------------------------------------------------------------------------
