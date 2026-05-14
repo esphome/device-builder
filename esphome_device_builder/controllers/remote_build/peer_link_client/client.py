@@ -131,14 +131,18 @@ class PeerLinkClient:
         self._identity_priv = identity_priv
         self._identity_pub = public_bytes_for_priv(identity_priv)
         # Peer IPs we've self-loopbacked against. Read live by the
-        # resolver wrapper in :meth:`_run_one_session` so the next
-        # reconnect picks a different A record from the cached set.
+        # resolver wrapper below so the next reconnect picks a
+        # different A record from aiohttp's cached resolution.
         self._blocked_peer_ips: set[str] = set()
+        # ``None`` falls back to aiohttp's default resolver — the
+        # only viable shape for unit tests that don't construct a
+        # real Zeroconf.
+        self._http_resolver: AbstractResolver | None = (
+            _BlocklistingResolver(resolver, self._blocked_peer_ips)
+            if resolver is not None
+            else None
+        )
         self._dashboard_id = dashboard_id
-        # ``None`` falls back to aiohttp's default resolver —
-        # the only viable shape for unit tests that don't
-        # construct a real Zeroconf.
-        self._resolver = resolver
         # Compared against ``session.remote_static_pub``
         # post-handshake on every connect so an attacker with
         # their own keypair can't complete Noise XX against this
@@ -339,14 +343,9 @@ class PeerLinkClient:
         # Handshake reads are bounded with ``asyncio.wait_for``
         # downstream so a stalled handshake still fails fast.
         timeout = aiohttp.ClientTimeout(total=None, sock_connect=_DEFAULT_TIMEOUT_SECONDS)
-        resolver = (
-            _BlocklistingResolver(self._resolver, self._blocked_peer_ips)
-            if self._resolver is not None
-            else None
-        )
         try:
             async with (
-                make_peer_link_http_session(timeout=timeout, resolver=resolver) as http,
+                make_peer_link_http_session(timeout=timeout, resolver=self._http_resolver) as http,
                 http.ws_connect(url, max_msg_size=APP_FRAME_MAX_BYTES) as ws,
             ):
                 peer = ws.get_extra_info("peername")
