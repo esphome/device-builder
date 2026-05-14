@@ -133,9 +133,24 @@ ignore = [
   "RUF003", # ambiguous-unicode-character-comment
   "S101", # assert used for type checking
   "S104", # binding to all interfaces
+  # ASYNC109 wants async fns to use ``asyncio.timeout()`` ctx manager instead
+  # of accepting a ``timeout: float`` parameter, but our subprocess /
+  # config-bundle helpers (``_run_esptool``, ``run_subprocess_capture``,
+  # etc.) deliberately surface ``timeout`` as part of their API — callers
+  # pass per-call values, not constants. Forcing every caller to wrap in
+  # ``async with asyncio.timeout():`` would be more boilerplate, not less.
+  "ASYNC109",
+  # ASYNC240 flags ``pathlib.Path`` methods inside async functions and
+  # recommends ``trio.Path`` / ``anyio.path``. We use plain asyncio (no
+  # trio / anyio), and asyncio has no async filesystem API — sync
+  # ``Path`` methods are the correct shape, hopped through
+  # ``run_in_executor`` where they actually block. False positive for
+  # this codebase.
+  "ASYNC240",
 ]
 select = [
   "A", # flake8-builtins
+  "ASYNC", # flake8-async — catch blocking calls / busy-wait in async funcs
   "B", # flake8-bugbear
   "C4", # flake8-comprehensions
   "D", # pydocstyle
@@ -176,7 +191,11 @@ select = [
 # Tests need free access to controller privates for setup / assertion;
 # enforcing SLF001 here would mean a noqa on nearly every fixture and
 # would obscure the cases where the protection actually matters.
-"tests/*" = ["S105", "S106", "SLF001"] # hardcoded test credentials
+# ASYNC110 (``while: await asyncio.sleep``) is also waived — tests
+# legitimately poll for "until condition" without the production-side
+# ``asyncio.Event`` plumbing the rule suggests; in production this rule
+# stays load-bearing.
+"tests/*" = ["S105", "S106", "SLF001", "ASYNC110"] # hardcoded test credentials
 # Manual scripts: print is the UX, late imports gate optional setup,
 # subprocess + tempdir paths are part of the CLI contract.
 "tests/manual/*" = ["T20", "S108", "PLC0415"]
