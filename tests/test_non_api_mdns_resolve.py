@@ -74,7 +74,7 @@ def _make_monitor(
         return resolve_map.get(host)
 
     fake_zc.async_resolve_host = AsyncMock(side_effect=_resolve)
-    monitor._zeroconf = fake_zc
+    monitor._mdns._zeroconf = fake_zc
     return monitor, fake_zc.async_resolve_host
 
 
@@ -188,7 +188,7 @@ async def test_resolve_exception_does_not_propagate() -> None:
             raise OSError("simulated zeroconf failure")
         return ["192.168.1.50"]
 
-    monitor._zeroconf.async_resolve_host = AsyncMock(side_effect=_resolve)
+    monitor._mdns._zeroconf.async_resolve_host = AsyncMock(side_effect=_resolve)
 
     await shared.resolve_non_api_mdns_targets(monitor)
 
@@ -207,7 +207,7 @@ async def test_no_zeroconf_is_a_noop() -> None:
     """Pre-start (or zeroconf-failed) sweep must not raise."""
     devices = [_device(loaded_integrations=["web_server"])]
     monitor, _ = _make_monitor(devices)
-    monitor._zeroconf = None  # simulate ``async_setup`` failure
+    monitor._mdns._zeroconf = None  # simulate ``async_setup`` failure
 
     # No exception, no state change.
     await shared.resolve_non_api_mdns_targets(monitor)
@@ -343,7 +343,7 @@ async def test_multiple_devices_resolve_in_parallel(monkeypatch: Any) -> None:
         finally:
             pending -= 1
 
-    monitor._zeroconf.async_resolve_host = AsyncMock(side_effect=_resolve)
+    monitor._mdns._zeroconf.async_resolve_host = AsyncMock(side_effect=_resolve)
 
     await shared.resolve_non_api_mdns_targets(monitor)
 

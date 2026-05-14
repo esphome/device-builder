@@ -21,6 +21,7 @@ from esphome_device_builder.controllers._device_state_monitor import (
     DeviceStateMonitor,
 )
 from esphome_device_builder.controllers._device_state_monitor._state import MonitorState
+from esphome_device_builder.controllers._device_state_monitor.mdns import MdnsSource
 from esphome_device_builder.controllers._device_state_monitor.ping import PingSource
 from esphome_device_builder.models import Device, DeviceState
 
@@ -32,9 +33,11 @@ def _make_monitor() -> DeviceStateMonitor:
 
     monitor.state = MonitorState()
 
+    monitor._mdns = MdnsSource(monitor)
+
     monitor._ping = PingSource(monitor)
-    monitor._zeroconf = MagicMock()
-    monitor._zeroconf.zeroconf = MagicMock()
+    monitor._mdns._zeroconf = MagicMock()
+    monitor._mdns._zeroconf.zeroconf = MagicMock()
     monitor._tasks = set()
     monitor.state.reachability = None
     monitor._presence = None
@@ -60,7 +63,7 @@ def _capture_apply(
     def _apply(name: str, info: Any) -> None:
         calls.append((name, info))
 
-    monkeypatch.setattr(monitor, "_apply_service_info", _apply)
+    monkeypatch.setattr(monitor._mdns, "_apply_service_info", _apply)
     return calls
 
 
@@ -135,7 +138,7 @@ async def test_probe_device_cache_miss_spawns_task(monkeypatch) -> None:
     async def fake_resolve(*_args, **_kw) -> None:
         return None
 
-    monkeypatch.setattr(monitor, "_resolve_and_apply", fake_resolve)
+    monkeypatch.setattr(monitor._mdns, "_resolve_and_apply", fake_resolve)
 
     monitor.probe_device("kitchen")
 
@@ -153,8 +156,10 @@ def test_probe_device_no_zeroconf_is_a_noop() -> None:
 
     monitor.state = MonitorState()
 
+    monitor._mdns = MdnsSource(monitor)
+
     monitor._ping = PingSource(monitor)
-    monitor._zeroconf = None
+    monitor._mdns._zeroconf = None
     monitor._tasks = set()
 
     monitor.probe_device("kitchen")  # no exception, no tasks
@@ -194,7 +199,7 @@ async def test_apply_service_info_claims_online() -> None:
     fake_info = MagicMock()
     fake_info.parsed_scoped_addresses.return_value = []
     fake_info.decoded_properties = {}
-    monitor._apply_service_info("kitchen", fake_info)
+    monitor._mdns._apply_service_info("kitchen", fake_info)
 
     # ``_on_state_change`` is the bridge our owner registered for
     # state transitions; the call carries (name, state, source).
@@ -241,7 +246,7 @@ async def test_apply_service_info_routes_mac_txt_to_apply_mac_address() -> None:
     # the canonical form because ``apply_mac_address`` normalizes
     # before invoking the change callback.
     fake_info.decoded_properties = {"mac": "94c9601f8cf1"}
-    monitor._apply_service_info("kitchen", fake_info)
+    monitor._mdns._apply_service_info("kitchen", fake_info)
 
     assert callbacks.calls_for("on_mac_address_change") == [
         ("on_mac_address_change", "kitchen", "94:C9:60:1F:8C:F1")

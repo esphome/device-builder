@@ -47,6 +47,7 @@ from esphome_device_builder.controllers._device_state_monitor import (
     controller as state_monitor_module,
 )
 from esphome_device_builder.controllers._device_state_monitor._state import MonitorState
+from esphome_device_builder.controllers._device_state_monitor.mdns import MdnsSource
 from esphome_device_builder.controllers._device_state_monitor.ping import PingSource
 from esphome_device_builder.controllers._reachability_tracker import (
     MdnsCacheInfo,
@@ -92,14 +93,16 @@ def _make_monitor(
 
     monitor.state = MonitorState()
 
+    monitor._mdns = MdnsSource(monitor)
+
     monitor._ping = PingSource(monitor)
     monitor._get_devices = lambda: devices
     monitor._get_devices_by_name = lambda name: [d for d in devices if d.name == name]
     monitor._is_ignored = lambda _name: False
     monitor.state.state_source = {}
     monitor.state.http_urls = {}
-    monitor._zeroconf = None
-    monitor._mdns_browser = None
+    monitor._mdns._zeroconf = None
+    monitor._mdns._mdns_browser = None
     monitor._ping_task = None
     monitor._tasks = set()
     monitor._import_discovery = None
@@ -320,7 +323,7 @@ def test_get_mdns_cache_info_no_record_returns_none() -> None:
     fake_zeroconf = MagicMock()
     fake_zeroconf.zeroconf.cache.get_all_by_details = MagicMock(return_value=[])
     fake_zeroconf.zeroconf.cache.current_entry_with_name_and_alias = MagicMock(return_value=None)
-    monitor._zeroconf = fake_zeroconf
+    monitor._mdns._zeroconf = fake_zeroconf
     assert monitor.get_mdns_cache_info("kitchen") is None
 
 
@@ -357,7 +360,7 @@ def test_get_mdns_cache_info_against_real_zeroconf_record() -> None:
         monitor = _make_monitor([_make_device()], None)
         # The helper reads ``self._zeroconf.zeroconf`` — wrap the real
         # ``Zeroconf`` in a stub object exposing the same attribute.
-        monitor._zeroconf = MagicMock(zeroconf=zc)
+        monitor._mdns._zeroconf = MagicMock(zeroconf=zc)
 
         info = monitor.get_mdns_cache_info("kitchen")
         assert info is not None
@@ -403,7 +406,7 @@ def test_get_mdns_a_record_ttl_remaining_picks_min_across_a_aaaa() -> None:
         zc.cache.async_add_records([a_rec, aaaa_rec])
 
         monitor = _make_monitor([_make_device()], None)
-        monitor._zeroconf = MagicMock(zeroconf=zc)
+        monitor._mdns._zeroconf = MagicMock(zeroconf=zc)
 
         ttl_remaining = monitor.get_mdns_a_record_ttl_remaining("kitchen")
         assert ttl_remaining is not None
@@ -418,7 +421,7 @@ def test_get_mdns_a_record_ttl_remaining_no_records_returns_none() -> None:
     monitor = _make_monitor([_make_device()], None)
     fake_zeroconf = MagicMock()
     fake_zeroconf.zeroconf.cache.get_all_by_details = MagicMock(return_value=[])
-    monitor._zeroconf = fake_zeroconf
+    monitor._mdns._zeroconf = fake_zeroconf
 
     assert monitor.get_mdns_a_record_ttl_remaining("kitchen") is None
 
@@ -455,7 +458,7 @@ def test_get_mdns_cache_info_picks_latest_across_record_types() -> None:
         zc.cache.async_add_records([a_rec, ptr_rec])
 
         monitor = _make_monitor([_make_device()], None)
-        monitor._zeroconf = MagicMock(zeroconf=zc)
+        monitor._mdns._zeroconf = MagicMock(zeroconf=zc)
 
         info = monitor.get_mdns_cache_info("kitchen")
         assert info is not None
@@ -513,7 +516,7 @@ def test_get_mdns_cache_info_decodes_txt_records() -> None:
         zc.cache.async_add_records([a_rec, txt_rec])
 
         monitor = _make_monitor([_make_device()], None)
-        monitor._zeroconf = MagicMock(zeroconf=zc)
+        monitor._mdns._zeroconf = MagicMock(zeroconf=zc)
 
         info = monitor.get_mdns_cache_info("kitchen")
         assert info is not None
@@ -577,7 +580,7 @@ def test_get_mdns_cache_info_sorts_txt_records_for_wire_stability() -> None:
         )
         zc.cache.async_add_records([a_rec])
         monitor = _make_monitor([_make_device()], None)
-        monitor._zeroconf = MagicMock(zeroconf=zc)
+        monitor._mdns._zeroconf = MagicMock(zeroconf=zc)
 
         snapshots: list[dict[str, str]] = []
         for payload, age_offset in ((ascending, 4_000), (descending, 1_000)):
@@ -656,7 +659,7 @@ def test_get_mdns_cache_info_keeps_empty_value_keys_visible() -> None:
         zc.cache.async_add_records([a_rec, txt_rec])
 
         monitor = _make_monitor([_make_device()], None)
-        monitor._zeroconf = MagicMock(zeroconf=zc)
+        monitor._mdns._zeroconf = MagicMock(zeroconf=zc)
 
         info = monitor.get_mdns_cache_info("kitchen")
         assert info is not None
@@ -765,7 +768,7 @@ def test_get_mdns_cache_info_no_txt_records_returns_empty_mapping() -> None:
         zc.cache.async_add_records([a_rec])
 
         monitor = _make_monitor([_make_device()], None)
-        monitor._zeroconf = MagicMock(zeroconf=zc)
+        monitor._mdns._zeroconf = MagicMock(zeroconf=zc)
 
         info = monitor.get_mdns_cache_info("kitchen")
         assert info is not None
@@ -797,7 +800,7 @@ def test_get_mdns_cache_info_picks_latest_record() -> None:
     fake_zeroconf.zeroconf.cache.current_entry_with_name_and_alias = MagicMock(return_value=None)
 
     monitor = _make_monitor([_make_device()], None)
-    monitor._zeroconf = fake_zeroconf
+    monitor._mdns._zeroconf = fake_zeroconf
 
     info = monitor.get_mdns_cache_info("kitchen")
     assert isinstance(info, MdnsCacheInfo)
@@ -846,7 +849,7 @@ async def test_refresh_mdns_calls_resolve_host() -> None:
     monitor = _make_monitor(devices, tracker)
     fake_zeroconf = MagicMock()
     fake_zeroconf.async_resolve_host = AsyncMock(return_value=["10.0.0.42"])
-    monitor._zeroconf = fake_zeroconf
+    monitor._mdns._zeroconf = fake_zeroconf
 
     await monitor.refresh_mdns("kitchen")
 
@@ -869,7 +872,7 @@ async def test_refresh_mdns_swallows_resolve_errors() -> None:
     monitor = _make_monitor(devices, ReachabilityTracker())
     fake_zeroconf = MagicMock()
     fake_zeroconf.async_resolve_host = AsyncMock(side_effect=OSError("network down"))
-    monitor._zeroconf = fake_zeroconf
+    monitor._mdns._zeroconf = fake_zeroconf
 
     await monitor.refresh_mdns("kitchen")
     assert devices[0].state is DeviceState.UNKNOWN
@@ -888,7 +891,7 @@ async def test_refresh_mdns_empty_resolve_no_state_change() -> None:
     monitor = _make_monitor(devices, ReachabilityTracker())
     fake_zeroconf = MagicMock()
     fake_zeroconf.async_resolve_host = AsyncMock(return_value=[])
-    monitor._zeroconf = fake_zeroconf
+    monitor._mdns._zeroconf = fake_zeroconf
 
     await monitor.refresh_mdns("kitchen")
     assert devices[0].state is DeviceState.UNKNOWN

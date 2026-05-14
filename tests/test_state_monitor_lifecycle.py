@@ -31,8 +31,10 @@ from esphome_device_builder.controllers._device_state_monitor import DeviceState
 from esphome_device_builder.controllers._device_state_monitor import (
     controller as state_monitor_module,
 )
+from esphome_device_builder.controllers._device_state_monitor import mdns as mdns_module
 from esphome_device_builder.controllers._device_state_monitor import ping as ping_module
 from esphome_device_builder.controllers._device_state_monitor._state import MonitorState
+from esphome_device_builder.controllers._device_state_monitor.mdns import MdnsSource
 from esphome_device_builder.controllers._device_state_monitor.ping import PingSource
 from esphome_device_builder.controllers._reachability_tracker import ReachabilityTracker
 from esphome_device_builder.models import Device, DeviceState
@@ -87,14 +89,16 @@ def _make_monitor(
 
     monitor.state = MonitorState()
 
+    monitor._mdns = MdnsSource(monitor)
+
     monitor._ping = PingSource(monitor)
     monitor._get_devices = lambda: devices
     monitor._get_devices_by_name = lambda name: [d for d in devices if d.name == name]
     monitor._is_ignored = lambda _name: False
     monitor.state.state_source = {}
     monitor.state.http_urls = {}
-    monitor._zeroconf = None
-    monitor._mdns_browser = None
+    monitor._mdns._zeroconf = None
+    monitor._mdns._mdns_browser = None
     monitor._ping_task = None
     monitor._tasks = set()
     monitor._import_discovery = None
@@ -134,9 +138,9 @@ async def _start_with_captured_dispatch(
     captured: dict[str, Any] = {}
     fake_zeroconf = MagicMock()
     fake_zeroconf.zeroconf = MagicMock()
-    monkeypatch.setattr(state_monitor_module, "AsyncEsphomeZeroconf", lambda: fake_zeroconf)
+    monkeypatch.setattr(mdns_module, "AsyncEsphomeZeroconf", lambda: fake_zeroconf)
     monkeypatch.setattr(
-        state_monitor_module,
+        mdns_module,
         "DashboardImportDiscovery",
         lambda _cb: (
             import_discovery
@@ -149,7 +153,7 @@ async def _start_with_captured_dispatch(
         captured["dispatch"] = handlers[0]
         return MagicMock(async_cancel=AsyncMock())
 
-    monkeypatch.setattr(state_monitor_module, "AsyncServiceBrowser", _capture)
+    monkeypatch.setattr(mdns_module, "AsyncServiceBrowser", _capture)
 
     # Park the ping loop forever so the bootstrap sleep + first
     # sweep don't fire during browser-only tests. Ping-pipeline
@@ -223,14 +227,14 @@ async def test_stop_cancels_every_async_resource(monkeypatch: pytest.MonkeyPatch
     in_flight = asyncio.create_task(_long_running())
     monitor._tasks.add(in_flight)
     # Replace the zeroconf with one that has an awaitable async_close.
-    monitor._zeroconf = MagicMock()
-    monitor._zeroconf.async_close = AsyncMock()
+    monitor._mdns._zeroconf = MagicMock()
+    monitor._mdns._zeroconf.async_close = AsyncMock()
 
     await _stop_and_drain(monitor)
 
     assert monitor._ping_task is None
-    assert monitor._mdns_browser is None
-    assert monitor._zeroconf is None
+    assert monitor._mdns._mdns_browser is None
+    assert monitor._mdns._zeroconf is None
     assert monitor._tasks == set()
     assert in_flight.cancelled() or in_flight.done()
 
@@ -247,12 +251,12 @@ async def test_stop_swallows_browser_cancel_exception(
     """
     monitor, _callbacks = _make_monitor()
     await _start_with_captured_dispatch(monitor, monkeypatch)
-    monitor._mdns_browser.async_cancel = AsyncMock(side_effect=RuntimeError("browser broke"))
-    monitor._zeroconf.async_close = AsyncMock()
+    monitor._mdns._mdns_browser.async_cancel = AsyncMock(side_effect=RuntimeError("browser broke"))
+    monitor._mdns._zeroconf.async_close = AsyncMock()
 
     await _stop_and_drain(monitor)  # must not raise
 
-    assert monitor._mdns_browser is None
+    assert monitor._mdns._mdns_browser is None
 
 
 @pytest.mark.asyncio
@@ -262,11 +266,11 @@ async def test_stop_swallows_zeroconf_close_exception(
     """``zeroconf.async_close`` raise also lands at debug, not the caller."""
     monitor, _callbacks = _make_monitor()
     await _start_with_captured_dispatch(monitor, monkeypatch)
-    monitor._zeroconf.async_close = AsyncMock(side_effect=RuntimeError("zeroconf broke"))
+    monitor._mdns._zeroconf.async_close = AsyncMock(side_effect=RuntimeError("zeroconf broke"))
 
     await _stop_and_drain(monitor)  # must not raise
 
-    assert monitor._zeroconf is None
+    assert monitor._mdns._zeroconf is None
 
 
 # ---------------------------------------------------------------------------
@@ -289,7 +293,7 @@ async def test_start_falls_back_when_zeroconf_construct_fails(
     def _boom() -> None:
         raise RuntimeError("no zeroconf for you")
 
-    monkeypatch.setattr(state_monitor_module, "AsyncEsphomeZeroconf", _boom)
+    monkeypatch.setattr(mdns_module, "AsyncEsphomeZeroconf", _boom)
 
     async def _park() -> None:
         await asyncio.sleep(60)
@@ -298,8 +302,8 @@ async def test_start_falls_back_when_zeroconf_construct_fails(
 
     await monitor.start()
     try:
-        assert monitor._zeroconf is None
-        assert monitor._mdns_browser is None
+        assert monitor._mdns._zeroconf is None
+        assert monitor._mdns._mdns_browser is None
         # Ping task is still running — we want OFFLINE detection
         # even without zeroconf.
         assert monitor._ping_task is not None
@@ -321,7 +325,7 @@ async def test_start_continues_when_browser_construct_fails(
     fake_zeroconf = MagicMock()
     fake_zeroconf.zeroconf = MagicMock()
     fake_zeroconf.async_close = AsyncMock()
-    monkeypatch.setattr(state_monitor_module, "AsyncEsphomeZeroconf", lambda: fake_zeroconf)
+    monkeypatch.setattr(mdns_module, "AsyncEsphomeZeroconf", lambda: fake_zeroconf)
     monkeypatch.setattr(
         state_monitor_module,
         "DashboardImportDiscovery",
@@ -331,7 +335,7 @@ async def test_start_continues_when_browser_construct_fails(
     def _boom(*_a: Any, **_kw: Any) -> None:
         raise RuntimeError("browser broke")
 
-    monkeypatch.setattr(state_monitor_module, "AsyncServiceBrowser", _boom)
+    monkeypatch.setattr(mdns_module, "AsyncServiceBrowser", _boom)
 
     async def _park() -> None:
         await asyncio.sleep(60)
@@ -340,8 +344,8 @@ async def test_start_continues_when_browser_construct_fails(
 
     await monitor.start()
     try:
-        assert monitor._zeroconf is fake_zeroconf
-        assert monitor._mdns_browser is None
+        assert monitor._mdns._zeroconf is fake_zeroconf
+        assert monitor._mdns._mdns_browser is None
     finally:
         await _stop_and_drain(monitor)
 
@@ -362,7 +366,7 @@ async def test_dispatch_removed_event_flips_offline_clears_ip(
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
     try:
         dispatch(
-            monitor._zeroconf.zeroconf,
+            monitor._mdns._zeroconf.zeroconf,
             ESPHOMELIB_SERVICE_TYPE,
             f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
             ServiceStateChange.Removed,
@@ -397,7 +401,7 @@ async def test_dispatch_removed_event_clears_reachability_tracker(
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
     try:
         dispatch(
-            monitor._zeroconf.zeroconf,
+            monitor._mdns._zeroconf.zeroconf,
             ESPHOMELIB_SERVICE_TYPE,
             f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
             ServiceStateChange.Removed,
@@ -437,12 +441,12 @@ async def test_dispatch_added_cache_hit_propagates_full_txt_bundle(
         "config_hash": "abcd1234",
         "api_encryption": "Noise_NNpsk0_25519_ChaChaPoly_SHA256",
     }
-    monkeypatch.setattr(state_monitor_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
+    monkeypatch.setattr(mdns_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
 
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
     try:
         dispatch(
-            monitor._zeroconf.zeroconf,
+            monitor._mdns._zeroconf.zeroconf,
             ESPHOMELIB_SERVICE_TYPE,
             f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
             ServiceStateChange.Added,
@@ -477,12 +481,12 @@ async def test_dispatch_added_cache_hit_falls_back_to_v6_when_no_v4(
     fake_info.load_from_cache.return_value = True
     fake_info.parsed_scoped_addresses = lambda _mode: ["fe80::1%en0"]
     fake_info.decoded_properties = {}
-    monkeypatch.setattr(state_monitor_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
+    monkeypatch.setattr(mdns_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
 
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
     try:
         dispatch(
-            monitor._zeroconf.zeroconf,
+            monitor._mdns._zeroconf.zeroconf,
             ESPHOMELIB_SERVICE_TYPE,
             f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
             ServiceStateChange.Added,
@@ -513,12 +517,12 @@ async def test_dispatch_added_with_explicit_empty_api_encryption_pushes_empty_st
     fake_info.load_from_cache.return_value = True
     fake_info.parsed_scoped_addresses = lambda _mode: []
     fake_info.decoded_properties = {"api_encryption": ""}
-    monkeypatch.setattr(state_monitor_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
+    monkeypatch.setattr(mdns_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
 
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
     try:
         dispatch(
-            monitor._zeroconf.zeroconf,
+            monitor._mdns._zeroconf.zeroconf,
             ESPHOMELIB_SERVICE_TYPE,
             f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
             ServiceStateChange.Added,
@@ -555,12 +559,12 @@ async def test_dispatch_added_without_api_encryption_txt_preserves_last_known(
     fake_info.load_from_cache.return_value = True
     fake_info.parsed_scoped_addresses = lambda _mode: []
     fake_info.decoded_properties = {}  # no api_encryption key at all
-    monkeypatch.setattr(state_monitor_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
+    monkeypatch.setattr(mdns_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
 
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
     try:
         dispatch(
-            monitor._zeroconf.zeroconf,
+            monitor._mdns._zeroconf.zeroconf,
             ESPHOMELIB_SERVICE_TYPE,
             f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
             ServiceStateChange.Added,
@@ -591,12 +595,12 @@ async def test_dispatch_added_without_api_encryption_txt_keeps_unknown_at_none(
     fake_info.load_from_cache.return_value = True
     fake_info.parsed_scoped_addresses = lambda _mode: []
     fake_info.decoded_properties = {}
-    monkeypatch.setattr(state_monitor_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
+    monkeypatch.setattr(mdns_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
 
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
     try:
         dispatch(
-            monitor._zeroconf.zeroconf,
+            monitor._mdns._zeroconf.zeroconf,
             ESPHOMELIB_SERVICE_TYPE,
             f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
             ServiceStateChange.Added,
@@ -641,12 +645,12 @@ async def test_dispatch_added_api_encryption_absent_with_other_content_clears_to
         "mac": "aabbccddeeff",
         "config_hash": "abc12345",
     }
-    monkeypatch.setattr(state_monitor_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
+    monkeypatch.setattr(mdns_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
 
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
     try:
         dispatch(
-            monitor._zeroconf.zeroconf,
+            monitor._mdns._zeroconf.zeroconf,
             ESPHOMELIB_SERVICE_TYPE,
             f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
             ServiceStateChange.Added,
@@ -688,12 +692,12 @@ async def test_dispatch_added_api_encryption_bare_key_pushes_empty_string(
     # or bare ``api_encryption``: the key is present in the dict
     # but the value is ``None``.
     fake_info.decoded_properties = {"api_encryption": None}
-    monkeypatch.setattr(state_monitor_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
+    monkeypatch.setattr(mdns_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
 
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
     try:
         dispatch(
-            monitor._zeroconf.zeroconf,
+            monitor._mdns._zeroconf.zeroconf,
             ESPHOMELIB_SERVICE_TYPE,
             f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
             ServiceStateChange.Added,
@@ -773,12 +777,12 @@ async def test_dispatch_added_sparse_announce_preserves_last_known(
     fake_info.load_from_cache.return_value = True
     fake_info.parsed_scoped_addresses = lambda _mode: []
     fake_info.decoded_properties = make_props(txt_key)
-    monkeypatch.setattr(state_monitor_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
+    monkeypatch.setattr(mdns_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
 
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
     try:
         dispatch(
-            monitor._zeroconf.zeroconf,
+            monitor._mdns._zeroconf.zeroconf,
             ESPHOMELIB_SERVICE_TYPE,
             f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
             ServiceStateChange.Added,
@@ -810,12 +814,12 @@ async def test_dispatch_added_cache_miss_resolves_and_applies(
     fake_info.async_request = AsyncMock(return_value=True)
     fake_info.parsed_scoped_addresses = lambda _mode: ["10.0.0.5"]
     fake_info.decoded_properties = {"version": "2026.5.0"}
-    monkeypatch.setattr(state_monitor_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
+    monkeypatch.setattr(mdns_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
 
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
     try:
         dispatch(
-            monitor._zeroconf.zeroconf,
+            monitor._mdns._zeroconf.zeroconf,
             ESPHOMELIB_SERVICE_TYPE,
             f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
             ServiceStateChange.Added,
@@ -844,12 +848,12 @@ async def test_dispatch_added_cache_miss_skips_apply_when_request_returns_false(
     fake_info = MagicMock()
     fake_info.load_from_cache.return_value = False
     fake_info.async_request = AsyncMock(return_value=False)
-    monkeypatch.setattr(state_monitor_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
+    monkeypatch.setattr(mdns_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
 
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
     try:
         dispatch(
-            monitor._zeroconf.zeroconf,
+            monitor._mdns._zeroconf.zeroconf,
             ESPHOMELIB_SERVICE_TYPE,
             f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
             ServiceStateChange.Added,
@@ -876,12 +880,12 @@ async def test_dispatch_added_cache_miss_swallows_resolve_exception(
     fake_info = MagicMock()
     fake_info.load_from_cache.return_value = False
     fake_info.async_request = AsyncMock(side_effect=OSError("network flap"))
-    monkeypatch.setattr(state_monitor_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
+    monkeypatch.setattr(mdns_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
 
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
     try:
         dispatch(
-            monitor._zeroconf.zeroconf,
+            monitor._mdns._zeroconf.zeroconf,
             ESPHOMELIB_SERVICE_TYPE,
             f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
             ServiceStateChange.Added,
@@ -907,7 +911,7 @@ async def test_dispatch_skips_unconfigured_devices(
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
     try:
         dispatch(
-            monitor._zeroconf.zeroconf,
+            monitor._mdns._zeroconf.zeroconf,
             ESPHOMELIB_SERVICE_TYPE,
             f"stranger.{ESPHOMELIB_SERVICE_TYPE}",
             ServiceStateChange.Added,
@@ -978,7 +982,7 @@ async def test_dispatch_http_service_added_records_url_and_refires_importable(
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch, import_discovery=discovery)
     try:
         dispatch(
-            monitor._zeroconf.zeroconf,
+            monitor._mdns._zeroconf.zeroconf,
             HTTP_SERVICE_TYPE,
             f"factory-firmware.{HTTP_SERVICE_TYPE}",
             ServiceStateChange.Added,
@@ -1011,7 +1015,7 @@ async def test_dispatch_http_service_added_skips_when_no_importable(
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch, import_discovery=discovery)
     try:
         dispatch(
-            monitor._zeroconf.zeroconf,
+            monitor._mdns._zeroconf.zeroconf,
             HTTP_SERVICE_TYPE,
             f"stranger.{HTTP_SERVICE_TYPE}",
             ServiceStateChange.Added,
@@ -1046,7 +1050,7 @@ async def test_dispatch_http_service_removed_clears_url_and_refires(
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch, import_discovery=discovery)
     try:
         dispatch(
-            monitor._zeroconf.zeroconf,
+            monitor._mdns._zeroconf.zeroconf,
             HTTP_SERVICE_TYPE,
             f"factory-firmware.{HTTP_SERVICE_TYPE}",
             ServiceStateChange.Removed,
@@ -1068,7 +1072,7 @@ async def test_dispatch_http_service_removed_for_untracked_is_noop(
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch, import_discovery=discovery)
     try:
         dispatch(
-            monitor._zeroconf.zeroconf,
+            monitor._mdns._zeroconf.zeroconf,
             HTTP_SERVICE_TYPE,
             f"stranger.{HTTP_SERVICE_TYPE}",
             ServiceStateChange.Removed,
@@ -1097,7 +1101,7 @@ async def test_dispatch_http_service_added_cache_miss_resolves_and_applies(
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch, import_discovery=discovery)
     try:
         dispatch(
-            monitor._zeroconf.zeroconf,
+            monitor._mdns._zeroconf.zeroconf,
             HTTP_SERVICE_TYPE,
             f"factory-firmware.{HTTP_SERVICE_TYPE}",
             ServiceStateChange.Added,
@@ -1159,8 +1163,8 @@ def test_revisit_importable_seeds_url_from_cache_when_http_already_resolved(
     ``AdoptableDevice`` carries the link from the first event.
     """
     monitor, callbacks = _make_monitor(devices=[])
-    monitor._zeroconf = MagicMock()
-    monitor._zeroconf.zeroconf = MagicMock()
+    monitor._mdns._zeroconf = MagicMock()
+    monitor._mdns._zeroconf.zeroconf = MagicMock()
     discovered = _build_discovered("factory-firmware")
     monitor._import_discovery = _make_import_discovery(
         {f"factory-firmware.{ESPHOMELIB_SERVICE_TYPE}": discovered}
@@ -1188,7 +1192,7 @@ def test_revisit_importable_skips_seed_when_url_already_set() -> None:
     pre-populated one (no AsyncServiceInfo lookup at all).
     """
     monitor, callbacks = _make_monitor(devices=[])
-    monitor._zeroconf = MagicMock()
+    monitor._mdns._zeroconf = MagicMock()
     monitor.state.http_urls["factory-firmware"] = "http://factory-firmware.local"
     monitor._import_discovery = _make_import_discovery(
         {f"factory-firmware.{ESPHOMELIB_SERVICE_TYPE}": _build_discovered("factory-firmware")}
@@ -1203,7 +1207,7 @@ def test_revisit_importable_skips_seed_when_url_already_set() -> None:
 def test_revisit_importable_skips_seed_when_zeroconf_down() -> None:
     """Pre-start monitor (zeroconf=None) silently bails out of the seed."""
     monitor, _callbacks = _make_monitor(devices=[])
-    monitor._zeroconf = None
+    monitor._mdns._zeroconf = None
     monitor._import_discovery = _make_import_discovery(
         {f"factory-firmware.{ESPHOMELIB_SERVICE_TYPE}": _build_discovered("factory-firmware")}
     )
@@ -1223,8 +1227,8 @@ def test_revisit_importable_seeds_nothing_on_cache_miss(
     we leave it to the regular browser-callback path.
     """
     monitor, _callbacks = _make_monitor(devices=[])
-    monitor._zeroconf = MagicMock()
-    monitor._zeroconf.zeroconf = MagicMock()
+    monitor._mdns._zeroconf = MagicMock()
+    monitor._mdns._zeroconf.zeroconf = MagicMock()
     monitor._import_discovery = _make_import_discovery(
         {f"factory-firmware.{ESPHOMELIB_SERVICE_TYPE}": _build_discovered("factory-firmware")}
     )
@@ -1450,13 +1454,13 @@ def test_get_cached_addresses_returns_addresses_on_cache_hit(
 ) -> None:
     """A cache hit returns the parsed addresses; miss returns None."""
     monitor, _callbacks = _make_monitor()
-    monitor._zeroconf = MagicMock()
-    monitor._zeroconf.zeroconf = MagicMock()
+    monitor._mdns._zeroconf = MagicMock()
+    monitor._mdns._zeroconf.zeroconf = MagicMock()
 
     info = MagicMock()
     info.load_from_cache.return_value = True
     info.parsed_scoped_addresses.return_value = ["10.0.0.1", "10.0.0.2"]
-    monkeypatch.setattr(state_monitor_module, "AddressResolver", lambda _name: info)
+    monkeypatch.setattr(mdns_module, "AddressResolver", lambda _name: info)
 
     assert monitor.get_cached_addresses("kitchen.local") == ["10.0.0.1", "10.0.0.2"]
 
@@ -1466,12 +1470,12 @@ def test_get_cached_addresses_returns_none_on_cache_miss(
 ) -> None:
     """``load_from_cache`` False → ``None`` (caller falls back to DNS / mDNS query)."""
     monitor, _callbacks = _make_monitor()
-    monitor._zeroconf = MagicMock()
-    monitor._zeroconf.zeroconf = MagicMock()
+    monitor._mdns._zeroconf = MagicMock()
+    monitor._mdns._zeroconf.zeroconf = MagicMock()
 
     info = MagicMock()
     info.load_from_cache.return_value = False
-    monkeypatch.setattr(state_monitor_module, "AddressResolver", lambda _name: info)
+    monkeypatch.setattr(mdns_module, "AddressResolver", lambda _name: info)
 
     assert monitor.get_cached_addresses("kitchen.local") is None
 
@@ -1487,13 +1491,13 @@ def test_get_cached_addresses_returns_none_when_addresses_empty(
     caller as "no addresses I can use".
     """
     monitor, _callbacks = _make_monitor()
-    monitor._zeroconf = MagicMock()
-    monitor._zeroconf.zeroconf = MagicMock()
+    monitor._mdns._zeroconf = MagicMock()
+    monitor._mdns._zeroconf.zeroconf = MagicMock()
 
     info = MagicMock()
     info.load_from_cache.return_value = True
     info.parsed_scoped_addresses.return_value = []
-    monkeypatch.setattr(state_monitor_module, "AddressResolver", lambda _name: info)
+    monkeypatch.setattr(mdns_module, "AddressResolver", lambda _name: info)
 
     assert monitor.get_cached_addresses("kitchen.local") is None
 
@@ -1518,7 +1522,7 @@ async def test_start_uses_v6_fallback_when_only_v6_in_mdns_cache(
     cached_info = MagicMock()
     cached_info.load_from_cache.return_value = True
     cached_info.parsed_scoped_addresses.return_value = ["fe80::1%en0"]
-    monkeypatch.setattr(state_monitor_module, "AddressResolver", lambda _name: cached_info)
+    monkeypatch.setattr(mdns_module, "AddressResolver", lambda _name: cached_info)
 
     async def _icmp(*_a: Any, **_kw: Any) -> Any:
         # Should not be reached — the cached-addresses path

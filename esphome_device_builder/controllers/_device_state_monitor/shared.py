@@ -110,7 +110,8 @@ async def resolve_non_api_mdns_targets(monitor: DeviceStateMonitor) -> None:
     (``esphome/dashboard/status/mdns.py``). No-op when the
     zeroconf browser failed to start.
     """
-    if monitor._zeroconf is None:
+    zeroconf = monitor._mdns.zeroconf
+    if zeroconf is None:
         return
     candidates = [
         d
@@ -125,7 +126,7 @@ async def resolve_non_api_mdns_targets(monitor: DeviceStateMonitor) -> None:
         return
     results = await asyncio.gather(
         *(
-            monitor._zeroconf.async_resolve_host(d.address, _MDNS_HOSTNAME_RESOLVE_TIMEOUT)
+            zeroconf.async_resolve_host(d.address, _MDNS_HOSTNAME_RESOLVE_TIMEOUT)
             for d in candidates
         ),
         return_exceptions=True,

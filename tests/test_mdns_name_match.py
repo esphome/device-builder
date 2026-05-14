@@ -22,7 +22,7 @@ from esphome_device_builder.controllers._device_state_monitor import (
     DeviceStateMonitor,
     device_name_from_service,
 )
-from esphome_device_builder.controllers._device_state_monitor import controller as monitor_module
+from esphome_device_builder.controllers._device_state_monitor import mdns as mdns_module
 from esphome_device_builder.models import Device, DeviceState
 
 from .conftest import make_state_monitor_with_callbacks
@@ -103,9 +103,9 @@ async def _capture_handler(monitor: DeviceStateMonitor, monkeypatch: pytest.Monk
             captured["handler"] = handlers[0]
 
     fake_zc = MagicMock()
-    monkeypatch.setattr(monitor_module, "AsyncEsphomeZeroconf", lambda: fake_zc)
-    monkeypatch.setattr(monitor_module, "AsyncServiceInfo", _FakeServiceInfo)
-    monkeypatch.setattr(monitor_module, "AsyncServiceBrowser", _FakeBrowser)
+    monkeypatch.setattr(mdns_module, "AsyncEsphomeZeroconf", lambda: fake_zc)
+    monkeypatch.setattr(mdns_module, "AsyncServiceInfo", _FakeServiceInfo)
+    monkeypatch.setattr(mdns_module, "AsyncServiceBrowser", _FakeBrowser)
     # Upstream ``DashboardImportDiscovery.browser_callback`` builds
     # its own ``AsyncServiceInfo`` from the ``esphome.zeroconf``
     # module — patch that copy too so the dispatch handler can fan
@@ -113,7 +113,7 @@ async def _capture_handler(monitor: DeviceStateMonitor, monkeypatch: pytest.Monk
     # real zeroconf.
     monkeypatch.setattr(esphome_zc, "AsyncServiceInfo", _FakeServiceInfo)
 
-    await monitor._start_mdns_browser()
+    await monitor._mdns.start()
     return captured["handler"]
 
 

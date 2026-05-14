@@ -16,6 +16,13 @@ from ...helpers.hostname import is_local_hostname
 
 _ESPHOME_SERVICE_TYPE = "_esphomelib._tcp.local."
 
+# A second mDNS browser watches for HTTP services so we can light up
+# a "Visit web UI" link on discovered devices that are running their
+# factory firmware's built-in web server. The browser only feeds the
+# importable-discovery flow; configured devices already get their
+# web_port from the YAML (``web_server:``).
+_HTTP_SERVICE_TYPE = "_http._tcp.local."
+
 
 # Allowed separators between the six octets of a MAC.
 # ESPHome firmware today broadcasts the compact 12-hex-char form
