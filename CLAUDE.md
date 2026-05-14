@@ -113,6 +113,42 @@ the official ESPHome container and Home Assistant add-on.
   See `controllers/devices/`, `controllers/firmware/`, and
   `controllers/remote_build/` for the canonical shape.
 
+  **State dataclass convention.** Sibling submodules take the
+  controller as their first arg; bound-method delegates on the
+  controller route back into them. The catch is *state* — the
+  dicts and sets a controller mutates over its lifetime get
+  reached into from sibling modules (`controller._pairings.pop(...)`,
+  `controller._open_peer_links.add(...)`), and the underscore
+  prefix on the controller's own attrs reads as "private" exactly
+  where the access is most ubiquitous. Group the mutable domain
+  state into a typed `XxxState` dataclass in
+  `controllers/X/_state.py`; the controller owns
+  `self.state: XxxState`; siblings reach through
+  `controller.state.X`. See `controllers/remote_build/_state.py`
+  (`OffloaderState`) and `controllers/devices/_state.py`
+  (`DevicesState`) for canonical examples.
+
+  What goes on `state` vs the controller:
+
+  * **`state`**: every attr that mutates after `__init__` —
+    domain dicts/sets the siblings touch (`pairings`, `peers`,
+    `open_peer_links`, `regenerate_pending`, …), single-value
+    flags (`remote_builds_enabled`), identity / resolver / browser
+    refs that `start()` populates and `stop()` clears.
+  * **The controller**: `_db` (parent reference, not state),
+    `_listeners` / `_tasks` / `_shutdown_callbacks` (base
+    infrastructure), service refs constructed in `__init__` and
+    never reassigned (`_scanner`, `_state_monitor`,
+    `_pairings_store`, `_yaml_search_cache`, the various
+    locks), bound-method delegates the siblings call back into,
+    `@api_command`-decorated WS methods, snapshot methods.
+
+  When splitting a controller into a package, design with
+  `XxxState` from PR 1 of the split; don't ship the bare
+  free-function-with-controller-arg pattern and add the
+  state dataclass later. Doing it upfront avoids the post-split
+  cleanup cycle that PRs #795 and #797 exist to address.
+
   Existing modules over 800 lines (audit `wc -l` periodically;
   the worst offender at the time of writing was 5176 lines) are
   grandfathered. The split rule is scoped to invasive changes:
