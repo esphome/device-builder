@@ -96,6 +96,7 @@ from .conftest import (
     make_remote_build_controller,
     make_submit_job_frames,
     make_tar_bundle,
+    reset_offloader_firmware_stub,
 )
 
 
@@ -1626,10 +1627,10 @@ async def test_register_peer_link_session_pushes_initial_queue_status(tmp_path: 
     silently fall back to LOCAL on every install request.
     """
     controller = _make_controller(config_dir=tmp_path)
-    controller.offloader._db.bus = MagicMock()
-    controller.offloader._db.firmware = MagicMock()
-    controller.offloader._db.firmware.queue_status_snapshot = MagicMock(
-        return_value=QueueStatus(idle=True, running=False, queue_depth=0)
+    reset_offloader_firmware_stub(
+        controller,
+        reset_bus=True,
+        return_value=QueueStatus(idle=True, running=False, queue_depth=0),
     )
 
     session = MagicMock(spec=PeerLinkSession)
@@ -1687,11 +1688,7 @@ async def test_register_peer_link_session_swallows_snapshot_exception(tmp_path: 
     :meth:`_broadcast_queue_status` for per-session sends.
     """
     controller = _make_controller(config_dir=tmp_path)
-    controller.offloader._db.bus = MagicMock()
-    controller.offloader._db.firmware = MagicMock()
-    controller.offloader._db.firmware.queue_status_snapshot = MagicMock(
-        side_effect=RuntimeError("boom")
-    )
+    reset_offloader_firmware_stub(controller, reset_bus=True, side_effect=RuntimeError("boom"))
 
     session = MagicMock(spec=PeerLinkSession)
     session.dashboard_id = "alpha"
@@ -1724,10 +1721,10 @@ async def test_register_peer_link_session_swallows_send_app_frame_exception(
     catches up on the next queue transition instead.
     """
     controller = _make_controller(config_dir=tmp_path)
-    controller.offloader._db.bus = MagicMock()
-    controller.offloader._db.firmware = MagicMock()
-    controller.offloader._db.firmware.queue_status_snapshot = MagicMock(
-        return_value=QueueStatus(idle=True, running=False, queue_depth=0)
+    reset_offloader_firmware_stub(
+        controller,
+        reset_bus=True,
+        return_value=QueueStatus(idle=True, running=False, queue_depth=0),
     )
 
     session = MagicMock(spec=PeerLinkSession)

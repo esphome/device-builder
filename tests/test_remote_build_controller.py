@@ -80,7 +80,7 @@ from esphome_device_builder.models import (
 )
 
 from .conftest import RemoteBuildTestHandles as RemoteBuildController
-from .conftest import make_remote_build_controller
+from .conftest import make_remote_build_controller, reset_offloader_firmware_stub
 
 # ---------------------------------------------------------------------------
 # Helpers used by the tests
@@ -3710,9 +3710,8 @@ async def test_on_firmware_queue_transition_broadcasts_to_every_session(
 ) -> None:
     """A ``JOB_STARTED`` tick broadcasts a fresh snapshot to all paired offloaders."""
     controller = _make_controller(config_dir=tmp_path)
-    controller.offloader._db.firmware = MagicMock()
-    controller.offloader._db.firmware.queue_status_snapshot.return_value = QueueStatus(
-        idle=False, running=True, queue_depth=2
+    reset_offloader_firmware_stub(
+        controller, return_value=QueueStatus(idle=False, running=True, queue_depth=2)
     )
     # ``create_background_task`` on the real ``DeviceBuilder``
     # schedules onto the running loop; the MagicMock-backed
@@ -3747,9 +3746,8 @@ async def test_on_firmware_queue_transition_broadcasts_to_every_session(
 def test_on_firmware_queue_transition_skips_when_no_sessions(tmp_path: Path) -> None:
     """No paired offloaders → no background task scheduled."""
     controller = _make_controller(config_dir=tmp_path)
-    controller.offloader._db.firmware = MagicMock()
-    controller.offloader._db.firmware.queue_status_snapshot.return_value = QueueStatus(
-        idle=True, running=False, queue_depth=0
+    reset_offloader_firmware_stub(
+        controller, return_value=QueueStatus(idle=True, running=False, queue_depth=0)
     )
     controller.offloader._db.create_background_task = MagicMock()
 
