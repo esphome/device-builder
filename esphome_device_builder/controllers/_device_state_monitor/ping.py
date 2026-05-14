@@ -49,6 +49,11 @@ class PingSource:
         # 60s when the target set hasn't changed. New devices,
         # mDNS claims, and removals re-surface the line.
         self._last_logged_targets: tuple[tuple[str, str], ...] = ()
+        # 0→1 multiplexed into the same wake event so a subscriber
+        # arriving mid-idle gets fresh ICMP without waiting out the
+        # rest of the interval.
+        if monitor._presence is not None:
+            monitor._presence.add_subscriber_callback(self._wake.set)
 
     async def run(self) -> None:
         await asyncio.sleep(_PING_BOOTSTRAP_DELAY)

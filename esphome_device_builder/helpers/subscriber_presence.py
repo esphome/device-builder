@@ -21,8 +21,11 @@ responsibilities single-purpose.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterator
+import logging
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class SubscriberPresence:
@@ -52,6 +55,7 @@ class SubscriberPresence:
         self._has_subscriber = asyncio.Event()
         self._no_subscribers = asyncio.Event()
         self._no_subscribers.set()  # initial state: gate is closed
+        self._subscriber_callbacks: list[Callable[[], None]] = []
 
     def has_subscribers(self) -> bool:
         """Return True while at least one subscriber is registered."""
@@ -70,6 +74,10 @@ class SubscriberPresence:
         come around for the next iteration of their loop.
         """
         await self._has_subscriber.wait()
+
+    def add_subscriber_callback(self, callback: Callable[[], None]) -> None:
+        """Register *callback* to fire synchronously on every count 0→1 transition."""
+        self._subscriber_callbacks.append(callback)
 
     async def wait_for_no_subscribers(self) -> None:
         """Suspend until the count drops to 0.
@@ -104,6 +112,13 @@ class SubscriberPresence:
         if self._count == 1:
             self._has_subscriber.set()
             self._no_subscribers.clear()
+            for callback in self._subscriber_callbacks:
+                # Isolate so a misbehaving consumer can't break
+                # presence accounting or skip sibling callbacks.
+                try:
+                    callback()
+                except Exception:
+                    _LOGGER.exception("subscriber callback raised")
         try:
             yield
         finally:

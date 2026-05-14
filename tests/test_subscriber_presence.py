@@ -203,3 +203,46 @@ async def test_wait_for_no_subscribers_wakes_on_drop_to_zero() -> None:
 
     # The drop must wake the waiter within a tick.
     await asyncio.wait_for(waiter_task, timeout=0.1)
+
+
+def test_subscriber_callback_fires_on_each_zero_to_one() -> None:
+    """Registered callback fires on every 0→1; not on nested entries; not on 1→0."""
+    p = SubscriberPresence()
+    fires: list[None] = []
+    p.add_subscriber_callback(lambda: fires.append(None))
+
+    assert fires == []
+
+    with p.subscriber():
+        assert fires == [None]
+    assert fires == [None]
+
+    with p.subscriber():
+        pass
+    assert fires == [None, None]
+
+    with p.subscriber(), p.subscriber():
+        pass
+    assert fires == [None, None, None]
+
+
+def test_subscriber_callback_isolation_protects_siblings_and_count(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A raising callback is logged; siblings still fire and the gate accounting still resets."""
+    p = SubscriberPresence()
+
+    def _bad() -> None:
+        raise RuntimeError("boom")
+
+    fires: list[None] = []
+    p.add_subscriber_callback(_bad)
+    p.add_subscriber_callback(lambda: fires.append(None))
+
+    with caplog.at_level("ERROR"), p.subscriber():
+        pass
+
+    assert fires == [None]
+    assert p.count == 0
+    assert p._has_subscriber.is_set() is False
+    assert any("subscriber callback raised" in rec.message for rec in caplog.records)

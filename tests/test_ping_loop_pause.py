@@ -224,13 +224,20 @@ async def test_subscribe_events_holds_presence_for_stream_lifetime(
 
 
 @pytest.mark.asyncio
-async def test_ping_loop_sweeps_again_after_drop_reconnect(
+async def test_subscriber_arrival_mid_idle_bails_within_a_tick(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A drop+reconnect cycle eventually produces a fresh sweep for the new subscriber."""
+    """A subscriber arriving while the loop is in idle drives the next sweep promptly.
+
+    With ``_PING_INTERVAL`` re-stretched to 60s, anything beyond a
+    handful of scheduling ticks for the second sweep means the
+    0→1 wake didn't fire — the loop sat through the rest of the
+    interval instead.
+    """
     presence = SubscriberPresence()
     monitor = _build_monitor(presence=presence)
     counts = _instrument_loop(monitor, monkeypatch)
+    monkeypatch.setattr(ping_module, "_PING_INTERVAL", 60)
 
     task = asyncio.create_task(monitor._ping.run())
     try:
