@@ -21,7 +21,7 @@ responsibilities single-purpose.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
 
@@ -52,6 +52,12 @@ class SubscriberPresence:
         self._has_subscriber = asyncio.Event()
         self._no_subscribers = asyncio.Event()
         self._no_subscribers.set()  # initial state: gate is closed
+        # Synchronous notifications fired on every count→0
+        # transition. Lets a consumer (the ICMP ping loop) collapse
+        # its "bail the idle wait when subscribers leave" branch
+        # into a shared interrupt event, avoiding per-iteration
+        # task creation in the consumer's idle loop.
+        self._no_subscriber_callbacks: list[Callable[[], None]] = []
 
     def has_subscribers(self) -> bool:
         """Return True while at least one subscriber is registered."""
@@ -70,6 +76,18 @@ class SubscriberPresence:
         come around for the next iteration of their loop.
         """
         await self._has_subscriber.wait()
+
+    def add_no_subscriber_callback(self, callback: Callable[[], None]) -> None:
+        """
+        Register *callback* to fire synchronously on every count→0 transition.
+
+        Lets a consumer collapse its idle-wait branch on
+        :meth:`wait_for_no_subscribers` into a shared interrupt
+        ``asyncio.Event`` it already awaits — avoids creating a
+        per-iteration ``asyncio.Task`` just to multiplex two events.
+        Fires on the loop thread; *callback* must not block or raise.
+        """
+        self._no_subscriber_callbacks.append(callback)
 
     async def wait_for_no_subscribers(self) -> None:
         """Suspend until the count drops to 0.
@@ -111,3 +129,5 @@ class SubscriberPresence:
             if self._count == 0:
                 self._has_subscriber.clear()
                 self._no_subscribers.set()
+                for callback in self._no_subscriber_callbacks:
+                    callback()

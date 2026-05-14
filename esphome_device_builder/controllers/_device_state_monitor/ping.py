@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from typing import TYPE_CHECKING
 
@@ -64,6 +65,12 @@ class PingSource:
         # via ``wait_for_subscriber`` — mDNS keeps running
         # unconditionally because it's passive.
         monitor = self._monitor
+        if monitor._presence is not None:
+            # Subscriber drops feed into the same wake event as
+            # ``probe_device_ping`` so the post-sweep idle wait is
+            # a single ``asyncio.wait_for`` — no per-iteration
+            # ``asyncio.Task`` churn from racing two events.
+            monitor._presence.add_no_subscriber_callback(self._wake.set)
         while True:
             if monitor._presence is not None:
                 await monitor._presence.wait_for_subscriber()
@@ -81,26 +88,13 @@ class PingSource:
         Sleep up to ``_PING_INTERVAL``; bail early on a wake or last-subscriber-leaves.
 
         Wakes collapse a herd of new-device adds into one early
-        sweep. The no-subscribers branch keeps the original
-        behaviour: drop out so the next subscriber to connect
-        doesn't sit through the rest of a stale interval.
+        sweep. Subscriber-drops bail through the same event via
+        the callback registered in :meth:`run`, so the next
+        subscriber to connect doesn't sit through the rest of a
+        stale interval.
         """
-        monitor = self._monitor
-        waiters: list[asyncio.Task[object]] = [asyncio.create_task(self._wake.wait())]
-        if monitor._presence is not None:
-            waiters.append(asyncio.create_task(monitor._presence.wait_for_no_subscribers()))
-        try:
-            await asyncio.wait(waiters, timeout=_PING_INTERVAL, return_when=asyncio.FIRST_COMPLETED)
-        finally:
-            for w in waiters:
-                w.cancel()
-            # ``shield`` keeps the drain alive even if the outer
-            # ``run()`` task receives a second cancellation while
-            # we're tearing down — without it the gather can be
-            # interrupted, leaving the waiter tasks pending and
-            # surfacing as "Task was destroyed while pending"
-            # warnings on loop teardown.
-            await asyncio.shield(asyncio.gather(*waiters, return_exceptions=True))
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(self._wake.wait(), timeout=_PING_INTERVAL)
 
     async def _ping_sweep(self) -> None:
         if icmp_ping is None:

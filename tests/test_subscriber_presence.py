@@ -203,3 +203,34 @@ async def test_wait_for_no_subscribers_wakes_on_drop_to_zero() -> None:
 
     # The drop must wake the waiter within a tick.
     await asyncio.wait_for(waiter_task, timeout=0.1)
+
+
+def test_no_subscriber_callback_fires_on_each_drop_to_zero() -> None:
+    """Registered callbacks fire synchronously on every count→0 transition.
+
+    The ICMP ping loop registers ``self._wake.set`` here so its
+    idle wait can collapse subscriber-drop into the same wake
+    event as ``probe_device_ping`` — one ``wait_for`` per
+    iteration instead of a per-iteration two-task race.
+    """
+    p = SubscriberPresence()
+    fires: list[None] = []
+    p.add_no_subscriber_callback(lambda: fires.append(None))
+
+    # Already at 0; no transition, no callback.
+    assert fires == []
+
+    with p.subscriber():
+        assert fires == []  # 0→1 doesn't fire
+    assert fires == [None]  # 1→0 fires once
+
+    # Cycle again to confirm callbacks are not one-shot.
+    with p.subscriber():
+        pass
+    assert fires == [None, None]
+
+    # Nested subscribers: only the outermost exit fires the
+    # callback (count returns to 0 only once).
+    with p.subscriber(), p.subscriber():
+        pass
+    assert fires == [None, None, None]
