@@ -24,9 +24,7 @@ import time
 from collections.abc import Callable, Hashable
 from typing import TYPE_CHECKING, Any, Literal
 
-from ...helpers import dashboard_identity as _dashboard_identity_helper
 from ...helpers.api import CommandError, api_command
-from ...helpers.dashboard_identity import get_or_create_identity
 from ...helpers.event_bus import Event
 from ...helpers.storage import Store
 from ...models import (
@@ -41,7 +39,6 @@ from ...models import (
     PeerStatus,
     PeerSummary,
     ReceiverPeers,
-    RemoteBuildIdentityRotatedData,
     RemoteBuildPairingWindowChangedData,
     RemoteBuildPairRequestReceivedData,
     RemoteBuildPairStatusChangedData,
@@ -53,7 +50,7 @@ from ..config import (
     load_remote_build_settings,
     remote_build_settings_transaction,
 )
-from . import cleanup_loop, peer_link_sessions
+from . import cleanup_loop, identity_commands, peer_link_sessions
 from ._receiver_state import ReceiverState
 from ._shared import _RemoteBuildBase, drain_tasks
 from ._storage_codecs import (
@@ -61,7 +58,7 @@ from ._storage_codecs import (
     decode_peers,
     encode_peers,
 )
-from ._summaries import identity_view, peer_summary
+from ._summaries import peer_summary
 from ._validators import (
     validate_dashboard_id,
 )
@@ -349,63 +346,13 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
 
     @api_command("remote_build/get_identity")
     async def get_identity(self, **kwargs: Any) -> IdentityView:
-        """Return this dashboard's stable identity (id + pin + versions + bind state).
-
-        The X25519 private key is never returned; only
-        ``pin_sha256`` (the fingerprint mDNS broadcasts and
-        offloaders pin against).
-        """
-        loop = asyncio.get_running_loop()
-        identity = await loop.run_in_executor(
-            None, get_or_create_identity, self._db.settings.config_dir
-        )
-        return identity_view(identity, listener_bound=self._db.is_remote_build_listener_bound)
+        """Return this dashboard's stable identity (id + pin + versions + bind state)."""
+        return await identity_commands.get_identity(self)
 
     @api_command("remote_build/rotate_identity")
     async def rotate_identity(self, **kwargs: Any) -> IdentityView:
-        """
-        Mint a fresh X25519 peer-link keypair, replacing whatever's on disk.
-
-        Forces every paired offloader to re-pair — peers pinned
-        on the old ``pin_sha256`` see a fingerprint mismatch on
-        the next handshake. ``dashboard_id`` is preserved.
-
-        Side effects when remote-build is currently bound:
-        listener torn down + rebuilt with the fresh key,
-        ``pin_sha256`` re-advertised in mDNS, rebuild fail-softs
-        (``listener_bound=False`` in the response).
-        :attr:`EventType.REMOTE_BUILD_IDENTITY_ROTATED` fires
-        regardless of bind state so subscribers can refresh
-        cached pins without polling.
-
-        Concurrent calls return ``ALREADY_EXISTS`` — two
-        rotations racing would each tear down + rebuild the
-        listener; back-to-back is almost always an accidental
-        double-click.
-        """
-        # Check+set is atomic on the single asyncio loop.
-        if self.state.rotation_in_flight:
-            msg = "remote_build: an identity rotation is already in progress"
-            raise CommandError(ErrorCode.ALREADY_EXISTS, msg)
-        self.state.rotation_in_flight = True
-        try:
-            loop = asyncio.get_running_loop()
-            identity = await loop.run_in_executor(
-                None, _dashboard_identity_helper.rotate_identity, self._db.settings.config_dir
-            )
-            listener_bound = await self._db.reload_remote_build_identity(
-                pin_sha256=identity.pin_sha256,
-            )
-            self._db.bus.fire(
-                EventType.REMOTE_BUILD_IDENTITY_ROTATED,
-                RemoteBuildIdentityRotatedData(
-                    dashboard_id=identity.dashboard_id,
-                    pin_sha256=identity.pin_sha256,
-                ),
-            )
-            return identity_view(identity, listener_bound=listener_bound)
-        finally:
-            self.state.rotation_in_flight = False
+        """Mint a fresh X25519 peer-link keypair, replacing whatever's on disk."""
+        return await identity_commands.rotate_identity(self)
 
     # ------------------------------------------------------------------
     # Peer CRUD — receiver-UI surface for the Pairing requests inbox.
