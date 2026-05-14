@@ -60,10 +60,7 @@ async def rotate_identity(controller: ReceiverController) -> IdentityView:
         msg = "remote_build: an identity rotation is already in progress"
         raise CommandError(ErrorCode.ALREADY_EXISTS, msg)
     controller.state.rotation_in_flight = True
-    try:
-        return await asyncio.shield(_rotate_and_reload(controller))
-    finally:
-        controller.state.rotation_in_flight = False
+    return await asyncio.shield(_rotate_and_reload(controller))
 
 
 async def _rotate_and_reload(controller: ReceiverController) -> IdentityView:
@@ -73,20 +70,28 @@ async def _rotate_and_reload(controller: ReceiverController) -> IdentityView:
     Shielded as one unit so a cancellation between the disk
     write and the listener rebuild can't leave the bound
     listener serving the pre-rotate key while ``get_identity``
-    reports the post-rotate pin.
+    reports the post-rotate pin. ``rotation_in_flight`` is
+    cleared in this function's ``finally`` (not the caller's)
+    so the flag tracks the shielded work rather than the
+    cancelled awaiter; otherwise a second request would slip
+    in mid-rebuild and double-fire the listener teardown +
+    bus event.
     """
-    identity = await _dashboard_identity_helper.rotate_identity(
-        controller._db.settings.config_dir,
-        controller._db.peer_link_identity_store,
-    )
-    listener_bound = await controller._db.reload_remote_build_identity(
-        pin_sha256=identity.pin_sha256,
-    )
-    controller._db.bus.fire(
-        EventType.REMOTE_BUILD_IDENTITY_ROTATED,
-        RemoteBuildIdentityRotatedData(
-            dashboard_id=identity.dashboard_id,
+    try:
+        identity = await _dashboard_identity_helper.rotate_identity(
+            controller._db.settings.config_dir,
+            controller._db.peer_link_identity_store,
+        )
+        listener_bound = await controller._db.reload_remote_build_identity(
             pin_sha256=identity.pin_sha256,
-        ),
-    )
-    return identity_view(identity, listener_bound=listener_bound)
+        )
+        controller._db.bus.fire(
+            EventType.REMOTE_BUILD_IDENTITY_ROTATED,
+            RemoteBuildIdentityRotatedData(
+                dashboard_id=identity.dashboard_id,
+                pin_sha256=identity.pin_sha256,
+            ),
+        )
+        return identity_view(identity, listener_bound=listener_bound)
+    finally:
+        controller.state.rotation_in_flight = False

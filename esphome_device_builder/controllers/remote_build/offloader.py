@@ -28,7 +28,7 @@ from zeroconf.asyncio import AsyncServiceInfo
 
 from ...helpers.api import api_command
 from ...helpers.build_scheduler import BuildSchedulerInputs
-from ...helpers.dashboard_identity import get_or_create_identity
+from ...helpers.dashboard_identity import get_or_create_identities
 from ...helpers.event_bus import Event
 from ...helpers.peer_link_resolver import make_peer_link_resolver
 from ...helpers.storage import Store
@@ -191,11 +191,10 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         the next handshake fails with ``pin_mismatch`` and the
         operator re-pairs; the listener exits at that point.
         """
-        config_dir = self._db.settings.config_dir
-        identity_store = self._db.peer_link_identity_store
-        peer_link = await identity_store.async_load()
-        dashboard = await get_or_create_identity(config_dir, identity_store)
-        return peer_link, dashboard
+        return await get_or_create_identities(
+            self._db.settings.config_dir,
+            self._db.peer_link_identity_store,
+        )
 
     def _setup_peer_link_resolver(self) -> None:
         """

@@ -2006,6 +2006,56 @@ async def test_rotate_identity_concurrent_call_rejected(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_rotate_identity_in_flight_flag_tracks_shielded_work(tmp_path: Path) -> None:
+    """
+    Cancelling the awaiter must not clear the flag while the shielded work runs.
+
+    The shielded ``_rotate_and_reload`` keeps running after a
+    cancelled WS handler; if the flag clears on the cancel
+    instead of on the shielded work's completion, a second
+    request slips in and double-rebuilds the listener.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    gate = asyncio.Event()
+    release = asyncio.Event()
+    reload_calls = 0
+
+    async def _slow_reload(*, pin_sha256: str) -> bool:
+        nonlocal reload_calls
+        reload_calls += 1
+        gate.set()
+        await release.wait()
+        return True
+
+    controller.offloader._db.reload_remote_build_identity = _slow_reload
+    controller.offloader._db.is_remote_build_listener_bound = False
+    controller.offloader._db.bus = MagicMock()
+
+    first = asyncio.create_task(controller.receiver.rotate_identity())
+    await gate.wait()
+    first.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await first
+
+    # Shielded rotate_and_reload is still running. A second
+    # request landing now must still be rejected, otherwise the
+    # listener gets rebuilt twice + the bus event fires twice.
+    with pytest.raises(CommandError) as exc:
+        await controller.receiver.rotate_identity()
+    assert exc.value.code == ErrorCode.ALREADY_EXISTS
+
+    release.set()
+    # Give the shielded background task a moment to land.
+    for _ in range(50):
+        if not controller.receiver.state.rotation_in_flight:
+            break
+        await asyncio.sleep(0.01)
+    assert controller.receiver.state.rotation_in_flight is False
+    # Exactly one reload happened, despite two callers attempting.
+    assert reload_calls == 1
+
+
+@pytest.mark.asyncio
 async def test_rotate_identity_clears_in_flight_flag_on_failure(tmp_path: Path) -> None:
     """A failed reload still clears the flag so the next rotate isn't stuck rejected."""
     controller = _make_controller(config_dir=tmp_path)

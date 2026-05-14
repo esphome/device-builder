@@ -39,7 +39,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..controllers.config import metadata_transaction
-from .peer_link_identity import PeerLinkIdentityStore
+from .peer_link_identity import PeerLinkIdentity, PeerLinkIdentityStore
 
 _DASHBOARD_ID_BYTES = 24
 _REMOTE_BUILD_KEY = "_remote_build"
@@ -84,34 +84,37 @@ class DashboardIdentity:
         return " ".join(self.pin_sha256[i : i + 2] for i in range(0, len(self.pin_sha256), 2))
 
 
-async def get_or_create_identity(
+async def get_or_create_identities(
     config_dir: Path, identity_store: PeerLinkIdentityStore
-) -> DashboardIdentity:
+) -> tuple[PeerLinkIdentity, DashboardIdentity]:
     """
-    Load the persistent identity, generating it on first call.
+    Load both peer-link and dashboard identities in one shot.
 
-    Idempotent. Loads the X25519 peer-link keypair via the
-    caller-supplied :class:`PeerLinkIdentityStore` (which caches
-    after first call) and the ``dashboard_id`` token via the
-    internal helper below. The returned struct's ``pin_sha256``
-    is the SHA-256 of the peer-link public key — the same value
-    the mDNS TXT advertises and the value paired offloaders pin
-    against on the next Noise handshake.
-
-    Concurrency: peer-link load is serialised by the store's
-    :class:`asyncio.Lock`; the ``dashboard_id`` JSON write is
-    serialised by :func:`metadata_transaction`'s
-    ``_METADATA_LOCK``. The metadata transaction is sync and
-    short, so it runs in the default executor.
+    Single ``async_load`` (cached after first call) plus one
+    executor hop for the ``dashboard_id`` metadata read; saves
+    callers that need both pieces from awaiting the store
+    twice. Returns the peer-link keypair (whose
+    ``private_bytes`` drive the Noise handshake) and the
+    composed :class:`DashboardIdentity` (carrying the
+    ``dashboard_id`` correlation token + the public-side
+    ``pin_sha256``).
     """
     peer_link = await identity_store.async_load()
     dashboard_id = await asyncio.get_running_loop().run_in_executor(
         None, _get_or_create_dashboard_id, config_dir
     )
-    return DashboardIdentity(
+    return peer_link, DashboardIdentity(
         dashboard_id=dashboard_id,
         pin_sha256=peer_link.pin_sha256,
     )
+
+
+async def get_or_create_identity(
+    config_dir: Path, identity_store: PeerLinkIdentityStore
+) -> DashboardIdentity:
+    """Return just the :class:`DashboardIdentity` half (UI / WS callers)."""
+    _, dashboard = await get_or_create_identities(config_dir, identity_store)
+    return dashboard
 
 
 async def rotate_identity(
