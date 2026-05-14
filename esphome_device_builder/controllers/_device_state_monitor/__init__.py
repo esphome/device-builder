@@ -21,5 +21,5 @@ from __future__ import annotations
 # helpers) keep working unchanged across the split arc.
 from .controller import _MDNS_REFRESH_PADDING_SECONDS as _MDNS_REFRESH_PADDING_SECONDS
 from .controller import DeviceStateMonitor as DeviceStateMonitor
-from .controller import _decode_txt_bytes_to_sorted_pairs as _decode_txt_bytes_to_sorted_pairs
-from .controller import device_name_from_service as device_name_from_service
+from .helpers import _decode_txt_bytes_to_sorted_pairs as _decode_txt_bytes_to_sorted_pairs
+from .helpers import device_name_from_service as device_name_from_service
