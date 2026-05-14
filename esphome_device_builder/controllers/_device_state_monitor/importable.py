@@ -159,8 +159,9 @@ class ImportableDiscovery:
         Build the Visit-web-UI URL from a populated HTTP service info.
 
         Only stored when an importable with the same name exists —
-        without this guard ``http_urls`` would grow unbounded from
-        every HTTP service on the LAN (printers, NAS boxes, routers).
+        without this guard ``monitor.state.http_urls`` would grow
+        unbounded from every HTTP service on the LAN (printers,
+        NAS boxes, routers).
         """
         if not self._has_importable(device_name):
             return
@@ -239,7 +240,7 @@ class ImportableDiscovery:
         Single construction site shared by the live ADD path
         (``_on_import_update``) and the snapshot path
         (``get_importable_devices``); kept in one place so the
-        two views stay byte-identical.
+        two views stay structurally identical.
         """
         monitor = self._monitor
         return AdoptableDevice(
