@@ -205,27 +205,7 @@ BareFirmwareControllerFactory = Callable[..., FirmwareController]
 
 @pytest.fixture
 def bare_firmware_controller_factory() -> BareFirmwareControllerFactory:
-    """
-    Build a bare ``FirmwareController`` shell — just ``state``, no DB / bus.
-
-    For tests that want to exercise a single helper (``_build_command``,
-    ``_terminate_current_process``, etc.) without the full DB / bus /
-    runner kit ``firmware_controller_factory`` produces.
-
-    Keyword-only knobs cover the two recurring shapes:
-
-    - ``esphome_cmd=...`` — seed ``state.esphome_cmd``; ``_build_command``
-      tests use ``["esphome"]``.
-    - ``current_job=<MagicMock>`` — seed ``state.current_job`` so
-      ``_terminate_current_process`` has something to look at.
-    - ``with_mock_db=True`` — attach ``_db = MagicMock()`` with
-      ``_db.devices = None``; ``_build_command`` needs this so its
-      address-cache lookup short-circuits.
-
-    Default-empty ``FirmwareState()`` fields (``jobs``, ``queue``,
-    ``current_process``, ``cancel_requested``, ``cancel_events``)
-    cover everything else.
-    """
+    """Build a bare ``FirmwareController`` shell — ``state`` only, no DB / bus / runner kit."""
 
     def _make(
         *,
