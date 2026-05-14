@@ -413,7 +413,7 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         return self.state.artifacts_download_sender
 
     async def _run_cleanup_loop(self) -> None:
-        """Sweep cold remote-build subtrees every ``_CLEANUP_SWEEP_INTERVAL_SECONDS``."""
+        """Sweep cold remote-build subtrees on a periodic cadence."""
         await cleanup_loop.run_cleanup_loop(self)
 
     @api_command("remote_build/get_settings")
