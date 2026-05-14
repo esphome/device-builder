@@ -1,4 +1,5 @@
-"""Cross-cutting helpers used by both the mdns browser path and the ping source.
+"""
+Cross-cutting helpers used by both the mdns browser path and the ping source.
 
 Lives outside both ``mdns.py`` and ``ping.py`` because each function
 straddles concerns:

@@ -1,4 +1,5 @@
-"""ICMP ping fallback source for the device-state monitor.
+"""
+ICMP ping fallback source for the device-state monitor.
 
 Mirrors the legacy ``esphome/dashboard/status/ping.py`` shape:
 a :class:`PingSource` taking the monitor in ``__init__``, owning
@@ -50,7 +51,8 @@ _PING_BATCH_SIZE = 24
 
 
 class PingSource:
-    """ICMP ping loop owning the periodic sweep and per-device probe.
+    """
+    ICMP ping loop owning the periodic sweep and per-device probe.
 
     Takes the monitor in ``__init__`` and reads / writes through it
     (``monitor.state.dns_cache``, ``monitor.apply(...)``, etc.).
