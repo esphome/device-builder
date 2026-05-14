@@ -255,12 +255,17 @@ def test_report_existing_instance_local_time_fallback(
     # exercise the fallback branch on a runner that would
     # normally return a tz string. Real datetime for everything
     # else so the YYYY-MM-DD HH:MM:SS portion still formats.
+    # ``astimezone`` is a no-op here — the production code chains
+    # it after ``fromtimestamp`` for tz-aware local conversion,
+    # but for the fallback-branch test we only need ``strftime``
+    # to land on the fake.
     fake_dt = MagicMock()
     fake_dt.strftime.side_effect = lambda fmt: "" if fmt == "%Z" else "2023-11-14 22:13:20"
+    fake_dt.astimezone.return_value = fake_dt
     monkeypatch.setattr(
         single_instance,
         "datetime",
-        MagicMock(fromtimestamp=lambda _ts: fake_dt),
+        MagicMock(fromtimestamp=lambda *args, **kwargs: fake_dt),
     )
 
     _report_existing_instance(lock_path, tmp_path)

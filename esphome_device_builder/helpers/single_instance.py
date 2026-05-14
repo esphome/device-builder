@@ -49,7 +49,7 @@ import sys
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from io import TextIOWrapper
 from pathlib import Path
 
@@ -130,7 +130,11 @@ def _report_existing_instance(lock_file_path: Path, config_dir: Path) -> None:
         content = lock_file_path.read_text(encoding="utf-8").strip()
         if content:
             existing = json.loads(content)
-            start_dt = datetime.fromtimestamp(existing["start_ts"])
+            # ``start_ts`` is a Unix timestamp (UTC by definition);
+            # convert to a tz-aware local datetime so the operator
+            # sees the start time in their wall clock with the
+            # platform's locale abbreviation below.
+            start_dt = datetime.fromtimestamp(existing["start_ts"], tz=UTC).astimezone()
             # Locale's tz abbrev when the platform supports it
             # (most Unixen do); falls back to the unannotated
             # local-time stamp on bare-metal platforms whose
