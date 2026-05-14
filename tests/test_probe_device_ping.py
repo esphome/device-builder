@@ -12,10 +12,16 @@ round, with N concurrent adds collapsing into a single set.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
 
 import pytest
 
 from esphome_device_builder.controllers._device_state_monitor import ping as ping_module
+from esphome_device_builder.controllers._device_state_monitor.controller import (
+    DeviceStateMonitor,
+)
 from esphome_device_builder.models import Device, DeviceState
 
 from .conftest import make_state_monitor_with_callbacks
@@ -31,6 +37,68 @@ def _ping_only_device(name: str = "garage") -> Device:
         state=DeviceState.UNKNOWN,
         loaded_integrations=["wifi"],
     )
+
+
+@dataclass
+class _SweepProbe:
+    """Counts sweeps and offers a release latch for blocking the first one mid-flight."""
+
+    count: int = 0
+    first_entered: asyncio.Event = field(default_factory=asyncio.Event)
+    release_first: asyncio.Event = field(default_factory=asyncio.Event)
+
+
+def _install_sweep_probe(
+    monkeypatch: pytest.MonkeyPatch, *, block_first: bool = False
+) -> _SweepProbe:
+    """Replace ``PingSource._ping_sweep`` with a stub recording into a fresh ``_SweepProbe``."""
+    probe = _SweepProbe()
+
+    async def _sweep(_self: ping_module.PingSource) -> None:
+        probe.count += 1
+        if probe.count == 1:
+            probe.first_entered.set()
+            if block_first:
+                await probe.release_first.wait()
+
+    monkeypatch.setattr(ping_module.PingSource, "_ping_sweep", _sweep)
+    return probe
+
+
+def _patch_loop_for_wake_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Skip bootstrap; stretch the interval so only wakes drive subsequent sweeps.
+
+    A 3600s ``_PING_INTERVAL`` makes the periodic timer effectively
+    infinite for the test window, leaving the wake event as the
+    only path to a second sweep — any test that observes one
+    proves the wake actually drove it.
+    """
+    monkeypatch.setattr(ping_module, "_PING_BOOTSTRAP_DELAY", 0)
+    monkeypatch.setattr(ping_module, "_PING_INTERVAL", 3600)
+
+    async def _noop_resolve(_monitor: object) -> None:
+        return None
+
+    monkeypatch.setattr(ping_module.shared, "resolve_non_api_mdns_targets", _noop_resolve)
+
+
+@asynccontextmanager
+async def _running_loop(monitor: DeviceStateMonitor) -> AsyncIterator[None]:
+    """Spawn ``monitor._ping.run()`` and cancel + drain on exit."""
+    task = asyncio.create_task(monitor._ping.run())
+    try:
+        yield
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+async def _yield_until(predicate: Callable[[], bool], iterations: int = 50) -> None:
+    """Yield to the event loop until *predicate()* is truthy or *iterations* elapse."""
+    for _ in range(iterations):
+        if predicate():
+            return
+        await asyncio.sleep(0)
 
 
 @pytest.mark.asyncio
@@ -51,8 +119,8 @@ async def test_probe_device_ping_herd_collapses_to_single_set() -> None:
 
     The thundering-herd guard: a cold-start fleet of 100 cached
     YAMLs fires 100 ``ScanChange.ADDED`` events, but the loop's
-    next sweep covers them all in one pass instead of
-    spawning 100 redundant probe tasks competing for the
+    next sweep covers them all in one pass instead of spawning
+    100 redundant probe tasks competing for the
     ``_PING_BATCH_SIZE`` semaphore.
     """
     devices = [_ping_only_device(f"dev-{i}") for i in range(100)]
@@ -68,43 +136,18 @@ async def test_probe_device_ping_herd_collapses_to_single_set() -> None:
 @pytest.mark.asyncio
 async def test_wake_bails_idle_wait_early(monkeypatch: pytest.MonkeyPatch) -> None:
     """A wake fired during the idle wait re-runs the sweep without paying ``_PING_INTERVAL``."""
+    _patch_loop_for_wake_tests(monkeypatch)
     monitor, _ = make_state_monitor_with_callbacks([_ping_only_device()])
+    sweeps = _install_sweep_probe(monkeypatch)
 
-    sweep_count = 0
-
-    async def _fake_sweep(self: ping_module.PingSource) -> None:
-        nonlocal sweep_count
-        sweep_count += 1
-
-    async def _fake_resolve_non_api(_monitor: object) -> None:
-        return None
-
-    monkeypatch.setattr(ping_module.PingSource, "_ping_sweep", _fake_sweep)
-    monkeypatch.setattr(ping_module.shared, "resolve_non_api_mdns_targets", _fake_resolve_non_api)
-    monkeypatch.setattr(ping_module, "_PING_BOOTSTRAP_DELAY", 0)
-    # Long enough that a real sleep would never fire inside the
-    # test window — the only path to a second sweep is the wake.
-    monkeypatch.setattr(ping_module, "_PING_INTERVAL", 3600)
-
-    task = asyncio.create_task(monitor._ping.run())
-    try:
-        # Yield until the first sweep lands.
-        for _ in range(50):
-            await asyncio.sleep(0)
-            if sweep_count >= 1:
-                break
-        assert sweep_count == 1
+    async with _running_loop(monitor):
+        await _yield_until(lambda: sweeps.count >= 1)
+        assert sweeps.count == 1
 
         monitor.probe_device_ping("garage")
 
-        for _ in range(50):
-            await asyncio.sleep(0)
-            if sweep_count >= 2:
-                break
-        assert sweep_count == 2
-    finally:
-        task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
+        await _yield_until(lambda: sweeps.count >= 2)
+        assert sweeps.count == 2
 
 
 @pytest.mark.asyncio
@@ -118,39 +161,14 @@ async def test_wake_during_sweep_triggers_followup(monkeypatch: pytest.MonkeyPat
     mid-sweep stays set into the idle wait, which bails
     immediately and triggers a follow-up.
     """
+    _patch_loop_for_wake_tests(monkeypatch)
     monitor, _ = make_state_monitor_with_callbacks([_ping_only_device()])
+    sweeps = _install_sweep_probe(monkeypatch, block_first=True)
 
-    sweep_count = 0
-    sweep_started = asyncio.Event()
-    sweep_release = asyncio.Event()
-
-    async def _fake_sweep(self: ping_module.PingSource) -> None:
-        nonlocal sweep_count
-        sweep_count += 1
-        if sweep_count == 1:
-            sweep_started.set()
-            await sweep_release.wait()
-
-    async def _fake_resolve_non_api(_monitor: object) -> None:
-        return None
-
-    monkeypatch.setattr(ping_module.PingSource, "_ping_sweep", _fake_sweep)
-    monkeypatch.setattr(ping_module.shared, "resolve_non_api_mdns_targets", _fake_resolve_non_api)
-    monkeypatch.setattr(ping_module, "_PING_BOOTSTRAP_DELAY", 0)
-    monkeypatch.setattr(ping_module, "_PING_INTERVAL", 3600)
-
-    task = asyncio.create_task(monitor._ping.run())
-    try:
-        await asyncio.wait_for(sweep_started.wait(), timeout=1)
-        # Fire the wake while sweep #1 is held; sweep #2 must run.
+    async with _running_loop(monitor):
+        await asyncio.wait_for(sweeps.first_entered.wait(), timeout=1)
         monitor.probe_device_ping("garage")
-        sweep_release.set()
+        sweeps.release_first.set()
 
-        for _ in range(50):
-            await asyncio.sleep(0)
-            if sweep_count >= 2:
-                break
-        assert sweep_count == 2
-    finally:
-        task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
+        await _yield_until(lambda: sweeps.count >= 2)
+        assert sweeps.count == 2

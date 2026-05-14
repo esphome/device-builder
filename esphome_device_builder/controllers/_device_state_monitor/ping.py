@@ -35,7 +35,7 @@ _PING_BATCH_SIZE = 24
 
 
 class PingSource:
-    """ICMP ping loop owning the periodic sweep and per-device probe."""
+    """ICMP ping loop owning the periodic sweep and the wake-on-add early trigger."""
 
     def __init__(self, monitor: DeviceStateMonitor) -> None:
         self._monitor = monitor
@@ -94,9 +94,13 @@ class PingSource:
         finally:
             for w in waiters:
                 w.cancel()
-            # Drain so the cancellations don't surface as
-            # "Task exception was never retrieved" warnings.
-            await asyncio.gather(*waiters, return_exceptions=True)
+            # ``shield`` keeps the drain alive even if the outer
+            # ``run()`` task receives a second cancellation while
+            # we're tearing down — without it the gather can be
+            # interrupted, leaving the waiter tasks pending and
+            # surfacing as "Task was destroyed while pending"
+            # warnings on loop teardown.
+            await asyncio.shield(asyncio.gather(*waiters, return_exceptions=True))
 
     async def _ping_sweep(self) -> None:
         if icmp_ping is None:

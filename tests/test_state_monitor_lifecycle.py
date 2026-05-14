@@ -172,14 +172,18 @@ async def _start_with_captured_dispatch(
     return captured["dispatch"]
 
 
-async def _drain_ping_task(monitor: DeviceStateMonitor) -> None:
+async def _let_ping_loop_run_briefly(monitor: DeviceStateMonitor) -> None:
     """Yield long enough for the ping loop to bootstrap + run a couple of sweeps.
 
-    Ping-pipeline tests pair this with ``_shrink_ping_intervals``
-    to collapse the bootstrap + interval so a short
-    ``asyncio.sleep`` is enough for the loop to reach the first
-    sweep and observe its side-effects on the device. The follow-
-    up ``_stop_and_drain`` cancels the task cleanly.
+    Pairs with ``_shrink_ping_intervals`` — the shrunk
+    ``_PING_INTERVAL`` lets several sweeps land within this short
+    wait. The follow-up ``_stop_and_drain`` cancels the task
+    cleanly, so this helper doesn't need to drain it.
+
+    Tests assert on observable side-effects (``device.state``
+    flipped, mock called or *not* called) after this returns.
+    For negative assertions in particular, the fixed wait gives a
+    buggy loop a fair chance to do the wrong thing.
     """
     if monitor._ping_task is None:
         return
@@ -1252,7 +1256,7 @@ def test_revisit_importable_seeds_nothing_on_cache_miss(
 def _shrink_ping_intervals(monkeypatch: pytest.MonkeyPatch) -> None:
     """Collapse the bootstrap delay + interval so the loop ticks fast enough for tests.
 
-    Pairs with ``_drain_ping_task`` — caller hands the loop a few
+    Pairs with ``_let_ping_loop_run_briefly`` — caller hands the loop a few
     real-time ticks under a tiny ``_PING_INTERVAL`` and lets the
     sweep fire a couple of times, then ``_stop_and_drain`` handles
     cancellation cleanly.
@@ -1285,7 +1289,7 @@ async def test_start_drives_ping_pipeline_to_online_state(
 
     await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
     try:
-        await _drain_ping_task(monitor)
+        await _let_ping_loop_run_briefly(monitor)
         assert device.state == DeviceState.ONLINE
     finally:
         await _stop_and_drain(monitor)
@@ -1310,7 +1314,7 @@ async def test_start_with_icmplib_unavailable_skips_dns_resolution(
 
     await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
     try:
-        await _drain_ping_task(monitor)
+        await _let_ping_loop_run_briefly(monitor)
         monitor.state.dns_cache.async_resolve.assert_not_called()
     finally:
         await _stop_and_drain(monitor)
@@ -1343,7 +1347,7 @@ async def test_start_marks_offline_on_icmp_exception(
 
     await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
     try:
-        await _drain_ping_task(monitor)
+        await _let_ping_loop_run_briefly(monitor)
         assert device.state == DeviceState.OFFLINE
     finally:
         await _stop_and_drain(monitor)
@@ -1375,7 +1379,7 @@ async def test_start_skips_ping_for_cached_dns_failures(
     with caplog.at_level(logging.DEBUG, logger=ping_module.__name__):
         await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
         try:
-            await _drain_ping_task(monitor)
+            await _let_ping_loop_run_briefly(monitor)
         finally:
             await _stop_and_drain(monitor)
 
@@ -1404,7 +1408,7 @@ async def test_start_logs_ping_count_at_debug(
     with caplog.at_level(logging.DEBUG, logger=ping_module.__name__):
         await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
         try:
-            await _drain_ping_task(monitor)
+            await _let_ping_loop_run_briefly(monitor)
         finally:
             await _stop_and_drain(monitor)
 
@@ -1433,7 +1437,7 @@ async def test_repeat_sweep_with_unchanged_targets_logs_once(
     monitor.state.dns_cache.async_resolve = AsyncMock(return_value=["192.0.2.5"])
     monitor.state.dns_cache.has_cached_failure = MagicMock(return_value=False)
     # The shrunk interval gives the loop plenty of room to run
-    # several sweeps inside ``_drain_ping_task``'s window — a
+    # several sweeps inside ``_let_ping_loop_run_briefly``'s window — a
     # regression that re-logs every cycle would emit multiple
     # "Pinging" lines instead of one.
     _shrink_ping_intervals(monkeypatch)
@@ -1441,7 +1445,7 @@ async def test_repeat_sweep_with_unchanged_targets_logs_once(
     with caplog.at_level(logging.DEBUG, logger=ping_module.__name__):
         await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
         try:
-            await _drain_ping_task(monitor)
+            await _let_ping_loop_run_briefly(monitor)
         finally:
             await _stop_and_drain(monitor)
 
@@ -1471,7 +1475,7 @@ async def test_start_skips_devices_without_address(
 
     await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
     try:
-        await _drain_ping_task(monitor)
+        await _let_ping_loop_run_briefly(monitor)
         monitor.state.dns_cache.async_resolve.assert_not_called()
     finally:
         await _stop_and_drain(monitor)
@@ -1567,7 +1571,7 @@ async def test_start_uses_v6_fallback_when_only_v6_in_mdns_cache(
 
     await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
     try:
-        await _drain_ping_task(monitor)
+        await _let_ping_loop_run_briefly(monitor)
         assert device.state == DeviceState.ONLINE
         assert device.ip == "fe80::1%en0"
     finally:
