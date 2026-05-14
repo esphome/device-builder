@@ -124,18 +124,24 @@ def _is_loopback_adapter(adapter: ifaddr.Adapter) -> bool:
 # subnet at their own bridge gateway.
 _VIRTUAL_BRIDGE_PREFIXES: tuple[str, ...] = (
     "docker",  # docker0, docker_gwbridge
-    "br-",  # Docker user-defined networks
     "veth",  # virtual ethernet pair peer
     "cni",  # Kubernetes CNI plugin bridges
     "virbr",  # libvirt default bridges
     "vethernet",  # Windows Hyper-V virtual switches
 )
 
+# Docker user-defined networks: ``br-`` plus a 12-hex-char network
+# ID. Anchored so real LAN bridge names (``br-lan``, ``br-guest``
+# on OpenWRT / homelab Linux setups) stay out of the filter.
+_DOCKER_USER_BRIDGE_RE = re.compile(r"^br-[0-9a-f]{12}$")
+
 
 def _is_virtual_bridge_adapter(adapter: ifaddr.Adapter) -> bool:
     """Return ``True`` when *adapter*'s name matches a virtual-bridge prefix."""
     name = (adapter.name or "").lower()
     nice = (adapter.nice_name or "").lower()
+    if _DOCKER_USER_BRIDGE_RE.match(name) or _DOCKER_USER_BRIDGE_RE.match(nice):
+        return True
     return any(name.startswith(p) or nice.startswith(p) for p in _VIRTUAL_BRIDGE_PREFIXES)
 
 

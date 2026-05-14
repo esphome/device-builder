@@ -352,6 +352,21 @@ def test_local_addresses_drops_hyperv_virtual_switch_by_nice_name(
     assert _local_addresses() == ["192.168.1.10"]
 
 
+@pytest.mark.parametrize(
+    "lan_bridge_name",
+    ["br-lan", "br-guest", "br-wan", "br-iot"],
+)
+def test_local_addresses_keeps_non_docker_bridge_names(
+    monkeypatch: pytest.MonkeyPatch, lan_bridge_name: str
+) -> None:
+    """Legitimate LAN bridges (``br-lan`` etc.) survive the Docker filter."""
+    adapters = [
+        _adapter(lan_bridge_name, ips=["192.168.1.10"]),
+    ]
+    monkeypatch.setattr(dashboard_advertise.ifaddr, "get_adapters", lambda: adapters)
+    assert _local_addresses() == ["192.168.1.10"]
+
+
 def test_local_addresses_skips_unparseable_strings(monkeypatch: pytest.MonkeyPatch) -> None:
     """Garbage from a flaky adapter doesn't blow up the whole walk."""
     adapters = [
