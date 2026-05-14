@@ -1091,6 +1091,24 @@ class DeviceBuilder:
         assert loop is not None  # caller-checked
         assert self.remote_build_receiver is not None  # caller-checked
 
+        # Validation runs before any resources are acquired: each
+        # ``TCPSite(port=0)`` would get its own OS-assigned port,
+        # but only one port can be carried in the mDNS
+        # ``remote_build_port`` TXT field. Reusing the first site's
+        # port for subsequent binds isn't safe either — the OS
+        # doesn't guarantee it's free on the second adapter. Fail
+        # loud here so the caller's fail-soft handler logs and the
+        # dashboard keeps running without a receiver listener.
+        configured_port = self.settings.remote_build_port
+        hosts = resolve_bind_host(self.settings.remote_build_host)
+        if configured_port == 0 and len(hosts) > 1:
+            raise RuntimeError(
+                "Refusing to bind: --remote-build-port 0 (ephemeral) is "
+                "incompatible with --remote-build-host resolving to "
+                f"multiple addresses ({hosts!r}). Pick a fixed port, or "
+                "pass a single IP literal."
+            )
+
         runner: web.AppRunner | None = None
         try:
             identity = await self.peer_link_identity_store.async_load()
@@ -1106,7 +1124,6 @@ class DeviceBuilder:
 
             runner = web.AppRunner(app)
             await runner.setup()
-            configured_port = self.settings.remote_build_port
             # ``reuse_address=True`` is the asyncio default on POSIX
             # but defaults to False on Windows; pin it explicitly so
             # the rotation rebuild path
@@ -1115,23 +1132,6 @@ class DeviceBuilder:
             # (default 6055) cross-platform. The ephemeral-port test
             # path masks this risk because the OS picks a fresh port
             # each rebuild; production deploys with a fixed port.
-            hosts = resolve_bind_host(self.settings.remote_build_host)
-            # Ephemeral port + multi-host fan-out is refused: each
-            # ``TCPSite(port=0)`` would get its own OS-assigned port,
-            # but only one port can be carried in the mDNS
-            # ``remote_build_port`` TXT field. Reusing the first
-            # site's port for subsequent binds isn't safe either —
-            # the OS doesn't guarantee it's free on the second
-            # adapter. Fail loud at startup; the operator picks an
-            # IP literal or a fixed port (Copilot review on PR
-            # #674).
-            if configured_port == 0 and len(hosts) > 1:
-                raise RuntimeError(
-                    "Refusing to bind: --remote-build-port 0 (ephemeral) is "
-                    "incompatible with --remote-build-host resolving to "
-                    f"multiple addresses ({hosts!r}). Pick a fixed port, or "
-                    "pass a single IP literal."
-                )
             for host in hosts:
                 site = web.TCPSite(
                     runner,
