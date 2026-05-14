@@ -1716,7 +1716,7 @@ def test_delete_label_cascade_removes_corrupt_entry(tmp_path: Path) -> None:
 
 
 def test_set_device_labels_rejects_non_string_items(tmp_path: Path) -> None:
-    """Non-string items in ``label_ids`` raise ``ValueError``.
+    """Non-string items in ``label_ids`` raise ``TypeError``.
 
     The controller wraps this into ``CommandError(INVALID_ARGS)``.
     Silent skipping would let a bad payload effectively clear all
@@ -1724,7 +1724,7 @@ def test_set_device_labels_rejects_non_string_items(tmp_path: Path) -> None:
     """
     save_labels(tmp_path, [Label(id="known", name="Known")])
 
-    with pytest.raises(ValueError, match="label_ids must be strings"):
+    with pytest.raises(TypeError, match="label_ids must be strings"):
         set_device_labels(tmp_path, "kitchen.yaml", ["known", 42])  # type: ignore[list-item]
 
     # No partial write happened.

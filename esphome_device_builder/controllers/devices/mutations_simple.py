@@ -84,7 +84,10 @@ async def set_labels(
     def _persist() -> None:
         try:
             set_device_labels(config_dir, configuration, label_ids)
-        except ValueError as err:
+        except (TypeError, ValueError) as err:
+            # ``set_device_labels`` raises ``TypeError`` for non-string
+            # items and ``ValueError`` for unknown label ids; both
+            # surface as ``INVALID_ARGS`` to the WS caller.
             raise CommandError(ErrorCode.INVALID_ARGS, str(err)) from err
 
     await asyncio.to_thread(_persist)

@@ -234,11 +234,10 @@ def ensure_single_execution(config_dir: Path) -> Generator[SingleInstanceLock]:
         lock_file_ctx = open(  # noqa: SIM115 — closed in finally
             lock_file_path, "a+", encoding="utf-8", opener=_open_lock_file
         )
-    except OSError as exc:
-        _LOGGER.error(
-            "Could not open lock file %s (refusing to start): %s",
+    except OSError:
+        _LOGGER.exception(
+            "Could not open lock file %s (refusing to start)",
             lock_file_path,
-            exc,
         )
         lock.exit_code = 1
         yield lock

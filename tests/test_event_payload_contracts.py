@@ -117,7 +117,7 @@ def _outermost_return_dict_keys(func: Callable[..., Any]) -> set[str]:
                 f"Non-string-literal key in {func!r} dict literal — the "
                 "drift check assumes a flat ``{'k': v, ...}`` dict."
             )
-            raise AssertionError(msg)
+            raise AssertionError(msg)  # noqa: TRY004 — contract drift in the test fixture, not a runtime type error
         keys.add(key_node.value)
     return keys
 

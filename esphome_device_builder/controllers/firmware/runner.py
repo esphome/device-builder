@@ -219,7 +219,7 @@ async def execute_job(  # noqa: PLR0912, PLR0915
         else:
             job.error = str(exc)
             controller._finalize_terminal(job, JobStatus.FAILED)
-            _LOGGER.exception("Job %s failed: %s", job.job_id, exc)
+            _LOGGER.exception("Job %s failed", job.job_id)
     finally:
         controller.state.current_job = None
         controller.state.current_process = None

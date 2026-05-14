@@ -147,6 +147,12 @@ ignore = [
   # ``run_in_executor`` where they actually block. False positive for
   # this codebase.
   "ASYNC240",
+  # TRY003 wants every ``raise ExceptionType("msg")`` replaced with a
+  # custom exception class. We deliberately use the ``CommandError(code,
+  # msg)`` API + ``EsphomeError("msg")`` from upstream for ad-hoc
+  # errors; the custom-class-per-raise discipline would explode the
+  # exception-class surface for no callable benefit.
+  "TRY003",
 ]
 select = [
   "A", # flake8-builtins
@@ -180,6 +186,7 @@ select = [
   # dataclass boundary stays load-bearing; sibling-module access within a
   # controller package is exempted via per-file-ignores below.
   "T20", # flake8-print
+  "TRY", # tryceratops — exception-handling antipatterns (TRY003 globally ignored above)
   "UP", # pyupgrade
   "W", # pycodestyle warnings
 ]
@@ -192,7 +199,7 @@ select = [
 # BLE001 is waived because sync scripts iterate over hundreds of catalog
 # entries and want "log + continue" for any failure shape; per-entry noqa
 # would be noise.
-"script/*" = ["T20", "S108", "S310", "S110", "S603", "S607", "E501", "PLC0415", "SLF001", "BLE001", "FBT001", "FBT002"]
+"script/*" = ["T20", "S108", "S310", "S110", "S603", "S607", "E501", "PLC0415", "SLF001", "BLE001", "FBT001", "FBT002", "TRY400"]
 # Discovery CLI: prints are the entire UX (mirrors aioesphomeapi-discover).
 "esphome_device_builder/discover.py" = ["T20"]
 # Tests need free access to controller privates for setup / assertion;
@@ -202,7 +209,7 @@ select = [
 # legitimately poll for "until condition" without the production-side
 # ``asyncio.Event`` plumbing the rule suggests; in production this rule
 # stays load-bearing.
-"tests/*" = ["S105", "S106", "SLF001", "ASYNC110", "BLE001", "FBT001", "FBT002", "FBT003"] # hardcoded test credentials
+"tests/*" = ["S105", "S106", "SLF001", "ASYNC110", "BLE001", "FBT001", "FBT002", "FBT003", "TRY301"] # hardcoded test credentials
 # Manual scripts: print is the UX, late imports gate optional setup,
 # subprocess + tempdir paths are part of the CLI contract.
 "tests/manual/*" = ["T20", "S108", "PLC0415"]

@@ -239,12 +239,13 @@ def _validate_port(port: str) -> None:
     if looks_ip:
         try:
             ipaddress.ip_address(port)
-            return
         except ValueError as exc:
             raise CommandError(
                 ErrorCode.INVALID_ARGS,
                 f"Invalid device target {port!r} — looks like an IP but didn't parse: {exc}",
             ) from exc
+        else:
+            return
     # Hostnames: a sequence of dot-separated labels, each
     # ``[a-z0-9](?:[a-z0-9-]*[a-z0-9])?``. Strip a single trailing
     # FQDN dot before matching — zeroconf and the system resolver

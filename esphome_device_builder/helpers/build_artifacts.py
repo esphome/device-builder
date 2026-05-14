@@ -184,7 +184,7 @@ def load_build_artifacts(configuration: str) -> BuildArtifacts:
         msg = (
             f"idedata.json for {configuration} is not a JSON object (got {type(idedata).__name__})"
         )
-        raise ValueError(msg)
+        raise TypeError(msg)
 
     # ``firmware.bin`` is the only image consistently
     # reported by ``StorageJSON.firmware_bin_path`` upstream.

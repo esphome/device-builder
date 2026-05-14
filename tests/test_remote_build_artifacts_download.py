@@ -997,7 +997,7 @@ def test_unpack_artifacts_response_handles_non_dict_extra() -> None:
 def test_load_build_artifacts_rejects_non_dict_idedata(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Corrupt-but-parseable idedata.json (``null`` / list) raises :class:`ValueError`.
+    """Corrupt-but-parseable idedata.json (``null`` / list) raises :class:`TypeError`.
 
     Pins the defensive check that surfaces "esphome wrote a
     weird idedata.json" as a clean error reachable through the
@@ -1025,7 +1025,7 @@ def test_load_build_artifacts_rejects_non_dict_idedata(
         lambda _configuration, *, name: idedata_path,
     )
 
-    with pytest.raises(ValueError, match="not a JSON object"):
+    with pytest.raises(TypeError, match="not a JSON object"):
         load_build_artifacts("kitchen.yaml")
 
 

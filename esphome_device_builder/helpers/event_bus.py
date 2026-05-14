@@ -257,7 +257,6 @@ async def stream_events(
         while True:
             try:
                 queue.put_nowait(item)
-                return
             except asyncio.QueueFull:
                 try:
                     queue.get_nowait()
@@ -266,6 +265,8 @@ async def stream_events(
                     # synchronous listener path, but bail rather
                     # than spin if it does.
                     return
+            else:
+                return
 
     def _push_or_terminate(name: str, payload: Any) -> None:
         try:

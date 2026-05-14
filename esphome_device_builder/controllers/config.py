@@ -837,7 +837,7 @@ def set_device_labels(config_dir: Path, configuration: str, label_ids: list[str]
             # become an effective ``[]`` (clear-all) write — surprising
             # and user-hostile. Surface a clear error instead so the
             # frontend can fix the payload.
-            raise ValueError(f"label_ids must be strings, got {type(lid).__name__}: {lid!r}")
+            raise TypeError(f"label_ids must be strings, got {type(lid).__name__}: {lid!r}")
         if lid in seen:
             continue
         deduped.append(lid)
