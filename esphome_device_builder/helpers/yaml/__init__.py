@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import base64
 import re
-import secrets
 from typing import TYPE_CHECKING, Any
 
 import yaml
@@ -521,46 +519,6 @@ def upsert_yaml_leaf_under_top_block(
     return "".join([*lines[:insert_at], new_line, *lines[insert_at:]])
 
 
-def generate_api_encryption_key() -> str:
-    """Return a fresh 32-byte ESPHome API encryption key, base64-encoded."""
-    return base64.b64encode(secrets.token_bytes(32)).decode()
-
-
-def rewrite_api_encryption_key(yaml_text: str, new_key: str) -> str:
-    """
-    Replace the literal ``key:`` value under ``api: -> encryption:``.
-
-    Used by the clone path so two devices forked from the same
-    source don't share API encryption material — compromise of one
-    device must not compromise its siblings. Only rewrites a
-    *literal* key value; lines whose value is an indirection
-    (``!secret …`` / ``${…}``) are left untouched, because the
-    indirection target is shared on disk and stomping on the key
-    here would silently desync the clone from whatever
-    ``secrets.yaml`` / substitutions block actually drives the
-    encryption. Returns the original text unchanged when no
-    in-scope ``key:`` is found or when the value is an indirection.
-
-    The replacement is rendered double-quoted so a base64 value
-    that happens to start with a YAML special character
-    (``!``/``%``/``@``/``-``/``?``/``&``/``*``) parses cleanly.
-    """
-    rendered = _quote(new_key)
-
-    def _swap(raw: str) -> str | None:
-        # Strip quotes before checking for indirection markers — both
-        # ``key: !secret api_key`` and ``key: "${api_key}"`` are
-        # valid YAML, and the second form's quotes would otherwise
-        # mask the ``${`` prefix and cause us to rewrite a value the
-        # user explicitly indirected.
-        unquoted = _strip_yaml_quotes(raw)
-        if unquoted.startswith("!secret") or unquoted.startswith("${"):
-            return None
-        return rendered
-
-    return rewrite_yaml_scalar(yaml_text, ("api", "encryption", "key"), _swap)
-
-
 def merge_component_yaml(
     existing: str,
     component: ComponentCatalogEntry,
@@ -1005,11 +963,13 @@ def _generate_id(component_id: str, name: str | None = None) -> str:
     return f"{component_id}_{slug}"
 
 
-# Re-export at the bottom: ``substitution.py`` imports the scalar
-# helpers as package attributes, so the submodule must load after
-# the scalar definitions above. Redundant-alias form marks these
-# as intentional re-exports (PEP 484) so external callers'
-# ``from .helpers.yaml import parse_substitution_ref`` keeps
+# Re-exports at the bottom: these submodules import the scalar
+# helpers as package attributes, so they must load after the
+# scalar definitions above. Redundant-alias form marks these as
+# intentional re-exports (PEP 484) so external callers'
+# ``from .helpers.yaml import parse_substitution_ref`` etc. keep
 # working unchanged.
+from .api_encryption import generate_api_encryption_key as generate_api_encryption_key  # noqa: E402
+from .api_encryption import rewrite_api_encryption_key as rewrite_api_encryption_key  # noqa: E402
 from .substitution import parse_substitution_ref as parse_substitution_ref  # noqa: E402
 from .substitution import rewrite_name_or_substitution as rewrite_name_or_substitution  # noqa: E402
