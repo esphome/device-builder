@@ -113,63 +113,29 @@ the official ESPHome container and Home Assistant add-on.
   See `controllers/devices/`, `controllers/firmware/`, and
   `controllers/remote_build/` for the canonical shape.
 
-  **State dataclass convention.** Sibling submodules take the
-  controller as their first arg; bound-method delegates on the
-  controller route back into them. The catch is *state* — the
-  dicts and sets a controller mutates over its lifetime get
-  reached into from sibling modules (`controller._pairings.pop(...)`,
-  `controller._open_peer_links.add(...)`), and the underscore
-  prefix on the controller's own attrs reads as "private" exactly
-  where the access is most ubiquitous. Group the mutable
-  *domain* state into a typed `XxxState` dataclass in
-  `controllers/X/_state.py`; the controller owns
-  `self.state: XxxState`; siblings reach through
-  `controller.state.X`. The canonical examples are
-  `controllers/remote_build/_state.py` (`OffloaderState`),
-  `controllers/devices/_state.py` (`DevicesState`), and
-  `controllers/remote_build/_receiver_state.py`
-  (`ReceiverState`); a controller without a sibling-module
-  package can defer the dataclass until the split, but
-  designing for it from PR 1 of any new split avoids the
-  post-split cleanup cycle.
+  **State dataclass convention.** Group mutable *domain*
+  state — anything a sibling module reads or writes — into
+  a typed `XxxState` dataclass in `controllers/X/_state.py`;
+  the controller owns `self.state: XxxState`; siblings reach
+  through `controller.state.X` instead of `controller._X`.
+  Canonical examples: `OffloaderState`, `DevicesState`,
+  `ReceiverState`. Controller-internal handles that no
+  sibling touches (`_unsub_job_completed`, `_pairings_store`,
+  base infrastructure like `_db` / `_listeners` / `_tasks`)
+  stay on the controller even when reassigned across
+  `start()` / `stop()`. The cut is cross-module data, not
+  reassignment.
 
-  Domain state vs controller-internal lifecycle handles:
-
-  * **`state`**: domain data the sibling modules read and
-    mutate — pairing / peer dicts, queue caches, alert
-    registries (`pairings`, `peers`, `open_peer_links`,
-    `regenerate_pending`, …), single-value domain flags
-    (`remote_builds_enabled`), and identity / resolver /
-    browser refs that `start()` populates and `stop()`
-    clears (`offloader_peer_link_priv`, `peer_link_resolver`,
-    `browser`).
-  * **The controller**: `_db` (parent reference), base
-    infrastructure (`_listeners`, `_tasks`,
-    `_shutdown_callbacks`), service refs constructed in
-    `__init__` and never reassigned (`_scanner`,
-    `_state_monitor`, `_pairings_store`,
-    `_yaml_search_cache`, the various locks),
-    controller-internal lifecycle handles that are reassigned
-    by `start()` / `stop()` but no sibling reaches into
-    (`_unsub_job_completed` is the canonical
-    example — only the controller cares about it),
-    bound-method delegates the siblings call back into,
-    `@api_command`-decorated WS methods, snapshot methods.
-
-  The cut is "is this domain state a sibling module reads or
-  writes" — yes → state; no → controller. Reassignment alone
-  doesn't push something onto `state`; it has to also be
-  cross-module data.
-
-  **Watch out for captured bound methods**: if anything (the
-  controller's own `__init__`, an external listener, etc.)
-  captures `state.X.add` / `state.X.__contains__` / etc.
-  before `start()` populates the value, *don't reassign*
-  `state.X` later — `state.X.clear()` + `state.X.update(...)`
-  preserves the captured method's view. The
+  When splitting a controller into a package, design with
+  `XxxState` from PR 1 — adding it later forces a
+  post-split cleanup arc (#795, #797). When `start()` /
+  `stop()` repopulates a `state.X` dict/set that something
+  captured a bound method of (`state.X.__contains__`,
+  `state.X.add`), use in-place `.clear()` + `.update(...)`
+  rather than reassignment, or the captured method will
+  point at the original empty container forever (the
   `DevicesController.state.ignored_devices` loader hit this
-  exact bug pre-State-refactor; see #797 for the regression
-  test pattern.
+  pre-refactor; #797 added the regression test).
 
   Existing modules over 800 lines (audit `wc -l` periodically;
   the worst offender at the time of writing was 5176 lines) are
