@@ -50,7 +50,7 @@ from .helpers.dashboard_advertise import DashboardAdvertiser
 from .helpers.dashboard_identity import get_or_create_identity as get_or_create_dashboard_identity
 from .helpers.event_bus import Event, EventBus, StreamControls, stream_events
 from .helpers.json import cors_middleware
-from .helpers.network_interfaces import resolve_bind_host
+from .helpers.network_interfaces import ensure_single_host_for_ephemeral_port, resolve_bind_host
 from .helpers.peer_link_identity import PeerLinkIdentityStore
 from .helpers.subscriber_presence import SubscriberPresence
 from .models import EventType
@@ -766,18 +766,30 @@ class DeviceBuilder:
 
     async def _start_ingress_site(self, _: web.Application) -> None:
         """Start the trusted HA Ingress TCP site alongside the public site."""
+        hosts = resolve_bind_host(self.settings.ingress_host or "0.0.0.0")
+        ensure_single_host_for_ephemeral_port(hosts, self.settings.ingress_port, "--ingress-port")
         ingress_app = self.create_app(trusted=True, with_lifecycle=False)
         runner = web.AppRunner(ingress_app)
         await runner.setup()
-        hosts = resolve_bind_host(self.settings.ingress_host or "0.0.0.0")
-        for host in hosts:
-            site = web.TCPSite(runner, host, self.settings.ingress_port)
-            await site.start()
-            _LOGGER.info(
-                "Ingress site listening on %s:%d (trusted, bypasses auth)",
-                host,
-                self.settings.ingress_port,
-            )
+        # Partial-bind cleanup: a multi-host expansion can succeed
+        # on host[0] and fail on host[1]; without this guard the
+        # runner (still owning the host[0] socket) would go out of
+        # scope before ``self._ingress_runner`` is assigned, so
+        # ``_stop_ingress_site`` would see ``None`` and leak the
+        # bound port until process exit.
+        try:
+            for host in hosts:
+                site = web.TCPSite(runner, host, self.settings.ingress_port)
+                await site.start()
+                _LOGGER.info(
+                    "Ingress site listening on %s:%d (trusted, bypasses auth)",
+                    host,
+                    self.settings.ingress_port,
+                )
+        except Exception:
+            with contextlib.suppress(Exception):
+                await runner.cleanup()
+            raise
         self._ingress_runner = runner
 
     async def _stop_ingress_site(self, _: web.Application) -> None:
@@ -1091,23 +1103,13 @@ class DeviceBuilder:
         assert loop is not None  # caller-checked
         assert self.remote_build_receiver is not None  # caller-checked
 
-        # Validation runs before any resources are acquired: each
-        # ``TCPSite(port=0)`` would get its own OS-assigned port,
-        # but only one port can be carried in the mDNS
-        # ``remote_build_port`` TXT field. Reusing the first site's
-        # port for subsequent binds isn't safe either — the OS
-        # doesn't guarantee it's free on the second adapter. Fail
-        # loud here so the caller's fail-soft handler logs and the
-        # dashboard keeps running without a receiver listener.
+        # Validate before acquiring resources so the caller's
+        # fail-soft handler logs cleanly. The mDNS ``remote_build_port``
+        # TXT field only carries one port, so a multi-host expansion
+        # combined with an ephemeral port has no safe answer.
         configured_port = self.settings.remote_build_port
         hosts = resolve_bind_host(self.settings.remote_build_host)
-        if configured_port == 0 and len(hosts) > 1:
-            raise RuntimeError(
-                "Refusing to bind: --remote-build-port 0 (ephemeral) is "
-                "incompatible with --remote-build-host resolving to "
-                f"multiple addresses ({hosts!r}). Pick a fixed port, or "
-                "pass a single IP literal."
-            )
+        ensure_single_host_for_ephemeral_port(hosts, configured_port, "--remote-build-port")
 
         runner: web.AppRunner | None = None
         try:

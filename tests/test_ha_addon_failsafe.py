@@ -21,6 +21,7 @@ import builtins
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from aiohttp import web
 
 from esphome_device_builder.device_builder import DeviceBuilder
 
@@ -210,6 +211,71 @@ async def test_start_and_stop_ingress_site_lifecycle(make_settings: MakeSettings
 
     # And shutting it down releases the bind.
     await db._stop_ingress_site(fake_app)  # type: ignore[arg-type]
+    assert db._ingress_runner is None
+
+
+async def test_start_ingress_site_cleans_up_runner_on_partial_bind_failure(
+    make_settings: MakeSettingsFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Partial multi-host bind failure releases the half-bound runner."""
+    db = _make_db(make_settings, on_ha_addon=True, using_password=True)
+    db.settings.ingress_port = 6053  # fixed port; multi-host expansion is allowed
+
+    monkeypatch.setattr(
+        "esphome_device_builder.device_builder.resolve_bind_host",
+        lambda _: ["127.0.0.1", "127.0.0.1"],
+    )
+
+    real_start = web.TCPSite.start
+    calls: list[web.TCPSite] = []
+
+    async def flaky_start(self: web.TCPSite) -> None:
+        calls.append(self)
+        if len(calls) == 1:
+            await real_start(self)
+            return
+        raise OSError("simulated second-bind failure")
+
+    cleanup_calls: list[web.AppRunner] = []
+    real_cleanup = web.AppRunner.cleanup
+
+    async def tracking_cleanup(self: web.AppRunner) -> None:
+        cleanup_calls.append(self)
+        await real_cleanup(self)
+
+    monkeypatch.setattr(web.TCPSite, "start", flaky_start)
+    monkeypatch.setattr(web.AppRunner, "cleanup", tracking_cleanup)
+
+    fake_app: object = object()
+    with pytest.raises(OSError, match="simulated second-bind failure"):
+        await db._start_ingress_site(fake_app)  # type: ignore[arg-type]
+
+    # Runner attribute never assigned; the half-bound runner was
+    # cleaned up inline so ``_stop_ingress_site`` doesn't get a
+    # chance to see it.
+    assert db._ingress_runner is None
+    assert len(calls) == 2, "expected the second bind to be attempted"
+    assert len(cleanup_calls) == 1, "expected the half-bound runner to be cleaned up"
+
+
+async def test_start_ingress_site_refuses_port_zero_with_multi_host(
+    make_settings: MakeSettingsFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``--ingress-port 0`` paired with a multi-address NIC refuses to bind."""
+    db = _make_db(make_settings, on_ha_addon=True, using_password=True)
+    db.settings.ingress_port = 0
+
+    monkeypatch.setattr(
+        "esphome_device_builder.device_builder.resolve_bind_host",
+        lambda _: ["192.168.1.10", "192.168.1.11"],
+    )
+
+    fake_app: object = object()
+    with pytest.raises(RuntimeError, match=r"--ingress-port 0 .* multiple addresses"):
+        await db._start_ingress_site(fake_app)  # type: ignore[arg-type]
+
     assert db._ingress_runner is None
 
 

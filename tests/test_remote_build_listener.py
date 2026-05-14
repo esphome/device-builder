@@ -240,7 +240,8 @@ async def test_maybe_start_remote_build_site_refuses_port_zero_with_multi_host(
     # call shape (or drops the exc_info) still gets caught.
     refusal_logged = any(
         rec.exc_info is not None
-        and "incompatible with --remote-build-host resolving to multiple" in str(rec.exc_info[1])
+        and "--remote-build-port 0 (ephemeral) is incompatible" in str(rec.exc_info[1])
+        and "multiple addresses" in str(rec.exc_info[1])
         for rec in caplog.records
     )
     assert refusal_logged, "expected the operator-facing refusal on the fail-soft log's exc_info"

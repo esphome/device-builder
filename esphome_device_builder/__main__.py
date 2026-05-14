@@ -123,7 +123,7 @@ def main() -> None:
         default=DEFAULT_HOST,
         help=(
             "Host/IP to bind to. Accepts an IP literal, a hostname, or a "
-            "local network interface name (e.g. ``eth0``) — the latter "
+            "local network interface name (e.g. 'eth0'); an interface name "
             "binds to every IPv4 / IPv6 address currently assigned to "
             "that interface. Useful in Docker host-network mode where "
             "the container's LAN IP isn't known in advance"
@@ -156,7 +156,7 @@ def main() -> None:
         help=(
             "Bind address for the HA Ingress site (defaults to all interfaces "
             "inside the addon container). Accepts an IP literal or a local "
-            "network interface name (e.g. ``eth0``)"
+            "network interface name (e.g. 'eth0')"
         ),
     )
     parser.add_argument(
@@ -186,14 +186,14 @@ def main() -> None:
         help=(
             "Bind address for the remote-build peer-link receiver. "
             "Defaults to 0.0.0.0 (all interfaces) so paired peers on "
-            "the LAN can reach the receiver — the peer-link's "
+            "the LAN can reach the receiver; the peer-link's "
             "security is Noise + pre-shared pin, independent of bind "
             "address. Override (e.g. 127.0.0.1) only if you want to "
             "restrict the receiver to a specific interface. Accepts an "
             "IP literal or a local network interface name (e.g. "
-            "``eth0``) — the latter binds to every IPv4 / IPv6 address "
-            "currently assigned to that interface. Falls back to "
-            "$ESPHOME_REMOTE_BUILD_HOST when unset. Only bound when "
+            "'eth0'); an interface name binds to every IPv4 / IPv6 "
+            "address currently assigned to that interface. Falls back "
+            "to $ESPHOME_REMOTE_BUILD_HOST when unset. Only bound when "
             "remote-build is enabled in Settings"
         ),
     )
