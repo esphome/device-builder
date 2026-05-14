@@ -224,99 +224,20 @@ async def test_subscribe_events_holds_presence_for_stream_lifetime(
 
 
 @pytest.mark.asyncio
-async def test_ping_loop_aborts_idle_sleep_when_last_subscriber_leaves(
+async def test_ping_loop_sweeps_again_after_drop_reconnect(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The post-sweep idle wait is interruptible by a subscriber drop.
-
-    Without an interruptible wait, a subscriber that disconnected
-    mid-``_PING_INTERVAL`` would force the next subscriber's first
-    sweep to wait out the rest of the interval — defeating the
-    point of waking promptly on the 0→1 transition. Pin: after the
-    last subscriber drops, the loop stops sweeping within a
-    handful of scheduling ticks; with a longer ``_PING_INTERVAL``
-    patched in than the test's polling window, anything else means
-    the idle wait wasn't interrupted.
-    """
-    presence = SubscriberPresence()
-    monitor = _build_monitor(presence=presence)
-    counts = _instrument_loop(monitor, monkeypatch)
-    # Re-stretch the interval so a missed interrupt is observable
-    # — the default 0.001s would let the loop tick anyway.
-    monkeypatch.setattr(ping_module, "_PING_INTERVAL", 60)
-
-    task = asyncio.create_task(monitor._ping.run())
-    try:
-        # Bring a subscriber in; wait until the loop has done at
-        # least one sweep and reached the idle wait.
-        with presence.subscriber():
-            await _drive_until(lambda: counts["sweeps"] >= 1)
-
-        # Subscriber just dropped (the with-block exited). The
-        # gate-close must short-circuit the in-flight idle wait so
-        # the loop returns to the top and parks on
-        # wait_for_subscriber within a few ticks — not after the
-        # full _PING_INTERVAL.
-        sweeps_at_drop = counts["sweeps"]
-        for _ in range(40):
-            await asyncio.sleep(0)
-        # Loop should be parked, not still sweeping.
-        assert counts["sweeps"] == sweeps_at_drop, (
-            "loop kept sweeping after subscriber drop — interrupt failed"
-        )
-    finally:
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
-
-
-@pytest.mark.asyncio
-async def test_ping_loop_resumes_immediately_when_new_subscriber_arrives_mid_interval(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """After a drop+reconnect cycle, the new subscriber's first sweep is prompt.
-
-    The end-to-end contract behind the interruptible-sleep change.
-    Without the interrupt, this sequence would make the second
-    subscriber wait up to ``_PING_INTERVAL`` for fresh ICMP data:
-
-      1. Subscriber A connects, loop sweeps once, parks on idle.
-      2. A disconnects mid-idle (presence.count → 0).
-      3. Subscriber B connects.
-      4. *With* the interrupt: idle wait short-circuits on A's
-         drop, loop parks at the top, B's connect wakes it
-         immediately, sweep #2 runs within a few ticks.
-      4'. *Without* the interrupt: idle wait runs to completion,
-         loop sweeps unconditionally even though no one was
-         listening for most of the interval, and the timing
-         depends on when in the interval B happened to arrive.
-
-    Pin the timing: from B's connect to sweep #2, ≤ a handful of
-    scheduling ticks (we use a generous 0.5s timeout via the test
-    helper).
-    """
+    """A drop+reconnect cycle eventually produces a fresh sweep for the new subscriber."""
     presence = SubscriberPresence()
     monitor = _build_monitor(presence=presence)
     counts = _instrument_loop(monitor, monkeypatch)
 
     task = asyncio.create_task(monitor._ping.run())
     try:
-        # Cycle subscriber A in, drive a sweep, then out.
         with presence.subscriber():
             await _drive_until(lambda: counts["sweeps"] >= 1)
         sweeps_after_a = counts["sweeps"]
 
-        # Give the loop a few ticks to settle into the
-        # wait_for_subscriber park (the interrupt should have
-        # fired during the idle wait).
-        for _ in range(10):
-            await asyncio.sleep(0)
-        assert counts["sweeps"] == sweeps_after_a
-
-        # Subscriber B arrives. The 0→1 transition must wake the
-        # loop's wait_for_subscriber within one scheduling tick;
-        # _drive_until's bounded timeout catches a regression
-        # that left the loop parked on a non-interruptible sleep.
         with presence.subscriber():
             await _drive_until(lambda: counts["sweeps"] > sweeps_after_a)
     finally:
