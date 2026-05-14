@@ -49,7 +49,7 @@ async def test_paired_instances_open_peer_link_session(
         paired_instances.receiver_opened[0]["dashboard_id"]
         == paired_instances.offloader_dashboard_id
     )
-    sessions = paired_instances.receiver._peer_link_sessions
+    sessions = paired_instances.receiver.state.peer_link_sessions
     assert paired_instances.offloader_dashboard_id in sessions
 
 
@@ -77,7 +77,7 @@ async def test_paired_instances_teardown_closes_session_cleanly(
     """
     await paired_instances.wait_until_session_opened()
     receiver_key = paired_instances.offloader_dashboard_id
-    assert receiver_key in paired_instances.receiver._peer_link_sessions
+    assert receiver_key in paired_instances.receiver.state.peer_link_sessions
 
     await paired_instances.offloader.stop()
     await paired_instances.wait_until_session_closed()
@@ -96,7 +96,7 @@ async def test_paired_instances_teardown_closes_session_cleanly(
     # (c) Receiver's CLOSED carries the offloader's dashboard_id
     # and the registry has dropped the row.
     assert paired_instances.receiver_closed[0]["dashboard_id"] == receiver_key
-    assert receiver_key not in paired_instances.receiver._peer_link_sessions
+    assert receiver_key not in paired_instances.receiver.state.peer_link_sessions
 
     # (d) Clean-stop close path doesn't populate ``error_detail``;
     # the category-level ``client_stopped`` reason already

@@ -273,7 +273,7 @@ async def _paired_instances_ctx(
     #    fires so the receiver's APPROVED → offloader's
     #    pair-status listener → status-flip-event chain can be
     #    awaited deterministically rather than spun on.
-    [pending_dashboard_id] = list(receiver.receiver._pending_peers.keys())
+    [pending_dashboard_id] = list(receiver.receiver.state.pending_peers.keys())
     pair_status_changed = capture_events(offloader_bus, EventType.OFFLOADER_PAIR_STATUS_CHANGED)
     await receiver.receiver.approve_peer(dashboard_id=pending_dashboard_id)
 

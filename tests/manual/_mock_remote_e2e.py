@@ -184,7 +184,7 @@ async def _run_pair_flow(
         receiver_label="receiver",
         offloader_label="offloader",
     )
-    [pending_dashboard_id] = list(receiver.remote_build_receiver._pending_peers.keys())
+    [pending_dashboard_id] = list(receiver.remote_build_receiver.state.pending_peers.keys())
 
     pair_event = asyncio.Event()
     queue_status_event = asyncio.Event()

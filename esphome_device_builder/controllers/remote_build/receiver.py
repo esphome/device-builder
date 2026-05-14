@@ -60,6 +60,7 @@ from ..config import (
     load_remote_build_settings,
     remote_build_settings_transaction,
 )
+from ._receiver_state import ReceiverState
 from ._shared import _RemoteBuildBase, drain_tasks
 from ._storage_codecs import (
     RECEIVER_PEERS_FILE,
@@ -102,28 +103,7 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
 
     def __init__(self, device_builder: DeviceBuilder) -> None:
         super().__init__(device_builder)
-        # True while ``rotate_identity`` is in flight. Second
-        # caller gets ``ALREADY_EXISTS`` rather than queuing —
-        # interleaved teardowns can leave no listener at all,
-        # and back-to-back rotation is almost always an
-        # accidental double-click.
-        self._rotation_in_flight = False
-        # Pairing window: gates ``pair_request``, refcounted by
-        # WS client so multi-tab admins extend together.
-        self._pairing_window_clients: dict[Hashable, float] = {}
-        self._pairing_window_handle: asyncio.TimerHandle | None = None
-        # PENDING StoredPeer rows keyed on ``dashboard_id``;
-        # never persisted, cleared on window auto-close.
-        self._pending_peers: dict[str, StoredPeer] = {}
-        # RAM-canonical APPROVED peers keyed on ``dashboard_id``;
-        # disk is just persistence.
-        self._approved_peers: dict[str, StoredPeer] = {}
-        self._peer_link_sessions: dict[str, PeerLinkSession] = {}
-        # Receiver-side handlers; constructed in :meth:`start`
-        # once the firmware controller is available.
-        self._submit_job_receiver: SubmitJobReceiver | None = None
-        self._artifacts_download_sender: ArtifactsDownloadSender | None = None
-        self._job_fanout: JobFanout | None = None
+        self.state = ReceiverState()
         self._peers_store: Store[ReceiverPeers] = Store(
             self._db.settings.config_dir / RECEIVER_PEERS_FILE,
             encoder=encode_peers,
@@ -135,22 +115,22 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
     async def start(self) -> None:
         """Bring up the receiver-side handlers, seed RAM from disk."""
         if self._db.firmware is not None:
-            self._submit_job_receiver = SubmitJobReceiver(
+            self.state.submit_job_receiver = SubmitJobReceiver(
                 config_dir=self._db.settings.config_dir,
                 firmware_controller=self._db.firmware,
             )
-            self._artifacts_download_sender = ArtifactsDownloadSender(
+            self.state.artifacts_download_sender = ArtifactsDownloadSender(
                 firmware_controller=self._db.firmware,
             )
-            self._job_fanout = JobFanout(self)
-            self._job_fanout.start()
+            self.state.job_fanout = JobFanout(self)
+            self.state.job_fanout.start()
             self._track_task(
                 self._run_cleanup_loop(),
                 name=f"{type(self).__name__}._run_cleanup_loop",
             )
         if (peers_state := await self._peers_store.async_load()) is not None:
             for peer in peers_state.peers:
-                self._approved_peers[peer.dashboard_id] = peer
+                self.state.approved_peers[peer.dashboard_id] = peer
         # JOB_OUTPUT / JOB_PROGRESS deliberately omitted: high-rate
         # streaming events that don't change queue_status shape.
         for event_type in (
@@ -165,28 +145,28 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
     async def stop(self) -> None:
         """Close listeners, terminate sessions, drain tasks, flush store."""
         self._listeners.close()
-        if self._job_fanout is not None:
-            self._job_fanout.stop()
-            self._job_fanout = None
+        if self.state.job_fanout is not None:
+            self.state.job_fanout.stop()
+            self.state.job_fanout = None
         await drain_tasks(self._tasks)
         self._tasks.clear()
-        if self._pairing_window_handle is not None:
-            self._pairing_window_handle.cancel()
-            self._pairing_window_handle = None
-        self._pairing_window_clients.clear()
+        if self.state.pairing_window_handle is not None:
+            self.state.pairing_window_handle.cancel()
+            self.state.pairing_window_handle = None
+        self.state.pairing_window_clients.clear()
         # Snapshot to a list before iterating — each terminate
         # unwinds via ``unregister_peer_link_session`` which
         # mutates the dict.
-        for peer_link_session in list(self._peer_link_sessions.values()):
+        for peer_link_session in list(self.state.peer_link_sessions.values()):
             await peer_link_session.terminate(TerminateReason.SERVER_SHUTTING_DOWN)
-        self._peer_link_sessions.clear()
+        self.state.peer_link_sessions.clear()
         # Fire ``status="removed"`` for each PENDING peer so
         # in-flight pair_status long-polls on a still-alive bus
         # see the cancellation (matters for the soft-reload path).
         self._clear_pending_peers_on_window_close()
         for callback in self._shutdown_callbacks:
             await callback()
-        self._approved_peers.clear()
+        self.state.approved_peers.clear()
 
     async def _load_settings_async(self) -> RemoteBuildSettings:
         """Read the receiver-side settings sidecar off the executor.
@@ -216,7 +196,7 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         if self._db.firmware is None:
             return
         idle, running, queue_depth = self._db.firmware.queue_status_snapshot()
-        if not self._peer_link_sessions:
+        if not self.state.peer_link_sessions:
             return
         self._db.create_background_task(self._broadcast_queue_status(idle, running, queue_depth))
 
@@ -234,7 +214,7 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         will pick up the next transition's broadcast on its
         next successful frame.
         """
-        sessions = list(self._peer_link_sessions.values())
+        sessions = list(self.state.peer_link_sessions.values())
         payload = QueueStatusFrameData(
             type="queue_status",
             idle=idle,
@@ -263,8 +243,8 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         ``_peer_queue_status`` and ``pick_build_path`` silently
         falls back to LOCAL (#568 regression).
         """
-        existing = self._peer_link_sessions.get(session.dashboard_id)
-        self._peer_link_sessions[session.dashboard_id] = session
+        existing = self.state.peer_link_sessions.get(session.dashboard_id)
+        self.state.peer_link_sessions[session.dashboard_id] = session
         if existing is not None and existing is not session:
             await existing.terminate(TerminateReason.SUPERSEDED)
         if self._db.firmware is not None:
@@ -337,8 +317,8 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         actual WS close + Noise teardown happens in the session
         loop's ``finally`` chain.
         """
-        if self._peer_link_sessions.get(session.dashboard_id) is session:
-            del self._peer_link_sessions[session.dashboard_id]
+        if self.state.peer_link_sessions.get(session.dashboard_id) is session:
+            del self.state.peer_link_sessions[session.dashboard_id]
             # Drop any in-flight ``submit_job`` upload state so a
             # bundle reception that was mid-stream when the
             # session ended doesn't outlive the session that owns
@@ -346,13 +326,13 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
             # this branch only runs for sessions registered after
             # ``start`` (live wire), so the attribute is always
             # populated by the time we get here.
-            if self._submit_job_receiver is not None:
-                self._submit_job_receiver.discard_session(session.dashboard_id)
+            if self.state.submit_job_receiver is not None:
+                self.state.submit_job_receiver.discard_session(session.dashboard_id)
             # Same shape — discard any in-flight artifacts
             # download for this session so the slot doesn't
             # outlive the session it was streaming over.
-            if self._artifacts_download_sender is not None:
-                self._artifacts_download_sender.discard_session(session.dashboard_id)
+            if self.state.artifacts_download_sender is not None:
+                self.state.artifacts_download_sender.discard_session(session.dashboard_id)
             # Fire only when we actually dropped the slot — the
             # no-op path (a SUPERSEDED-evicted session running its
             # finally-block after the new session has taken its
@@ -384,14 +364,14 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
                 frame,
             )
             return
-        if self._job_fanout is None or self._db.firmware is None:
+        if self.state.job_fanout is None or self._db.firmware is None:
             _LOGGER.debug(
                 "peer-link cancel_job from %s before controller fully started; dropping",
                 session.dashboard_id,
             )
             return
         remote_job_id = cast(str, frame["job_id"])
-        firmware_job_id = self._job_fanout.resolve_firmware_job_id(
+        firmware_job_id = self.state.job_fanout.resolve_firmware_job_id(
             session.dashboard_id, remote_job_id
         )
         if firmware_job_id is None:
@@ -419,17 +399,17 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         at startup; a property getter would fire pre-``start``
         and raise.
         """
-        if self._submit_job_receiver is None:
+        if self.state.submit_job_receiver is None:
             msg = "submit_job_receiver accessed before ReceiverController.start()"
             raise RuntimeError(msg)
-        return self._submit_job_receiver
+        return self.state.submit_job_receiver
 
     def get_artifacts_download_sender(self) -> ArtifactsDownloadSender:
         """Return the receiver-side ``download_artifacts`` flow handler, raising if not started."""
-        if self._artifacts_download_sender is None:
+        if self.state.artifacts_download_sender is None:
             msg = "artifacts_download_sender accessed before ReceiverController.start()"
             raise RuntimeError(msg)
-        return self._artifacts_download_sender
+        return self.state.artifacts_download_sender
 
     async def _run_cleanup_loop(self) -> None:
         """Sweep cold remote-build subtrees every ``_CLEANUP_SWEEP_INTERVAL_SECONDS``.
@@ -478,9 +458,9 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         """Project receiver settings to wire view, merging in-memory peers.
 
         The peer list is RAM-canonical: PENDING entries live in
-        ``self._pending_peers`` for the active pairing window's
+        ``self.state.pending_peers`` for the active pairing window's
         lifetime (never hit disk) and APPROVED entries live in
-        ``self._approved_peers`` / its per-file ``Store``.
+        ``self.state.approved_peers`` / its per-file ``Store``.
         ``settings`` is consulted for the master ``enabled``
         toggle.
         """
@@ -498,18 +478,18 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         ``connected=False`` since the peer-link dispatch
         refuses non-APPROVED rows.
         """
-        sessions = self._peer_link_sessions
+        sessions = self.state.peer_link_sessions
         return [
             peer_summary(p, status=PeerStatus.PENDING, connected=False)
-            for p in self._pending_peers.values()
+            for p in self.state.pending_peers.values()
         ] + [
             peer_summary(p, status=PeerStatus.APPROVED, connected=p.dashboard_id in sessions)
-            for p in self._approved_peers.values()
+            for p in self.state.approved_peers.values()
         ]
 
     def approved_peer_label(self, dashboard_id: str) -> str:
         """Return the APPROVED peer's display label, or ``""`` if not found."""
-        peer = self._approved_peers.get(dashboard_id)
+        peer = self.state.approved_peers.get(dashboard_id)
         return peer.label if peer is not None else ""
 
     def peers_snapshot(self) -> list[PeerSummary]:
@@ -638,10 +618,10 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         double-click.
         """
         # Check+set is atomic on the single asyncio loop.
-        if self._rotation_in_flight:
+        if self.state.rotation_in_flight:
             msg = "remote_build: an identity rotation is already in progress"
             raise CommandError(ErrorCode.ALREADY_EXISTS, msg)
-        self._rotation_in_flight = True
+        self.state.rotation_in_flight = True
         try:
             loop = asyncio.get_running_loop()
             identity = await loop.run_in_executor(
@@ -659,7 +639,7 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
             )
             return identity_view(identity, listener_bound=listener_bound)
         finally:
-            self._rotation_in_flight = False
+            self.state.rotation_in_flight = False
 
     # ------------------------------------------------------------------
     # Peer CRUD — receiver-UI surface for the Pairing requests inbox.
@@ -686,19 +666,19 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         """
         clean_id = validate_dashboard_id(dashboard_id)
 
-        pending = self._pending_peers.pop(clean_id, None)
+        pending = self.state.pending_peers.pop(clean_id, None)
         if pending is None:
             # Differentiate "already approved" from "never existed"
             # so the frontend can decide whether to refresh or
             # surface an error. Both reads short-circuit through
             # RAM — no disk I/O.
-            if clean_id in self._approved_peers:
+            if clean_id in self.state.approved_peers:
                 msg = f"peer is already approved: {clean_id}"
                 raise CommandError(ErrorCode.INVALID_ARGS, msg)
             msg = f"no pending peer with dashboard_id: {clean_id}"
             raise CommandError(ErrorCode.NOT_FOUND, msg)
 
-        self._approved_peers[clean_id] = pending
+        self.state.approved_peers[clean_id] = pending
         self._peers_store.async_delay_save(self._serialize_peers, delay=_PEERS_SAVE_DELAY_SECONDS)
         self._fire_pair_status_changed(clean_id, "approved")
         return await self._current_settings_view()
@@ -729,11 +709,11 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
 
         # PENDING: in-memory, no disk write needed (PENDING never
         # reaches the peers store).
-        if self._pending_peers.pop(clean_id, None) is not None:
+        if self.state.pending_peers.pop(clean_id, None) is not None:
             self._fire_pair_status_changed(clean_id, "removed")
             return await self._current_settings_view()
 
-        if self._approved_peers.pop(clean_id, None) is None:
+        if self.state.approved_peers.pop(clean_id, None) is None:
             msg = f"no peer with dashboard_id: {clean_id}"
             raise CommandError(ErrorCode.NOT_FOUND, msg)
         self._peers_store.async_delay_save(self._serialize_peers, delay=_PEERS_SAVE_DELAY_SECONDS)
@@ -742,7 +722,7 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
 
     def _serialize_peers(self) -> ReceiverPeers:
         """Build the on-disk peers shape from the in-RAM ``_approved_peers`` dict."""
-        return ReceiverPeers(peers=list(self._approved_peers.values()))
+        return ReceiverPeers(peers=list(self.state.approved_peers.values()))
 
     async def _current_settings_view(self) -> RemoteBuildSettingsView:
         """Load settings from disk and project to the wire view (post-mutation response)."""
@@ -787,7 +767,7 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         # Already-APPROVED row: re-pair against existing trust
         # bypasses the window. Pin mismatch is refused regardless
         # (rotation or impersonation).
-        approved_peer = self._approved_peers.get(dashboard_id)
+        approved_peer = self.state.approved_peers.get(dashboard_id)
         if approved_peer is not None:
             if approved_peer.pin_sha256 != pin_sha256:
                 return IntentResponse.REJECTED
@@ -802,7 +782,7 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         # check at approve-time is the load-bearing gate, but
         # silent overwrite enables a DoS). Same-pubkey retries
         # refresh label / peer_ip / paired_at via the path below.
-        existing = self._pending_peers.get(dashboard_id)
+        existing = self.state.pending_peers.get(dashboard_id)
         if existing is not None and existing.static_x25519_pub != static_x25519_pub:
             _LOGGER.warning(
                 "pair_request from %s claims dashboard_id=%s but presented "
@@ -815,7 +795,7 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
             return IntentResponse.REJECTED
 
         paired_at = time.time()
-        self._pending_peers[dashboard_id] = StoredPeer(
+        self.state.pending_peers[dashboard_id] = StoredPeer(
             dashboard_id=dashboard_id,
             pin_sha256=pin_sha256,
             static_x25519_pub=static_x25519_pub,
@@ -928,12 +908,12 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         # peers polling pair_status. Both lookups are RAM reads
         # (the APPROVED list moved off disk into ``_approved_peers``
         # at startup).
-        pending = self._pending_peers.get(dashboard_id)
+        pending = self.state.pending_peers.get(dashboard_id)
         if pending is not None:
             if pending.pin_sha256 != pin_sha256:
                 return IntentResponse.REJECTED
             return IntentResponse.PENDING
-        peer = self._approved_peers.get(dashboard_id)
+        peer = self.state.approved_peers.get(dashboard_id)
         if peer is None or peer.pin_sha256 != pin_sha256:
             return IntentResponse.REJECTED
         return approved_response
@@ -976,11 +956,11 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
 
         was_open = self.is_pairing_window_open()
         if open:
-            self._pairing_window_clients[client] = time.monotonic()
+            self.state.pairing_window_clients[client] = time.monotonic()
         else:
-            self._pairing_window_clients.pop(client, None)
+            self.state.pairing_window_clients.pop(client, None)
         self._reschedule_pairing_window_close()
-        is_open = bool(self._pairing_window_clients)
+        is_open = bool(self.state.pairing_window_clients)
 
         # Fire on state transitions AND on every extend (so the
         # frontend countdown re-syncs against the bumped deadline).
@@ -993,14 +973,14 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
     def is_pairing_window_open(self) -> bool:
         """Return whether the pairing window is currently open (post-prune)."""
         self._prune_stale_pairing_window_clients()
-        return bool(self._pairing_window_clients)
+        return bool(self.state.pairing_window_clients)
 
     def _pairing_window_remaining(self) -> float | None:
         """Seconds until the latest-extend deadline, or ``None`` if closed."""
         self._prune_stale_pairing_window_clients()
-        if not self._pairing_window_clients:
+        if not self.state.pairing_window_clients:
             return None
-        latest_extend = max(self._pairing_window_clients.values())
+        latest_extend = max(self.state.pairing_window_clients.values())
         return max(0.0, latest_extend + _PAIRING_WINDOW_DURATION_SECONDS - time.monotonic())
 
     def _pairing_window_state(self) -> PairingWindowState:
@@ -1031,12 +1011,12 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
 
     def _prune_stale_pairing_window_clients(self) -> None:
         """Drop client entries whose last-extend timestamp aged out."""
-        if not self._pairing_window_clients:
+        if not self.state.pairing_window_clients:
             return
         cutoff = time.monotonic() - _PAIRING_WINDOW_DURATION_SECONDS
-        self._pairing_window_clients = {
+        self.state.pairing_window_clients = {
             client: extended_at
-            for client, extended_at in self._pairing_window_clients.items()
+            for client, extended_at in self.state.pairing_window_clients.items()
             if extended_at >= cutoff
         }
 
@@ -1055,14 +1035,16 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         the last client just dropped out), no new handle is
         scheduled and ``_pairing_window_handle`` stays ``None``.
         """
-        if self._pairing_window_handle is not None:
-            self._pairing_window_handle.cancel()
-            self._pairing_window_handle = None
+        if self.state.pairing_window_handle is not None:
+            self.state.pairing_window_handle.cancel()
+            self.state.pairing_window_handle = None
         remaining = self._pairing_window_remaining()
         if remaining is None:
             return
         loop = asyncio.get_running_loop()
-        self._pairing_window_handle = loop.call_later(remaining, self._on_pairing_window_deadline)
+        self.state.pairing_window_handle = loop.call_later(
+            remaining, self._on_pairing_window_deadline
+        )
 
     def _on_pairing_window_deadline(self) -> None:
         """
@@ -1075,8 +1057,8 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         in-memory PENDING peers dict, fire the close event +
         cancellation events, done.
         """
-        self._pairing_window_handle = None
-        self._pairing_window_clients.clear()
+        self.state.pairing_window_handle = None
+        self.state.pairing_window_clients.clear()
         self._fire_pairing_window_changed()
         self._clear_pending_peers_on_window_close()
 
@@ -1086,9 +1068,9 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         Wakes any in-flight ``lookup_peer_for_status`` long-poll
         so its offloader sees REJECTED.
         """
-        if not self._pending_peers:
+        if not self.state.pending_peers:
             return
-        cleared = list(self._pending_peers)
-        self._pending_peers.clear()
+        cleared = list(self.state.pending_peers)
+        self.state.pending_peers.clear()
         for dashboard_id in cleared:
             self._fire_pair_status_changed(dashboard_id, "removed")

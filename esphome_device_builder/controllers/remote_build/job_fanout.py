@@ -86,7 +86,7 @@ class JobFanout:
 
     The session lookup keys on ``FirmwareJob.remote_peer`` (the
     offloader's ``dashboard_id``) against
-    ``ReceiverController._peer_link_sessions``. A job whose
+    ``ReceiverController.state.peer_link_sessions``. A job whose
     ``remote_peer`` is empty is local-only and skipped before
     any session lookup.
     """
@@ -250,7 +250,7 @@ class JobFanout:
         log_job_id: str,
     ) -> None:
         """Send a ``job_state_changed`` frame to *remote_peer*'s session, best-effort."""
-        session = self._controller._peer_link_sessions.get(remote_peer)
+        session = self._controller.state.peer_link_sessions.get(remote_peer)
         if session is None:
             _LOGGER.debug(
                 "%s for remote peer %s (job %s): no active session; dropping fan-out",
@@ -286,7 +286,7 @@ class JobFanout:
         if entry is None:
             return
         remote_peer, remote_job_id = entry
-        session = self._controller._peer_link_sessions.get(remote_peer)
+        session = self._controller.state.peer_link_sessions.get(remote_peer)
         if session is None:
             return
         # The firmware controller's ``JOB_OUTPUT`` doesn't

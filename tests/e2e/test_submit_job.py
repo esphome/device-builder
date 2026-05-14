@@ -338,7 +338,7 @@ async def test_submit_job_round_trip_then_fanout_to_offloader_bus(
     # the cache update via a background task) trips this
     # assertion instead of producing flaky CI behaviour at the
     # JOB_STARTED fan-out check below.
-    assert job.job_id in paired_instances.receiver._job_fanout._remote_jobs
+    assert job.job_id in paired_instances.receiver.state.job_fanout._remote_jobs
     paired_instances.receiver_bus.fire(EventType.JOB_STARTED, JobLifecycleData(job=job))
 
     # JOB_QUEUED now fans out as ``queued`` ahead of ``running``;

@@ -2011,7 +2011,7 @@ async def test_rotate_identity_clears_in_flight_flag_on_failure(tmp_path: Path) 
 
     # Flag must be back to False; otherwise every subsequent
     # rotate attempt would 409 forever.
-    assert controller.receiver._rotation_in_flight is False
+    assert controller.receiver.state.rotation_in_flight is False
 
 
 # ---------------------------------------------------------------------------
@@ -2061,7 +2061,7 @@ def _seed_peer(controller: RemoteBuildController, peer: StoredPeer) -> None:
     :meth:`start` would do after an :meth:`approve_peer` flow,
     and lets the test stay sync.
     """
-    controller.receiver._approved_peers[peer.dashboard_id] = peer
+    controller.receiver.state.approved_peers[peer.dashboard_id] = peer
 
 
 def _seed_pending_peer(controller: RemoteBuildController, peer: StoredPeer) -> None:
@@ -2073,7 +2073,7 @@ def _seed_pending_peer(controller: RemoteBuildController, peer: StoredPeer) -> N
     in place of :func:`_seed_peer` for tests that exercise the
     PENDING path; the persistent list stays APPROVED-only.
     """
-    controller.receiver._pending_peers[peer.dashboard_id] = peer
+    controller.receiver.state.pending_peers[peer.dashboard_id] = peer
 
 
 def test_peers_snapshot_returns_empty_when_none_stored(tmp_path: Path) -> None:
@@ -2162,7 +2162,7 @@ def test_peers_snapshot_marks_approved_with_active_session_connected(
     # but offline.
     session = MagicMock()
     session.dashboard_id = "alpha"
-    controller.receiver._peer_link_sessions["alpha"] = session
+    controller.receiver.state.peer_link_sessions["alpha"] = session
 
     rows = {row.dashboard_id: row for row in controller.receiver.peers_snapshot()}
 
@@ -2187,7 +2187,7 @@ def test_peers_snapshot_pending_row_is_never_connected(tmp_path: Path) -> None:
     _seed_pending_peer(controller, _stored_peer(dashboard_id="pending"))
     session = MagicMock()
     session.dashboard_id = "pending"
-    controller.receiver._peer_link_sessions["pending"] = session
+    controller.receiver.state.peer_link_sessions["pending"] = session
 
     [row] = controller.receiver.peers_snapshot()
 
@@ -2283,7 +2283,7 @@ async def test_start_seeds_approved_peers_dict_from_disk(tmp_path: Path) -> None
     seeder.offloader._db.devices = None  # short-circuit the post-load branches.
     pubkey = b"\xee" * 32
     pin = hashlib.sha256(pubkey).hexdigest()
-    seeder.receiver._approved_peers["alpha"] = _stored_peer(
+    seeder.receiver.state.approved_peers["alpha"] = _stored_peer(
         dashboard_id="alpha",
         pin_sha256=pin,
         static_x25519_pub=pubkey,
@@ -2305,8 +2305,8 @@ async def test_start_seeds_approved_peers_dict_from_disk(tmp_path: Path) -> None
     fresh.offloader._db.devices = None
     await fresh.start()
 
-    assert "alpha" in fresh.receiver._approved_peers
-    loaded = fresh.receiver._approved_peers["alpha"]
+    assert "alpha" in fresh.receiver.state.approved_peers
+    loaded = fresh.receiver.state.approved_peers["alpha"]
     assert loaded.pin_sha256 == pin
     assert loaded.static_x25519_pub == pubkey
     # ``peer_ip`` survives the on-disk round-trip — the IP an
@@ -2335,7 +2335,7 @@ async def test_start_recovers_to_empty_on_corrupt_peers_file(tmp_path: Path) -> 
     controller.offloader._db.devices = None
     await controller.start()
 
-    assert controller.receiver._approved_peers == {}
+    assert controller.receiver.state.approved_peers == {}
 
 
 @pytest.mark.asyncio
@@ -2364,8 +2364,8 @@ async def test_start_loads_legacy_peers_file_without_peer_ip(tmp_path: Path) -> 
     controller.offloader._db.devices = None
     await controller.start()
 
-    assert "alpha" in controller.receiver._approved_peers
-    assert controller.receiver._approved_peers["alpha"].peer_ip == ""
+    assert "alpha" in controller.receiver.state.approved_peers
+    assert controller.receiver.state.approved_peers["alpha"].peer_ip == ""
 
 
 @pytest.mark.asyncio
@@ -2377,11 +2377,11 @@ async def test_approve_peer_promotes_pending_to_approved(tmp_path: Path) -> None
     view = await controller.receiver.approve_peer(dashboard_id="alpha")
 
     assert view.peers[0].status == PeerStatus.APPROVED
-    assert "alpha" not in controller.receiver._pending_peers
+    assert "alpha" not in controller.receiver.state.pending_peers
     # APPROVED is RAM-canonical now; the disk write happens
     # through the debounced peers Store.
-    assert "alpha" in controller.receiver._approved_peers
-    assert controller.receiver._approved_peers["alpha"].dashboard_id == "alpha"
+    assert "alpha" in controller.receiver.state.approved_peers
+    assert controller.receiver.state.approved_peers["alpha"].dashboard_id == "alpha"
 
 
 @pytest.mark.asyncio
@@ -2467,7 +2467,7 @@ async def test_remove_peer_drops_pending_and_fires_removed(tmp_path: Path) -> No
     view = await controller.receiver.remove_peer(dashboard_id="alpha")
 
     assert view.peers == []
-    assert "alpha" not in controller.receiver._pending_peers
+    assert "alpha" not in controller.receiver.state.pending_peers
     fire = controller.offloader._db.bus.fire
     fire.assert_called_once()
     event_type, payload = fire.call_args.args
@@ -2602,13 +2602,13 @@ async def test_set_pairing_window_extend_refreshes_deadline_and_fires(tmp_path: 
     controller.offloader._db.bus = MagicMock()
 
     first = await controller.receiver.set_pairing_window(open=True, client="tab-1")
-    first_extend_ts = controller.receiver._pairing_window_clients["tab-1"]
+    first_extend_ts = controller.receiver.state.pairing_window_clients["tab-1"]
     # tiny sleep so the second extend's monotonic timestamp is
     # strictly later than the first's (microsecond resolution
     # makes 10ms reliably non-flaky)
     await asyncio.sleep(0.01)
     second = await controller.receiver.set_pairing_window(open=True, client="tab-1")
-    second_extend_ts = controller.receiver._pairing_window_clients["tab-1"]
+    second_extend_ts = controller.receiver.state.pairing_window_clients["tab-1"]
 
     assert first.expires_in_seconds is not None
     assert second.expires_in_seconds is not None
@@ -2740,11 +2740,11 @@ async def test_stop_cancels_pairing_window_handle(tmp_path: Path) -> None:
     controller = _make_controller(config_dir=tmp_path)
     controller.offloader._db.bus = MagicMock()
     await controller.receiver.set_pairing_window(open=True, client="tab-1")
-    assert controller.receiver._pairing_window_handle is not None
+    assert controller.receiver.state.pairing_window_handle is not None
 
     await controller.stop()
 
-    assert controller.receiver._pairing_window_handle is None
+    assert controller.receiver.state.pairing_window_handle is None
     assert controller.receiver.is_pairing_window_open() is False
 
 
@@ -2787,7 +2787,7 @@ async def test_explicit_close_cancels_handle_no_duplicate_event(
     # Two events: open + close. After this point, the handle should
     # be None (explicit close cancelled it; no replacement scheduled
     # because the client map is empty).
-    assert controller.receiver._pairing_window_handle is None
+    assert controller.receiver.state.pairing_window_handle is None
     initial_fire_count = controller.offloader._db.bus.fire.call_count
     assert initial_fire_count == 2  # open + explicit close
 
@@ -2803,7 +2803,7 @@ async def test_explicit_close_cancels_handle_no_duplicate_event(
     await asyncio.sleep(0)
 
     assert controller.offloader._db.bus.fire.call_count == initial_fire_count
-    assert controller.receiver._pairing_window_handle is None
+    assert controller.receiver.state.pairing_window_handle is None
 
 
 # ---------------------------------------------------------------------------
@@ -2831,8 +2831,8 @@ async def test_record_pair_request_creates_pending_row(tmp_path: Path) -> None:
 
     assert response == "pending"
     # PENDING entries live in-memory; APPROVED dict is empty.
-    assert controller.receiver._approved_peers == {}
-    pending = controller.receiver._pending_peers["alpha"]
+    assert controller.receiver.state.approved_peers == {}
+    pending = controller.receiver.state.pending_peers["alpha"]
     assert pending.pin_sha256 == pin
     assert pending.static_x25519_pub == pubkey
     assert pending.label == "alpha"
@@ -2864,7 +2864,7 @@ async def test_record_pair_request_fires_event(tmp_path: Path) -> None:
     # got — the controller emits a single timestamp into both so
     # a frontend rebuilding the inbox row from the event matches
     # the snapshot. Verify by reading the stored value back.
-    stored = controller.receiver._pending_peers["alpha"]
+    stored = controller.receiver.state.pending_peers["alpha"]
     assert payload == {
         "dashboard_id": "alpha",
         "pin_sha256": pin,
@@ -2917,7 +2917,7 @@ async def test_record_pair_request_refreshes_existing_pending_row(tmp_path: Path
 
     assert response == "pending"
     # PENDING refresh updates the in-memory dict, not disk.
-    refreshed = controller.receiver._pending_peers["alpha"]
+    refreshed = controller.receiver.state.pending_peers["alpha"]
     assert refreshed.pin_sha256 == pin
     assert refreshed.static_x25519_pub == pubkey
     assert refreshed.label == "renamed"
@@ -2928,7 +2928,7 @@ async def test_record_pair_request_refreshes_existing_pending_row(tmp_path: Path
     # current handshake came from.
     assert refreshed.peer_ip == "10.0.0.1"
     # APPROVED dict stays empty — refresh is PENDING-only.
-    assert controller.receiver._approved_peers == {}
+    assert controller.receiver.state.approved_peers == {}
 
 
 @pytest.mark.asyncio
@@ -2992,7 +2992,7 @@ async def test_record_pair_request_pending_pubkey_mismatch_returns_rejected(
     # security-critical invariant: the operator's view of the
     # legitimate pair_request can't be silently mutated by an
     # adversary.
-    untouched = controller.receiver._pending_peers["alpha"]
+    untouched = controller.receiver.state.pending_peers["alpha"]
     assert untouched.static_x25519_pub == legit_pubkey
     assert untouched.pin_sha256 == legit_pin
     assert untouched.label == "legit"
@@ -3048,7 +3048,7 @@ async def test_record_pair_request_already_approved_same_pin_returns_approved(
     )
 
     assert response == "approved"
-    [peer] = controller.receiver._approved_peers.values()
+    [peer] = controller.receiver.state.approved_peers.values()
     assert peer.pin_sha256 == pin
     assert peer.label == "alpha"
     assert peer.paired_at == 1.0
@@ -3082,8 +3082,8 @@ async def test_record_pair_request_unknown_dashboard_id_closed_window_returns_no
 
     assert response is IntentResponse.NO_PAIRING_WINDOW
     # No row was created — the gate fired before the insert.
-    assert controller.receiver._approved_peers == {}
-    assert controller.receiver._pending_peers == {}
+    assert controller.receiver.state.approved_peers == {}
+    assert controller.receiver.state.pending_peers == {}
     # No event fired either — the pair_request_received event is
     # for surfacing rows in the inbox, and no row was created.
     controller.offloader._db.bus.fire.assert_not_called()
@@ -3169,7 +3169,7 @@ async def test_record_pair_request_already_approved_different_pin_returns_reject
     )
 
     assert response == "rejected"
-    [peer] = controller.receiver._approved_peers.values()
+    [peer] = controller.receiver.state.approved_peers.values()
     # Original row untouched.
     assert peer.pin_sha256 == original_pin
     assert peer.static_x25519_pub == original_pubkey
@@ -3714,8 +3714,8 @@ async def test_on_firmware_queue_transition_broadcasts_to_every_session(
 
     alpha = _make_session_stub("alpha")
     beta = _make_session_stub("beta")
-    controller.receiver._peer_link_sessions["alpha"] = alpha
-    controller.receiver._peer_link_sessions["beta"] = beta
+    controller.receiver.state.peer_link_sessions["alpha"] = alpha
+    controller.receiver.state.peer_link_sessions["beta"] = beta
 
     controller.receiver._on_firmware_queue_transition(
         MagicMock(event_type=EventType.JOB_STARTED, data={"job_id": "j1"})
@@ -3794,8 +3794,8 @@ async def test_broadcast_queue_status_continues_past_failed_session(
     alpha = _make_session_stub("alpha")
     alpha.send_app_frame = AsyncMock(side_effect=RuntimeError("boom"))
     beta = _make_session_stub("beta")
-    controller.receiver._peer_link_sessions["alpha"] = alpha
-    controller.receiver._peer_link_sessions["beta"] = beta
+    controller.receiver.state.peer_link_sessions["alpha"] = alpha
+    controller.receiver.state.peer_link_sessions["beta"] = beta
 
     with caplog.at_level("ERROR"):
         await controller.receiver._broadcast_queue_status(idle=False, running=True, queue_depth=1)
@@ -3952,7 +3952,7 @@ def test_get_artifacts_download_sender_returns_installed_sender(tmp_path: Path) 
     """After installation, ``get_artifacts_download_sender`` returns the live sender."""
     controller = _make_controller(config_dir=tmp_path)
     installed = ArtifactsDownloadSender(firmware_controller=MagicMock())
-    controller.receiver._artifacts_download_sender = installed
+    controller.receiver.state.artifacts_download_sender = installed
 
     assert controller.receiver.get_artifacts_download_sender() is installed
 

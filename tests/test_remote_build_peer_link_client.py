@@ -2100,7 +2100,7 @@ async def test_request_pair_already_approved_persists_to_disk(
 
     # Promote the receiver-side row to APPROVED so the next
     # request_pair gets the short-circuit path.
-    [pending_peer] = receiver_controller._pending_peers.values()
+    [pending_peer] = receiver_controller.state.pending_peers.values()
     await receiver_controller.approve_peer(dashboard_id=pending_peer.dashboard_id)
 
     # Second pair: receiver returns APPROVED immediately; the
@@ -2137,7 +2137,7 @@ async def test_lookup_peer_for_status_pending_dict_pin_mismatch_returns_rejected
     pubkey = b"\x44" * 32
     real_pin = "a" * 64
     await controller.set_pairing_window(open=True, client="receiver-tab")
-    controller._pending_peers["alpha"] = StoredPeer(
+    controller.state.pending_peers["alpha"] = StoredPeer(
         dashboard_id="alpha",
         pin_sha256=real_pin,
         static_x25519_pub=pubkey,
@@ -2226,7 +2226,7 @@ def _seed_approved_peer_sync(
     pubkey: bytes,
 ) -> None:
     """Sync helper: drop+rewrite the receiver's APPROVED peer dict."""
-    controller._approved_peers[dashboard_id] = StoredPeer(
+    controller.state.approved_peers[dashboard_id] = StoredPeer(
         dashboard_id=dashboard_id,
         pin_sha256=pin,
         static_x25519_pub=pubkey,
@@ -2574,7 +2574,7 @@ async def _seed_approved_peer_for_initiator(
     initiator_pub = (
         X25519PrivateKey.from_private_bytes(initiator_priv).public_key().public_bytes_raw()
     )
-    receiver_controller._approved_peers[dashboard_id] = StoredPeer(
+    receiver_controller.state.approved_peers[dashboard_id] = StoredPeer(
         dashboard_id=dashboard_id,
         pin_sha256=hashlib.sha256(initiator_pub).hexdigest(),
         static_x25519_pub=initiator_pub,

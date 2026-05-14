@@ -104,7 +104,7 @@ def _make_controller(*, config_dir: Any = None) -> RemoteBuildController:
 
 def _seed_peer(controller: RemoteBuildController, peer: StoredPeer) -> None:
     """Insert *peer* into the controller's RAM-canonical APPROVED dict."""
-    controller.receiver._approved_peers[peer.dashboard_id] = peer
+    controller.receiver.state.approved_peers[peer.dashboard_id] = peer
 
 
 async def _wait_until(condition: Callable[[], bool], *, timeout: float = 2.0) -> None:
@@ -210,8 +210,8 @@ async def test_dispatch_pair_request_closed_window_returns_no_pairing_window(
     controller.offloader._db.bus.fire.assert_not_called()
     # No row was created since the window gate fired first.
 
-    assert controller.receiver._approved_peers == {}
-    assert controller.receiver._pending_peers == {}
+    assert controller.receiver.state.approved_peers == {}
+    assert controller.receiver.state.pending_peers == {}
 
 
 @pytest.mark.asyncio
@@ -275,8 +275,8 @@ async def test_dispatch_pair_request_empty_dashboard_id_returns_rejected(tmp_pat
 
     assert response is IntentResponse.REJECTED
     controller.offloader._db.bus.fire.assert_not_called()
-    assert controller.receiver._approved_peers == {}
-    assert controller.receiver._pending_peers == {}
+    assert controller.receiver.state.approved_peers == {}
+    assert controller.receiver.state.pending_peers == {}
     await controller.stop()
 
 
@@ -313,8 +313,8 @@ async def test_dispatch_pair_request_malformed_dashboard_id_returns_rejected(
 
     assert response is IntentResponse.REJECTED
     controller.offloader._db.bus.fire.assert_not_called()
-    assert controller.receiver._approved_peers == {}
-    assert controller.receiver._pending_peers == {}
+    assert controller.receiver.state.approved_peers == {}
+    assert controller.receiver.state.pending_peers == {}
     await controller.stop()
 
 
@@ -903,8 +903,8 @@ async def test_e2e_pair_request_open_window_creates_row(
 
     # PENDING entries land in the in-memory dict; APPROVED dict
     # stays empty until admin clicks Accept.
-    assert controller.receiver._approved_peers == {}
-    pending = controller.receiver._pending_peers["alpha"]
+    assert controller.receiver.state.approved_peers == {}
+    pending = controller.receiver.state.pending_peers["alpha"]
     assert pending.label == "alpha"
     # The receiver's controller derived the pin from the
     # handshake transcript's authenticated initiator static
@@ -932,8 +932,8 @@ async def test_e2e_pair_request_closed_window_returns_no_pairing_window(
     )
 
     # Closed window short-circuits before any RAM mutation.
-    assert controller.receiver._approved_peers == {}
-    assert controller.receiver._pending_peers == {}
+    assert controller.receiver.state.approved_peers == {}
+    assert controller.receiver.state.pending_peers == {}
 
 
 @pytest.mark.asyncio
@@ -1147,7 +1147,7 @@ async def test_e2e_peer_link_session_stays_open_after_intent_response(
         # registration happens just before. If the WS closed
         # instead, ``"alpha"`` would never land in the dict and
         # the wait would time out (deterministic failure).
-        await _wait_until(lambda: "alpha" in controller.receiver._peer_link_sessions)
+        await _wait_until(lambda: "alpha" in controller.receiver.state.peer_link_sessions)
         assert not ws.closed
     finally:
         await ws.close()
@@ -1229,7 +1229,7 @@ async def test_e2e_peer_link_session_kicks_old_on_duplicate_connect(
         close_msg = await asyncio.wait_for(old_ws.receive(), timeout=2.0)
         assert close_msg.type in (WSMsgType.CLOSE, WSMsgType.CLOSED, WSMsgType.CLOSING)
         # The registry now holds the NEW session; the old one is gone.
-        assert "alpha" in controller.receiver._peer_link_sessions
+        assert "alpha" in controller.receiver.state.peer_link_sessions
     finally:
         await new_ws.close()
 
@@ -1249,13 +1249,13 @@ async def test_e2e_peer_link_session_unregistered_on_peer_close(
     _session, ws, _ = await _drive_peer_link_session_open(
         client, dashboard_id="alpha", initiator_priv=initiator_priv
     )
-    await _wait_until(lambda: "alpha" in controller.receiver._peer_link_sessions)
+    await _wait_until(lambda: "alpha" in controller.receiver.state.peer_link_sessions)
 
     await ws.close()
 
     # The receiver's session loop sees the close, exits, and
     # ``unregister_peer_link_session`` runs in its ``finally``.
-    await _wait_until(lambda: "alpha" not in controller.receiver._peer_link_sessions)
+    await _wait_until(lambda: "alpha" not in controller.receiver.state.peer_link_sessions)
 
 
 @pytest.mark.asyncio
@@ -1281,7 +1281,7 @@ async def test_e2e_peer_link_session_drained_on_controller_stop(
         client, dashboard_id="alpha", initiator_priv=initiator_priv
     )
     try:
-        await _wait_until(lambda: "alpha" in controller.receiver._peer_link_sessions)
+        await _wait_until(lambda: "alpha" in controller.receiver.state.peer_link_sessions)
 
         # ``stop()`` runs in the same loop; the test fixture
         # also calls ``stop()`` on teardown but we drive it
@@ -1295,7 +1295,7 @@ async def test_e2e_peer_link_session_drained_on_controller_stop(
         assert terminate["reason"] == TerminateReason.SERVER_SHUTTING_DOWN.value
 
         await stop_task
-        assert controller.receiver._peer_link_sessions == {}
+        assert controller.receiver.state.peer_link_sessions == {}
     finally:
         await ws.close()
 
@@ -1376,7 +1376,7 @@ def _install_stub_submit_job_receiver(
 
     firmware_stub._create_job = MagicMock(side_effect=_create_job)
     firmware_stub._enqueue = AsyncMock(side_effect=_enqueue)
-    controller.receiver._submit_job_receiver = SubmitJobReceiver(
+    controller.receiver.state.submit_job_receiver = SubmitJobReceiver(
         config_dir=controller.offloader._db.settings.config_dir,
         firmware_controller=firmware_stub,
     )
@@ -1603,11 +1603,11 @@ async def test_register_peer_link_session_kicks_existing(tmp_path: Path) -> None
     new.terminate = AsyncMock()
 
     await controller.receiver.register_peer_link_session(old)
-    assert controller.receiver._peer_link_sessions["alpha"] is old
+    assert controller.receiver.state.peer_link_sessions["alpha"] is old
     old.terminate.assert_not_called()
 
     await controller.receiver.register_peer_link_session(new)
-    assert controller.receiver._peer_link_sessions["alpha"] is new
+    assert controller.receiver.state.peer_link_sessions["alpha"] is new
     old.terminate.assert_awaited_once_with(TerminateReason.SUPERSEDED)
     new.terminate.assert_not_called()
 
@@ -1704,7 +1704,7 @@ async def test_register_peer_link_session_swallows_snapshot_exception(tmp_path: 
 
     # Push skipped, but the session is registered.
     session.send_app_frame.assert_not_called()
-    assert controller.receiver._peer_link_sessions["alpha"] is session
+    assert controller.receiver.state.peer_link_sessions["alpha"] is session
 
 
 @pytest.mark.asyncio
@@ -1741,7 +1741,7 @@ async def test_register_peer_link_session_swallows_send_app_frame_exception(
 
     session.send_app_frame.assert_awaited_once()
     # Session still registered — the failed push doesn't roll it back.
-    assert controller.receiver._peer_link_sessions["alpha"] is session
+    assert controller.receiver.state.peer_link_sessions["alpha"] is session
 
 
 def test_unregister_peer_link_session_no_op_when_replaced(tmp_path: Path) -> None:
@@ -1753,11 +1753,11 @@ def test_unregister_peer_link_session_no_op_when_replaced(tmp_path: Path) -> Non
     new = MagicMock(spec=PeerLinkSession)
     new.dashboard_id = "alpha"
 
-    controller.receiver._peer_link_sessions["alpha"] = new
+    controller.receiver.state.peer_link_sessions["alpha"] = new
     controller.receiver.unregister_peer_link_session(old)
     # New session still in place — the old session's late
     # cleanup didn't evict the replacement.
-    assert controller.receiver._peer_link_sessions["alpha"] is new
+    assert controller.receiver.state.peer_link_sessions["alpha"] is new
 
 
 def test_unregister_peer_link_session_removes_when_current(tmp_path: Path) -> None:
@@ -1766,10 +1766,10 @@ def test_unregister_peer_link_session_removes_when_current(tmp_path: Path) -> No
 
     session = MagicMock(spec=PeerLinkSession)
     session.dashboard_id = "alpha"
-    controller.receiver._peer_link_sessions["alpha"] = session
+    controller.receiver.state.peer_link_sessions["alpha"] = session
 
     controller.receiver.unregister_peer_link_session(session)
-    assert controller.receiver._peer_link_sessions == {}
+    assert controller.receiver.state.peer_link_sessions == {}
 
 
 @pytest.mark.asyncio
@@ -2228,7 +2228,7 @@ def _make_receiver_with_fanout(tmp_path: Path) -> RemoteBuildController:
     controller = make_remote_build_controller(config_dir=tmp_path)
     controller.offloader._db.firmware = MagicMock()
     controller.offloader._db.firmware.cancel = AsyncMock()
-    controller.receiver._job_fanout = JobFanout(controller)
+    controller.receiver.state.job_fanout = JobFanout(controller)
     return controller
 
 
@@ -2243,8 +2243,8 @@ def _cancel_session(dashboard_id: str = "alpha") -> Any:
 async def test_handle_cancel_job_routes_to_firmware_cancel(tmp_path: Path) -> None:
     """Happy path: resolve offloader job_id → firmware job_id → fire ``firmware.cancel``."""
     controller = _make_receiver_with_fanout(tmp_path)
-    assert controller.receiver._job_fanout is not None
-    controller.receiver._job_fanout._remote_jobs["fw-abc"] = ("offloader-1", "remote-xyz")
+    assert controller.receiver.state.job_fanout is not None
+    controller.receiver.state.job_fanout._remote_jobs["fw-abc"] = ("offloader-1", "remote-xyz")
 
     await controller.receiver.handle_cancel_job(
         _cancel_session(dashboard_id="offloader-1"),
@@ -2275,8 +2275,8 @@ async def test_handle_cancel_job_pin_to_wrong_session_no_cancel(tmp_path: Path) 
     from a different peer doesn't resolve.
     """
     controller = _make_receiver_with_fanout(tmp_path)
-    assert controller.receiver._job_fanout is not None
-    controller.receiver._job_fanout._remote_jobs["fw-abc"] = ("offloader-1", "j-1")
+    assert controller.receiver.state.job_fanout is not None
+    controller.receiver.state.job_fanout._remote_jobs["fw-abc"] = ("offloader-1", "j-1")
     await controller.receiver.handle_cancel_job(
         _cancel_session(dashboard_id="offloader-2"),  # different peer
         {"type": "cancel_job", "job_id": "j-1"},
@@ -2310,7 +2310,7 @@ async def test_handle_cancel_job_before_controller_started_drops_silently(
     explicitly.
     """
     controller = _make_receiver_with_fanout(tmp_path)
-    controller.receiver._job_fanout = None  # simulate pre-start
+    controller.receiver.state.job_fanout = None  # simulate pre-start
     await controller.receiver.handle_cancel_job(
         _cancel_session(dashboard_id="offloader-1"),
         {"type": "cancel_job", "job_id": "j-1"},
@@ -2322,8 +2322,8 @@ async def test_handle_cancel_job_before_controller_started_drops_silently(
 async def test_handle_cancel_job_swallows_firmware_command_error(tmp_path: Path) -> None:
     """A ``CommandError`` from ``firmware.cancel`` (e.g. already-terminal) is swallowed."""
     controller = _make_receiver_with_fanout(tmp_path)
-    assert controller.receiver._job_fanout is not None
-    controller.receiver._job_fanout._remote_jobs["fw-abc"] = ("offloader-1", "j-1")
+    assert controller.receiver.state.job_fanout is not None
+    controller.receiver.state.job_fanout._remote_jobs["fw-abc"] = ("offloader-1", "j-1")
     controller.offloader._db.firmware.cancel = AsyncMock(
         side_effect=CommandError(ErrorCode.INVALID_ARGS, "Cannot cancel a completed job")
     )

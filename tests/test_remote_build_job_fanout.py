@@ -85,7 +85,7 @@ def _make_controller(*, bus: EventBus, sessions: dict[str, Any] | None = None) -
 
     controller = MagicMock()
     controller._db = db
-    controller._peer_link_sessions = sessions or {}
+    controller.state.peer_link_sessions = sessions or {}
     controller.background_tasks = background_tasks
     return controller
 
