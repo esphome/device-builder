@@ -662,6 +662,34 @@ def test_materialise_idedata_skips_non_dict_flash_image_entry(
     assert isinstance(flash_images[1], dict)
 
 
+def test_materialise_tolerates_pre_extract_rmtree_failure(
+    paired_roots: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A Windows-style rmtree failure on the build dir doesn't unwind the materialise."""
+    receiver_root, offloader_root = paired_roots
+    tarball = _pack_in_tmp(receiver_root)
+
+    # First seed an existing build dir + stale file so the wipe
+    # path actually runs (mkdir + extract would otherwise create
+    # everything fresh on first call).
+    stale_build_path = offloader_root / ".esphome" / "build" / "kitchen"
+    stale_build_path.mkdir(parents=True)
+    (stale_build_path / "stale.bin").write_bytes(b"stale")
+
+    def _flaky(path: object, *args: object, **kwargs: object) -> None:
+        raise PermissionError("simulated read-only file on windows")
+
+    monkeypatch.setattr(
+        "esphome_device_builder.helpers.remote_artifacts_materialise.rmtree", _flaky
+    )
+
+    # Materialise must not raise; extract proceeds on top of the
+    # un-wiped dir (the mkdir is idempotent, the tar extract
+    # overwrites file-by-file).
+    build_path = _materialise_in_tmp(tarball, offloader_root)
+    assert (build_path / "platformio.ini").is_file()
+
+
 def test_force_idedata_cache_hit_noop_when_files_missing(tmp_path: Path) -> None:
     """``_force_idedata_cache_hit`` returns early when either side doesn't exist."""
     # Neither file exists; helper must not raise.

@@ -97,10 +97,10 @@ async def test_archive_wipes_build_directory(
     """An archived device's compile output is dead weight — wipe it.
 
     Same shape as ``_delete_single``: read ``StorageJSON.build_path``
-    and ``shutil.rmtree`` it. Without this the disk savings from
-    archiving a no-longer-used device would be ~the YAML's worth
-    (a few KB), not the build tree's worth (50-200 MB), and users
-    would still complain about disk usage on long-running fleets.
+    and ``rmtree`` it. Without this the disk savings from archiving
+    a no-longer-used device would be ~the YAML's worth (a few KB),
+    not the build tree's worth (50-200 MB), and users would still
+    complain about disk usage on long-running fleets.
     """
     controller = make_controller(tmp_path)
     _, build_path = await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)

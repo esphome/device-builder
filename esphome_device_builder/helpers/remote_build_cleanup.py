@@ -34,9 +34,10 @@ A single bad subtree doesn't kill the sweep for everything else.
 from __future__ import annotations
 
 import logging
-import shutil
 import time
 from pathlib import Path
+
+from esphome.helpers import rmtree
 
 from .remote_build_layout import BUNDLE_SUFFIX, REMOTE_BUILDS_SUBDIR, RemoteBuildPath
 
@@ -180,7 +181,10 @@ def _delete_subtree_and_sibling(key: RemoteBuildPath, config_dir: Path) -> bool:
     subtree = key.subtree(config_dir)
     bundle = key.bundle(config_dir)
     try:
-        shutil.rmtree(subtree)
+        # Via esphome's wrapper so Windows-side read-only files
+        # (PIO compile cache, git pack files in cached venvs)
+        # clear instead of raising ``PermissionError``.
+        rmtree(subtree)
     except OSError as exc:
         _LOGGER.warning("remote-build cleanup: rmtree(%s) failed: %s", subtree, exc)
         return False

@@ -14,6 +14,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+from esphome.helpers import rmtree as _esphome_rmtree
 
 from esphome_device_builder.helpers.remote_build_cleanup import (
     _is_cold,
@@ -422,9 +423,10 @@ def test_sweep_continues_after_subtree_rmtree_failure(
     Permission errors / races against a concurrent submit /
     broken symlinks in the tree all happen in production; the
     sweep is best-effort hygiene, a single bad subtree
-    shouldn't poison the rest. Monkeypatches ``shutil.rmtree``
-    to fail on the first call and succeed on the second; the
-    second cold subtree should still get reclaimed.
+    shouldn't poison the rest. Monkeypatches the module's
+    ``rmtree`` binding (the esphome-helpers wrapper) to fail on
+    the first call and succeed on the second; the second cold
+    subtree should still get reclaimed.
     """
     now = 1_000_000.0
     first = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
@@ -432,16 +434,15 @@ def test_sweep_continues_after_subtree_rmtree_failure(
     _populate(tmp_path, first, age_seconds=3600, now=now)
     _populate(tmp_path, second, age_seconds=3600, now=now)
 
-    real_rmtree = __import__("shutil").rmtree
     calls: list[Path] = []
 
     def _flaky(path: str | Path, *args: object, **kwargs: object) -> None:
         calls.append(Path(path))
         if len(calls) == 1:
             raise PermissionError("simulated denied")
-        real_rmtree(path, *args, **kwargs)
+        _esphome_rmtree(path, *args, **kwargs)
 
-    monkeypatch.setattr("esphome_device_builder.helpers.remote_build_cleanup.shutil.rmtree", _flaky)
+    monkeypatch.setattr("esphome_device_builder.helpers.remote_build_cleanup.rmtree", _flaky)
 
     deleted = sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
     # One success out of two attempts; the failed subtree still

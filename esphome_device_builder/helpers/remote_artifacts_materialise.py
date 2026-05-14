@@ -18,13 +18,13 @@ import io
 import logging
 import os
 import re
-import shutil
 import sys
 import tarfile
 import time
 from pathlib import Path
 from typing import Any, NamedTuple
 
+from esphome.helpers import rmtree
 from esphome.storage_json import StorageJSON
 
 from ..controllers.remote_build.artifacts_tarball import (
@@ -134,8 +134,13 @@ def _open_and_extract_build_tree(tarball: bytes, configuration: str) -> _Extract
             # Wipe before extract so a board swap on the same YAML
             # (esp32 → bk72xx) doesn't leave stale per-platform
             # artefacts that firmware/download could surface as
-            # wrong bytes.
-            shutil.rmtree(build_path, ignore_errors=True)
+            # wrong bytes. Best-effort: rmtree failures log + fall
+            # through; the mkdir + extract below recreates the tree
+            # from the upstream tarball regardless.
+            try:
+                rmtree(build_path)
+            except OSError as exc:
+                _LOGGER.debug("materialise: pre-extract rmtree(%s) failed: %s", build_path, exc)
             build_path.mkdir(parents=True, exist_ok=True)
             _safe_extract_excluding(
                 tar,

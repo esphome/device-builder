@@ -6,9 +6,9 @@ on archive (``shutil.rmtree(storage_json.build_path, ...)``); the
 new backend skipped it, so repeated create-delete cycles leaked
 hundreds of MB of PlatformIO state per device and a recycled name
 picked up stale build artefacts on the next compile. The fix
-reads ``StorageJSON.build_path`` and ``shutil.rmtree``s it before
-the YAML is unlinked, so a partial failure leaves the user able
-to retry.
+reads ``StorageJSON.build_path`` and ``rmtree``s it before the
+YAML is unlinked, so a partial failure leaves the user able to
+retry.
 """
 
 from __future__ import annotations
@@ -100,6 +100,30 @@ async def test_delete_tolerates_missing_build_directory(
     await controller._delete_single("kitchen.yaml")
 
     assert not yaml_path.exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("redirect_storage_path")
+async def test_delete_tolerates_rmtree_failure(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A Windows-style rmtree failure on the build dir doesn't unwind the delete."""
+    controller = make_controller(tmp_path)
+    yaml_path, build_path = _seed_device(tmp_path, "kitchen.yaml")
+
+    def _flaky(path: object, *args: object, **kwargs: object) -> None:
+        raise PermissionError("simulated read-only file on windows")
+
+    monkeypatch.setattr("esphome_device_builder.controllers.devices.helpers.rmtree", _flaky)
+
+    await controller._delete_single("kitchen.yaml")
+
+    # YAML + sidecar still gone; build dir survives because rmtree raised.
+    assert not yaml_path.exists()
+    assert not (tmp_path / ".esphome" / "storage" / "kitchen.yaml.json").exists()
+    assert build_path.exists()
 
 
 @pytest.mark.asyncio

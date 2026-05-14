@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import re
-import shutil
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING, Any
 
@@ -17,7 +16,7 @@ try:
 except ImportError:  # pragma: no cover; covered by the import below
     from esphome.dashboard.util.text import friendly_name_slugify
 
-from esphome.helpers import sort_ip_addresses
+from esphome.helpers import rmtree, sort_ip_addresses
 from esphome.storage_json import StorageJSON
 
 from ...helpers.api import CommandError
@@ -91,12 +90,17 @@ def _wipe_device_build_dir(configuration: str) -> None:
     Remove the per-device build dir if one exists.
 
     No-op when the StorageJSON sidecar is gone or the device
-    has never been built.
+    has never been built; rmtree failures debug-log + fall
+    through so a partial failure doesn't block the delete flow.
     """
     storage_path = resolve_storage_path(configuration)
     storage = StorageJSON.load(storage_path)
-    if storage is not None and storage.build_path:
-        shutil.rmtree(storage.build_path, ignore_errors=True)
+    if storage is None or not storage.build_path:
+        return
+    try:
+        rmtree(storage.build_path)
+    except OSError as exc:
+        _LOGGER.debug("_wipe_device_build_dir: rmtree(%s) failed: %s", storage.build_path, exc)
 
 
 def _remove_device_sidecars(config_dir: Path, configuration: str) -> None:
