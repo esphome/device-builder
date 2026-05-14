@@ -225,12 +225,12 @@ def test_peer_from_service_info_handles_missing_txt_keys() -> None:
 def test_on_service_state_change_filters_own_advertise(tmp_path: Path) -> None:
     """Our own service-instance name never lands in ``_peers``."""
     controller = _make_controller(config_dir=tmp_path)
-    controller.offloader._own_instance_name = f"self.{SERVICE_TYPE}"
+    controller.offloader.state.own_instance_name = f"self.{SERVICE_TYPE}"
     zeroconf = MagicMock()
     controller.offloader._on_service_state_change(
         zeroconf, SERVICE_TYPE, f"self.{SERVICE_TYPE}", ServiceStateChange.Added
     )
-    assert controller.offloader._peers == {}
+    assert controller.offloader.state.peers == {}
 
 
 def test_is_self_endpoint_matches_advertised_host_and_port(tmp_path: Path) -> None:
@@ -301,7 +301,7 @@ def test_upsert_host_drops_self_endpoint(tmp_path: Path) -> None:
 
     controller.offloader._upsert_host(f"renamed.{SERVICE_TYPE}", info)
 
-    assert controller.offloader._peers == {}
+    assert controller.offloader.state.peers == {}
     controller.offloader._db.bus.fire.assert_not_called()
 
 
@@ -324,9 +324,9 @@ def _make_paired_offloader_controller(
     """
     controller = _make_controller(config_dir=config_dir)
     controller.offloader._db.bus = MagicMock()
-    controller.offloader._offloader_dashboard_id = "offloader-id-aaaa"
-    controller.offloader._offloader_peer_link_priv = b"\x42" * 32
-    controller.offloader._pairings[pairing.pin_sha256] = pairing
+    controller.offloader.state.offloader_dashboard_id = "offloader-id-aaaa"
+    controller.offloader.state.offloader_peer_link_priv = b"\x42" * 32
+    controller.offloader.state.pairings[pairing.pin_sha256] = pairing
     return controller
 
 
@@ -369,7 +369,7 @@ def _patch_probe_internals(
             rb_rebind, "peer_link_preview_pair", AsyncMock(return_value=preview_return)
         )
     if seed_cooldown_for is not None:
-        controller.offloader._rebind_probe_until[seed_cooldown_for] = cooldown_until
+        controller.offloader.state.rebind_probe_until[seed_cooldown_for] = cooldown_until
     return cancel, spawn
 
 
@@ -405,7 +405,7 @@ async def test_rebind_probe_match_mutates_pairing_and_fires_event(
     )
     # Successful rebind clears the cooldown so a future move
     # gets probed immediately rather than waiting out the window.
-    assert pin not in controller.offloader._rebind_probe_until
+    assert pin not in controller.offloader.state.rebind_probe_until
 
 
 @pytest.mark.asyncio
@@ -446,7 +446,7 @@ async def test_rebind_probe_pin_mismatch_does_not_mutate(
     )
     # Cooldown stays in place: a permanent spoof source mustn't
     # trigger one probe per mDNS Updated burst.
-    assert controller.offloader._rebind_probe_until[pin] == 9999.0
+    assert controller.offloader.state.rebind_probe_until[pin] == 9999.0
 
 
 @pytest.mark.asyncio
@@ -479,7 +479,7 @@ async def test_rebind_probe_unreachable_does_not_mutate(
     assert pairing.receiver_hostname == "old.local"
     assert pairing.receiver_port == 6058
     # Cooldown preserved: gates retry on next mDNS event.
-    assert controller.offloader._rebind_probe_until[pin] == 9999.0
+    assert controller.offloader.state.rebind_probe_until[pin] == 9999.0
 
 
 @pytest.mark.asyncio
@@ -500,7 +500,7 @@ async def test_rebind_probe_skips_when_pairing_replaced_mid_probe(
     # Simulate the in-flight re-pair: replace the dict entry
     # with a fresh object before the probe applies its result.
     fresh = _valid_stored_pairing(receiver_hostname="user-typed.local", receiver_port=6060)
-    controller.offloader._pairings[pin] = fresh
+    controller.offloader.state.pairings[pin] = fresh
     cancel, spawn = _patch_probe_internals(monkeypatch, controller, preview_return=pin)
 
     await controller.offloader._probe_and_rebind_endpoint(
@@ -578,7 +578,7 @@ async def test_rebind_probe_unexpected_exception_clears_cooldown(
             pairing=pairing, new_hostname="new.local", new_port=7000
         )
 
-    assert pin not in controller.offloader._rebind_probe_until
+    assert pin not in controller.offloader.state.rebind_probe_until
 
 
 @pytest.mark.asyncio
@@ -591,14 +591,14 @@ async def test_rebind_probe_skips_when_pairing_unpaired_mid_probe(
     controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
     # Simulate the in-flight unpair: drop the dict entry
     # before the probe's mutate step.
-    controller.offloader._pairings.pop(pin)
+    controller.offloader.state.pairings.pop(pin)
     cancel, spawn = _patch_probe_internals(monkeypatch, controller, preview_return=pin)
 
     await controller.offloader._probe_and_rebind_endpoint(
         pairing=pairing, new_hostname="new.local", new_port=7000
     )
 
-    assert pin not in controller.offloader._pairings
+    assert pin not in controller.offloader.state.pairings
     cancel.assert_not_called()
     spawn.assert_not_called()
 
@@ -621,7 +621,7 @@ def test_maybe_schedule_rebind_probe_skips_when_endpoint_matches(
     )
     controller.offloader._maybe_schedule_rebind_probe(peer)
 
-    assert pin not in controller.offloader._rebind_probe_until
+    assert pin not in controller.offloader.state.rebind_probe_until
     assert controller.offloader._tasks == set()
 
 
@@ -713,7 +713,7 @@ def test_maybe_schedule_rebind_probe_skips_without_priv(tmp_path: Path) -> None:
     pin = "a" * 64
     pairing = _valid_stored_pairing(receiver_hostname="old.local", receiver_port=6058)
     controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
-    controller.offloader._offloader_peer_link_priv = None
+    controller.offloader.state.offloader_peer_link_priv = None
 
     peer = RemoteBuildPeer(
         name="moved",
@@ -726,7 +726,7 @@ def test_maybe_schedule_rebind_probe_skips_without_priv(tmp_path: Path) -> None:
     controller.offloader._maybe_schedule_rebind_probe(peer)
 
     assert controller.offloader._tasks == set()
-    assert pin not in controller.offloader._rebind_probe_until
+    assert pin not in controller.offloader.state.rebind_probe_until
 
 
 # ---------------------------------------------------------------------------
@@ -841,7 +841,7 @@ async def test_edit_pairing_endpoint_unknown_pin_raises_not_found(tmp_path: Path
     """A pin with no stored pairing raises NOT_FOUND before the probe runs."""
     controller = _make_controller(config_dir=tmp_path)
     controller.offloader._db.bus = MagicMock()
-    controller.offloader._offloader_peer_link_priv = b"\x42" * 32
+    controller.offloader.state.offloader_peer_link_priv = b"\x42" * 32
 
     with pytest.raises(CommandError) as exc_info:
         await controller.offloader.edit_pairing_endpoint(
@@ -922,7 +922,7 @@ async def test_edit_pairing_endpoint_raises_not_found_when_pairing_replaced_mid_
         # Simulate the in-flight re-pair: replace the dict entry
         # with a fresh object before the probe applies its
         # result.
-        controller.offloader._pairings[pin] = fresh
+        controller.offloader.state.pairings[pin] = fresh
         return pin
 
     monkeypatch.setattr(rb_rebind, "peer_link_preview_pair", _replace_during_preview)
@@ -959,7 +959,7 @@ async def test_edit_pairing_endpoint_without_priv_raises_precondition_failed(
     pin = "a" * 64
     pairing = _valid_stored_pairing(receiver_hostname="old.local", receiver_port=6058)
     controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
-    controller.offloader._offloader_peer_link_priv = None
+    controller.offloader.state.offloader_peer_link_priv = None
 
     with pytest.raises(CommandError) as exc_info:
         await controller.offloader.edit_pairing_endpoint(
@@ -1047,7 +1047,7 @@ async def test_edit_pairing_endpoint_invalid_args_rejected_before_lookup(
     """
     controller = _make_controller(config_dir=tmp_path)
     controller.offloader._db.bus = MagicMock()
-    controller.offloader._offloader_peer_link_priv = b"\x42" * 32
+    controller.offloader.state.offloader_peer_link_priv = b"\x42" * 32
 
     with pytest.raises(CommandError) as exc_info:
         await controller.offloader.edit_pairing_endpoint(**kwargs)
@@ -1120,7 +1120,7 @@ def test_on_service_state_change_removed_drops_peer(
     """A ``Removed`` event clears the peer entry and fires ``REMOTE_BUILD_HOST_REMOVED``."""
     controller = _make_controller(config_dir=tmp_path)
     controller.offloader._db.bus = MagicMock()
-    controller.offloader._peers[f"desktop.{SERVICE_TYPE}"] = RemoteBuildPeer(
+    controller.offloader.state.peers[f"desktop.{SERVICE_TYPE}"] = RemoteBuildPeer(
         name="desktop",
         hostname="desktop.local.",
         port=6052,
@@ -1129,7 +1129,7 @@ def test_on_service_state_change_removed_drops_peer(
     controller.offloader._on_service_state_change(
         MagicMock(), SERVICE_TYPE, f"desktop.{SERVICE_TYPE}", ServiceStateChange.Removed
     )
-    assert controller.offloader._peers == {}
+    assert controller.offloader.state.peers == {}
     # Event keys on the wire-friendly label (matches
     # ``RemoteBuildPeer.name``), not the FQDN dict key.
     controller.offloader._db.bus.fire.assert_called_once_with(
@@ -1172,8 +1172,8 @@ def test_on_service_state_change_uses_cache_when_available(
     controller.offloader._on_service_state_change(
         zeroconf, SERVICE_TYPE, f"desktop.{SERVICE_TYPE}", ServiceStateChange.Added
     )
-    assert f"desktop.{SERVICE_TYPE}" in controller.offloader._peers
-    assert controller.offloader._peers[f"desktop.{SERVICE_TYPE}"].name == "desktop"
+    assert f"desktop.{SERVICE_TYPE}" in controller.offloader.state.peers
+    assert controller.offloader.state.peers[f"desktop.{SERVICE_TYPE}"].name == "desktop"
     # No async resolve task was spawned.
     assert controller.offloader._tasks == set()
     # Event fired with the full peer projection so the frontend
@@ -1195,13 +1195,13 @@ def test_on_service_state_change_uses_cache_when_available(
 def test_hosts_snapshot_returns_mdns_peers(tmp_path: Path) -> None:
     """``hosts_snapshot`` is a sync read of the in-RAM ``_peers`` dict."""
     controller = _make_controller(config_dir=tmp_path)
-    controller.offloader._peers[f"desktop.{SERVICE_TYPE}"] = RemoteBuildPeer(
+    controller.offloader.state.peers[f"desktop.{SERVICE_TYPE}"] = RemoteBuildPeer(
         name="desktop",
         hostname="desktop.local.",
         port=6052,
         source=RemoteBuildPeerSource.MDNS,
     )
-    controller.offloader._peers[f"laptop.{SERVICE_TYPE}"] = RemoteBuildPeer(
+    controller.offloader.state.peers[f"laptop.{SERVICE_TYPE}"] = RemoteBuildPeer(
         name="laptop",
         hostname="laptop.local.",
         port=6052,
@@ -1339,7 +1339,7 @@ async def test_start_skips_when_devices_controller_missing(tmp_path: Path) -> No
         receiver=ReceiverController(db),
     )
     await controller.start()
-    assert controller.offloader._browser is None
+    assert controller.offloader.state.browser is None
 
 
 @pytest.mark.asyncio
@@ -1348,7 +1348,7 @@ async def test_start_skips_when_zeroconf_unavailable(tmp_path: Path) -> None:
     controller = _make_controller(config_dir=tmp_path)
     controller.offloader._db.devices.zeroconf = None
     await controller.start()
-    assert controller.offloader._browser is None
+    assert controller.offloader.state.browser is None
 
 
 @pytest.mark.asyncio
@@ -1372,7 +1372,7 @@ async def test_start_leaves_peer_link_resolver_none_when_devices_controller_miss
         receiver=ReceiverController(db),
     )
     await controller.start()
-    assert controller.offloader._peer_link_resolver is None
+    assert controller.offloader.state.peer_link_resolver is None
 
 
 @pytest.mark.asyncio
@@ -1390,7 +1390,7 @@ async def test_start_leaves_peer_link_resolver_none_when_zeroconf_failed_to_bind
     controller = _make_controller(config_dir=tmp_path)
     controller.offloader._db.devices.zeroconf = None
     await controller.start()
-    assert controller.offloader._peer_link_resolver is None
+    assert controller.offloader.state.peer_link_resolver is None
 
 
 @pytest.mark.asyncio
@@ -1422,7 +1422,7 @@ async def test_start_swallows_peer_link_resolver_construction_errors(
     ):
         await controller.start()
     try:
-        assert controller.offloader._peer_link_resolver is None
+        assert controller.offloader.state.peer_link_resolver is None
         assert any("Could not build peer-link mDNS resolver" in r.message for r in caplog.records)
     finally:
         await controller.stop()
@@ -1446,17 +1446,17 @@ async def test_stop_swallows_peer_link_resolver_close_failures(
     controller = _make_controller(config_dir=tmp_path)
     controller.offloader._db.devices.zeroconf = MagicMock(spec=AsyncZeroconf)
     await controller.start()
-    assert controller.offloader._peer_link_resolver is not None
+    assert controller.offloader.state.peer_link_resolver is not None
     # Force the close path to raise; the controller should
     # catch + log + clear the reference rather than propagate.
-    controller.offloader._peer_link_resolver.real_close = AsyncMock(  # type: ignore[method-assign]
+    controller.offloader.state.peer_link_resolver.real_close = AsyncMock(  # type: ignore[method-assign]
         side_effect=RuntimeError("aiodns gone")
     )
     with caplog.at_level(
         "DEBUG", logger="esphome_device_builder.controllers.remote_build.offloader"
     ):
         await controller.stop()
-    assert controller.offloader._peer_link_resolver is None
+    assert controller.offloader.state.peer_link_resolver is None
     assert any("peer-link resolver close failed" in r.message for r in caplog.records)
 
 
@@ -1478,11 +1478,11 @@ async def test_start_constructs_peer_link_resolver_when_zeroconf_is_up(
     controller.offloader._db.devices.zeroconf = MagicMock(spec=AsyncZeroconf)
     await controller.start()
     try:
-        assert controller.offloader._peer_link_resolver is not None
-        assert isinstance(controller.offloader._peer_link_resolver, AsyncDualMDNSResolver)
+        assert controller.offloader.state.peer_link_resolver is not None
+        assert isinstance(controller.offloader.state.peer_link_resolver, AsyncDualMDNSResolver)
     finally:
         await controller.stop()
-        assert controller.offloader._peer_link_resolver is None
+        assert controller.offloader.state.peer_link_resolver is None
 
 
 @pytest.mark.asyncio
@@ -1503,7 +1503,7 @@ async def test_start_swallows_browser_construction_errors(
     controller = _make_controller(config_dir=tmp_path)
     controller.offloader._db.devices.zeroconf = MagicMock()
     await controller.start()  # must not raise
-    assert controller.offloader._browser is None
+    assert controller.offloader.state.browser is None
 
 
 @pytest.mark.asyncio
@@ -1530,8 +1530,8 @@ async def test_start_captures_own_instance_name(
     controller.offloader._db._dashboard_advertiser = advertiser
 
     await controller.start()
-    assert controller.offloader._own_instance_name == f"self.{SERVICE_TYPE}"
-    assert controller.offloader._browser is fake_browser
+    assert controller.offloader.state.own_instance_name == f"self.{SERVICE_TYPE}"
+    assert controller.offloader.state.browser is fake_browser
     await controller.stop()
 
 
@@ -1556,7 +1556,7 @@ async def test_start_skips_self_capture_when_advertiser_unregistered(
     controller.offloader._db._dashboard_advertiser = advertiser
 
     await controller.start()
-    assert controller.offloader._own_instance_name is None
+    assert controller.offloader.state.own_instance_name is None
     await controller.stop()
 
 
@@ -1576,7 +1576,7 @@ async def test_start_skips_self_capture_when_no_advertiser(
     controller.offloader._db._dashboard_advertiser = None
 
     await controller.start()
-    assert controller.offloader._own_instance_name is None
+    assert controller.offloader.state.own_instance_name is None
     await controller.stop()
 
 
@@ -1595,7 +1595,7 @@ async def test_stop_swallows_browser_cancel_errors(
     controller.offloader._db.devices.zeroconf = MagicMock()
     await controller.start()
     await controller.stop()  # must not raise
-    assert controller.offloader._browser is None
+    assert controller.offloader.state.browser is None
 
 
 @pytest.mark.asyncio
@@ -1621,7 +1621,7 @@ async def test_on_service_state_change_spawns_resolve_task_on_cache_miss(
     pending = list(controller.offloader._tasks)
     assert len(pending) == 1
     await asyncio.gather(*pending)
-    assert f"desktop.{SERVICE_TYPE}" in controller.offloader._peers
+    assert f"desktop.{SERVICE_TYPE}" in controller.offloader.state.peers
     assert controller.offloader._tasks == set()
     # Event fired after the async resolve succeeded.
     controller.offloader._db.bus.fire.assert_called_once()
@@ -1636,7 +1636,7 @@ async def test_resolve_and_apply_swallows_errors(tmp_path: Path) -> None:
     fake_info = _fake_service_info(name="desktop")
     fake_info.async_request = AsyncMock(side_effect=RuntimeError("network down"))
     await controller.offloader._resolve_and_apply(MagicMock(), fake_info, f"desktop.{SERVICE_TYPE}")
-    assert controller.offloader._peers == {}
+    assert controller.offloader.state.peers == {}
 
 
 @pytest.mark.asyncio
@@ -1646,7 +1646,7 @@ async def test_resolve_and_apply_skips_when_resolution_returns_false(tmp_path: P
     fake_info = _fake_service_info(name="desktop")
     fake_info.async_request = AsyncMock(return_value=False)
     await controller.offloader._resolve_and_apply(MagicMock(), fake_info, f"desktop.{SERVICE_TYPE}")
-    assert controller.offloader._peers == {}
+    assert controller.offloader.state.peers == {}
 
 
 @pytest.mark.asyncio
@@ -3834,7 +3834,7 @@ def test_on_offloader_pair_pin_mismatch_caches_alert(tmp_path: Path) -> None:
     }
     controller.offloader._on_offloader_pair_pin_mismatch(MagicMock(data=payload))
 
-    cached = controller.offloader._offloader_alerts["a" * 64]
+    cached = controller.offloader.state.offloader_alerts["a" * 64]
     assert cached["kind"] == "pin_mismatch"
     assert cached["receiver_hostname"] == "host.local"
     assert cached["receiver_port"] == 6055
@@ -3858,7 +3858,7 @@ def test_on_offloader_queue_status_changed_caches_snapshot(tmp_path: Path) -> No
     }
     controller.offloader._on_offloader_queue_status_changed(MagicMock(data=payload))
 
-    cached = controller.offloader._peer_queue_status["a" * 64]
+    cached = controller.offloader.state.peer_queue_status["a" * 64]
     assert cached["receiver_hostname"] == "192.168.1.10"
     assert cached["receiver_port"] == 6055
     assert cached["pin_sha256"] == "a" * 64
@@ -3890,16 +3890,16 @@ def test_on_offloader_queue_status_changed_overwrites_prior(tmp_path: Path) -> N
     controller.offloader._on_offloader_queue_status_changed(MagicMock(data=first))
     controller.offloader._on_offloader_queue_status_changed(MagicMock(data=second))
 
-    cached = controller.offloader._peer_queue_status[pin]
+    cached = controller.offloader.state.peer_queue_status[pin]
     assert cached["queue_depth"] == 5
     assert cached["running"] is True
-    assert len(controller.offloader._peer_queue_status) == 1
+    assert len(controller.offloader.state.peer_queue_status) == 1
 
 
 def test_peer_queue_status_snapshot_returns_list(tmp_path: Path) -> None:
     """``peer_queue_status_snapshot`` returns a list of cached entries."""
     controller = _make_controller(config_dir=tmp_path)
-    controller.offloader._peer_queue_status["a" * 64] = {
+    controller.offloader.state.peer_queue_status["a" * 64] = {
         "receiver_hostname": "a",
         "receiver_port": 6055,
         "pin_sha256": "a" * 64,
@@ -3907,7 +3907,7 @@ def test_peer_queue_status_snapshot_returns_list(tmp_path: Path) -> None:
         "running": False,
         "queue_depth": 0,
     }
-    controller.offloader._peer_queue_status["b" * 64] = {
+    controller.offloader.state.peer_queue_status["b" * 64] = {
         "receiver_hostname": "b",
         "receiver_port": 6055,
         "pin_sha256": "b" * 64,
@@ -4140,9 +4140,9 @@ def test_build_scheduler_snapshot_returns_immutable_view(tmp_path: Path) -> None
     """
     controller = _make_controller(config_dir=tmp_path)
     pairing = _valid_stored_pairing()
-    controller.offloader._pairings[pairing.pin_sha256] = pairing
-    controller.offloader._open_peer_links.add(pairing.pin_sha256)
-    controller.offloader._peer_queue_status[pairing.pin_sha256] = PeerQueueStatusSnapshotEntry(
+    controller.offloader.state.pairings[pairing.pin_sha256] = pairing
+    controller.offloader.state.open_peer_links.add(pairing.pin_sha256)
+    controller.offloader.state.peer_queue_status[pairing.pin_sha256] = PeerQueueStatusSnapshotEntry(
         receiver_hostname=pairing.receiver_hostname,
         receiver_port=pairing.receiver_port,
         pin_sha256=pairing.pin_sha256,
@@ -4174,14 +4174,14 @@ def test_build_scheduler_snapshot_decouples_from_live_state(tmp_path: Path) -> N
     """
     controller = _make_controller(config_dir=tmp_path)
     initial = _valid_stored_pairing(label="initial")
-    controller.offloader._pairings[initial.pin_sha256] = initial
+    controller.offloader.state.pairings[initial.pin_sha256] = initial
 
     snapshot = controller.offloader.build_scheduler_snapshot()
 
     # Mutations after the snapshot don't bleed through.
-    controller.offloader._pairings.clear()
-    controller.offloader._open_peer_links.add("some-other-pin")
-    controller.offloader._peer_queue_status["pin-2"] = PeerQueueStatusSnapshotEntry(
+    controller.offloader.state.pairings.clear()
+    controller.offloader.state.open_peer_links.add("some-other-pin")
+    controller.offloader.state.peer_queue_status["pin-2"] = PeerQueueStatusSnapshotEntry(
         receiver_hostname="other.local",
         receiver_port=6055,
         pin_sha256="pin-2",
@@ -4199,7 +4199,7 @@ def test_get_pairing_returns_matching_row(tmp_path: Path) -> None:
     """``get_pairing(pin)`` returns the stored row; missing pins return ``None``."""
     controller = _make_controller(config_dir=tmp_path)
     pairing = _valid_stored_pairing(label="desktop")
-    controller.offloader._pairings[pairing.pin_sha256] = pairing
+    controller.offloader.state.pairings[pairing.pin_sha256] = pairing
 
     assert controller.offloader.get_pairing(pairing.pin_sha256) is pairing
     assert controller.offloader.get_pairing("b" * 64) is None
@@ -4279,7 +4279,7 @@ async def test_set_pairing_enabled_flips_field_and_fires_event(tmp_path: Path) -
     """
     controller = _make_controller(config_dir=tmp_path, real_bus=True)
     pairing = _valid_stored_pairing(label="desktop")
-    controller.offloader._pairings[pairing.pin_sha256] = pairing
+    controller.offloader.state.pairings[pairing.pin_sha256] = pairing
     captured: list[Any] = []
     controller.offloader._db.bus.add_listener(
         EventType.OFFLOADER_PAIRING_ENABLED_CHANGED,
@@ -4314,7 +4314,7 @@ async def test_set_pairing_enabled_rejects_non_bool(tmp_path: Path) -> None:
     """Strict ``bool`` validation matches the master-toggle command."""
     controller = _make_controller(config_dir=tmp_path)
     pairing = _valid_stored_pairing()
-    controller.offloader._pairings[pairing.pin_sha256] = pairing
+    controller.offloader.state.pairings[pairing.pin_sha256] = pairing
 
     with pytest.raises(CommandError) as exc:
         await controller.offloader.set_pairing_enabled(
@@ -4335,8 +4335,8 @@ async def test_get_offloader_settings_returns_master_plus_pairings(tmp_path: Pat
     """
     controller = _make_controller(config_dir=tmp_path)
     pairing = _valid_stored_pairing(label="desktop")
-    controller.offloader._pairings[pairing.pin_sha256] = pairing
-    controller.offloader._remote_builds_enabled = False
+    controller.offloader.state.pairings[pairing.pin_sha256] = pairing
+    controller.offloader.state.remote_builds_enabled = False
 
     view = await controller.offloader.get_offloader_settings()
 
@@ -4360,8 +4360,8 @@ def test_pairing_summary_surfaces_enabled_field(tmp_path: Path) -> None:
     # distinct pin so both rows can coexist.
     object.__setattr__(disabled_pairing, "pin_sha256", "b" * 64)
     disabled_pairing.enabled = False
-    controller.offloader._pairings[enabled_pairing.pin_sha256] = enabled_pairing
-    controller.offloader._pairings[disabled_pairing.pin_sha256] = disabled_pairing
+    controller.offloader.state.pairings[enabled_pairing.pin_sha256] = enabled_pairing
+    controller.offloader.state.pairings[disabled_pairing.pin_sha256] = disabled_pairing
 
     summaries = {s.pin_sha256: s for s in controller.offloader.pairings_snapshot()}
 

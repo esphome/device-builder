@@ -91,7 +91,7 @@ async def test_paired_instances_teardown_closes_session_cleanly(
     assert paired_instances.offloader_closed[0]["reason"] == "client_stopped"
 
     # (b) Offloader's registry drained synchronously by ``stop()``.
-    assert paired_instances.offloader._peer_link_clients == {}
+    assert paired_instances.offloader.state.peer_link_clients == {}
 
     # (c) Receiver's CLOSED carries the offloader's dashboard_id
     # and the registry has dropped the row.

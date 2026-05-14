@@ -25,14 +25,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from zeroconf import ServiceStateChange
-from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo
+from zeroconf.asyncio import AsyncServiceInfo
 
 from ...helpers.api import api_command
 from ...helpers.build_scheduler import BuildSchedulerInputs
 from ...helpers.dashboard_identity import get_or_create_identity
 from ...helpers.event_bus import Event
 from ...helpers.peer_link_identity import get_or_create_peer_link_identity
-from ...helpers.peer_link_resolver import PeerLinkDNSResolver, make_peer_link_resolver
+from ...helpers.peer_link_resolver import make_peer_link_resolver
 from ...helpers.storage import Store
 from ...models import (
     EventType,
@@ -64,6 +64,7 @@ from . import (
 )
 from ._models import RebindProbeResult
 from ._shared import _RemoteBuildBase, drain_tasks
+from ._state import OffloaderState
 from ._storage_codecs import (
     OFFLOADER_PAIRINGS_FILE,
     decode_pairings,
@@ -76,7 +77,6 @@ if TYPE_CHECKING:
     from ...device_builder import DeviceBuilder
     from ...helpers.dashboard_identity import DashboardIdentity
     from ...helpers.peer_link_identity import PeerLinkIdentity
-    from ._models import PeerLinkClientHandle
     from .peer_link_client import PeerLinkClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -103,24 +103,7 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
 
     def __init__(self, device_builder: DeviceBuilder) -> None:
         super().__init__(device_builder)
-        self._browser: AsyncServiceBrowser | None = None
-        self._peer_link_resolver: PeerLinkDNSResolver | None = None
-        self._peers: dict[str, RemoteBuildPeer] = {}
-        self._rebind_probe_until: dict[str, float] = {}
-        self._own_instance_name: str | None = None
-        self._pair_status_listeners: dict[str, asyncio.Task[None]] = {}
-        self._peer_link_clients: dict[str, PeerLinkClientHandle] = {}
-        self._open_peer_links: set[str] = set()
-        # Cached at :meth:`start`; WS-command handlers re-read
-        # from disk via :meth:`_load_offloader_identities_async`
-        # to pick up rotations.
-        self._offloader_dashboard_id: str | None = None
-        self._offloader_peer_link_priv: bytes | None = None
-        self._pairings: dict[str, StoredPairing] = {}
-        self._remote_builds_enabled: bool = True
-        self._offloader_alerts: dict[str, OffloaderAlertSnapshotEntry] = {}
-        self._peer_queue_status: dict[str, PeerQueueStatusSnapshotEntry] = {}
-        self._offloader_remote_jobs: dict[str, OffloaderRemoteJobSnapshotEntry] = {}
+        self.state = OffloaderState()
         self._pairings_store: Store[OffloaderRemoteBuildSettings] = Store(
             self._db.settings.config_dir / OFFLOADER_PAIRINGS_FILE,
             encoder=encode_pairings,
@@ -131,18 +114,19 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
 
     async def start(self) -> None:
         """Seed pairings from disk, cache identities, spawn peer-link clients."""
+        state = self.state
         if (settings := await self._pairings_store.async_load()) is not None:
             for pairing in settings.pairings:
-                self._pairings[pairing.pin_sha256] = pairing
-            self._remote_builds_enabled = settings.remote_builds_enabled
+                state.pairings[pairing.pin_sha256] = pairing
+            state.remote_builds_enabled = settings.remote_builds_enabled
         peer_link_identity, dashboard_identity = await self._load_offloader_identities_async()
-        self._offloader_peer_link_priv = peer_link_identity.private_bytes
-        self._offloader_dashboard_id = dashboard_identity.dashboard_id
+        state.offloader_peer_link_priv = peer_link_identity.private_bytes
+        state.offloader_dashboard_id = dashboard_identity.dashboard_id
         # Wire the resolver before spawning clients so each picks
         # it up at construction; stays None when zeroconf is down
         # and outbound connects fall back to the OS resolver.
         self._setup_peer_link_resolver()
-        for pairing in self._pairings.values():
+        for pairing in state.pairings.values():
             if pairing.status is PeerStatus.APPROVED:
                 self._spawn_peer_link_client(pairing)
         self._listeners.callback(
@@ -179,30 +163,31 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
 
     async def stop(self) -> None:
         """Cancel the browser, drain tasks, flush store, clear dicts."""
-        if self._browser is not None:
+        state = self.state
+        if state.browser is not None:
             try:
-                await self._browser.async_cancel()
+                await state.browser.async_cancel()
             except Exception:
                 _LOGGER.debug("remote-build browser cancel failed", exc_info=True)
-            self._browser = None
+            state.browser = None
         self._listeners.close()
         await drain_tasks(self._tasks)
         self._tasks.clear()
-        await drain_tasks(self._pair_status_listeners.values())
-        self._pair_status_listeners.clear()
+        await drain_tasks(state.pair_status_listeners.values())
+        state.pair_status_listeners.clear()
         # Each peer-link client's CancelledError handler sends a
         # ``client_stopped`` terminate so the receiver doesn't wait
         # on its heartbeat to time out.
-        await drain_tasks(h.task for h in self._peer_link_clients.values())
-        self._peer_link_clients.clear()
+        await drain_tasks(h.task for h in state.peer_link_clients.values())
+        state.peer_link_clients.clear()
         for callback in self._shutdown_callbacks:
             await callback()
-        self._pairings.clear()
-        self._peer_queue_status.clear()
-        self._offloader_remote_jobs.clear()
-        self._open_peer_links.clear()
-        self._rebind_probe_until.clear()
-        self._peers.clear()
+        state.pairings.clear()
+        state.peer_queue_status.clear()
+        state.offloader_remote_jobs.clear()
+        state.open_peer_links.clear()
+        state.rebind_probe_until.clear()
+        state.peers.clear()
         await self._close_peer_link_resolver()
 
     async def _load_offloader_identities_async(
@@ -250,13 +235,13 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         if zeroconf is None:
             return
         try:
-            self._peer_link_resolver = make_peer_link_resolver(zeroconf)
+            self.state.peer_link_resolver = make_peer_link_resolver(zeroconf)
         except Exception:
             _LOGGER.exception(
                 "Could not build peer-link mDNS resolver; outbound peer-link connects "
                 "will fall back to the OS resolver"
             )
-            self._peer_link_resolver = None
+            self.state.peer_link_resolver = None
 
     def _start_discovery(self) -> None:
         """Bring up the mDNS service browser for peer discovery."""
@@ -282,7 +267,7 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
 
     def peer_queue_status_snapshot(self) -> list[PeerQueueStatusSnapshotEntry]:
         """Per-peer queue-status snapshot for ``subscribe_events`` seeding."""
-        return list(self._peer_queue_status.values())
+        return list(self.state.peer_queue_status.values())
 
     def _on_offloader_job_state_changed(self, event: Event[OffloaderJobStateChangedData]) -> None:
         """Maintain the offloader-side in-flight remote-job cache."""
@@ -290,7 +275,7 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
 
     def offloader_remote_jobs_snapshot(self) -> list[OffloaderRemoteJobSnapshotEntry]:
         """In-flight remote-job snapshot for ``subscribe_events`` seeding."""
-        return list(self._offloader_remote_jobs.values())
+        return list(self.state.offloader_remote_jobs.values())
 
     async def _close_peer_link_resolver(self) -> None:
         """Release the shared mDNS-aware aiohttp resolver, if any.
@@ -298,13 +283,13 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         Idempotent. The borrowed :class:`AsyncZeroconf` is
         closed separately by the device-state monitor.
         """
-        if self._peer_link_resolver is None:
+        if self.state.peer_link_resolver is None:
             return
         try:
-            await self._peer_link_resolver.real_close()
+            await self.state.peer_link_resolver.real_close()
         except Exception:
             _LOGGER.debug("peer-link resolver close failed", exc_info=True)
-        self._peer_link_resolver = None
+        self.state.peer_link_resolver = None
 
     # ------------------------------------------------------------------
     # mDNS plumbing
@@ -376,7 +361,7 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
 
     def hosts_snapshot(self) -> list[RemoteBuildPeer]:
         """Return the current mDNS-discovered hosts for ``subscribe_events`` seeding."""
-        return list(self._peers.values())
+        return list(self.state.peers.values())
 
     # ------------------------------------------------------------------
     # API surface
@@ -512,11 +497,11 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
 
     def get_pairing(self, pin_sha256: str) -> StoredPairing | None:
         """Return the :class:`StoredPairing` for *pin_sha256*, or ``None``."""
-        return self._pairings.get(pin_sha256)
+        return self.state.pairings.get(pin_sha256)
 
     def remote_builds_enabled_snapshot(self) -> bool:
         """Return the master toggle for the ``subscribe_events`` initial-state seed."""
-        return self._remote_builds_enabled
+        return self.state.remote_builds_enabled
 
     def build_scheduler_snapshot(self) -> BuildSchedulerInputs:
         """Bundle the scheduler's input state into a shallow immutable snapshot.
@@ -526,15 +511,15 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         same loop tick.
         """
         return BuildSchedulerInputs(
-            remote_builds_enabled=self._remote_builds_enabled,
-            pairings=dict(self._pairings),
-            open_peer_links=frozenset(self._open_peer_links),
-            peer_queue_status=dict(self._peer_queue_status),
+            remote_builds_enabled=self.state.remote_builds_enabled,
+            pairings=dict(self.state.pairings),
+            open_peer_links=frozenset(self.state.open_peer_links),
+            peer_queue_status=dict(self.state.peer_queue_status),
         )
 
     def pairings_snapshot(self) -> list[PairingSummary]:
         """Return the in-memory pairings (PENDING + APPROVED) for ``subscribe_events`` seeding."""
-        return [self._pairing_summary_for(p) for p in self._pairings.values()]
+        return [self._pairing_summary_for(p) for p in self.state.pairings.values()]
 
     def _pairing_summary_for(self, pairing: StoredPairing) -> PairingSummary:
         """Project *pairing* into a wire :class:`PairingSummary`.
@@ -551,17 +536,17 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         branch with all three fields at their connection-quiet
         defaults.
         """
-        handle = self._peer_link_clients.get(pairing.pin_sha256)
+        handle = self.state.peer_link_clients.get(pairing.pin_sha256)
         return pairing_summary(
             pairing,
-            connected=pairing.pin_sha256 in self._open_peer_links,
+            connected=pairing.pin_sha256 in self.state.open_peer_links,
             connecting=handle is not None and handle.client.is_connecting,
             last_connect_error=(handle.client.last_connect_error if handle is not None else ""),
         )
 
     def offloader_alerts_snapshot(self) -> list[OffloaderAlertSnapshotEntry]:
         """Offloader alerts (insertion-ordered, newest last) for ``subscribe_events`` seeding."""
-        return list(self._offloader_alerts.values())
+        return list(self.state.offloader_alerts.values())
 
     def _dismiss_offloader_alert(self, pin_sha256: str, hostname: str, port: int) -> bool:
         """Drop the alert for *pin_sha256* and fire DISMISSED. Returns whether a row was dropped.
@@ -570,7 +555,7 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         and ``unpair`` (row gone → alert moot). No operator-driven
         dismiss surface — re-pair / unpair are the only resolutions.
         """
-        if self._offloader_alerts.pop(pin_sha256, None) is None:
+        if self.state.offloader_alerts.pop(pin_sha256, None) is None:
             return False
         payload: OffloaderPairAlertDismissedData = {
             "receiver_hostname": hostname,
@@ -583,8 +568,8 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
     def _serialize_pairings(self) -> OffloaderRemoteBuildSettings:
         """Build the on-disk pairings shape from RAM, dropping PENDING rows."""
         return OffloaderRemoteBuildSettings(
-            pairings=[p for p in self._pairings.values() if p.status is PeerStatus.APPROVED],
-            remote_builds_enabled=self._remote_builds_enabled,
+            pairings=[p for p in self.state.pairings.values() if p.status is PeerStatus.APPROVED],
+            remote_builds_enabled=self.state.remote_builds_enabled,
         )
 
     # ------------------------------------------------------------------

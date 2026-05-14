@@ -41,20 +41,20 @@ def spawn_peer_link_client(controller: OffloaderController, pairing: StoredPairi
     path).
     """
     if (
-        controller._offloader_dashboard_id is None
-        or controller._offloader_peer_link_priv is None
+        controller.state.offloader_dashboard_id is None
+        or controller.state.offloader_peer_link_priv is None
         or controller._db.bus is None
     ):
         return
     key = pairing.pin_sha256
-    existing = controller._peer_link_clients.get(key)
+    existing = controller.state.peer_link_clients.get(key)
     if existing is not None and not existing.task.done():
         return
     client = PeerLinkClient(
         receiver_hostname=pairing.receiver_hostname,
         receiver_port=pairing.receiver_port,
-        identity_priv=controller._offloader_peer_link_priv,
-        dashboard_id=controller._offloader_dashboard_id,
+        identity_priv=controller.state.offloader_peer_link_priv,
+        dashboard_id=controller.state.offloader_dashboard_id,
         # Pin the receiver's static pubkey from the
         # OOB-verified pair flow so the long-lived peer-link
         # handshake fails fast on identity drift instead of
@@ -64,18 +64,18 @@ def spawn_peer_link_client(controller: OffloaderController, pairing: StoredPairi
         pin_sha256=pairing.pin_sha256,
         receiver_label=pairing.label,
         bus=controller._db.bus,
-        resolver=controller._peer_link_resolver,
+        resolver=controller.state.peer_link_resolver,
     )
     task = asyncio.create_task(
         client.run(),
         name=f"peer-link-client-{pairing.receiver_hostname}:{pairing.receiver_port}",
     )
-    controller._peer_link_clients[key] = PeerLinkClientHandle(client=client, task=task)
+    controller.state.peer_link_clients[key] = PeerLinkClientHandle(client=client, task=task)
 
 
 def cancel_peer_link_client(controller: OffloaderController, pin_sha256: str) -> None:
     """Cancel the peer-link client for *pin_sha256*. No-op if none running."""
-    handle = controller._peer_link_clients.pop(pin_sha256, None)
+    handle = controller.state.peer_link_clients.pop(pin_sha256, None)
     if handle is not None and not handle.task.done():
         handle.task.cancel()
 
@@ -92,13 +92,13 @@ def lookup_open_peer_link_client(
     retry); the distinguishing reason rides in the log line.
     *label* names the calling op in the error message.
     """
-    pairing = controller._pairings.get(pin_sha256)
+    pairing = controller.state.pairings.get(pin_sha256)
     if pairing is None:
         msg = f"{label}: no pairing for pin_sha256={pin_sha256!r}"
         raise CommandError(ErrorCode.NOT_FOUND, msg)
     if pairing.status is not PeerStatus.APPROVED:
         reason = f"status is {pairing.status.value!r}, not APPROVED"
-    elif (handle := controller._peer_link_clients.get(pin_sha256)) is None:
+    elif (handle := controller.state.peer_link_clients.get(pin_sha256)) is None:
         reason = "client not yet spawned"
     elif handle.task.done():
         reason = "client orphaned (pin mismatch / superseded)"
@@ -126,22 +126,22 @@ def sweep_stale_pairings_at_endpoint(
     pin-drift branch. Snapshots to lists before iterating
     to avoid mutate-during-iteration.
     """
-    for stale_pin, pairing in list(controller._pairings.items()):
+    for stale_pin, pairing in list(controller.state.pairings.items()):
         if stale_pin == keep_pin_sha256:
             continue
         if pairing.receiver_hostname != hostname or pairing.receiver_port != port:
             continue
-        controller._pairings.pop(stale_pin, None)
+        controller.state.pairings.pop(stale_pin, None)
         controller._cancel_pair_status_listener(stale_pin)
         controller._cancel_peer_link_client(stale_pin)
-        controller._peer_queue_status.pop(stale_pin, None)
-        controller._open_peer_links.discard(stale_pin)
+        controller.state.peer_queue_status.pop(stale_pin, None)
+        controller.state.open_peer_links.discard(stale_pin)
     # Alerts can outlive pairings — sweep them in a second
     # pass keyed on the alert's stored ``receiver_hostname``
     # / ``receiver_port`` (also walks the pin-keyed dict so
     # an alert under the keep_pin_sha256 stays put if the
     # user is re-confirming the same identity).
-    for stale_pin, alert in list(controller._offloader_alerts.items()):
+    for stale_pin, alert in list(controller.state.offloader_alerts.items()):
         if stale_pin == keep_pin_sha256:
             continue
         if alert["receiver_hostname"] != hostname or alert["receiver_port"] != port:

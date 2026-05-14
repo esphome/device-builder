@@ -273,7 +273,7 @@ async def test_cold_connect_offloader_observes_initial_queue_status_then_picks_r
     inside :meth:`register_peer_link_session`.
 
     The previous shape of this test pre-seeded
-    ``offloader._peer_queue_status[pin]`` to model the
+    ``offloader.state.peer_queue_status[pin]`` to model the
     transition-driven path, masking the cold-connect gap. The
     new test asserts the offloader observes the idle entry by
     waiting on its ``OFFLOADER_QUEUE_STATUS_CHANGED`` event
@@ -382,7 +382,7 @@ async def test_remote_install_submit_then_lifecycle_then_download_on_one_session
     )
 
     # 1. submit_job with a real bundle.
-    handle = paired_instances.offloader._peer_link_clients[paired_instances.pin_sha256]
+    handle = paired_instances.offloader.state.peer_link_clients[paired_instances.pin_sha256]
     bundle_bytes = _build_real_bundle()
     ack = await handle.client.submit_job(
         job_id="off-job-1",
@@ -500,7 +500,7 @@ async def test_remote_compile_materialises_for_local_firmware_download(
         f"scheduler picked {decision.path} — expected REMOTE for the e2e to be meaningful"
     )
 
-    handle = paired_instances.offloader._peer_link_clients[paired_instances.pin_sha256]
+    handle = paired_instances.offloader.state.peer_link_clients[paired_instances.pin_sha256]
     ack = await handle.client.submit_job(
         job_id="off-compile-1",
         configuration_filename="kitchen.yaml",
@@ -618,15 +618,13 @@ async def _wait_for_offloader_idle(
         # observes the post-fire cache state below or wakes from
         # the wait_for on the re-set flag.
         queue_status_events.received.clear()
-        entry = paired_instances.offloader._peer_queue_status.get(pin_sha256)
+        entry = paired_instances.offloader.state.peer_queue_status.get(pin_sha256)
         if entry is not None and entry["idle"]:
             return
         remaining = deadline - asyncio.get_running_loop().time()
         if remaining <= 0:
-            msg = (
-                f"offloader's _peer_queue_status never reached idle within "
-                f"{timeout}s: {paired_instances.offloader._peer_queue_status.get(pin_sha256)!r}"
-            )
+            row = paired_instances.offloader.state.peer_queue_status.get(pin_sha256)
+            msg = f"offloader's peer_queue_status never reached idle within {timeout}s: {row!r}"
             raise TimeoutError(msg)
         await asyncio.wait_for(queue_status_events.received.wait(), timeout=remaining)
 
@@ -667,7 +665,7 @@ async def test_back_to_back_successful_jobs_keep_scheduler_routing_remote(
     # idle before we drive any traffic.
     await _wait_for_offloader_idle(paired_instances, queue_status_events)
 
-    handle = paired_instances.offloader._peer_link_clients[paired_instances.pin_sha256]
+    handle = paired_instances.offloader.state.peer_link_clients[paired_instances.pin_sha256]
     bundle_bytes = _build_real_bundle()
 
     for cycle in range(2):
@@ -697,7 +695,7 @@ async def test_back_to_back_successful_jobs_keep_scheduler_routing_remote(
         assert decision.path is BuildPath.REMOTE, (
             f"cycle {cycle}: scheduler fell back to LOCAL after a completed "
             f"remote job; cache entry: "
-            f"{paired_instances.offloader._peer_queue_status[paired_instances.pin_sha256]!r}"
+            f"{paired_instances.offloader.state.peer_queue_status[paired_instances.pin_sha256]!r}"
         )
         assert decision.pin_sha256 == paired_instances.pin_sha256
 
@@ -727,7 +725,7 @@ async def test_failed_first_job_still_routes_remote_on_second_install(
     receiver_jobs = _wire_receiver_firmware_recorder(paired_instances)
     await _wait_for_offloader_idle(paired_instances, queue_status_events)
 
-    handle = paired_instances.offloader._peer_link_clients[paired_instances.pin_sha256]
+    handle = paired_instances.offloader.state.peer_link_clients[paired_instances.pin_sha256]
     bundle_bytes = _build_real_bundle()
 
     # Cycle 1: fail.
@@ -789,7 +787,7 @@ async def test_remote_clean_round_trip_lands_clean_job_and_fans_state_back(
         paired_instances.offloader_bus, EventType.OFFLOADER_JOB_STATE_CHANGED
     )
 
-    handle = paired_instances.offloader._peer_link_clients[paired_instances.pin_sha256]
+    handle = paired_instances.offloader.state.peer_link_clients[paired_instances.pin_sha256]
     ack = await handle.client.submit_job(
         job_id="off-clean-1",
         configuration_filename="kitchen.yaml",

@@ -88,7 +88,7 @@ def pairing_summary(
     sources:
 
     * ``connected``: ``pairing.pin_sha256 in
-      controller._open_peer_links``, the RAM-canonical set the
+      controller.state.open_peer_links``, the RAM-canonical set the
       controller maintains from :class:`PeerLinkClient`-fired
       :attr:`EventType.OFFLOADER_PEER_LINK_OPENED` /
       :attr:`EventType.OFFLOADER_PEER_LINK_CLOSED` events.

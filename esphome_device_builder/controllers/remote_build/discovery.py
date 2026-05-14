@@ -63,20 +63,20 @@ def start_discovery(controller: OffloaderController) -> None:
     # advertiser's private layout.
     advertiser = controller._db._dashboard_advertiser
     if advertiser is not None:
-        controller._own_instance_name = advertiser.service_instance_name
+        controller.state.own_instance_name = advertiser.service_instance_name
     # Wrap browser construction so a zeroconf-side failure
     # (e.g. the underlying socket got torn down between
     # ``DeviceStateMonitor.start`` and now, or the cache is in
     # an unexpected state) doesn't abort dashboard startup.
     try:
-        controller._browser = AsyncServiceBrowser(
+        controller.state.browser = AsyncServiceBrowser(
             zeroconf.zeroconf,
             [SERVICE_TYPE],
             handlers=[controller._on_service_state_change],
         )
     except Exception:
         _LOGGER.exception("Could not start remote-build browser; peer discovery disabled")
-        controller._browser = None
+        controller.state.browser = None
 
 
 def on_service_state_change(
@@ -99,16 +99,16 @@ def on_service_state_change(
     :meth:`_resolve_and_apply` once the SRV / TXT round-trip
     completes).
     """
-    if name == controller._own_instance_name:
+    if name == controller.state.own_instance_name:
         return
     if state_change == ServiceStateChange.Removed:
-        popped = controller._peers.pop(name, None)
+        popped = controller.state.peers.pop(name, None)
         if popped is not None:
             # Event keys on the wire-friendly ``peer.name``
             # (leftmost label) so frontend dicts keyed on the
             # ``RemoteBuildPeer.name`` field upsert/delete
             # consistently. The FQDN ``name`` is the
-            # ``controller._peers`` dict key only.
+            # ``controller.state.peers`` dict key only.
             controller._fire_host_removed(popped.name)
         return
     info = AsyncServiceInfo(service_type, name)
@@ -143,7 +143,7 @@ def upsert_host(controller: OffloaderController, name: str, info: AsyncServiceIn
     peer = peer_from_service_info(name, info)
     if controller._is_self_endpoint(peer.hostname, peer.port):
         return
-    controller._peers[name] = peer
+    controller.state.peers[name] = peer
     controller._db.bus.fire(EventType.REMOTE_BUILD_HOST_ADDED, peer.to_dict())
     # mDNS auto-rebind: if this broadcast's pin matches a
     # stored pairing whose ``(host, port)`` differs, the

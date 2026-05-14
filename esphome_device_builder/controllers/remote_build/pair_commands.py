@@ -77,7 +77,7 @@ async def set_pairing_enabled(
     clean_enabled = validate_bool(
         enabled, command="remote_build/set_pairing_enabled", field="enabled"
     )
-    pairing = controller._pairings.get(clean_pin)
+    pairing = controller.state.pairings.get(clean_pin)
     if pairing is None:
         msg = f"remote_build/set_pairing_enabled: no pairing for pin_sha256={clean_pin!r}"
         raise CommandError(ErrorCode.NOT_FOUND, msg)
@@ -118,7 +118,7 @@ async def preview_pair(
             hostname=clean_host,
             port=clean_port,
             identity_priv=identity.private_bytes,
-            resolver=controller._peer_link_resolver,
+            resolver=controller.state.peer_link_resolver,
         )
     except PeerLinkClientError as exc:
         raise CommandError(ErrorCode.UNAVAILABLE, str(exc)) from exc
@@ -173,7 +173,7 @@ async def request_pair(
             identity_priv=peer_link_identity.private_bytes,
             label=clean_offloader_label,
             dashboard_id=dashboard_identity.dashboard_id,
-            resolver=controller._peer_link_resolver,
+            resolver=controller.state.peer_link_resolver,
         )
     except PeerLinkClientError as exc:
         raise CommandError(ErrorCode.UNAVAILABLE, str(exc)) from exc
@@ -207,7 +207,7 @@ async def request_pair(
     controller._sweep_stale_pairings_at_endpoint(clean_host, clean_port, keep_pin_sha256=key)
     # Cancel any prior listener for the same pin — its
     # closure captured the old pairing reference.
-    controller._pairings[key] = pairing
+    controller.state.pairings[key] = pairing
     controller._cancel_pair_status_listener(key)
     controller._dismiss_offloader_alert(key, clean_host, clean_port)
     if target_status is PeerStatus.APPROVED:
@@ -241,7 +241,7 @@ async def unpair(controller: OffloaderController, *, pin_sha256: str) -> dict[st
     # promptly. Idempotent on absent keys.
     controller._cancel_pair_status_listener(key)
     controller._cancel_peer_link_client(key)
-    previous = controller._pairings.pop(key, None)
+    previous = controller.state.pairings.pop(key, None)
     if previous is None:
         return {"removed": False}
     controller._schedule_pairings_save()
@@ -251,11 +251,11 @@ async def unpair(controller: OffloaderController, *, pin_sha256: str) -> dict[st
     controller._dismiss_offloader_alert(key, previous.receiver_hostname, previous.receiver_port)
     # Drop derived per-peer caches so the snapshot doesn't
     # surface stale data for a row the user just removed.
-    controller._peer_queue_status.pop(key, None)
-    for job_id, entry in list(controller._offloader_remote_jobs.items()):
+    controller.state.peer_queue_status.pop(key, None)
+    for job_id, entry in list(controller.state.offloader_remote_jobs.items()):
         if entry["pin_sha256"] == key:
-            controller._offloader_remote_jobs.pop(job_id, None)
-    controller._open_peer_links.discard(key)
+            controller.state.offloader_remote_jobs.pop(job_id, None)
+    controller.state.open_peer_links.discard(key)
     return {"removed": True}
 
 
@@ -289,7 +289,7 @@ async def edit_pairing_endpoint(
     clean_host = validate_hostname(hostname, context=HostFieldContext.RECEIVER)
     clean_port = validate_port(port, context=HostFieldContext.RECEIVER)
 
-    pairing = controller._pairings.get(pin)
+    pairing = controller.state.pairings.get(pin)
     if pairing is None:
         msg = f"edit_pairing_endpoint: no pairing for pin_sha256={pin!r}"
         raise CommandError(ErrorCode.NOT_FOUND, msg)
@@ -299,7 +299,7 @@ async def edit_pairing_endpoint(
     # System-readiness before user-input semantics: surface
     # "identity not loaded yet" distinctly rather than a
     # confusing "matches current" on a startup race.
-    if controller._offloader_peer_link_priv is None:
+    if controller.state.offloader_peer_link_priv is None:
         msg = "edit_pairing_endpoint: offloader peer-link identity not loaded yet"
         raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
     if endpoints_equal(pairing.receiver_hostname, pairing.receiver_port, clean_host, clean_port):

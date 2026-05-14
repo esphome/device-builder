@@ -79,7 +79,7 @@ def on_offloader_pair_pin_mismatch(
         "observed_pin": data["observed_pin"],
         "fired_at": time.time(),
     }
-    controller._offloader_alerts[data["pin_sha256"]] = alert
+    controller.state.offloader_alerts[data["pin_sha256"]] = alert
 
 
 def on_offloader_peer_link_opened(
@@ -103,11 +103,11 @@ def on_offloader_peer_link_opened(
     """
     data = event.data
     pin_sha256 = data["pin_sha256"]
-    controller._open_peer_links.add(pin_sha256)
+    controller.state.open_peer_links.add(pin_sha256)
     version = data["esphome_version"]
     if not version or len(version) > PAIRING_VERSION_MAX_LEN:
         return
-    pairing = controller._pairings.get(pin_sha256)
+    pairing = controller.state.pairings.get(pin_sha256)
     if pairing is None or pairing.esphome_version == version:
         return
     pairing.esphome_version = version
@@ -118,7 +118,7 @@ def on_offloader_peer_link_closed(
     controller: OffloaderController, event: Event[OffloaderPeerLinkClosedData]
 ) -> None:
     """Discard ``pin_sha256`` from ``_open_peer_links`` on session close."""
-    controller._open_peer_links.discard(event.data["pin_sha256"])
+    controller.state.open_peer_links.discard(event.data["pin_sha256"])
 
 
 def on_offloader_queue_status_changed(
@@ -126,7 +126,7 @@ def on_offloader_queue_status_changed(
 ) -> None:
     """Update the offloader-side ``_peer_queue_status`` cache from a wire event."""
     data = event.data
-    controller._peer_queue_status[data["pin_sha256"]] = PeerQueueStatusSnapshotEntry(
+    controller.state.peer_queue_status[data["pin_sha256"]] = PeerQueueStatusSnapshotEntry(
         receiver_hostname=data["receiver_hostname"],
         receiver_port=data["receiver_port"],
         pin_sha256=data["pin_sha256"],
@@ -150,9 +150,9 @@ def on_offloader_job_state_changed(
     """
     data = event.data
     if data["status"] in _OFFLOADER_REMOTE_JOB_TERMINAL_STATUSES:
-        controller._offloader_remote_jobs.pop(data["job_id"], None)
+        controller.state.offloader_remote_jobs.pop(data["job_id"], None)
         return
-    controller._offloader_remote_jobs[data["job_id"]] = OffloaderRemoteJobSnapshotEntry(
+    controller.state.offloader_remote_jobs[data["job_id"]] = OffloaderRemoteJobSnapshotEntry(
         receiver_hostname=data["receiver_hostname"],
         receiver_port=data["receiver_port"],
         pin_sha256=data["pin_sha256"],

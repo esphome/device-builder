@@ -35,7 +35,7 @@ def offloader_settings_view(
     """
     return OffloaderRemoteBuildSettingsView(
         pairings=controller.pairings_snapshot(),
-        remote_builds_enabled=controller._remote_builds_enabled,
+        remote_builds_enabled=controller.state.remote_builds_enabled,
     )
 
 
@@ -61,7 +61,7 @@ async def set_offloader_settings(
     sync; debounce-saves through ``_pairings_store`` (same
     on-disk shape).
     """
-    controller._remote_builds_enabled = validate_bool(
+    controller.state.remote_builds_enabled = validate_bool(
         remote_builds_enabled,
         command="remote_build/set_offloader_settings",
         field="remote_builds_enabled",

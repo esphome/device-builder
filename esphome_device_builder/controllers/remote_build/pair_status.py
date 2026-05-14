@@ -56,10 +56,10 @@ _PAIR_STATUS_RECONNECT_BACKOFF_SECONDS = 2.0
 def spawn_pair_status_listener(controller: OffloaderController, pairing: StoredPairing) -> None:
     """Spawn the pair-status listener task for *pairing* if not already running."""
     key = pairing.pin_sha256
-    existing = controller._pair_status_listeners.get(key)
+    existing = controller.state.pair_status_listeners.get(key)
     if existing is not None and not existing.done():
         return
-    controller._pair_status_listeners[key] = asyncio.create_task(
+    controller.state.pair_status_listeners[key] = asyncio.create_task(
         controller._await_pair_status_flip(pairing),
         name=f"pair-status-{pairing.receiver_hostname}:{pairing.receiver_port}",
     )
@@ -67,7 +67,7 @@ def spawn_pair_status_listener(controller: OffloaderController, pairing: StoredP
 
 def cancel_pair_status_listener(controller: OffloaderController, pin_sha256: str) -> None:
     """Cancel the listener for *pin_sha256*. No-op if none running."""
-    task = controller._pair_status_listeners.pop(pin_sha256, None)
+    task = controller.state.pair_status_listeners.pop(pin_sha256, None)
     if task is not None and not task.done():
         task.cancel()
 
@@ -93,7 +93,7 @@ async def await_pair_status_flip(controller: OffloaderController, pairing: Store
                     port=pairing.receiver_port,
                     identity_priv=peer_link_identity.private_bytes,
                     dashboard_id=dashboard_identity.dashboard_id,
-                    resolver=controller._peer_link_resolver,
+                    resolver=controller.state.peer_link_resolver,
                 )
             except PeerLinkClientError as exc:
                 _LOGGER.debug(
@@ -124,8 +124,8 @@ async def await_pair_status_flip(controller: OffloaderController, pairing: Store
         # orphan it (no entry left for ``unpair`` to cancel,
         # the new listener parks forever).
         key = pairing.pin_sha256
-        if controller._pair_status_listeners.get(key) is asyncio.current_task():
-            del controller._pair_status_listeners[key]
+        if controller.state.pair_status_listeners.get(key) is asyncio.current_task():
+            del controller.state.pair_status_listeners[key]
 
 
 async def apply_pair_status_result(
@@ -141,7 +141,7 @@ async def apply_pair_status_result(
     * Anything else → log + reconnect.
 
     Race-safe against ``unpair``: every branch keys on
-    ``controller._pairings.pop(key, None)``, so if the user
+    ``controller.state.pairings.pop(key, None)``, so if the user
     unpaired between the await and this branch we skip
     promotion + event-firing silently.
     """
@@ -161,7 +161,7 @@ async def apply_pair_status_result(
                 pairing.pin_sha256,
                 result.pin_sha256,
             )
-            if controller._pairings.pop(key, None) is not None:
+            if controller.state.pairings.pop(key, None) is not None:
                 controller._schedule_pairings_save()
                 pin_alert: OffloaderPinMismatchAlert = {
                     "kind": "pin_mismatch",
@@ -173,7 +173,7 @@ async def apply_pair_status_result(
                     "observed_pin": result.pin_sha256,
                     "fired_at": time.time(),
                 }
-                controller._offloader_alerts[key] = pin_alert
+                controller.state.offloader_alerts[key] = pin_alert
                 # Fire diagnostic first so subscribers see
                 # the full payload before the row drops.
                 _fire_offloader_pair_pin_mismatch(
@@ -185,7 +185,7 @@ async def apply_pair_status_result(
         # us between the await and this branch the row's
         # gone; exit silently rather than resurrect state
         # the user just deleted.
-        existing = controller._pairings.get(key)
+        existing = controller.state.pairings.get(key)
         if existing is None:
             return True
         existing.status = PeerStatus.APPROVED
@@ -194,7 +194,7 @@ async def apply_pair_status_result(
         controller._spawn_peer_link_client(existing)
         return True
     if result.status is IntentResponse.REJECTED:
-        if controller._pairings.pop(key, None) is not None:
+        if controller.state.pairings.pop(key, None) is not None:
             controller._schedule_pairings_save()
             revoked_alert: OffloaderPeerRevokedAlert = {
                 "kind": "peer_revoked",
@@ -204,7 +204,7 @@ async def apply_pair_status_result(
                 "receiver_label": label,
                 "fired_at": time.time(),
             }
-            controller._offloader_alerts[key] = revoked_alert
+            controller.state.offloader_alerts[key] = revoked_alert
             _fire_offloader_pair_peer_revoked(controller, host, port, key, label)
             controller._fire_offloader_pair_status_changed(host, port, key, "removed")
         return True

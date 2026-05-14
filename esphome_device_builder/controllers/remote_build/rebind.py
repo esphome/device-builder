@@ -67,19 +67,19 @@ async def probe_pairing_endpoint(
     (captured pairing object still in the dict, still
     APPROVED).
     """
-    assert controller._offloader_peer_link_priv is not None
+    assert controller.state.offloader_peer_link_priv is not None
     try:
         observed_pin = await peer_link_preview_pair(
             hostname=new_hostname,
             port=new_port,
-            identity_priv=controller._offloader_peer_link_priv,
-            resolver=controller._peer_link_resolver,
+            identity_priv=controller.state.offloader_peer_link_priv,
+            resolver=controller.state.peer_link_resolver,
         )
     except PeerLinkClientError as exc:
         return RebindProbeResult(RebindProbeOutcome.UNREACHABLE, transport_error=exc)
     if observed_pin != pairing.pin_sha256:
         return RebindProbeResult(RebindProbeOutcome.PIN_MISMATCH, observed_pin=observed_pin)
-    current = controller._pairings.get(pairing.pin_sha256)
+    current = controller.state.pairings.get(pairing.pin_sha256)
     if current is not pairing:
         return RebindProbeResult(RebindProbeOutcome.PAIRING_REPLACED)
     if current.status is not PeerStatus.APPROVED:
@@ -100,7 +100,7 @@ def commit_endpoint_rebind(
     pairing.receiver_port = port
     controller._schedule_pairings_save()
     _respawn_peer_link_at_new_endpoint(controller, pairing)
-    controller._rebind_probe_until.pop(pairing.pin_sha256, None)
+    controller.state.rebind_probe_until.pop(pairing.pin_sha256, None)
 
 
 def _respawn_peer_link_at_new_endpoint(
@@ -138,18 +138,18 @@ def maybe_schedule_rebind_probe(controller: OffloaderController, peer: RemoteBui
     new_port = peer.remote_build_port
     if not pin or new_port == 0:
         return
-    pairing = controller._pairings.get(pin)
+    pairing = controller.state.pairings.get(pin)
     if pairing is None or pairing.status is not PeerStatus.APPROVED:
         return
     new_hostname = normalize_hostname(peer.hostname)
     if endpoints_equal(pairing.receiver_hostname, pairing.receiver_port, new_hostname, new_port):
         return
-    if controller._offloader_peer_link_priv is None:
+    if controller.state.offloader_peer_link_priv is None:
         return
     now = time.monotonic()
-    if controller._rebind_probe_until.get(pin, 0.0) > now:
+    if controller.state.rebind_probe_until.get(pin, 0.0) > now:
         return
-    controller._rebind_probe_until[pin] = now + _REBIND_PROBE_COOLDOWN_SECONDS
+    controller.state.rebind_probe_until[pin] = now + _REBIND_PROBE_COOLDOWN_SECONDS
     controller._track_task(
         controller._probe_and_rebind_endpoint(
             pairing=pairing, new_hostname=new_hostname, new_port=new_port
@@ -231,7 +231,7 @@ def _clear_cooldown_on_unexpected_exit(controller: OffloaderController, pin: str
     try:
         yield
     except BaseException:
-        controller._rebind_probe_until.pop(pin, None)
+        controller.state.rebind_probe_until.pop(pin, None)
         raise
 
 

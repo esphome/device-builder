@@ -197,7 +197,7 @@ async def test_submit_job_round_trip_extracts_real_bundle_and_queues_job(
     created_jobs = _wire_receiver_firmware_recorder(paired_instances)
 
     bundle_bytes = _build_real_bundle()
-    handle = paired_instances.offloader._peer_link_clients[paired_instances.pin_sha256]
+    handle = paired_instances.offloader.state.peer_link_clients[paired_instances.pin_sha256]
     ack = await handle.client.submit_job(
         job_id="off-job-1",
         configuration_filename="kitchen.yaml",
@@ -250,7 +250,7 @@ async def test_submit_job_round_trip_with_relative_receiver_config_dir(
     created_jobs = _wire_receiver_firmware_recorder(instances)
 
     bundle_bytes = _build_real_bundle()
-    handle = instances.offloader._peer_link_clients[instances.pin_sha256]
+    handle = instances.offloader.state.peer_link_clients[instances.pin_sha256]
     ack = await handle.client.submit_job(
         job_id="off-job-678",
         configuration_filename="kitchen.yaml",
@@ -314,7 +314,7 @@ async def test_submit_job_round_trip_then_fanout_to_offloader_bus(
         paired_instances.offloader_bus, EventType.OFFLOADER_JOB_STATE_CHANGED
     )
 
-    ack = await paired_instances.offloader._peer_link_clients[
+    ack = await paired_instances.offloader.state.peer_link_clients[
         paired_instances.pin_sha256
     ].client.submit_job(
         job_id="off-job-1",
@@ -381,7 +381,7 @@ async def test_submit_job_round_trip_carries_display_strings_to_receiver_job(
     await paired_instances.wait_until_session_opened()
     created_jobs = _wire_receiver_firmware_recorder(paired_instances)
 
-    handle = paired_instances.offloader._peer_link_clients[paired_instances.pin_sha256]
+    handle = paired_instances.offloader.state.peer_link_clients[paired_instances.pin_sha256]
     ack = await handle.client.submit_job(
         job_id="off-job-display",
         configuration_filename="kitchen.yaml",
