@@ -305,15 +305,7 @@ def reset_offloader_firmware_stub(
     reset_bus: bool = False,
     **queue_status_kwargs: Any,
 ) -> MagicMock:
-    """Re-stub ``handles.offloader._db.firmware`` for queue-status broadcast tests.
-
-    ``queue_status_kwargs`` is forwarded to ``MagicMock(...)`` on
-    the new ``queue_status_snapshot`` attribute — typically
-    ``return_value=(idle, running, queue_depth)`` or
-    ``side_effect=Exception(...)``. Pass ``reset_bus=True`` to
-    also replace ``_db.bus`` with a fresh ``MagicMock`` (tests
-    asserting against ``bus.fire`` want a clean slate).
-    """
+    """Re-stub the offloader's firmware mock; ``queue_status_kwargs`` go to ``MagicMock(...)``."""
     if reset_bus:
         handles.offloader._db.bus = MagicMock()
     firmware = handles.offloader._db.firmware = MagicMock()
