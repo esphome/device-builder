@@ -12,7 +12,7 @@ import yaml
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from ..models import ComponentCatalogEntry
+    from ...models import ComponentCatalogEntry
 
 # Prefer the libyaml-backed C loader when PyYAML was built against
 # libyaml. On the M5 MacBook Pro, parsing the full board catalog
