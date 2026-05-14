@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 from typing import TYPE_CHECKING
 
@@ -40,15 +39,15 @@ class PingSource:
 
     def __init__(self, monitor: DeviceStateMonitor) -> None:
         self._monitor = monitor
-        # ``probe_device`` short-circuits while False so the
-        # cold-start scanner-ADDED storm doesn't fan out a
-        # full-fleet ping during the mDNS bootstrap window. Flipped
-        # True after the bootstrap sleep.
-        self._bootstrap_complete = False
-        # Shared across the periodic sweep and eager per-device
-        # probes so the combined concurrent-ICMP load can't exceed
-        # icmplib's reliability ceiling (`_PING_BATCH_SIZE`) when
-        # both paths fire at once.
+        # Set by ``wake()`` to collapse a herd of newly added
+        # devices into a single early sweep instead of N per-device
+        # probe tasks. Cleared at the top of each sweep so a wake
+        # fired mid-sweep (covering a device added after the
+        # snapshot) survives to re-trigger the next idle.
+        self._wake = asyncio.Event()
+        # Caps in-flight ICMP at icmplib's reliability ceiling so
+        # large fleets don't stampede the ping group when the sweep
+        # fans out.
         self._concurrency = asyncio.Semaphore(_PING_BATCH_SIZE)
         # Tuple of ``(name, address)`` from the last DEBUG-logged
         # sweep; suppresses re-logging the identical line every
@@ -58,7 +57,6 @@ class PingSource:
 
     async def run(self) -> None:
         await asyncio.sleep(_PING_BOOTSTRAP_DELAY)
-        self._bootstrap_complete = True
         # Strict pause when wired to a SubscriberPresence gate: only
         # sweep while at least one dashboard client is subscribed,
         # so a quiet network with no observers generates no ICMP
@@ -69,22 +67,36 @@ class PingSource:
         while True:
             if monitor._presence is not None:
                 await monitor._presence.wait_for_subscriber()
+            self._wake.clear()
             await shared.resolve_non_api_mdns_targets(monitor)
             await self._ping_sweep()
-            if monitor._presence is not None:
-                # Interruptible idle wait: bail early when the last
-                # subscriber leaves so the next one to connect
-                # doesn't sit through the rest of a stale interval.
-                # ``wait_for`` raises ``TimeoutError`` after
-                # ``_PING_INTERVAL`` on the still-subscribed path;
-                # either branch loops back to the gate at the top.
-                with contextlib.suppress(TimeoutError):
-                    await asyncio.wait_for(
-                        monitor._presence.wait_for_no_subscribers(),
-                        timeout=_PING_INTERVAL,
-                    )
-                continue
-            await asyncio.sleep(_PING_INTERVAL)
+            await self._idle()
+
+    def wake(self) -> None:
+        """Bail the idle wait so the next sweep runs without waiting on ``_PING_INTERVAL``."""
+        self._wake.set()
+
+    async def _idle(self) -> None:
+        """
+        Sleep up to ``_PING_INTERVAL``; bail early on a wake or last-subscriber-leaves.
+
+        Wakes collapse a herd of new-device adds into one early
+        sweep. The no-subscribers branch keeps the original
+        behaviour: drop out so the next subscriber to connect
+        doesn't sit through the rest of a stale interval.
+        """
+        monitor = self._monitor
+        waiters: list[asyncio.Task[object]] = [asyncio.create_task(self._wake.wait())]
+        if monitor._presence is not None:
+            waiters.append(asyncio.create_task(monitor._presence.wait_for_no_subscribers()))
+        try:
+            await asyncio.wait(waiters, timeout=_PING_INTERVAL, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            for w in waiters:
+                w.cancel()
+            # Drain so the cancellations don't surface as
+            # "Task exception was never retrieved" warnings.
+            await asyncio.gather(*waiters, return_exceptions=True)
 
     async def _ping_sweep(self) -> None:
         if icmp_ping is None:
@@ -101,10 +113,8 @@ class PingSource:
                     len(devices_to_ping),
                     ", ".join(f"{d.name} ({d.address})" for d in devices_to_ping),
                 )
-        # Single ``gather`` plus ``self._concurrency`` semaphore
-        # caps in-flight ICMP at ``_PING_BATCH_SIZE`` across the
-        # sweep and any concurrent eager probes; no need to
-        # pre-chunk here.
+        # ``self._concurrency`` semaphore caps in-flight ICMP at
+        # ``_PING_BATCH_SIZE``; no need to pre-chunk the gather.
         await asyncio.gather(
             *(self._resolve_and_ping(device) for device in devices_to_ping),
             return_exceptions=True,
@@ -191,12 +201,3 @@ class PingSource:
         if is_alive and rtt_ms is not None and monitor.state.reachability is not None:
             monitor.state.reachability.record_ping_rtt(device.name, rtt_ms)
         monitor.apply(device.name, new_state, "ping")
-
-    async def probe_device(self, name: str) -> None:
-        """Eagerly ICMP-probe *name* instead of waiting on the next periodic sweep."""
-        if not self._bootstrap_complete or icmp_ping is None:
-            return
-        bucket = self._monitor._get_devices_by_name(name)
-        if not bucket or not self._classify_for_ping(bucket[0]):
-            return
-        await self._resolve_and_ping(bucket[0])

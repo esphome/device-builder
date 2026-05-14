@@ -55,7 +55,7 @@ def _instrument_loop(
     counter dict so each test can read ``counts["sweeps"]`` after
     driving the loop.
     """
-    counts = {"sweeps": 0, "resolves": 0, "sleeps": 0}
+    counts = {"sweeps": 0, "resolves": 0}
 
     async def _resolve(_monitor: DeviceStateMonitor) -> None:
         counts["resolves"] += 1
@@ -70,20 +70,11 @@ def _instrument_loop(
     monkeypatch.setattr(shared_module, "resolve_non_api_mdns_targets", _resolve)
     monitor._ping._ping_sweep = _sweep  # type: ignore[method-assign]
 
-    # Skip the bootstrap delay outright.
+    # Skip the bootstrap delay; collapse the post-sweep idle wait
+    # so the loop ticks fast enough for an asyncio.sleep(0)-driven
+    # spin. Tests cancel the task to exit cleanly.
     monkeypatch.setattr(ping_module, "_PING_BOOTSTRAP_DELAY", 0)
-
-    # Patch the module-local sleep so each "interval wait" is a
-    # zero-cost yield and a tick count. The test ends the loop by
-    # cancelling the task, not by raising CancelledError from sleep.
-    real_sleep = asyncio.sleep
-
-    async def _fast_sleep(_seconds: float) -> None:
-        counts["sleeps"] += 1
-        # Yield back so the test coroutine can observe the counters.
-        await real_sleep(0)
-
-    monkeypatch.setattr(ping_module.asyncio, "sleep", _fast_sleep)
+    monkeypatch.setattr(ping_module, "_PING_INTERVAL", 0.001)
     return counts
 
 
@@ -242,48 +233,30 @@ async def test_ping_loop_aborts_idle_sleep_when_last_subscriber_leaves(
     mid-``_PING_INTERVAL`` would force the next subscriber's first
     sweep to wait out the rest of the interval — defeating the
     point of waking promptly on the 0→1 transition. Pin: after the
-    last subscriber drops, the ping loop returns to the top of the
-    while-loop within one scheduling tick (so it's parked at
-    ``wait_for_subscriber`` long before the interval would have
-    elapsed).
-
-    Drives this by patching ``asyncio.wait_for`` so the test can
-    observe the call arguments — the loop must invoke it with the
-    presence's ``wait_for_no_subscribers`` coroutine, not a bare
-    ``asyncio.sleep``. A regression that keeps the unconditional
-    sleep would never call ``wait_for`` at all.
+    last subscriber drops, the loop stops sweeping within a
+    handful of scheduling ticks; with a longer ``_PING_INTERVAL``
+    patched in than the test's polling window, anything else means
+    the idle wait wasn't interrupted.
     """
     presence = SubscriberPresence()
     monitor = _build_monitor(presence=presence)
     counts = _instrument_loop(monitor, monkeypatch)
-
-    # Capture every call to wait_for so we can assert the loop
-    # used the interruptible path. Each call returns immediately
-    # so the test stays bounded.
-    wait_for_calls: list[float] = []
-    real_wait_for = asyncio.wait_for
-
-    async def _spy_wait_for(coro: Any, *, timeout: float) -> Any:
-        wait_for_calls.append(timeout)
-        # Defer to the real implementation so the gate-close still
-        # short-circuits the wait when the subscriber drops.
-        return await real_wait_for(coro, timeout=timeout)
-
-    monkeypatch.setattr(ping_module.asyncio, "wait_for", _spy_wait_for)
+    # Re-stretch the interval so a missed interrupt is observable
+    # — the default 0.001s would let the loop tick anyway.
+    monkeypatch.setattr(ping_module, "_PING_INTERVAL", 60)
 
     task = asyncio.create_task(monitor._ping.run())
     try:
         # Bring a subscriber in; wait until the loop has done at
-        # least one sweep AND entered the idle wait.
+        # least one sweep and reached the idle wait.
         with presence.subscriber():
-            await _drive_until(lambda: counts["sweeps"] >= 1 and wait_for_calls)
-            assert wait_for_calls, "loop must use asyncio.wait_for for an interruptible idle wait"
+            await _drive_until(lambda: counts["sweeps"] >= 1)
 
         # Subscriber just dropped (the with-block exited). The
-        # gate-close must short-circuit the in-flight wait_for so
+        # gate-close must short-circuit the in-flight idle wait so
         # the loop returns to the top and parks on
         # wait_for_subscriber within a few ticks — not after the
-        # full _PING_INTERVAL the wait_for was called with.
+        # full _PING_INTERVAL.
         sweeps_at_drop = counts["sweeps"]
         for _ in range(40):
             await asyncio.sleep(0)

@@ -404,14 +404,15 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         self._importable.probe_device(device_name, service_name)
 
     def probe_device_ping(self, device_name: str) -> None:
-        """Schedule a fire-and-forget ICMP probe for *device_name*."""
-        # Bootstrap-window guard up here so the cold-start
-        # scanner-ADDED storm (one per cached YAML) doesn't spawn N
-        # no-op tasks; ``PingSource.probe_device`` keeps the same
-        # check as defence-in-depth.
-        if not self._ping._bootstrap_complete:
-            return
-        self._track_task(self._ping.probe_device(device_name))
+        """
+        Wake the ICMP sweep loop so a newly added device isn't waiting on the periodic interval.
+
+        The *device_name* is unused — every caller setting a wake
+        collapses into a single early sweep, so a herd of N
+        scanner-ADDED events (e.g. cold start, bulk dashboard
+        import) pays one sweep instead of N per-device tasks.
+        """
+        self._ping.wake()
 
     def revisit_importable(self, device_name: str) -> None:
         """Re-fire ``on_importable_added`` for *device_name* if upstream still has it cached."""
