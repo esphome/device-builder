@@ -43,10 +43,9 @@ from esphome_device_builder.controllers._device_state_monitor import (
     DeviceStateMonitor,
     _decode_txt_bytes_to_sorted_pairs,
 )
-from esphome_device_builder.controllers._device_state_monitor import (
-    controller as state_monitor_module,
-)
+from esphome_device_builder.controllers._device_state_monitor import helpers as helpers_module
 from esphome_device_builder.controllers._device_state_monitor._state import MonitorState
+from esphome_device_builder.controllers._device_state_monitor.importable import ImportableDiscovery
 from esphome_device_builder.controllers._device_state_monitor.mdns import MdnsSource
 from esphome_device_builder.controllers._device_state_monitor.ping import PingSource
 from esphome_device_builder.controllers._reachability_tracker import (
@@ -93,6 +92,8 @@ def _make_monitor(
 
     monitor.state = MonitorState()
 
+    monitor._importable = ImportableDiscovery(monitor)
+
     monitor._mdns = MdnsSource(monitor)
 
     monitor._ping = PingSource(monitor)
@@ -105,7 +106,7 @@ def _make_monitor(
     monitor._mdns._mdns_browser = None
     monitor._ping_task = None
     monitor._tasks = set()
-    monitor._import_discovery = None
+    monitor._importable._import_discovery = None
     monitor.state.reachability = tracker
     monitor._on_state_change = _flip_state(devices)
     monitor._on_ip_change = lambda _n, _i, _l: None
@@ -300,7 +301,7 @@ async def test_mdns_removed_via_dispatch_clears_tracker() -> None:
     # six lines here is honest about what we're testing.
     state_change = ServiceStateChange.Removed
     name = "kitchen._esphomelib._tcp.local."
-    device_name = state_monitor_module.device_name_from_service(name)
+    device_name = helpers_module.device_name_from_service(name)
     if state_change == ServiceStateChange.Removed:
         monitor.apply(device_name, DeviceState.OFFLINE, "mdns")
         monitor.state.state_source.pop(device_name, None)

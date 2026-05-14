@@ -16,7 +16,7 @@ from collections.abc import Callable
 from operator import attrgetter
 from typing import TYPE_CHECKING, Any
 
-from esphome.zeroconf import AsyncEsphomeZeroconf, DashboardImportDiscovery
+from esphome.zeroconf import AsyncEsphomeZeroconf
 from zeroconf import (
     AddressResolver,
     IPVersion,
@@ -71,14 +71,11 @@ class MdnsSource:
             return
 
         monitor = self._monitor
-
-        # ``DashboardImportDiscovery`` from upstream esphome owns the
-        # TXT-record parsing for adoptable factory firmwares — its
-        # ``browser_callback`` only acts on services that carry the
-        # ``package_import_url`` TXT records, so harmlessly receiving
-        # HTTP events is fine.
-        import_discovery = DashboardImportDiscovery(monitor._on_import_update)
-        monitor._import_discovery = import_discovery
+        importable = monitor._importable
+        # Construct the upstream ``DashboardImportDiscovery`` inside
+        # ImportableDiscovery so its lifetime tracks the importable
+        # source's own state.
+        importable.setup()
 
         def _dispatch(
             zeroconf: Any, service_type: str, name: str, state_change: ServiceStateChange
@@ -89,16 +86,11 @@ class MdnsSource:
             # halves the zeroconf bookkeeping vs running two separate
             # browsers and lets the upstream ``DashboardImportDiscovery``
             # callback piggy-back on the same dispatch path.
-            #
-            # Closes over the local ``import_discovery`` rather than
-            # ``monitor._import_discovery`` so mypy sees a non-None
-            # value (the attribute is typed ``... | None`` for the
-            # pre-``start()`` window). Same instance either way.
             if service_type == _ESPHOME_SERVICE_TYPE:
                 self._on_esphomelib_service_state_change(zeroconf, service_type, name, state_change)
-                import_discovery.browser_callback(zeroconf, service_type, name, state_change)
+                importable.browser_callback(zeroconf, service_type, name, state_change)
             elif service_type == _HTTP_SERVICE_TYPE:
-                monitor._on_http_service_state_change(zeroconf, service_type, name, state_change)
+                importable.on_http_service_state_change(zeroconf, service_type, name, state_change)
 
         try:
             self._mdns_browser = AsyncServiceBrowser(

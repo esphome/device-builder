@@ -21,6 +21,7 @@ from esphome_device_builder.controllers._device_state_monitor import (
     DeviceStateMonitor,
 )
 from esphome_device_builder.controllers._device_state_monitor._state import MonitorState
+from esphome_device_builder.controllers._device_state_monitor.importable import ImportableDiscovery
 from esphome_device_builder.controllers._device_state_monitor.mdns import MdnsSource
 from esphome_device_builder.controllers._device_state_monitor.ping import PingSource
 from esphome_device_builder.models import Device, DeviceState
@@ -32,6 +33,8 @@ def _make_monitor() -> DeviceStateMonitor:
     monitor = DeviceStateMonitor.__new__(DeviceStateMonitor)
 
     monitor.state = MonitorState()
+
+    monitor._importable = ImportableDiscovery(monitor)
 
     monitor._mdns = MdnsSource(monitor)
 
@@ -76,7 +79,7 @@ async def test_probe_device_cache_hit_applies_synchronously(monkeypatch) -> None
     fake_info = MagicMock()
     fake_info.load_from_cache.return_value = True
     monkeypatch.setattr(
-        "esphome_device_builder.controllers._device_state_monitor.controller.AsyncServiceInfo",
+        "esphome_device_builder.controllers._device_state_monitor.importable.AsyncServiceInfo",
         lambda *_args, **_kw: fake_info,
     )
 
@@ -108,7 +111,7 @@ async def test_probe_device_uses_service_name_when_provided(monkeypatch) -> None
         return fake_info
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers._device_state_monitor.controller.AsyncServiceInfo",
+        "esphome_device_builder.controllers._device_state_monitor.importable.AsyncServiceInfo",
         _info_ctor,
     )
 
@@ -131,7 +134,7 @@ async def test_probe_device_cache_miss_spawns_task(monkeypatch) -> None:
     fake_info = MagicMock()
     fake_info.load_from_cache.return_value = False
     monkeypatch.setattr(
-        "esphome_device_builder.controllers._device_state_monitor.controller.AsyncServiceInfo",
+        "esphome_device_builder.controllers._device_state_monitor.importable.AsyncServiceInfo",
         lambda *_args, **_kw: fake_info,
     )
 
@@ -155,6 +158,8 @@ def test_probe_device_no_zeroconf_is_a_noop() -> None:
     monitor = DeviceStateMonitor.__new__(DeviceStateMonitor)
 
     monitor.state = MonitorState()
+
+    monitor._importable = ImportableDiscovery(monitor)
 
     monitor._mdns = MdnsSource(monitor)
 

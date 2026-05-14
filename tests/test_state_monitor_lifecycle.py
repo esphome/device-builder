@@ -28,12 +28,11 @@ import pytest
 from zeroconf import ServiceStateChange
 
 from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
-from esphome_device_builder.controllers._device_state_monitor import (
-    controller as state_monitor_module,
-)
+from esphome_device_builder.controllers._device_state_monitor import importable as importable_module
 from esphome_device_builder.controllers._device_state_monitor import mdns as mdns_module
 from esphome_device_builder.controllers._device_state_monitor import ping as ping_module
 from esphome_device_builder.controllers._device_state_monitor._state import MonitorState
+from esphome_device_builder.controllers._device_state_monitor.importable import ImportableDiscovery
 from esphome_device_builder.controllers._device_state_monitor.mdns import MdnsSource
 from esphome_device_builder.controllers._device_state_monitor.ping import PingSource
 from esphome_device_builder.controllers._reachability_tracker import ReachabilityTracker
@@ -89,6 +88,8 @@ def _make_monitor(
 
     monitor.state = MonitorState()
 
+    monitor._importable = ImportableDiscovery(monitor)
+
     monitor._mdns = MdnsSource(monitor)
 
     monitor._ping = PingSource(monitor)
@@ -101,7 +102,7 @@ def _make_monitor(
     monitor._mdns._mdns_browser = None
     monitor._ping_task = None
     monitor._tasks = set()
-    monitor._import_discovery = None
+    monitor._importable._import_discovery = None
 
     callbacks = RecordingMonitorCallbacks(devices)
     monitor._on_state_change = callbacks.on_state_change
@@ -140,7 +141,7 @@ async def _start_with_captured_dispatch(
     fake_zeroconf.zeroconf = MagicMock()
     monkeypatch.setattr(mdns_module, "AsyncEsphomeZeroconf", lambda: fake_zeroconf)
     monkeypatch.setattr(
-        mdns_module,
+        importable_module,
         "DashboardImportDiscovery",
         lambda _cb: (
             import_discovery
@@ -327,7 +328,7 @@ async def test_start_continues_when_browser_construct_fails(
     fake_zeroconf.async_close = AsyncMock()
     monkeypatch.setattr(mdns_module, "AsyncEsphomeZeroconf", lambda: fake_zeroconf)
     monkeypatch.setattr(
-        state_monitor_module,
+        importable_module,
         "DashboardImportDiscovery",
         lambda _cb: MagicMock(),
     )
@@ -977,7 +978,7 @@ async def test_dispatch_http_service_added_records_url_and_refires_importable(
     fake_info.load_from_cache.return_value = True
     fake_info.server = "factory-firmware.local."
     fake_info.port = 8080
-    monkeypatch.setattr(state_monitor_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
+    monkeypatch.setattr(importable_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
 
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch, import_discovery=discovery)
     try:
@@ -1010,7 +1011,7 @@ async def test_dispatch_http_service_added_skips_when_no_importable(
     fake_info.load_from_cache.return_value = True
     fake_info.server = "stranger.local."
     fake_info.port = 80
-    monkeypatch.setattr(state_monitor_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
+    monkeypatch.setattr(importable_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
 
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch, import_discovery=discovery)
     try:
@@ -1045,7 +1046,7 @@ async def test_dispatch_http_service_removed_clears_url_and_refires(
 
     fake_info = MagicMock()
     fake_info.load_from_cache.return_value = False
-    monkeypatch.setattr(state_monitor_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
+    monkeypatch.setattr(importable_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
 
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch, import_discovery=discovery)
     try:
@@ -1096,7 +1097,7 @@ async def test_dispatch_http_service_added_cache_miss_resolves_and_applies(
     fake_info.async_request = AsyncMock(return_value=True)
     fake_info.server = "factory-firmware.local."
     fake_info.port = 80
-    monkeypatch.setattr(state_monitor_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
+    monkeypatch.setattr(importable_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
 
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch, import_discovery=discovery)
     try:
@@ -1126,7 +1127,7 @@ def test_revisit_all_importables_no_op_when_discovery_not_running() -> None:
     before the dashboard's mDNS browser has come up.
     """
     monitor, callbacks = _make_monitor()
-    monitor._import_discovery = None
+    monitor._importable._import_discovery = None
 
     monitor.revisit_all_importables()  # must not raise
 
@@ -1136,7 +1137,7 @@ def test_revisit_all_importables_no_op_when_discovery_not_running() -> None:
 def test_revisit_all_importables_re_emits_every_cached_entry() -> None:
     """``revisit_all_importables`` walks every entry and re-fires the ADD callback."""
     monitor, callbacks = _make_monitor(devices=[])
-    monitor._import_discovery = _make_import_discovery(
+    monitor._importable._import_discovery = _make_import_discovery(
         {
             f"a.{ESPHOMELIB_SERVICE_TYPE}": _build_discovered("a"),
             f"b.{ESPHOMELIB_SERVICE_TYPE}": _build_discovered("b"),
@@ -1166,7 +1167,7 @@ def test_revisit_importable_seeds_url_from_cache_when_http_already_resolved(
     monitor._mdns._zeroconf = MagicMock()
     monitor._mdns._zeroconf.zeroconf = MagicMock()
     discovered = _build_discovered("factory-firmware")
-    monitor._import_discovery = _make_import_discovery(
+    monitor._importable._import_discovery = _make_import_discovery(
         {f"factory-firmware.{ESPHOMELIB_SERVICE_TYPE}": discovered}
     )
 
@@ -1174,7 +1175,7 @@ def test_revisit_importable_seeds_url_from_cache_when_http_already_resolved(
     fake_info.load_from_cache.return_value = True
     fake_info.server = "factory-firmware.local."
     fake_info.port = 8080
-    monkeypatch.setattr(state_monitor_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
+    monkeypatch.setattr(importable_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
 
     monitor.revisit_importable("factory-firmware")
 
@@ -1194,7 +1195,7 @@ def test_revisit_importable_skips_seed_when_url_already_set() -> None:
     monitor, callbacks = _make_monitor(devices=[])
     monitor._mdns._zeroconf = MagicMock()
     monitor.state.http_urls["factory-firmware"] = "http://factory-firmware.local"
-    monitor._import_discovery = _make_import_discovery(
+    monitor._importable._import_discovery = _make_import_discovery(
         {f"factory-firmware.{ESPHOMELIB_SERVICE_TYPE}": _build_discovered("factory-firmware")}
     )
 
@@ -1208,7 +1209,7 @@ def test_revisit_importable_skips_seed_when_zeroconf_down() -> None:
     """Pre-start monitor (zeroconf=None) silently bails out of the seed."""
     monitor, _callbacks = _make_monitor(devices=[])
     monitor._mdns._zeroconf = None
-    monitor._import_discovery = _make_import_discovery(
+    monitor._importable._import_discovery = _make_import_discovery(
         {f"factory-firmware.{ESPHOMELIB_SERVICE_TYPE}": _build_discovered("factory-firmware")}
     )
 
@@ -1229,13 +1230,13 @@ def test_revisit_importable_seeds_nothing_on_cache_miss(
     monitor, _callbacks = _make_monitor(devices=[])
     monitor._mdns._zeroconf = MagicMock()
     monitor._mdns._zeroconf.zeroconf = MagicMock()
-    monitor._import_discovery = _make_import_discovery(
+    monitor._importable._import_discovery = _make_import_discovery(
         {f"factory-firmware.{ESPHOMELIB_SERVICE_TYPE}": _build_discovered("factory-firmware")}
     )
 
     fake_info = MagicMock()
     fake_info.load_from_cache.return_value = False
-    monkeypatch.setattr(state_monitor_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
+    monkeypatch.setattr(importable_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
 
     monitor.revisit_importable("factory-firmware")
 

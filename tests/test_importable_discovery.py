@@ -51,7 +51,7 @@ def _removed(callbacks) -> list[str]:
 def test_on_import_update_translates_to_adoptable_device() -> None:
     monitor, callbacks = make_state_monitor_with_callbacks([])
 
-    monitor._on_import_update("kitchen-1a2b3c._esphomelib._tcp.local.", _discovered())
+    monitor._importable._on_import_update("kitchen-1a2b3c._esphomelib._tcp.local.", _discovered())
 
     assert _added(callbacks) == [
         AdoptableDevice(
@@ -69,7 +69,7 @@ def test_on_import_update_translates_to_adoptable_device() -> None:
 def test_on_import_update_emits_removed_with_device_name() -> None:
     monitor, callbacks = make_state_monitor_with_callbacks([])
 
-    monitor._on_import_update("kitchen-1a2b3c._esphomelib._tcp.local.", None)
+    monitor._importable._on_import_update("kitchen-1a2b3c._esphomelib._tcp.local.", None)
 
     # The mDNS service name is sliced down to the device-name label so
     # the dashboard can index ``import_result`` by ``device.name``.
@@ -80,7 +80,7 @@ def test_on_import_update_skips_already_configured_devices() -> None:
     """Configured devices never surface as importable."""
     monitor, callbacks = make_state_monitor_with_callbacks([_device("kitchen-1a2b3c")])
 
-    monitor._on_import_update("kitchen-1a2b3c._esphomelib._tcp.local.", _discovered())
+    monitor._importable._on_import_update("kitchen-1a2b3c._esphomelib._tcp.local.", _discovered())
     assert _added(callbacks) == []
 
 
@@ -90,7 +90,7 @@ def test_on_import_update_threads_ignored_flag() -> None:
     monitor, callbacks = make_state_monitor_with_callbacks([])
     monitor._is_ignored = ignored.__contains__
 
-    monitor._on_import_update("kitchen-1a2b3c._esphomelib._tcp.local.", _discovered())
+    monitor._importable._on_import_update("kitchen-1a2b3c._esphomelib._tcp.local.", _discovered())
     added = _added(callbacks)
     assert len(added) == 1 and added[0].ignored is True
 
@@ -107,7 +107,7 @@ def test_on_import_update_friendly_name_none_becomes_empty_string() -> None:
         project_version="1.0",
         network="wifi",
     )
-    monitor._on_import_update("kitchen._esphomelib._tcp.local.", discovered)
+    monitor._importable._on_import_update("kitchen._esphomelib._tcp.local.", discovered)
 
     assert _added(callbacks)[0].friendly_name == ""
 
@@ -117,8 +117,8 @@ def test_get_importable_devices_filters_configured() -> None:
     monitor, _callbacks = make_state_monitor_with_callbacks([_device("garage")])
     # Stand in for a started DashboardImportDiscovery — populate its
     # ``import_state`` directly so we don't have to spin up zeroconf.
-    monitor._import_discovery = DashboardImportDiscovery()
-    monitor._import_discovery.import_state = {
+    monitor._importable._import_discovery = DashboardImportDiscovery()
+    monitor._importable._import_discovery.import_state = {
         "kitchen._esphomelib._tcp.local.": _discovered("kitchen"),
         "garage._esphomelib._tcp.local.": _discovered("garage"),
     }
@@ -144,8 +144,8 @@ def test_revisit_importable_refires_added_when_cached() -> None:
     fires; we have to nudge the cache ourselves.
     """
     monitor, callbacks = make_state_monitor_with_callbacks([])  # device just got deleted
-    monitor._import_discovery = DashboardImportDiscovery()
-    monitor._import_discovery.import_state = {
+    monitor._importable._import_discovery = DashboardImportDiscovery()
+    monitor._importable._import_discovery.import_state = {
         "kitchen-1a2b3c._esphomelib._tcp.local.": _discovered("kitchen-1a2b3c"),
     }
 
@@ -159,8 +159,8 @@ def test_revisit_importable_refires_added_when_cached() -> None:
 def test_revisit_importable_noop_for_unknown_name() -> None:
     """No cached entry → no callback fires (and no crash)."""
     monitor, callbacks = make_state_monitor_with_callbacks([])
-    monitor._import_discovery = DashboardImportDiscovery()
-    monitor._import_discovery.import_state = {}
+    monitor._importable._import_discovery = DashboardImportDiscovery()
+    monitor._importable._import_discovery.import_state = {}
 
     monitor.revisit_importable("unknown")
 
@@ -182,8 +182,8 @@ def test_apply_http_service_info_populates_web_url_and_refires() -> None:
     card's Visit-web-UI link in place.
     """
     monitor, callbacks = make_state_monitor_with_callbacks([])
-    monitor._import_discovery = DashboardImportDiscovery()
-    monitor._import_discovery.import_state = {
+    monitor._importable._import_discovery = DashboardImportDiscovery()
+    monitor._importable._import_discovery.import_state = {
         "kitchen._esphomelib._tcp.local.": _discovered("kitchen"),
     }
 
@@ -191,7 +191,7 @@ def test_apply_http_service_info_populates_web_url_and_refires() -> None:
     info.server = "kitchen.local."
     info.port = 80
 
-    monitor._apply_http_service_info("kitchen", info)
+    monitor._importable._apply_http_service_info("kitchen", info)
 
     assert monitor.state.http_urls == {"kitchen": "http://kitchen.local"}
     added = _added(callbacks)
@@ -202,8 +202,8 @@ def test_apply_http_service_info_populates_web_url_and_refires() -> None:
 def test_apply_http_service_info_includes_non_default_port() -> None:
     """Non-port-80 services build URLs with the explicit ``:port`` suffix."""
     monitor, callbacks = make_state_monitor_with_callbacks([])
-    monitor._import_discovery = DashboardImportDiscovery()
-    monitor._import_discovery.import_state = {
+    monitor._importable._import_discovery = DashboardImportDiscovery()
+    monitor._importable._import_discovery.import_state = {
         "kitchen._esphomelib._tcp.local.": _discovered("kitchen"),
     }
 
@@ -211,15 +211,15 @@ def test_apply_http_service_info_includes_non_default_port() -> None:
     info.server = "kitchen.local."
     info.port = 8080
 
-    monitor._apply_http_service_info("kitchen", info)
+    monitor._importable._apply_http_service_info("kitchen", info)
     assert _added(callbacks)[0].web_url == "http://kitchen.local:8080"
 
 
 def test_apply_http_service_info_skips_when_unchanged() -> None:
     """Repeat announcements for the same URL don't re-fire ADDED."""
     monitor, callbacks = make_state_monitor_with_callbacks([])
-    monitor._import_discovery = DashboardImportDiscovery()
-    monitor._import_discovery.import_state = {
+    monitor._importable._import_discovery = DashboardImportDiscovery()
+    monitor._importable._import_discovery.import_state = {
         "kitchen._esphomelib._tcp.local.": _discovered("kitchen"),
     }
 
@@ -227,8 +227,8 @@ def test_apply_http_service_info_skips_when_unchanged() -> None:
     info.server = "kitchen.local."
     info.port = 80
 
-    monitor._apply_http_service_info("kitchen", info)
-    monitor._apply_http_service_info("kitchen", info)
+    monitor._importable._apply_http_service_info("kitchen", info)
+    monitor._importable._apply_http_service_info("kitchen", info)
 
     # Single fire — duplicate calls are deduped by URL equality.
     assert len(_added(callbacks)) == 1
@@ -244,8 +244,8 @@ def test_revisit_importable_skips_ignored_devices() -> None:
     ignored = {"kitchen-1a2b3c"}
     monitor, callbacks = make_state_monitor_with_callbacks([])
     monitor._is_ignored = ignored.__contains__
-    monitor._import_discovery = DashboardImportDiscovery()
-    monitor._import_discovery.import_state = {
+    monitor._importable._import_discovery = DashboardImportDiscovery()
+    monitor._importable._import_discovery.import_state = {
         "kitchen-1a2b3c._esphomelib._tcp.local.": _discovered("kitchen-1a2b3c"),
     }
 
