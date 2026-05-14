@@ -33,7 +33,7 @@ from ....helpers.peer_link_noise import (
     pin_sha256_for_pubkey,
     public_bytes_for_priv,
 )
-from ....helpers.peer_link_resolver import _BlocklistingResolver, make_peer_link_http_session
+from ....helpers.peer_link_resolver import _SkipHostsResolver, make_peer_link_http_session
 from ....models import (
     IntentResponse,
     PeerLinkIntent,
@@ -133,14 +133,15 @@ class PeerLinkClient:
         # Peer IPs we've self-loopbacked against. Read live by the
         # resolver wrapper below so the next reconnect picks a
         # different A record from aiohttp's cached resolution.
-        self._blocked_peer_ips: set[str] = set()
+        # IPv4-shaped: IPv6 doesn't manifest the docker-bridge
+        # self-loopback shape (no shared default ULA prefix) so
+        # we don't normalise v6 representations here.
+        self._self_loopback_ips: set[str] = set()
         # ``None`` falls back to aiohttp's default resolver — the
         # only viable shape for unit tests that don't construct a
         # real Zeroconf.
         self._http_resolver: AbstractResolver | None = (
-            _BlocklistingResolver(resolver, self._blocked_peer_ips)
-            if resolver is not None
-            else None
+            _SkipHostsResolver(resolver, self._self_loopback_ips) if resolver is not None else None
         )
         self._dashboard_id = dashboard_id
         # Compared against ``session.remote_static_pub``
@@ -624,10 +625,10 @@ class PeerLinkClient:
     def _fire_queue_status(self, idle: bool, running: bool, queue_depth: int) -> None:
         _dispatch.fire_queue_status(self, idle, running, queue_depth)
 
-    def _on_self_static_observed(self, peer: object) -> str:
-        """Blocklist *peer*'s IP, log ERROR, return the transport-error close reason."""
+    def _on_self_static_observed(self, peer: Any) -> str:
+        """Skip *peer*'s IP next resolve, log ERROR, return the transport-error close reason."""
         if isinstance(peer, tuple) and peer and isinstance(peer[0], str):
-            self._blocked_peer_ips.add(peer[0])
+            self._self_loopback_ips.add(peer[0])
         _LOGGER.error(
             "peer-link client to %s:%d observed our own static pubkey from the responder "
             "(peer=%s pin=%s); check mDNS / routing (hostname resolves to one of this "

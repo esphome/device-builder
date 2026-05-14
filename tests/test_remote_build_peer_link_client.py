@@ -83,7 +83,7 @@ from esphome_device_builder.helpers.peer_link_noise import (
     PeerLinkNoiseSession,
     pin_sha256_for_pubkey,
 )
-from esphome_device_builder.helpers.peer_link_resolver import _BlocklistingResolver
+from esphome_device_builder.helpers.peer_link_resolver import _SkipHostsResolver
 from esphome_device_builder.models import (
     PAIRING_VERSION_MAX_LEN,
     ErrorCode,
@@ -3332,7 +3332,7 @@ async def test_peer_link_client_self_loopback_logs_error_and_retries(
             # Offending peer IP is captured so the next reconnect's
             # resolver wrapper skips it (aiohttp would otherwise serve
             # the same cached resolution and land on this IP forever).
-            assert "127.0.0.1" in client._blocked_peer_ips
+            assert "127.0.0.1" in client._self_loopback_ips
             loopback = [
                 rec
                 for rec in caplog.records
@@ -3348,8 +3348,8 @@ async def test_peer_link_client_self_loopback_logs_error_and_retries(
 
 
 @pytest.mark.asyncio
-async def test_blocklisting_resolver_strips_blocked_hosts_live() -> None:
-    """``_BlocklistingResolver.resolve`` filters blocked entries, picking up live edits."""
+async def test_skip_hosts_resolver_strips_skipped_entries_live() -> None:
+    """``_SkipHostsResolver.resolve`` filters skipped entries, picking up live edits."""
     inner = MagicMock()
     inner.resolve = AsyncMock(
         return_value=[
@@ -3357,14 +3357,14 @@ async def test_blocklisting_resolver_strips_blocked_hosts_live() -> None:
             {"host": "172.17.0.1", "port": 6055, "family": 0, "flags": 0, "hostname": "x"},
         ]
     )
-    blocked: set[str] = {"172.17.0.1"}
-    wrapper = _BlocklistingResolver(inner, blocked)
+    skip_hosts: set[str] = {"172.17.0.1"}
+    wrapper = _SkipHostsResolver(inner, skip_hosts)
 
     assert [r["host"] for r in await wrapper.resolve("x", 6055)] == ["192.168.1.10"]
     # Live mutation: the owning client appends to the set between
     # resolves; the wrapper must read it fresh, not snapshot at
     # construction.
-    blocked.add("192.168.1.10")
+    skip_hosts.add("192.168.1.10")
     assert await wrapper.resolve("x", 6055) == []
 
 
