@@ -45,6 +45,7 @@ import pytest
 from esphome_device_builder.models import (
     EventType,
     JobLifecycleData,
+    QueueStatus,
 )
 
 from ..conftest import capture_events
@@ -90,7 +91,9 @@ def receiver_firmware_cancel(paired_instances: PairedInstances) -> _FirmwareCanc
     cancel = AsyncMock(side_effect=_record_call)
     firmware = MagicMock()
     firmware.cancel = cancel
-    firmware.queue_status_snapshot = MagicMock(return_value=(True, False, 0))
+    firmware.queue_status_snapshot = MagicMock(
+        return_value=QueueStatus(idle=True, running=False, queue_depth=0)
+    )
     paired_instances.receiver._db.firmware = firmware
     return _FirmwareCancelStub(mock=cancel, called=called)
 

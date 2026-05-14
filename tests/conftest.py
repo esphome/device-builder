@@ -43,7 +43,13 @@ from esphome_device_builder.controllers.remote_build import (
     ReceiverController,
 )
 from esphome_device_builder.helpers.event_bus import Event, EventBus
-from esphome_device_builder.models import AdoptableDevice, Device, DeviceState, EventType
+from esphome_device_builder.models import (
+    AdoptableDevice,
+    Device,
+    DeviceState,
+    EventType,
+    QueueStatus,
+)
 
 if TYPE_CHECKING:
     from blockbuster import BlockBuster
@@ -282,7 +288,9 @@ def make_remote_build_controller(
     db.settings = MagicMock()
     db.settings.config_dir = config_dir
     db.create_background_task = asyncio.create_task
-    db.firmware.queue_status_snapshot = MagicMock(return_value=(True, False, 0))
+    db.firmware.queue_status_snapshot = MagicMock(
+        return_value=QueueStatus(idle=True, running=False, queue_depth=0)
+    )
     if bus is not None:
         db.bus = bus
     return RemoteBuildTestHandles(

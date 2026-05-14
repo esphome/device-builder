@@ -26,6 +26,7 @@ from ...models import (
     JobBuildSource,
     JobStatus,
     JobType,
+    QueueStatus,
 )
 from . import bulk, cli, factories, follow, jobs, lifecycle, persistence, runner
 from . import clean as clean_mod
@@ -67,8 +68,8 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     # Lifecycle
     # ------------------------------------------------------------------
 
-    def queue_status_snapshot(self) -> tuple[bool, bool, int]:
-        """Return ``(idle, running, queue_depth)`` for the firmware queue; sync, no I/O.
+    def queue_status_snapshot(self) -> QueueStatus:
+        """Return a :class:`QueueStatus` snapshot of the firmware queue; sync, no I/O.
 
         ``idle`` and ``running`` aren't redundant with each other:
         ``running=False, queue_depth>0`` is the window between
@@ -79,7 +80,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         running = self.state.current_job is not None
         queue_depth = self.state.queue.qsize()
         idle = not running and queue_depth == 0
-        return idle, running, queue_depth
+        return QueueStatus(idle=idle, running=running, queue_depth=queue_depth)
 
     async def start(self) -> None:
         """Start the queue processor and restore persisted jobs."""

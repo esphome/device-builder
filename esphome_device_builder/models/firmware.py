@@ -4,11 +4,28 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TypedDict
+from typing import NamedTuple, TypedDict
 
 from mashumaro.mixins.orjson import DataClassORJSONMixin
 
 from .common import EventType
+
+
+class QueueStatus(NamedTuple):
+    """Snapshot of the firmware queue's RAM state.
+
+    Returned by :meth:`FirmwareController.queue_status_snapshot` —
+    a tuple subclass so the existing
+    ``idle, running, queue_depth = ...`` unpacking on the
+    receiver-side broadcast paths keeps working, plus named
+    access (``snapshot.idle``) for test stubs and any future
+    caller that wants to read one field without unpacking the
+    rest.
+    """
+
+    idle: bool
+    running: bool
+    queue_depth: int
 
 
 class JobStatus(StrEnum):

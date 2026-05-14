@@ -83,6 +83,7 @@ from esphome_device_builder.models import (
     JobLifecycleData,
     JobStatus,
     JobType,
+    QueueStatus,
 )
 
 from .._storage_fixtures import write_storage_json
@@ -170,7 +171,9 @@ def _wire_receiver_firmware_recorder(instances: PairedInstances) -> list[Firmwar
     # ValueError. Pin a sane tuple so the listener runs cleanly
     # rather than spamming the test log with swallowed
     # exceptions on every fire().
-    firmware.queue_status_snapshot = MagicMock(return_value=(True, False, 0))
+    firmware.queue_status_snapshot = MagicMock(
+        return_value=QueueStatus(idle=True, running=False, queue_depth=0)
+    )
     return created_jobs
 
 
@@ -569,17 +572,23 @@ def _drive_receiver_lifecycle(
     bus = paired_instances.receiver_bus
 
     # JOB_QUEUED: queue_depth bumped, runner not yet picking up.
-    firmware.queue_status_snapshot = MagicMock(return_value=(False, False, 1))
+    firmware.queue_status_snapshot = MagicMock(
+        return_value=QueueStatus(idle=False, running=False, queue_depth=1)
+    )
     bus.fire(EventType.JOB_QUEUED, JobLifecycleData(job=job))
 
     # JOB_STARTED: runner picked up, queue_depth back to 0.
-    firmware.queue_status_snapshot = MagicMock(return_value=(False, True, 0))
+    firmware.queue_status_snapshot = MagicMock(
+        return_value=QueueStatus(idle=False, running=True, queue_depth=0)
+    )
     bus.fire(EventType.JOB_STARTED, JobLifecycleData(job=job))
 
     # Terminal: post-``_finalize_terminal`` state — slot
     # released, nothing queued. The fix this test pins is that
     # this snapshot is what the broadcast carries.
-    firmware.queue_status_snapshot = MagicMock(return_value=(True, False, 0))
+    firmware.queue_status_snapshot = MagicMock(
+        return_value=QueueStatus(idle=True, running=False, queue_depth=0)
+    )
     bus.fire(terminal, JobLifecycleData(job=job))
 
 
