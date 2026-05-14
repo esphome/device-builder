@@ -61,6 +61,7 @@ from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.build_scheduler import BuildSchedulerInputs
 from esphome_device_builder.helpers.dashboard_advertise import SERVICE_TYPE
 from esphome_device_builder.helpers.event_bus import EventBus
+from esphome_device_builder.helpers.peer_link_identity import PeerLinkIdentityStore
 from esphome_device_builder.helpers.remote_build_layout import RemoteBuildPath
 from esphome_device_builder.models import (
     ErrorCode,
@@ -1340,6 +1341,7 @@ async def test_start_skips_when_devices_controller_missing(tmp_path: Path) -> No
     db.devices = None
     db.settings = MagicMock()
     db.settings.config_dir = tmp_path
+    db.peer_link_identity_store = PeerLinkIdentityStore(tmp_path)
     controller = RemoteBuildController(
         offloader=OffloaderController(db),
         receiver=ReceiverController(db),
@@ -1373,6 +1375,7 @@ async def test_start_leaves_peer_link_resolver_none_when_devices_controller_miss
     db.devices = None
     db.settings = MagicMock()
     db.settings.config_dir = tmp_path
+    db.peer_link_identity_store = PeerLinkIdentityStore(tmp_path)
     controller = RemoteBuildController(
         offloader=OffloaderController(db),
         receiver=ReceiverController(db),
@@ -4021,7 +4024,7 @@ async def test_run_cleanup_loop_reclaims_cold_subtree_and_skips_in_flight(
         # body runs without waiting an hour.
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader.asyncio.sleep",
+        "esphome_device_builder.controllers.remote_build.cleanup_loop.asyncio.sleep",
         _short_sleep,
     )
 
@@ -4074,7 +4077,7 @@ async def test_run_cleanup_loop_logs_per_cycle_exception_and_continues(
             raise asyncio.CancelledError
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader.asyncio.sleep",
+        "esphome_device_builder.controllers.remote_build.cleanup_loop.asyncio.sleep",
         _short_sleep,
     )
 
@@ -4123,7 +4126,7 @@ async def test_run_cleanup_loop_short_circuits_when_firmware_missing(
             raise asyncio.CancelledError
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader.asyncio.sleep",
+        "esphome_device_builder.controllers.remote_build.cleanup_loop.asyncio.sleep",
         _short_sleep,
     )
 

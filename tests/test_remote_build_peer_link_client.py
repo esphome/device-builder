@@ -1761,9 +1761,14 @@ async def test_request_pair_clears_offloader_alert_for_same_receiver(
     fake_identity.private_bytes = b"\x00" * 32
     fake_dashboard = MagicMock()
     fake_dashboard.dashboard_id = "dashboard-stub"
+
+    async def _fake_load_offloader_identities(
+        _fi: MagicMock = fake_identity, _fd: MagicMock = fake_dashboard
+    ) -> tuple[MagicMock, MagicMock]:
+        return _fi, _fd
+
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader._load_offloader_identities",
-        lambda _config_dir, _identity_store: (fake_identity, fake_dashboard),
+        offloader, "_load_offloader_identities_async", _fake_load_offloader_identities
     )
     # Park the spawned listener on an unfulfilled wait so the
     # test exits cleanly.
@@ -1897,9 +1902,14 @@ async def test_request_pair_repair_then_unpair_clean_state(
     fake_identity.private_bytes = b"\x00" * 32
     fake_dashboard = MagicMock()
     fake_dashboard.dashboard_id = "dashboard-stub"
+
+    async def _fake_load_offloader_identities(
+        _fi: MagicMock = fake_identity, _fd: MagicMock = fake_dashboard
+    ) -> tuple[MagicMock, MagicMock]:
+        return _fi, _fd
+
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader._load_offloader_identities",
-        lambda _config_dir, _identity_store: (fake_identity, fake_dashboard),
+        offloader, "_load_offloader_identities_async", _fake_load_offloader_identities
     )
 
     # First pair lands PENDING with pin1.
@@ -2343,9 +2353,14 @@ async def test_pair_status_listener_loop_backs_off_on_transport_error(
     fake_identity.private_bytes = b"\x00" * 32
     fake_dashboard = MagicMock()
     fake_dashboard.dashboard_id = "alpha"
+
+    async def _fake_load_offloader_identities(
+        _fi: MagicMock = fake_identity, _fd: MagicMock = fake_dashboard
+    ) -> tuple[MagicMock, MagicMock]:
+        return _fi, _fd
+
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader._load_offloader_identities",
-        lambda _config_dir, _identity_store: (fake_identity, fake_dashboard),
+        offloader, "_load_offloader_identities_async", _fake_load_offloader_identities
     )
 
     await offloader._await_pair_status_flip(pairing)
@@ -2405,9 +2420,14 @@ async def test_pair_status_listener_loop_backs_off_on_unexpected_status(
     fake_identity.private_bytes = b"\x00" * 32
     fake_dashboard = MagicMock()
     fake_dashboard.dashboard_id = "alpha"
+
+    async def _fake_load_offloader_identities(
+        _fi: MagicMock = fake_identity, _fd: MagicMock = fake_dashboard
+    ) -> tuple[MagicMock, MagicMock]:
+        return _fi, _fd
+
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.offloader._load_offloader_identities",
-        lambda _config_dir, _identity_store: (fake_identity, fake_dashboard),
+        offloader, "_load_offloader_identities_async", _fake_load_offloader_identities
     )
 
     await offloader._await_pair_status_flip(pairing)

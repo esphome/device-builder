@@ -2,13 +2,13 @@
 Persistent peer-link identity (X25519 keypair) for the remote-build feature.
 
 Generates and persists, on first call to
-:func:`get_or_create_peer_link_identity`:
+:meth:`PeerLinkIdentityStore.async_load`:
 
 * a 32-byte X25519 private key at
   ``<config_dir>/.device-builder-peer-link-key.bin`` (mode ``0600``)
 
-Subsequent calls reload the same bytes. The matching public key
-is derived from the private key via :mod:`cryptography`'s
+Subsequent calls return the cached identity. The matching public
+key is derived from the private key via :mod:`cryptography`'s
 ``X25519PrivateKey.public_key().public_bytes_raw()``. The public
 half is recomputed each load rather than persisted, so a corrupted
 public-key file can't desync from the private half.
@@ -22,10 +22,6 @@ peers OOB-verify during pairing and broadcast in mDNS TXT.
 :mod:`helpers.dashboard_identity` composes this key's
 fingerprint with the persistent ``dashboard_id`` for the
 Settings UI.
-
-Generation is one ``X25519PrivateKey.generate()`` call plus a
-single atomic file write. Sync and blocking; async callers must
-hop through ``run_in_executor``.
 """
 
 from __future__ import annotations
@@ -33,7 +29,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -79,24 +74,25 @@ class PeerLinkIdentityStore:
 
     One instance per :class:`DeviceBuilder` (constructed at
     init, owned across the dashboard's lifetime). The store
-    serialises generation so two threads racing on a fresh
-    config dir don't both write a key, and caches the parsed
-    :class:`PeerLinkIdentity` so the disk read + X25519 derive
-    + SHA-256 + log line only fire once per process.
+    serialises generation + rotation under an
+    :class:`asyncio.Lock` so a concurrent :meth:`async_load`
+    can't return the pre-rotation identity while
+    :meth:`async_rotate` is mid-write, and so two callers
+    racing on a fresh config dir don't both write a key.
 
-    :meth:`rotate` updates the cache in-place under the same
-    lock, so a post-rotate :meth:`load` returns the new
-    identity without a stale-cache window.
+    The lock is held across the executor hop, so the cache
+    check and the disk I/O are one atomic step from the
+    event loop's perspective.
     """
 
     def __init__(self, config_dir: Path) -> None:
         self._key_path = config_dir / _KEY_FILENAME
-        self._lock = threading.Lock()
+        self._lock = asyncio.Lock()
         self._cached: PeerLinkIdentity | None = None
 
-    def load(self) -> PeerLinkIdentity:
+    async def async_load(self) -> PeerLinkIdentity:
         """
-        Load the persistent peer-link identity, generating it on first call.
+        Return the cached identity, loading from disk on first call.
 
         Idempotent. An unreadable or wrong-length key file is
         treated as "missing" and regenerated; the previous
@@ -108,20 +104,14 @@ class PeerLinkIdentityStore:
         curve's clamping, so no parse-validation step is
         needed.
         """
-        with self._lock:
+        async with self._lock:
             if self._cached is not None:
                 return self._cached
-            private_bytes = _load_key(self._key_path)
-            if private_bytes is None:
-                private_bytes = _generate_key()
-                atomic_write(self._key_path, private_bytes, mode=_KEY_MODE)
-                _LOGGER.info("Generated new peer-link identity at %s", self._key_path)
-            identity = _build_identity(private_bytes)
-            _log_loaded_identity(self._key_path, identity.public_bytes, identity.pin_sha256)
+            identity = await asyncio.get_running_loop().run_in_executor(None, self._load_blocking)
             self._cached = identity
             return identity
 
-    def rotate(self) -> PeerLinkIdentity:
+    async def async_rotate(self) -> PeerLinkIdentity:
         """
         Generate a fresh X25519 keypair, replacing whatever's on disk.
 
@@ -133,28 +123,36 @@ class PeerLinkIdentityStore:
         receiver-side / offloader-side ``pin_mismatch`` event
         fires and the UI prompts re-pair.
 
-        Sync and blocking. Async callers prefer
-        :meth:`async_rotate`.
+        Replaces the cache under the same lock as
+        :meth:`async_load`, so a concurrent loader either sees
+        the pre-rotate identity (lock acquired first) or waits
+        and sees the post-rotate one — never the pre-rotate
+        identity after the on-disk write has landed.
         """
-        with self._lock:
-            private_bytes = _generate_key()
-            atomic_write(self._key_path, private_bytes, mode=_KEY_MODE)
-            _LOGGER.info("Rotated peer-link identity at %s", self._key_path)
-            identity = _build_identity(private_bytes)
-            _log_loaded_identity(self._key_path, identity.public_bytes, identity.pin_sha256)
+        async with self._lock:
+            identity = await asyncio.get_running_loop().run_in_executor(None, self._rotate_blocking)
             self._cached = identity
             return identity
 
-    async def async_load(self) -> PeerLinkIdentity:
-        """Async wrapper that runs :meth:`load` on the default executor."""
-        # Cached path is sync — skip the executor hop after first load.
-        if self._cached is not None:
-            return self._cached
-        return await asyncio.get_running_loop().run_in_executor(None, self.load)
+    def _load_blocking(self) -> PeerLinkIdentity:
+        """Disk read + X25519 derive; runs in the default executor."""
+        private_bytes = _load_key(self._key_path)
+        if private_bytes is None:
+            private_bytes = _generate_key()
+            atomic_write(self._key_path, private_bytes, mode=_KEY_MODE)
+            _LOGGER.info("Generated new peer-link identity at %s", self._key_path)
+        identity = _build_identity(private_bytes)
+        _log_loaded_identity(self._key_path, identity.public_bytes, identity.pin_sha256)
+        return identity
 
-    async def async_rotate(self) -> PeerLinkIdentity:
-        """Async wrapper that runs :meth:`rotate` on the default executor."""
-        return await asyncio.get_running_loop().run_in_executor(None, self.rotate)
+    def _rotate_blocking(self) -> PeerLinkIdentity:
+        """Generate + atomic write + derive; runs in the default executor."""
+        private_bytes = _generate_key()
+        atomic_write(self._key_path, private_bytes, mode=_KEY_MODE)
+        _LOGGER.info("Rotated peer-link identity at %s", self._key_path)
+        identity = _build_identity(private_bytes)
+        _log_loaded_identity(self._key_path, identity.public_bytes, identity.pin_sha256)
+        return identity
 
 
 def _build_identity(private_bytes: bytes) -> PeerLinkIdentity:

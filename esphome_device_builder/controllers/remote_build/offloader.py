@@ -19,7 +19,6 @@ reference passed to both at construction.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -31,7 +30,6 @@ from ...helpers.api import api_command
 from ...helpers.build_scheduler import BuildSchedulerInputs
 from ...helpers.dashboard_identity import get_or_create_identity
 from ...helpers.event_bus import Event
-from ...helpers.peer_link_identity import PeerLinkIdentityStore
 from ...helpers.peer_link_resolver import make_peer_link_resolver
 from ...helpers.storage import Store
 from ...models import (
@@ -80,22 +78,6 @@ if TYPE_CHECKING:
     from .peer_link_client import PeerLinkClient
 
 _LOGGER = logging.getLogger(__name__)
-
-
-def _load_offloader_identities(
-    config_dir: Path,
-    identity_store: PeerLinkIdentityStore,
-) -> tuple[PeerLinkIdentity, DashboardIdentity]:
-    """Load both offloader-side identities in one executor hop.
-
-    Bundling keeps the async caller's body to a single
-    ``await`` instead of two. Both calls go through
-    *identity_store* so the X25519 keypair is loaded from disk
-    at most once per process.
-    """
-    peer_link = identity_store.load()
-    dashboard = get_or_create_identity(config_dir, identity_store)
-    return peer_link, dashboard
 
 
 # Debounce window for the offloader-side pairings-store write
@@ -198,24 +180,24 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
     async def _load_offloader_identities_async(
         self,
     ) -> tuple[PeerLinkIdentity, DashboardIdentity]:
-        """Read both offloader-side identities off the executor.
+        """Return both offloader-side identities, hitting the store cache.
 
-        WS-command handlers and the pair-status listener
-        deliberately re-read from disk on every call rather than
-        using the :meth:`start`-time cache on
-        :attr:`_offloader_peer_link_priv` /
-        :attr:`_offloader_dashboard_id` — :meth:`rotate_identity`
-        rewrites the keypair file without updating the cache,
-        so caching would sign post-rotation calls with the old
-        key.
+        WS-command handlers and the pair-status listener call
+        this on every request rather than caching at
+        :meth:`start` time so that a receiver-side
+        :meth:`rotate_identity` (which goes through
+        :class:`PeerLinkIdentityStore`) is picked up on the
+        next call. The store's own
+        :class:`asyncio.Lock` serialises load / rotate, so a
+        load running concurrently with a rotation either
+        returns the pre-rotate identity (lock acquired first)
+        or waits and returns the post-rotate one.
         """
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            None,
-            _load_offloader_identities,
-            self._db.settings.config_dir,
-            self._db.peer_link_identity_store,
-        )
+        config_dir = self._db.settings.config_dir
+        identity_store = self._db.peer_link_identity_store
+        peer_link = await identity_store.async_load()
+        dashboard = await get_or_create_identity(config_dir, identity_store)
+        return peer_link, dashboard
 
     def _setup_peer_link_resolver(self) -> None:
         """

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import TYPE_CHECKING
 
 from ...helpers import dashboard_identity as _dashboard_identity_helper
@@ -27,10 +26,7 @@ async def get_identity(controller: ReceiverController) -> IdentityView:
     ``pin_sha256`` (the fingerprint mDNS broadcasts and
     offloaders pin against).
     """
-    loop = asyncio.get_running_loop()
-    identity = await loop.run_in_executor(
-        None,
-        get_or_create_identity,
+    identity = await get_or_create_identity(
         controller._db.settings.config_dir,
         controller._db.peer_link_identity_store,
     )
@@ -64,10 +60,7 @@ async def rotate_identity(controller: ReceiverController) -> IdentityView:
         raise CommandError(ErrorCode.ALREADY_EXISTS, msg)
     controller.state.rotation_in_flight = True
     try:
-        loop = asyncio.get_running_loop()
-        identity = await loop.run_in_executor(
-            None,
-            _dashboard_identity_helper.rotate_identity,
+        identity = await _dashboard_identity_helper.rotate_identity(
             controller._db.settings.config_dir,
             controller._db.peer_link_identity_store,
         )

@@ -9,6 +9,7 @@ that keeps the secret half off other users on the host.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import sys
 import threading
@@ -29,93 +30,93 @@ from esphome_device_builder.helpers.peer_link_identity import (
 )
 
 
-def test_first_call_creates_keyfile_with_correct_length(tmp_path: Path) -> None:
+async def test_first_call_creates_keyfile_with_correct_length(tmp_path: Path) -> None:
     """Lazy-create on first call produces a 32-byte key file."""
     key_path = tmp_path / _KEY_FILENAME
     assert not key_path.exists()
-    identity = PeerLinkIdentityStore(tmp_path).load()
+    identity = await PeerLinkIdentityStore(tmp_path).async_load()
     assert key_path.exists()
     assert len(key_path.read_bytes()) == _KEY_LENGTH
     assert identity.private_bytes == key_path.read_bytes()
 
 
-def test_second_call_reloads_same_identity(tmp_path: Path) -> None:
+async def test_second_call_reloads_same_identity(tmp_path: Path) -> None:
     """Subsequent calls return the same private + public bytes."""
-    first = PeerLinkIdentityStore(tmp_path).load()
-    second = PeerLinkIdentityStore(tmp_path).load()
+    first = await PeerLinkIdentityStore(tmp_path).async_load()
+    second = await PeerLinkIdentityStore(tmp_path).async_load()
     assert first.private_bytes == second.private_bytes
     assert first.public_bytes == second.public_bytes
     assert first.pin_sha256 == second.pin_sha256
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes only")
-def test_keyfile_has_strict_perms(tmp_path: Path) -> None:
+async def test_keyfile_has_strict_perms(tmp_path: Path) -> None:
     """Key file must be readable only by the owner; same shape as the cert key."""
-    PeerLinkIdentityStore(tmp_path).load()
+    await PeerLinkIdentityStore(tmp_path).async_load()
     key_path = tmp_path / _KEY_FILENAME
     assert key_path.stat().st_mode & 0o777 == _KEY_MODE
 
 
-def test_pin_sha256_matches_pubkey_hash(tmp_path: Path) -> None:
+async def test_pin_sha256_matches_pubkey_hash(tmp_path: Path) -> None:
     """``pin_sha256`` is the lowercase-hex SHA-256 of the public bytes."""
-    identity = PeerLinkIdentityStore(tmp_path).load()
+    identity = await PeerLinkIdentityStore(tmp_path).async_load()
     expected = hashlib.sha256(identity.public_bytes).hexdigest()
     assert identity.pin_sha256 == expected
     assert len(identity.pin_sha256) == 64
     assert identity.pin_sha256 == identity.pin_sha256.lower()
 
 
-def test_pin_sha256_formatted_groups_bytes_with_spaces(tmp_path: Path) -> None:
-    identity = PeerLinkIdentityStore(tmp_path).load()
+async def test_pin_sha256_formatted_groups_bytes_with_spaces(tmp_path: Path) -> None:
+    identity = await PeerLinkIdentityStore(tmp_path).async_load()
     parts = identity.pin_sha256_formatted.split(" ")
     # 64 hex chars / 2 chars per byte = 32 byte groups
     assert len(parts) == 32
     assert all(len(p) == 2 for p in parts)
 
 
-def test_pubkey_round_trips_through_x25519(tmp_path: Path) -> None:
+async def test_pubkey_round_trips_through_x25519(tmp_path: Path) -> None:
     """The persisted private bytes parse cleanly as X25519 + the pubkey is consistent."""
-    identity = PeerLinkIdentityStore(tmp_path).load()
+    identity = await PeerLinkIdentityStore(tmp_path).async_load()
     derived_pub = (
         X25519PrivateKey.from_private_bytes(identity.private_bytes).public_key().public_bytes_raw()
     )
     assert derived_pub == identity.public_bytes
 
 
-def test_two_different_dirs_get_different_keys(tmp_path: Path) -> None:
+async def test_two_different_dirs_get_different_keys(tmp_path: Path) -> None:
     dir_a = tmp_path / "a"
     dir_b = tmp_path / "b"
     dir_a.mkdir()
     dir_b.mkdir()
-    a = PeerLinkIdentityStore(dir_a).load()
-    b = PeerLinkIdentityStore(dir_b).load()
+    a = await PeerLinkIdentityStore(dir_a).async_load()
+    b = await PeerLinkIdentityStore(dir_b).async_load()
     assert a.private_bytes != b.private_bytes
     assert a.pin_sha256 != b.pin_sha256
 
 
-def test_rotation_replaces_keypair(tmp_path: Path) -> None:
-    """``rotate_peer_link_identity`` writes a fresh keypair; pin changes."""
-    before = PeerLinkIdentityStore(tmp_path).load()
-    after = PeerLinkIdentityStore(tmp_path).rotate()
+async def test_rotation_replaces_keypair(tmp_path: Path) -> None:
+    """``async_rotate`` writes a fresh keypair; pin changes."""
+    before = await PeerLinkIdentityStore(tmp_path).async_load()
+    after = await PeerLinkIdentityStore(tmp_path).async_rotate()
     assert before.private_bytes != after.private_bytes
     assert before.pin_sha256 != after.pin_sha256
     # Subsequent reload sees the rotated key.
-    reloaded = PeerLinkIdentityStore(tmp_path).load()
+    reloaded = await PeerLinkIdentityStore(tmp_path).async_load()
     assert reloaded.private_bytes == after.private_bytes
 
 
-def test_corrupted_keyfile_wrong_length_is_regenerated(tmp_path: Path) -> None:
+async def test_corrupted_keyfile_wrong_length_is_regenerated(tmp_path: Path) -> None:
     """A truncated key file is treated as missing; regeneration produces a usable identity."""
     key_path = tmp_path / _KEY_FILENAME
     # Write 16 bytes (half a real key); will fail the length check.
     key_path.write_bytes(b"\x00" * 16)
-    identity = PeerLinkIdentityStore(tmp_path).load()
+    identity = await PeerLinkIdentityStore(tmp_path).async_load()
     assert len(identity.private_bytes) == _KEY_LENGTH
     # The file on disk now has the regenerated bytes.
     assert key_path.read_bytes() == identity.private_bytes
 
 
-def test_unreadable_keyfile_falls_back_to_regeneration(tmp_path: Path) -> None:
+async def test_unreadable_keyfile_falls_back_to_regeneration(tmp_path: Path) -> None:
     """
     OSError on read routes to the regenerate path.
 
@@ -135,7 +136,7 @@ def test_unreadable_keyfile_falls_back_to_regeneration(tmp_path: Path) -> None:
         return original_read_bytes(self)
 
     with patch.object(Path, "read_bytes", _failing_read_bytes):
-        identity = PeerLinkIdentityStore(tmp_path).load()
+        identity = await PeerLinkIdentityStore(tmp_path).async_load()
 
     # The helper recovered by regenerating; resulting identity is
     # usable end-to-end (real bytes parse as X25519, pin is the
@@ -147,73 +148,86 @@ def test_unreadable_keyfile_falls_back_to_regeneration(tmp_path: Path) -> None:
     assert key_path.read_bytes() == identity.private_bytes
 
 
-def test_first_creation_is_serialised_under_lock(tmp_path: Path) -> None:
+async def test_async_load_serialised_under_asyncio_lock(tmp_path: Path) -> None:
     """
-    Multiple threads racing on a fresh store must not both write a key.
+    Concurrent ``async_load`` calls share one disk read.
 
-    The store's per-instance lock + load-after-take pattern is
-    load-bearing: without it, two callers each observe "no key
-    file" inside ``_load_key``, each generate a fresh keypair,
-    and the loser's atomic write silently overwrites the
-    winner's bytes; different identities land on disk
-    depending on the interleaving.
-
-    Force the race with a :class:`threading.Barrier` so all
-    workers reach the helper at the same instant. Production
-    has one store per dashboard so all callers share the same
-    instance; the test mirrors that shape.
+    Pins the asyncio.Lock + double-check contract: the first
+    waiter does the executor hop + populates the cache, every
+    subsequent waiter sees the cache under the same lock and
+    returns without another disk read.
     """
-    real_write = identitymod.atomic_write
-    write_calls: list[Path] = []
-    write_lock = threading.Lock()
-
-    def _tracking_write(path: Path, data: bytes, *, mode: int = 0o644) -> None:
-        with write_lock:
-            write_calls.append(path)
-        real_write(path, data, mode=mode)
-
-    worker_count = 8
-    barrier = threading.Barrier(worker_count)
-    results: list[PeerLinkIdentity] = []
-    results_lock = threading.Lock()
     store = PeerLinkIdentityStore(tmp_path)
+    real_load = store._load_blocking
+    load_calls = 0
 
-    def _worker() -> None:
-        barrier.wait()
-        identity = store.load()
-        with results_lock:
-            results.append(identity)
+    def _counting_load() -> PeerLinkIdentity:
+        nonlocal load_calls
+        load_calls += 1
+        return real_load()
 
-    with patch.object(identitymod, "atomic_write", _tracking_write):
-        threads = [threading.Thread(target=_worker) for _ in range(worker_count)]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
+    with patch.object(store, "_load_blocking", _counting_load):
+        results = await asyncio.gather(*(store.async_load() for _ in range(8)))
 
-    # Exactly one thread won the lock and wrote; the rest reloaded.
-    assert len(write_calls) == 1
-    assert write_calls[0] == tmp_path / _KEY_FILENAME
-    # All workers observed the same bytes; no winner-overwrite race.
-    assert len(results) == worker_count
     assert len({identity.private_bytes for identity in results}) == 1
+    assert load_calls == 1
 
 
-def test_returns_peer_link_identity_dataclass(tmp_path: Path) -> None:
+async def test_async_load_waits_for_in_flight_async_rotate(tmp_path: Path) -> None:
+    """
+    A load racing a rotation acquires the lock after the rotation lands.
+
+    Without the asyncio.Lock, ``async_load`` could return the
+    pre-rotation cached identity while ``async_rotate`` is
+    mid-write. With it held across the executor hop, the
+    loader waits and observes the post-rotation identity.
+    """
+    store = PeerLinkIdentityStore(tmp_path)
+    initial = await store.async_load()
+
+    real_rotate = store._rotate_blocking
+    rotate_started = threading.Event()
+    rotate_release = threading.Event()
+
+    def _slow_rotate() -> PeerLinkIdentity:
+        rotate_started.set()
+        # Block the executor thread until the test releases it,
+        # so the asyncio.Lock stays held while the racing
+        # ``async_load`` tries to acquire.
+        rotate_release.wait(timeout=5.0)
+        return real_rotate()
+
+    with patch.object(store, "_rotate_blocking", _slow_rotate):
+        rotate_task = asyncio.create_task(store.async_rotate())
+        # Wait for the executor hop to start (lock now held).
+        await asyncio.get_running_loop().run_in_executor(None, rotate_started.wait, 5.0)
+        load_task = asyncio.create_task(store.async_load())
+        # Give the loader a chance to acquire — it must not, because
+        # the rotation holds the asyncio.Lock.
+        await asyncio.sleep(0.05)
+        assert not load_task.done()
+        rotate_release.set()
+        rotated, loaded = await asyncio.gather(rotate_task, load_task)
+
+    assert rotated.private_bytes != initial.private_bytes
+    assert loaded.private_bytes == rotated.private_bytes
+
+
+async def test_returns_peer_link_identity_dataclass(tmp_path: Path) -> None:
     """Sanity: the public API returns the documented dataclass shape."""
-    identity = PeerLinkIdentityStore(tmp_path).load()
+    identity = await PeerLinkIdentityStore(tmp_path).async_load()
     assert isinstance(identity, PeerLinkIdentity)
     # The dataclass is frozen, attempting to mutate raises.
     with pytest.raises((AttributeError, TypeError)):  # frozen dataclass
         identity.private_bytes = b"replacement"  # type: ignore[misc]
 
 
-def test_loaded_identity_log_carries_pubkey_and_file_stat(
+async def test_loaded_identity_log_carries_pubkey_and_file_stat(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Every load logs the key-file path, size, mtime, raw pubkey hex, and pin."""
     with caplog.at_level("INFO", logger=identitymod.__name__):
-        identity = PeerLinkIdentityStore(tmp_path).load()
+        identity = await PeerLinkIdentityStore(tmp_path).async_load()
 
     key_path = tmp_path / _KEY_FILENAME
     records = [
@@ -253,14 +267,14 @@ def test_loaded_identity_log_marks_stat_failure(
     assert f"pin={pin}" in msg
 
 
-def test_loaded_identity_log_fires_on_rotate(
+async def test_loaded_identity_log_fires_on_rotate(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """``rotate_peer_link_identity`` logs the new pubkey + pin after the write."""
-    PeerLinkIdentityStore(tmp_path).load()
+    """``async_rotate`` logs the new pubkey + pin after the write."""
+    await PeerLinkIdentityStore(tmp_path).async_load()
     caplog.clear()
     with caplog.at_level("INFO", logger=identitymod.__name__):
-        rotated = PeerLinkIdentityStore(tmp_path).rotate()
+        rotated = await PeerLinkIdentityStore(tmp_path).async_rotate()
 
     records = [
         rec for rec in caplog.records if "Loaded peer-link identity from" in rec.getMessage()
@@ -271,15 +285,15 @@ def test_loaded_identity_log_fires_on_rotate(
     assert f"pin={rotated.pin_sha256}" in msg
 
 
-def test_repeat_calls_hit_cache_and_log_only_once(
+async def test_repeat_calls_hit_cache_and_log_only_once(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Subsequent calls return the cached instance and don't re-log."""
+    """Sequential calls return the cached instance and don't re-log."""
     store = PeerLinkIdentityStore(tmp_path)
     with caplog.at_level("INFO", logger=identitymod.__name__):
-        first = store.load()
-        second = store.load()
-        third = store.load()
+        first = await store.async_load()
+        second = await store.async_load()
+        third = await store.async_load()
 
     assert first is second
     assert first is third
@@ -289,11 +303,11 @@ def test_repeat_calls_hit_cache_and_log_only_once(
     assert len(load_records) == 1
 
 
-def test_rotate_invalidates_cache(tmp_path: Path) -> None:
-    """A post-rotate ``load()`` returns the rotated identity (cache refreshed)."""
+async def test_rotate_invalidates_cache(tmp_path: Path) -> None:
+    """A post-rotate ``async_load`` returns the rotated identity (cache refreshed)."""
     store = PeerLinkIdentityStore(tmp_path)
-    before = store.load()
-    rotated = store.rotate()
-    after = store.load()
+    before = await store.async_load()
+    rotated = await store.async_rotate()
+    after = await store.async_load()
     assert before is not rotated
     assert after is rotated
