@@ -54,7 +54,7 @@ def sweep_remote_builds(
     """Delete cold remote-build subtrees under *config_dir*.
 
     Synchronous; designed to run inside an executor (the
-    filesystem walk + ``shutil.rmtree`` are blocking syscalls).
+    filesystem walk + ``rmtree`` are blocking syscalls).
 
     Args:
         config_dir: The receiver's ``CORE.config_dir`` — the
@@ -183,7 +183,7 @@ def _delete_subtree_and_sibling(key: RemoteBuildPath, config_dir: Path) -> bool:
     try:
         # Via esphome's wrapper so Windows-side read-only files
         # (PIO compile cache, git pack files in cached venvs)
-        # clear instead of raising ``PermissionError``.
+        # get a ``chmod +w`` retry before the OSError propagates.
         rmtree(subtree)
     except OSError as exc:
         _LOGGER.warning("remote-build cleanup: rmtree(%s) failed: %s", subtree, exc)

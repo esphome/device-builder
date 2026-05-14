@@ -135,8 +135,9 @@ def _open_and_extract_build_tree(tarball: bytes, configuration: str) -> _Extract
             # (esp32 → bk72xx) doesn't leave stale per-platform
             # artefacts that firmware/download could surface as
             # wrong bytes. Best-effort: rmtree failures log + fall
-            # through; the mkdir + extract below recreates the tree
-            # from the upstream tarball regardless.
+            # through; the extract below still overwrites every
+            # member named in the tarball, though stale files the
+            # tarball doesn't mention may survive a failed wipe.
             try:
                 rmtree(build_path)
             except OSError as exc:
