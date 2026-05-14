@@ -137,7 +137,7 @@ _DOCKER_USER_BRIDGE_RE = re.compile(r"^br-[0-9a-f]{12}$")
 
 
 def _is_virtual_bridge_adapter(adapter: ifaddr.Adapter) -> bool:
-    """Return ``True`` when *adapter*'s name matches a virtual-bridge prefix."""
+    """Match a virtual-bridge prefix or Docker's ``br-<12 hex>`` user-network name."""
     name = (adapter.name or "").lower()
     nice = (adapter.nice_name or "").lower()
     if _DOCKER_USER_BRIDGE_RE.match(name) or _DOCKER_USER_BRIDGE_RE.match(nice):
@@ -173,10 +173,13 @@ def _local_addresses() -> list[str]:
       utun*) can carry a dozen link-local addresses that just
       inflate the announcement without adding reachability.
     * **Virtualisation / container bridges** — ``docker*``,
-      ``br-*``, ``veth*``, ``cni*``, ``virbr*``, ``vEthernet*``.
-      Host-namespace-scoped; advertising ``172.17.0.1`` from
-      ``docker0`` points peers with the same default Docker subnet
-      at their own bridge gateway. See ``_VIRTUAL_BRIDGE_PREFIXES``.
+      ``veth*``, ``cni*``, ``virbr*``, ``vEthernet*`` prefixes
+      plus Docker's ``br-<12 hex>`` user-defined networks (real
+      LAN bridges like ``br-lan`` keep their IP). Host-namespace-
+      scoped; advertising ``172.17.0.1`` from ``docker0`` points
+      peers with the same default Docker subnet at their own
+      bridge gateway. See ``_VIRTUAL_BRIDGE_PREFIXES`` +
+      ``_DOCKER_USER_BRIDGE_RE``.
 
     Setting ``parsed_addresses`` explicitly is what fixes the
     "127.0.0.1 / ::1 / fe80::1 only" advertise we saw on macOS:
