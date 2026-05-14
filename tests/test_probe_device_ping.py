@@ -101,8 +101,7 @@ async def _yield_until(predicate: Callable[[], bool], iterations: int = 50) -> N
         await asyncio.sleep(0)
 
 
-@pytest.mark.asyncio
-async def test_probe_device_ping_sets_wake_event() -> None:
+def test_probe_device_ping_sets_wake_event() -> None:
     """One probe call flips the loop's wake event without scheduling a task."""
     monitor, _ = make_state_monitor_with_callbacks([_ping_only_device()])
     assert monitor._ping._wake.is_set() is False
@@ -113,8 +112,7 @@ async def test_probe_device_ping_sets_wake_event() -> None:
     assert monitor._tasks == set()
 
 
-@pytest.mark.asyncio
-async def test_probe_device_ping_herd_collapses_to_single_set() -> None:
+def test_probe_device_ping_herd_collapses_to_single_set() -> None:
     """N concurrent scanner-ADDEDs collapse into one wake — no per-device task explosion.
 
     The thundering-herd guard: a cold-start fleet of 100 cached
