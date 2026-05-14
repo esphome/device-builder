@@ -444,6 +444,33 @@ def test_sweep_logs_orphan_unlink_failure(tmp_path: Path, monkeypatch: pytest.Mo
     assert bundle.is_file()
 
 
+def test_sweep_logs_macos_metadata_unlink_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Failed ``.DS_Store`` unlink + the follow-on rmdir failure both stay debug-logs."""
+    now = 1_000_000.0
+    dashboard_dir = tmp_path / REMOTE_BUILDS_SUBDIR / "alpha"
+    dashboard_dir.mkdir(parents=True)
+    ds_store = dashboard_dir / ".DS_Store"
+    ds_store.write_bytes(b"junk")
+
+    real_unlink = Path.unlink
+
+    def _flaky_unlink(self: Path, *args: object, **kwargs: object) -> object:
+        if self == ds_store:
+            raise PermissionError("simulated denied")
+        return real_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", _flaky_unlink)
+
+    # Should not raise. Both defensive arms fire: the unlink
+    # OSError is logged, then the rmdir OSError (dir still
+    # holds the .DS_Store) is logged too.
+    sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    assert dashboard_dir.is_dir()
+    assert ds_store.is_file()
+
+
 def test_sweep_continues_after_subtree_rmtree_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
