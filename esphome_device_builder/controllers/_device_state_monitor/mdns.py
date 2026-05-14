@@ -1,18 +1,12 @@
 """
-mDNS source for the device-state monitor.
+mDNS source: zeroconf responder, browser, and cache accessors.
 
-Mirrors the legacy ``esphome/dashboard/status/mdns.py`` shape: an
-:class:`MdnsSource` taking the monitor in ``__init__``, owning the
-zeroconf responder, the ``AsyncServiceBrowser``, the esphomelib
-service-state callback, and the cache accessors the drawer's
-reachability subscription uses.
-
-The HTTP-service / importable-discovery browser callbacks still
-live on the monitor for now — they reach back through
-``self._monitor._on_http_service_state_change`` / ``_on_import_update``
-from the browser's dispatch closure. PR 5 lifts those into a
-dedicated ``ImportableDiscovery`` and registers them with this
-source so the dispatch loses its monitor coupling.
+:class:`MdnsSource` owns the ``AsyncEsphomeZeroconf`` responder and
+the ``AsyncServiceBrowser`` it drives, the esphomelib service-state
+callback that reaches into the monitor's apply path, and the
+cache-inspection accessors the drawer's reachability snapshot reads.
+The HTTP-service / importable-discovery callbacks reach back through
+the monitor from the browser's dispatch closure.
 """
 
 from __future__ import annotations
@@ -53,16 +47,7 @@ _MDNS_RESOLVE_TIMEOUT_MS = 2000
 
 
 class MdnsSource:
-    """
-    mDNS source owning the zeroconf responder, browser, and cache accessors.
-
-    Takes the monitor in ``__init__`` and reads / writes through it
-    (``monitor.apply(...)``, ``monitor._find_device_by_name``, etc.).
-    The shared cross-cutting bits — ``apply_resolved_addresses``
-    funnel, the active-resolve path used by both the browser
-    callback and the ping pre-sweep — live in
-    :mod:`._device_state_monitor.shared`.
-    """
+    """mDNS source owning the zeroconf responder, browser, and cache accessors."""
 
     def __init__(self, monitor: DeviceStateMonitor) -> None:
         self._monitor = monitor
