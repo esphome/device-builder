@@ -120,34 +120,56 @@ the official ESPHome container and Home Assistant add-on.
   reached into from sibling modules (`controller._pairings.pop(...)`,
   `controller._open_peer_links.add(...)`), and the underscore
   prefix on the controller's own attrs reads as "private" exactly
-  where the access is most ubiquitous. Group the mutable domain
-  state into a typed `XxxState` dataclass in
+  where the access is most ubiquitous. Group the mutable
+  *domain* state into a typed `XxxState` dataclass in
   `controllers/X/_state.py`; the controller owns
   `self.state: XxxState`; siblings reach through
-  `controller.state.X`. See `controllers/remote_build/_state.py`
-  (`OffloaderState`) and `controllers/devices/_state.py`
-  (`DevicesState`) for canonical examples.
+  `controller.state.X`. The canonical examples are
+  `controllers/remote_build/_state.py` (`OffloaderState`),
+  `controllers/devices/_state.py` (`DevicesState`), and
+  `controllers/remote_build/_receiver_state.py`
+  (`ReceiverState`); a controller without a sibling-module
+  package can defer the dataclass until the split, but
+  designing for it from PR 1 of any new split avoids the
+  post-split cleanup cycle.
 
-  What goes on `state` vs the controller:
+  Domain state vs controller-internal lifecycle handles:
 
-  * **`state`**: every attr that mutates after `__init__` —
-    domain dicts/sets the siblings touch (`pairings`, `peers`,
-    `open_peer_links`, `regenerate_pending`, …), single-value
-    flags (`remote_builds_enabled`), identity / resolver / browser
-    refs that `start()` populates and `stop()` clears.
-  * **The controller**: `_db` (parent reference, not state),
-    `_listeners` / `_tasks` / `_shutdown_callbacks` (base
-    infrastructure), service refs constructed in `__init__` and
-    never reassigned (`_scanner`, `_state_monitor`,
-    `_pairings_store`, `_yaml_search_cache`, the various
-    locks), bound-method delegates the siblings call back into,
+  * **`state`**: domain data the sibling modules read and
+    mutate — pairing / peer dicts, queue caches, alert
+    registries (`pairings`, `peers`, `open_peer_links`,
+    `regenerate_pending`, …), single-value domain flags
+    (`remote_builds_enabled`), and identity / resolver /
+    browser refs that `start()` populates and `stop()`
+    clears (`offloader_peer_link_priv`, `peer_link_resolver`,
+    `browser`).
+  * **The controller**: `_db` (parent reference), base
+    infrastructure (`_listeners`, `_tasks`,
+    `_shutdown_callbacks`), service refs constructed in
+    `__init__` and never reassigned (`_scanner`,
+    `_state_monitor`, `_pairings_store`,
+    `_yaml_search_cache`, the various locks),
+    controller-internal lifecycle handles that are reassigned
+    by `start()` / `stop()` but no sibling reaches into
+    (`_unsub_job_completed` is the canonical
+    example — only the controller cares about it),
+    bound-method delegates the siblings call back into,
     `@api_command`-decorated WS methods, snapshot methods.
 
-  When splitting a controller into a package, design with
-  `XxxState` from PR 1 of the split; don't ship the bare
-  free-function-with-controller-arg pattern and add the
-  state dataclass later. Doing it upfront avoids the post-split
-  cleanup cycle that PRs #795 and #797 exist to address.
+  The cut is "is this domain state a sibling module reads or
+  writes" — yes → state; no → controller. Reassignment alone
+  doesn't push something onto `state`; it has to also be
+  cross-module data.
+
+  **Watch out for captured bound methods**: if anything (the
+  controller's own `__init__`, an external listener, etc.)
+  captures `state.X.add` / `state.X.__contains__` / etc.
+  before `start()` populates the value, *don't reassign*
+  `state.X` later — `state.X.clear()` + `state.X.update(...)`
+  preserves the captured method's view. The
+  `DevicesController.state.ignored_devices` loader hit this
+  exact bug pre-State-refactor; see #797 for the regression
+  test pattern.
 
   Existing modules over 800 lines (audit `wc -l` periodically;
   the worst offender at the time of writing was 5176 lines) are
