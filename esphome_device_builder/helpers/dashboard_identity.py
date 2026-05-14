@@ -87,18 +87,7 @@ class DashboardIdentity:
 async def get_or_create_identities(
     config_dir: Path, identity_store: PeerLinkIdentityStore
 ) -> tuple[PeerLinkIdentity, DashboardIdentity]:
-    """
-    Load both peer-link and dashboard identities in one shot.
-
-    Single ``async_load`` (cached after first call) plus one
-    executor hop for the ``dashboard_id`` metadata read; saves
-    callers that need both pieces from awaiting the store
-    twice. Returns the peer-link keypair (whose
-    ``private_bytes`` drive the Noise handshake) and the
-    composed :class:`DashboardIdentity` (carrying the
-    ``dashboard_id`` correlation token + the public-side
-    ``pin_sha256``).
-    """
+    """Load the peer-link keypair + composed dashboard identity in one shot."""
     peer_link = await identity_store.async_load()
     dashboard_id = await asyncio.get_running_loop().run_in_executor(
         None, _get_or_create_dashboard_id, config_dir
@@ -121,17 +110,12 @@ async def rotate_identity(
     config_dir: Path, identity_store: PeerLinkIdentityStore
 ) -> DashboardIdentity:
     """
-    Rotate the X25519 peer-link keypair, preserving ``dashboard_id``.
+    Mint a fresh X25519 peer-link keypair, preserving ``dashboard_id``.
 
-    Mints a fresh X25519 keypair via
-    :meth:`PeerLinkIdentityStore.async_rotate` (replacing
-    whatever's on disk). Every paired peer that pinned the old
-    ``pin_sha256`` will see a fingerprint mismatch on the next
-    Noise handshake and need to re-pair, which is the right
-    user-visible outcome when the operator deliberately
-    rotates. The ``dashboard_id`` is intentionally preserved
-    across rotations so the receiver-side audit trail stays
-    readable.
+    Every paired peer pinned on the old ``pin_sha256`` sees a
+    fingerprint mismatch on the next Noise handshake and has
+    to re-pair; ``dashboard_id`` survives so the audit trail
+    stays readable across rotations.
     """
     peer_link = await identity_store.async_rotate()
     dashboard_id = await asyncio.get_running_loop().run_in_executor(

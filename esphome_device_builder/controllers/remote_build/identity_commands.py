@@ -67,15 +67,10 @@ async def _rotate_and_reload(controller: ReceiverController) -> IdentityView:
     """
     Rotate the keypair, rebind the listener, fire the bus event.
 
-    Shielded as one unit so a cancellation between the disk
-    write and the listener rebuild can't leave the bound
-    listener serving the pre-rotate key while ``get_identity``
-    reports the post-rotate pin. ``rotation_in_flight`` is
-    cleared in this function's ``finally`` (not the caller's)
-    so the flag tracks the shielded work rather than the
-    cancelled awaiter; otherwise a second request would slip
-    in mid-rebuild and double-fire the listener teardown +
-    bus event.
+    The flag clear lives in this function's ``finally`` (not
+    the caller's) so it tracks the shielded work; otherwise a
+    cancelled awaiter would let a second request slip in
+    mid-rebuild and double-fire the teardown.
     """
     try:
         identity = await _dashboard_identity_helper.rotate_identity(

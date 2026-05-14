@@ -180,17 +180,7 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
     async def _load_offloader_identities_async(
         self,
     ) -> tuple[PeerLinkIdentity, DashboardIdentity]:
-        """
-        Return both offloader-side identities, hitting the store cache.
-
-        Pair-flow WS commands call this once per request;
-        per-pairing pair-status listeners load once at spawn
-        and reuse the same bytes for the listener's lifetime.
-        A rotation that happens mid-listener invalidates the
-        stored ``pin_sha256`` on every paired peer anyway, so
-        the next handshake fails with ``pin_mismatch`` and the
-        operator re-pairs; the listener exits at that point.
-        """
+        """Return both offloader-side identities, hitting the store cache."""
         return await get_or_create_identities(
             self._db.settings.config_dir,
             self._db.peer_link_identity_store,

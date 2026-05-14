@@ -70,19 +70,12 @@ class PeerLinkIdentity:
 
 class PeerLinkIdentityStore:
     """
-    Lazy, in-process cache for one dashboard's peer-link identity.
+    Process-wide async cache for one dashboard's peer-link X25519 identity.
 
-    One instance per :class:`DeviceBuilder` (constructed at
-    init, owned across the dashboard's lifetime). The store
-    serialises generation + rotation under an
-    :class:`asyncio.Lock` so a concurrent :meth:`async_load`
-    can't return the pre-rotation identity while
-    :meth:`async_rotate` is mid-write, and so two callers
-    racing on a fresh config dir don't both write a key.
-
-    The lock is held across the executor hop, so the cache
-    check and the disk I/O are one atomic step from the
-    event loop's perspective.
+    The :class:`asyncio.Lock` is held across the cache check
+    and the executor hop, so loads racing rotations either
+    see the pre-rotate identity or wait and see the
+    post-rotate one.
     """
 
     def __init__(self, config_dir: Path) -> None:
@@ -91,26 +84,17 @@ class PeerLinkIdentityStore:
         self._cached: PeerLinkIdentity | None = None
 
     async def async_load(self) -> PeerLinkIdentity:
-        """
-        Return the cached identity, loading from disk on first call.
-
-        Length-mismatched or unreadable key files are treated
-        as missing and regenerated; the keypair file is the
-        source of truth, so a cancellation of the first-call
-        executor still leaves usable bytes on disk for the
-        next caller to pick up.
-        """
+        """Return the cached identity, generating + persisting on first call."""
         return await asyncio.shield(self._do_load_locked())
 
     async def async_rotate(self) -> PeerLinkIdentity:
         """
         Replace the on-disk keypair with a fresh X25519 secret.
 
-        Cancellation-safe via :func:`asyncio.shield`: the
-        executor write can't be stopped, so the locked
-        rotation runs to completion in the background and
-        keeps cache + disk in sync even if the awaiter is
-        cancelled mid-await.
+        Shielded so a cancelled awaiter can't release the lock
+        while the unstoppable executor write lands the new key
+        on disk; the locked rotation runs to completion in the
+        background, keeping cache + disk in sync.
         """
         return await asyncio.shield(self._do_rotate_locked())
 

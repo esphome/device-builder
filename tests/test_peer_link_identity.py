@@ -149,14 +149,7 @@ async def test_unreadable_keyfile_falls_back_to_regeneration(tmp_path: Path) -> 
 
 
 async def test_async_load_serialised_under_asyncio_lock(tmp_path: Path) -> None:
-    """
-    Concurrent ``async_load`` calls share one disk read.
-
-    Pins the asyncio.Lock + double-check contract: the first
-    waiter does the executor hop + populates the cache, every
-    subsequent waiter sees the cache under the same lock and
-    returns without another disk read.
-    """
+    """Concurrent ``async_load`` calls share a single disk read."""
     store = PeerLinkIdentityStore(tmp_path)
     real_load = store._load_blocking
     load_calls = 0
@@ -174,14 +167,7 @@ async def test_async_load_serialised_under_asyncio_lock(tmp_path: Path) -> None:
 
 
 async def test_async_load_waits_for_in_flight_async_rotate(tmp_path: Path) -> None:
-    """
-    A load racing a rotation acquires the lock after the rotation lands.
-
-    Without the asyncio.Lock, ``async_load`` could return the
-    pre-rotation cached identity while ``async_rotate`` is
-    mid-write. With it held across the executor hop, the
-    loader waits and observes the post-rotation identity.
-    """
+    """A load racing a rotation observes the post-rotate identity, not the cached one."""
     store = PeerLinkIdentityStore(tmp_path)
     initial = await store.async_load()
 
@@ -214,16 +200,7 @@ async def test_async_load_waits_for_in_flight_async_rotate(tmp_path: Path) -> No
 
 
 async def test_cancelled_async_rotate_keeps_cache_consistent_with_disk(tmp_path: Path) -> None:
-    """
-    A cancelled rotation must not leave the cache pointing at the pre-rotate key.
-
-    The executor write can't be stopped, so without
-    ``asyncio.shield`` a cancelled awaiter would release the
-    lock with ``_cached`` still set to the old identity while
-    disk holds the new one. The shield lets the locked
-    rotation complete in the background, keeping cache + disk
-    in sync.
-    """
+    """A cancelled rotation still updates the cache to match the on-disk key."""
     store = PeerLinkIdentityStore(tmp_path)
     initial = await store.async_load()
 

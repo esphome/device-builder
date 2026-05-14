@@ -223,12 +223,6 @@ class DeviceBuilder:
         """Initialize the Device Builder."""
         self.settings = settings
         self.bus = EventBus()
-        # Single peer-link identity store per dashboard process.
-        # Lazy-loads the X25519 keypair from disk on first
-        # ``async_load()``, caches the result, and refreshes the
-        # cache on ``async_rotate()``. Without this single owner
-        # the bind path + the offloader path each loaded the
-        # identity twice during startup.
         self.peer_link_identity_store = PeerLinkIdentityStore(settings.config_dir)
         # Reference-counted "is anyone watching the dashboard?" gate.
         # The ``subscribe_events`` body wraps itself in
@@ -365,14 +359,7 @@ class DeviceBuilder:
             # ({short_hostname}-{short_dashboard_id}.local) so two
             # machines named ``mac`` on the same LAN advertise
             # distinct targets, and the system's FQDN
-            # (``mac.koston.org``) can't leak through. The
-            # ``dashboard_id`` is read off the metadata sidecar
-            # under a lock (idempotent, persistent across
-            # restarts); the X25519 keypair load goes through the
-            # process-wide :class:`PeerLinkIdentityStore` so the
-            # peer-link Noise handshake and the SRV target stay
-            # in sync across rotations and the disk read happens
-            # at most once per dashboard process.
+            # (``mac.koston.org``) can't leak through.
             dashboard_identity = await get_or_create_dashboard_identity(
                 self.settings.config_dir,
                 self.peer_link_identity_store,

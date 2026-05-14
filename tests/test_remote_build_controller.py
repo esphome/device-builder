@@ -2007,14 +2007,7 @@ async def test_rotate_identity_concurrent_call_rejected(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_rotate_identity_in_flight_flag_tracks_shielded_work(tmp_path: Path) -> None:
-    """
-    Cancelling the awaiter must not clear the flag while the shielded work runs.
-
-    The shielded ``_rotate_and_reload`` keeps running after a
-    cancelled WS handler; if the flag clears on the cancel
-    instead of on the shielded work's completion, a second
-    request slips in and double-rebuilds the listener.
-    """
+    """A cancelled awaiter doesn't release the flag while the shielded reload still runs."""
     controller = _make_controller(config_dir=tmp_path)
     gate = asyncio.Event()
     release = asyncio.Event()
@@ -2037,21 +2030,16 @@ async def test_rotate_identity_in_flight_flag_tracks_shielded_work(tmp_path: Pat
     with pytest.raises(asyncio.CancelledError):
         await first
 
-    # Shielded rotate_and_reload is still running. A second
-    # request landing now must still be rejected, otherwise the
-    # listener gets rebuilt twice + the bus event fires twice.
     with pytest.raises(CommandError) as exc:
         await controller.receiver.rotate_identity()
     assert exc.value.code == ErrorCode.ALREADY_EXISTS
 
     release.set()
-    # Give the shielded background task a moment to land.
     for _ in range(50):
         if not controller.receiver.state.rotation_in_flight:
             break
         await asyncio.sleep(0.01)
     assert controller.receiver.state.rotation_in_flight is False
-    # Exactly one reload happened, despite two callers attempting.
     assert reload_calls == 1
 
 
