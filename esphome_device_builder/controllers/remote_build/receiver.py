@@ -22,7 +22,6 @@ import asyncio
 import logging
 import time
 from collections.abc import Callable, Hashable
-from functools import partial
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from ...helpers import dashboard_identity as _dashboard_identity_helper
@@ -30,8 +29,6 @@ from ...helpers.api import CommandError, api_command
 from ...helpers.dashboard_identity import get_or_create_identity
 from ...helpers.event_bus import Event
 from ...helpers.peer_link_frames import frame_schema, is_valid_frame
-from ...helpers.remote_build_cleanup import sweep_remote_builds
-from ...helpers.remote_build_layout import parse_from_configuration
 from ...helpers.storage import Store
 from ...models import (
     MAX_CLEANUP_TTL_SECONDS,
@@ -60,6 +57,7 @@ from ..config import (
     load_remote_build_settings,
     remote_build_settings_transaction,
 )
+from . import cleanup_loop
 from ._receiver_state import ReceiverState
 from ._shared import _RemoteBuildBase, drain_tasks
 from ._storage_codecs import (
@@ -88,10 +86,6 @@ _PAIRING_WINDOW_DURATION_SECONDS = 300.0
 
 # Required fields on inbound ``cancel_job`` peer-link frames.
 _CANCEL_JOB_SCHEMA = frame_schema({"job_id": str})
-
-# Cleanup-sweep cadence — TTL itself is the
-# operator-tunable knob (:data:`DEFAULT_CLEANUP_TTL_SECONDS`).
-_CLEANUP_SWEEP_INTERVAL_SECONDS = 60 * 60
 
 # Debounce window for the receiver-side peers-store write so a
 # burst of approvals collapses to one disk write.
@@ -419,42 +413,8 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         return self.state.artifacts_download_sender
 
     async def _run_cleanup_loop(self) -> None:
-        """Sweep cold remote-build subtrees every ``_CLEANUP_SWEEP_INTERVAL_SECONDS``.
-
-        Sleeps before the first cycle — a fresh install has no
-        subtrees to reclaim and the TTL is 24h. Per-cycle
-        failures are logged and the loop continues; cancel via
-        :meth:`stop` settles cleanly through the sleep.
-        """
-        config_dir = self._db.settings.config_dir
-        loop = asyncio.get_running_loop()
-        while True:
-            await asyncio.sleep(_CLEANUP_SWEEP_INTERVAL_SECONDS)
-            try:
-                # Re-check firmware narrows the type for mypy and
-                # survives a future spawn/start decoupling.
-                firmware = self._db.firmware
-                if firmware is None:
-                    continue
-                settings = await self._load_settings_async()
-                in_flight_keys = frozenset(
-                    rbp
-                    for job in firmware.active_remote_peer_jobs()
-                    if (rbp := parse_from_configuration(job.configuration)) is not None
-                )
-                deleted = await loop.run_in_executor(
-                    None,
-                    partial(
-                        sweep_remote_builds,
-                        config_dir,
-                        ttl_seconds=settings.cleanup_ttl_seconds,
-                        in_flight_keys=in_flight_keys,
-                    ),
-                )
-                if deleted:
-                    _LOGGER.info("remote-build cleanup: swept %d cold subtree(s)", deleted)
-            except Exception:
-                _LOGGER.exception("remote-build cleanup sweep failed")
+        """Sweep cold remote-build subtrees every ``_CLEANUP_SWEEP_INTERVAL_SECONDS``."""
+        await cleanup_loop.run_cleanup_loop(self)
 
     @api_command("remote_build/get_settings")
     async def get_settings(self, **kwargs: Any) -> RemoteBuildSettingsView:

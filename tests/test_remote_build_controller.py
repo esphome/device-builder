@@ -4049,7 +4049,7 @@ async def test_run_cleanup_loop_logs_per_cycle_exception_and_continues(
         return 0
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.receiver.sweep_remote_builds",
+        "esphome_device_builder.controllers.remote_build.cleanup_loop.sweep_remote_builds",
         _flaky_sweep,
     )
 
@@ -4098,7 +4098,7 @@ async def test_run_cleanup_loop_short_circuits_when_firmware_missing(
         return 0
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.receiver.sweep_remote_builds",
+        "esphome_device_builder.controllers.remote_build.cleanup_loop.sweep_remote_builds",
         _record_sweep,
     )
 
