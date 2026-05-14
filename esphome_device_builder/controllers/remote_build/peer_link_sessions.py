@@ -44,12 +44,12 @@ def on_firmware_queue_transition(controller: ReceiverController, event: Event[An
     if not controller.state.peer_link_sessions:
         return
     controller._db.create_background_task(
-        broadcast_queue_status(controller, idle, running, queue_depth)
+        broadcast_queue_status(controller, idle=idle, running=running, queue_depth=queue_depth)
     )
 
 
 async def broadcast_queue_status(
-    controller: ReceiverController, idle: bool, running: bool, queue_depth: int
+    controller: ReceiverController, *, idle: bool, running: bool, queue_depth: int
 ) -> None:
     """Send a ``queue_status`` frame to every active peer-link session.
 
@@ -112,7 +112,9 @@ async def register_peer_link_session(
             )
         else:
             controller._db.create_background_task(
-                _send_initial_queue_status(session, idle, running, queue_depth)
+                _send_initial_queue_status(
+                    session, idle=idle, running=running, queue_depth=queue_depth
+                )
             )
     # Fire AFTER the dict insert so subscriber lookups see
     # the just-registered session.
@@ -213,6 +215,7 @@ async def handle_cancel_job(
 
 async def _send_initial_queue_status(
     session: PeerLinkSession,
+    *,
     idle: bool,
     running: bool,
     queue_depth: int,

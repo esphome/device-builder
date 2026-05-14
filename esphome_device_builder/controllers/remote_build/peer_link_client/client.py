@@ -622,8 +622,8 @@ class PeerLinkClient:
     def _fire_pin_mismatch(self, *, observed: bytes) -> None:
         _dispatch.fire_pin_mismatch(self, observed=observed)
 
-    def _fire_queue_status(self, idle: bool, running: bool, queue_depth: int) -> None:
-        _dispatch.fire_queue_status(self, idle, running, queue_depth)
+    def _fire_queue_status(self, *, idle: bool, running: bool, queue_depth: int) -> None:
+        _dispatch.fire_queue_status(self, idle=idle, running=running, queue_depth=queue_depth)
 
     def _on_self_static_observed(self, peer: Any) -> str:
         """Skip *peer*'s IP next resolve, log ERROR, return the transport-error close reason."""

@@ -71,7 +71,7 @@ def _setup_logging(log_level: str, log_file: str | None = None) -> None:
 
     # Route ``warnings.warn`` through the logging system instead of
     # raw stderr so the queue handler and our formatter apply.
-    logging.captureWarnings(True)
+    logging.captureWarnings(capture=True)
 
     if log_file:
         file_handler = RotatingFileHandler(log_file, maxBytes=_MAX_LOG_SIZE, backupCount=1)

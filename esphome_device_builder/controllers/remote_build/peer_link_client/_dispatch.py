@@ -98,7 +98,12 @@ def dispatch_queue_status(client: PeerLinkClient, parsed: dict[str, Any]) -> Non
     if not is_valid_frame(_QUEUE_STATUS_SCHEMA, parsed):
         log_malformed(client, "queue_status", parsed)
         return
-    fire_queue_status(client, parsed["idle"], parsed["running"], parsed["queue_depth"])
+    fire_queue_status(
+        client,
+        idle=parsed["idle"],
+        running=parsed["running"],
+        queue_depth=parsed["queue_depth"],
+    )
 
 
 def dispatch_submit_job_ack(client: PeerLinkClient, parsed: dict[str, Any]) -> None:
@@ -313,7 +318,9 @@ def fire_pin_mismatch(client: PeerLinkClient, *, observed: bytes) -> None:
     client._bus.fire(EventType.OFFLOADER_PAIR_PIN_MISMATCH, payload)
 
 
-def fire_queue_status(client: PeerLinkClient, idle: bool, running: bool, queue_depth: int) -> None:
+def fire_queue_status(
+    client: PeerLinkClient, *, idle: bool, running: bool, queue_depth: int
+) -> None:
     """Fire ``OFFLOADER_QUEUE_STATUS_CHANGED`` for an inbound snapshot."""
     payload: OffloaderQueueStatusChangedData = {
         "receiver_hostname": client._hostname,
