@@ -26,20 +26,18 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from zeroconf.asyncio import AsyncServiceBrowser
+from zeroconf.asyncio import AsyncServiceBrowser
 
-    from ...helpers.peer_link_resolver import PeerLinkDNSResolver
-    from ...models import (
-        OffloaderAlertSnapshotEntry,
-        OffloaderRemoteJobSnapshotEntry,
-        PeerQueueStatusSnapshotEntry,
-        RemoteBuildPeer,
-        StoredPairing,
-    )
-    from ._models import PeerLinkClientHandle
+from ...helpers.peer_link_resolver import PeerLinkDNSResolver
+from ...models import (
+    OffloaderAlertSnapshotEntry,
+    OffloaderRemoteJobSnapshotEntry,
+    PeerQueueStatusSnapshotEntry,
+    RemoteBuildPeer,
+    StoredPairing,
+)
+from ._models import PeerLinkClientHandle
 
 
 @dataclass
