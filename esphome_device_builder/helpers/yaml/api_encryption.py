@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import secrets
 
-from . import _quote, _strip_yaml_quotes, rewrite_yaml_scalar
+from .scalar import _quote, _strip_yaml_quotes, rewrite_yaml_scalar
 
 
 def generate_api_encryption_key() -> str:

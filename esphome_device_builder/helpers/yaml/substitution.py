@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
-from . import _safe_yaml_scalar, _strip_yaml_quotes, read_yaml_scalar, rewrite_yaml_scalar
+from .scalar import _safe_yaml_scalar, _strip_yaml_quotes, read_yaml_scalar, rewrite_yaml_scalar
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
