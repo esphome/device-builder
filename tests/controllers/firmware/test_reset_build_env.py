@@ -29,14 +29,12 @@ test that verifies the dispatch through the queue).
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
-from esphome_device_builder.controllers.firmware import FirmwareController
-from esphome_device_builder.controllers.firmware._state import FirmwareState
 from esphome_device_builder.models import EventType, JobStatus, JobType
 from tests.controllers.firmware.conftest import (
+    BareFirmwareControllerFactory,
     CaptureEnqueueOrderFactory,
     EnqueueStep,
     FirmwareControllerFactory,
@@ -155,6 +153,7 @@ async def test_reset_build_env_accepts_arbitrary_kwargs(
 
 def test_build_command_for_reset_build_env_uses_clean_all_with_config_dir(
     tmp_path: Path,
+    bare_firmware_controller_factory: BareFirmwareControllerFactory,
 ) -> None:
     """``RESET_BUILD_ENV`` shells out to ``esphome --dashboard clean-all <config_dir>``.
 
@@ -173,11 +172,7 @@ def test_build_command_for_reset_build_env_uses_clean_all_with_config_dir(
     trailing ``--device`` because clean-all doesn't talk to a
     device.
     """
-    controller = FirmwareController.__new__(FirmwareController)
-    controller.state = FirmwareState()
-    controller.state.esphome_cmd = ["esphome"]
-    controller._db = MagicMock()
-    controller._db.devices = None
+    controller = bare_firmware_controller_factory(esphome_cmd=["esphome"], with_mock_db=True)
 
     # ``rel_path("")`` resolves to the config_dir Path itself (joinpath
     # with an empty segment is a no-op) — that's what the runner passes
@@ -194,6 +189,7 @@ def test_build_command_for_reset_build_env_uses_clean_all_with_config_dir(
 
 def test_build_command_for_reset_build_env_ignores_port_and_cache_args(
     tmp_path: Path,
+    bare_firmware_controller_factory: BareFirmwareControllerFactory,
 ) -> None:
     """``RESET_BUILD_ENV`` neither flashes nor talks to the network.
 
@@ -206,11 +202,7 @@ def test_build_command_for_reset_build_env_ignores_port_and_cache_args(
     short-circuits to ``[]`` for non-OTA job types, but a direct
     invocation could still pass them).
     """
-    controller = FirmwareController.__new__(FirmwareController)
-    controller.state = FirmwareState()
-    controller.state.esphome_cmd = ["esphome"]
-    controller._db = MagicMock()
-    controller._db.devices = None
+    controller = bare_firmware_controller_factory(esphome_cmd=["esphome"], with_mock_db=True)
 
     cmd = controller._build_command(
         JobType.RESET_BUILD_ENV,

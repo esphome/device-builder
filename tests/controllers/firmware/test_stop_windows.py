@@ -16,10 +16,10 @@ from unittest.mock import MagicMock
 import pytest
 
 from esphome_device_builder.controllers.firmware import FirmwareController
-from esphome_device_builder.controllers.firmware._state import FirmwareState
 from esphome_device_builder.helpers import process as process_module
 from esphome_device_builder.helpers.process import _terminate_subtree_windows
 from esphome_device_builder.helpers.subprocess import create_subprocess_exec
+from tests.controllers.firmware.conftest import BareFirmwareControllerFactory
 
 # Only the integration test below — which spawns a real subprocess
 # and exercises ``_terminate_current_process``'s Windows branch end
@@ -34,13 +34,11 @@ windows_only = pytest.mark.skipif(
 
 
 @pytest.fixture
-def controller() -> FirmwareController:
+def controller(
+    bare_firmware_controller_factory: BareFirmwareControllerFactory,
+) -> FirmwareController:
     """Stand up a FirmwareController shell — only the bits termination touches."""
-    ctrl = FirmwareController.__new__(FirmwareController)
-    ctrl.state = FirmwareState()
-    ctrl.state.current_process = None  # type: ignore[attr-defined]
-    ctrl.state.current_job = MagicMock(job_id="test-job")  # type: ignore[attr-defined]
-    return ctrl
+    return bare_firmware_controller_factory(current_job=MagicMock(job_id="test-job"))
 
 
 @windows_only

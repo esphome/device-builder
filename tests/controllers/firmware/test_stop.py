@@ -26,10 +26,10 @@ import pytest
 
 from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.controllers.firmware import lifecycle as _firmware_lifecycle_mod
-from esphome_device_builder.controllers.firmware._state import FirmwareState
 from esphome_device_builder.helpers import process as _process_mod
 from esphome_device_builder.helpers.process import _signal_process_group
 from esphome_device_builder.helpers.subprocess import create_subprocess_exec
+from tests.controllers.firmware.conftest import BareFirmwareControllerFactory
 
 # Process groups, ``os.fork``, and ``SIGKILL`` are POSIX-only. The
 # whole stop-button cancellation strategy here (``killpg`` against the
@@ -143,13 +143,11 @@ def test_signal_process_group_returns_false_on_permission_error(
 
 
 @pytest.fixture
-def controller() -> FirmwareController:
+def controller(
+    bare_firmware_controller_factory: BareFirmwareControllerFactory,
+) -> FirmwareController:
     """Stand up a FirmwareController shell — only the bits termination touches."""
-    ctrl = FirmwareController.__new__(FirmwareController)
-    ctrl.state = FirmwareState()
-    ctrl.state.current_process = None  # type: ignore[attr-defined]
-    ctrl.state.current_job = MagicMock(job_id="test-job")  # type: ignore[attr-defined]
-    return ctrl
+    return bare_firmware_controller_factory(current_job=MagicMock(job_id="test-job"))
 
 
 async def test_terminate_kills_grandchild_via_process_group(

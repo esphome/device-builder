@@ -32,8 +32,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from esphome_device_builder.controllers.firmware import FirmwareController
-from esphome_device_builder.controllers.firmware._state import FirmwareState
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import (
     ErrorCode,
@@ -42,6 +40,7 @@ from esphome_device_builder.models import (
     JobType,
 )
 from tests.controllers.firmware.conftest import (
+    BareFirmwareControllerFactory,
     FirmwareControllerFactory,
 )
 
@@ -232,7 +231,9 @@ async def test_terminate_current_process_no_op_when_no_process(
 # ---------------------------------------------------------------------------
 
 
-def test_build_command_for_rename_appends_new_name_positional() -> None:
+def test_build_command_for_rename_appends_new_name_positional(
+    bare_firmware_controller_factory: BareFirmwareControllerFactory,
+) -> None:
     """``RENAME`` appends ``new_name`` as a trailing positional arg.
 
     ``esphome rename <yaml> <new_name>`` is the CLI shape;
@@ -240,11 +241,7 @@ def test_build_command_for_rename_appends_new_name_positional() -> None:
     touching the YAML, and the dashboard would report
     "rename failed" with no actionable hint. Pin the arg order.
     """
-    controller = FirmwareController.__new__(FirmwareController)
-    controller.state = FirmwareState()
-    controller.state.esphome_cmd = ["esphome"]
-    controller._db = MagicMock()
-    controller._db.devices = None
+    controller = bare_firmware_controller_factory(esphome_cmd=["esphome"], with_mock_db=True)
 
     cmd = controller._build_command(JobType.RENAME, "kitchen.yaml", port="", new_name="livingroom")
 

@@ -200,6 +200,53 @@ def firmware_controller_factory(
     return _make
 
 
+BareFirmwareControllerFactory = Callable[..., FirmwareController]
+
+
+@pytest.fixture
+def bare_firmware_controller_factory() -> BareFirmwareControllerFactory:
+    """
+    Build a bare ``FirmwareController`` shell — just ``state``, no DB / bus.
+
+    For tests that want to exercise a single helper (``_build_command``,
+    ``_terminate_current_process``, etc.) without the full DB / bus /
+    runner kit ``firmware_controller_factory`` produces.
+
+    Keyword-only knobs cover the two recurring shapes:
+
+    - ``esphome_cmd=...`` — seed ``state.esphome_cmd``; ``_build_command``
+      tests use ``["esphome"]``.
+    - ``current_job=<MagicMock>`` — seed ``state.current_job`` so
+      ``_terminate_current_process`` has something to look at.
+    - ``with_mock_db=True`` — attach ``_db = MagicMock()`` with
+      ``_db.devices = None``; ``_build_command`` needs this so its
+      address-cache lookup short-circuits.
+
+    Default-empty ``FirmwareState()`` fields (``jobs``, ``queue``,
+    ``current_process``, ``cancel_requested``, ``cancel_events``)
+    cover everything else.
+    """
+
+    def _make(
+        *,
+        esphome_cmd: list[str] | None = None,
+        current_job: object | None = None,
+        with_mock_db: bool = False,
+    ) -> FirmwareController:
+        controller = FirmwareController.__new__(FirmwareController)
+        controller.state = FirmwareState()
+        if esphome_cmd is not None:
+            controller.state.esphome_cmd = esphome_cmd
+        if current_job is not None:
+            controller.state.current_job = current_job
+        if with_mock_db:
+            controller._db = MagicMock()
+            controller._db.devices = None
+        return controller
+
+    return _make
+
+
 CaptureEventsFactory = Callable[..., list[Event]]
 CaptureEnqueueOrderFactory = Callable[..., list[tuple[EnqueueStep, Any]]]
 

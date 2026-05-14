@@ -22,31 +22,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from esphome_device_builder.controllers.firmware import FirmwareController
-from esphome_device_builder.controllers.firmware._state import FirmwareState
 from esphome_device_builder.controllers.firmware.helpers import (
     PortType,
     _validate_port,
 )
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode, FirmwareJob, JobType
-
-
-def _controller() -> FirmwareController:
-    """Build a controller skeleton with just the surface ``_build_command`` needs.
-
-    ``_build_command`` only reads ``self.state.esphome_cmd``; the rest of
-    the controller (queue, scanner, bus) isn't relevant for these
-    tests. ``__new__`` skips ``__init__`` so we don't have to seed a
-    full ``DeviceBuilder``.
-    """
-    controller = FirmwareController.__new__(FirmwareController)
-    controller.state = FirmwareState()
-    controller.state.esphome_cmd = ["esphome"]
-    controller._db = MagicMock()
-    controller._db.devices = None  # cache args become a no-op
-    return controller
-
+from tests.controllers.firmware.conftest import BareFirmwareControllerFactory
 
 # ---------------------------------------------------------------------------
 # _validate_port
@@ -141,7 +123,9 @@ def test_validate_port_consults_get_port_type_for_serial_accept(
 # ---------------------------------------------------------------------------
 
 
-def test_install_to_ip_emits_device_arg_with_no_cache_args() -> None:
+def test_install_to_ip_emits_device_arg_with_no_cache_args(
+    bare_firmware_controller_factory: BareFirmwareControllerFactory,
+) -> None:
     """Explicit IP installs route ``--device <ip>`` with no address-cache args.
 
     The cache shortcut is keyed on the device's *configured*
@@ -153,7 +137,7 @@ def test_install_to_ip_emits_device_arg_with_no_cache_args() -> None:
     non-OTA ports, and this test pins that the resulting command
     line stays clean.
     """
-    controller = _controller()
+    controller = bare_firmware_controller_factory(esphome_cmd=["esphome"], with_mock_db=True)
     job = FirmwareJob(
         job_id="install-1",
         configuration="kitchen.yaml",
@@ -179,14 +163,16 @@ def test_install_to_ip_emits_device_arg_with_no_cache_args() -> None:
     ]
 
 
-def test_upload_to_ip_emits_device_arg_with_no_cache_args() -> None:
+def test_upload_to_ip_emits_device_arg_with_no_cache_args(
+    bare_firmware_controller_factory: BareFirmwareControllerFactory,
+) -> None:
     """``firmware/upload`` with an IP target gets the same shape as install.
 
     Both endpoints route through ``_build_command``; the
     ``UPLOAD`` job type just runs ``upload`` instead of ``run``
     and skips the ``--no-logs`` suffix the install path adds.
     """
-    controller = _controller()
+    controller = bare_firmware_controller_factory(esphome_cmd=["esphome"], with_mock_db=True)
     job = FirmwareJob(
         job_id="upload-1",
         configuration="kitchen.yaml",
@@ -208,7 +194,9 @@ def test_upload_to_ip_emits_device_arg_with_no_cache_args() -> None:
     ]
 
 
-def test_install_to_hostname_routes_through_device_arg() -> None:
+def test_install_to_hostname_routes_through_device_arg(
+    bare_firmware_controller_factory: BareFirmwareControllerFactory,
+) -> None:
     """A bare or ``.local`` hostname reaches the CLI verbatim.
 
     The CLI does its own resolution; we shouldn't second-guess it
@@ -216,12 +204,14 @@ def test_install_to_hostname_routes_through_device_arg() -> None:
     user's intent intact even when the device's mDNS broadcast is
     flaky or the cached A-record is stale.
     """
-    controller = _controller()
+    controller = bare_firmware_controller_factory(esphome_cmd=["esphome"], with_mock_db=True)
     cmd = controller._build_command(JobType.INSTALL, "kitchen.yaml", "kitchen.local", [])
     assert cmd[-2:] == ["--device", "kitchen.local"]
 
 
-def test_install_ota_default_keeps_cache_args() -> None:
+def test_install_ota_default_keeps_cache_args(
+    bare_firmware_controller_factory: BareFirmwareControllerFactory,
+) -> None:
     """The OTA default still gets the address-cache shortcut.
 
     Regression guard for the cache path — locking IP-target
@@ -229,7 +219,7 @@ def test_install_ota_default_keeps_cache_args() -> None:
     too. Builds a controller whose devices controller surfaces
     cache args and verifies they pass through to the command.
     """
-    controller = _controller()
+    controller = bare_firmware_controller_factory(esphome_cmd=["esphome"], with_mock_db=True)
     cache = ["--mdns-address-cache", "kitchen.local=192.168.1.50"]
     controller._db.devices = MagicMock()
     controller._db.devices.get_address_cache_args.return_value = cache
