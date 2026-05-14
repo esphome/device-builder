@@ -99,14 +99,7 @@ def test_sweep_prunes_empty_dashboard_parent(tmp_path: Path) -> None:
 
 
 def test_sweep_prunes_dashboard_parent_with_macos_metadata(tmp_path: Path) -> None:
-    """A dashboard_id parent containing only macOS .DS_Store / AppleDouble is still pruned.
-
-    Finder drops ``.DS_Store`` into every directory it browses
-    on a macOS dashboard host; without the metadata purge in
-    ``_prune_empty_dir`` these files would pin the parent
-    forever with ENOTEMPTY after the last device subtree is
-    swept.
-    """
+    """Dashboard_id parent holding only ``.DS_Store`` / ``._*`` still rmdirs."""
     now = 1_000_000.0
     key = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
     _populate(tmp_path, key, age_seconds=3600, now=now)
@@ -116,6 +109,23 @@ def test_sweep_prunes_dashboard_parent_with_macos_metadata(tmp_path: Path) -> No
 
     sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
     assert not dashboard_dir.exists()
+
+
+def test_sweep_leaves_macos_metadata_alongside_warm_subtree(tmp_path: Path) -> None:
+    """Metadata purge is scoped to metadata-only parents, not non-empty ones."""
+    now = 1_000_000.0
+    warm = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
+    _populate(tmp_path, warm, age_seconds=60, now=now)
+    dashboard_dir = tmp_path / REMOTE_BUILDS_SUBDIR / "alpha"
+    ds_store = dashboard_dir / ".DS_Store"
+    apple_double = dashboard_dir / "._kitchen"
+    ds_store.write_bytes(b"\x00\x00\x00\x01Bud1")
+    apple_double.write_bytes(b"AppleDouble")
+
+    sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    assert warm.subtree(tmp_path).is_dir()
+    assert ds_store.is_file()
+    assert apple_double.is_file()
 
 
 def test_sweep_keeps_dashboard_parent_when_sibling_still_warm(tmp_path: Path) -> None:
