@@ -1107,6 +1107,24 @@ def test_generate_component_yaml_recurses_through_nested_dict_indent() -> None:
     assert "      leaf: v" in out
 
 
+def test_generate_component_yaml_handles_mixed_dict_and_scalar_list_without_raising() -> None:
+    """
+    A list with a leading dict but a non-dict later element falls through.
+
+    The list-of-dicts branch is gated on every element being a dict;
+    a mixed list takes the flow-style fallback instead. Without
+    the all-dict gate the second-iteration ``item.items()`` call
+    would raise ``AttributeError`` and surface as a generic
+    internal error to the user. Pin both the no-raise contract
+    and the flow-style fallback shape (valid YAML by accident —
+    the dict renders as a flow mapping via ``str(dict)`` and the
+    scalar renders bare).
+    """
+    component = _component(component_id="myc", category=ComponentCategory.MISC)
+    out = generate_component_yaml(component, {"items": [{"a": 1}, "loose"]})
+    assert "items: [{'a': 1}, loose]" in out
+
+
 def test_generate_component_yaml_emits_list_of_dicts_as_block_sequence() -> None:
     """A list of dicts renders as ``- mapping`` block-sequence items.
 

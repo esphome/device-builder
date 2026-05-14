@@ -280,7 +280,7 @@ def _emit_field(key: str, value: Any, indent: str) -> list[str]:
         for sub_key, sub_value in value.items():
             lines.extend(_emit_field(sub_key, sub_value, indent + ESPHOME_YAML_INDENT))
         return lines
-    if isinstance(value, list) and value and isinstance(value[0], dict):
+    if isinstance(value, list) and value and all(isinstance(item, dict) for item in value):
         lines = [f"{indent}{key}:"]
         for item in value:
             first = True
