@@ -26,7 +26,6 @@ from ...helpers.event_bus import Event
 from ...helpers.storage_path import resolve_storage_path
 from ...models import (
     AddComponentResponse,
-    AdoptableDevice,
     Device,
     DeviceEventData,
     DeviceReachabilityData,
@@ -62,6 +61,7 @@ from . import (
     storage_regen,
     validate,
 )
+from ._state import DevicesState
 from ._yaml_search_cache import YamlSearchCache
 from .helpers import (
     _build_address_cache_args,
@@ -71,7 +71,7 @@ from .metadata import DeviceMetadataBase
 
 if TYPE_CHECKING:
     from ...device_builder import DeviceBuilder
-    from ...models import BoardCatalogEntry
+    from ...models import AdoptableDevice, BoardCatalogEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -95,32 +95,24 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
     def __init__(self, device_builder: DeviceBuilder) -> None:
         super().__init__(device_builder)
-        self._esphome_cmd: list[str] = []
+        self.state = DevicesState()
         # Unsubscribe handle for the firmware-job-completion listener
         # wired up in start(); held so stop() can detach cleanly.
         self._unsub_job_completed: Any = None
-
-        # Discovery / import state. Keyed by ``device.name`` so the
-        # WebSocket layer and ``devices/ignore`` can address entries
-        # without juggling full mDNS service-instance names. Filled by
-        # ``DeviceStateMonitor`` callbacks.
-        self.import_result: dict[str, AdoptableDevice] = {}
-        self.ignored_devices: set[str] = set()
 
         # Background ``--only-generate`` bookkeeping. ``--only-generate``
         # validates a YAML and writes its ``StorageJSON`` without doing
         # a real build; we trigger it whenever a YAML is saved or
         # first-seen with no compile output. Three guards stop us from
         # spinning:
-        #   * ``_regenerate_pending`` — configurations already in flight
-        #     (scheduled but not yet finished). Skip duplicate schedules.
-        #   * ``_regenerate_failed`` — YAMLs whose last attempt failed.
-        #     Don't retry until the file changes (cleared on
+        #   * ``state.regenerate_pending`` — configurations already in
+        #     flight (scheduled but not yet finished). Skip duplicate
+        #     schedules.
+        #   * ``state.regenerate_failed`` — YAMLs whose last attempt
+        #     failed. Don't retry until the file changes (cleared on
         #     ``ScanChange.UPDATED``).
         #   * ``_regenerate_lock`` — serialises the actual subprocess
         #     so we don't spawn N esphome compiles in parallel.
-        self._regenerate_pending: set[str] = set()
-        self._regenerate_failed: set[str] = set()
         self._regenerate_lock = asyncio.Lock()
 
         # ``yaml/search`` per-file cache. The class owns its own
@@ -173,7 +165,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             on_mac_address_change=self._on_mac_address_change,
             on_importable_added=self._on_importable_added,
             on_importable_removed=self._on_importable_removed,
-            is_ignored=self.ignored_devices.__contains__,
+            is_ignored=self.state.ignored_devices.__contains__,
             presence=self._db.subscriber_presence,
         )
         # Per-signal freshness tracker (mDNS / ping / MQTT last-seen,
@@ -213,7 +205,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
     async def start(self) -> None:
         """Initialise — load state, scan files, start mDNS + ping + MQTT discovery."""
-        self._esphome_cmd = _find_esphome_cmd()
+        self.state.esphome_cmd = _find_esphome_cmd()
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._load_ignored_devices)
         await self._scanner.scan()
@@ -305,7 +297,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         # devices when the discovery callback fires; this guard catches
         # the race where a YAML appeared between the callback and this
         # listing.
-        importable = [d for d in self.import_result.values() if d.name not in configured_names]
+        importable = [
+            d for d in self.state.import_result.values() if d.name not in configured_names
+        ]
         return DevicesResponse(configured=configured, importable=importable)
 
     @api_command("devices/get_states")

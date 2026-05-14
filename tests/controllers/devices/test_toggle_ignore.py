@@ -54,8 +54,8 @@ def _seed_for_toggle(
     is subscribed since that's the toggle path's only broadcast.
     """
     fired = capture_devices_events(controller, EventType.IMPORTABLE_DEVICE_ADDED)
-    controller.import_result = {}
-    controller.ignored_devices = set()
+    controller.state.import_result = {}
+    controller.state.ignored_devices = set()
     return fired, tmp_path / "ignored-devices.json"
 
 
@@ -88,7 +88,7 @@ async def test_toggle_ignore_true_adds_to_set_and_persists(
 
     await controller.toggle_ignore(name="kitchen-1a2b3c")
 
-    assert "kitchen-1a2b3c" in controller.ignored_devices
+    assert "kitchen-1a2b3c" in controller.state.ignored_devices
     # Persist landed on disk via the executor.
     assert ignored_path.exists()
     payload = json.loads(ignored_path.read_text("utf-8"))
@@ -111,11 +111,11 @@ async def test_toggle_ignore_false_removes_and_persists(
     """
     controller = make_controller(tmp_path)
     _fired, ignored_path = _seed_for_toggle(controller, tmp_path, capture_devices_events)
-    controller.ignored_devices.add("kitchen-1a2b3c")
+    controller.state.ignored_devices.add("kitchen-1a2b3c")
 
     await controller.toggle_ignore(name="kitchen-1a2b3c", ignore=False)
 
-    assert "kitchen-1a2b3c" not in controller.ignored_devices
+    assert "kitchen-1a2b3c" not in controller.state.ignored_devices
     payload = json.loads(ignored_path.read_text("utf-8"))
     assert payload == {"ignored_devices": []}
 
@@ -140,7 +140,7 @@ async def test_toggle_ignore_mirrors_flag_onto_cached_adoptable_and_fires(
     """
     controller = make_controller(tmp_path)
     fired, _ignored_path = _seed_for_toggle(controller, tmp_path, capture_devices_events)
-    controller.import_result["kitchen-1a2b3c"] = AdoptableDevice(
+    controller.state.import_result["kitchen-1a2b3c"] = AdoptableDevice(
         name="kitchen-1a2b3c",
         friendly_name="Kitchen",
         package_import_url="github://acme/firmware.yaml",
@@ -152,7 +152,7 @@ async def test_toggle_ignore_mirrors_flag_onto_cached_adoptable_and_fires(
 
     await controller.toggle_ignore(name="kitchen-1a2b3c", ignore=True)
 
-    cached = controller.import_result["kitchen-1a2b3c"]
+    cached = controller.state.import_result["kitchen-1a2b3c"]
     assert cached.ignored is True
     # Other identity fields survive — only ``ignored`` was flipped.
     assert cached.name == "kitchen-1a2b3c"
@@ -180,7 +180,7 @@ async def test_toggle_ignore_does_not_fire_when_state_unchanged(
     """
     controller = make_controller(tmp_path)
     fired, _ignored_path = _seed_for_toggle(controller, tmp_path, capture_devices_events)
-    controller.import_result["kitchen-1a2b3c"] = AdoptableDevice(
+    controller.state.import_result["kitchen-1a2b3c"] = AdoptableDevice(
         name="kitchen-1a2b3c",
         friendly_name="Kitchen",
         package_import_url="github://acme/firmware.yaml",
@@ -189,12 +189,12 @@ async def test_toggle_ignore_does_not_fire_when_state_unchanged(
         network="wifi",
         ignored=True,  # already ignored
     )
-    controller.ignored_devices.add("kitchen-1a2b3c")
+    controller.state.ignored_devices.add("kitchen-1a2b3c")
 
     # Re-asserting the same value.
     await controller.toggle_ignore(name="kitchen-1a2b3c", ignore=True)
 
     # Cache untouched.
-    assert controller.import_result["kitchen-1a2b3c"].ignored is True
+    assert controller.state.import_result["kitchen-1a2b3c"].ignored is True
     # No event fired — the state didn't change.
     assert fired == []

@@ -21,6 +21,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.controllers.devices._state import DevicesState
 
 
 @pytest.fixture
@@ -40,7 +41,8 @@ def _stub_controller(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Devices
     )
     ctrl = DevicesController.__new__(DevicesController)
     ctrl._db = MagicMock()  # type: ignore[attr-defined]
-    ctrl.ignored_devices = {"will-be-overwritten"}
+    ctrl.state = DevicesState()
+    ctrl.state.ignored_devices = {"will-be-overwritten"}
     return ctrl
 
 
@@ -57,7 +59,7 @@ async def test_missing_file_starts_empty(
     await _load(_stub_controller)
     # The fixture pre-populated a sentinel value to prove the loader
     # leaves the in-memory set alone when there's nothing on disk.
-    assert _stub_controller.ignored_devices == {"will-be-overwritten"}
+    assert _stub_controller.state.ignored_devices == {"will-be-overwritten"}
     assert caplog.records == []
 
 
@@ -70,7 +72,7 @@ async def test_corrupt_json_resets_with_warning(
     (tmp_path / "ignored-devices.json").write_bytes(b"{not-json")
     caplog.set_level(logging.WARNING, "esphome_device_builder.controllers.devices")
     await _load(_stub_controller)
-    assert _stub_controller.ignored_devices == {"will-be-overwritten"}
+    assert _stub_controller.state.ignored_devices == {"will-be-overwritten"}
     assert any("corrupt" in r.message for r in caplog.records)
 
 
@@ -83,7 +85,7 @@ async def test_top_level_not_object_resets_with_warning(
     (tmp_path / "ignored-devices.json").write_bytes(b'["not", "a", "dict"]')
     caplog.set_level(logging.WARNING, "esphome_device_builder.controllers.devices")
     await _load(_stub_controller)
-    assert _stub_controller.ignored_devices == {"will-be-overwritten"}
+    assert _stub_controller.state.ignored_devices == {"will-be-overwritten"}
     assert any("isn't a JSON object" in r.message for r in caplog.records)
 
 
@@ -98,7 +100,7 @@ async def test_non_list_field_resets_with_warning(
     )
     caplog.set_level(logging.WARNING, "esphome_device_builder.controllers.devices")
     await _load(_stub_controller)
-    assert _stub_controller.ignored_devices == set()
+    assert _stub_controller.state.ignored_devices == set()
     assert any("non-list" in r.message for r in caplog.records)
 
 
@@ -110,7 +112,7 @@ async def test_mixed_entry_types_filtered_to_strings(
         b'{"ignored_devices": ["kitchen", 42, null, "garage"]}',
     )
     await _load(_stub_controller)
-    assert _stub_controller.ignored_devices == {"kitchen", "garage"}
+    assert _stub_controller.state.ignored_devices == {"kitchen", "garage"}
 
 
 async def test_happy_path(_stub_controller: DevicesController, tmp_path: Path) -> None:
@@ -119,4 +121,4 @@ async def test_happy_path(_stub_controller: DevicesController, tmp_path: Path) -
         b'{"ignored_devices": ["one", "two", "three"]}',
     )
     await _load(_stub_controller)
-    assert _stub_controller.ignored_devices == {"one", "two", "three"}
+    assert _stub_controller.state.ignored_devices == {"one", "two", "three"}

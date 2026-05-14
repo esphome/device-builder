@@ -167,8 +167,8 @@ async def test_start_runs_full_initialisation_chain(
     with _capture_inner_lifecycle(controller) as log:
         await controller.start()
 
-    assert controller._esphome_cmd == ["python", "-m", "esphome"]
-    assert controller.ignored_devices == {"already-ignored"}
+    assert controller.state.esphome_cmd == ["python", "-m", "esphome"]
+    assert controller.state.ignored_devices == {"already-ignored"}
     # Fact-of-call AND ordering in one assertion: scan first (the
     # state monitor's first sweep reads ``self._scanner.devices``
     # so a swap would have it iterate over an empty list at

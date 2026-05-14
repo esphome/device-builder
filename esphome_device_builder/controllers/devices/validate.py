@@ -30,7 +30,7 @@ async def validate_config(
     WS handler.
     """
     config_path = str(controller._db.settings.rel_path(configuration))
-    cmd = [*controller._esphome_cmd, "--dashboard", "config", config_path]
+    cmd = [*controller.state.esphome_cmd, "--dashboard", "config", config_path]
     line_transform: Callable[[str], str] | None = None
     if show_secrets:
         cmd.append("--show-secrets")

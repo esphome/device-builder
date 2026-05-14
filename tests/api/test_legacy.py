@@ -147,12 +147,13 @@ def _make_devices_mock(
     devices = MagicMock(spec=DevicesController)
     devices.poll = AsyncMock()
     devices.get_devices = MagicMock(return_value=list(configured or []))
-    # See the docstring caveat above: these setattrs succeed
-    # regardless of the spec because ``spec=`` doesn't enforce
-    # instance-attribute existence. They mirror what the real
-    # controller's ``__init__`` puts on the instance.
-    devices.import_result = importable or {}
-    devices.ignored_devices = ignored or set()
+    # ``spec=DevicesController`` doesn't auto-include attributes
+    # set in ``__init__``; ``state`` is one of those, so attach a
+    # bare ``MagicMock`` and populate the dict/set fields the
+    # legacy ``/devices`` route reads off it.
+    devices.state = MagicMock()
+    devices.state.import_result = importable or {}
+    devices.state.ignored_devices = ignored or set()
     return devices
 
 

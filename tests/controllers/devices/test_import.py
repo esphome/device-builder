@@ -40,7 +40,7 @@ def _seed_import_state(controller: DevicesController) -> None:
     AdoptableDevice — production wires this up in ``__init__``,
     but the bypass-init factory leaves it unset.
     """
-    controller.import_result = {}
+    controller.state.import_result = {}
 
 
 def _import_config_stub(
@@ -138,7 +138,7 @@ async def test_import_device_passes_ethernet_network_through_to_import_config(
 
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
-    ctrl.import_result["olimex-poe-aabbcc"] = AdoptableDevice(
+    ctrl.state.import_result["olimex-poe-aabbcc"] = AdoptableDevice(
         name="olimex-poe-aabbcc",
         friendly_name="Olimex PoE",
         package_import_url="github://olimex/esp32-poe.yaml",
@@ -187,7 +187,7 @@ async def test_import_device_uses_direct_name_lookup_with_duplicate_products(
     # Two Apollo PLT-1s — same firmware, different network types.
     # The import dict's insertion order would otherwise pick whichever
     # arrived first; the direct-name lookup ignores order.
-    ctrl.import_result["apollo-plt-1-aabbcc"] = AdoptableDevice(
+    ctrl.state.import_result["apollo-plt-1-aabbcc"] = AdoptableDevice(
         name="apollo-plt-1-aabbcc",
         friendly_name="Apollo PLT-1 (Wi-Fi)",
         package_import_url="github://apollo/plt-1.yaml",
@@ -196,7 +196,7 @@ async def test_import_device_uses_direct_name_lookup_with_duplicate_products(
         network="wifi",
         ignored=False,
     )
-    ctrl.import_result["apollo-plt-1-ddeeff"] = AdoptableDevice(
+    ctrl.state.import_result["apollo-plt-1-ddeeff"] = AdoptableDevice(
         name="apollo-plt-1-ddeeff",
         friendly_name="Apollo PLT-1 (Ethernet)",
         package_import_url="github://apollo/plt-1.yaml",
@@ -235,7 +235,7 @@ async def test_import_device_falls_back_to_wifi_for_old_factory_firmware(
 
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
-    ctrl.import_result["legacy-bulb-001122"] = AdoptableDevice(
+    ctrl.state.import_result["legacy-bulb-001122"] = AdoptableDevice(
         name="legacy-bulb-001122",
         friendly_name="Legacy Bulb",
         package_import_url="github://vendor/old.yaml",
@@ -590,7 +590,7 @@ async def test_import_device_drops_matching_import_result_entry(
         network="wifi",
         ignored=False,
     )
-    ctrl.import_result["apollo-plt-1-983300"] = discovered
+    ctrl.state.import_result["apollo-plt-1-983300"] = discovered
 
     await ctrl.import_device(
         # User typed a shorter name (without the MAC suffix).
@@ -599,7 +599,7 @@ async def test_import_device_drops_matching_import_result_entry(
         package_import_url="github://apollo/plt-1.yaml",
     )
 
-    assert "apollo-plt-1-983300" not in ctrl.import_result
+    assert "apollo-plt-1-983300" not in ctrl.state.import_result
     # Removal is broadcast so subscribed frontends drop the card.
     # Pin both count and payload so a future double-fire / regression
     # surfaces here — there's exactly one matching import_result entry,

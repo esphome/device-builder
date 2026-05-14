@@ -306,8 +306,8 @@ def create_legacy_routes() -> web.RouteTableDef:
 
         importable = [
             imp.to_dict()
-            for name, imp in devices_ctrl.import_result.items()
-            if name not in devices_ctrl.ignored_devices
+            for name, imp in devices_ctrl.state.import_result.items()
+            if name not in devices_ctrl.state.ignored_devices
         ]
 
         return json_response({"configured": configured, "importable": importable})

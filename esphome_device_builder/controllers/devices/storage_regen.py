@@ -34,18 +34,18 @@ def schedule(controller: DevicesController, configuration: str) -> None:
     (cross-restart, TTL-gated), and ``_regenerate_lock``
     serialising the subprocess itself.
     """
-    if not controller._esphome_cmd:
+    if not controller.state.esphome_cmd:
         return  # ``start()`` hasn't run yet.
-    if configuration in controller._regenerate_pending:
+    if configuration in controller.state.regenerate_pending:
         return  # already scheduled.
-    if configuration in controller._regenerate_failed:
+    if configuration in controller.state.regenerate_failed:
         # Same-session retry would replay the same error.
         return
 
     # Mark synchronously so a second same-tick call sees the
     # marker before the coroutine yields. ``_run``'s finally
     # discards on completion.
-    controller._regenerate_pending.add(configuration)
+    controller.state.regenerate_pending.add(configuration)
     controller._db.create_background_task(_run(controller, configuration))
 
 
@@ -55,7 +55,7 @@ async def _run(controller: DevicesController, configuration: str) -> None:
         # tests patching any of the four async helpers on the
         # class still intercept.
         if await controller._regen_already_failed_recently_async(configuration):
-            controller._regenerate_failed.add(configuration)
+            controller.state.regenerate_failed.add(configuration)
             return
         async with controller._regenerate_lock:
             success = await controller._spawn_only_generate(configuration)
@@ -63,10 +63,10 @@ async def _run(controller: DevicesController, configuration: str) -> None:
             await controller._finalize_regen_success(configuration)
             await controller._scanner.reload(configuration)
         else:
-            controller._regenerate_failed.add(configuration)
+            controller.state.regenerate_failed.add(configuration)
             await controller._stamp_regen_failure(configuration)
     finally:
-        controller._regenerate_pending.discard(configuration)
+        controller.state.regenerate_pending.discard(configuration)
 
 
 async def spawn_only_generate(controller: DevicesController, configuration: str) -> bool:
@@ -78,7 +78,7 @@ async def spawn_only_generate(controller: DevicesController, configuration: str)
     persist-failure-stamp branch.
     """
     config_path = str(controller._db.settings.rel_path(configuration))
-    cmd = [*controller._esphome_cmd, "--dashboard", "compile", "--only-generate", config_path]
+    cmd = [*controller.state.esphome_cmd, "--dashboard", "compile", "--only-generate", config_path]
     try:
         proc = await create_subprocess_exec(
             *cmd,

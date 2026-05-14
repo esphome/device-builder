@@ -41,7 +41,7 @@ async def stream_logs(
     # --mdns/--dns-address-cache on the top-level parser.
     cache_args = controller.get_ota_address_cache_args(configuration, resolved_port)
     cmd = [
-        *controller._esphome_cmd,
+        *controller.state.esphome_cmd,
         "--dashboard",
         *cache_args,
         "logs",

@@ -126,9 +126,9 @@ async def test_regenerate_spawns_esphome_compile_only_generate(
     reload_calls = [c for c in controller._scanner.calls if c[0] == "reload"]
     assert reload_calls == [("reload", "kitchen.yaml")]
     # Pending guard cleared in the ``finally``.
-    assert controller._regenerate_pending == set()
+    assert controller.state.regenerate_pending == set()
     # Success → not in failed set.
-    assert controller._regenerate_failed == set()
+    assert controller.state.regenerate_failed == set()
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +151,7 @@ def test_regenerate_skips_when_esphome_cmd_unset(
     controller._schedule_storage_regenerate("kitchen.yaml")
 
     assert controller._spawned_tasks == []  # type: ignore[attr-defined]
-    assert controller._regenerate_pending == set()
+    assert controller.state.regenerate_pending == set()
 
 
 def test_regenerate_skips_duplicate_schedule(
@@ -164,7 +164,7 @@ def test_regenerate_skips_duplicate_schedule(
     same YAML.
     """
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
-    controller._regenerate_pending.add("kitchen.yaml")
+    controller.state.regenerate_pending.add("kitchen.yaml")
 
     controller._schedule_storage_regenerate("kitchen.yaml")
 
@@ -182,7 +182,7 @@ def test_regenerate_skips_after_failed_marker(
     bad input.
     """
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
-    controller._regenerate_failed.add("kitchen.yaml")
+    controller.state.regenerate_failed.add("kitchen.yaml")
 
     controller._schedule_storage_regenerate("kitchen.yaml")
 
@@ -228,9 +228,9 @@ async def test_regenerate_marks_failed_on_nonzero_exit(
     # Failure → reload skipped, persist skipped, failed marker set.
     assert not any(c[0] == "reload" for c in controller._scanner.calls)
     assert persist_calls == []
-    assert controller._regenerate_failed == {"kitchen.yaml"}
+    assert controller.state.regenerate_failed == {"kitchen.yaml"}
     # Pending cleared via the ``finally``.
-    assert controller._regenerate_pending == set()
+    assert controller.state.regenerate_pending == set()
 
 
 @pytest.mark.asyncio
@@ -268,8 +268,8 @@ async def test_regenerate_marks_failed_on_spawn_oserror(
     await _drain(controller)
 
     assert not any(c[0] == "reload" for c in controller._scanner.calls)
-    assert controller._regenerate_failed == {"kitchen.yaml"}
-    assert controller._regenerate_pending == set()
+    assert controller.state.regenerate_failed == {"kitchen.yaml"}
+    assert controller.state.regenerate_pending == set()
 
 
 # ---------------------------------------------------------------------------
@@ -314,10 +314,10 @@ async def test_regenerate_dedupes_same_tick_calls(
     assert len(controller._spawned_tasks) == 1  # type: ignore[attr-defined]
     # Sync ``.add()`` in ``schedule`` is the load-bearing piece —
     # without it the second call wouldn't see the marker yet.
-    assert controller._regenerate_pending == {"kitchen.yaml"}
+    assert controller.state.regenerate_pending == {"kitchen.yaml"}
 
     await _drain(controller)
-    assert controller._regenerate_pending == set()
+    assert controller.state.regenerate_pending == set()
 
 
 @pytest.mark.asyncio
@@ -355,7 +355,7 @@ async def test_regenerate_pending_blocks_in_flight_dupe(
 
     controller._schedule_storage_regenerate("kitchen.yaml")
     await asyncio.wait_for(in_flight.wait(), timeout=2.0)
-    assert controller._regenerate_pending == {"kitchen.yaml"}
+    assert controller.state.regenerate_pending == {"kitchen.yaml"}
 
     # Second schedule while the first is still inside ``communicate``.
     controller._schedule_storage_regenerate("kitchen.yaml")
@@ -364,7 +364,7 @@ async def test_regenerate_pending_blocks_in_flight_dupe(
 
     release.set()
     await _drain(controller)
-    assert controller._regenerate_pending == set()
+    assert controller.state.regenerate_pending == set()
 
 
 # ---------------------------------------------------------------------------
@@ -556,7 +556,7 @@ async def test_regenerate_skips_when_stamp_fresh_and_mtime_matches(
     # The skip path also seeds the in-memory set so subsequent
     # same-session schedules hit the cheaper guard instead of
     # re-reading the sidecar.
-    assert controller._regenerate_failed == {"kitchen.yaml"}
+    assert controller.state.regenerate_failed == {"kitchen.yaml"}
 
 
 @pytest.mark.asyncio

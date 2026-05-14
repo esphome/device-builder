@@ -26,6 +26,7 @@ import pytest
 from esphome_device_builder.controllers._reachability_tracker import ReachabilityTracker
 from esphome_device_builder.controllers.config import set_device_metadata
 from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.controllers.devices._state import DevicesState
 from esphome_device_builder.controllers.devices._yaml_search_cache import YamlSearchCache
 from esphome_device_builder.helpers.device_yaml import configuration_stem
 from esphome_device_builder.helpers.event_bus import Event, EventBus
@@ -442,6 +443,7 @@ def make_controller() -> MakeControllerFactory:
     ) -> DevicesController:
         controller = DevicesController.__new__(DevicesController)
         controller._db = MagicMock()
+        controller.state = DevicesState()
         controller._db.settings.config_dir = config_dir
         controller._db.settings.rel_path = lambda configuration: config_dir / configuration
         # Default the editor's ``validate_yaml`` to a passing result
@@ -488,11 +490,11 @@ def make_controller() -> MakeControllerFactory:
 
             controller._db.create_background_task = _create_bg
             controller._spawned_tasks = spawned_tasks  # type: ignore[attr-defined]
-            controller._regenerate_pending = set()
-            controller._regenerate_failed = set()
+            controller.state.regenerate_pending = set()
+            controller.state.regenerate_failed = set()
             controller._regenerate_lock = asyncio.Lock()
 
-        controller._esphome_cmd = esphome_cmd if esphome_cmd is not None else []
+        controller.state.esphome_cmd = esphome_cmd if esphome_cmd is not None else []
 
         return controller
 

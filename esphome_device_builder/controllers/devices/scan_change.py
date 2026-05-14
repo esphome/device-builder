@@ -32,7 +32,7 @@ def on_scan_change(controller: DevicesController, kind: ScanChange, device: Devi
         # marker so the next edit gets a fresh chance at
         # ``--only-generate`` (and re-creating a deleted file
         # later doesn't inherit the old failure).
-        controller._regenerate_failed.discard(device.configuration)
+        controller.state.regenerate_failed.discard(device.configuration)
     # First-sight devices with no compile output carry the
     # ``<filename>.local`` address fallback and an empty
     # ``loaded_integrations`` list. Schedule a background

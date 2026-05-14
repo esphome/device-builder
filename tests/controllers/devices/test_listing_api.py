@@ -125,7 +125,7 @@ async def test_list_devices_scans_then_returns_configured_and_importable(
     """
     controller = make_controller(tmp_path)
     controller._scanner.devices = [_device("kitchen")]
-    controller.import_result = {"kitchen-1a2b3c": _adoptable()}
+    controller.state.import_result = {"kitchen-1a2b3c": _adoptable()}
 
     response = await controller.list_devices()
 
@@ -150,7 +150,7 @@ async def test_list_devices_filters_importable_already_configured(
     controller = make_controller(tmp_path)
     controller._scanner.devices = [_device("kitchen-1a2b3c")]
     # Same name as the configured device — should be filtered out.
-    controller.import_result = {"kitchen-1a2b3c": _adoptable("kitchen-1a2b3c")}
+    controller.state.import_result = {"kitchen-1a2b3c": _adoptable("kitchen-1a2b3c")}
 
     response = await controller.list_devices()
 
@@ -177,13 +177,13 @@ def test_on_importable_added_stashes_and_fires_event(
     entries by ``name``.
     """
     controller = make_controller(tmp_path)
-    controller.import_result = {}
+    controller.state.import_result = {}
     captured = capture_devices_events(controller, EventType.IMPORTABLE_DEVICE_ADDED)
     adoptable = _adoptable()
 
     controller._on_importable_added(adoptable)
 
-    assert controller.import_result == {"kitchen-1a2b3c": adoptable}
+    assert controller.state.import_result == {"kitchen-1a2b3c": adoptable}
     assert len(captured) == 1
     assert captured[0].event_type is EventType.IMPORTABLE_DEVICE_ADDED
     assert captured[0].data == {"device": adoptable}
@@ -201,12 +201,12 @@ def test_on_importable_removed_drops_entry_and_fires_event(
     that the cache entry actually goes away.
     """
     controller = make_controller(tmp_path)
-    controller.import_result = {"kitchen-1a2b3c": _adoptable()}
+    controller.state.import_result = {"kitchen-1a2b3c": _adoptable()}
     captured = capture_devices_events(controller, EventType.IMPORTABLE_DEVICE_REMOVED)
 
     controller._on_importable_removed("kitchen-1a2b3c")
 
-    assert controller.import_result == {}
+    assert controller.state.import_result == {}
     assert len(captured) == 1
     assert captured[0].event_type is EventType.IMPORTABLE_DEVICE_REMOVED
     assert captured[0].data == {"name": "kitchen-1a2b3c"}
@@ -226,7 +226,7 @@ def test_on_importable_removed_ignores_unknown_name(
     panel for nothing.
     """
     controller = make_controller(tmp_path)
-    controller.import_result = {}
+    controller.state.import_result = {}
     captured = capture_devices_events(controller, EventType.IMPORTABLE_DEVICE_REMOVED)
 
     controller._on_importable_removed("never-seen")
@@ -246,7 +246,7 @@ def test_get_importable_devices_filters_already_configured(
     """
     controller = make_controller(tmp_path)
     controller._scanner.devices = [_device("kitchen-1a2b3c")]
-    controller.import_result = {
+    controller.state.import_result = {
         "kitchen-1a2b3c": _adoptable("kitchen-1a2b3c"),
         "bedroom-d4e5f6": _adoptable("bedroom-d4e5f6"),
     }

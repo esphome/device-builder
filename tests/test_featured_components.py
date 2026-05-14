@@ -24,6 +24,7 @@ import pytest
 
 from esphome_device_builder.controllers.components import ComponentCatalog
 from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.controllers.devices._state import DevicesState
 from esphome_device_builder.controllers.devices.helpers import (
     _apply_featured_presets,
     _drop_unconfigured_dependent_fields,
@@ -643,11 +644,12 @@ def _make_controller(catalog: ComponentCatalog, tmp_path: Any) -> DevicesControl
     """Build a DevicesController with just enough plumbing for ``add_component``."""
     ctrl = DevicesController.__new__(DevicesController)
     ctrl._db = MagicMock()
+    ctrl.state = DevicesState()
     ctrl._db.settings.rel_path = lambda name: tmp_path / name
     ctrl._db.components = catalog
     ctrl._scanner = MagicMock()
     ctrl._scanner.scan = AsyncMock()
-    ctrl._esphome_cmd = []
+    ctrl.state.esphome_cmd = []
     return ctrl
 
 

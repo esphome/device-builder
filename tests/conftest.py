@@ -36,6 +36,7 @@ from esphome_device_builder.controllers.boards import BoardCatalog
 from esphome_device_builder.controllers.components import ComponentCatalog
 from esphome_device_builder.controllers.config import DashboardSettings
 from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.controllers.devices._state import DevicesState
 from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.controllers.remote_build import (
     OffloaderController,
@@ -655,6 +656,7 @@ def make_devices_controller_with_bus(
         bus.add_listener(event_type, captured.append)
     controller = DevicesController.__new__(DevicesController)
     controller._db = MagicMock()
+    controller.state = DevicesState()
     if create_background_task is not None:
         controller._db.create_background_task = MagicMock(side_effect=create_background_task)
     controller._db.bus = bus

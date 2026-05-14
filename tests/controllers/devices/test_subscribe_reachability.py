@@ -470,7 +470,7 @@ def test_scan_change_removed_clears_tracker(
     # don't have to hand-build an import_discovery. The tracker
     # clear is what we're pinning down.
     controller._state_monitor.revisit_all_importables = MagicMock()
-    controller._regenerate_failed = set()
+    controller.state.regenerate_failed = set()
 
     controller._on_scan_change(ScanChange.REMOVED, device)
 

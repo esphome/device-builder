@@ -48,10 +48,10 @@ async def import_device(
     # rename-during-adopt case (the ``import_result`` key no
     # longer matches the chosen YAML name); fall through to
     # Wi-Fi when no row matches at all.
-    adoptable = controller.import_result.get(name) or next(
+    adoptable = controller.state.import_result.get(name) or next(
         (
             d
-            for d in controller.import_result.values()
+            for d in controller.state.import_result.values()
             if d.package_import_url == package_import_url
         ),
         None,
@@ -106,7 +106,9 @@ async def import_device(
     # and remember the broadcast name for the zeroconf-cache
     # lookup below.
     cached_names = [
-        n for n, d in controller.import_result.items() if d.package_import_url == package_import_url
+        n
+        for n, d in controller.state.import_result.items()
+        if d.package_import_url == package_import_url
     ]
     for cached_name in cached_names:
         controller._on_importable_removed(cached_name)
@@ -133,18 +135,18 @@ async def import_device(
 async def toggle_ignore(controller: DevicesController, *, name: str, ignore: bool) -> None:
     """Mark a discovered device as ignored / visible in the import list."""
     if ignore:
-        controller.ignored_devices.add(name)
+        controller.state.ignored_devices.add(name)
     else:
-        controller.ignored_devices.discard(name)
+        controller.state.ignored_devices.discard(name)
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, controller._save_ignored_devices)
     # Mirror the new flag onto the cached AdoptableDevice and
     # re-publish ADDED so subscribed frontends update the badge
     # without waiting for a full re-discovery cycle.
-    existing = controller.import_result.get(name)
+    existing = controller.state.import_result.get(name)
     if existing is not None and existing.ignored != ignore:
         updated = replace(existing, ignored=ignore)
-        controller.import_result[name] = updated
+        controller.state.import_result[name] = updated
         controller._db.bus.fire(
             EventType.IMPORTABLE_DEVICE_ADDED, ImportableDeviceAddedData(device=updated)
         )
@@ -152,7 +154,7 @@ async def toggle_ignore(controller: DevicesController, *, name: str, ignore: boo
 
 def on_importable_added(controller: DevicesController, device: AdoptableDevice) -> None:
     """Stash a newly-discovered importable device and notify subscribers."""
-    controller.import_result[device.name] = device
+    controller.state.import_result[device.name] = device
     controller._db.bus.fire(
         EventType.IMPORTABLE_DEVICE_ADDED, ImportableDeviceAddedData(device=device)
     )
@@ -160,7 +162,7 @@ def on_importable_added(controller: DevicesController, device: AdoptableDevice) 
 
 def on_importable_removed(controller: DevicesController, name: str) -> None:
     """Forget an importable device that disappeared from mDNS."""
-    if controller.import_result.pop(name, None) is None:
+    if controller.state.import_result.pop(name, None) is None:
         return
     controller._db.bus.fire(
         EventType.IMPORTABLE_DEVICE_REMOVED, ImportableDeviceRemovedData(name=name)
@@ -170,11 +172,11 @@ def on_importable_removed(controller: DevicesController, name: str) -> None:
 def get_importable_devices(controller: DevicesController) -> list[AdoptableDevice]:
     """Snapshot of importable devices, filtered against the configured-name set."""
     configured_names = {d.name for d in controller._scanner.devices}
-    return [d for d in controller.import_result.values() if d.name not in configured_names]
+    return [d for d in controller.state.import_result.values() if d.name not in configured_names]
 
 
 def load_ignored_devices(controller: DevicesController) -> None:
-    """Populate ``controller.ignored_devices`` from the on-disk JSON file."""
+    """Populate ``controller.state.ignored_devices`` from the on-disk JSON file."""
     storage_path = ignored_devices_storage_path()
     try:
         raw = storage_path.read_bytes()
@@ -204,14 +206,14 @@ def load_ignored_devices(controller: DevicesController) -> None:
             "field; resetting to an empty set",
             storage_path,
         )
-        controller.ignored_devices = set()
+        controller.state.ignored_devices = set()
         return
-    controller.ignored_devices = {name for name in ignored if isinstance(name, str)}
+    controller.state.ignored_devices = {name for name in ignored if isinstance(name, str)}
 
 
 def save_ignored_devices(controller: DevicesController) -> None:
-    """Persist ``controller.ignored_devices`` to the on-disk JSON file."""
+    """Persist ``controller.state.ignored_devices`` to the on-disk JSON file."""
     storage_path = ignored_devices_storage_path()
     storage_path.write_bytes(
-        dumps_indent({"ignored_devices": sorted(controller.ignored_devices)}),
+        dumps_indent({"ignored_devices": sorted(controller.state.ignored_devices)}),
     )

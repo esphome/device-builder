@@ -796,12 +796,12 @@ def test_on_scan_change_updated_clears_regenerate_failed_marker(
     storage refresh forever.
     """
     controller = make_controller(tmp_path, with_state_monitor=True, with_regenerate_state=True)
-    controller._regenerate_failed.add("kitchen.yaml")
+    controller.state.regenerate_failed.add("kitchen.yaml")
     device = _device("kitchen")
 
     controller._on_scan_change(ScanChange.UPDATED, device)
 
-    assert "kitchen.yaml" not in controller._regenerate_failed
+    assert "kitchen.yaml" not in controller.state.regenerate_failed
 
 
 def test_on_scan_change_removed_revisits_importables(

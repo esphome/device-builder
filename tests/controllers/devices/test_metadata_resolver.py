@@ -20,6 +20,7 @@ import pytest
 
 from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.controllers.devices._state import DevicesState
 from esphome_device_builder.models import Device, EventType
 from tests._storage_fixtures import write_synthetic_device
 
@@ -146,7 +147,8 @@ def test_added_device_without_hash_triggers_regenerate(
     """
     controller = DevicesController.__new__(DevicesController)
     controller._db = MagicMock()
-    controller._regenerate_failed = set()
+    controller.state = DevicesState()
+    controller.state.regenerate_failed = set()
     controller._state_monitor = RecordingStateMonitor()
     regenerated: list[str] = []
     monkeypatch.setattr(
@@ -185,7 +187,8 @@ def test_added_device_fully_populated_does_not_regenerate(
     """
     controller = DevicesController.__new__(DevicesController)
     controller._db = MagicMock()
-    controller._regenerate_failed = set()
+    controller.state = DevicesState()
+    controller.state.regenerate_failed = set()
     controller._state_monitor = MagicMock()
     regenerated: list[str] = []
     monkeypatch.setattr(

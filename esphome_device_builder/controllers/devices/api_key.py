@@ -46,9 +46,7 @@ async def resolve_via_esphome_config(controller: DevicesController, configuratio
     and ``yaml.safe_load`` would treat the wrapped string as the
     key. Returns ``""`` on every failure path.
     """
-    # Defensive ``getattr``: bypass-init test controllers skip
-    # ``__init__`` (which is what creates the attribute).
-    esphome_cmd: list[str] | None = getattr(controller, "_esphome_cmd", None)
+    esphome_cmd = controller.state.esphome_cmd
     if not esphome_cmd:
         return ""
     config_path = str(controller._db.settings.rel_path(configuration))
