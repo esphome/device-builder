@@ -47,7 +47,13 @@ from ...models import (
 from ..config import (
     load_remote_build_settings,
 )
-from . import cleanup_loop, identity_commands, peer_link_sessions, settings_receiver
+from . import (
+    cleanup_loop,
+    identity_commands,
+    peer_crud,
+    peer_link_sessions,
+    settings_receiver,
+)
 from ._receiver_state import ReceiverState
 from ._shared import _RemoteBuildBase, drain_tasks
 from ._storage_codecs import (
@@ -56,9 +62,6 @@ from ._storage_codecs import (
     encode_peers,
 )
 from ._summaries import peer_summary
-from ._validators import (
-    validate_dashboard_id,
-)
 from .artifacts_download import ArtifactsDownloadSender
 from .job_fanout import JobFanout
 from .peer_link import PeerLinkSession, TerminateReason
@@ -73,10 +76,6 @@ _LOGGER = logging.getLogger(__name__)
 # Pairing-window lifetime. Auto-closes after this much idle;
 # the frontend extends on each activity tick.
 _PAIRING_WINDOW_DURATION_SECONDS = 300.0
-
-# Debounce window for the receiver-side peers-store write so a
-# burst of approvals collapses to one disk write.
-_PEERS_SAVE_DELAY_SECONDS = 1.0
 
 
 class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
@@ -286,76 +285,13 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
 
     @api_command("remote_build/approve_peer")
     async def approve_peer(self, *, dashboard_id: str, **kwargs: Any) -> RemoteBuildSettingsView:
-        """
-        Promote a PENDING peer to APPROVED.
-
-        Pops the in-memory PENDING entry, inserts it into the
-        RAM-canonical ``state.approved_peers`` dict, schedules a
-        debounced write to the receiver-peers store, and fires
-        :attr:`EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED` with
-        ``{dashboard_id, status: "approved"}``. The offloader's
-        pair-status listener observes the flip via the bus event +
-        re-snapshot path. ``NOT_FOUND`` if no PENDING entry
-        matches; ``INVALID_ARGS`` if the dashboard_id already
-        corresponds to an APPROVED row (duplicate Accept click,
-        almost always a UI race; refuse rather than silently
-        re-fire the event).
-        """
-        clean_id = validate_dashboard_id(dashboard_id)
-
-        pending = self.state.pending_peers.pop(clean_id, None)
-        if pending is None:
-            # Differentiate "already approved" from "never existed"
-            # so the frontend can decide whether to refresh or
-            # surface an error. Both reads short-circuit through
-            # RAM — no disk I/O.
-            if clean_id in self.state.approved_peers:
-                msg = f"peer is already approved: {clean_id}"
-                raise CommandError(ErrorCode.INVALID_ARGS, msg)
-            msg = f"no pending peer with dashboard_id: {clean_id}"
-            raise CommandError(ErrorCode.NOT_FOUND, msg)
-
-        self.state.approved_peers[clean_id] = pending
-        self._peers_store.async_delay_save(self._serialize_peers, delay=_PEERS_SAVE_DELAY_SECONDS)
-        self._fire_pair_status_changed(clean_id, "approved")
-        return await self._current_settings_view()
+        """Promote a PENDING peer to APPROVED."""
+        return await peer_crud.approve_peer(self, dashboard_id=dashboard_id)
 
     @api_command("remote_build/remove_peer")
     async def remove_peer(self, *, dashboard_id: str, **kwargs: Any) -> RemoteBuildSettingsView:
-        """
-        Delete a peer row (works on both PENDING and APPROVED).
-
-        Two semantically distinct outcomes share the same WS command:
-
-        * Removing a PENDING entry from the in-memory dict is
-          *rejection* — the row never represented established
-          trust, so this is inbox cleanup. Fires the
-          ``status="removed"`` event so any offloader currently
-          long-polling pair_status sees the cancellation and
-          drops its local state.
-        * Removing an APPROVED row from ``state.approved_peers``
-          (RAM-canonical, debounced to disk) is *revocation* —
-          fires the same
-          :attr:`EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED`
-          ``status="removed"`` event so the offloader can
-          surface a ``peer_revoked`` UI alert.
-
-        ``NOT_FOUND`` if neither dict has a row.
-        """
-        clean_id = validate_dashboard_id(dashboard_id)
-
-        # PENDING: in-memory, no disk write needed (PENDING never
-        # reaches the peers store).
-        if self.state.pending_peers.pop(clean_id, None) is not None:
-            self._fire_pair_status_changed(clean_id, "removed")
-            return await self._current_settings_view()
-
-        if self.state.approved_peers.pop(clean_id, None) is None:
-            msg = f"no peer with dashboard_id: {clean_id}"
-            raise CommandError(ErrorCode.NOT_FOUND, msg)
-        self._peers_store.async_delay_save(self._serialize_peers, delay=_PEERS_SAVE_DELAY_SECONDS)
-        self._fire_pair_status_changed(clean_id, "removed")
-        return await self._current_settings_view()
+        """Delete a peer row (works on both PENDING and APPROVED)."""
+        return await peer_crud.remove_peer(self, dashboard_id=dashboard_id)
 
     def _serialize_peers(self) -> ReceiverPeers:
         """Build the on-disk peers shape from the in-RAM ``state.approved_peers`` dict."""
