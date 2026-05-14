@@ -20,9 +20,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from esphome.zeroconf import (
-    AsyncEsphomeZeroconf,
-)
+from esphome.zeroconf import AsyncEsphomeZeroconf
 
 from ...helpers.subscriber_presence import SubscriberPresence
 from ...models import AdoptableDevice, Device, DeviceState, ReachabilitySource
@@ -40,79 +38,45 @@ from .shared import _SOURCE_PRIORITY
 
 _LOGGER = logging.getLogger(__name__)
 # Padding added to the cached A record's TTL when the drawer's
-# refresh loop schedules its next probe. We sleep ``ttl + this``
-# so by the time we wake up the cache record has aged past
-# expiry, ``_load_from_cache`` short-circuits fail, and
-# ``async_resolve_host`` actually goes on the wire (it
-# short-circuits otherwise). Keep small — extra padding is just
-# a window where the drawer's mDNS row reads "Waiting for first
-# broadcast…" between the record's natural expiry and our
-# scheduled wake-up.
+# refresh loop schedules its next probe. Sleeping ``ttl + this``
+# guarantees ``async_resolve_host`` falls through its cache short-
+# circuit and actually goes on the wire.
 _MDNS_REFRESH_PADDING_SECONDS = 1.0
 
 
 # Callback signature used by DeviceStateMonitor to push state changes
-# back to its owner. The owner decides what to do with the new state
-# (e.g. fire a bus event, mutate the device model).
+# back to its owner.
 StateChangeCallback = Callable[[str, DeviceState, str], None]
 
-# Callback fired when mDNS resolves (or clears) a device's IP address.
-# ``primary`` is the IPv4 we lock onto for ICMP / OTA cache args (or
-# the first scoped IPv6 when a host has no V4); ``addresses`` is the
-# announced set — order is whatever zeroconf's
-# ``parsed_scoped_addresses(IPVersion.All)`` returned (in practice
-# IPv4 first, then any scoped IPv6 entries). Single-IP sources (MQTT,
-# DNS fallback) carry just the one address they know. Empty primary +
-# empty list signals the device went offline / was removed from mDNS.
+# mDNS IP resolution callback. ``primary`` is the IPv4 we lock onto
+# for ICMP / OTA cache args (or the first scoped IPv6 when no V4 is
+# present); ``addresses`` is the announced set in zeroconf's
+# ``parsed_scoped_addresses`` order. Empty primary + empty list
+# signals the device went offline / was removed from mDNS.
 IPChangeCallback = Callable[[str, str, list[str]], None]
 
-# Callback fired when the mDNS ``version`` TXT record reports a
-# different firmware version than last seen for a device.
+# mDNS ``version`` TXT change.
 VersionChangeCallback = Callable[[str, str], None]
 
-# Callback fired when the mDNS ``config_hash`` TXT record reports a
-# different running-config hash than last seen for a device. The hash
-# is the 8-char lowercase hex of ``App.get_config_hash()`` and is only
-# broadcast by firmware built from esphome/esphome#16145 onwards;
-# older devices simply never fire this callback.
+# mDNS ``config_hash`` TXT change — 8-char lowercase hex of
+# ``App.get_config_hash()``. Only broadcast by firmware built from
+# esphome/esphome#16145 onwards; older devices never fire.
 ConfigHashChangeCallback = Callable[[str, str], None]
 
-# Callback fired when the mDNS ``api_encryption`` TXT record reports a
-# different value than last seen.
-#
-#   * Non-empty (e.g. ``Noise_NNpsk0_25519_ChaChaPoly_SHA256``) →
-#     encryption confirmed live on the device.
-#   * Empty string → device is explicitly broadcasting plaintext.
-#     Two wire shapes land here: TXT carrying the
-#     ``api_encryption`` key with an empty / bare value (zeroconf
-#     collapses both to ``None`` and the apply path normalises to
-#     ``""``), AND a content-bearing TXT that omits the key
-#     entirely (firmware was rebuilt without encryption — the
-#     omission inside an otherwise-populated announce is
-#     authoritative for "encryption was removed").
-#
-# The "no signal" case (no mDNS seen, or a truly empty re-announce
-# with no other TXT keys) never fires this callback — the apply
-# path at ``_apply_service_info`` only treats key-absence as
-# authoritative when the announce carried other content. The
-# device controller keeps that state as ``None`` to mean "trust
-# whatever the YAML says".
+# mDNS ``api_encryption`` TXT change — tri-state, see
+# :meth:`DeviceStateMonitor.apply_api_encryption` for the empty-
+# string-means-plaintext-confirmed contract.
 ApiEncryptionChangeCallback = Callable[[str, str], None]
 
-# Callback fired when the mDNS ``mac`` TXT record reports a different
-# MAC than last seen for a device. The value passed has already been
-# normalized by :func:`_normalize_mac` to the canonical
-# ``XX:XX:XX:XX:XX:XX`` form (uppercase, colon-separated); the
-# frontend renders it directly with no per-display formatter. Empty /
-# missing TXT skips the callback — devices on firmware predating the
-# ``mac`` broadcast stay with whatever value they already had.
+# mDNS ``mac`` TXT change. The value has already been normalised by
+# :func:`_normalize_mac` to ``XX:XX:XX:XX:XX:XX`` so the frontend
+# renders it directly. Empty / non-hex skips the callback so older
+# firmware without the broadcast doesn't blank a known MAC.
 MacAddressChangeCallback = Callable[[str, str], None]
 
-# Callback fired when zeroconf turns up a previously-unseen device that
-# advertises ``package_import_url`` / ``project_name`` /
-# ``project_version`` TXT records — the signal that this is a factory
-# build ready to be adopted into the dashboard. The companion
-# ``ImportableRemovedCallback`` fires when the service goes away.
+# Discovery banner ADD / REMOVE — a device advertising
+# ``package_import_url`` / ``project_name`` / ``project_version`` is
+# a factory build ready to be adopted into the dashboard.
 ImportableAddedCallback = Callable[[AdoptableDevice], None]
 ImportableRemovedCallback = Callable[[str], None]
 
@@ -123,8 +87,7 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
 
     Only one source can own a device's state at a time. mDNS always
     wins; ping only writes when mDNS hasn't already resolved the
-    device. The ``priority_for(name)`` API lets callers query which
-    source is currently authoritative.
+    device. :meth:`priority_for` lets callers query the active source.
     """
 
     def __init__(
@@ -145,15 +108,12 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
     ) -> None:
         super().__init__()
         self._get_devices = get_devices
-        # ``get_devices_by_name`` is the O(1) name-keyed lookup that
-        # the scanner exposes; mDNS / ping / MQTT observations key on
-        # the device's ``esphome.name`` and call the apply-* methods
-        # several times per broadcast, so a linear scan of every
-        # configured YAML on every announcement is the obvious thing
-        # not to do at fleet scale. Falls back to a linear scan when
-        # the caller hasn't wired the index yet (kept so the existing
-        # tests that build a monitor with just ``get_devices`` keep
-        # working without a parallel rewrite).
+        # ``get_devices_by_name`` is the scanner's O(1) name-keyed
+        # index; mDNS / ping / MQTT key on ``esphome.name`` and fire
+        # the apply path several times per broadcast, so a linear
+        # scan of every YAML on every announcement is wrong at fleet
+        # scale. Linear fallback kept for legacy tests that build a
+        # monitor with just ``get_devices``.
         self._get_devices_by_name = get_devices_by_name or (
             lambda name: [d for d in get_devices() if d.name == name]
         )
@@ -166,27 +126,15 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         self._on_importable_added = on_importable_added
         self._on_importable_removed = on_importable_removed
         self._is_ignored = is_ignored or (lambda _name: False)
-        # Mutable cross-module domain state — anything a sibling
-        # module reads or writes lives here so siblings reach
-        # through ``monitor.state.X`` rather than ``monitor._X``.
-        # ``state_source`` is the source-precedence ledger;
-        # ``http_urls`` is populated by the importable-discovery
-        # flow; ``dns_cache`` and ``reachability`` are shared
-        # across mdns / ping / apply paths.
         self.state = MonitorState(reachability=reachability)
         self._ping_task: asyncio.Task | None = None
-        # ``self._tasks`` (fire-and-forget mDNS resolve refs) comes
-        # from :class:`TaskControllerBase`; see :meth:`_track_task`.
+        # ``self._tasks`` (fire-and-forget mDNS resolve refs) is
+        # inherited from :class:`TaskControllerBase`.
         # When wired, the ping loop pauses while no dashboard client
-        # is subscribed — so a quiet network with no observers
-        # generates no ICMP traffic. Mirrors the legacy
-        # esphome.dashboard.status.ping behaviour (``while
-        # self._subscribers`` in web_server.py + ``await
-        # dashboard.ping_request.wait()`` in ping.py); reaching
-        # parity here closes a regression in the new dashboard,
-        # which had been ping-sweeping unconditionally. Optional so
-        # existing tests that build a monitor without a presence
-        # gate keep working; ``None`` means "always run the loop".
+        # is subscribed — closes a parity regression with the legacy
+        # dashboard, which paused ICMP on an empty subscriber set.
+        # ``None`` means "always run the loop" so existing tests
+        # without a presence gate keep working.
         self._presence = presence
         self._importable = ImportableDiscovery(self)
         self._mdns = MdnsSource(self)
@@ -203,12 +151,9 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
             self._ping_task.cancel()
             self._ping_task = None
         # Cancel the browser FIRST so it stops dispatching new mDNS
-        # callbacks. If we drained ``self._tasks`` first, the browser
-        # could still spawn new resolve tasks during the ``gather``
-        # await and they'd miss the snapshot we took.
+        # callbacks; otherwise the drain below would race against
+        # newly-spawned resolve tasks the browser is still firing.
         await self._mdns.cancel_browser()
-        # Now drain any in-flight resolve tasks. New tasks can no
-        # longer appear, so a single snapshot is safe.
         for task in self._tasks:
             task.cancel()
         if self._tasks:
@@ -223,33 +168,29 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
 
         Exposed so the dashboard's own ``_esphomebuilder._tcp.local.``
         advertiser can reuse the same instance instead of opening a
-        second responder. Returns ``None`` when zeroconf failed to
-        start (port held by avahi / ``mDNSResponder``); callers are
-        expected to skip their advertise in that case.
+        second responder. ``None`` when zeroconf failed to start
+        (port held by avahi / ``mDNSResponder``).
         """
         return self._mdns.zeroconf
 
     def set_reachability(self, tracker: ReachabilityTracker) -> None:
-        """Wire (or rewire) the per-signal freshness tracker.
+        """
+        Wire (or rewire) the per-signal freshness tracker.
 
-        ``DevicesController`` builds the state monitor first so the
+        :class:`DevicesController` builds the monitor first so the
         tracker can take ``get_mdns_cache_info`` as its mDNS cache
-        reader; this setter completes the wire-back so the
-        monitor's ``apply`` path can route observations into the
-        tracker.
+        reader; this setter completes the wire-back.
         """
         self.state.reachability = tracker
 
     def priority_for(self, name: str) -> ReachabilitySource:
-        """Return the source currently authoritative for *name*.
+        """
+        Return the source currently authoritative for *name*.
 
         Returns :data:`ReachabilitySource.UNKNOWN` when no source has
-        claimed the device. Callers comparing against literal source
-        strings keep working because :class:`ReachabilitySource` is a
-        :class:`StrEnum` and equality with the underlying ``str``
-        passes through. Made enum-typed so the drawer's reachability
-        subscription can dispatch on it without a string-typo
-        landing as silent UNKNOWN.
+        claimed the device. Enum-typed so the drawer's reachability
+        subscription can dispatch on it; the underlying ``StrEnum``
+        means literal-string callers keep working unchanged.
         """
         return ReachabilitySource(self.state.state_source.get(name, ReachabilitySource.UNKNOWN))
 
@@ -257,19 +198,16 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         """
         Record a state observation from *source*.
 
-        Returns True when the observation actually changed at least
-        one matching device's state and the change was forwarded to
-        the callback. Sources below the current source's priority
-        are ignored; observations where every matching device
-        already carries *state* are no-ops.
+        Returns True iff the state was forwarded to the callback.
+        Sources below the current source's priority are ignored;
+        observations where every matching device already carries
+        *state* no-op.
 
-        ``claim=True`` lets *source* take ownership of the device's
-        state slot even when the state is unchanged, so that a
-        higher-priority observation arriving after a lower-priority
-        one already pinned the same state can still prevent the
-        lower-priority source from later flipping it back. The
-        priority check still applies — ``claim`` doesn't let a lower-
-        priority source override a higher-priority owner.
+        ``claim=True`` lets *source* take ownership even when the
+        state is unchanged, blocking a lower-priority observation
+        from later flipping the device back. The priority check
+        still applies — ``claim`` can't override a higher-priority
+        owner.
         """
         devices = self._get_devices_by_name(name)
         if not devices:
@@ -278,14 +216,13 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
             )
             return False
 
-        # Record the per-signal observation regardless of whether the
-        # priority check below ends up ignoring the new state. The user-
-        # facing intent is "show every channel we're hearing on,
-        # independently" — a higher-priority source claiming the device
+        # Record the per-signal observation regardless of whether
+        # the priority check below ignores the new state — the user-
+        # facing intent is "show every channel we're hearing on
+        # independently", so a higher-priority source's claim
         # shouldn't hide that ping or MQTT also just answered. The
-        # ONLINE filter avoids treating "lost" signals (the OFFLINE
-        # flips ping / mqtt issue when the source itself drops) as
-        # freshness.
+        # ONLINE filter avoids treating dropped-source OFFLINE flips
+        # as freshness.
         if state == DeviceState.ONLINE and self.state.reachability is not None:
             self.state.reachability.observe(name, source)
 
@@ -293,11 +230,10 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         if _SOURCE_PRIORITY.get(source, 0) < _SOURCE_PRIORITY.get(current_source, 0):
             return False
         # Dedupe must look at *every* matching device, not just the
-        # first. With duplicate ``esphome.name`` entries (a config
-        # plus a ``foo (1).yaml`` copy, dashboard_import siblings)
-        # one sibling can be in-sync while another was rebuilt with
-        # state=UNKNOWN — the old "first device matches → bail" path
-        # left the stale sibling stuck.
+        # first. Duplicate ``esphome.name`` entries (a config plus
+        # a ``foo (1).yaml`` copy, dashboard_import siblings) share
+        # the broadcast — if one sibling was rebuilt with
+        # state=UNKNOWN the first-match bail would leave it stale.
         if all(d.state == state for d in devices):
             if claim:
                 self.state.state_source[name] = source
@@ -321,29 +257,23 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
 
     def apply_ip(self, name: str, ip: str) -> bool:
         """
-        Record a single-IP observation. Empty string clears the stored IPs.
+        Record a single-IP observation. Empty string clears stored IPs.
 
-        Returns True when the IP actually changed and the change was
-        forwarded to the callback. Used by sources that only know one
-        address per device (MQTT discovery, DNS resolve fallback);
-        callers with the full announced set should reach for
-        :meth:`apply_ip_addresses` instead so the multi-IP view stays
-        accurate.
-
-        When *ip* is already present in the device's ``ip_addresses``
-        list, only the primary slot is touched — a narrower MQTT /
-        DNS observation must not shrink a multi-IP view that mDNS
-        already populated, otherwise we'd re-hide IPv6 the next time
-        MQTT discovery fires.
+        Used by sources that only know one address per device
+        (MQTT, DNS fallback). When *ip* is already in the device's
+        ``ip_addresses`` list, only the primary slot is touched —
+        a narrower MQTT / DNS observation must not shrink a multi-
+        IP view mDNS already populated. Callers with the full
+        announced set should reach for :meth:`apply_ip_addresses`.
         """
         if not ip:
             return self._dispatch_ip(name, "", [])
         devices = self._get_devices_by_name(name)
         if not devices:
             return False
-        # Read ``ip_addresses`` off any matching device — duplicates
-        # all flow through ``_dispatch_ip``'s fan-out so they end up
-        # at the same state regardless of which we sampled here.
+        # Sample ``ip_addresses`` from the first match — duplicates
+        # all flow through ``_dispatch_ip``'s fan-out so they
+        # converge regardless of which we read here.
         existing = devices[0].ip_addresses
         addresses = list(existing) if ip in existing else [ip]
         return self._dispatch_ip(name, ip, addresses)
@@ -352,11 +282,10 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         """
         Record the full set of announced IPs for *name*.
 
-        Picks an IPv4 primary via :func:`_pick_ipv4` (falling back to
-        the first scoped IPv6 when no V4 is present) so ``device.ip``
-        keeps its "single IP we'll hand to ICMP / OTA" shape, and
-        forwards the complete list so ``device.ip_addresses`` reflects
-        what the device is broadcasting. Empty list clears both.
+        Picks an IPv4 primary via :func:`_pick_ipv4` (falling back
+        to the first scoped IPv6) so ``device.ip`` stays the single
+        target for ICMP / OTA, and forwards the complete list to
+        ``device.ip_addresses``. Empty list clears both.
         """
         primary = _pick_ipv4(addresses) if addresses else ""
         return self._dispatch_ip(name, primary, addresses)
@@ -365,14 +294,12 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         """
         Shared dedupe + dispatch for both apply_ip variants.
 
-        Dedupe is done against the configured devices' current ``ip``
-        and ``ip_addresses`` fields rather than a separate monitor
-        cache so a Device that's been rebuilt with ``previous=None``
-        (e.g. an atomic save's brief REMOVE+re-ADD scan churn) still
-        gets repopulated by the next mDNS announcement. Either side
-        differing is enough to fire — a host that picks up an IPv6
-        address while keeping the same IPv4 still surfaces in the
-        dashboard.
+        Dedupes against the configured devices' current ``ip`` and
+        ``ip_addresses`` fields rather than a separate monitor
+        cache so a Device rebuilt with ``previous=None`` (atomic-
+        save REMOVE+re-ADD churn) gets repopulated on the next
+        mDNS announcement. Either side differing fires — a host
+        that picks up IPv6 while keeping its IPv4 still surfaces.
         """
         devices = self._get_devices_by_name(name)
         if not devices:
@@ -383,12 +310,7 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         return True
 
     def apply_version(self, name: str, version: str) -> bool:
-        """
-        Record a firmware version observation.
-
-        Returns True when the version actually changed and the change
-        was forwarded to the callback.
-        """
+        """Record a firmware version observation; True iff forwarded."""
         if not version or self._on_version_change is None:
             return False
         if not self._any_matching_device_differs(name, "deployed_version", version):
@@ -401,35 +323,24 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         Record the device's broadcast API encryption status.
 
         Non-empty value (e.g. ``Noise_NNpsk0_25519_ChaChaPoly_SHA256``)
-        confirms encryption is active. Empty string is the
-        plaintext-confirmed signal, fired by ``_apply_service_info``
+        confirms encryption is active. Empty string is the plaintext-
+        confirmed signal — fired by ``MdnsSource._apply_service_info``
         in two wire shapes:
 
         1. TXT carries the ``api_encryption`` key with an empty /
-           bare value (``api_encryption=`` or just ``api_encryption``
-           — zeroconf collapses both to ``None`` and the apply path
+           bare value (zeroconf collapses both to ``None``; apply
            normalises to ``""``).
+        2. TXT carries other content (``version`` / ``mac`` / ...)
+           but the ``api_encryption`` key is absent — ESPHome's
+           atomic-per-announce TXT means the omission inside an
+           otherwise-populated announce IS authoritative for
+           "encryption was removed".
 
-        2. TXT carries other content (``version`` / ``mac`` /
-           ``config_hash`` / ...) but the ``api_encryption`` key is
-           absent. ESPHome firmware emits TXT atomically per
-           announce, so the omission of the key inside an
-           otherwise-populated TXT IS authoritative for "encryption
-           was removed."
-
-        Callers must NOT translate "no TXT content at all" into
-        ``""`` — that conflates a transient cache-eviction /
-        truly-empty fragment with a real plaintext confirmation,
-        which would clobber the last-known truthy value and trip
-        the frontend's "reinstall to apply" prompt.
-        ``_apply_service_info`` only fires the empty-string apply
-        when the announce carried other content; the truly-empty
-        case skips the call entirely so the device's
-        ``api_encryption_active`` stays ``None`` (or whatever was
-        last confirmed) until a real observation lands.
-
-        Returns True when the value actually changed and the change
-        was forwarded to the callback.
+        ``MdnsSource._apply_service_info`` skips the empty-string
+        apply when the announce is truly empty (cache eviction /
+        fragment) — translating that to ``""`` would clobber the
+        last-known truthy value and trip the "reinstall to apply"
+        prompt.
         """
         if self._on_api_encryption_change is None:
             return False
@@ -442,10 +353,8 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         """
         Record a running-firmware config hash observation.
 
-        Returns True when the hash actually changed and the change was
-        forwarded to the callback. Empty strings are dropped so devices
-        running pre-#16145 firmware (no ``config_hash`` TXT) don't churn
-        the callback.
+        Empty strings dropped so pre-#16145 firmware (no
+        ``config_hash`` TXT) doesn't churn the callback.
         """
         if not config_hash or self._on_config_hash_change is None:
             return False
@@ -458,15 +367,11 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         """
         Record a MAC-address observation from the device's mDNS TXT.
 
-        Returns True when the MAC actually changed and the change was
-        forwarded to the callback. The broadcast value is normalized
-        via :func:`_normalize_mac` (uppercased, separators stripped,
-        re-inserted as ``XX:XX:XX:XX:XX:XX``) so the dedupe +
-        persisted sidecar + frontend wire all stay canonical even if
-        a future firmware switches case or separator style. Empty /
-        non-hex inputs are dropped so a broadcast that happens to
-        omit the ``mac`` TXT (older firmware, non-ESPHome services
-        that share the type) doesn't blank out an already-known MAC.
+        Normalised via :func:`_normalize_mac` so the dedupe /
+        sidecar / wire all stay canonical regardless of which case
+        or separator style the firmware emits. Empty / non-hex
+        inputs are dropped so a broadcast that omits the ``mac``
+        TXT (older firmware) doesn't blank an already-known value.
         """
         if self._on_mac_address_change is None:
             return False
@@ -479,14 +384,14 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         return True
 
     def _any_matching_device_differs(self, name: str, attr: str, value: Any) -> bool:
-        """Return True iff some configured device named *name* has ``attr != value``.
+        """
+        Return True iff some configured device named *name* has ``attr != value``.
 
-        Uses the scanner's ``get_devices_by_name`` index for an O(1)
-        name lookup so a 1000-device fleet doesn't pay an O(N) scan
-        on every mDNS broadcast. Short-circuits the moment a stale
-        match is found; returns False when no device matches *name*
-        (stray announcement) or when every match already carries
-        *value* (steady-state dedupe).
+        Uses ``_get_devices_by_name``'s O(1) index so 1000-device
+        fleets don't pay an O(N) scan on every mDNS broadcast.
+        Short-circuits on the first stale match; False when no
+        device matches (stray announcement) or every match already
+        carries *value* (steady-state dedupe).
         """
         return any(getattr(device, attr) != value for device in self._get_devices_by_name(name))
 
@@ -514,8 +419,8 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         """
         Return DNS-cached IPs for *host_name* without issuing a lookup.
 
-        Populated by the ping sweep's pre-resolution pass. Returns
-        ``None`` on cache miss or when the entry has expired.
+        Populated by the ping sweep's pre-resolution pass; ``None``
+        on cache miss or expired entry.
         """
         return self.state.dns_cache.get_cached_addresses(host_name)
 
