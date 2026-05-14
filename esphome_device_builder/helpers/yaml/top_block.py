@@ -62,7 +62,11 @@ def _locate_top_block(lines: list[str], block_key: str) -> tuple[int, int, str] 
         if stripped.lstrip().startswith("#"):
             continue
         if not indent_captured:
-            indent = " " * (len(stripped) - len(stripped.lstrip(" ")))
+            # Capture the literal leading-whitespace prefix (spaces, tabs, or
+            # a mix) rather than rebuilding a spaces-only string of the same
+            # column width — a tab-indented block needs the insert to land
+            # at the same tab depth or it lands at column 0.
+            indent = stripped[: len(stripped) - len(stripped.lstrip())]
             indent_captured = True
     if start is None:
         return None

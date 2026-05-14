@@ -219,6 +219,20 @@ def test_upsert_yaml_leaf_matches_existing_child_indent() -> None:
     assert "    friendly_name: Reading Lamp\n" in out
 
 
+def test_upsert_yaml_leaf_preserves_tab_indent() -> None:
+    """
+    Tab-indented children get a tab-indented insert, not column 0.
+
+    PyYAML (and ESPHome's own loader) accept tab-indented YAML, so
+    we need to round-trip it; a spaces-only indent-capture step
+    collapsed the prefix to ``""`` and emitted the new leaf at
+    column 0, producing a sibling top-level key outside the block.
+    """
+    before = "esphome:\n\tname: kitchen\n"
+    after = upsert_yaml_leaf_under_top_block(before, "esphome", "friendly_name", "Kitchen")
+    assert after == "esphome:\n\tname: kitchen\n\tfriendly_name: Kitchen\n"
+
+
 def test_upsert_yaml_leaf_prepends_new_block_when_missing() -> None:
     """No ``esphome:`` block at all — prepend a fresh one with the leaf.
 
