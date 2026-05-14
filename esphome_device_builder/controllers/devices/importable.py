@@ -199,6 +199,12 @@ def load_ignored_devices(controller: DevicesController) -> None:
             storage_path,
         )
         return
+    # Mutate the set in place rather than replacing it. The
+    # ``DeviceStateMonitor`` captures
+    # ``state.ignored_devices.__contains__`` at controller
+    # ``__init__`` time, before this loader runs in
+    # ``start()``; replacing the set here would leave the
+    # monitor checking a stale empty set forever.
     ignored = data.get("ignored_devices", [])
     if not isinstance(ignored, list):
         _LOGGER.warning(
@@ -206,9 +212,10 @@ def load_ignored_devices(controller: DevicesController) -> None:
             "field; resetting to an empty set",
             storage_path,
         )
-        controller.state.ignored_devices = set()
+        controller.state.ignored_devices.clear()
         return
-    controller.state.ignored_devices = {name for name in ignored if isinstance(name, str)}
+    controller.state.ignored_devices.clear()
+    controller.state.ignored_devices.update(name for name in ignored if isinstance(name, str))
 
 
 def save_ignored_devices(controller: DevicesController) -> None:
