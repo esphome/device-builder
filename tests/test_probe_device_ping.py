@@ -148,8 +148,22 @@ async def test_probe_device_ping_skips_scheduling_during_bootstrap() -> None:
 
 
 @pytest.mark.asyncio
-async def test_probe_device_ping_schedules_task_after_bootstrap() -> None:
+async def test_probe_device_ping_schedules_task_after_bootstrap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Post-bootstrap the wrapper hands a coroutine to ``_track_task``."""
+
+    # Stub ``icmp_ping`` so the scheduled task can't fire a real
+    # ICMP probe at ``192.168.1.42`` (up to 3s flake on machines
+    # with icmplib installed); this test only verifies scheduling.
+    async def _noop_ping(_target: str, **_kwargs: object) -> MagicMock:
+        return MagicMock(is_alive=False, min_rtt=0.0)
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
+        _noop_ping,
+    )
+
     monitor, _ = make_state_monitor_with_callbacks([_ping_only_device()])
     monitor._ping._bootstrap_complete = True
 
