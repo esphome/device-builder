@@ -1143,6 +1143,20 @@ def test_generate_component_yaml_emits_list_of_ints_as_flow_style() -> None:
     assert "  ids: [1, 2, 3]" in out
 
 
+def test_generate_component_yaml_quotes_flow_string_with_flow_indicator() -> None:
+    """
+    Strings carrying ``,`` / ``[`` / ``]`` / ``{`` / ``}`` get quoted inside a flow list.
+
+    In flow context those characters are syntactically significant —
+    an unquoted ``a,b`` would round-trip as two items rather than one
+    string. Pin the quoting so a list whose element contains a comma
+    stays one element on parse.
+    """
+    component = _component(component_id="myc", category=ComponentCategory.MISC)
+    out = generate_component_yaml(component, {"items": ["a,b", "c"]})
+    assert '  items: ["a,b", c]' in out
+
+
 # ---------------------------------------------------------------------------
 # _splice_into_domain_block — defensive guards
 # ---------------------------------------------------------------------------

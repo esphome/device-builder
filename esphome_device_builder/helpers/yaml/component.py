@@ -246,6 +246,26 @@ def _format_yaml_value(value: Any) -> str:
     return str(value)
 
 
+def _format_flow_yaml_value(value: Any) -> str:
+    """
+    Format *value* for emission inside a YAML flow sequence ``[...]``.
+
+    Flow context makes ``,`` and ``[ ] { }`` syntactically significant —
+    a plain string like ``"a,b"`` parses as two flow items. Quote
+    strings carrying any of those characters so the sequence round
+    trips as a single element. Bools / numbers and strings already
+    quoted by :func:`_format_yaml_value` pass through unchanged.
+    """
+    formatted = _format_yaml_value(value)
+    if (
+        isinstance(value, str)
+        and not formatted.startswith('"')
+        and any(c in value for c in ",[]{}")
+    ):
+        return f'"{value}"'
+    return formatted
+
+
 def _emit_field(key: str, value: Any, indent: str) -> list[str]:
     """
     Emit a single ``key: value`` pair as one or more YAML lines.
@@ -274,7 +294,7 @@ def _emit_field(key: str, value: Any, indent: str) -> list[str]:
                 first = False
         return lines
     if isinstance(value, list):
-        rendered = ", ".join(_format_yaml_value(item) for item in value)
+        rendered = ", ".join(_format_flow_yaml_value(item) for item in value)
         return [f"{indent}{key}: [{rendered}]"]
     return [f"{indent}{key}: {_format_yaml_value(value)}"]
 
