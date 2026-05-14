@@ -152,6 +152,7 @@ select = [
   "A", # flake8-builtins
   "ASYNC", # flake8-async — catch blocking calls / busy-wait in async funcs
   "B", # flake8-bugbear
+  "BLE", # flake8-blind-except — flag ``except Exception:`` so the catch scope is deliberate
   "C4", # flake8-comprehensions
   "D", # pydocstyle
   "DTZ", # flake8-datetimez — flag naive datetime construction; force explicit tz
@@ -187,7 +188,10 @@ select = [
 # behind try/except ImportError, and several subprocess invocations are inherent.
 # SLF001 is also waived here so smoke-test scripts (``check_catalog.py``) can
 # inspect catalog internals (``_by_id``, ``_components``) without per-line noqa.
-"script/*" = ["T20", "S108", "S310", "S110", "S603", "S607", "E501", "PLC0415", "SLF001"]
+# BLE001 is waived because sync scripts iterate over hundreds of catalog
+# entries and want "log + continue" for any failure shape; per-entry noqa
+# would be noise.
+"script/*" = ["T20", "S108", "S310", "S110", "S603", "S607", "E501", "PLC0415", "SLF001", "BLE001"]
 # Discovery CLI: prints are the entire UX (mirrors aioesphomeapi-discover).
 "esphome_device_builder/discover.py" = ["T20"]
 # Tests need free access to controller privates for setup / assertion;
@@ -197,7 +201,7 @@ select = [
 # legitimately poll for "until condition" without the production-side
 # ``asyncio.Event`` plumbing the rule suggests; in production this rule
 # stays load-bearing.
-"tests/*" = ["S105", "S106", "SLF001", "ASYNC110"] # hardcoded test credentials
+"tests/*" = ["S105", "S106", "SLF001", "ASYNC110", "BLE001"] # hardcoded test credentials
 # Manual scripts: print is the UX, late imports gate optional setup,
 # subprocess + tempdir paths are part of the CLI contract.
 "tests/manual/*" = ["T20", "S108", "PLC0415"]

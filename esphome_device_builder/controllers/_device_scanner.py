@@ -390,6 +390,6 @@ class DeviceScanner:
                     metadata.labels,
                     previous=self._index.by_path.get(path),
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort scan; one bad YAML mustn't kill the sweep
                 _LOGGER.warning("Failed to load device from %s", path.name)
         return result

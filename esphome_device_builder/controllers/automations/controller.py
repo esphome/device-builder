@@ -13,6 +13,8 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
+from ruamel.yaml import YAMLError
+
 from ...helpers.api import CommandError, api_command
 from ...models.api import ErrorCode
 from ...models.automations import (
@@ -217,7 +219,7 @@ def _scope_from_yaml(text: str) -> _ScopedYaml:
     yaml = parsing.make_yaml()
     try:
         data = yaml.load(text)
-    except Exception:
+    except YAMLError:
         return _ScopedYaml(domains=set(), scripts=[], devices=[])
     if not isinstance(data, dict):
         return _ScopedYaml(domains=set(), scripts=[], devices=[])

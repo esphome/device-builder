@@ -117,7 +117,7 @@ def _remove_device_sidecars(config_dir: Path, configuration: str) -> None:
         _LOGGER.warning("Could not remove storage file for %s", configuration)
     try:
         remove_device_metadata(config_dir, configuration)
-    except Exception:
+    except OSError:
         _LOGGER.warning("Could not remove metadata for %s", configuration)
 
 
@@ -137,7 +137,7 @@ def _archive_clear_device_sidecars(config_dir: Path, configuration: str) -> None
         _LOGGER.warning("Could not remove storage file for %s", configuration)
     try:
         clear_volatile_device_metadata(config_dir, configuration)
-    except Exception:
+    except OSError:
         _LOGGER.warning("Could not clear volatile metadata for %s", configuration)
 
 

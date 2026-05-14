@@ -80,7 +80,7 @@ class DeviceMetadataBase(DeviceBuilderBase):
         # Backfill metadata so future scans skip the YAML parse.
         try:
             set_device_metadata(config_dir, filename, board_id=matched.id)
-        except Exception:
+        except OSError:
             _LOGGER.warning("Could not persist derived board_id for %s", filename)
         return matched.id
 

@@ -184,7 +184,7 @@ async def run_bulk_per_device(
         try:
             await action(configuration)
             results.append({"configuration": configuration, "success": True})
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — batch op: per-configuration error captured into the result row
             results.append(
                 {
                     "configuration": configuration,

@@ -150,7 +150,7 @@ def _load_full_metadata(config_dir: Path) -> dict[str, dict]:
 
     try:
         raw = _load_metadata(config_dir)
-    except Exception:
+    except OSError:
         return {}
     return {k: v for k, v in raw.items() if isinstance(v, dict)}
 

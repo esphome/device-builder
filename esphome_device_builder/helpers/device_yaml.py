@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from esphome import const, yaml_util
 from esphome.const import CONF_PACKAGES
+from esphome.core import EsphomeError
 from esphome.storage_json import StorageJSON
 
 from .storage_path import resolve_storage_path
@@ -489,11 +490,11 @@ def detect_platform_from_yaml(path: Path) -> str:
     """
     try:
         raw = path.read_text(encoding="utf-8")
-    except Exception:
+    except (OSError, UnicodeDecodeError):
         return ""
     try:
         platform, _, _ = parse_platform_from_yaml(raw)
-    except Exception:
+    except Exception:  # noqa: BLE001 — future-proof against parse_platform_from_yaml gaining a throw shape
         platform = ""
     if platform:
         return platform
@@ -1104,7 +1105,7 @@ def load_device_yaml(path: Path) -> dict | None:
         # pass the ``Path`` directly — handing it a stringified path
         # raises ``AttributeError`` deep inside the loader.
         config = yaml_util.load_yaml(path)
-    except Exception:
+    except EsphomeError:
         return None
     if not isinstance(config, dict):
         return None

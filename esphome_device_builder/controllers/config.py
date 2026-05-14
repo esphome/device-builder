@@ -605,7 +605,10 @@ def load_preferences(config_dir: Path) -> UserPreferences:
     raw = _load_metadata(config_dir).get(_PREFS_KEY, {})
     try:
         return UserPreferences.from_dict(raw)
-    except Exception:
+    except (ValueError, TypeError, LookupError):
+        # mashumaro runtime-shape errors → defaults. Hand-edited
+        # sidecar with a malformed prefs blob shouldn't take the
+        # whole dashboard down.
         return UserPreferences()
 
 
@@ -763,7 +766,7 @@ def _decode_labels(raw: Any) -> list[Label]:
             continue
         try:
             out.append(Label.from_dict(entry))
-        except Exception as err:
+        except (ValueError, TypeError, LookupError) as err:
             # A hand-edited sidecar that landed a malformed entry
             # shouldn't take the whole catalog down — labels are
             # advisory. Debug-log so a developer hunting "why did

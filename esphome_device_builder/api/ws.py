@@ -21,7 +21,7 @@ from ..controllers.auth import AuthError
 from ..helpers.api import CommandError
 from ..helpers.auth import extract_bearer_token
 from ..helpers.event_bus import StreamBackpressureError
-from ..helpers.json import dumps_str, loads
+from ..helpers.json import JSONDecodeError, dumps_str, loads
 from ..models import (
     CommandMessage,
     ErrorCode,
@@ -202,7 +202,12 @@ class WebSocketClient:
         """Parse and dispatch a command."""
         try:
             cmd = CommandMessage.from_dict(raw)
-        except Exception:
+        except (ValueError, TypeError, LookupError):
+            # mashumaro's runtime data-shape errors all derive from
+            # one of these three: missing field, wrong type,
+            # rejected value. Programmer-bug shapes (NameError,
+            # ModuleNotFoundError) fall through to the outer error
+            # handler.
             await self.send_error("", ErrorCode.INVALID_MESSAGE, "Invalid command format")
             return
 
@@ -361,7 +366,7 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
             if msg.type in (WSMsgType.TEXT, WSMsgType.BINARY):
                 try:
                     raw = loads(msg.data)
-                except Exception:
+                except JSONDecodeError:
                     await client.send_error("", ErrorCode.INVALID_MESSAGE, "Invalid JSON")
                     continue
                 # Same-module call: the WS dispatch loop lives next to

@@ -33,8 +33,10 @@ from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo
 
 try:
     from icmplib import async_ping as icmp_ping
+    from icmplib.exceptions import ICMPLibError
 except ImportError:  # pragma: no cover — icmplib is optional
     icmp_ping = None  # type: ignore[assignment]
+    ICMPLibError = Exception  # type: ignore[misc,assignment]
 
 from zeroconf import current_time_millis, millis_to_seconds
 from zeroconf.const import (
@@ -1610,7 +1612,7 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
             # ``is_alive`` so failures stay null.
             if is_alive:
                 rtt_ms = float(result.min_rtt)
-        except Exception as exc:
+        except (ICMPLibError, OSError) as exc:
             # ``.local`` hosts on systems without Avahi / mdnsd hit
             # this every sweep; the traceback adds nothing and floods
             # the logs. One-line debug is plenty.

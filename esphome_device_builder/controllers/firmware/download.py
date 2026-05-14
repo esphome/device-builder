@@ -56,7 +56,7 @@ async def get_binaries(controller: FirmwareController, *, configuration: str) ->
             component = _resolve_download_component(storage.target_platform)
             module = importlib.import_module(f"esphome.components.{component}")
             return list(module.get_download_types(storage))
-        except Exception:
+        except Exception:  # noqa: BLE001 — third-party regression: upstream ``get_download_types`` could raise anything
             _LOGGER.warning("Could not determine download types for %s", configuration)
             return []
 

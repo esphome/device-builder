@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any
 import aiohttp
 from aiohttp import web
 from esphome import yaml_util
+from esphome.core import EsphomeError
 
 from ..helpers.api import CommandError
 from ..helpers.event_bus import Event, StreamControls, stream_events
@@ -329,12 +330,12 @@ def create_legacy_routes() -> web.RouteTableDef:
         try:
             # ``yaml_util.load_yaml`` expects a ``Path`` (it calls
             # ``fname.open(...)``); a string would raise
-            # ``AttributeError: 'str' object has no attribute 'open'``
-            # at parse time and the bare ``except`` below would
-            # surface it as 500 with that opaque message rather than
-            # a real YAML error. Keep the real ``Path`` here.
+            # ``AttributeError`` deep in the loader, which falls
+            # past the ``EsphomeError`` catch below and surfaces as
+            # the default aiohttp 500 instead of our diagnostic
+            # ``{"error": ...}`` body. Keep the real ``Path`` here.
             config = await loop.run_in_executor(None, yaml_util.load_yaml, config_path)
-        except Exception as exc:
+        except EsphomeError as exc:
             return json_response({"error": str(exc)}, status=500)
 
         # ESPHome's ``yaml_util.load_yaml`` returns an ``OrderedDict``

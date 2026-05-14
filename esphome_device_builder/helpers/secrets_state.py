@@ -15,6 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from esphome import yaml_util
+from esphome.core import EsphomeError
 
 # Bootstrap placeholder strings — hoisted from
 # ``controllers/config.py`` so the writer and the reader share a
@@ -41,15 +42,15 @@ def read_secrets_yaml(config_dir: Path) -> dict | None:
 
     ``yaml_util.load_yaml`` expects a ``Path``, not a ``str`` — the
     type signature pins this so a string slip from a caller fails
-    at type-check time instead of as a silently-swallowed
-    ``AttributeError`` inside the broad except.
+    at type-check time instead of as an ``AttributeError`` slipping
+    past the narrow ``EsphomeError`` catch below.
     """
     secrets_path = config_dir / "secrets.yaml"
     if not secrets_path.exists():
         return None
     try:
         data = yaml_util.load_yaml(secrets_path)
-    except Exception:
+    except EsphomeError:
         return None
     return data if isinstance(data, dict) else None
 

@@ -212,7 +212,7 @@ class LabelsController:
             for filename in affected:
                 try:
                     await devices.reload_configuration(filename)
-                except Exception:
+                except Exception:  # noqa: BLE001 — cascade is best-effort; one bad device must not block the others
                     _LOGGER.warning("Failed to reload device %s after label cascade", filename)
 
         self._db.bus.fire(EventType.LABEL_DELETED, LabelDeletedData(label_id=label_id))

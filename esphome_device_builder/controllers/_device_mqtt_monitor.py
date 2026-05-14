@@ -150,7 +150,7 @@ class DeviceMqttMonitor:
                 raise
             except (TimeoutError, OSError, ConnectionError) as err:
                 self._log_reconnect_failure(err, expected=True)
-            except Exception as err:
+            except Exception as err:  # noqa: BLE001 — reconnect loop must outlive any unexpected error
                 self._log_reconnect_failure(err, expected=False)
             # Drop last-seen on any failure but leave device state
             # alone so a brief broker blip doesn't trigger an offline

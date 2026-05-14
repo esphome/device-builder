@@ -561,10 +561,10 @@ def test_remove_device_sidecars_logs_oserror_on_storage_unlink(
 def test_remove_device_sidecars_logs_exception_on_metadata_remove(
     tmp_path: Path, monkeypatch: Any, caplog: Any
 ) -> None:
-    """Generic Exception from metadata-remove is logged, not raised."""
+    """OSError from metadata-remove is logged, not raised."""
 
     def _raise(*args: Any, **kwargs: Any) -> None:
-        raise RuntimeError("disk full")
+        raise OSError("disk full")
 
     monkeypatch.setattr(devices_helpers, "remove_device_metadata", _raise)
 
@@ -626,7 +626,7 @@ def test_clear_volatile_device_metadata_drops_corrupt_non_dict_entry(
 def test_archive_clear_device_sidecars_logs_exception_on_metadata_clear(
     tmp_path: Path, monkeypatch: Any, caplog: Any
 ) -> None:
-    """Generic Exception from clear-volatile is logged, not raised.
+    """OSError from clear-volatile is logged, not raised.
 
     A failure scrubbing the volatile metadata fields shouldn't
     propagate — the YAML has already been moved to the archive
@@ -635,7 +635,7 @@ def test_archive_clear_device_sidecars_logs_exception_on_metadata_clear(
     """
 
     def _raise(*args: Any, **kwargs: Any) -> None:
-        raise RuntimeError("disk full")
+        raise OSError("disk full")
 
     monkeypatch.setattr(devices_helpers, "clear_volatile_device_metadata", _raise)
 
