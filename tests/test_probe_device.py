@@ -20,6 +20,7 @@ import pytest
 from esphome_device_builder.controllers._device_state_monitor import (
     DeviceStateMonitor,
 )
+from esphome_device_builder.controllers._device_state_monitor._state import MonitorState
 from esphome_device_builder.models import Device, DeviceState
 
 from .conftest import RecordingMonitorCallbacks
@@ -27,10 +28,12 @@ from .conftest import RecordingMonitorCallbacks
 
 def _make_monitor() -> DeviceStateMonitor:
     monitor = DeviceStateMonitor.__new__(DeviceStateMonitor)
+
+    monitor.state = MonitorState()
     monitor._zeroconf = MagicMock()
     monitor._zeroconf.zeroconf = MagicMock()
     monitor._tasks = set()
-    monitor._reachability = None
+    monitor.state.reachability = None
     monitor._presence = None
     return monitor
 
@@ -67,7 +70,7 @@ async def test_probe_device_cache_hit_applies_synchronously(monkeypatch) -> None
     fake_info = MagicMock()
     fake_info.load_from_cache.return_value = True
     monkeypatch.setattr(
-        "esphome_device_builder.controllers._device_state_monitor.AsyncServiceInfo",
+        "esphome_device_builder.controllers._device_state_monitor.controller.AsyncServiceInfo",
         lambda *_args, **_kw: fake_info,
     )
 
@@ -99,7 +102,7 @@ async def test_probe_device_uses_service_name_when_provided(monkeypatch) -> None
         return fake_info
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers._device_state_monitor.AsyncServiceInfo",
+        "esphome_device_builder.controllers._device_state_monitor.controller.AsyncServiceInfo",
         _info_ctor,
     )
 
@@ -122,7 +125,7 @@ async def test_probe_device_cache_miss_spawns_task(monkeypatch) -> None:
     fake_info = MagicMock()
     fake_info.load_from_cache.return_value = False
     monkeypatch.setattr(
-        "esphome_device_builder.controllers._device_state_monitor.AsyncServiceInfo",
+        "esphome_device_builder.controllers._device_state_monitor.controller.AsyncServiceInfo",
         lambda *_args, **_kw: fake_info,
     )
 
@@ -144,6 +147,8 @@ async def test_probe_device_cache_miss_spawns_task(monkeypatch) -> None:
 def test_probe_device_no_zeroconf_is_a_noop() -> None:
     """Pre-start (or zeroconf-failed) probe must not raise."""
     monitor = DeviceStateMonitor.__new__(DeviceStateMonitor)
+
+    monitor.state = MonitorState()
     monitor._zeroconf = None
     monitor._tasks = set()
 
@@ -162,7 +167,7 @@ async def test_apply_service_info_claims_online() -> None:
     until the next ping sweep.
     """
     monitor = _make_monitor()
-    monitor._state_source = {}
+    monitor.state.state_source = {}
     # ``apply()`` validates against the configured-devices catalog.
     device = Device(
         name="kitchen",
@@ -179,7 +184,7 @@ async def test_apply_service_info_claims_online() -> None:
     monitor._on_version_change = callbacks.on_version_change
     monitor._on_config_hash_change = callbacks.on_config_hash_change
     monitor._on_api_encryption_change = callbacks.on_api_encryption_change
-    monitor._reachability = None
+    monitor.state.reachability = None
 
     fake_info = MagicMock()
     fake_info.parsed_scoped_addresses.return_value = []
@@ -205,7 +210,7 @@ async def test_apply_service_info_routes_mac_txt_to_apply_mac_address() -> None:
     don't get populated from the broadcast.
     """
     monitor = _make_monitor()
-    monitor._state_source = {}
+    monitor.state.state_source = {}
     device = Device(
         name="kitchen",
         friendly_name="Kitchen",
@@ -222,7 +227,7 @@ async def test_apply_service_info_routes_mac_txt_to_apply_mac_address() -> None:
     monitor._on_config_hash_change = callbacks.on_config_hash_change
     monitor._on_api_encryption_change = callbacks.on_api_encryption_change
     monitor._on_mac_address_change = callbacks.on_mac_address_change
-    monitor._reachability = None
+    monitor.state.reachability = None
 
     fake_info = MagicMock()
     fake_info.parsed_scoped_addresses.return_value = []

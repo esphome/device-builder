@@ -11,12 +11,12 @@ from unittest.mock import patch
 import pytest
 
 from esphome_device_builder.controllers import (
-    _device_state_monitor as sm,
-)
-from esphome_device_builder.controllers import (
     _dns_cache as dns_cache_mod,
 )
 from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
+from esphome_device_builder.controllers._device_state_monitor import (
+    controller as sm,
+)
 from esphome_device_builder.controllers._dns_cache import DNSCache
 from esphome_device_builder.controllers.config import (
     get_board_id,
@@ -401,7 +401,7 @@ async def test_ping_sweep_skips_devices_with_cached_dns_failure(fake_resolver) -
         on_ip_change=lambda *_: None,
     )
     # Prime the cache with a fresh failure so the sweep should skip.
-    monitor._dns_cache._cache["esp.example.com"] = (time.monotonic() + 60, None)
+    monitor.state.dns_cache._cache["esp.example.com"] = (time.monotonic() + 60, None)
 
     resolver = fake_resolver(["10.0.0.1"])
     pinged: list[str] = []

@@ -193,7 +193,7 @@ def test_apply_http_service_info_populates_web_url_and_refires() -> None:
 
     monitor._apply_http_service_info("kitchen", info)
 
-    assert monitor._http_urls == {"kitchen": "http://kitchen.local"}
+    assert monitor.state.http_urls == {"kitchen": "http://kitchen.local"}
     added = _added(callbacks)
     assert len(added) == 1
     assert added[0].web_url == "http://kitchen.local"

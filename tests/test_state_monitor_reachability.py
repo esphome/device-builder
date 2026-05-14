@@ -39,11 +39,14 @@ from zeroconf import (
 )
 from zeroconf.const import _CLASS_IN, _TYPE_A, _TYPE_AAAA, _TYPE_PTR, _TYPE_TXT
 
-import esphome_device_builder.controllers._device_state_monitor as state_monitor_module
 from esphome_device_builder.controllers._device_state_monitor import (
     DeviceStateMonitor,
     _decode_txt_bytes_to_sorted_pairs,
 )
+from esphome_device_builder.controllers._device_state_monitor import (
+    controller as state_monitor_module,
+)
+from esphome_device_builder.controllers._device_state_monitor._state import MonitorState
 from esphome_device_builder.controllers._reachability_tracker import (
     MdnsCacheInfo,
     ReachabilityTracker,
@@ -85,17 +88,19 @@ def _make_monitor(
     devices: list[Device], tracker: ReachabilityTracker | None = None
 ) -> DeviceStateMonitor:
     monitor = DeviceStateMonitor.__new__(DeviceStateMonitor)
+
+    monitor.state = MonitorState()
     monitor._get_devices = lambda: devices
     monitor._get_devices_by_name = lambda name: [d for d in devices if d.name == name]
     monitor._is_ignored = lambda _name: False
-    monitor._state_source = {}
-    monitor._http_urls = {}
+    monitor.state.state_source = {}
+    monitor.state.http_urls = {}
     monitor._zeroconf = None
     monitor._mdns_browser = None
     monitor._ping_task = None
     monitor._tasks = set()
     monitor._import_discovery = None
-    monitor._reachability = tracker
+    monitor.state.reachability = tracker
     monitor._on_state_change = _flip_state(devices)
     monitor._on_ip_change = lambda _n, _i, _l: None
     monitor._on_version_change = None
@@ -103,7 +108,7 @@ def _make_monitor(
     monitor._on_api_encryption_change = None
     monitor._on_importable_added = None
     monitor._on_importable_removed = None
-    monitor._dns_cache = MagicMock()
+    monitor.state.dns_cache = MagicMock()
     monitor._presence = None
     return monitor
 
@@ -194,7 +199,7 @@ async def test_ping_success_records_rtt_and_observation() -> None:
     fake_result.is_alive = True
     fake_result.min_rtt = 4.2
     with patch(
-        "esphome_device_builder.controllers._device_state_monitor.icmp_ping",
+        "esphome_device_builder.controllers._device_state_monitor.controller.icmp_ping",
         AsyncMock(return_value=fake_result),
     ):
         await monitor._ping_device(devices[0], "10.0.0.42")
@@ -217,7 +222,7 @@ async def test_ping_failure_does_not_record_rtt() -> None:
     fake_result.is_alive = False
     fake_result.min_rtt = 0.0
     with patch(
-        "esphome_device_builder.controllers._device_state_monitor.icmp_ping",
+        "esphome_device_builder.controllers._device_state_monitor.controller.icmp_ping",
         AsyncMock(return_value=fake_result),
     ):
         await monitor._ping_device(devices[0], "10.0.0.42")
@@ -254,9 +259,9 @@ async def test_mdns_removed_clears_tracker_for_device() -> None:
     # source slot and (now) the tracker maps too.
     monitor.apply("kitchen", DeviceState.OFFLINE, "mdns")
     monitor.apply_ip = lambda _n, _i: True  # type: ignore[method-assign]
-    monitor._state_source.pop("kitchen", None)
-    if monitor._reachability is not None:
-        monitor._reachability.clear("kitchen")
+    monitor.state.state_source.pop("kitchen", None)
+    if monitor.state.reachability is not None:
+        monitor.state.reachability.clear("kitchen")
 
     snap = tracker.snapshot("kitchen", state=DeviceState.OFFLINE, active_source="unknown", ip="")
     assert snap["mdns_last_seen_seconds_ago"] is None
@@ -292,9 +297,9 @@ async def test_mdns_removed_via_dispatch_clears_tracker() -> None:
     device_name = state_monitor_module.device_name_from_service(name)
     if state_change == ServiceStateChange.Removed:
         monitor.apply(device_name, DeviceState.OFFLINE, "mdns")
-        monitor._state_source.pop(device_name, None)
-        if monitor._reachability is not None:
-            monitor._reachability.clear(device_name)
+        monitor.state.state_source.pop(device_name, None)
+        if monitor.state.reachability is not None:
+            monitor.state.reachability.clear(device_name)
 
     snap = tracker.snapshot("kitchen", state=DeviceState.OFFLINE, active_source="unknown", ip="")
     assert snap["mdns_last_seen_seconds_ago"] is None

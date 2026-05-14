@@ -225,7 +225,7 @@ async def test_already_online_via_higher_priority_skipped() -> None:
     """
     devices = [_device(loaded_integrations=["web_server"], state=DeviceState.ONLINE)]
     monitor, resolver = _make_monitor(devices)
-    monitor._state_source["kitchen"] = "mdns"  # higher than ping
+    monitor.state.state_source["kitchen"] = "mdns"  # higher than ping
 
     await monitor._resolve_non_api_mdns_targets()
 
@@ -266,7 +266,7 @@ async def test_offline_via_ping_still_resolved() -> None:
     """
     devices = [_device(loaded_integrations=["web_server"], state=DeviceState.OFFLINE)]
     monitor, resolver = _make_monitor(devices, resolved={"kitchen.local": ["192.168.1.42"]})
-    monitor._state_source["kitchen"] = "ping"
+    monitor.state.state_source["kitchen"] = "ping"
 
     await monitor._resolve_non_api_mdns_targets()
 

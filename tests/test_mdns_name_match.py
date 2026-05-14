@@ -18,11 +18,11 @@ import pytest
 from esphome import zeroconf as esphome_zc
 from zeroconf import ServiceStateChange
 
-from esphome_device_builder.controllers import _device_state_monitor as monitor_module
 from esphome_device_builder.controllers._device_state_monitor import (
     DeviceStateMonitor,
     device_name_from_service,
 )
+from esphome_device_builder.controllers._device_state_monitor import controller as monitor_module
 from esphome_device_builder.models import Device, DeviceState
 
 from .conftest import make_state_monitor_with_callbacks
@@ -205,7 +205,7 @@ async def test_mdns_takes_ownership_after_ping_set_online(
     devices = [_device("kitchen")]
     devices[0].state = DeviceState.ONLINE  # ping already saw it
     monitor, _callbacks = make_state_monitor_with_callbacks(devices)
-    monitor._state_source["kitchen"] = "ping"
+    monitor.state.state_source["kitchen"] = "ping"
 
     handler = await _capture_handler(monitor, monkeypatch)
     handler(

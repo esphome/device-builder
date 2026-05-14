@@ -27,8 +27,11 @@ from unittest.mock import AsyncMock
 import pytest
 
 from esphome_device_builder import device_builder as device_builder_module
-from esphome_device_builder.controllers import _device_state_monitor as state_monitor_module
 from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
+from esphome_device_builder.controllers._device_state_monitor import (
+    controller as state_monitor_module,
+)
+from esphome_device_builder.controllers._device_state_monitor._state import MonitorState
 from esphome_device_builder.device_builder import DeviceBuilder
 from esphome_device_builder.helpers.subscriber_presence import SubscriberPresence
 
@@ -36,6 +39,7 @@ from esphome_device_builder.helpers.subscriber_presence import SubscriberPresenc
 def _build_monitor(presence: SubscriberPresence | None) -> DeviceStateMonitor:
     """Bypass __init__ — ``_ping_loop`` only touches a few attrs."""
     monitor = DeviceStateMonitor.__new__(DeviceStateMonitor)
+    monitor.state = MonitorState()
     monitor._presence = presence
     return monitor
 

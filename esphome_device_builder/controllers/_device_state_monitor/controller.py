@@ -47,12 +47,12 @@ from zeroconf.const import (
     _TYPE_TXT,
 )
 
-from ..helpers.hostname import is_local_hostname, normalize_hostname
-from ..helpers.subscriber_presence import SubscriberPresence
-from ..models import AdoptableDevice, Device, DeviceState, ReachabilitySource
-from ._dns_cache import DNSCache
-from ._reachability_tracker import MdnsCacheInfo, ReachabilityTracker
-from ._task_controller_base import TaskControllerBase
+from ...helpers.hostname import is_local_hostname, normalize_hostname
+from ...helpers.subscriber_presence import SubscriberPresence
+from ...models import AdoptableDevice, Device, DeviceState, ReachabilitySource
+from .._reachability_tracker import MdnsCacheInfo, ReachabilityTracker
+from .._task_controller_base import TaskControllerBase
+from ._state import MonitorState
 
 _LOGGER = logging.getLogger(__name__)
 _ESPHOME_SERVICE_TYPE = "_esphomelib._tcp.local."
@@ -392,13 +392,14 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         self._on_importable_added = on_importable_added
         self._on_importable_removed = on_importable_removed
         self._is_ignored = is_ignored or (lambda _name: False)
-        self._state_source: dict[str, str] = {}  # device name → "mdns" | "ping"
-        # Per-signal freshness tracker (mDNS / ping / MQTT last-seen,
-        # ping RTT). Optional dependency: callers that don't care
-        # about reachability metadata (the existing tests, in-process
-        # usages that just want state-change forwarding) can pass
-        # ``None`` and the monitor's observation hooks become no-ops.
-        self._reachability = reachability
+        # Mutable cross-module domain state — anything a sibling
+        # module reads or writes lives here so siblings reach
+        # through ``monitor.state.X`` rather than ``monitor._X``.
+        # ``state_source`` is the source-precedence ledger;
+        # ``http_urls`` is populated by the importable-discovery
+        # flow; ``dns_cache`` and ``reachability`` are shared
+        # across mdns / ping / apply paths.
+        self.state = MonitorState(reachability=reachability)
         # ``DashboardImportDiscovery`` is the upstream esphome class
         # that watches the same ``_esphomelib._tcp.local.`` browser for
         # ``package_import_url`` TXT records and turns them into
@@ -406,11 +407,6 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         # browser-callback keeps us in lockstep with whatever the
         # upstream considers an importable device.
         self._import_discovery: DashboardImportDiscovery | None = None
-        # Map of device-name → web-UI URL, populated by the
-        # ``_http._tcp.local.`` browser. Lets the discovered-device
-        # card render a Visit-web-UI link without the frontend having
-        # to know which factory firmwares ship a web server.
-        self._http_urls: dict[str, str] = {}
         self._zeroconf: AsyncEsphomeZeroconf | None = None
         # Single browser covers both ``_esphomelib._tcp.local.`` and
         # ``_http._tcp.local.``; the dispatch handler routes events
@@ -419,11 +415,6 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         self._ping_task: asyncio.Task | None = None
         # ``self._tasks`` (fire-and-forget mDNS resolve refs) comes
         # from :class:`TaskControllerBase`; see :meth:`_track_task`.
-        # DNS resolutions for non-mDNS hostnames are cached here so the
-        # ping sweep, OTA cache args, and device.ip tracking all share
-        # the same TTL'd lookup result instead of re-resolving every
-        # cycle.
-        self._dns_cache = DNSCache()
         # When wired, the ping loop pauses while no dashboard client
         # is subscribed — so a quiet network with no observers
         # generates no ICMP traffic. Mirrors the legacy
@@ -492,7 +483,7 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         monitor's ``apply`` path can route observations into the
         tracker.
         """
-        self._reachability = tracker
+        self.state.reachability = tracker
 
     def priority_for(self, name: str) -> ReachabilitySource:
         """Return the source currently authoritative for *name*.
@@ -505,7 +496,7 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         subscription can dispatch on it without a string-typo
         landing as silent UNKNOWN.
         """
-        return ReachabilitySource(self._state_source.get(name, ReachabilitySource.UNKNOWN))
+        return ReachabilitySource(self.state.state_source.get(name, ReachabilitySource.UNKNOWN))
 
     def apply(self, name: str, state: DeviceState, source: str, *, claim: bool = False) -> bool:
         """
@@ -540,10 +531,10 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         # ONLINE filter avoids treating "lost" signals (the OFFLINE
         # flips ping / mqtt issue when the source itself drops) as
         # freshness.
-        if state == DeviceState.ONLINE and self._reachability is not None:
-            self._reachability.observe(name, source)
+        if state == DeviceState.ONLINE and self.state.reachability is not None:
+            self.state.reachability.observe(name, source)
 
-        current_source = self._state_source.get(name, ReachabilitySource.UNKNOWN)
+        current_source = self.state.state_source.get(name, ReachabilitySource.UNKNOWN)
         if _SOURCE_PRIORITY.get(source, 0) < _SOURCE_PRIORITY.get(current_source, 0):
             return False
         # Dedupe must look at *every* matching device, not just the
@@ -554,10 +545,10 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         # left the stale sibling stuck.
         if all(d.state == state for d in devices):
             if claim:
-                self._state_source[name] = source
+                self.state.state_source[name] = source
             return False
 
-        self._state_source[name] = source
+        self.state.state_source[name] = source
         self._on_state_change(name, state, source)
         return True
 
@@ -1033,7 +1024,7 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         Populated by the ping sweep's pre-resolution pass. Returns
         ``None`` on cache miss or when the entry has expired.
         """
-        return self._dns_cache.get_cached_addresses(host_name)
+        return self.state.dns_cache.get_cached_addresses(host_name)
 
     # ------------------------------------------------------------------
     # Internals
@@ -1070,9 +1061,9 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
             if state_change == ServiceStateChange.Removed:
                 self.apply(device_name, DeviceState.OFFLINE, "mdns")
                 self.apply_ip(device_name, "")
-                self._state_source.pop(device_name, None)
-                if self._reachability is not None:
-                    self._reachability.clear(device_name)
+                self.state.state_source.pop(device_name, None)
+                if self.state.reachability is not None:
+                    self.state.reachability.clear(device_name)
                 return
 
             # ``claim=True`` so mDNS takes ownership even when the
@@ -1176,7 +1167,7 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         """
         device_name = device_name_from_service(name)
         if state_change == ServiceStateChange.Removed:
-            if self._http_urls.pop(device_name, None) is None:
+            if self.state.http_urls.pop(device_name, None) is None:
                 return
             self._refire_importable_for(device_name)
             return
@@ -1206,9 +1197,9 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         if not self._has_importable(device_name):
             return
         url = _http_url_from_service_info(device_name, info)
-        if self._http_urls.get(device_name) == url:
+        if self.state.http_urls.get(device_name) == url:
             return
-        self._http_urls[device_name] = url
+        self.state.http_urls[device_name] = url
         self._refire_importable_for(device_name)
 
     def _has_importable(self, device_name: str) -> bool:
@@ -1238,12 +1229,12 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         the about-to-fire ``on_importable_added`` carries the right
         ``web_url``.
         """
-        if self._zeroconf is None or self._http_urls.get(device_name):
+        if self._zeroconf is None or self.state.http_urls.get(device_name):
             return
         info = AsyncServiceInfo(_HTTP_SERVICE_TYPE, f"{device_name}.{_HTTP_SERVICE_TYPE}")
         if not info.load_from_cache(self._zeroconf.zeroconf):
             return
-        self._http_urls[device_name] = _http_url_from_service_info(device_name, info)
+        self.state.http_urls[device_name] = _http_url_from_service_info(device_name, info)
 
     def _on_import_update(self, service_name: str, discovered: DiscoveredImport | None) -> None:
         """Bridge ``DashboardImportDiscovery`` → controller callbacks.
@@ -1290,7 +1281,7 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
             project_version=discovered.project_version,
             network=discovered.network,
             ignored=self._is_ignored(discovered.device_name),
-            web_url=self._http_urls.get(discovered.device_name, ""),
+            web_url=self.state.http_urls.get(discovered.device_name, ""),
         )
 
     def _apply_service_info(self, device_name: str, info: AsyncServiceInfo) -> None:
@@ -1495,7 +1486,7 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
             # and the OTA cache args would have nothing to draw on for
             # non-mDNS hostnames.
             resolved = await asyncio.gather(
-                *(self._dns_cache.async_resolve(d.address) for d in batch),
+                *(self.state.dns_cache.async_resolve(d.address) for d in batch),
                 return_exceptions=True,
             )
             ping_targets: list[tuple[Device, str]] = []
@@ -1562,7 +1553,7 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
                 # still hit the cross-subnet-friendly entry.
                 self.apply_ip_addresses(device.name, cached)
                 continue
-            if self._dns_cache.has_cached_failure(device.address):
+            if self.state.dns_cache.has_cached_failure(device.address):
                 dns_skipped.append(device)
                 self.apply(device.name, DeviceState.OFFLINE, "ping")
                 continue
@@ -1588,7 +1579,7 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         """
         if device.state != DeviceState.ONLINE:
             return True
-        source = self._state_source.get(device.name, ReachabilitySource.UNKNOWN)
+        source = self.state.state_source.get(device.name, ReachabilitySource.UNKNOWN)
         return _SOURCE_PRIORITY.get(source, 0) <= _SOURCE_PRIORITY[ReachabilitySource.PING]
 
     async def _ping_device(self, device: Device, target: str) -> None:
@@ -1619,8 +1610,8 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
             _LOGGER.debug("Ping of %s (%s) failed: %s", device.name, target, exc)
             is_alive = False
         new_state = DeviceState.ONLINE if is_alive else DeviceState.OFFLINE
-        if is_alive and rtt_ms is not None and self._reachability is not None:
-            self._reachability.record_ping_rtt(device.name, rtt_ms)
+        if is_alive and rtt_ms is not None and self.state.reachability is not None:
+            self.state.reachability.record_ping_rtt(device.name, rtt_ms)
         self.apply(device.name, new_state, "ping")
 
 

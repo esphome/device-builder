@@ -27,8 +27,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from zeroconf import ServiceStateChange
 
-import esphome_device_builder.controllers._device_state_monitor as state_monitor_module
 from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
+from esphome_device_builder.controllers._device_state_monitor import (
+    controller as state_monitor_module,
+)
+from esphome_device_builder.controllers._device_state_monitor._state import MonitorState
 from esphome_device_builder.controllers._reachability_tracker import ReachabilityTracker
 from esphome_device_builder.models import Device, DeviceState
 
@@ -79,11 +82,13 @@ def _make_monitor(
     """
     devices = list(devices) if devices is not None else [_device()]
     monitor = DeviceStateMonitor.__new__(DeviceStateMonitor)
+
+    monitor.state = MonitorState()
     monitor._get_devices = lambda: devices
     monitor._get_devices_by_name = lambda name: [d for d in devices if d.name == name]
     monitor._is_ignored = lambda _name: False
-    monitor._state_source = {}
-    monitor._http_urls = {}
+    monitor.state.state_source = {}
+    monitor.state.http_urls = {}
     monitor._zeroconf = None
     monitor._mdns_browser = None
     monitor._ping_task = None
@@ -99,8 +104,8 @@ def _make_monitor(
     monitor._on_mac_address_change = callbacks.on_mac_address_change
     monitor._on_importable_added = callbacks.on_importable_added
     monitor._on_importable_removed = callbacks.on_importable_removed
-    monitor._reachability = None
-    monitor._dns_cache = MagicMock()
+    monitor.state.reachability = None
+    monitor.state.dns_cache = MagicMock()
     monitor._presence = None  # ping loop runs unconditionally in tests
     return monitor, callbacks
 
@@ -349,7 +354,7 @@ async def test_dispatch_removed_event_flips_offline_clears_ip(
     """A ``Removed`` esphomelib event flips OFFLINE, clears IP, drops source slot."""
     device = _device(state=DeviceState.ONLINE, ip="10.0.0.1")
     monitor, _callbacks = _make_monitor([device])
-    monitor._state_source["kitchen"] = "mdns"
+    monitor.state.state_source["kitchen"] = "mdns"
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
     try:
         dispatch(
@@ -360,7 +365,7 @@ async def test_dispatch_removed_event_flips_offline_clears_ip(
         )
         assert device.state == DeviceState.OFFLINE
         assert device.ip == ""
-        assert "kitchen" not in monitor._state_source
+        assert "kitchen" not in monitor.state.state_source
     finally:
         await _stop_and_drain(monitor)
 
@@ -381,10 +386,10 @@ async def test_dispatch_removed_event_clears_reachability_tracker(
     device = _device(state=DeviceState.ONLINE)
     monitor, _callbacks = _make_monitor([device])
     tracker = ReachabilityTracker()
-    monitor._reachability = tracker
+    monitor.state.reachability = tracker
     tracker.observe("kitchen", "mdns")
     tracker.observe("kitchen", "ping")
-    monitor._state_source["kitchen"] = "mdns"
+    monitor.state.state_source["kitchen"] = "mdns"
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
     try:
         dispatch(
@@ -974,7 +979,7 @@ async def test_dispatch_http_service_added_records_url_and_refires_importable(
             f"factory-firmware.{HTTP_SERVICE_TYPE}",
             ServiceStateChange.Added,
         )
-        assert monitor._http_urls["factory-firmware"] == ("http://factory-firmware.local:8080")
+        assert monitor.state.http_urls["factory-firmware"] == ("http://factory-firmware.local:8080")
         # The importable was re-emitted with the new web_url.
         assert any(call[1].web_url for call in callbacks.calls_for("on_importable_added"))
     finally:
@@ -1007,7 +1012,7 @@ async def test_dispatch_http_service_added_skips_when_no_importable(
             f"stranger.{HTTP_SERVICE_TYPE}",
             ServiceStateChange.Added,
         )
-        assert monitor._http_urls == {}
+        assert monitor.state.http_urls == {}
         assert callbacks.calls_for("on_importable_added") == []
     finally:
         await _stop_and_drain(monitor)
@@ -1028,7 +1033,7 @@ async def test_dispatch_http_service_removed_clears_url_and_refires(
     monitor, callbacks = _make_monitor(devices=[])
     discovered = _build_discovered("factory-firmware")
     discovery = _make_import_discovery({f"factory-firmware.{ESPHOMELIB_SERVICE_TYPE}": discovered})
-    monitor._http_urls["factory-firmware"] = "http://factory-firmware.local"
+    monitor.state.http_urls["factory-firmware"] = "http://factory-firmware.local"
 
     fake_info = MagicMock()
     fake_info.load_from_cache.return_value = False
@@ -1042,7 +1047,7 @@ async def test_dispatch_http_service_removed_clears_url_and_refires(
             f"factory-firmware.{HTTP_SERVICE_TYPE}",
             ServiceStateChange.Removed,
         )
-        assert "factory-firmware" not in monitor._http_urls
+        assert "factory-firmware" not in monitor.state.http_urls
         assert callbacks.calls_for("on_importable_added")
     finally:
         await _stop_and_drain(monitor)
@@ -1095,7 +1100,7 @@ async def test_dispatch_http_service_added_cache_miss_resolves_and_applies(
         )
         assert len(monitor._tasks) == 1
         await asyncio.gather(*list(monitor._tasks))
-        assert monitor._http_urls["factory-firmware"] == "http://factory-firmware.local"
+        assert monitor.state.http_urls["factory-firmware"] == "http://factory-firmware.local"
     finally:
         await _stop_and_drain(monitor)
 
@@ -1180,7 +1185,7 @@ def test_revisit_importable_skips_seed_when_url_already_set() -> None:
     """
     monitor, callbacks = _make_monitor(devices=[])
     monitor._zeroconf = MagicMock()
-    monitor._http_urls["factory-firmware"] = "http://factory-firmware.local"
+    monitor.state.http_urls["factory-firmware"] = "http://factory-firmware.local"
     monitor._import_discovery = _make_import_discovery(
         {f"factory-firmware.{ESPHOMELIB_SERVICE_TYPE}": _build_discovered("factory-firmware")}
     )
@@ -1201,7 +1206,7 @@ def test_revisit_importable_skips_seed_when_zeroconf_down() -> None:
 
     monitor.revisit_importable("factory-firmware")  # must not raise
 
-    assert monitor._http_urls == {}
+    assert monitor.state.http_urls == {}
 
 
 def test_revisit_importable_seeds_nothing_on_cache_miss(
@@ -1226,7 +1231,7 @@ def test_revisit_importable_seeds_nothing_on_cache_miss(
 
     monitor.revisit_importable("factory-firmware")
 
-    assert monitor._http_urls == {}
+    assert monitor.state.http_urls == {}
 
 
 # ---------------------------------------------------------------------------
@@ -1271,8 +1276,8 @@ async def test_start_drives_ping_pipeline_to_online_state(
         return MagicMock(is_alive=True)
 
     monkeypatch.setattr(state_monitor_module, "icmp_ping", _fake_ping)
-    monitor._dns_cache.async_resolve = AsyncMock(return_value=["192.0.2.5"])
-    monitor._dns_cache.has_cached_failure = MagicMock(return_value=False)
+    monitor.state.dns_cache.async_resolve = AsyncMock(return_value=["192.0.2.5"])
+    monitor.state.dns_cache.has_cached_failure = MagicMock(return_value=False)
     monkeypatch.setattr(state_monitor_module.asyncio, "sleep", _bounded_sleep_factory())
 
     await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
@@ -1297,13 +1302,13 @@ async def test_start_with_icmplib_unavailable_skips_dns_resolution(
     monitor, _callbacks = _make_monitor()
 
     monkeypatch.setattr(state_monitor_module, "icmp_ping", None)
-    monitor._dns_cache.async_resolve = AsyncMock()
+    monitor.state.dns_cache.async_resolve = AsyncMock()
     monkeypatch.setattr(state_monitor_module.asyncio, "sleep", _bounded_sleep_factory(2))
 
     await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
     try:
         await _drain_ping_task(monitor)
-        monitor._dns_cache.async_resolve.assert_not_called()
+        monitor.state.dns_cache.async_resolve.assert_not_called()
     finally:
         await _stop_and_drain(monitor)
 
@@ -1329,8 +1334,8 @@ async def test_start_marks_offline_on_icmp_exception(
         raise OSError("name lookup failed")
 
     monkeypatch.setattr(state_monitor_module, "icmp_ping", _boom)
-    monitor._dns_cache.async_resolve = AsyncMock(return_value=["10.0.0.1"])
-    monitor._dns_cache.has_cached_failure = MagicMock(return_value=False)
+    monitor.state.dns_cache.async_resolve = AsyncMock(return_value=["10.0.0.1"])
+    monitor.state.dns_cache.has_cached_failure = MagicMock(return_value=False)
     monkeypatch.setattr(state_monitor_module.asyncio, "sleep", _bounded_sleep_factory(2))
 
     await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
@@ -1361,7 +1366,7 @@ async def test_start_skips_ping_for_cached_dns_failures(
         return MagicMock(is_alive=True)
 
     monkeypatch.setattr(state_monitor_module, "icmp_ping", _icmp)
-    monitor._dns_cache.has_cached_failure = MagicMock(return_value=True)
+    monitor.state.dns_cache.has_cached_failure = MagicMock(return_value=True)
     monkeypatch.setattr(state_monitor_module.asyncio, "sleep", _bounded_sleep_factory(2))
 
     with caplog.at_level(logging.DEBUG, logger=state_monitor_module.__name__):
@@ -1389,8 +1394,8 @@ async def test_start_logs_ping_count_at_debug(
         return MagicMock(is_alive=True)
 
     monkeypatch.setattr(state_monitor_module, "icmp_ping", _icmp)
-    monitor._dns_cache.async_resolve = AsyncMock(return_value=["192.0.2.5"])
-    monitor._dns_cache.has_cached_failure = MagicMock(return_value=False)
+    monitor.state.dns_cache.async_resolve = AsyncMock(return_value=["192.0.2.5"])
+    monitor.state.dns_cache.has_cached_failure = MagicMock(return_value=False)
     monkeypatch.setattr(state_monitor_module.asyncio, "sleep", _bounded_sleep_factory(2))
 
     with caplog.at_level(logging.DEBUG, logger=state_monitor_module.__name__):
@@ -1415,7 +1420,7 @@ async def test_start_skips_devices_without_address(
     """
     no_addr = _device(name="orphan", address="")
     monitor, _callbacks = _make_monitor([no_addr])
-    monitor._dns_cache.async_resolve = AsyncMock(return_value=[])
+    monitor.state.dns_cache.async_resolve = AsyncMock(return_value=[])
 
     async def _icmp(*_a: Any, **_kw: Any) -> Any:
         raise AssertionError("icmp_ping must not be called")
@@ -1426,7 +1431,7 @@ async def test_start_skips_devices_without_address(
     await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
     try:
         await _drain_ping_task(monitor)
-        monitor._dns_cache.async_resolve.assert_not_called()
+        monitor.state.dns_cache.async_resolve.assert_not_called()
     finally:
         await _stop_and_drain(monitor)
 

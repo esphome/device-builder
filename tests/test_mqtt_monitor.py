@@ -390,7 +390,7 @@ def test_ping_can_rescue_after_mdns_offline() -> None:
     monitor.apply("alpha", DeviceState.ONLINE, "mdns")
     monitor.apply("alpha", DeviceState.OFFLINE, "mdns")
     # The mDNS Removed handler clears the source so a different source can take over.
-    monitor._state_source.pop("alpha", None)
+    monitor.state.state_source.pop("alpha", None)
     assert monitor.apply("alpha", DeviceState.ONLINE, "ping") is True
     assert transitions[-1] == ("alpha", DeviceState.ONLINE, "ping")
 
