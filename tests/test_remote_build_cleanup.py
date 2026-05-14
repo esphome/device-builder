@@ -98,6 +98,26 @@ def test_sweep_prunes_empty_dashboard_parent(tmp_path: Path) -> None:
     assert not parent.exists()
 
 
+def test_sweep_prunes_dashboard_parent_with_macos_metadata(tmp_path: Path) -> None:
+    """A dashboard_id parent containing only macOS .DS_Store / AppleDouble is still pruned.
+
+    Finder drops ``.DS_Store`` into every directory it browses
+    on a macOS dashboard host; without the metadata purge in
+    ``_prune_empty_dir`` these files would pin the parent
+    forever with ENOTEMPTY after the last device subtree is
+    swept.
+    """
+    now = 1_000_000.0
+    key = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
+    _populate(tmp_path, key, age_seconds=3600, now=now)
+    dashboard_dir = tmp_path / REMOTE_BUILDS_SUBDIR / "alpha"
+    (dashboard_dir / ".DS_Store").write_bytes(b"\x00\x00\x00\x01Bud1")
+    (dashboard_dir / "._kitchen").write_bytes(b"AppleDouble")
+
+    sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    assert not dashboard_dir.exists()
+
+
 def test_sweep_keeps_dashboard_parent_when_sibling_still_warm(tmp_path: Path) -> None:
     """A dashboard with one cold + one warm device keeps the parent."""
     now = 1_000_000.0

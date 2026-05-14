@@ -252,8 +252,39 @@ def _reclaim_orphan_bundle(
 
 
 def _prune_empty_dir(directory: Path) -> None:
-    """Remove *directory* if empty; debug-log + continue otherwise."""
+    """Remove *directory* if empty; debug-log + continue otherwise.
+
+    macOS Finder drops ``.DS_Store`` into every directory it
+    browses, and AppleDouble ``._<name>`` resource-fork shadows
+    accumulate on cross-FS copies; both pin the rmdir with
+    ENOTEMPTY long after the device subtrees + bundle tarballs
+    are gone. Purge those disposable metadata entries before the
+    rmdir so a Finder-browsed dashboard_id parent on a macOS
+    host can actually be reclaimed.
+    """
+    _purge_macos_metadata(directory)
     try:
         directory.rmdir()
     except OSError as exc:
         _LOGGER.debug("remote-build cleanup: rmdir(%s) skipped: %s", directory, exc)
+
+
+def _purge_macos_metadata(directory: Path) -> None:
+    """Unlink macOS metadata files (``.DS_Store``, ``._*``) under *directory*.
+
+    Skips symlinks: only real files matching the metadata
+    pattern are touched. Per-entry unlink failures are logged at
+    debug and the sweep continues; the worst case is that the
+    rmdir below also fails and the directory survives this
+    cycle (next cycle will try again).
+    """
+    for entry in _safe_iterdir(directory):
+        if entry.is_symlink():
+            continue
+        name = entry.name
+        if name != ".DS_Store" and not name.startswith("._"):
+            continue
+        try:
+            entry.unlink()
+        except OSError as exc:
+            _LOGGER.debug("remote-build cleanup: unlink macOS metadata(%s) failed: %s", entry, exc)
