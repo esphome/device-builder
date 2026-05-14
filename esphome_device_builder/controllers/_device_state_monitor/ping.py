@@ -50,6 +50,11 @@ class PingSource:
         # icmplib's reliability ceiling (`_PING_BATCH_SIZE`) when
         # both paths fire at once.
         self._concurrency = asyncio.Semaphore(_PING_BATCH_SIZE)
+        # Tuple of ``(name, address)`` from the last DEBUG-logged
+        # sweep; suppresses re-logging the identical line every
+        # 60s when the target set hasn't changed. New devices,
+        # mDNS claims, and removals re-surface the line.
+        self._last_logged_targets: tuple[tuple[str, str], ...] = ()
 
     async def run(self) -> None:
         await asyncio.sleep(_PING_BOOTSTRAP_DELAY)
@@ -88,11 +93,14 @@ class PingSource:
         if not devices_to_ping:
             return
         if _LOGGER.isEnabledFor(logging.DEBUG):
-            _LOGGER.debug(
-                "Pinging %d devices: %s",
-                len(devices_to_ping),
-                ", ".join(f"{d.name} ({d.address})" for d in devices_to_ping),
-            )
+            signature = tuple((d.name, d.address) for d in devices_to_ping)
+            if signature != self._last_logged_targets:
+                self._last_logged_targets = signature
+                _LOGGER.debug(
+                    "Pinging %d devices: %s",
+                    len(devices_to_ping),
+                    ", ".join(f"{d.name} ({d.address})" for d in devices_to_ping),
+                )
         # Single ``gather`` plus ``self._concurrency`` semaphore
         # caps in-flight ICMP at ``_PING_BATCH_SIZE`` across the
         # sweep and any concurrent eager probes; no need to

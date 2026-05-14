@@ -1418,6 +1418,42 @@ async def test_start_logs_ping_count_at_debug(
 
 
 @pytest.mark.asyncio
+async def test_repeat_sweep_with_unchanged_targets_logs_once(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """``Pinging N devices`` only fires once when the target set is stable.
+
+    Without this dedup the line re-emits every ``_PING_INTERVAL``
+    forever on a steady fleet, spamming DEBUG-enabled logs with
+    identical content. New devices, mDNS claims, or removals
+    re-surface the line.
+    """
+    device = _device(address="example.com", state=DeviceState.UNKNOWN)
+    monitor, _callbacks = _make_monitor([device])
+
+    async def _icmp(_target: str, **_kw: Any) -> Any:
+        return MagicMock(is_alive=True)
+
+    monkeypatch.setattr(ping_module, "icmp_ping", _icmp)
+    monitor.state.dns_cache.async_resolve = AsyncMock(return_value=["192.0.2.5"])
+    monitor.state.dns_cache.has_cached_failure = MagicMock(return_value=False)
+    # Run three sweeps so a regression that re-logs every cycle
+    # would emit 3 lines instead of 1.
+    monkeypatch.setattr(ping_module.asyncio, "sleep", _bounded_sleep_factory(4))
+
+    with caplog.at_level(logging.DEBUG, logger=ping_module.__name__):
+        await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
+        try:
+            await _drain_ping_task(monitor)
+        finally:
+            await _stop_and_drain(monitor)
+
+    ping_logs = [r for r in caplog.records if "Pinging" in r.message]
+    assert len(ping_logs) == 1
+
+
+@pytest.mark.asyncio
 async def test_start_skips_devices_without_address(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

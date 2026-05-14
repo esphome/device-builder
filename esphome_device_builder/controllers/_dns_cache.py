@@ -18,7 +18,6 @@ hostnames.
 from __future__ import annotations
 
 import asyncio
-import logging
 import time
 from contextlib import suppress
 from ipaddress import ip_address
@@ -31,8 +30,6 @@ except ImportError:  # pragma: no cover — icmplib is optional
     async_resolve = None  # type: ignore[assignment]
 
 from ..helpers.hostname import normalize_hostname
-
-_LOGGER = logging.getLogger(__name__)
 
 _DEFAULT_TTL_SECONDS = 120
 _RESOLVE_TIMEOUT_SECONDS = 3.0
@@ -141,8 +138,6 @@ class DNSCache:
         if hostname.endswith(".local"):
             bare = hostname.removesuffix(".local")
             addresses = await self._try_resolve(bare)
-            if addresses is not None:
-                _LOGGER.debug("Resolved %s via bare-hostname fallback (%s)", hostname, bare)
         return addresses
 
     @staticmethod
