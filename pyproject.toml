@@ -152,6 +152,9 @@ select = [
   "RUF", # ruff-specific
   "S", # flake8-bandit
   "SIM", # flake8-simplify
+  "SLF", # flake8-self — flag cross-class private member access so the State
+  # dataclass boundary stays load-bearing; sibling-module access within a
+  # controller package is exempted via per-file-ignores below.
   "T20", # flake8-print
   "UP", # pyupgrade
   "W", # pycodestyle warnings
@@ -163,10 +166,22 @@ select = [
 "script/*" = ["T20", "S108", "S310", "S110", "S603", "S607", "E501", "PLC0415"]
 # Discovery CLI: prints are the entire UX (mirrors aioesphomeapi-discover).
 "esphome_device_builder/discover.py" = ["T20"]
-"tests/*" = ["S105", "S106"] # hardcoded test credentials
+# Tests need free access to controller privates for setup / assertion;
+# enforcing SLF001 here would mean a noqa on nearly every fixture and
+# would obscure the cases where the protection actually matters.
+"tests/*" = ["S105", "S106", "SLF001"] # hardcoded test credentials
 # Manual scripts: print is the UX, late imports gate optional setup,
 # subprocess + tempdir paths are part of the CLI contract.
 "tests/manual/*" = ["T20", "S108", "PLC0415"]
+# Controller-package siblings (``controllers/X/runner.py`` etc.) are
+# delegate modules that share state with ``controllers/X/controller.py``.
+# CLAUDE.md's State convention scopes cross-module *data* through
+# ``controller.state.X`` but leaves base infrastructure (``_db``,
+# ``_listeners``, ``_tasks``) and private helper methods underscored —
+# siblings reach those by design. The protection SLF001 buys us lives
+# at the cross-*package* boundary (and at the top-level files outside
+# this glob), which this exemption preserves.
+"esphome_device_builder/controllers/**/*.py" = ["SLF001"]
 # GitHub Action helpers: prints are CI-log diagnostics, lazy imports keep the
 # module importable for unit tests without PyGithub installed, and the temp
 # file path is a runner-controlled location not user input.

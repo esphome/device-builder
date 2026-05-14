@@ -1138,7 +1138,11 @@ class DeviceBuilder:
         # tells the OS to pick an ephemeral port; the bound port
         # lives on the started server socket.
         port = configured_port
-        if configured_port == 0 and site._server is not None:
+        # ``site._server`` is genuinely aiohttp-private — there's no
+        # public way to get the bound port off a ``TCPSite`` after an
+        # ephemeral-port (configured_port=0) bind. We reach in; if
+        # aiohttp ever renames it the cast below crashes loudly.
+        if configured_port == 0 and site._server is not None:  # noqa: SLF001
             # typeshed's ``asyncio.AbstractServer`` doesn't expose
             # ``sockets`` even though the concrete ``base_events.Server``
             # does — the asyncio docs list it as part of the public
@@ -1146,7 +1150,7 @@ class DeviceBuilder:
             # access boundary; the alternative (``getattr`` + None
             # checks) would obscure what's actually a stable
             # documented attribute.
-            sockets = cast("asyncio.base_events.Server", site._server).sockets
+            sockets = cast("asyncio.base_events.Server", site._server).sockets  # noqa: SLF001
             if sockets:
                 port = sockets[0].getsockname()[1]
         return runner, identity, port

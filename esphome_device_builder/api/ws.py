@@ -364,7 +364,10 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
                 except Exception:
                     await client.send_error("", ErrorCode.INVALID_MESSAGE, "Invalid JSON")
                     continue
-                client.create_task(client._handle_command(raw))
+                # Same-module call: the WS dispatch loop lives next to
+                # ``WebSocketClient`` and reaches its command handler
+                # directly. SLF001 can't see the module boundary.
+                client.create_task(client._handle_command(raw))  # noqa: SLF001
     finally:
         await client.cleanup()
         _LOGGER.debug("WebSocket client disconnected")

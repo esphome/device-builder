@@ -54,7 +54,10 @@ def api_command(command: str) -> Callable[[_F], _F]:
     """
 
     def decorator(func: _F) -> _F:
-        func._api_command = command  # type: ignore[attr-defined]
+        # Framework metadata stamped on the decorated function; the
+        # leading underscore is the "not for callers" convention,
+        # not class-private state, so SLF001 doesn't apply.
+        func._api_command = command  # type: ignore[attr-defined]  # noqa: SLF001
         return func
 
     return decorator
@@ -71,5 +74,5 @@ def collect_api_commands(obj: object) -> dict[str, CommandHandler]:
             continue
         method = getattr(obj, name, None)
         if callable(method) and hasattr(method, "_api_command"):
-            handlers[method._api_command] = method
+            handlers[method._api_command] = method  # noqa: SLF001 — see ``api_command``
     return handlers
