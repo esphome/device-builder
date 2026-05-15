@@ -1264,3 +1264,77 @@ def test_generate_component_yaml_id_falls_back_when_name_slug_is_empty() -> None
     # Auto-filled id is just the component stem — no trailing ``_``.
     assert "  id: hlw8012\n" in out
     assert "  id: hlw8012_\n" not in out
+
+
+# ---------------------------------------------------------------------------
+# generate_component_yaml — top-level id contract (#776)
+# ---------------------------------------------------------------------------
+#
+# The frontend has three id-shapes it can submit, and each maps to a
+# distinct YAML outcome. These tests pin the contract so a future
+# refactor of ``_generate_id`` / ``generate_component_yaml`` can't
+# silently drift the wire shape that the frontend's add-component
+# wizard depends on.
+
+
+def test_generate_component_yaml_omits_id_when_field_absent() -> None:
+    """No ``id`` key in ``fields`` → no ``id:`` line in the YAML.
+
+    The frontend's opt-out for non-entity / singleton components
+    (``multi_conf=False``: ``web_server``, ``api``, ``mdns``, …) is
+    to skip the ``id`` field entirely. ESPHome auto-generates ids
+    for non-entity components at compile time, so the dashboard
+    should not insist on writing one and emitting ``web_server_1``
+    creates a misleading multiplicity hint
+    (https://github.com/esphome/device-builder/issues/776).
+    """
+    component = _component(component_id="web_server", category=ComponentCategory.MISC)
+    out = generate_component_yaml(component, {"port": 80})
+    assert "id:" not in out
+    assert "web_server:\n" in out
+    assert "  port: 80" in out
+
+
+def test_generate_component_yaml_singleton_empty_id_marker_emits_bare_stem() -> None:
+    """``id: ""`` marker for a singleton-style component → bare component id.
+
+    When the frontend wants the backend to compute a default id (the
+    ``id: ""`` empty-string marker), a singleton like ``web_server``
+    with no ``name`` must resolve to the bare stem — never
+    ``web_server_1``. The frontend can't tell a singleton apart from
+    a multi_conf component without consulting the catalog, so the
+    backend's auto-id MUST be the right value to write directly.
+    Regression for #776.
+    """
+    component = _component(component_id="web_server", category=ComponentCategory.MISC)
+    out = generate_component_yaml(component, {"id": "", "port": 80})
+    assert "  id: web_server\n" in out
+    assert "web_server_1" not in out
+    assert "web_server_2" not in out
+
+
+def test_generate_component_yaml_writes_explicit_id_verbatim() -> None:
+    """An explicit ``id`` value rides through unchanged.
+
+    A user who hand-types ``id: web_server_main`` (or
+    ``web_server_1`` for a ``!extend`` package override per the
+    reporter's note in #776) gets that exact id written to YAML —
+    the backend never second-guesses an explicit caller-supplied
+    id. The auto-id fallback only fires on the empty-string marker.
+    """
+    component = _component(component_id="web_server", category=ComponentCategory.MISC)
+    out = generate_component_yaml(component, {"id": "web_server_main", "port": 80})
+    assert "  id: web_server_main\n" in out
+
+
+def test_generate_component_yaml_named_singleton_uses_name_slug() -> None:
+    """``id: ""`` plus a ``name`` → ``<stem>_<slug>`` (the multi-instance case).
+
+    Even on a component the frontend treats as a singleton, supplying
+    a ``name`` means the user wants a slug-based id (likely so they
+    can reference it from automations). Pin the slug suffix so the
+    "no name = bare stem" / "name = slugged" boundary stays sharp.
+    """
+    component = _component(component_id="web_server", category=ComponentCategory.MISC)
+    out = generate_component_yaml(component, {"id": "", "name": "Kitchen Server"})
+    assert "  id: web_server_kitchen_server\n" in out
