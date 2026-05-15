@@ -417,6 +417,19 @@ async def test_update_treats_falsy_as_clear(tmp_path: Path) -> None:
     assert "kitchen.yaml" not in store.snapshot_all()
 
 
+@pytest.mark.asyncio
+async def test_update_replaces_inner_dict_never_mutates_in_place(tmp_path: Path) -> None:
+    """Captured reference sees the pre-update state — no in-place writes."""
+    store = _make_store(tmp_path)
+    store.update("kitchen.yaml", ip="10.0.0.1")
+    captured = store._state["kitchen.yaml"]
+
+    store.update("kitchen.yaml", deployed_version="2026.5.1")
+
+    assert captured == {"ip": "10.0.0.1"}
+    assert store._state["kitchen.yaml"] is not captured
+
+
 # ---------------------------------------------------------------------------
 # set_field — bypasses tri-state for plaintext-confirmed and similar
 # ---------------------------------------------------------------------------
@@ -437,6 +450,19 @@ async def test_set_field_overwrites_existing_value(tmp_path: Path) -> None:
     store.set_field("kitchen.yaml", "api_encryption_active", "Noise_NNpsk0_25519_ChaChaPoly_SHA256")
     store.set_field("kitchen.yaml", "api_encryption_active", "")
     assert store.get("kitchen.yaml") == {"api_encryption_active": ""}
+
+
+@pytest.mark.asyncio
+async def test_set_field_replaces_inner_dict_never_mutates_in_place(tmp_path: Path) -> None:
+    """Captured reference sees the pre-write state — no in-place writes."""
+    store = _make_store(tmp_path)
+    store.set_field("kitchen.yaml", "api_encryption_active", "cipher")
+    captured = store._state["kitchen.yaml"]
+
+    store.set_field("kitchen.yaml", "api_encryption_active", "")
+
+    assert captured == {"api_encryption_active": "cipher"}
+    assert store._state["kitchen.yaml"] is not captured
 
 
 @pytest.mark.asyncio
