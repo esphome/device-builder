@@ -148,7 +148,15 @@ class DeviceMetadataStore:
         return {k: dict(v) for k, v in self._state.items()}
 
     def _commit_entry(self, filename: str, new_entry: dict[str, Any], *, delay: float) -> bool:
-        """Replace *filename*'s entry; returns True iff state changed."""
+        """Replace *filename*'s entry; returns True iff state changed.
+
+        Mutators MUST replace the inner dict (never
+        ``self._state[filename][key] = ...`` in place): scanner
+        executor threads read entries through :meth:`get` and the
+        encoder reads them through :meth:`_snapshot`, both of which
+        rely on the inner dict being immutable for the lifetime of
+        any borrowed reference.
+        """
         if new_entry == self._state.get(filename, {}):
             return False
         if new_entry:

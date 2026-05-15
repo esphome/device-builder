@@ -17,8 +17,8 @@ Grouped by surface:
   guards) — small early-returns that prevent the bus from firing
   redundant events; uncovered means a regression that floods the
   WS clients can land silently.
-- **Storage / file-ops glue** (``_persist_storage_version_async``
-  thread bridge, ``_list_archived_sync`` OSError fallback,
+- **Storage / file-ops glue** (``_persist_build_size`` triple
+  unpack, ``_list_archived_sync`` OSError fallback,
   ``_stream_subprocess`` ``line_transform`` hook) — each of these
   is the code path that keeps a specific feature working when the
   FS misbehaves; pinning them keeps the feature surface honest.

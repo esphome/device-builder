@@ -123,6 +123,13 @@ class DeviceMetadataBase(DeviceBuilderBase):
         await self._shared_sidecar.remove(configuration)
 
     async def _clear_volatile_device_metadata(self, configuration: str) -> None:
-        """Clear archive-volatile fields in both stores (keeps identity)."""
+        """Clear archive-volatile fields in both stores (keeps identity).
+
+        Unlike :meth:`_delete_device_metadata`, the store side
+        rides the default debounce — the YAML's in ``archive/``
+        already and no live device matches it, so stale fields
+        on disk are invisible until unarchive (where the next
+        mDNS sweep corrects them).
+        """
         self._metadata_store.clear_volatile(configuration)
         await self._shared_sidecar.clear_volatile(configuration)
