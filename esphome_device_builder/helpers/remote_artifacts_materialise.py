@@ -131,15 +131,11 @@ def _open_and_extract_build_tree(tarball: bytes, configuration: str) -> _Extract
             receiver_build_path = _receiver_build_path_from_storage(receiver_storage)
 
             build_path = resolve_data_dir(configuration) / "build" / device_name
-            # Preserve the existing ``.pioenvs/<name>/`` object cache
-            # across same-platform reruns so a ``local → remote → local``
-            # cycle keeps PlatformIO incremental. Wipe only when
-            # ``core_platform`` / ``framework`` shifts or components
-            # are removed (the cases esphome's own
-            # ``storage_should_clean`` would clean on) so a board swap
-            # (esp32 → bk72xx) can't leave stale per-platform firmware
-            # artefacts that firmware/download could surface as wrong
-            # bytes. Best-effort: rmtree failures log + fall through.
+            # Preserve ``.pioenvs/<name>/`` across same-platform reruns
+            # so a ``local → remote → local`` cycle stays PIO-incremental;
+            # wipe on platform / framework / component changes so a board
+            # swap (esp32 → bk72xx) can't leave stale per-platform firmware
+            # artefacts that firmware/download could pick up as wrong bytes.
             if _should_wipe_build_tree(configuration, receiver_storage):
                 try:
                     rmtree(build_path)
@@ -190,15 +186,12 @@ def _receiver_build_path_from_storage(receiver_storage: dict[str, Any]) -> Path:
 
 
 def _should_wipe_build_tree(configuration: str, receiver_storage: dict[str, Any]) -> bool:
-    """Return True when the prior build tree should be wiped before extract.
+    """
+    Return True when the prior build tree should be wiped before extract.
 
-    Mirrors esphome's ``storage_should_clean`` gate: wipe on
-    first materialise (no prior sidecar), platform / framework
-    swap on the same YAML, or component removal. Same-platform
-    repeat builds preserve ``build_path`` so ``.pioenvs/<name>/``
-    survives for PlatformIO's incremental compile cache. An
-    unreadable / malformed prior sidecar falls through to wipe so
-    a corrupted cache can't strand the next compile.
+    Wipes on first materialise, ``core_platform`` / ``framework``
+    swap, or component removal; otherwise preserves so the
+    receiver's artefacts overlay an existing PIO cache.
     """
     prior = _load_prior_storage_dict(configuration)
     if prior is None:
