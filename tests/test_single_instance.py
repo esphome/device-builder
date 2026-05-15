@@ -110,6 +110,29 @@ def test_first_start_acquires_and_writes_lock_info(tmp_path: Path) -> None:
 
 
 @_REQUIRES_FCNTL
+def test_first_start_creates_missing_data_dir(tmp_path: Path) -> None:
+    """
+    The lock helper creates ``data_dir`` if it doesn't exist yet.
+
+    ``CORE.data_dir`` in default mode is ``<config_dir>/.esphome``,
+    which doesn't exist on a fresh install — the dashboard creates
+    it lazily on first compile. The single-instance lock runs
+    *before* any compile, so without an explicit mkdir the
+    ``open(..., "a+")`` would raise ``FileNotFoundError`` (O_CREAT
+    creates the file, not its parent), the OSError arm would
+    refuse to start, and the dashboard would fail on first launch.
+    """
+    missing_data_dir = tmp_path / ".esphome"
+    assert not missing_data_dir.exists()
+
+    with ensure_single_execution(missing_data_dir) as lock:
+        assert lock.exit_code is None
+
+    assert missing_data_dir.is_dir()
+    assert (missing_data_dir / _LOCK_FILE_NAME).exists()
+
+
+@_REQUIRES_FCNTL
 def test_release_lets_subsequent_start_succeed(tmp_path: Path) -> None:
     """
     Releasing the lock (context exit) lets the next start acquire cleanly.

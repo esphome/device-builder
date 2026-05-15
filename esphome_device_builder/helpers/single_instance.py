@@ -229,6 +229,24 @@ def ensure_single_execution(lock_dir: Path) -> Generator[SingleInstanceLock]:
 
     lock_file_path = Path(lock_dir) / _LOCK_FILE_NAME
 
+    # ``data_dir`` may not exist yet on a fresh default-mode install
+    # (``CORE.data_dir`` -> ``<config_dir>/.esphome``); the dashboard
+    # would otherwise create it lazily on first compile. Without
+    # this, ``open(... "a+")`` raises ``FileNotFoundError`` (O_CREAT
+    # makes the file, not its parent), the OSError arm refuses to
+    # start, and the operator sees the dashboard fail on first
+    # launch.
+    try:
+        lock_file_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        _LOGGER.exception(
+            "Could not create lock directory %s (refusing to start)",
+            lock_file_path.parent,
+        )
+        lock.exit_code = 1
+        yield lock
+        return
+
     # ``a+`` so the previous instance's diagnostic record stays
     # readable until our flock acquisition succeeds — the
     # contention path reads it back to print the running PID.
