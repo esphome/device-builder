@@ -166,7 +166,7 @@ jobs:
         #   at ~1-2 minutes; without the cap a single hung worker
         #   burns the runner's full 6h budget.
         timeout-minutes: 5
-        run: pytest -q -n auto --maxfail=5 --durations=10 --timeout=120 --ignore=tests/benchmarks --cov=esphome_device_builder --cov-report=xml --cov-report=term
+        run: pytest -q -n auto --maxfail=5 --durations=10 --timeout=120 --ignore=tests/benchmarks --ignore=tests/real_compile --cov=esphome_device_builder --cov-report=xml --cov-report=term
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2  # v6.0.0
@@ -249,7 +249,7 @@ jobs:
         # job — hangs against upstream beta/dev are exactly the case
         # this protects against.
         timeout-minutes: 5
-        run: pytest -q -n auto --maxfail=5 --durations=10 --timeout=120 --ignore=tests/benchmarks
+        run: pytest -q -n auto --maxfail=5 --durations=10 --timeout=120 --ignore=tests/benchmarks --ignore=tests/real_compile
 
   benchmarks:
     name: Run benchmarks (CodSpeed)

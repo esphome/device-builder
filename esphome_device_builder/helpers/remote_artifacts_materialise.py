@@ -21,6 +21,8 @@ import re
 import sys
 import tarfile
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -149,16 +151,18 @@ def _open_and_extract_build_tree(tarball: bytes, configuration: str) -> _Extract
                 except OSError as exc:
                     _LOGGER.debug("materialise: pre-extract rmtree(%s) failed: %s", build_path, exc)
             build_path.mkdir(parents=True, exist_ok=True)
-            _safe_extract_excluding(
-                tar,
-                build_path,
-                exclude={
-                    STORAGE_MEMBER_NAME,
-                    IDEDATA_MEMBER_NAME,
-                    VALIDATED_YAML_MEMBER_NAME,
-                },
-                initial_total_bytes=total_bytes,
-            )
+            pio_path = build_path / PLATFORMIO_INI_MEMBER_NAME
+            with _preserve_platformio_ini_mtime_if_unchanged(pio_path):
+                _safe_extract_excluding(
+                    tar,
+                    build_path,
+                    exclude={
+                        STORAGE_MEMBER_NAME,
+                        IDEDATA_MEMBER_NAME,
+                        VALIDATED_YAML_MEMBER_NAME,
+                    },
+                    initial_total_bytes=total_bytes,
+                )
     except tarfile.TarError as err:
         raise MaterialiseError(f"tarball is malformed: {err}") from err
     if not (build_path / PLATFORMIO_INI_MEMBER_NAME).is_file():
@@ -420,13 +424,41 @@ def _stage_offloader_validated_yaml(
     os.utime(path, (now, now))
 
 
+@contextmanager
+def _preserve_platformio_ini_mtime_if_unchanged(pio_path: Path) -> Iterator[None]:
+    """
+    Restore *pio_path*'s prior mtime if the bytes survive an enclosed write.
+
+    PlatformIO/SCons keys the per-object incremental cache on
+    ``platformio.ini.mtime``; extracting a same-content copy
+    inside this block still bumps the mtime forward and would
+    invalidate every preserved ``.pioenvs/<name>/*.o`` on the
+    next local compile (the rebuild PR #874 was meant to avoid).
+    No-op when the file didn't exist before the block.
+    """
+    prior_mtime: float | None = None
+    prior_bytes: bytes | None = None
+    if pio_path.is_file():
+        prior_mtime = pio_path.stat().st_mtime
+        prior_bytes = pio_path.read_bytes()
+    yield
+    if prior_mtime is not None and pio_path.is_file() and pio_path.read_bytes() == prior_bytes:
+        os.utime(pio_path, (prior_mtime, prior_mtime))
+
+
 def _force_idedata_cache_hit(*, platformio_ini: Path, cached_idedata: Path) -> None:
-    """Make platformio.ini.mtime < cached_idedata.mtime so _load_idedata's gate hits."""
+    """
+    Push the staged idedata cache forward of platformio.ini's mtime.
+
+    Touches only idedata. Bumping platformio.ini's mtime would
+    invalidate PlatformIO/SCons's per-object incremental cache —
+    every src/*.o the local build had on disk would be considered
+    stale on the next compile, defeating PR #874's preservation.
+    """
     if not platformio_ini.is_file() or not cached_idedata.is_file():
         return
-    now = time.time()
-    os.utime(cached_idedata, (now, now))
-    os.utime(platformio_ini, (now - 1, now - 1))
+    target = max(time.time(), platformio_ini.stat().st_mtime + 1)
+    os.utime(cached_idedata, (target, target))
 
 
 def _remap_to_offloader(

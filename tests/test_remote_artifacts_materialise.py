@@ -435,6 +435,112 @@ def test_materialise_preserves_pioenvs_on_same_platform_rerun(
     assert cached.read_bytes() == b"CACHED-OBJ"
 
 
+def test_materialise_preserves_platformio_ini_mtime_when_unchanged(
+    paired_roots: tuple[Path, Path],
+) -> None:
+    """
+    Same-content extract restores platformio.ini's prior mtime.
+
+    PlatformIO/SCons keys the per-object incremental cache on
+    platformio.ini's mtime; bumping it forward (even by extracting
+    identical bytes) would invalidate every preserved
+    .pioenvs/<name>/*.o on the next local compile.
+    """
+    receiver_root, offloader_root = paired_roots
+    tarball = _pack_in_tmp(receiver_root)
+    first = _materialise_in_tmp(tarball, offloader_root)
+    pio_ini = first / "platformio.ini"
+    # Pin platformio.ini's mtime to a known older value so the
+    # post-extract comparison is unambiguous.
+    fixed_mtime = time.time() - 3600
+    os.utime(pio_ini, (fixed_mtime, fixed_mtime))
+    # Plant a .o file *newer* than platformio.ini — SCons treats
+    # this as "object built after platformio.ini" and will rebuild
+    # if the order flips on the next materialise.
+    obj = first / ".pioenvs" / "kitchen" / "src" / "main.o"
+    obj.parent.mkdir(parents=True, exist_ok=True)
+    obj.write_bytes(b"OBJ")
+    obj_mtime = fixed_mtime + 60
+    os.utime(obj, (obj_mtime, obj_mtime))
+
+    _materialise_in_tmp(tarball, offloader_root)
+
+    # platformio.ini's mtime survives the extract because the
+    # tarball's content matches what was on disk.
+    assert pio_ini.stat().st_mtime == pytest.approx(fixed_mtime, abs=1e-3), (
+        f"platformio.ini.mtime moved unexpectedly: "
+        f"{pio_ini.stat().st_mtime} (wanted ~{fixed_mtime})"
+    )
+    # And it stays older than the preserved .o so SCons doesn't
+    # consider the object stale.
+    assert pio_ini.stat().st_mtime < obj.stat().st_mtime
+
+
+def test_materialise_lets_platformio_ini_mtime_advance_when_content_changed(
+    paired_roots: tuple[Path, Path], tmp_path: Path
+) -> None:
+    """
+    Different-content platformio.ini extracts without mtime restoration.
+
+    The receiver-side build genuinely changed, so SCons *should*
+    rebuild the dependent objects — restoring the prior mtime
+    here would mask a real change.
+    """
+    receiver_root, offloader_root = paired_roots
+    first_tarball = _pack_in_tmp(receiver_root)
+    first = _materialise_in_tmp(first_tarball, offloader_root)
+    pio_ini = first / "platformio.ini"
+    fixed_mtime = time.time() - 3600
+    os.utime(pio_ini, (fixed_mtime, fixed_mtime))
+
+    # Pack a fresh receiver state with a *different* platformio.ini
+    # body so the extract overwrites the prior bytes.
+    receiver_root_2 = tmp_path / "receiver2"
+    receiver_root_2.mkdir()
+    sentinel_2 = receiver_root_2 / "___DASHBOARD_SENTINEL___.yaml"
+    with patch.object(CORE, "config_path", sentinel_2):
+        _write_receiver_state(receiver_root_2)
+        receiver_pio = receiver_root_2 / ".esphome" / "build" / "kitchen" / "platformio.ini"
+        receiver_pio.write_bytes(
+            b"[env:kitchen]\nplatform = espressif32\nbuild_flags = -DCHANGED\n"
+        )
+        second_tarball = pack_build_artifacts("kitchen.yaml").tarball
+
+    _materialise_in_tmp(second_tarball, offloader_root)
+
+    assert pio_ini.read_bytes() == receiver_pio.read_bytes(), "extract didn't overwrite"
+    # The exact post-extract mtime depends on the tar header (default is 0
+    # from ``tarfile.TarInfo``). The load-bearing point is that the
+    # *prior* mtime is NOT restored — that would mask a real content
+    # change and leave SCons believing nothing happened.
+    assert pio_ini.stat().st_mtime != pytest.approx(fixed_mtime, abs=1e-3), (
+        "prior mtime restoration should NOT fire when content changed"
+    )
+
+
+def test_force_idedata_cache_hit_does_not_touch_platformio_ini_mtime(
+    paired_roots: tuple[Path, Path],
+) -> None:
+    """``_force_idedata_cache_hit`` only pushes the idedata mtime forward."""
+    receiver_root, offloader_root = paired_roots
+    tarball = _pack_in_tmp(receiver_root)
+    build_path = _materialise_in_tmp(tarball, offloader_root)
+    pio_ini = build_path / "platformio.ini"
+    fixed_mtime = time.time() - 7200
+    os.utime(pio_ini, (fixed_mtime, fixed_mtime))
+
+    sentinel = offloader_root / "___DASHBOARD_SENTINEL___.yaml"
+    with patch.object(CORE, "config_path", sentinel):
+        cached = resolve_idedata_path("kitchen.yaml", name="kitchen")
+    # Pin idedata to before platformio.ini so the helper has work to do.
+    os.utime(cached, (fixed_mtime - 60, fixed_mtime - 60))
+
+    _force_idedata_cache_hit(platformio_ini=pio_ini, cached_idedata=cached)
+
+    assert pio_ini.stat().st_mtime == pytest.approx(fixed_mtime, abs=1e-3)
+    assert cached.stat().st_mtime > pio_ini.stat().st_mtime
+
+
 def test_materialise_wipes_build_tree_on_platform_swap(
     paired_roots: tuple[Path, Path], tmp_path: Path
 ) -> None:

@@ -1,0 +1,83 @@
+name: Real-compile tests
+
+# End-to-end tests under ``tests/real_compile/`` that spawn an
+# actual ``esphome compile`` subprocess (PlatformIO → downloads
+# + compiles a tiny ESP8266 firmware), so a single test easily
+# runs minutes. The default ``test`` workflow excludes this tree
+# via ``--ignore=tests/real_compile``; this workflow runs it on
+# its own — but only when the diff actually touches the surfaces
+# these tests pin (the materialiser, the receiver-side packer,
+# the storage-path resolver, or the tests themselves). Ordinary
+# bugfix / docs / catalog PRs don't trigger it.
+#
+# If you add a new test under ``tests/real_compile/`` that
+# depends on additional surfaces, extend the ``paths:`` filter
+# below so the gate stays meaningful.
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "esphome_device_builder/helpers/remote_artifacts_materialise.py"
+      - "esphome_device_builder/controllers/remote_build/artifacts_tarball.py"
+      - "esphome_device_builder/helpers/storage_path.py"
+      - "tests/real_compile/**"
+      - ".github/workflows/real-compile-tests.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "esphome_device_builder/helpers/remote_artifacts_materialise.py"
+      - "esphome_device_builder/controllers/remote_build/artifacts_tarball.py"
+      - "esphome_device_builder/helpers/storage_path.py"
+      - "tests/real_compile/**"
+      - ".github/workflows/real-compile-tests.yml"
+
+jobs:
+  real_compile:
+    name: Real esphome compile (round-trip pins)
+    runs-on: ubuntu-latest
+    # PlatformIO toolchain download + cold ESP8266 compile lands
+    # around 4-5 minutes on a fresh runner; the second compile in
+    # the pin-test is incremental (~5 s). 15 minutes is generous
+    # headroom against a flaky toolchain mirror.
+    timeout-minutes: 15
+    steps:
+      - name: Check out code from GitHub
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
+        with:
+          enable-cache: true
+
+      - name: Install package + test deps
+        run: uv pip install --system -e '.[esphome,test]'
+
+      - name: Cache PlatformIO core + per-platform toolchains
+        # ``~/.platformio`` holds PIO's wheel cache, downloaded
+        # toolchains, and per-platform package state. The cache
+        # key includes the test tree's hash so a deliberate change
+        # to the YAML in a test (different platform, different
+        # board) invalidates without manual bumps.
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.platformio
+          key: pio-real-compile-${{ runner.os }}-${{ hashFiles('tests/real_compile/**') }}
+          restore-keys: |
+            pio-real-compile-${{ runner.os }}-
+
+      - name: Run real-compile tests
+        # ``--timeout=600`` overrides the 10s default in
+        # ``pyproject.toml`` (real compiles run minutes). The
+        # per-test ``@pytest.mark.timeout(...)`` decorator wins
+        # over both, so individual tests can opt for tighter or
+        # looser caps.
+        run: pytest -v tests/real_compile --timeout=600 --no-cov
