@@ -7,11 +7,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import ipaddress
 import logging
 import weakref
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlparse, urlsplit
 
 from aiohttp import WSCloseCode, WSMsgType, web
 from esphome.const import __version__ as esphome_version
@@ -22,6 +20,11 @@ from ..helpers.api import CommandError
 from ..helpers.auth import extract_bearer_token
 from ..helpers.event_bus import StreamBackpressureError
 from ..helpers.json import JSONDecodeError, dumps_str, loads
+from ..helpers.origin import (
+    host_in_allowlist,
+    origin_in_allowlist,
+    origin_matches_host,
+)
 from ..models import (
     CommandMessage,
     ErrorCode,
@@ -272,40 +275,34 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
     settings = device_builder.settings
     trusted_site = bool(request.app.get("trusted_site", False))
 
-    # Reject cross-origin browser connections on the password-gated public
-    # site. CORS middleware doesn't apply to WebSockets, so without this a
-    # malicious page could open /ws against a victim's dashboard. Clients
-    # without an Origin header (CLI tools, HA integration) are unaffected.
-    if settings.using_password and not trusted_site:
+    # Reject cross-origin browser connections on the public site.
+    # CORS middleware doesn't apply to WebSockets, so without this a
+    # malicious page the operator browses could open /ws against the
+    # local dashboard — even a passwordless deployment is reachable
+    # only by the operator's own browser sessions, not by anything
+    # they happen to visit. Clients without an Origin header (CLI
+    # tools, HA integration) are unaffected — Origin is spec-
+    # mandated for browser WebSocket handshakes, so any browser-
+    # driven cross-origin attack lands inside the gate while
+    # non-browser auth (bearer / in-band) keeps working.
+    if not trusted_site:
         origin = request.headers.get("Origin")
-        # Both Origin / Host gates apply only to requests that
-        # carry an ``Origin`` header — browser-driven WebSocket
-        # connections always set it (spec-mandated for any WS
-        # opening handshake), so any DNS-rebinding attack lands
-        # here. CLI tools / HA integration / direct ``websockets``
-        # clients omit Origin and skip both checks; the existing
-        # bearer-token / in-band auth gate is doing the work for
-        # them. Without this gate, an operator who sets
-        # ``trusted_domains`` to harden against rebinding would
-        # also lock out their HA integration.
         if origin:
-            # Cross-origin acceptance gate: the Origin must equal
-            # Host OR the Origin's hostname must be in the
-            # operator-supplied trusted-domains allowlist. Without
-            # the allowlist branch, reverse-proxy deployments where
-            # Origin is ``https://dashboard.example.com`` but Host
-            # is the upstream ``localhost:6052`` lose dashboard
-            # access entirely.
-            if not _origin_matches_host(origin, request.host) and not _origin_in_allowlist(
+            # Cross-origin acceptance: Origin must equal Host OR
+            # Origin's hostname must be in the operator-supplied
+            # trusted-domains allowlist. Reverse-proxy deployments
+            # where Origin is ``https://dashboard.example.com`` but
+            # Host is the upstream ``localhost:6052`` need the
+            # allowlist branch.
+            if not origin_matches_host(origin, request.host) and not origin_in_allowlist(
                 origin, settings.trusted_domains
             ):
                 return web.Response(status=403, text="Cross-origin connection rejected")
             # Defense-in-depth Host allowlist. Empty list = not
             # configured = pass through. When set, the request's
             # Host must be one of the trusted domains — mitigates
-            # DNS-rebinding on top of the auth + per-IP rate limit
-            # chain.
-            if not _host_in_allowlist(request.host, settings.trusted_domains):
+            # DNS rebinding on top of the Origin equality check.
+            if not host_in_allowlist(request.host, settings.trusted_domains):
                 return web.Response(status=403, text="Host not in trusted-domains allowlist")
 
     ws = web.WebSocketResponse(heartbeat=_WS_HEARTBEAT_SECONDS)
@@ -423,112 +420,3 @@ def create_ws_routes() -> web.RouteTableDef:
         return await websocket_handler(request)
 
     return routes
-
-
-def _origin_matches_host(origin: str, request_host: str) -> bool:
-    """Return True when *origin*'s host:port matches the request's Host header."""
-    try:
-        parsed = urlparse(origin)
-    except ValueError:
-        return False
-    return bool(parsed.netloc) and parsed.netloc == request_host
-
-
-def _origin_in_allowlist(origin: str, allowlist: list[str]) -> bool:
-    """Return True when ``origin``'s hostname is in the allowlist.
-
-    Used by the cross-origin acceptance gate: reverse-proxy
-    deployments where Origin is ``https://dashboard.example.com``
-    but Host is ``localhost:6052`` (proxy upstream) need the
-    operator-supplied ``ESPHOME_TRUSTED_DOMAINS`` allowlist to
-    accept the cross-origin handshake.
-
-    The allowlist match is on the Origin URL's hostname (port and
-    scheme stripped), case-insensitive. A bare hostname entry like
-    ``dashboard.example.com`` matches an Origin of
-    ``https://Dashboard.Example.com`` regardless of port; an entry
-    of ``[::1]`` matches ``http://[::1]:6052``.
-
-    ``"*"`` matches anything (escape hatch for operators who set
-    the env var without a specific host list).
-    """
-    if not allowlist:
-        return False
-    if "*" in allowlist:
-        return True
-    try:
-        parsed = urlparse(origin)
-    except ValueError:
-        return False
-    hostname = (parsed.hostname or "").lower()
-    if not hostname:
-        return False
-    return any(_normalize_host(entry) == hostname for entry in allowlist)
-
-
-def _normalize_host(host: str) -> str:
-    """Lower-case ``host`` and strip the port + IPv6 brackets, if any.
-
-    HTTP ``Host`` headers carry IPv6 addresses bracket-wrapped
-    (``[::1]:6052``); naive ``split(":", 1)`` would chop the first
-    segment of the address. ``urlsplit("//" + host).hostname``
-    handles both shapes (IPv4 / hostname:port and ``[ipv6]:port``)
-    and returns the unbracketed lowercase hostname.
-
-    There's one edge case ``urlsplit`` mis-handles: a bare IPv6
-    address typed *without* brackets (operator's allowlist entry
-    of ``fe80::1`` rather than ``[fe80::1]``) — ``urlsplit``
-    parses the leading ``fe80`` as the host and ``:1`` as the
-    port. Short-circuit those via ``ipaddress.ip_address`` before
-    falling through to the URL-parser branch. Bracketed Host
-    headers go straight to ``urlsplit`` which handles them
-    correctly. Falls back to the input verbatim when ``urlsplit``
-    returns nothing usable (malformed Host header).
-    """
-    stripped = host.strip()
-    if not stripped.startswith("["):
-        try:
-            ipaddress.ip_address(stripped)
-        except ValueError:
-            pass
-        else:
-            return stripped.lower()
-    try:
-        hostname = urlsplit(f"//{stripped}").hostname
-    except ValueError:
-        hostname = None
-    if hostname is None:
-        return stripped.lower()
-    return hostname.lower()
-
-
-def _host_in_allowlist(request_host: str, allowlist: list[str]) -> bool:
-    """Return True when ``request_host`` is permitted by ``allowlist``.
-
-    ``allowlist`` is the operator-supplied ``--trusted-domains`` /
-    ``$ESPHOME_TRUSTED_DOMAINS`` list — empty means "no allowlist,
-    anything goes" and the caller skips the check entirely.
-
-    Both ``request_host`` and each allowlist entry go through
-    ``_normalize_host`` (lower-case, port stripped, IPv6 brackets
-    stripped). ``DashboardSettings.parse_args`` strips whitespace
-    and lower-cases the entries on load but does NOT canonicalise
-    bracket / port shape, so an entry of ``[::1]`` and a Host
-    header of ``[::1]:6052`` (or an un-bracketed ``::1``) all
-    end up normalised to ``::1`` here and compare equal.
-
-    The literal ``"*"`` is an explicit "match anything" escape hatch
-    for operators who want to record the config knob is set without
-    restricting hosts (handy for split-hostname proxy setups where
-    the Host header varies per request and the existing Origin/Host
-    equality + auth chain is doing the work).
-
-    Defense in depth on top of the existing Origin/Host equality
-    check + per-IP-rate-limited ``auth/login``.
-    """
-    if not allowlist:
-        return True
-    if "*" in allowlist:
-        return True
-    normalised = _normalize_host(request_host)
-    return any(_normalize_host(entry) == normalised for entry in allowlist)

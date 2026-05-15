@@ -283,6 +283,8 @@ The allowlist drives two checks in the WS handshake (both opt-in; empty = strict
 
 Both gates apply only to requests that carry an `Origin` header. Browsers always set `Origin` for the WebSocket opening handshake, so DNS-rebinding attempts land inside the gate; non-browser clients (CLI tools, the HA integration, direct `websockets` clients) omit `Origin` and skip both gates. The in-band `auth` handshake does the work for those clients, and gating on `Origin` means an operator hardening against rebinding doesn't accidentally lock out their HA integration.
 
+The cross-origin gate applies to **every public-site deployment**, password-gated or not — a passwordless dashboard is still reachable only by the operator's own browser sessions, never by whatever malicious page they happen to visit. The same allowlist drives REST CORS in `helpers/json.py:cors_middleware`: `Access-Control-Allow-Origin` is reflected only when `Origin` matches `Host` or is in `--trusted-domains` (else omitted, so the browser blocks the calling JS from reading the response). The HA Ingress site (`trusted_site=True`) skips both gates because the supervisor handles auth upstream and the listener is bound to the supervisor's docker network.
+
 Match is case-insensitive and port-tolerant: `dashboard.example.com` accepts `Dashboard.Example.com:8443`. IPv6 may be entered with or without brackets (`::1` and `[::1]` both work). Use `*` as the only entry to opt out of the Host restriction while still permitting cross-origin handshakes (handy when the Host varies per request).
 
 ### Binding to a network interface name

@@ -19,7 +19,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from esphome_device_builder.api.ws import WebSocketClient, _origin_matches_host
+from esphome_device_builder.api.ws import WebSocketClient
 from esphome_device_builder.controllers.auth import AuthController, AuthError
 from esphome_device_builder.controllers.config import DashboardSettings
 from esphome_device_builder.helpers.auth import (
@@ -30,6 +30,7 @@ from esphome_device_builder.helpers.auth import (
     hash_password,
     parse_basic_auth,
 )
+from esphome_device_builder.helpers.origin import origin_matches_host
 from esphome_device_builder.models import ErrorCode
 
 # ---------------------------------------------------------------------------
@@ -365,22 +366,22 @@ def test_rate_limiter_prune_keeps_locked_out_ips() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_origin_matches_host_accepts_same_origin() -> None:
-    assert _origin_matches_host("http://homeassistant.local:6052", "homeassistant.local:6052")
-    assert _origin_matches_host("https://esphome.example.com", "esphome.example.com")
+def testorigin_matches_host_accepts_same_origin() -> None:
+    assert origin_matches_host("http://homeassistant.local:6052", "homeassistant.local:6052")
+    assert origin_matches_host("https://esphome.example.com", "esphome.example.com")
 
 
-def test_origin_matches_host_rejects_cross_origin() -> None:
-    assert not _origin_matches_host("https://attacker.com", "homeassistant.local:6052")
-    assert not _origin_matches_host("http://homeassistant.local:9999", "homeassistant.local:6052")
+def testorigin_matches_host_rejects_cross_origin() -> None:
+    assert not origin_matches_host("https://attacker.com", "homeassistant.local:6052")
+    assert not origin_matches_host("http://homeassistant.local:9999", "homeassistant.local:6052")
 
 
-def test_origin_matches_host_rejects_garbage() -> None:
-    assert not _origin_matches_host("", "homeassistant.local:6052")
-    assert not _origin_matches_host("not-a-url", "homeassistant.local:6052")
+def testorigin_matches_host_rejects_garbage() -> None:
+    assert not origin_matches_host("", "homeassistant.local:6052")
+    assert not origin_matches_host("not-a-url", "homeassistant.local:6052")
 
 
-def test_origin_matches_host_rejects_invalid_ipv6_url() -> None:
+def testorigin_matches_host_rejects_invalid_ipv6_url() -> None:
     """An Origin with an unclosed IPv6 bracket makes ``urlparse`` raise.
 
     ``urlparse("http://[invalid")`` raises ``ValueError("Invalid
@@ -390,7 +391,7 @@ def test_origin_matches_host_rejects_invalid_ipv6_url() -> None:
     Origin header instead of returning the 403 the rest of the
     rejection branches produce.
     """
-    assert not _origin_matches_host("http://[invalid", "homeassistant.local:6052")
+    assert not origin_matches_host("http://[invalid", "homeassistant.local:6052")
 
 
 # ---------------------------------------------------------------------------

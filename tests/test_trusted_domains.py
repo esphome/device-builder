@@ -13,8 +13,8 @@ checks in ``api/ws.py``:
 
 These tests exercise three layers:
 
-* The pure ``_normalize_host`` / ``_host_in_allowlist`` /
-  ``_origin_in_allowlist`` helpers.
+* The pure ``normalize_host`` / ``host_in_allowlist`` /
+  ``origin_in_allowlist`` helpers.
 * ``DashboardSettings.parse_args`` — CLI / env-var precedence,
   whitespace handling, the ``--trusted-domains ""`` explicit
   override path.
@@ -35,15 +35,15 @@ from aiohttp import web
 from pytest_aiohttp.plugin import AiohttpClient
 
 from esphome_device_builder.api import ws as ws_module
-from esphome_device_builder.api.ws import (
-    _host_in_allowlist,
-    _normalize_host,
-    _origin_in_allowlist,
-)
 from esphome_device_builder.controllers.config import DashboardSettings
+from esphome_device_builder.helpers.origin import (
+    host_in_allowlist,
+    normalize_host,
+    origin_in_allowlist,
+)
 
 # ---------------------------------------------------------------------------
-# _normalize_host
+# normalize_host
 # ---------------------------------------------------------------------------
 
 
@@ -71,16 +71,16 @@ def test_normalize_host_strips_port_and_brackets(raw: str, expected: str) -> Non
     plus port, ``[ipv6]`` plus port) and returns the unbracketed
     hostname; this test pins both branches.
     """
-    assert _normalize_host(raw) == expected
+    assert normalize_host(raw) == expected
 
 
 def test_normalize_host_falls_back_on_malformed() -> None:
     """``urlsplit`` of garbage may return empty hostname — fall back to lowercase."""
     # Empty string and lone colon both yield None from .hostname; the
     # fallback returns the lowercase input verbatim so the comparison
-    # in _host_in_allowlist still has something deterministic.
-    assert _normalize_host("") == ""
-    assert _normalize_host("WeirdInput") == "weirdinput"
+    # in host_in_allowlist still has something deterministic.
+    assert normalize_host("") == ""
+    assert normalize_host("WeirdInput") == "weirdinput"
 
 
 def test_normalize_host_falls_back_on_invalid_ipv6_url() -> None:
@@ -94,11 +94,11 @@ def test_normalize_host_falls_back_on_invalid_ipv6_url() -> None:
     the WS handshake instead of falling through to the
     allowlist's normal "doesn't match" rejection path.
     """
-    assert _normalize_host("[invalid") == "[invalid"
+    assert normalize_host("[invalid") == "[invalid"
 
 
 # ---------------------------------------------------------------------------
-# _host_in_allowlist
+# host_in_allowlist
 # ---------------------------------------------------------------------------
 
 
@@ -110,13 +110,13 @@ def test_host_in_allowlist_empty_means_pass_through() -> None:
     truthiness check (returning False on empty) doesn't break
     every default deployment.
     """
-    assert _host_in_allowlist("dashboard.local:6052", []) is True
+    assert host_in_allowlist("dashboard.local:6052", []) is True
 
 
 def test_host_in_allowlist_wildcard_match_anything() -> None:
     """``"*"`` is the explicit "match anything" escape hatch."""
-    assert _host_in_allowlist("anything.example.com", ["*"]) is True
-    assert _host_in_allowlist("[::1]:6052", ["*"]) is True
+    assert host_in_allowlist("anything.example.com", ["*"]) is True
+    assert host_in_allowlist("[::1]:6052", ["*"]) is True
 
 
 @pytest.mark.parametrize(
@@ -139,7 +139,7 @@ def test_host_in_allowlist_match(host: str, allowlist: list[str]) -> None:
     accepted shapes so a normaliser tweak that breaks any of
     them shows up in CI.
     """
-    assert _host_in_allowlist(host, allowlist) is True
+    assert host_in_allowlist(host, allowlist) is True
 
 
 @pytest.mark.parametrize(
@@ -158,11 +158,11 @@ def test_host_in_allowlist_reject_non_match(host: str, allowlist: list[str]) -> 
     the attacker domain, the allowlist (set to the operator's
     real domain) catches it.
     """
-    assert _host_in_allowlist(host, allowlist) is False
+    assert host_in_allowlist(host, allowlist) is False
 
 
 # ---------------------------------------------------------------------------
-# _origin_in_allowlist
+# origin_in_allowlist
 # ---------------------------------------------------------------------------
 
 
@@ -173,7 +173,7 @@ def test_origin_in_allowlist_empty_means_no_grant() -> None:
     acceptance. Empty allowlist falls through to the existing
     Origin-equals-Host hard reject.
     """
-    assert _origin_in_allowlist("https://dashboard.example.com", []) is False
+    assert origin_in_allowlist("https://dashboard.example.com", []) is False
 
 
 def test_origin_in_allowlist_wildcard_accepts_any() -> None:
@@ -184,7 +184,7 @@ def test_origin_in_allowlist_wildcard_accepts_any() -> None:
     network and just want the dashboard usable from any
     proxy hostname).
     """
-    assert _origin_in_allowlist("https://anything.example.com", ["*"]) is True
+    assert origin_in_allowlist("https://anything.example.com", ["*"]) is True
 
 
 @pytest.mark.parametrize(
@@ -199,18 +199,18 @@ def test_origin_in_allowlist_wildcard_accepts_any() -> None:
 )
 def test_origin_in_allowlist_match(origin: str, allowlist: list[str]) -> None:
     """Match is on the Origin URL's hostname (port + scheme stripped)."""
-    assert _origin_in_allowlist(origin, allowlist) is True
+    assert origin_in_allowlist(origin, allowlist) is True
 
 
 def test_origin_in_allowlist_rejects_unmatched() -> None:
     """An attacker domain that's not in the list stays rejected."""
-    assert _origin_in_allowlist("https://evil.example.com", ["dashboard.example.com"]) is False
+    assert origin_in_allowlist("https://evil.example.com", ["dashboard.example.com"]) is False
 
 
 def test_origin_in_allowlist_rejects_malformed() -> None:
     """Garbage Origin header -> reject."""
     # Empty hostname after parsing -> not a useful match candidate.
-    assert _origin_in_allowlist("not-a-url", ["dashboard.example.com"]) is False
+    assert origin_in_allowlist("not-a-url", ["dashboard.example.com"]) is False
 
 
 def test_origin_in_allowlist_rejects_invalid_ipv6_url() -> None:
@@ -222,7 +222,7 @@ def test_origin_in_allowlist_rejects_invalid_ipv6_url() -> None:
     so the allowlist check returns ``False`` instead of 500-ing
     the WS handshake on a malformed Origin header.
     """
-    assert _origin_in_allowlist("http://[invalid", ["dashboard.example.com"]) is False
+    assert origin_in_allowlist("http://[invalid", ["dashboard.example.com"]) is False
 
 
 # ---------------------------------------------------------------------------
@@ -352,18 +352,10 @@ def test_settings_explicit_empty_cli_overrides_env_var(tmp_path: object) -> None
 # ---------------------------------------------------------------------------
 
 
-def _password_protected_app(trusted_domains: list[str]) -> web.Application:
-    """Build a minimal aiohttp app wired to ``websocket_handler``.
-
-    Mirrors the pattern in ``test_websocket_heartbeat.py``: stub
-    settings + auth so ``websocket_handler``'s gating branches run
-    without spinning up the real DeviceBuilder. Password is set
-    (``using_password=True``) so the Origin/Host checks actually
-    execute — the gate is skipped on unauthenticated deployments
-    and on the trusted ingress site.
-    """
+def _public_site_app(trusted_domains: list[str], *, using_password: bool = True) -> web.Application:
+    """Build a minimal aiohttp app wired to ``websocket_handler`` on the public site."""
     settings = MagicMock()
-    settings.using_password = True
+    settings.using_password = using_password
     settings.trusted_domains = trusted_domains
     settings.port = 6052
     settings.on_ha_addon = False
@@ -379,6 +371,10 @@ def _password_protected_app(trusted_domains: list[str]) -> web.Application:
     ws_module.init_ws_app(app)
     app.router.add_routes(ws_module.create_ws_routes())
     return app
+
+
+# Back-compat alias — most call sites only care about "public site, gate runs".
+_password_protected_app = _public_site_app
 
 
 async def test_handler_rejects_cross_origin_without_allowlist(
@@ -517,34 +513,36 @@ async def test_handler_no_origin_skips_both_gates(
         assert msg.type.name in ("TEXT", "BINARY")
 
 
-async def test_handler_accepts_when_no_password(
+async def test_handler_rejects_cross_origin_on_passwordless_public_site(
     aiohttp_client: AiohttpClient,
 ) -> None:
-    """Unauthenticated public site bypasses gating.
+    """Passwordless dashboards reject cross-origin handshakes too.
 
-    The Origin / Host checks fire only when ``using_password``.
-    A dashboard running without auth is already in
-    "trust-the-LAN" mode; adding hostname checks would break
-    first-run access from another machine.
+    A passwordless dashboard is still reachable only by the operator's
+    own browsing sessions (and by CLI tools, which omit Origin). A
+    malicious page the operator browses must not be able to open
+    ``/ws`` and run privileged commands just because the operator
+    skipped the password — the previous skip-on-passwordless gate
+    was the canonical "looks fine, then someone visits evil.com" bug.
     """
-    settings = MagicMock()
-    settings.using_password = False
-    settings.trusted_domains = []
-    settings.port = 6052
-    settings.on_ha_addon = False
+    client = await aiohttp_client(_public_site_app([], using_password=False))
+    resp = await client.get("/ws", headers={"Origin": "https://evil.example.com"})
+    assert resp.status == 403
+    assert "Cross-origin" in await resp.text()
 
-    device_builder = MagicMock()
-    device_builder.settings = settings
-    device_builder.auth = MagicMock()
-    device_builder.auth.session_store = MagicMock()
 
-    app = web.Application()
-    app["device_builder"] = device_builder
-    app["trusted_site"] = False
-    ws_module.init_ws_app(app)
-    app.router.add_routes(ws_module.create_ws_routes())
+async def test_handler_accepts_same_origin_on_passwordless_public_site(
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """Passwordless first-run access from the operator's browser still works.
 
-    client = await aiohttp_client(app)
-    async with client.ws_connect("/ws", headers={"Origin": "https://evil.example.com"}) as ws:
+    Same-origin (Origin's host:port == Host) was always the
+    canonical "operator typed http://192.168.1.50:6052 in their
+    browser" path — it has to keep working when the gate goes
+    on by default. ``aiohttp_client`` binds the test server on
+    127.0.0.1, so the client's auto-set Origin matches Host.
+    """
+    client = await aiohttp_client(_public_site_app([], using_password=False))
+    async with client.ws_connect("/ws") as ws:
         msg = await ws.receive(timeout=2.0)
         assert msg.type.name in ("TEXT", "BINARY")

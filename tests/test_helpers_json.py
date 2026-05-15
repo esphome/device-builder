@@ -9,6 +9,8 @@ cleanup doesn't silently regress legacy ``/json-config``.
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 import pytest
 from aiohttp import web
 from pytest_aiohttp.plugin import AiohttpClient
@@ -71,16 +73,26 @@ def test_dumps_str_non_str_keys_serialises_plain_str_keys() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _app_with_cors() -> web.Application:
-    """Build an aiohttp app wired with ``cors_middleware`` and a couple of route shapes.
+def _app_with_cors(
+    *,
+    trusted_domains: list[str] | None = None,
+    trusted_site: bool = False,
+) -> web.Application:
+    """Build an aiohttp app wired with ``cors_middleware``.
 
-    The middleware short-circuits ``OPTIONS`` (returning an empty
-    200 with the headers set) and forwards every other method to
-    the inner handler. Two routes are enough to exercise both —
-    a GET that returns a JSON body, and any non-GET (we use POST
-    here) that exercises the ``Access-Control-Allow-Methods`` line.
+    The middleware reads ``app["device_builder"].settings.trusted_domains``
+    and ``app["trusted_site"]`` to decide whether to reflect Origin,
+    so the test app provides a minimal stub that exposes those
+    knobs without spinning up a real ``DeviceBuilder``.
     """
+    settings = MagicMock()
+    settings.trusted_domains = trusted_domains or []
+    device_builder = MagicMock()
+    device_builder.settings = settings
+
     app = web.Application(middlewares=[cors_middleware])
+    app["device_builder"] = device_builder
+    app["trusted_site"] = trusted_site
 
     async def _hello(_request: web.Request) -> web.Response:
         return web.json_response({"ok": True})
@@ -94,29 +106,94 @@ def _app_with_cors() -> web.Application:
     return app
 
 
-async def test_cors_middleware_attaches_headers_to_get_response(
+async def test_cors_middleware_omits_origin_header_when_no_origin(
     aiohttp_client: AiohttpClient,
 ) -> None:
-    """A normal GET passes through and the response gains the CORS headers.
-
-    Pin all three header names + the wildcard origin so a
-    refactor that drops or narrows any of them surfaces here.
-    The ``Access-Control-Allow-Origin: *`` is deliberately
-    permissive — the dashboard's design assumption is that auth
-    happens at the WS / bearer layer, not via origin check; the
-    middleware is for development convenience (frontend dev
-    server on a different port).
-    """
+    """No ``Origin`` header → no CORS headers (same-origin / non-browser client)."""
     client = await aiohttp_client(_app_with_cors())
     resp = await client.get("/hello")
 
     assert resp.status == 200
-    assert resp.headers["Access-Control-Allow-Origin"] == "*"
+    assert "Access-Control-Allow-Origin" not in resp.headers
+    assert "Access-Control-Allow-Methods" not in resp.headers
+    assert "Vary" not in resp.headers
+    assert await resp.json() == {"ok": True}
+
+
+async def test_cors_middleware_reflects_same_origin(
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """``Origin`` matching Host → reflected back, ``Vary: Origin`` set."""
+    client = await aiohttp_client(_app_with_cors())
+    host = f"{client.host}:{client.port}"
+    origin = f"http://{host}"
+    resp = await client.get("/hello", headers={"Origin": origin})
+
+    assert resp.status == 200
+    assert resp.headers["Access-Control-Allow-Origin"] == origin
+    assert resp.headers["Vary"] == "Origin"
     assert resp.headers["Access-Control-Allow-Methods"] == "GET, POST, PUT, DELETE, OPTIONS"
     assert resp.headers["Access-Control-Allow-Headers"] == "Content-Type, Authorization"
 
-    # Body still flows through unmolested.
-    assert await resp.json() == {"ok": True}
+
+async def test_cors_middleware_reflects_allowlisted_origin(
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """Cross-origin Origin in ``trusted_domains`` → reflected.
+
+    Reverse-proxy deployment: the operator sets ``--trusted-domains``
+    to the proxy hostname so a same-origin browser request (from the
+    proxy's hostname's perspective) reaches the backend with an
+    ``Origin`` that doesn't match the upstream Host.
+    """
+    client = await aiohttp_client(_app_with_cors(trusted_domains=["dashboard.example.com"]))
+    origin = "https://dashboard.example.com"
+    resp = await client.get("/hello", headers={"Origin": origin})
+
+    assert resp.status == 200
+    assert resp.headers["Access-Control-Allow-Origin"] == origin
+    assert resp.headers["Vary"] == "Origin"
+
+
+async def test_cors_middleware_omits_origin_header_for_disallowed_origin(
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """Cross-origin Origin not in allowlist → response body served, no CORS headers.
+
+    Pin the new contract: previously the middleware unconditionally
+    set ``Access-Control-Allow-Origin: *``, which let a malicious
+    page in the operator's browser read sensitive responses
+    cross-origin. The new shape lets the request through (so non-
+    browser clients still get answered) but omits the CORS
+    headers so the browser blocks JS from reading the response.
+    """
+    client = await aiohttp_client(_app_with_cors())
+    resp = await client.get("/hello", headers={"Origin": "https://evil.example.com"})
+
+    # Request still reaches the handler — the gating happens in the WS
+    # handler / auth middleware, not here. CORS just controls what the
+    # browser does with the response.
+    assert resp.status == 200
+    assert "Access-Control-Allow-Origin" not in resp.headers
+
+
+async def test_cors_middleware_reflects_origin_unconditionally_on_trusted_site(
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """``trusted_site=True`` (HA Ingress) reflects any Origin.
+
+    The ingress site is bound to the supervisor's docker network
+    and trusts upstream auth — Origin-allowlist enforcement
+    happens at the supervisor, not here. Reflect whatever Origin
+    the supervisor proxied through so the frontend works.
+    """
+    client = await aiohttp_client(_app_with_cors(trusted_site=True))
+    origin = "https://anything.example.com"
+    resp = await client.get("/hello", headers={"Origin": origin})
+
+    assert resp.status == 200
+    assert resp.headers["Access-Control-Allow-Origin"] == origin
+    assert resp.headers["Vary"] == "Origin"
 
 
 async def test_cors_middleware_handles_options_preflight_without_invoking_handler(
@@ -124,107 +201,66 @@ async def test_cors_middleware_handles_options_preflight_without_invoking_handle
 ) -> None:
     """``OPTIONS`` requests return an empty 200 without calling the inner handler.
 
-    The CORS preflight contract: browsers send ``OPTIONS`` to
-    check whether a non-simple cross-origin request is allowed.
-    The middleware MUST answer that itself — forwarding to the
-    inner handler would 405 (most aiohttp routes only register
-    GET/POST/etc., not OPTIONS) and the browser would block the
-    real request that follows. Pin both halves: status 200 +
-    headers present + body empty (the spec allows an empty 2xx
-    for preflight).
-
-    Track whether the handler was reached by registering an
-    ``OPTIONS`` route that records its invocation; the assertion
-    below proves it never fired despite a matching path.
+    The preflight short-circuit predates the allowlist tightening
+    and stays the same: middleware answers itself so routes that
+    only register GET/POST don't 405 on preflight. CORS headers
+    still apply on top — reflected when the Origin is allowed,
+    omitted otherwise.
     """
     handler_called: list[bool] = []
 
     async def _trap(_request: web.Request) -> web.Response:
         handler_called.append(True)
-        return web.Response(status=418)  # I'm a teapot — distinguishable
+        return web.Response(status=418)
 
-    app = web.Application(middlewares=[cors_middleware])
+    app = _app_with_cors()
     app.router.add_route("OPTIONS", "/preflight", _trap)
     client = await aiohttp_client(app)
 
-    resp = await client.options("/preflight")
+    host = f"{client.host}:{client.port}"
+    origin = f"http://{host}"
+    resp = await client.options("/preflight", headers={"Origin": origin})
 
     assert resp.status == 200
-    assert handler_called == [], (
-        "OPTIONS preflight must not reach the inner handler — the middleware's "
-        "early return is what makes preflight work for routes that don't "
-        "register OPTIONS explicitly"
-    )
-    # Headers attach the same way they do for normal responses.
-    assert resp.headers["Access-Control-Allow-Origin"] == "*"
+    assert handler_called == []
+    assert resp.headers["Access-Control-Allow-Origin"] == origin
     assert resp.headers["Access-Control-Allow-Methods"] == "GET, POST, PUT, DELETE, OPTIONS"
     assert resp.headers["Access-Control-Allow-Headers"] == "Content-Type, Authorization"
-    # Empty body — the middleware's ``web.Response()`` default.
     assert await resp.text() == ""
 
 
 async def test_cors_middleware_attaches_headers_to_non_get_methods(
     aiohttp_client: AiohttpClient,
 ) -> None:
-    """POST / PUT / DELETE responses also get the CORS headers.
-
-    Sanity-check that the middleware doesn't conditionally
-    attach headers (e.g. only on GET / OPTIONS) — every non-
-    OPTIONS method should pass through to the handler AND get
-    the post-handler header injection.
-    """
+    """POST / PUT / DELETE responses also get reflected CORS headers when allowed."""
     client = await aiohttp_client(_app_with_cors())
-    resp = await client.post("/echo", data="payload")
+    host = f"{client.host}:{client.port}"
+    origin = f"http://{host}"
+    resp = await client.post("/echo", data="payload", headers={"Origin": origin})
 
     assert resp.status == 200
     assert await resp.text() == "payload"
-    # Pin all three headers — a regression that conditionally
-    # attached only Origin (or only the GET-shaped subset)
-    # would still pass a single-header check.
-    assert resp.headers["Access-Control-Allow-Origin"] == "*"
-    assert resp.headers["Access-Control-Allow-Methods"] == "GET, POST, PUT, DELETE, OPTIONS"
-    assert resp.headers["Access-Control-Allow-Headers"] == "Content-Type, Authorization"
+    assert resp.headers["Access-Control-Allow-Origin"] == origin
+    assert resp.headers["Vary"] == "Origin"
 
 
 async def test_cors_middleware_attaches_headers_to_handler_error_response(
     aiohttp_client: AiohttpClient,
 ) -> None:
-    """A handler returning a non-2xx ``Response`` still gets CORS headers.
-
-    Pin the contract that the middleware's post-await header
-    injection runs on the handler's response object regardless
-    of its status code — a handler that returns
-    ``web.Response(status=500)`` (or 404 / 401 / etc.)
-    surfaces the error to the caller WITH the CORS headers
-    attached, so a browser-side ``fetch`` can read the status
-    and body cross-origin.
-
-    Note: a handler that *raises* ``web.HTTPException`` is a
-    different shape — aiohttp's exception handling builds the
-    response after the middleware's ``await`` raises, so those
-    responses bypass this middleware's header injection. That's
-    a known gap in the minimal middleware (no ``try/except``
-    wrap); pinning the *return*-error path here documents the
-    supported contract without locking the gap in as desired.
-    """
+    """Non-2xx handler responses still get reflected CORS headers when Origin is allowed."""
 
     async def _server_error(_request: web.Request) -> web.Response:
         return web.Response(status=500, text="boom")
 
-    app = web.Application(middlewares=[cors_middleware])
+    app = _app_with_cors()
     app.router.add_get("/error", _server_error)
     client = await aiohttp_client(app)
 
-    resp = await client.get("/error")
+    host = f"{client.host}:{client.port}"
+    origin = f"http://{host}"
+    resp = await client.get("/error", headers={"Origin": origin})
 
     assert resp.status == 500
     assert await resp.text() == "boom"
-    # Pin all three headers — a regression that made
-    # ``Access-Control-Allow-Headers`` conditional on a 2xx
-    # status code would silently break the
-    # browser's ability to read the error response cross-origin
-    # (preflight would still pass but the actual fetch would
-    # surface as a generic network error).
-    assert resp.headers["Access-Control-Allow-Origin"] == "*"
-    assert resp.headers["Access-Control-Allow-Methods"] == "GET, POST, PUT, DELETE, OPTIONS"
-    assert resp.headers["Access-Control-Allow-Headers"] == "Content-Type, Authorization"
+    assert resp.headers["Access-Control-Allow-Origin"] == origin
+    assert resp.headers["Vary"] == "Origin"
