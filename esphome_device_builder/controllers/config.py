@@ -15,6 +15,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+try:
+    import fcntl
+
+    _HAS_FCNTL = True
+except ImportError:  # pragma: no cover — Windows path
+    _HAS_FCNTL = False
+
 from esphome.const import __version__ as esphome_version
 from esphome.core import CORE
 from esphome.helpers import get_bool_env
@@ -60,13 +67,6 @@ _METADATA_LOCK_FILE = ".device-builder.json.lock"
 _PREFS_KEY = "_preferences"
 _LABELS_KEY = "_labels"
 _REMOTE_BUILD_KEY = "_remote_build"
-
-try:
-    import fcntl
-
-    _HAS_FCNTL = True
-except ImportError:  # pragma: no cover — Windows path
-    _HAS_FCNTL = False
 
 
 # ---------------------------------------------------------------------------
