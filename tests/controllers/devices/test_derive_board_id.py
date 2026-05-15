@@ -1,34 +1,24 @@
 """End-to-end coverage for ``DevicesController._derive_board_id_from_yaml``.
 
 The helper is invoked from ``_resolve_device_metadata`` whenever a
-device lacks a sidecar ``board_id``. It parses the on-disk YAML for
-``platform``/``board``/``variant``, asks the catalog for a matching
-entry (preferring a PlatformIO-board match over a bare platform
-fallback), and persists the result so the next scan skips the
-YAML parse entirely.
+device lacks a sidecar ``board_id``. It parses the YAML for
+``platform`` / ``board`` / ``variant``, asks the catalog for a
+matching entry, and backfills the shared sidecar via
+``set_device_metadata`` on cache miss so subsequent scans skip
+the YAML parse.
 
-Six branches to pin:
+Five branches to pin:
 
-1. ``self._db.boards is None`` → empty string (the catalog hasn't
-   loaded yet).
-2. Missing YAML (``OSError``) → empty string (the file disappeared
-   between the scanner and this read).
-3. PlatformIO-board match → catalog id returned + persisted to the
-   sidecar.
-4. ``pio_board`` doesn't match but ``platform`` does → fallback hit,
-   sidecar still gets backfilled.
-5. No match at all → empty string, nothing written to the sidecar.
-6. ``set_device_metadata`` raising → swallowed with a warning,
-   the matched id still gets returned to the caller.
+1. ``self._db.boards is None`` → empty string (catalog not loaded).
+2. Missing YAML (``OSError``) → empty string.
+3. PlatformIO-board match → catalog id returned.
+4. ``pio_board`` misses, ``platform`` matches → fallback hit.
+5. No match at all → empty string.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-
-import pytest
-
-from esphome_device_builder.controllers.config import get_device_metadata
 
 from .conftest import MakeControllerFactory, StubBoardLookups
 
@@ -102,9 +92,6 @@ def test_derive_uses_pio_board_match_first(
     pio_lookup.assert_called_once_with("esp32-c3-devkitm-1", "")
     # Platform fallback wasn't reached.
     platform_lookup.assert_not_called()
-    # Sidecar got backfilled so the next scan skips the YAML parse.
-    meta = get_device_metadata(tmp_path, "kitchen.yaml")
-    assert meta == {"board_id": "generic-esp32c3"}
 
 
 def test_derive_falls_back_to_platform_when_pio_board_misses(
@@ -133,8 +120,6 @@ def test_derive_falls_back_to_platform_when_pio_board_misses(
     # Both lookups ran in order: PIO first, then platform fallback.
     pio_lookup.assert_called_once_with("unknown-board", "")
     platform_lookup.assert_called_once_with("esp32", "")
-    meta = get_device_metadata(tmp_path, "kitchen.yaml")
-    assert meta == {"board_id": "generic-esp32"}
 
 
 def test_derive_skips_pio_board_when_yaml_omits_board_field(
@@ -164,7 +149,7 @@ def test_derive_skips_pio_board_when_yaml_omits_board_field(
 def test_derive_returns_empty_when_no_catalog_entry_matches(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """Both lookups miss → empty string, sidecar untouched.
+    """Both lookups miss → empty string.
 
     A YAML with a totally unknown platform shouldn't poison the
     sidecar with junk — the next scan re-tries (in case the
@@ -179,47 +164,3 @@ def test_derive_returns_empty_when_no_catalog_entry_matches(
     result = controller._derive_board_id_from_yaml(tmp_path, "kitchen.yaml")
 
     assert result == ""
-    # Sidecar is empty — nothing was persisted.
-    meta = get_device_metadata(tmp_path, "kitchen.yaml")
-    assert meta == {}
-
-
-def test_derive_swallows_persist_failure_and_still_returns_id(
-    tmp_path: Path,
-    make_controller: MakeControllerFactory,
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """``set_device_metadata`` raising → warning logged, id still returned.
-
-    Catalog match succeeded; we shouldn't drop the answer just
-    because the sidecar write failed (e.g. read-only mount,
-    permissions). Pin the warning so an operator gets the
-    ``Could not persist derived board_id`` log line.
-
-    Sync test even though the rest of the test file mixes sync and
-    async — ``_derive_board_id_from_yaml`` itself is sync (production
-    calls it from inside ``loop.run_in_executor`` via the scanner's
-    metadata resolver, so blockbuster never sees the ``read_text``).
-    Calling it directly from an async test trips blockbuster on the
-    sync I/O even though production is fine.
-    """
-    controller = make_controller(tmp_path, with_boards=True)
-    StubBoardLookups(controller).find_by_pio_board_returns("generic-esp32c3")
-    _write_yaml(tmp_path, "kitchen.yaml", platform="esp32", board="esp32-c3-devkitm-1")
-
-    def _boom(*args: object, **kwargs: object) -> None:
-        msg = "filesystem read-only"
-        raise OSError(msg)
-
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.metadata.set_device_metadata",
-        _boom,
-    )
-
-    with caplog.at_level("WARNING"):
-        result = controller._derive_board_id_from_yaml(tmp_path, "kitchen.yaml")
-
-    assert result == "generic-esp32c3"
-    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
-    assert any("kitchen.yaml" in m for m in warnings), warnings

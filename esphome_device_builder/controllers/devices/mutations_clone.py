@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ...helpers.api import CommandError
 from ...helpers.device_yaml import configuration_stem
@@ -13,7 +13,6 @@ from ...helpers.yaml import (
     rewrite_name_or_substitution,
 )
 from ...models import ErrorCode
-from ..config import get_device_metadata, set_device_metadata
 from .helpers import _rewrite_required_yaml_leaf, friendly_name_slugify
 
 if TYPE_CHECKING:
@@ -59,21 +58,22 @@ async def clone_device(
     loop = asyncio.get_running_loop()
     source_path = controller._db.settings.rel_path(configuration)
     new_path = controller._db.settings.rel_path(new_filename)
-    config_dir = controller._db.settings.config_dir
     if new_friendly_name is None:
         new_friendly_name = friendly_name_slugify(new_name)
     # Generate the fresh key off-loop so the executor work below
     # is purely I/O.
     new_key = generate_api_encryption_key()
 
-    # All blocking I/O bundled into one executor hop.
-    def _gather() -> tuple[str | None, dict | None, bool]:
+    # Source YAML read on the executor; shared-sidecar read goes
+    # through the client's sync path inside the same hop so the
+    # identity carry-forward piggy-backs.
+    def _gather() -> tuple[str | None, dict[str, Any], bool]:
         if new_path.exists():
-            return None, None, True
+            return None, {}, True
         if not source_path.exists():
-            return None, None, False
+            return None, {}, False
         content = source_path.read_text(encoding="utf-8")
-        meta = get_device_metadata(config_dir, configuration)
+        meta = controller._shared_sidecar.get_sync(configuration)
         return content, meta, False
 
     source_content, source_meta, target_existed = await loop.run_in_executor(None, _gather)
@@ -131,8 +131,6 @@ async def clone_device(
     def _commit() -> None:
         with new_path.open("x", encoding="utf-8") as f:
             f.write(new_content)
-        if carry_board_id:
-            set_device_metadata(config_dir, new_filename, board_id=carry_board_id)
 
     try:
         await loop.run_in_executor(None, _commit)
@@ -143,6 +141,8 @@ async def clone_device(
         # frontend renders a single message.
         msg = f"A device named {new_filename} already exists"
         raise CommandError(ErrorCode.INVALID_ARGS, msg) from exc
+    if carry_board_id:
+        await controller._persist_device_metadata_async(new_filename, board_id=carry_board_id)
     # Rescan so the scanner indexes the new YAML and fires the
     # ADDED event WS subscribers expect; ``probe_device`` runs
     # from the scan-change handler so no double-probe here.

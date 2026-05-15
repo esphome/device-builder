@@ -20,7 +20,6 @@ from esphome_device_builder.controllers.config import (
     get_device_metadata,
     set_device_metadata,
 )
-from esphome_device_builder.controllers.devices import controller as devices_module
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
 
@@ -288,7 +287,10 @@ async def test_create_device_clears_residual_metadata_from_archived_same_name(
     """
     config_dir = tmp_path
     storage_path = tmp_path / "storage.json"
-    monkeypatch.setattr(devices_module, "resolve_storage_path", lambda _filename: storage_path)
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.mutations_create.resolve_storage_path",
+        lambda _filename: storage_path,
+    )
 
     # Seed a stale entry as if an archived device left it behind:
     # board_id + friendly_name + comment (volatile fields would
@@ -331,7 +333,10 @@ async def test_create_device_with_board_id_overwrites_archived_board_id(
     """
     config_dir = tmp_path
     storage_path = tmp_path / "storage.json"
-    monkeypatch.setattr(devices_module, "resolve_storage_path", lambda _filename: storage_path)
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.mutations_create.resolve_storage_path",
+        lambda _filename: storage_path,
+    )
 
     await asyncio.to_thread(
         set_device_metadata,

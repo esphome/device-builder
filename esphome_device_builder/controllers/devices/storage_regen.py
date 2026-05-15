@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any
 
 from ...helpers.config_hash import read_build_info_hash
 from ...helpers.subprocess import create_subprocess_exec
-from ..config import get_device_metadata, set_device_metadata
 
 if TYPE_CHECKING:
     from .controller import DevicesController
@@ -111,23 +110,13 @@ async def already_failed_recently_async(controller: DevicesController, configura
     lock the regen out indefinitely).
     """
     loop = asyncio.get_running_loop()
-    config_dir = controller._db.settings.config_dir
     config_path = controller._db.settings.rel_path(configuration)
 
-    def _read() -> tuple[float, dict[str, Any]] | None:
-        # One executor hop for both reads; the work is serial on
-        # disk anyway and two parallel jobs would just consume
-        # two thread-pool slots for no win.
-        try:
-            mtime = config_path.stat().st_mtime
-        except OSError:
-            return None
-        return mtime, get_device_metadata(config_dir, configuration)
-
-    result = await loop.run_in_executor(None, _read)
-    if result is None:
+    try:
+        current_mtime = await loop.run_in_executor(None, lambda: config_path.stat().st_mtime)
+    except OSError:
         return False
-    current_mtime, md = result
+    md = controller._metadata_store.get(configuration)
     cached_mtime = md.get("regen_failed_mtime")
     cached_at = md.get("regen_failed_at")
     if not cached_mtime or not cached_at:
@@ -144,52 +133,41 @@ async def stamp_failure(controller: DevicesController, configuration: str) -> No
     """
     Persist the cross-restart "we already tried, gave up" marker.
 
-    Combines ``stat()`` + sidecar write into a single executor
-    hop and samples wall-clock inside the closure so the stamp
-    captures the same instant the file's mtime was observed.
+    Reads the YAML's mtime on the executor and samples
+    wall-clock alongside it so the stamp captures the same
+    instant the file's mtime was observed.
     """
-    config_dir = controller._db.settings.config_dir
     config_path = controller._db.settings.rel_path(configuration)
-
-    def _stamp() -> None:
-        try:
-            mtime = config_path.stat().st_mtime
-        except OSError:
-            return  # file vanished mid-regen; nothing to stamp.
-        set_device_metadata(
-            config_dir,
-            configuration,
-            regen_failed_mtime=mtime,
-            regen_failed_at=time.time(),
-        )
-
-    await asyncio.get_running_loop().run_in_executor(None, _stamp)
+    loop = asyncio.get_running_loop()
+    try:
+        mtime = await loop.run_in_executor(None, lambda: config_path.stat().st_mtime)
+    except OSError:
+        return  # file vanished mid-regen; nothing to stamp.
+    controller._metadata_store.update(
+        configuration,
+        regen_failed_mtime=mtime,
+        regen_failed_at=time.time(),
+    )
 
 
 async def finalize_success(controller: DevicesController, configuration: str) -> None:
     """
     Read ``config_hash`` from ``build_info.json`` and clear the failure stamp.
 
-    Single executor hop folds the ``read_build_info_hash`` call
-    and the ``set_device_metadata`` transaction together; the
-    transaction writes ``expected_config_hash`` and clears
-    ``regen_failed_mtime`` / ``regen_failed_at`` atomically.
+    ``read_build_info_hash`` is blocking — runs on the
+    executor; the store merge afterwards is in-RAM with a
+    debounced disk write.
     """
-    config_dir = controller._db.settings.config_dir
     yaml_path = controller._db.settings.rel_path(configuration)
-
-    def _finalize() -> str | None:
-        new_hash = read_build_info_hash(yaml_path)
-        kwargs: dict[str, Any] = {
-            "regen_failed_mtime": 0.0,
-            "regen_failed_at": 0.0,
-        }
-        if new_hash:
-            kwargs["expected_config_hash"] = new_hash
-        set_device_metadata(config_dir, configuration, **kwargs)
-        return new_hash
-
-    new_hash = await asyncio.get_running_loop().run_in_executor(None, _finalize)
+    loop = asyncio.get_running_loop()
+    new_hash = await loop.run_in_executor(None, read_build_info_hash, yaml_path)
+    fields: dict[str, Any] = {
+        "regen_failed_mtime": 0.0,
+        "regen_failed_at": 0.0,
+    }
+    if new_hash:
+        fields["expected_config_hash"] = new_hash
+    controller._metadata_store.update(configuration, **fields)
     if not new_hash:
         _LOGGER.warning(
             "Could not read config_hash from build_info.json for %s; "

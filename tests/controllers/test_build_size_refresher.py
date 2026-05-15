@@ -44,19 +44,32 @@ def _make(
     *,
     filenames: list[str] | None = None,
     on_refreshed=None,
-) -> tuple[BuildSizeRefresher, list[str]]:
-    """Build a refresher + the list its ``on_refreshed`` callback appends to."""
+    metadata: dict[str, dict[str, Any]] | None = None,
+    persist_size=None,
+) -> tuple[BuildSizeRefresher, list[str], list[tuple[str, BuildSizeRefreshResult]]]:
+    """Build a refresher + the lists its callbacks append to.
+
+    Returns ``(refresher, refreshed, persisted)`` — the test
+    asserts on the second/third for the on_refreshed /
+    persist_size hooks respectively.
+    """
     refreshed: list[str] = []
+    persisted: list[tuple[str, BuildSizeRefreshResult]] = []
 
     async def _default_callback(configuration: str) -> None:
         refreshed.append(configuration)
 
+    def _default_persist(configuration: str, result: BuildSizeRefreshResult) -> None:
+        persisted.append((configuration, result))
+
+    snapshot = metadata if metadata is not None else {}
     refresher = BuildSizeRefresher(
-        config_dir=tmp_path,
         get_filenames=lambda: filenames or [],
+        get_metadata_snapshot=lambda: snapshot,
+        persist_size=persist_size or _default_persist,
         on_refreshed=on_refreshed or _default_callback,
     )
-    return refresher, refreshed
+    return refresher, refreshed, persisted
 
 
 # ----------------------------------------------------------------------
@@ -67,7 +80,7 @@ def _make(
 @pytest.mark.asyncio
 async def test_request_adds_to_pending_set_and_wakes_event(tmp_path: Path) -> None:
     """``request`` is sync, idempotent, and signals the wake event."""
-    refresher, _ = _make(tmp_path)
+    refresher, _, _ = _make(tmp_path)
     refresher.request("kitchen.yaml")
     refresher.request("kitchen.yaml")  # dedupe
     refresher.request("bedroom.yaml")
@@ -78,7 +91,7 @@ async def test_request_adds_to_pending_set_and_wakes_event(tmp_path: Path) -> No
 @pytest.mark.asyncio
 async def test_start_is_idempotent(tmp_path: Path) -> None:
     """A second ``start`` while the worker is alive is a no-op."""
-    refresher, _ = _make(tmp_path)
+    refresher, _, _ = _make(tmp_path)
     refresher.start()
     first_task = refresher._worker_task
     refresher.start()
@@ -89,7 +102,7 @@ async def test_start_is_idempotent(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_stop_with_no_running_worker_is_noop(tmp_path: Path) -> None:
     """``stop`` on a never-started refresher must not raise."""
-    refresher, _ = _make(tmp_path)
+    refresher, _, _ = _make(tmp_path)
     await refresher.stop()  # no exception
     assert refresher._worker_task is None
 
@@ -109,9 +122,9 @@ async def test_worker_drains_pending_and_fires_on_refreshed(tmp_path: Path) -> N
         refreshed.append(configuration)
         done.set()
 
-    refresher, _ = _make(tmp_path, on_refreshed=_on_refreshed)
+    refresher, _, _ = _make(tmp_path, on_refreshed=_on_refreshed)
 
-    def _refresh(_config_dir: Path, _configuration: str) -> BuildSizeRefreshResult:
+    def _refresh(_configuration: str, _cached: Any) -> BuildSizeRefreshResult:
         return BuildSizeRefreshResult(
             size_bytes=1024,
             signal=BuildDirSignal(dir_mtime=10, info_mtime=20),
@@ -150,7 +163,7 @@ async def test_worker_skips_callback_when_refresh_returns_none(tmp_path: Path) -
     refresh_done = asyncio.Event()
     loop = asyncio.get_running_loop()
 
-    def _refresh(_config_dir: Path, _configuration: str):
+    def _refresh(_configuration: str, _cached: Any):
         # ``call_soon_threadsafe`` only guarantees the event
         # gets scheduled to fire on the loop — the worker may
         # not have resumed yet when ``refresh_done.wait()``
@@ -160,7 +173,7 @@ async def test_worker_skips_callback_when_refresh_returns_none(tmp_path: Path) -
         # executes before ``stop()`` cancels.
         loop.call_soon_threadsafe(refresh_done.set)
 
-    refresher, _ = _make(tmp_path, on_refreshed=_on_refreshed)
+    refresher, _, _ = _make(tmp_path, on_refreshed=_on_refreshed)
     with patch(
         "esphome_device_builder.controllers._build_size_refresher.refresh_build_size_if_stale",
         side_effect=_refresh,
@@ -202,7 +215,7 @@ async def test_worker_logs_and_continues_on_refresh_exception(tmp_path: Path, ca
         refreshed.append(configuration)
         success_seen.set()
 
-    def _refresh(_config_dir: Path, configuration: str):
+    def _refresh(configuration: str, _cached: Any):
         if configuration == "broken.yaml":
             raise RuntimeError("disk on fire")
         return BuildSizeRefreshResult(
@@ -210,7 +223,7 @@ async def test_worker_logs_and_continues_on_refresh_exception(tmp_path: Path, ca
             signal=BuildDirSignal(dir_mtime=1, info_mtime=2),
         )
 
-    refresher, _ = _make(tmp_path, on_refreshed=_on_refreshed)
+    refresher, _, _ = _make(tmp_path, on_refreshed=_on_refreshed)
     handler = _LogTrap()
     logging.getLogger("esphome_device_builder.controllers._build_size_refresher").addHandler(
         handler
@@ -251,13 +264,13 @@ async def test_worker_logs_and_continues_on_callback_exception(tmp_path: Path, c
             raise RuntimeError("scanner blew up")
         success_seen.set()
 
-    def _refresh(_config_dir: Path, _configuration: str) -> BuildSizeRefreshResult:
+    def _refresh(_configuration: str, _cached: Any) -> BuildSizeRefreshResult:
         return BuildSizeRefreshResult(
             size_bytes=1,
             signal=BuildDirSignal(dir_mtime=1, info_mtime=1),
         )
 
-    refresher, _ = _make(tmp_path, on_refreshed=_bad_callback)
+    refresher, _, _ = _make(tmp_path, on_refreshed=_bad_callback)
     handler = _LogTrap()
     logging.getLogger("esphome_device_builder.controllers._build_size_refresher").addHandler(
         handler
@@ -290,7 +303,7 @@ async def test_worker_logs_and_continues_on_callback_exception(tmp_path: Path, c
 @pytest.mark.asyncio
 async def test_enqueue_stale_fleet_pushes_divergent_filenames(tmp_path: Path) -> None:
     """``find_stale_build_dirs`` returns a list → each one ends up in pending."""
-    refresher, _ = _make(tmp_path, filenames=["a.yaml", "b.yaml", "c.yaml"])
+    refresher, _, _ = _make(tmp_path, filenames=["a.yaml", "b.yaml", "c.yaml"])
     with patch(
         "esphome_device_builder.controllers._build_size_refresher.find_stale_build_dirs",
         return_value=["a.yaml", "c.yaml"],
@@ -309,7 +322,7 @@ async def test_enqueue_stale_fleet_empty_filenames_skips_executor(tmp_path: Path
         calls.append(args)
         return []
 
-    refresher, _ = _make(tmp_path, filenames=[])
+    refresher, _, _ = _make(tmp_path, filenames=[])
     with patch(
         "esphome_device_builder.controllers._build_size_refresher.find_stale_build_dirs",
         side_effect=_track,
@@ -342,13 +355,13 @@ async def test_worker_logs_when_initial_fleet_sweep_raises(tmp_path: Path, caplo
         refreshed.append(configuration)
         success.set()
 
-    def _refresh(_config_dir: Path, _configuration: str) -> BuildSizeRefreshResult:
+    def _refresh(_configuration: str, _cached: Any) -> BuildSizeRefreshResult:
         return BuildSizeRefreshResult(
             size_bytes=1,
             signal=BuildDirSignal(dir_mtime=1, info_mtime=1),
         )
 
-    refresher, _ = _make(tmp_path, filenames=["a.yaml"], on_refreshed=_on_refreshed)
+    refresher, _, _ = _make(tmp_path, filenames=["a.yaml"], on_refreshed=_on_refreshed)
     handler = _LogTrap()
     logging.getLogger("esphome_device_builder.controllers._build_size_refresher").addHandler(
         handler
@@ -390,7 +403,7 @@ async def test_stop_logs_unexpected_worker_exception(tmp_path: Path, caplog: Any
     we log so the failure isn't invisible during a clean
     shutdown.
     """
-    refresher, _ = _make(tmp_path)
+    refresher, _, _ = _make(tmp_path)
 
     async def _failing_worker(self_: BuildSizeRefresher) -> None:
         # Block until cancelled by ``stop()``, then convert the

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import TYPE_CHECKING
 
@@ -124,7 +123,7 @@ async def persist_expected_config_hash(controller: DevicesController, configurat
             configuration,
         )
         return
-    await controller._persist_device_metadata_async(configuration, expected_config_hash=new_hash)
+    controller._metadata_store.update(configuration, expected_config_hash=new_hash)
     _LOGGER.debug("Stored expected_config_hash for %s: %s", configuration, new_hash)
 
 
@@ -146,11 +145,3 @@ def sync_deployed_hash_after_flash(controller: DevicesController, configuration:
     if device is None or not device.expected_config_hash:
         return
     controller._state_monitor.apply_config_hash(device.name, device.expected_config_hash)
-
-
-async def persist_storage_version_async(
-    controller: DevicesController, configuration: str, version: str
-) -> None:
-    """Update ``StorageJSON.esphome_version`` on disk if it differs."""
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, controller._persist_storage_version, configuration, version)

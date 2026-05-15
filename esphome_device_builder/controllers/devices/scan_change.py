@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from ...models import Device, DeviceEventData, EventType
@@ -9,6 +10,8 @@ from .._device_scanner import ScanChange
 
 if TYPE_CHECKING:
     from .controller import DevicesController
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def on_scan_change(controller: DevicesController, kind: ScanChange, device: Device) -> None:
@@ -52,6 +55,16 @@ def on_scan_change(controller: DevicesController, kind: ScanChange, device: Devi
         not device.loaded_integrations or not device.expected_config_hash
     )
     if needs_storage_regen:
+        missing = []
+        if not device.loaded_integrations:
+            missing.append("loaded_integrations")
+        if not device.expected_config_hash:
+            missing.append("expected_config_hash")
+        _LOGGER.info(
+            "Scheduling --only-generate for %s (missing: %s)",
+            device.configuration,
+            ", ".join(missing),
+        )
         # Routed through the controller's bound delegate so tests
         # patching ``_schedule_storage_regenerate`` on the
         # instance still intercept.
@@ -72,3 +85,10 @@ def on_scan_change(controller: DevicesController, kind: ScanChange, device: Devi
         # lived in the catalog (the mDNS Removed branch only
         # fires on broadcast disappearance, not YAML deletion).
         controller._reachability.clear(device.name)
+        # Drop the store's live-state entry. ``delete_single`` /
+        # ``archive_single`` already cleaned up via the controller
+        # helpers (this is idempotent for those paths), but an
+        # external ``rm`` or rename would otherwise leak the
+        # entry forever. Identity stays in the shared sidecar
+        # so a re-add picks up the cached board_id / labels.
+        controller._metadata_store.clear_volatile(device.configuration)

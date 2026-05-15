@@ -27,14 +27,30 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from esphome_device_builder.controllers.config import (
-    get_device_metadata,
-    set_device_metadata,
-)
 from esphome_device_builder.controllers.devices import DevicesController
 from tests._storage_fixtures import write_storage_json
 
 from .conftest import MakeControllerFactory
+
+
+def _seed_store(controller: DevicesController, filename: str, **fields: Any) -> None:
+    """Seed live-state fields into the in-RAM store (no save).
+
+    Sync alternative to ``controller._metadata_store.update(...)``
+    that doesn't try to schedule a debounced save — useful for
+    test setup that runs before the asyncio loop kicks off the
+    code under test.
+    """
+    existing = controller._metadata_store._state.get(filename, {})
+    controller._metadata_store._state[filename] = {
+        **existing,
+        **{k: v for k, v in fields.items() if v is not None},
+    }
+
+
+def _read_store(controller: DevicesController, filename: str) -> dict[str, Any]:
+    """Read the per-device store entry (caller asserts on individual keys)."""
+    return controller._metadata_store.get(filename)
 
 
 class _FakeProc:
@@ -413,7 +429,7 @@ async def test_regenerate_persists_mtime_and_wallclock_on_failure(
     controller._schedule_storage_regenerate("kitchen.yaml")
     await _drain(controller)
 
-    md = await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml")
+    md = _read_store(controller, "kitchen.yaml")
     assert md.get("regen_failed_mtime") == expected_mtime
     assert md.get("regen_failed_at") == 1700000000.0
 
@@ -455,7 +471,7 @@ async def test_regenerate_persists_stamp_on_spawn_oserror(
     controller._schedule_storage_regenerate("kitchen.yaml")
     await _drain(controller)
 
-    md = await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml")
+    md = _read_store(controller, "kitchen.yaml")
     assert md.get("regen_failed_mtime") == expected_mtime
     assert md.get("regen_failed_at") == 1700000050.0
 
@@ -478,9 +494,8 @@ async def test_regenerate_clears_failure_stamp_on_success(
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
     # Simulate the leftover stamp from an earlier failed attempt.
-    await asyncio.to_thread(
-        set_device_metadata,
-        tmp_path,
+    _seed_store(
+        controller,
         "kitchen.yaml",
         regen_failed_mtime=1.0,
         regen_failed_at=1700000000.0,
@@ -502,7 +517,7 @@ async def test_regenerate_clears_failure_stamp_on_success(
     controller._schedule_storage_regenerate("kitchen.yaml")
     await _drain(controller)
 
-    md = await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml")
+    md = _read_store(controller, "kitchen.yaml")
     assert "regen_failed_mtime" not in md
     assert "regen_failed_at" not in md
 
@@ -525,9 +540,8 @@ async def test_regenerate_skips_when_stamp_fresh_and_mtime_matches(
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("not: valid: yaml\n", encoding="utf-8")
     current_mtime = yaml_path.stat().st_mtime
-    await asyncio.to_thread(
-        set_device_metadata,
-        tmp_path,
+    _seed_store(
+        controller,
         "kitchen.yaml",
         regen_failed_mtime=current_mtime,
         regen_failed_at=1700000000.0,
@@ -576,9 +590,8 @@ async def test_regenerate_retries_when_stamp_older_than_ttl(
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
     current_mtime = yaml_path.stat().st_mtime
-    await asyncio.to_thread(
-        set_device_metadata,
-        tmp_path,
+    _seed_store(
+        controller,
         "kitchen.yaml",
         regen_failed_mtime=current_mtime,
         regen_failed_at=1700000000.0,
@@ -630,9 +643,8 @@ async def test_regenerate_runs_when_yaml_mtime_moves_past_stamp(
     # YAML has since been edited so the live stat doesn't match.
     # The wall-clock stamp is fresh (within TTL) so only the mtime
     # mismatch is what releases the guard.
-    await asyncio.to_thread(
-        set_device_metadata,
-        tmp_path,
+    _seed_store(
+        controller,
         "kitchen.yaml",
         regen_failed_mtime=1.0,
         regen_failed_at=1700000000.0,
@@ -682,9 +694,8 @@ async def test_regenerate_runs_when_yaml_missing_for_stamp_check(
     # Persist a stamp without ever creating the YAML — simulates the
     # race window. The metadata sidecar's entry is keyed by filename,
     # not file-existence.
-    await asyncio.to_thread(
-        set_device_metadata,
-        tmp_path,
+    _seed_store(
+        controller,
         "kitchen.yaml",
         regen_failed_mtime=12345.0,
         regen_failed_at=1700000000.0,
@@ -727,13 +738,12 @@ async def test_regenerate_clamps_negative_stamp_age(
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("not: valid: yaml\n", encoding="utf-8")
     current_mtime = yaml_path.stat().st_mtime
-    # Stamp claims the failure happened *in the future*.
-    await asyncio.to_thread(
-        set_device_metadata,
-        tmp_path,
+    # Stamp claims the failure happened *in the future* (roughly year 2033).
+    _seed_store(
+        controller,
         "kitchen.yaml",
         regen_failed_mtime=current_mtime,
-        regen_failed_at=2_000_000_000.0,  # roughly year 2033
+        regen_failed_at=2_000_000_000.0,
     )
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.storage_regen.time.time",
@@ -775,9 +785,8 @@ async def test_regenerate_runs_when_only_one_stamp_half_present(
     yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
     current_mtime = yaml_path.stat().st_mtime
     # Only the mtime half — sidecar carries no wall-clock pair.
-    await asyncio.to_thread(
-        set_device_metadata,
-        tmp_path,
+    _seed_store(
+        controller,
         "kitchen.yaml",
         regen_failed_mtime=current_mtime,
     )
@@ -878,9 +887,8 @@ async def test_regenerate_persists_hash_and_clears_stamp_in_one_transaction(
     # Pre-seed a leftover failure stamp from a notional prior backend
     # so the test can verify it's cleared in the same transaction
     # that writes the new hash.
-    await asyncio.to_thread(
-        set_device_metadata,
-        tmp_path,
+    _seed_store(
+        controller,
         "kitchen.yaml",
         regen_failed_mtime=1.0,
         regen_failed_at=2.0,
@@ -917,7 +925,7 @@ async def test_regenerate_persists_hash_and_clears_stamp_in_one_transaction(
     controller._schedule_storage_regenerate("kitchen.yaml")
     await _drain(controller)
 
-    md = await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml")
+    md = _read_store(controller, "kitchen.yaml")
     # Hash got written and the leftover stamps got cleared in the
     # same transaction — both halves of the closure.
     assert md.get("expected_config_hash") == "5a94a12d"
@@ -945,9 +953,8 @@ async def test_regenerate_success_clears_stamp_when_build_info_missing(
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
-    await asyncio.to_thread(
-        set_device_metadata,
-        tmp_path,
+    _seed_store(
+        controller,
         "kitchen.yaml",
         regen_failed_mtime=1.0,
         regen_failed_at=2.0,
@@ -971,7 +978,7 @@ async def test_regenerate_success_clears_stamp_when_build_info_missing(
         controller._schedule_storage_regenerate("kitchen.yaml")
         await _drain(controller)
 
-    md = await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml")
+    md = _read_store(controller, "kitchen.yaml")
     # Stamps cleared even though the hash couldn't be read — the
     # YAML now generates cleanly, the missing build_info.json is
     # a separate concern surfaced by the warning log.

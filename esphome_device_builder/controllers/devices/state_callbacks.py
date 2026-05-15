@@ -3,15 +3,54 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from ...helpers.mac_addresses import derive_interface_macs
-from ...models import DeviceState, DeviceStateChangedData, EventType
+from ...models import Device, DeviceState, DeviceStateChangedData, EventType
 
 if TYPE_CHECKING:
     from .controller import DevicesController
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _apply_logged_observation(
+    controller: DevicesController,
+    name: str,
+    field_name: str,
+    value: Any,
+    log_label: str,
+    on_change: Callable[[Device], None] | None = None,
+) -> None:
+    """Apply *value* to ``device.<field_name>``; log, persist, fire DEVICE_UPDATED.
+
+    Used by callbacks whose shape is a clean
+    dedupe-then-set-then-persist over every matching device
+    (``deployed_version`` / ``deployed_config_hash``). The
+    first-observation log demotes to DEBUG so a real X → Y
+    transition stands out at INFO. *on_change* (if given) sets
+    derived fields like ``update_available`` after the primary
+    field is written.
+    """
+    for device in controller._devices_by_name(name):
+        old = getattr(device, field_name)
+        if old == value:
+            continue
+        setattr(device, field_name, value)
+        if on_change is not None:
+            on_change(device)
+        log = _LOGGER.info if old else _LOGGER.debug
+        log(
+            "Device %s (%s) %s: %s → %s (via mdns)",
+            name,
+            device.configuration,
+            log_label,
+            old or "?",
+            value,
+        )
+        controller._metadata_store.update(device.configuration, **{field_name: value})
+        controller._fire_device_updated(device)
 
 
 def on_state_change(
@@ -64,35 +103,30 @@ def on_ip_change(controller: DevicesController, name: str, ip: str, addresses: l
             ", ".join(new_addresses) or "(cleared)",
         )
         if ip and ip_changed:
-            controller._db.create_background_task(
-                controller._persist_device_ip_async(device.configuration, ip)
-            )
+            controller._metadata_store.update(device.configuration, ip=ip)
         controller._fire_device_updated(device)
 
 
 def on_version_change(controller: DevicesController, name: str, version: str) -> None:
-    """Apply a fresh ESPHome version observed via mDNS."""
-    for device in controller._devices_by_name(name):
-        if device.deployed_version == version:
-            continue
+    """Apply a fresh ESPHome version observed via mDNS.
 
-        # StorageJSON.load/save are blocking; push to a background
-        # task so the loop's exception handler surfaces failures.
-        controller._db.create_background_task(
-            controller._persist_storage_version_async(device.configuration, version)
-        )
+    Persisted through the metadata store rather than written
+    back into upstream's ``StorageJSON.esphome_version``;
+    StorageJSON describes the binary we *compiled* and
+    shouldn't be churned by the running firmware's broadcast.
+    """
 
-        old_version = device.deployed_version
-        device.deployed_version = version
+    def _flip_update_available(device: Device) -> None:
         device.update_available = bool(device.current_version and version != device.current_version)
-        _LOGGER.info(
-            "Device %s (%s) version: %s → %s (via mdns)",
-            name,
-            device.configuration,
-            old_version or "?",
-            version,
-        )
-        controller._fire_device_updated(device)
+
+    _apply_logged_observation(
+        controller,
+        name,
+        "deployed_version",
+        version,
+        log_label="version",
+        on_change=_flip_update_available,
+    )
 
 
 def on_mac_address_change(controller: DevicesController, name: str, mac: str) -> None:
@@ -135,33 +169,36 @@ def on_api_encryption_change(controller: DevicesController, name: str, encryptio
         device.api_encryption_active = encryption
         if wire_promotes_encrypted:
             device.api_encrypted = True
+        # ``set_field`` (not ``update``) — the empty-string
+        # plaintext-confirmed marker is a falsy value that
+        # ``update``'s tri-state semantics would clear.
+        controller._metadata_store.set_field(
+            device.configuration, "api_encryption_active", encryption
+        )
         controller._fire_device_updated(device)
 
 
 def on_config_hash_change(controller: DevicesController, name: str, config_hash: str) -> None:
-    """
-    Apply a running-firmware config hash observed via mDNS.
+    """Apply a running-firmware config hash observed via mDNS.
 
     Flips ``has_pending_changes`` against the expected hash when
     both are known; firmware predating the ``config_hash`` TXT
     broadcast never triggers this callback and stays on the
     legacy mtime check.
     """
-    for device in controller._devices_by_name(name):
-        if device.deployed_config_hash == config_hash:
-            continue
-        old_hash = device.deployed_config_hash
-        device.deployed_config_hash = config_hash
+
+    def _flip_pending(device: Device) -> None:
         # Mtime side stays with the periodic scanner poll so this
         # callback can stay off-disk; a YAML edit between polls
         # (~5s) self-corrects on the next scan.
         if device.expected_config_hash:
             device.has_pending_changes = device.expected_config_hash != config_hash
-        _LOGGER.info(
-            "Device %s (%s) config_hash: %s → %s (via mdns)",
-            name,
-            device.configuration,
-            old_hash or "?",
-            config_hash,
-        )
-        controller._fire_device_updated(device)
+
+    _apply_logged_observation(
+        controller,
+        name,
+        "deployed_config_hash",
+        config_hash,
+        log_label="config_hash",
+        on_change=_flip_pending,
+    )
