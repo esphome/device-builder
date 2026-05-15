@@ -142,10 +142,21 @@ class EditorController:
         try:
             req_path = Path(requested).resolve()
         except OSError:
-            req_path = Path(requested)
+            # Canonicalisation failed (broken symlink, ENOTDIR,
+            # EACCES). The unresolved form can't be safely
+            # containment-checked, and read_text would fault for
+            # the same reason — refuse.
+            return ""
         main_path = (cfg_dir / configuration).resolve()
         if req_path == main_path or Path(requested).name == configuration:
             return content
+        # Containment check: the validator subprocess is fed
+        # attacker-controlled YAML, and ``!include /etc/passwd``
+        # would otherwise route through here and surface the
+        # file's bytes back to the client as ``yaml_errors``
+        # parse snippets. Refuse anything outside the config dir.
+        if not req_path.is_relative_to(cfg_dir):
+            return ""
         try:
             return req_path.read_text(encoding="utf-8")
         except OSError:

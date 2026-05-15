@@ -112,6 +112,45 @@ def test_resolve_file_reads_disk_for_include(tmp_path: Path) -> None:
     assert result == "captive_portal:\n"
 
 
+def test_resolve_file_refuses_paths_outside_config_dir(tmp_path: Path) -> None:
+    """Paths outside the config dir return ``""`` — never disk bytes.
+
+    The validator subprocess is fed attacker-controlled YAML and
+    follows ``!include`` by calling back into ``_resolve_file``; an
+    unscoped read would surface the bytes as ``yaml_errors`` parse
+    snippets to the client. Pin the containment: an absolute path
+    pointing at a file *outside* ``config_dir`` is dropped to ``""``
+    even when the file exists and is readable.
+    """
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    outside = tmp_path / "secret.txt"
+    outside.write_text("super-secret\n", encoding="utf-8")
+
+    controller = _make_controller(config_dir)
+    result = controller._resolve_file(str(outside), "kitchen.yaml", "")
+    assert result == ""
+
+
+def test_resolve_file_refuses_symlink_escape(tmp_path: Path) -> None:
+    """A symlink inside the config dir pointing outside is also refused.
+
+    ``Path.resolve()`` follows symlinks, so the realpath check
+    catches the "symlink in config_dir → /etc/passwd" trick that
+    a basename-only filter would miss.
+    """
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    secret = tmp_path / "secret.txt"
+    secret.write_text("super-secret\n", encoding="utf-8")
+    link = config_dir / "leak.yaml"
+    link.symlink_to(secret)
+
+    controller = _make_controller(config_dir)
+    result = controller._resolve_file(str(link), "kitchen.yaml", "")
+    assert result == ""
+
+
 def test_resolve_file_returns_empty_on_missing_include(tmp_path: Path) -> None:
     """Missing include → empty string, never a raise.
 
@@ -594,16 +633,16 @@ async def test_terminate_subprocess_swallows_stdin_write_failure(
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_file_falls_back_when_requested_path_unresolvable(
+def test_resolve_file_returns_empty_when_requested_path_unresolvable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``Path.resolve()`` raising on the requested path → use the unresolved Path.
+    """``Path.resolve()`` raising → ``""``, never an unconfined read.
 
-    macOS / Linux with a long enough path (or a path through a
-    broken symlink) can fault ``resolve()`` even when ``read_text``
-    later succeeds against the unresolved form. The except branch
-    keeps the read-from-disk fallback usable in that case rather
-    than 500-ing the validator round-trip.
+    An unresolved path can't be containment-checked against the
+    config dir, so trusting it would re-open the arbitrary-file-read
+    hole the containment check exists to close. Pin that the
+    fallback drops to empty content rather than reading the
+    unresolved form.
     """
     controller = _make_controller(tmp_path)
     include = tmp_path / "common.yaml"
@@ -623,7 +662,7 @@ def test_resolve_file_falls_back_when_requested_path_unresolvable(
 
     result = controller._resolve_file(str(include), "kitchen.yaml", "")
 
-    assert result == "ok\n"
+    assert result == ""
 
 
 # ---------------------------------------------------------------------------
