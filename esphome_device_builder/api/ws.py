@@ -276,8 +276,14 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
     origin = request.headers.get("Origin")
     if not trusted_site and origin:
         if not request_origin_allowed(origin, request.host, settings.trusted_domains):
+            _LOGGER.debug(
+                "Rejecting WS handshake (cross-origin): origin=%s host=%s", origin, request.host
+            )
             return web.Response(status=403, text="Cross-origin connection rejected")
         if not host_in_allowlist(request.host, settings.trusted_domains):
+            _LOGGER.debug(
+                "Rejecting WS handshake (host not in trusted-domains): host=%s", request.host
+            )
             return web.Response(status=403, text="Host not in trusted-domains allowlist")
 
     ws = web.WebSocketResponse(heartbeat=_WS_HEARTBEAT_SECONDS)

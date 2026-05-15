@@ -43,11 +43,9 @@ def normalize_host(host: str) -> str:
     """
     Lower-case ``host``, stripping the port and IPv6 brackets if any.
 
-    Handles three shapes: ``hostname[:port]``, ``[ipv6]:port`` (bracketed,
-    standard Host-header form), and a bare un-bracketed IPv6 address
-    (``fe80::1``) — the last needs an ``ipaddress`` short-circuit because
-    ``urlsplit`` would parse ``fe80`` as the host and ``:1`` as the port.
-    Falls back to the input verbatim when ``urlsplit`` can't parse it.
+    Bare un-bracketed IPv6 addresses (``fe80::1``) need the
+    ``ipaddress`` short-circuit because ``urlsplit`` would parse
+    ``fe80`` as the host and ``:1`` as the port.
     """
     stripped = host.strip()
     if not stripped.startswith("["):

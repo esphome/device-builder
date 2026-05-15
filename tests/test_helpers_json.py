@@ -200,6 +200,19 @@ async def test_cors_middleware_handles_options_preflight_without_invoking_handle
     assert await resp.text() == ""
 
 
+async def test_cors_middleware_options_preflight_omits_acao_for_disallowed_origin(
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """OPTIONS with a disallowed Origin still 200s but omits ``Access-Control-Allow-Origin``."""
+    client = await aiohttp_client(_app_with_cors())
+    resp = await client.options("/preflight", headers={"Origin": "https://evil.example.com"})
+
+    assert resp.status == 200
+    assert "Access-Control-Allow-Origin" not in resp.headers
+    assert resp.headers["Vary"] == "Origin"
+    assert await resp.text() == ""
+
+
 async def test_cors_middleware_attaches_headers_to_non_get_methods(
     aiohttp_client: AiohttpClient,
 ) -> None:

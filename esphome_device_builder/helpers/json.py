@@ -105,6 +105,10 @@ async def cors_middleware(request: web.Request, handler: Any) -> web.StreamRespo
         resp.headers["Access-Control-Allow-Origin"] = origin
         resp.headers["Access-Control-Allow-Methods"] = _CORS_METHODS
         resp.headers["Access-Control-Allow-Headers"] = _CORS_HEADERS
+    elif origin:
+        _LOGGER.debug(
+            "CORS: omitting Access-Control-Allow-Origin: origin=%s host=%s", origin, request.host
+        )
     return resp
 
 
