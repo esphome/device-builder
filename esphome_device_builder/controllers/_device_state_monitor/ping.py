@@ -175,13 +175,17 @@ class PingSource:
         # successful ping flips it back to ONLINE.
         monitor = self._monitor
         rtt_ms: float | None = None
+        # Only retry when the device was ONLINE going into this sweep.
+        # A first-shot miss on an already-OFFLINE/UNKNOWN device just
+        # confirms the state — no flap to prevent.
+        was_online = device.state == DeviceState.ONLINE
         try:
             result = await icmp_ping(target, count=1, timeout=3, privileged=False)
             is_alive = result.is_alive
-            if not is_alive:
-                # Retry with multiple packets before declaring OFFLINE.
-                # A single dropped ICMP would otherwise flap the device
-                # every sweep on lossy paths (VPN, congested Wi-Fi).
+            if not is_alive and was_online:
+                # Retry with multiple packets before flapping an ONLINE
+                # device OFFLINE. A single dropped ICMP would otherwise
+                # flap on lossy paths (VPN, congested Wi-Fi).
                 result = await icmp_ping(target, count=3, interval=0.5, timeout=2, privileged=False)
                 is_alive = result.is_alive
             # ``Host.min_rtt`` is 0.0 on a failed ping which would
