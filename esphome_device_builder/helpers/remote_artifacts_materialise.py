@@ -105,7 +105,7 @@ def materialise_remote_artifacts(tarball: bytes, configuration: str) -> Path:
 
 
 def _open_and_extract_build_tree(tarball: bytes, configuration: str) -> _ExtractedTarball:
-    """Open *tarball*, validate the storage shape, wipe + extract into the offloader build dir.
+    """Open *tarball*, validate the storage shape, conditionally wipe + extract.
 
     storage.json + idedata.json are cache-side files; their
     bytes are returned for the caller to rewrite before write
@@ -131,17 +131,20 @@ def _open_and_extract_build_tree(tarball: bytes, configuration: str) -> _Extract
             receiver_build_path = _receiver_build_path_from_storage(receiver_storage)
 
             build_path = resolve_data_dir(configuration) / "build" / device_name
-            # Wipe before extract so a board swap on the same YAML
-            # (esp32 → bk72xx) doesn't leave stale per-platform
-            # artefacts that firmware/download could surface as
-            # wrong bytes. Best-effort: rmtree failures log + fall
-            # through; the extract below still overwrites every
-            # member named in the tarball, though stale files the
-            # tarball doesn't mention may survive a failed wipe.
-            try:
-                rmtree(build_path)
-            except OSError as exc:
-                _LOGGER.debug("materialise: pre-extract rmtree(%s) failed: %s", build_path, exc)
+            # Preserve the existing ``.pioenvs/<name>/`` object cache
+            # across same-platform reruns so a ``local → remote → local``
+            # cycle keeps PlatformIO incremental. Wipe only when
+            # ``core_platform`` / ``framework`` shifts or components
+            # are removed (the cases esphome's own
+            # ``storage_should_clean`` would clean on) so a board swap
+            # (esp32 → bk72xx) can't leave stale per-platform firmware
+            # artefacts that firmware/download could surface as wrong
+            # bytes. Best-effort: rmtree failures log + fall through.
+            if _should_wipe_build_tree(configuration, receiver_storage):
+                try:
+                    rmtree(build_path)
+                except OSError as exc:
+                    _LOGGER.debug("materialise: pre-extract rmtree(%s) failed: %s", build_path, exc)
             build_path.mkdir(parents=True, exist_ok=True)
             _safe_extract_excluding(
                 tar,
@@ -184,6 +187,47 @@ def _receiver_build_path_from_storage(receiver_storage: dict[str, Any]) -> Path:
     if not isinstance(receiver_build_path_str, str):
         raise MaterialiseError("tarball storage.json missing required build_path field")
     return Path(receiver_build_path_str)
+
+
+def _should_wipe_build_tree(configuration: str, receiver_storage: dict[str, Any]) -> bool:
+    """Return True when the prior build tree should be wiped before extract.
+
+    Mirrors esphome's ``storage_should_clean`` gate: wipe on
+    first materialise (no prior sidecar), platform / framework
+    swap on the same YAML, or component removal. Same-platform
+    repeat builds preserve ``build_path`` so ``.pioenvs/<name>/``
+    survives for PlatformIO's incremental compile cache. An
+    unreadable / malformed prior sidecar falls through to wipe so
+    a corrupted cache can't strand the next compile.
+    """
+    prior = _load_prior_storage_dict(configuration)
+    if prior is None:
+        return True
+    prior_integrations = set(prior.get("loaded_integrations") or ())
+    new_integrations = set(receiver_storage.get("loaded_integrations") or ())
+    return (
+        prior.get("core_platform") != receiver_storage.get("core_platform")
+        or prior.get("framework") != receiver_storage.get("framework")
+        or bool(prior_integrations - new_integrations)
+    )
+
+
+def _load_prior_storage_dict(configuration: str) -> dict[str, Any] | None:
+    """Load the prior offloader storage.json as a dict, or None when absent / malformed."""
+    prior_path = resolve_storage_path(configuration)
+    if not prior_path.is_file():
+        return None
+    try:
+        prior_bytes = prior_path.read_bytes()
+    except OSError as exc:
+        _LOGGER.debug("materialise: prior storage at %s unreadable: %s", prior_path, exc)
+        return None
+    try:
+        prior = json_loads(prior_bytes)
+    except ValueError as exc:
+        _LOGGER.debug("materialise: prior storage at %s not JSON: %s", prior_path, exc)
+        return None
+    return prior if isinstance(prior, dict) else None
 
 
 def _read_member_optional(

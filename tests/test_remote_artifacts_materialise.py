@@ -415,20 +415,49 @@ def test_materialise_touches_mtimes_for_esphome_cache_hit(
     assert platformio_ini.stat().st_mtime < cached.stat().st_mtime
 
 
-def test_materialise_idempotent_under_rerun(paired_roots: tuple[Path, Path]) -> None:
-    """Re-running materialise wipes stale files from the build dir."""
+def test_materialise_preserves_pioenvs_on_same_platform_rerun(
+    paired_roots: tuple[Path, Path],
+) -> None:
+    """Same-platform reruns keep the local build cache for PIO incremental compile."""
     receiver_root, offloader_root = paired_roots
     tarball = _pack_in_tmp(receiver_root)
     first = _materialise_in_tmp(tarball, offloader_root)
-    # Plant a stale file the second materialise should clear.
-    stale = first / ".pioenvs" / "kitchen" / "stale.bin"
-    stale.write_bytes(b"STALE")
+    # Plant a file the second materialise must preserve so a
+    # local → remote → local cycle keeps PlatformIO's object
+    # cache from the prior local build.
+    cached = first / ".pioenvs" / "kitchen" / "src.cpp.o"
+    cached.write_bytes(b"CACHED-OBJ")
 
     second = _materialise_in_tmp(tarball, offloader_root)
 
     assert first == second
     assert (second / ".pioenvs" / "kitchen" / "firmware.bin").is_file()
-    assert not stale.exists(), "stale file should be cleared by the pre-extract rmtree"
+    assert cached.read_bytes() == b"CACHED-OBJ"
+
+
+def test_materialise_wipes_build_tree_on_platform_swap(
+    paired_roots: tuple[Path, Path], tmp_path: Path
+) -> None:
+    """A core_platform swap drops the prior build tree so stale artefacts can't leak."""
+    receiver_root, offloader_root = paired_roots
+    first_tarball = _pack_in_tmp(receiver_root)
+    first = _materialise_in_tmp(first_tarball, offloader_root)
+    stale = first / ".pioenvs" / "kitchen" / "stale.bin"
+    stale.write_bytes(b"STALE")
+
+    # Re-pack from a fresh receiver root with a different core_platform.
+    receiver_root_2 = tmp_path / "receiver2"
+    receiver_root_2.mkdir()
+    swap_tarball = _pack_in_tmp(
+        receiver_root_2,
+        target_platform="ESP8266",
+        extra_build_files={".pioenvs/kitchen/firmware.elf": b"ELF"},
+    )
+
+    second = _materialise_in_tmp(swap_tarball, offloader_root)
+
+    assert first == second
+    assert not stale.exists()
 
 
 # ---------------------------------------------------------------------------
