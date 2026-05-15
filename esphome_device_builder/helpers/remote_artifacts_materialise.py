@@ -427,38 +427,21 @@ def _stage_offloader_validated_yaml(
 @contextmanager
 def _preserve_platformio_ini_mtime_if_unchanged(pio_path: Path) -> Iterator[None]:
     """
-    Pin *pio_path*'s mtime around an enclosed write so SCons sees the right answer.
+    Hold *pio_path*'s mtime stable across an enclosed write when the bytes don't change.
 
-    PlatformIO/SCons keys the per-object incremental cache on
-    ``platformio.ini.mtime``: an mtime newer than ``.pioenvs/
-    <name>/*.o`` invalidates every preserved object. Two branches
-    after the wrapped extract:
-
-    * **Same bytes** — restore the prior mtime so SCons keeps the
-      cache. The tar member's default mtime is epoch 0, so without
-      this restore an identical-content extract would still appear
-      "changed" and trigger an MD5 check (and the recompile PR
-      #874 was meant to avoid).
-    * **Different bytes** — bump mtime to "now" so SCons
-      definitively sees the file as newer than every existing
-      ``.pioenvs/<name>/*.o``. Without this we'd be relying on
-      PlatformIO's MD5-timestamp Decider catching the content
-      change after seeing mtime go *backwards* (extract default
-      0); explicit forward bump is robust against future Decider
-      config drift.
-
-    No try/finally: on a partial extract the file is in an
-    indeterminate state and restoring the prior mtime would lie
-    about its contents. The next compile re-runs from scratch
-    via storage_should_clean's wipe path, which is the right
-    recovery. Snapshots / restores in ``st_mtime_ns`` so the
-    timestamp survives exactly across FS resolutions.
+    Same bytes → restore the prior mtime so SCons's per-object
+    cache survives; different bytes → bump to ``time.time_ns()``
+    so SCons unambiguously sees the file as newer than every
+    existing ``.pioenvs/<name>/*.o``.
     """
     prior_mtime_ns: int | None = None
     prior_bytes: bytes | None = None
     if pio_path.is_file():
         prior_mtime_ns = pio_path.stat().st_mtime_ns
         prior_bytes = pio_path.read_bytes()
+    # No try/finally: a partial extract leaves the file in an
+    # indeterminate state and restoring the prior mtime would lie
+    # about its contents.
     yield
     if not pio_path.is_file():
         return
@@ -470,17 +453,7 @@ def _preserve_platformio_ini_mtime_if_unchanged(pio_path: Path) -> Iterator[None
 
 
 def _force_idedata_cache_hit(*, platformio_ini: Path, cached_idedata: Path) -> None:
-    """
-    Push *cached_idedata*'s mtime past *platformio_ini*'s.
-
-    esphome's ``_load_idedata`` short-circuits when the cache is
-    newer than ``platformio.ini``. Touches only the idedata side
-    so the SCons per-object cache (see
-    :func:`_preserve_platformio_ini_mtime_if_unchanged`) survives.
-    Operates in ``ns`` so the comparison stays exact even on
-    low-resolution filesystems where a float-seconds round-trip
-    rounds asymmetrically.
-    """
+    """Push *cached_idedata*'s mtime past *platformio_ini*'s for esphome's _load_idedata gate."""
     if not platformio_ini.is_file() or not cached_idedata.is_file():
         return
     target_ns = max(time.time_ns(), platformio_ini.stat().st_mtime_ns + 1)

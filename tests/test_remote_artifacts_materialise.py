@@ -438,33 +438,17 @@ def test_materialise_preserves_pioenvs_on_same_platform_rerun(
 def test_materialise_preserves_platformio_ini_mtime_when_unchanged(
     paired_roots: tuple[Path, Path],
 ) -> None:
-    """
-    Same-content extract restores platformio.ini's prior mtime.
-
-    PlatformIO/SCons keys the per-object incremental cache on
-    platformio.ini's mtime; bumping it forward (even by extracting
-    identical bytes) would invalidate every preserved
-    .pioenvs/<name>/*.o on the next local compile. Pins the
-    timestamp via ``st_mtime_ns`` / ``os.utime(..., ns=...)`` for
-    exact-equality assertions across filesystems with different
-    timestamp resolution.
-    """
+    """Same-content extract restores platformio.ini's prior mtime exactly."""
     receiver_root, offloader_root = paired_roots
     tarball = _pack_in_tmp(receiver_root)
     first = _materialise_in_tmp(tarball, offloader_root)
     pio_ini = first / "platformio.ini"
-    # Pin platformio.ini's mtime to a known older value so the
-    # post-extract comparison is unambiguous.
     fixed_mtime_ns = int((time.time() - 3600) * 1_000_000_000)
     os.utime(pio_ini, ns=(fixed_mtime_ns, fixed_mtime_ns))
-    # ext4/APFS/NTFS keep nanoseconds verbatim; FAT/HFS+ round to
-    # 2 s / 1 s. Re-read the post-utime value so the equality
-    # assertion compares against what the FS actually stored.
+    # Re-read so the equality assertion compares against what the FS
+    # actually stored after rounding to its native resolution.
     pinned_pio_ns = pio_ini.stat().st_mtime_ns
 
-    # Plant a .o file *newer* than platformio.ini — SCons treats
-    # this as "object built after platformio.ini" and will rebuild
-    # if the order flips on the next materialise.
     obj = first / ".pioenvs" / "kitchen" / "src" / "main.o"
     obj.parent.mkdir(parents=True, exist_ok=True)
     obj.write_bytes(b"OBJ")
@@ -473,27 +457,14 @@ def test_materialise_preserves_platformio_ini_mtime_when_unchanged(
 
     _materialise_in_tmp(tarball, offloader_root)
 
-    # platformio.ini's mtime survives the extract because the
-    # tarball's content matches what was on disk.
-    assert pio_ini.stat().st_mtime_ns == pinned_pio_ns, (
-        f"platformio.ini.mtime moved unexpectedly: "
-        f"{pio_ini.stat().st_mtime_ns} (wanted {pinned_pio_ns})"
-    )
-    # And it stays older than the preserved .o so SCons doesn't
-    # consider the object stale.
+    assert pio_ini.stat().st_mtime_ns == pinned_pio_ns
     assert pio_ini.stat().st_mtime_ns < obj.stat().st_mtime_ns
 
 
-def test_materialise_lets_platformio_ini_mtime_advance_when_content_changed(
+def test_materialise_bumps_platformio_ini_mtime_when_content_changed(
     paired_roots: tuple[Path, Path], tmp_path: Path
 ) -> None:
-    """
-    Different-content platformio.ini extracts without mtime restoration.
-
-    The receiver-side build genuinely changed, so SCons *should*
-    rebuild the dependent objects — restoring the prior mtime
-    here would mask a real change.
-    """
+    """Different-content extract bumps platformio.ini's mtime to ~now."""
     receiver_root, offloader_root = paired_roots
     first_tarball = _pack_in_tmp(receiver_root)
     first = _materialise_in_tmp(first_tarball, offloader_root)
@@ -502,8 +473,6 @@ def test_materialise_lets_platformio_ini_mtime_advance_when_content_changed(
     os.utime(pio_ini, ns=(fixed_mtime_ns, fixed_mtime_ns))
     pinned_pio_ns = pio_ini.stat().st_mtime_ns
 
-    # Pack a fresh receiver state with a *different* platformio.ini
-    # body so the extract overwrites the prior bytes.
     receiver_root_2 = tmp_path / "receiver2"
     receiver_root_2.mkdir()
     sentinel_2 = receiver_root_2 / "___DASHBOARD_SENTINEL___.yaml"
@@ -519,19 +488,10 @@ def test_materialise_lets_platformio_ini_mtime_advance_when_content_changed(
     _materialise_in_tmp(second_tarball, offloader_root)
     after_ns = time.time_ns()
 
-    assert pio_ini.read_bytes() == receiver_pio.read_bytes(), "extract didn't overwrite"
-    # Content changed → helper MUST bump mtime forward (not just
-    # leave the tar member's default 0). SCons would otherwise see
-    # platformio.ini older than every existing .pioenvs/<name>/*.o
-    # and skip the rebuild — relying on PlatformIO's MD5 fallback
-    # to catch the change. The explicit forward bump removes that
-    # dependency on Decider config.
+    assert pio_ini.read_bytes() == receiver_pio.read_bytes()
     post_ns = pio_ini.stat().st_mtime_ns
-    assert post_ns != pinned_pio_ns, "prior mtime should NOT have been restored"
-    assert before_ns <= post_ns <= after_ns, (
-        f"diff-content extract should set mtime to ~now; got {post_ns} "
-        f"outside [{before_ns}, {after_ns}]"
-    )
+    assert post_ns != pinned_pio_ns
+    assert before_ns <= post_ns <= after_ns
 
 
 def test_force_idedata_cache_hit_does_not_touch_platformio_ini_mtime(
