@@ -211,6 +211,15 @@ class BuildSizeRefresher:
                 if result is None:
                     continue  # cache hit / no artifacts — nothing to publish
                 self._persist_size(configuration, result)
+                # Reflect the persisted signal into the local
+                # snapshot so a re-queue of the same configuration
+                # within this drain cycle sees the fresh cache.
+                metadata[configuration] = {
+                    **metadata.get(configuration, {}),
+                    "build_size_bytes": result.size_bytes,
+                    "build_size_dir_mtime": result.signal.dir_mtime,
+                    "build_size_info_mtime": result.signal.info_mtime,
+                }
                 try:
                     await self._on_refreshed(configuration)
                 except Exception:

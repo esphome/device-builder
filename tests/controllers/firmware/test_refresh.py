@@ -333,7 +333,9 @@ async def test_refresh_after_compile_skips_persist_on_hash_failure(
     controller._scanner = RecordingScanner()
     controller._build_size = MagicMock()
     controller._shutdown_callbacks = []
-    tmp_dir = Path(_tempfile.mkdtemp(prefix="dmstore_"))
+    tmp_dir_obj = _tempfile.TemporaryDirectory(prefix="dmstore_")
+    tmp_dir = Path(tmp_dir_obj.name)
+    controller._tmpdir = tmp_dir_obj  # keep alive
     controller._metadata_store = DeviceMetadataStore(
         config_dir=tmp_dir,
         data_dir=tmp_dir,
@@ -425,7 +427,9 @@ def _flush_controller(device: Device) -> tuple[Any, list[Any]]:
     controller._scanner = scanner
     controller._state_monitor = state_monitor
     controller._shutdown_callbacks = []
-    tmp_dir = Path(_tempfile.mkdtemp(prefix="dmstore_"))
+    tmp_dir_obj = _tempfile.TemporaryDirectory(prefix="dmstore_")
+    tmp_dir = Path(tmp_dir_obj.name)
+    controller._tmpdir = tmp_dir_obj  # keep alive
     controller._metadata_store = DeviceMetadataStore(
         config_dir=tmp_dir,
         data_dir=tmp_dir,

@@ -10,7 +10,7 @@ from typing import Any
 
 from ...helpers.json import JSONDecodeError, dumps_indent, loads
 from ...helpers.storage import ShutdownRegister, Store
-from ..config import metadata_transaction
+from ..config import _load_metadata, metadata_transaction
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -175,21 +175,27 @@ class DeviceMetadataStore:
         return dict(self._state)
 
     def _migrate_read_shared_sync(self) -> dict[str, dict[str, Any]]:
-        """Read store-shaped fields out of the shared sidecar (no mutation)."""
+        """Read store-shaped fields out of the shared sidecar.
+
+        Plain ``_load_metadata`` (not ``metadata_transaction``)
+        because the transaction unconditionally re-saves on exit
+        — pointless for a read-only scan that often finds nothing
+        to migrate. ``_save_metadata`` uses atomic rename so the
+        read sees a consistent snapshot without the flock.
+        """
         shared_path = self._config_dir / _SHARED_SIDECAR_FILENAME
         if not shared_path.exists():
             return {}
         migrated: dict[str, dict[str, Any]] = {}
-        with metadata_transaction(self._config_dir) as data:
-            for key, value in data.items():
-                # Top-level catalogs use ``_``-prefixed keys.
-                if key.startswith("_"):
-                    continue
-                if not isinstance(value, dict):
-                    continue
-                store_fields = {k: v for k, v in value.items() if k in STORE_FIELDS}
-                if store_fields:
-                    migrated[key] = store_fields
+        for key, value in _load_metadata(self._config_dir).items():
+            # Top-level catalogs use ``_``-prefixed keys.
+            if key.startswith("_"):
+                continue
+            if not isinstance(value, dict):
+                continue
+            store_fields = {k: v for k, v in value.items() if k in STORE_FIELDS}
+            if store_fields:
+                migrated[key] = store_fields
         return migrated
 
     def _migrate_strip_shared_sync(self, keys: Iterable[str]) -> None:
