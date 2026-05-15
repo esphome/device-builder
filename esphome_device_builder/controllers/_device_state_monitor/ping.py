@@ -23,6 +23,12 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+
+def _format_devices(devices: list[Device]) -> str:
+    """Render *devices* as ``"name (address), …"`` for log messages."""
+    return ", ".join(f"{d.name} ({d.address})" for d in devices)
+
+
 _PING_INTERVAL = 60  # seconds between ping sweeps
 # Bootstrap delay gives the mDNS browser a head start so the
 # common case (everything announces) skips a redundant ping the
@@ -97,18 +103,18 @@ class PingSource:
             signature = tuple(sorted((d.name, d.address) for d in pingable + dns_failed))
             if signature != self._last_logged_targets:
                 self._last_logged_targets = signature
-                pingable_str = ", ".join(f"{d.name} ({d.address})" for d in pingable) or "(none)"
                 if dns_failed:
-                    skipped_str = ", ".join(f"{d.name} ({d.address})" for d in dns_failed)
                     _LOGGER.debug(
                         "Pinging %d devices: %s; skipping %d (cached DNS failure): %s",
                         len(pingable),
-                        pingable_str,
+                        _format_devices(pingable) or "(none)",
                         len(dns_failed),
-                        skipped_str,
+                        _format_devices(dns_failed),
                     )
                 else:
-                    _LOGGER.debug("Pinging %d devices: %s", len(pingable), pingable_str)
+                    _LOGGER.debug(
+                        "Pinging %d devices: %s", len(pingable), _format_devices(pingable)
+                    )
         # ``self._concurrency`` semaphore caps in-flight ICMP at
         # ``_PING_BATCH_SIZE``; no need to pre-chunk the gather.
         await asyncio.gather(
@@ -117,15 +123,7 @@ class PingSource:
         )
 
     def _select_ping_targets(self) -> tuple[list[Device], list[Device]]:
-        """
-        Return ``(pingable, dns_failed)`` after running per-device side-effects.
-
-        Three filters apply: skip when a higher-priority source
-        owns the device; claim ``.local`` cache hits for mDNS so
-        the bare-hostname DNS fallback can't resolve them off-
-        subnet; flip OFFLINE without probing when DNS already
-        failed (no point hammering the resolver).
-        """
+        """Return ``(pingable, dns_failed)`` and apply per-device side-effects."""
         pingable: list[Device] = []
         dns_failed: list[Device] = []
         monitor = self._monitor

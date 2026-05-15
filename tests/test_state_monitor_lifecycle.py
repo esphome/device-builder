@@ -1441,14 +1441,7 @@ async def test_dns_failure_flicker_does_not_re_emit_log(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A device flipping between pingable and dns-failed each sweep logs once.
-
-    Production trigger: DNS cache TTL (120s) > ping interval (60s) makes a
-    permanently-DNS-failing device alternate every sweep between the
-    pingable bucket (cache just expired, resolve will fail again) and the
-    dns_failed bucket (fresh cache entry). The "Pinging N devices" line
-    must not re-emit on this transient bucket flip.
-    """
+    """A device flipping between pingable and dns-failed each sweep logs once."""
     flaky = _device(name="zom", address="zom.local", state=DeviceState.UNKNOWN)
     stable = _device(name="ok", address="ok.example.com", state=DeviceState.UNKNOWN)
     monitor, _callbacks = _make_monitor([flaky, stable])
@@ -1459,9 +1452,6 @@ async def test_dns_failure_flicker_does_not_re_emit_log(
     monkeypatch.setattr(ping_module, "icmp_ping", _icmp)
     monitor.state.dns_cache.async_resolve = AsyncMock(return_value=["192.0.2.5"])
     monitor.get_cached_addresses = MagicMock(return_value=None)
-    # ``zom`` alternates True/False every classify call, ``ok`` is always
-    # resolvable. ``side_effect`` is a list — pytest will replay it in
-    # order across however many calls the loop makes.
     cache_calls = {"n": 0}
 
     def _has_cached_failure(host: str) -> bool:
@@ -1484,8 +1474,6 @@ async def test_dns_failure_flicker_does_not_re_emit_log(
         r for r in caplog.records if "Pinging" in r.message or "Skipping" in r.message
     ]
     assert len(membership_logs) == 1
-    # The flaky device made it into at least one classifier call, so the
-    # cache_calls counter is non-zero — confirms the flicker actually fired.
     assert cache_calls["n"] >= 2
 
 
