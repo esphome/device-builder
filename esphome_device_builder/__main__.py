@@ -258,18 +258,11 @@ def main() -> None:
 
     _warn_if_unprotected(settings)
 
-    # Refuse to start a second dashboard against the same data
-    # dir — the build tree, firmware queue, and StorageJSON
-    # sidecars are per-process state that two procs would scramble
-    # silently (issue #451). Keyed on ``CORE.data_dir`` rather
-    # than ``config_dir`` so the HA addon's Prod/Beta/DEV flavors
-    # — each with its own per-instance ``/data`` but a shared
-    # ``/config/esphome`` mount — can run in parallel. The OS
-    # holds the flock for the dashboard's lifetime and releases
-    # it on exit (clean or crash); a stale lock file with no
-    # holder is harmless and re-acquired on the next start.
-    # ``CORE.data_dir`` resolves correctly here because
-    # ``parse_args`` above sets ``CORE.config_path``.
+    # Keyed on ``CORE.data_dir`` (not ``config_dir``) so the HA
+    # addon's Prod/Beta/DEV flavors — each with its own per-instance
+    # ``/data`` but a shared ``/config/esphome`` mount — can run in
+    # parallel. ``CORE.data_dir`` resolves here because ``parse_args``
+    # above sets ``CORE.config_path``.
     with ensure_single_execution(CORE.data_dir) as lock:
         if lock.exit_code is not None:
             sys.exit(lock.exit_code)

@@ -123,23 +123,9 @@ def test_metadata_transaction_persists_changes(tmp_path: Path) -> None:
 def test_metadata_transaction_serialises_across_flocks(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """
-    Concurrent transactions from peer processes don't lose updates.
-
-    The HA addon multi-flavor shape — Prod/Beta/DEV sharing
-    ``/config/esphome`` — has three processes each able to RMW
-    the sidecar. Without an inter-process lock, two writers can
-    each load the same stale snapshot and clobber the other's
-    update at save time.
-
-    Simulate two processes by bypassing ``_METADATA_LOCK`` (a
-    per-process ``threading.Lock`` that would otherwise serialise
-    the two threads inside this single test process before they
-    ever reach the flock). Thread A enters the transaction and
-    blocks inside the ``with`` body; thread B then tries to
-    enter and must wait at the flock until A releases. Both
-    updates land in the final file.
-    """
+    """Cross-process flock serialises peers RMW-ing disjoint keys."""
+    # Bypass _METADATA_LOCK so the two threads race directly at
+    # the flock — the same path two real processes would hit.
     monkeypatch.setattr(config_module, "_METADATA_LOCK", nullcontext())
 
     thread_a_in_block = threading.Event()

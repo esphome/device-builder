@@ -1,41 +1,23 @@
 """
 Single-process-per-``data_dir`` startup lock.
 
-The dashboard expects exactly one process per ``CORE.data_dir`` —
-the build tree (``<data_dir>/build/<name>/``), the firmware
-queue, and the StorageJSON sidecars (``<data_dir>/storage/``)
-are guarded by per-process ``threading.Lock`` instances that
-don't extend across processes. Two ``device-builder`` processes
-sharing a data dir would race-compile into the same build tree
-and race-write the same queue, scrambling state silently.
+Keyed on ``CORE.data_dir`` rather than ``config_dir`` so the HA
+addon's Prod/Beta/DEV flavors — distinct ``/data`` mounts but a
+shared ``/config/esphome`` — can run in parallel; the
+race-prone state (build tree, firmware queue, StorageJSON) all
+lives in ``data_dir`` and is per-flavor there. Same-data-dir
+double-launches (dev mode against the same ``--config-dir``)
+are still caught. Cross-flavor writes to the shared
+``.device-builder.json`` are serialised separately by an
+``fcntl.flock`` inside :func:`controllers.config.metadata_transaction`.
 
-Keyed on ``data_dir`` rather than ``config_dir`` so the HA
-add-on shape — where Prod/Beta/DEV flavors each have their own
-per-instance ``/data`` mount but a shared ``/config/esphome``
-YAML tree — can run in parallel without false contention. The
-``config_dir``-resident state that's still shared across
-flavors is handled separately: the ``.device-builder.json``
-metadata sidecar takes an ``fcntl.flock`` inside
-:func:`controllers.config.metadata_transaction` so cross-flavor
-RMW writes can't clobber each other; the peer-link key and
-``dashboard_id`` are first-write-only / idempotent after
-creation. The dev shape
-(``pip install esphome-device-builder`` against a checked-out
-dir) and the future Desktop shape still get the protection
-they need — two processes against the same ``--config-dir``
-share the default ``<config_dir>/.esphome`` data dir and the
-lock fires.
-
-This module mirrors Home Assistant's
-:func:`homeassistant.runner.ensure_single_execution`: open
-``<data_dir>/.device-builder.lock`` in append mode, take an
-exclusive non-blocking ``fcntl.flock``, and on success write a
-``{pid, lock_format_version, device_builder_version, start_ts}``
-JSON record into the file for diagnostics. On contention, read
-the existing record and surface the running PID + start time on
-stderr so the operator knows what they're stepping on; the
-caller is expected to honour the returned ``exit_code`` and
-exit non-zero.
+Mirrors :func:`homeassistant.runner.ensure_single_execution`:
+open ``<data_dir>/.device-builder.lock`` in append mode, take
+an exclusive non-blocking ``fcntl.flock``, and on success write
+a ``{pid, lock_format_version, device_builder_version, start_ts}``
+JSON record for diagnostics. On contention, surface the running
+PID + start time on stderr and return ``exit_code=1`` for the
+caller to honour.
 
 The lock is held for the dashboard's lifetime — the OS releases
 the ``flock`` automatically when the process exits (clean
@@ -195,30 +177,13 @@ def _open_lock_file(path: str, flags: int) -> int:
 @contextmanager
 def ensure_single_execution(lock_dir: Path) -> Generator[SingleInstanceLock]:
     """
-    Acquire the per-data-dir startup lock; yield a status object.
+    Acquire the per-``lock_dir`` startup lock; yield a status object.
 
-    ``lock_dir`` is the directory the ``.device-builder.lock``
-    file lives in; callers pass ``CORE.data_dir`` so the HA
-    addon's per-instance ``/data`` segregation lets Prod/Beta/DEV
-    coexist while same-data-dir double-launches are still caught.
-
-    On success, ``lock.exit_code`` stays ``None`` and the caller
-    runs normally — the underlying ``flock`` is held until the
-    context exits (i.e. process exit, since the dashboard wraps
-    its entire run inside this).
-
-    On contention, ``lock.exit_code`` is set to ``1`` and a
-    diagnostic message is printed to stderr; the caller is
-    expected to ``sys.exit(lock.exit_code)`` after the context
-    exits. The ``with`` body still runs in that case so the
-    caller always gets a chance to do its own cleanup, but
-    ``DeviceBuilder.run()`` should not be called.
-
-    Windows / no-fcntl platforms: silently yields a success
-    object without taking any lock. The dashboard's per-process
-    ``threading.Lock``-based guarantees still hold within a
-    single process; the cross-process race is unmitigated there
-    by design (issue #451).
+    Callers pass ``CORE.data_dir``. The flock is held for the
+    lifetime of the ``with`` block. On contention, sets
+    ``lock.exit_code = 1`` and prints diagnostics; the caller
+    should ``sys.exit(lock.exit_code)`` after the context exits.
+    Windows / no-fcntl: silent no-op.
     """
     lock = SingleInstanceLock()
 
@@ -229,13 +194,9 @@ def ensure_single_execution(lock_dir: Path) -> Generator[SingleInstanceLock]:
 
     lock_file_path = Path(lock_dir) / _LOCK_FILE_NAME
 
-    # ``data_dir`` may not exist yet on a fresh default-mode install
-    # (``CORE.data_dir`` -> ``<config_dir>/.esphome``); the dashboard
-    # would otherwise create it lazily on first compile. Without
-    # this, ``open(... "a+")`` raises ``FileNotFoundError`` (O_CREAT
-    # makes the file, not its parent), the OSError arm refuses to
-    # start, and the operator sees the dashboard fail on first
-    # launch.
+    # ``CORE.data_dir`` doesn't exist yet on a fresh default-mode
+    # install — created lazily by the first compile, which runs
+    # after the lock. ``O_CREAT`` makes the file, not its parent.
     try:
         lock_file_path.parent.mkdir(parents=True, exist_ok=True)
     except OSError:

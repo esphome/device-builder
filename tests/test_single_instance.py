@@ -111,17 +111,7 @@ def test_first_start_acquires_and_writes_lock_info(tmp_path: Path) -> None:
 
 @_REQUIRES_FCNTL
 def test_first_start_creates_missing_data_dir(tmp_path: Path) -> None:
-    """
-    The lock helper creates ``data_dir`` if it doesn't exist yet.
-
-    ``CORE.data_dir`` in default mode is ``<config_dir>/.esphome``,
-    which doesn't exist on a fresh install — the dashboard creates
-    it lazily on first compile. The single-instance lock runs
-    *before* any compile, so without an explicit mkdir the
-    ``open(..., "a+")`` would raise ``FileNotFoundError`` (O_CREAT
-    creates the file, not its parent), the OSError arm would
-    refuse to start, and the dashboard would fail on first launch.
-    """
+    """Helper creates ``data_dir`` if it doesn't exist yet (fresh install)."""
     missing_data_dir = tmp_path / ".esphome"
     assert not missing_data_dir.exists()
 
