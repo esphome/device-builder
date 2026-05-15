@@ -100,7 +100,7 @@ def materialise_remote_artifacts(tarball: bytes, configuration: str) -> Path:
 
 
 def _open_and_extract_build_tree(tarball: bytes, configuration: str) -> _ExtractedTarball:
-    """Open *tarball*, validate the storage shape, conditionally wipe + extract.
+    """Open *tarball*, stage the storage sidecar, conditionally wipe, extract the build tree.
 
     storage.json + idedata.json are cache-side files; their
     bytes are returned for the caller to rewrite before write
@@ -139,6 +139,10 @@ def _open_and_extract_build_tree(tarball: bytes, configuration: str) -> _Extract
                 receiver_build_path=receiver_build_path,
                 offloader_build_path=build_path,
             )
+            # rmtree is best-effort: failures log + fall through, and
+            # the extract below overwrites every member named in the
+            # tarball, but stale files the tarball doesn't mention can
+            # survive a failed wipe.
             if storage_should_clean(prior_storage, new_storage):
                 try:
                     rmtree(build_path)
@@ -299,7 +303,7 @@ def _stage_offloader_storage(
     receiver_build_path: Path,
     offloader_build_path: Path,
 ) -> StorageJSON:
-    """Write the receiver's storage to the offloader's path, remap paths, save, and return it."""
+    """Stage and return the offloader-form storage sidecar."""
     storage_path = resolve_storage_path(configuration)
     storage_path.parent.mkdir(parents=True, exist_ok=True)
     storage_path.write_bytes(receiver_storage_bytes)
