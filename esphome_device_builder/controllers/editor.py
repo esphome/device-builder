@@ -141,14 +141,19 @@ class EditorController:
         cfg_dir = Path(self._db.settings.config_dir).resolve()
         try:
             req_path = Path(requested).resolve()
-        except OSError:
-            # Canonicalisation failed (broken symlink, ENOTDIR,
-            # EACCES). The unresolved form can't be safely
-            # containment-checked, and read_text would fault for
-            # the same reason — refuse.
+        except (OSError, RuntimeError):
+            # Canonicalisation failed: broken symlink / ENOTDIR /
+            # EACCES (OSError), or an infinite symlink loop
+            # (RuntimeError on 3.12). The unresolved form can't
+            # be containment-checked, and read_text would fault
+            # for the same reason — refuse.
             return ""
         main_path = (cfg_dir / configuration).resolve()
-        if req_path == main_path or Path(requested).name == configuration:
+        # Bare-basename shortcut: the validator sometimes asks for
+        # the file by name only. Structural ``Path`` equality (not
+        # just ``.name``) keeps ``/tmp/kitchen.yaml`` from sneaking
+        # past the containment check below by colliding on basename.
+        if req_path == main_path or Path(requested) == Path(configuration):
             return content
         # Containment check: the validator subprocess is fed
         # attacker-controlled YAML, and ``!include /etc/passwd``

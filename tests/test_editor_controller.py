@@ -113,15 +113,7 @@ def test_resolve_file_reads_disk_for_include(tmp_path: Path) -> None:
 
 
 def test_resolve_file_refuses_paths_outside_config_dir(tmp_path: Path) -> None:
-    """Paths outside the config dir return ``""`` — never disk bytes.
-
-    The validator subprocess is fed attacker-controlled YAML and
-    follows ``!include`` by calling back into ``_resolve_file``; an
-    unscoped read would surface the bytes as ``yaml_errors`` parse
-    snippets to the client. Pin the containment: an absolute path
-    pointing at a file *outside* ``config_dir`` is dropped to ``""``
-    even when the file exists and is readable.
-    """
+    """An absolute path outside ``config_dir`` is dropped to ``""``."""
     config_dir = tmp_path / "config"
     config_dir.mkdir()
     outside = tmp_path / "secret.txt"
@@ -133,12 +125,7 @@ def test_resolve_file_refuses_paths_outside_config_dir(tmp_path: Path) -> None:
 
 
 def test_resolve_file_refuses_symlink_escape(tmp_path: Path) -> None:
-    """A symlink inside the config dir pointing outside is also refused.
-
-    ``Path.resolve()`` follows symlinks, so the realpath check
-    catches the "symlink in config_dir → /etc/passwd" trick that
-    a basename-only filter would miss.
-    """
+    """A symlink inside ``config_dir`` pointing outside is refused after realpath."""
     config_dir = tmp_path / "config"
     config_dir.mkdir()
     secret = tmp_path / "secret.txt"
@@ -149,6 +136,42 @@ def test_resolve_file_refuses_symlink_escape(tmp_path: Path) -> None:
     controller = _make_controller(config_dir)
     result = controller._resolve_file(str(link), "kitchen.yaml", "")
     assert result == ""
+
+
+def test_resolve_file_basename_shortcut_rejects_abs_path_with_matching_name(
+    tmp_path: Path,
+) -> None:
+    """``/elsewhere/kitchen.yaml`` does not short-circuit to in-memory content."""
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    decoy = elsewhere / "kitchen.yaml"
+    decoy.write_text("on-disk-elsewhere\n", encoding="utf-8")
+
+    controller = _make_controller(config_dir)
+    result = controller._resolve_file(str(decoy), "kitchen.yaml", "esphome:\n  name: in-memory\n")
+    # Falls through to the containment check → out-of-tree → "".
+    assert result == ""
+
+
+def test_resolve_file_returns_empty_on_symlink_loop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``Path.resolve()`` raising ``RuntimeError`` (symlink loop) → ``""``."""
+    controller = _make_controller(tmp_path)
+    include = tmp_path / "loop.yaml"
+
+    real_resolve = Path.resolve
+
+    def _raise_for_loop(self: Path, *args: Any, **kwargs: Any) -> Path:
+        if self.name == "loop.yaml":
+            raise RuntimeError("Symlink loop in path")
+        return real_resolve(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", _raise_for_loop)
+
+    assert controller._resolve_file(str(include), "kitchen.yaml", "") == ""
 
 
 def test_resolve_file_returns_empty_on_missing_include(tmp_path: Path) -> None:
@@ -636,14 +659,7 @@ async def test_terminate_subprocess_swallows_stdin_write_failure(
 def test_resolve_file_returns_empty_when_requested_path_unresolvable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``Path.resolve()`` raising → ``""``, never an unconfined read.
-
-    An unresolved path can't be containment-checked against the
-    config dir, so trusting it would re-open the arbitrary-file-read
-    hole the containment check exists to close. Pin that the
-    fallback drops to empty content rather than reading the
-    unresolved form.
-    """
+    """``Path.resolve()`` raising → ``""`` (unresolved paths can't be containment-checked)."""
     controller = _make_controller(tmp_path)
     include = tmp_path / "common.yaml"
     include.write_text("ok\n", encoding="utf-8")
