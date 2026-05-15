@@ -1,12 +1,4 @@
-"""Tests for ``DeviceMetadataStore``.
-
-Pin the contract the controller relies on: RAM-canonical reads,
-tri-state field semantics, idempotent updates, one-shot migration
-out of the shared sidecar, and the volatile-field clear used by
-the archive flow. The store's debounced disk write is pinned by
-the underlying ``helpers.storage.Store`` tests; this file tests
-the per-device adapter's behaviour on top.
-"""
+"""Tests for ``DeviceMetadataStore``."""
 
 from __future__ import annotations
 
@@ -55,12 +47,7 @@ async def test_async_load_with_no_files_leaves_state_empty(tmp_path: Path) -> No
 
 @pytest.mark.asyncio
 async def test_async_load_migrates_live_fields_from_shared_sidecar(tmp_path: Path) -> None:
-    """First run after upgrade pulls store-shaped fields out of the shared sidecar.
-
-    Identity fields (``board_id``, ``labels``, ``friendly_name``)
-    stay in the shared sidecar; only live observation + cache
-    fields migrate. The new file lands on disk after migration.
-    """
+    """First-run migration pulls store-shaped fields out of the shared sidecar."""
     await asyncio.to_thread(
         _save_metadata,
         tmp_path,
@@ -104,13 +91,7 @@ async def test_async_load_migrates_live_fields_from_shared_sidecar(tmp_path: Pat
 
 @pytest.mark.asyncio
 async def test_async_load_skips_migration_when_new_file_exists(tmp_path: Path) -> None:
-    """Pre-existing new file is the source of truth; pins crash-recovery shape.
-
-    Also covers the "crashed between flush and strip" recovery
-    path: the shared sidecar still carries orphan store-shaped
-    fields and the new file holds the migrated state. Next boot
-    must read the new file and leave the orphan data alone.
-    """
+    """Pre-existing new file wins; orphan fields in the shared sidecar are left alone."""
     new_path = tmp_path / ".device-builder-devices.json"
     new_path.write_bytes(b'{"kitchen.yaml": {"ip": "10.0.0.1"}}')
     await asyncio.to_thread(
@@ -132,13 +113,7 @@ async def test_async_load_skips_migration_when_new_file_exists(tmp_path: Path) -
 
 @pytest.mark.asyncio
 async def test_async_load_drops_shared_entry_with_only_store_fields(tmp_path: Path) -> None:
-    """An entry holding ONLY store-shaped fields collapses out of the shared sidecar.
-
-    Without the drop the shared sidecar would carry an empty
-    dict for every device that's never had an identity field
-    written (legacy fleets pre-PR where the user never named
-    a board through the wizard).
-    """
+    """A shared-sidecar entry holding only store-shaped fields collapses out."""
     await asyncio.to_thread(
         _save_metadata,
         tmp_path,
@@ -162,12 +137,7 @@ async def test_async_load_drops_shared_entry_with_only_store_fields(tmp_path: Pa
 
 @pytest.mark.asyncio
 async def test_async_load_migration_is_idempotent_across_loads(tmp_path: Path) -> None:
-    """A second ``async_load`` reads the new file; the shared sidecar isn't re-stripped.
-
-    Pins crash-free repeat boots: the new file is canonical
-    after the first migration, and subsequent loads must
-    never re-enter the migration path.
-    """
+    """Second ``async_load`` reads the new file; shared sidecar stays byte-identical."""
     await asyncio.to_thread(
         _save_metadata,
         tmp_path,
@@ -182,8 +152,6 @@ async def test_async_load_migration_is_idempotent_across_loads(tmp_path: Path) -
 
     first = _make_store(tmp_path)
     await first.async_load()
-    # Snapshot the shared-sidecar state after migration; a second
-    # load must leave it byte-identical.
     shared_after_first = await asyncio.to_thread(_load_metadata, tmp_path)
 
     second = _make_store(tmp_path)
@@ -225,17 +193,8 @@ async def test_e2e_pre_pr_shape_migrates_through_resolver(
     make_controller: Any,
     seed_device: Any,
 ) -> None:
-    """Pre-PR sidecar shape survives migration end-to-end.
-
-    Drives the full ``async_load`` → ``_resolve_device_metadata``
-    → ``DeviceFileMetadata`` path: seed a realistic pre-PR
-    ``.device-builder.json`` with mixed live + identity fields,
-    run migration, then assert the resolver sees every field via
-    its two-source split (identity from shared, live from store).
-    """
+    """Pre-PR sidecar shape survives migration end-to-end through the resolver."""
     await seed_device(tmp_path, "kitchen.yaml")
-    # Pre-PR shape: every field that used to live in
-    # ``.device-builder.json``, both identity and live state.
     pre_pr = {
         "board_id": "esp32-c3-devkitm-1",
         "friendly_name": "Kitchen Sensor",
@@ -250,9 +209,7 @@ async def test_e2e_pre_pr_shape_migrates_through_resolver(
         "build_size_dir_mtime": 1714900000,
         "build_size_info_mtime": 1714900050,
     }
-    # Use the raw ``_save_metadata`` to land everything (including
-    # ``labels``, which ``set_device_metadata`` doesn't expose) in
-    # one shot, matching what an existing user's pre-PR file holds.
+    # ``labels`` isn't exposed via ``set_device_metadata`` so go through the raw helper.
     existing = await asyncio.to_thread(_load_metadata, tmp_path)
     existing["kitchen.yaml"] = {**existing.get("kitchen.yaml", {}), **pre_pr, "labels": ["abc"]}
     existing["_labels"] = [{"id": "abc", "name": "Bedroom"}]
@@ -280,9 +237,6 @@ async def test_e2e_pre_pr_shape_migrates_through_resolver(
     assert metadata.api_encryption_active == "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
     assert metadata.build_size_bytes == 12345
 
-    # On-disk state: shared keeps identity + labels + top-level
-    # catalogs; store holds the live fields; ``mac_address`` stays
-    # in shared since it's intrinsic to the physical board.
     shared = await asyncio.to_thread(_load_metadata, tmp_path)
     assert shared["_labels"] == [{"id": "abc", "name": "Bedroom"}]
     assert shared["kitchen.yaml"] == {
@@ -333,12 +287,7 @@ async def test_async_load_recovers_from_non_dict_store_json(tmp_path: Path) -> N
 
 @pytest.mark.asyncio
 async def test_migration_strip_skips_non_dict_entries(tmp_path: Path) -> None:
-    """A non-dict entry in the shared sidecar doesn't trip the strip phase.
-
-    Defensive — a hand-edited / corrupt sidecar shouldn't crash
-    migration. The read phase already filters by ``isinstance``;
-    pin the same shape on the strip side too.
-    """
+    """A non-dict entry in the shared sidecar doesn't trip the strip phase."""
     await asyncio.to_thread(
         _save_metadata,
         tmp_path,
@@ -353,37 +302,20 @@ async def test_migration_strip_skips_non_dict_entries(tmp_path: Path) -> None:
 
     assert store.snapshot_all() == {"good.yaml": {"ip": "10.0.0.1"}}
     shared = await asyncio.to_thread(_load_metadata, tmp_path)
-    # ``good.yaml``'s store field stripped; identity stays.
     assert shared["good.yaml"] == {"board_id": "esp32"}
-    # ``bad.yaml`` non-dict left untouched (not in migrated keys, so
-    # the strip phase doesn't pop it).
     assert shared["bad.yaml"] == "not-a-dict"
 
 
 @pytest.mark.asyncio
 async def test_migration_strip_handles_concurrent_corruption(tmp_path: Path) -> None:
-    """If a migrated entry turns non-dict between read and strip, skip cleanly.
-
-    Pin the defensive ``isinstance(entry, dict)`` guard inside
-    the strip transaction: a concurrent writer could in theory
-    replace a per-device entry with a non-dict value between
-    the read transaction snapshotting it and the strip transaction
-    re-reading it. The guard ensures the strip pass doesn't
-    crash on the racy entry.
-    """
+    """A migrated entry that turns non-dict between read and strip skips cleanly."""
     store = _make_store(tmp_path)
-    # Pretend the read phase already happened and pulled
-    # ``kitchen.yaml``'s store fields into RAM.
     store._state = {"kitchen.yaml": {"ip": "10.0.0.1"}}
-    # Race: the shared sidecar's entry for ``kitchen.yaml`` is now
-    # a non-dict (concurrent corruption / external edit).
     await asyncio.to_thread(_save_metadata, tmp_path, {"kitchen.yaml": "not-a-dict"})
 
-    # Direct strip call mimics the second migration transaction.
     await asyncio.to_thread(store._migrate_strip_shared_sync, ["kitchen.yaml"])
 
     shared = await asyncio.to_thread(_load_metadata, tmp_path)
-    # Bad entry left as-is; strip phase didn't crash or pop it.
     assert shared == {"kitchen.yaml": "not-a-dict"}
 
 
@@ -492,14 +424,7 @@ async def test_update_treats_falsy_as_clear(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_set_field_writes_empty_string_literally(tmp_path: Path) -> None:
-    """``set_field`` persists the empty-string sentinel that ``update`` would clear.
-
-    Plaintext-confirmed ``api_encryption_active=""`` is the
-    canonical case: ``update(api_encryption_active="")`` would
-    clear the key under tri-state semantics, but the empty
-    string IS the truth that needs persisting (distinct from
-    ``None`` for "not yet observed").
-    """
+    """``set_field`` persists the empty-string sentinel that ``update`` would clear."""
     store = _make_store(tmp_path)
     store.set_field("kitchen.yaml", "api_encryption_active", "")
     assert store.get("kitchen.yaml") == {"api_encryption_active": ""}
@@ -539,12 +464,7 @@ async def test_set_field_no_op_when_value_unchanged(
 async def test_update_idempotent_no_op_when_value_unchanged(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Re-asserting the same value doesn't reschedule a save.
-
-    The idempotency check matters on the scan hot path: a
-    no-op call would otherwise wake the debounce timer on
-    every re-assert.
-    """
+    """Re-asserting the same value doesn't reschedule a save."""
     schedules: list[float] = []
     store = _make_store(tmp_path)
     original = store._store.async_delay_save
@@ -572,13 +492,11 @@ async def test_remove_drops_entry_and_flushes(tmp_path: Path) -> None:
     """``remove`` pops + flushes immediately so a quick restart can't resurrect."""
     store = _make_store(tmp_path)
     store.update("kitchen.yaml", ip="10.0.0.1")
-    # Drain the initial save.
     await store._store.async_save_now()
 
     await store.remove("kitchen.yaml")
 
     assert store.get("kitchen.yaml") == {}
-    # On disk: the entry is gone.
     new_file = tmp_path / ".device-builder-devices.json"
     on_disk = new_file.read_bytes()
     assert b"kitchen.yaml" not in on_disk
@@ -617,11 +535,7 @@ async def test_clear_volatile_pops_every_store_field(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_clear_volatile_replaces_entry_does_not_mutate_in_place(tmp_path: Path) -> None:
-    """A reference held by another thread sees the pre-clear state.
-
-    In-place mutation would let executor-thread ``get()`` calls
-    observe a half-cleared entry mid-iteration.
-    """
+    """A reference held mid-iteration sees the pre-clear state, not a half-cleared one."""
     store = _make_store(tmp_path)
     store.update("kitchen.yaml", ip="10.0.0.1", deployed_config_hash="abc12345")
     captured = store._state["kitchen.yaml"]
@@ -629,8 +543,6 @@ async def test_clear_volatile_replaces_entry_does_not_mutate_in_place(tmp_path: 
 
     store.clear_volatile("kitchen.yaml")
 
-    # The captured reference still holds the original entry —
-    # ``clear_volatile`` replaced rather than popping in place.
     assert captured == {"ip": "10.0.0.1", "deployed_config_hash": "abc12345"}
 
 
@@ -688,15 +600,7 @@ def test_store_fields_pinned() -> None:
 async def test_multiple_updates_coalesce_into_one_disk_write(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
-    """Three mutations in a row collapse into one ``async_save_now`` flush.
-
-    The whole point of the store: turn N hot-path mutations
-    into one debounced disk write. ``async_save_now`` cancels
-    the pending delay handle and flushes the captured
-    ``_data_func`` once — so monkeypatching ``_encode_and_write``
-    and counting calls is the cleanest assertion of the
-    coalescing guarantee.
-    """
+    """Three mutations in a row collapse into one ``async_save_now`` flush."""
     store = _make_store(tmp_path)
 
     writes = 0

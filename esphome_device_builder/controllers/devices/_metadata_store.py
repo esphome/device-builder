@@ -1,11 +1,4 @@
-"""Per-device live-state store, RAM-canonical with a debounced disk write.
-
-Owns ``data_dir/.device-builder-devices.json``. Per-flavor by
-design: ``/data`` is per-instance on the HA addon while
-``/config/esphome`` is shared, so live mDNS observations and
-per-instance build caches must NOT cross flavors. Identity stays
-in the shared ``config_dir/.device-builder.json`` sidecar.
-"""
+"""Per-device live-state store, RAM-canonical with a debounced disk write."""
 
 from __future__ import annotations
 
@@ -24,12 +17,9 @@ _LOGGER = logging.getLogger(__name__)
 _STORE_FILENAME = ".device-builder-devices.json"
 _SHARED_SIDECAR_FILENAME = ".device-builder.json"
 
-# Tuned so a 70-device fleet's startup mDNS burst coalesces into
-# one write per device once the broadcasts settle.
 _DEFAULT_SAVE_DELAY = 2.0
 
-# Fields the store owns. Everything else is on the shared sidecar
-# (identity + ``mac_address`` + ``labels`` + top-level catalogs).
+# Fields the store owns. Everything else lives in the shared sidecar.
 STORE_FIELDS: frozenset[str] = frozenset(
     {
         "ip",
@@ -83,10 +73,8 @@ class DeviceMetadataStore:
     async def async_load(self) -> None:
         """Seed RAM from disk; migrate from the shared sidecar on first run.
 
-        Flush new file first, strip the shared sidecar second.
-        A crash between the two leaves both files with the same
-        per-device data; next ``async_load`` reads the new file
-        and skips migration.
+        Flushes the new file before stripping the shared sidecar
+        so a crash between the two preserves the migration.
         """
         loaded = await self._store.async_load()
         if loaded is not None:
@@ -119,13 +107,7 @@ class DeviceMetadataStore:
         delay: float = _DEFAULT_SAVE_DELAY,
         **fields: Any,
     ) -> None:
-        """Merge *fields* into *filename*; schedule debounced flush.
-
-        Tri-state: ``None`` leaves the field alone, truthy writes,
-        falsy clears the key (and drops the entry when the last
-        key clears). Callers persisting a meaningful falsy value
-        (``api_encryption_active=""``) use :meth:`set_field`.
-        """
+        """Merge *fields* into *filename*; tri-state (None=leave, truthy=write, falsy=clear)."""
         new_entry = dict(self._state.get(filename, {}))
         for key, value in fields.items():
             if value is None:
@@ -144,12 +126,7 @@ class DeviceMetadataStore:
         *,
         delay: float = _DEFAULT_SAVE_DELAY,
     ) -> None:
-        """Write *key=value* literally; bypass :meth:`update`'s tri-state.
-
-        For values whose falsy form is the truth that needs
-        persisting (``api_encryption_active=""`` for plaintext-
-        confirmed, distinct from ``None`` for unobserved).
-        """
+        """Write *key=value* literally; bypass :meth:`update`'s tri-state semantics."""
         new_entry = {**self._state.get(filename, {}), key: value}
         self._commit_entry(filename, new_entry, delay=delay)
 
@@ -171,13 +148,7 @@ class DeviceMetadataStore:
         return {k: dict(v) for k, v in self._state.items()}
 
     def _commit_entry(self, filename: str, new_entry: dict[str, Any], *, delay: float) -> bool:
-        """Replace *filename*'s entry; schedule a save iff anything changed.
-
-        Drops the entry entirely when *new_entry* is empty.
-        Always builds a fresh dict on update so executor-thread
-        :meth:`get` reads can't observe a half-mutated entry.
-        Returns True when state changed, False on no-op.
-        """
+        """Replace *filename*'s entry; returns True iff state changed."""
         if new_entry == self._state.get(filename, {}):
             return False
         if new_entry:
@@ -188,15 +159,10 @@ class DeviceMetadataStore:
         return True
 
     def _snapshot(self) -> dict[str, dict[str, Any]]:
-        """Return a top-level copy of the RAM dict for ``Store`` to encode.
+        """Top-level copy of the RAM dict for ``Store``'s executor-thread encode.
 
-        ``Store`` invokes this on the event loop and hands the
-        result to the executor for encoding. A live ref would let
-        the executor iterate while a concurrent ``_commit_entry``
-        adds a key (``RuntimeError: dictionary changed size``).
-        Inner dicts can stay shared: every mutator replaces the
-        per-filename dict rather than mutating it in place, so
-        the encoder's view of any single entry is stable.
+        Inner dicts stay shared because :meth:`_commit_entry`
+        replaces rather than mutating in place.
         """
         return dict(self._state)
 

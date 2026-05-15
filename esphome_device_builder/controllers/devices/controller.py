@@ -103,11 +103,8 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         # wired up in start(); held so stop() can detach cleanly.
         self._unsub_job_completed: Any = None
 
-        # Per-device live-state store, ``data_dir``-resident.
         # Constructed before the scanner so the first
-        # ``_resolve_device_metadata`` reads off it. The
-        # ``Store`` registers its ``async_save_now`` against the
-        # callback list so ``stop()`` flushes pending writes.
+        # ``_resolve_device_metadata`` reads off the store.
         self._shutdown_callbacks: list[ShutdownCallback] = []
         self._metadata_store = DeviceMetadataStore(
             config_dir=self._db.settings.config_dir,
@@ -155,10 +152,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         # (clean / delete N devices in a row, fleet-wide startup
         # sweep) all funnel into one queue so repeated requests
         # for the same configuration coalesce and we never pile
-        # up background tasks. Constructed after the scanner so
-        # ``on_refreshed=self._scanner.reload`` is bindable; the
-        # snapshot / persist callbacks bridge to the metadata
-        # store on the event loop side.
+        # up background tasks.
         self._build_size = BuildSizeRefresher(
             get_filenames=lambda: (d.configuration for d in self._get_devices()),
             get_metadata_snapshot=self._metadata_store.snapshot_all,
@@ -226,10 +220,8 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         """Initialise — load state, scan files, start mDNS + ping + MQTT discovery."""
         self.state.esphome_cmd = _find_esphome_cmd()
         loop = asyncio.get_running_loop()
-        # Seed RAM from disk (and migrate per-device entries out of
-        # ``.device-builder.json`` on the first post-upgrade boot)
-        # before the scanner runs — the scanner's metadata resolver
-        # reads off the store.
+        # Seed the store (and migrate on first post-upgrade boot)
+        # before the scanner runs — resolver reads off it.
         await self._metadata_store.async_load()
         await loop.run_in_executor(None, self._load_ignored_devices)
         await self._scanner.scan()
@@ -253,8 +245,6 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         await self._build_size.stop()
         await self._mqtt_coordinator.stop()
         await self._state_monitor.stop()
-        # Flush any pending debounced ``Store`` writes (metadata
-        # store, etc.) before the loop tears down.
         for callback in self._shutdown_callbacks:
             await callback()
 

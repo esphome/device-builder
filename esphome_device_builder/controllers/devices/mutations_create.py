@@ -145,14 +145,9 @@ async def create_device(  # noqa: PLR0912, PLR0915
         storage.save(storage_path)
 
     await loop.run_in_executor(None, _init_storage)
-    # Wipe residual metadata before writing the new entry. Archive
-    # preserves identity fields (board_id / friendly_name /
-    # comment) so unarchive can restore state, but a *new* device
-    # at the same filename must start fresh; otherwise an archived
-    # device's board_id would silently mis-bind. The stub create
-    # path wouldn't otherwise overwrite the entry, so the wipe
-    # runs unconditionally — both the data-dir live-state store
-    # and the shared config-dir identity sidecar.
+    # Archive keeps identity for unarchive; a fresh device at the
+    # same filename must start clean or an archived board_id
+    # silently mis-binds.
     await controller._delete_device_metadata(filename)
     if board_id:
         await controller._persist_device_metadata_async(filename, board_id=board_id)

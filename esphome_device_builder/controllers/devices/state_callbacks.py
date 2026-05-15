@@ -23,16 +23,7 @@ def _apply_logged_observation(
     log_label: str,
     on_change: Callable[[Device], None] | None = None,
 ) -> None:
-    """Apply *value* to ``device.<field_name>``; log, persist, fire DEVICE_UPDATED.
-
-    Used by callbacks whose shape is a clean
-    dedupe-then-set-then-persist over every matching device
-    (``deployed_version`` / ``deployed_config_hash``). The
-    first-observation log demotes to DEBUG so a real X → Y
-    transition stands out at INFO. *on_change* (if given) sets
-    derived fields like ``update_available`` after the primary
-    field is written.
-    """
+    """Apply *value* to ``device.<field_name>``; log, persist, fire DEVICE_UPDATED."""
     for device in controller._devices_by_name(name):
         old = getattr(device, field_name)
         if old == value:
@@ -82,12 +73,10 @@ def on_state_change(
 
 
 def on_ip_change(controller: DevicesController, name: str, ip: str, addresses: list[str]) -> None:
-    """
-    Forward IP updates onto the event bus and persist the primary value.
+    """Forward IP updates onto the event bus and persist the primary value.
 
-    ``ip=""`` (empty *addresses*) means the device dropped off
-    mDNS; the last-known primary stays on disk so the OTA
-    address cache survives the offline window.
+    ``ip=""`` (empty *addresses*) keeps the last-known primary
+    on disk so the OTA address cache survives offline windows.
     """
     new_addresses = list(addresses)
     for device in controller._devices_by_name(name):
@@ -108,13 +97,7 @@ def on_ip_change(controller: DevicesController, name: str, ip: str, addresses: l
 
 
 def on_version_change(controller: DevicesController, name: str, version: str) -> None:
-    """Apply a fresh ESPHome version observed via mDNS.
-
-    Persisted through the metadata store rather than written
-    back into upstream's ``StorageJSON.esphome_version``;
-    StorageJSON describes the binary we *compiled* and
-    shouldn't be churned by the running firmware's broadcast.
-    """
+    """Apply a fresh ESPHome version observed via mDNS."""
 
     def _flip_update_available(device: Device) -> None:
         device.update_available = bool(device.current_version and version != device.current_version)
@@ -130,14 +113,7 @@ def on_version_change(controller: DevicesController, name: str, version: str) ->
 
 
 def on_mac_address_change(controller: DevicesController, name: str, mac: str) -> None:
-    """
-    Apply a MAC address observed via mDNS and derive interface MACs.
-
-    Only the primary MAC is persisted; ``ethernet_mac`` /
-    ``bluetooth_mac`` are recomputed via
-    :func:`derive_interface_macs` from primary +
-    ``loaded_integrations`` on each apply.
-    """
+    """Apply a MAC address observed via mDNS and derive interface MACs."""
     for device in controller._devices_by_name(name):
         if device.mac_address == mac:
             continue
@@ -152,15 +128,11 @@ def on_mac_address_change(controller: DevicesController, name: str, mac: str) ->
 
 
 def on_api_encryption_change(controller: DevicesController, name: str, encryption: str) -> None:
-    """
-    Apply the API-encryption state observed via mDNS.
+    """Apply the API-encryption state observed via mDNS.
 
-    Promotes ``api_encrypted`` to True on a truthy cipher; the
-    scan-time YAML pass misses Jinja-templated ``packages`` so
-    the wire signal is the truthful one (issue #437). The
-    empty-string broadcast deliberately doesn't clear the flag,
-    leaving the wire-says-no / YAML-says-yes "mismatch" /
-    "pending" shape to the existing state machine.
+    A truthy wire cipher promotes ``api_encrypted`` to True;
+    the scan-time YAML check misses Jinja-templated ``packages``
+    (issue #437).
     """
     for device in controller._devices_by_name(name):
         wire_promotes_encrypted = bool(encryption) and not device.api_encrypted
@@ -169,9 +141,8 @@ def on_api_encryption_change(controller: DevicesController, name: str, encryptio
         device.api_encryption_active = encryption
         if wire_promotes_encrypted:
             device.api_encrypted = True
-        # ``set_field`` (not ``update``) — the empty-string
-        # plaintext-confirmed marker is a falsy value that
-        # ``update``'s tri-state semantics would clear.
+        # ``set_field`` (not ``update``): empty string is the
+        # plaintext-confirmed marker, distinct from ``None``.
         controller._metadata_store.set_field(
             device.configuration, "api_encryption_active", encryption
         )
@@ -179,18 +150,9 @@ def on_api_encryption_change(controller: DevicesController, name: str, encryptio
 
 
 def on_config_hash_change(controller: DevicesController, name: str, config_hash: str) -> None:
-    """Apply a running-firmware config hash observed via mDNS.
-
-    Flips ``has_pending_changes`` against the expected hash when
-    both are known; firmware predating the ``config_hash`` TXT
-    broadcast never triggers this callback and stays on the
-    legacy mtime check.
-    """
+    """Apply a running-firmware config hash observed via mDNS."""
 
     def _flip_pending(device: Device) -> None:
-        # Mtime side stays with the periodic scanner poll so this
-        # callback can stay off-disk; a YAML edit between polls
-        # (~5s) self-corrects on the next scan.
         if device.expected_config_hash:
             device.has_pending_changes = device.expected_config_hash != config_hash
 

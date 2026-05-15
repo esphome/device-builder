@@ -20,6 +20,17 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
+def _partition_fields(fields: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Split *fields* into (store_fields, shared_fields); drop ``None`` values."""
+    store: dict[str, Any] = {}
+    shared: dict[str, Any] = {}
+    for key, value in fields.items():
+        if value is None:
+            continue
+        (store if key in STORE_FIELDS else shared)[key] = value
+    return store, shared
+
+
 class DeviceMetadataBase(DeviceBuilderBase):
     """Metadata resolution + persistence."""
 
@@ -99,14 +110,8 @@ class DeviceMetadataBase(DeviceBuilderBase):
         return matched.id
 
     async def _persist_device_metadata_async(self, configuration: str, **fields: Any) -> None:
-        """Route *fields* between the data_dir store and the shared sidecar.
-
-        ``STORE_FIELDS`` lands in the store, everything else in
-        the shared sidecar. ``None`` is filtered at the boundary
-        so an all-None call doesn't rewrite either file.
-        """
-        store_fields = {k: v for k, v in fields.items() if v is not None and k in STORE_FIELDS}
-        shared_fields = {k: v for k, v in fields.items() if v is not None and k not in STORE_FIELDS}
+        """Route *fields* between the data_dir store and the shared sidecar."""
+        store_fields, shared_fields = _partition_fields(fields)
         if store_fields:
             self._metadata_store.update(configuration, **store_fields)
         if shared_fields:

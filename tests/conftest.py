@@ -91,11 +91,8 @@ _STARTUP_BLOCKING_OK: tuple[tuple[str, str], ...] = (
     # ``verify_chip`` for firmware install) but every subsequent
     # one hits the cache.
     ("controllers/firmware/helpers.py", "_find_sibling_cli"),
-    # ``DevicesController.__init__`` resolves ``CORE.data_dir`` to
-    # anchor the ``DeviceMetadataStore`` file. ``CORE.data_dir``
-    # walks ``CORE.config_dir`` which calls ``Path.is_dir()`` — a
-    # one-time stat at controller construction, runs once per
-    # process at dashboard startup.
+    # ``CORE.data_dir`` walks ``CORE.config_dir`` which stats — one-time
+    # at controller construction.
     ("controllers/devices/controller.py", "__init__"),
 )
 
@@ -723,10 +720,12 @@ def make_devices_controller_with_bus(
     for device in devices:
         by_name.setdefault(device.name, []).append(device)
     controller._scanner.get_by_name = lambda name: by_name.get(name, [])
-    # State callbacks now call sync ``_persist_*`` helpers that
-    # reach into the metadata stores; attach real ones anchored
-    # at a throwaway location.
-    tmp_dir = Path(_tempfile.mkdtemp(prefix="dmstore_"))
+    # Real metadata stores anchored at a TemporaryDirectory whose
+    # lifetime is pinned to the controller; ``__del__`` cleans up
+    # the dir when the test releases its reference.
+    tmp_dir_obj = _tempfile.TemporaryDirectory(prefix="dmstore_")
+    tmp_dir = Path(tmp_dir_obj.name)
+    controller._tmpdir = tmp_dir_obj  # keep alive
     controller._shutdown_callbacks = []
     controller._metadata_store = DeviceMetadataStore(
         config_dir=tmp_dir,

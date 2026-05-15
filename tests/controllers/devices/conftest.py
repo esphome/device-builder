@@ -452,12 +452,8 @@ def make_controller() -> MakeControllerFactory:
         controller.state = DevicesState()
         controller._db.settings.config_dir = config_dir
         controller._db.settings.rel_path = lambda configuration: config_dir / configuration
-        # Real ``DeviceMetadataStore`` so identity-read / live-write
-        # paths actually round-trip through disk during the test.
-        # Tests don't need a separate ``data_dir`` — keep it under
-        # ``config_dir`` so the cleanup behaves like a single test
-        # workspace. ``shutdown_register`` is a no-op since the
-        # bypass-init controller has no graceful-stop flow.
+        # ``data_dir`` collapsed onto ``config_dir`` for tmp_path
+        # cleanup; real stores so round-trips hit disk.
         controller._shutdown_callbacks = []
         controller._metadata_store = DeviceMetadataStore(
             config_dir=config_dir,

@@ -1,9 +1,4 @@
-"""Async wrapper for the shared sidecar's transactional helpers.
-
-Encapsulates ``config_dir`` so callers don't pass it. Async
-methods push the blocking RMW + flock to a thread; ``get_sync``
-is the executor-thread shorthand for the same read.
-"""
+"""Async wrapper for the shared sidecar's transactional helpers."""
 
 from __future__ import annotations
 
@@ -34,12 +29,7 @@ class SharedSidecarClient:
         return await asyncio.to_thread(get_device_metadata, self._config_dir, filename)
 
     def update_sync(self, filename: str, **fields: Any) -> None:
-        """Apply *fields* to *filename* synchronously.
-
-        Safe from executor threads (the underlying transactional
-        helper takes its own ``threading.Lock`` + ``fcntl.flock``).
-        Event-loop callers use :meth:`update` instead.
-        """
+        """Apply *fields* synchronously; safe from executor threads, not the loop."""
         set_device_metadata(self._config_dir, filename, **fields)
 
     async def update(self, filename: str, **fields: Any) -> None:
