@@ -17,11 +17,17 @@ from pathlib import Path
 from esphome import yaml_util
 from esphome.core import EsphomeError
 
-# Bootstrap placeholder strings — hoisted from
-# ``controllers/config.py`` so the writer and the reader share a
-# single definition.
-PLACEHOLDER_WIFI_SSID = "REPLACE_WITH_YOUR_WIFI_NETWORK"
-PLACEHOLDER_WIFI_PASSWORD = "REPLACE_WITH_YOUR_WIFI_PASSWORD"  # noqa: S105 — obvious placeholder, not a real credential
+# Bootstrap placeholder strings. Upstream now exports these from
+# ``esphome.const``; fall back to local literals on older releases
+# that predate the promotion.
+try:
+    from esphome.const import (
+        PLACEHOLDER_WIFI_PASSWORD,
+        PLACEHOLDER_WIFI_SSID,
+    )
+except ImportError:
+    PLACEHOLDER_WIFI_SSID = "REPLACE_WITH_YOUR_WIFI_NETWORK"
+    PLACEHOLDER_WIFI_PASSWORD = "REPLACE_WITH_YOUR_WIFI_PASSWORD"  # noqa: S105
 
 # Values that count as "not user-configured" for ``wifi_ssid``:
 # missing key, empty string, or the bootstrap placeholder. Stored
