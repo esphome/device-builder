@@ -16,7 +16,7 @@ from typing import Any
 import orjson
 from aiohttp import web
 
-from .origin import origin_in_allowlist, origin_matches_host
+from .origin import request_origin_allowed
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -111,33 +111,27 @@ async def cors_middleware(request: web.Request, handler: Any) -> web.StreamRespo
     else:
         resp = await handler(request)
 
+    # Always advertise Vary: Origin — the response computation depends on
+    # Origin (reflected vs. omitted), so any shared cache MUST key on it
+    # or it'll serve the wrong variant to a peer with a different Origin.
+    resp.headers["Vary"] = "Origin"
+
     origin = request.headers.get("Origin")
     if not origin:
-        # No Origin → same-origin browser fetch or non-browser client.
-        # Neither needs CORS headers, so omit them entirely.
         return resp
 
-    trusted_site = bool(request.app.get("trusted_site", False))
-    if trusted_site:
-        # HA Ingress site is bound to the supervisor's docker network
-        # and trusts upstream auth — reflect Origin to keep the
-        # supervisor-proxied frontend working.
+    if request.app.get("trusted_site", False):
+        # HA Ingress site: supervisor handles the boundary upstream.
         allowed = True
     else:
         device_builder = request.app.get("device_builder")
         trusted_domains: list[str] = (
             device_builder.settings.trusted_domains if device_builder is not None else []
         )
-        allowed = origin_matches_host(origin, request.host) or origin_in_allowlist(
-            origin, trusted_domains
-        )
+        allowed = request_origin_allowed(origin, request.host, trusted_domains)
 
     if allowed:
         resp.headers["Access-Control-Allow-Origin"] = origin
-        # Vary so a shared cache doesn't serve the wrong Origin to a
-        # different cross-origin caller — without it, an
-        # allowlist-permitted response could leak to a peer.
-        resp.headers["Vary"] = "Origin"
         resp.headers["Access-Control-Allow-Methods"] = _CORS_METHODS
         resp.headers["Access-Control-Allow-Headers"] = _CORS_HEADERS
 

@@ -78,13 +78,7 @@ def _app_with_cors(
     trusted_domains: list[str] | None = None,
     trusted_site: bool = False,
 ) -> web.Application:
-    """Build an aiohttp app wired with ``cors_middleware``.
-
-    The middleware reads ``app["device_builder"].settings.trusted_domains``
-    and ``app["trusted_site"]`` to decide whether to reflect Origin,
-    so the test app provides a minimal stub that exposes those
-    knobs without spinning up a real ``DeviceBuilder``.
-    """
+    """Build a test app with ``cors_middleware`` + stubbed ``device_builder`` / ``trusted_site``."""
     settings = MagicMock()
     settings.trusted_domains = trusted_domains or []
     device_builder = MagicMock()
@@ -109,14 +103,15 @@ def _app_with_cors(
 async def test_cors_middleware_omits_origin_header_when_no_origin(
     aiohttp_client: AiohttpClient,
 ) -> None:
-    """No ``Origin`` header → no CORS headers (same-origin / non-browser client)."""
+    """No ``Origin`` → no ``Allow-Origin`` / methods / headers; ``Vary: Origin`` set."""
     client = await aiohttp_client(_app_with_cors())
     resp = await client.get("/hello")
 
     assert resp.status == 200
     assert "Access-Control-Allow-Origin" not in resp.headers
     assert "Access-Control-Allow-Methods" not in resp.headers
-    assert "Vary" not in resp.headers
+    # Vary: Origin is set unconditionally so shared caches don't mis-serve the variants.
+    assert resp.headers["Vary"] == "Origin"
     assert await resp.json() == {"ok": True}
 
 
@@ -139,13 +134,7 @@ async def test_cors_middleware_reflects_same_origin(
 async def test_cors_middleware_reflects_allowlisted_origin(
     aiohttp_client: AiohttpClient,
 ) -> None:
-    """Cross-origin Origin in ``trusted_domains`` → reflected.
-
-    Reverse-proxy deployment: the operator sets ``--trusted-domains``
-    to the proxy hostname so a same-origin browser request (from the
-    proxy's hostname's perspective) reaches the backend with an
-    ``Origin`` that doesn't match the upstream Host.
-    """
+    """Cross-origin Origin in ``trusted_domains`` is reflected (reverse-proxy case)."""
     client = await aiohttp_client(_app_with_cors(trusted_domains=["dashboard.example.com"]))
     origin = "https://dashboard.example.com"
     resp = await client.get("/hello", headers={"Origin": origin})
@@ -158,15 +147,7 @@ async def test_cors_middleware_reflects_allowlisted_origin(
 async def test_cors_middleware_omits_origin_header_for_disallowed_origin(
     aiohttp_client: AiohttpClient,
 ) -> None:
-    """Cross-origin Origin not in allowlist → response body served, no CORS headers.
-
-    Pin the new contract: previously the middleware unconditionally
-    set ``Access-Control-Allow-Origin: *``, which let a malicious
-    page in the operator's browser read sensitive responses
-    cross-origin. The new shape lets the request through (so non-
-    browser clients still get answered) but omits the CORS
-    headers so the browser blocks JS from reading the response.
-    """
+    """Disallowed cross-origin → handler runs, but ``Access-Control-Allow-Origin`` omitted."""
     client = await aiohttp_client(_app_with_cors())
     resp = await client.get("/hello", headers={"Origin": "https://evil.example.com"})
 
@@ -175,18 +156,15 @@ async def test_cors_middleware_omits_origin_header_for_disallowed_origin(
     # browser does with the response.
     assert resp.status == 200
     assert "Access-Control-Allow-Origin" not in resp.headers
+    # Vary still set so a shared cache doesn't mis-serve this no-ACAO response
+    # to a peer with an allowlisted Origin (or vice versa).
+    assert resp.headers["Vary"] == "Origin"
 
 
 async def test_cors_middleware_reflects_origin_unconditionally_on_trusted_site(
     aiohttp_client: AiohttpClient,
 ) -> None:
-    """``trusted_site=True`` (HA Ingress) reflects any Origin.
-
-    The ingress site is bound to the supervisor's docker network
-    and trusts upstream auth — Origin-allowlist enforcement
-    happens at the supervisor, not here. Reflect whatever Origin
-    the supervisor proxied through so the frontend works.
-    """
+    """``trusted_site=True`` (HA Ingress) reflects any Origin — supervisor handles the boundary."""
     client = await aiohttp_client(_app_with_cors(trusted_site=True))
     origin = "https://anything.example.com"
     resp = await client.get("/hello", headers={"Origin": origin})
@@ -199,14 +177,7 @@ async def test_cors_middleware_reflects_origin_unconditionally_on_trusted_site(
 async def test_cors_middleware_handles_options_preflight_without_invoking_handler(
     aiohttp_client: AiohttpClient,
 ) -> None:
-    """``OPTIONS`` requests return an empty 200 without calling the inner handler.
-
-    The preflight short-circuit predates the allowlist tightening
-    and stays the same: middleware answers itself so routes that
-    only register GET/POST don't 405 on preflight. CORS headers
-    still apply on top — reflected when the Origin is allowed,
-    omitted otherwise.
-    """
+    """``OPTIONS`` short-circuits to empty 200 without calling the handler; headers still attach."""
     handler_called: list[bool] = []
 
     async def _trap(_request: web.Request) -> web.Response:

@@ -373,10 +373,6 @@ def _public_site_app(trusted_domains: list[str], *, using_password: bool = True)
     return app
 
 
-# Back-compat alias — most call sites only care about "public site, gate runs".
-_password_protected_app = _public_site_app
-
-
 async def test_handler_rejects_cross_origin_without_allowlist(
     aiohttp_client: AiohttpClient,
 ) -> None:
@@ -385,7 +381,7 @@ async def test_handler_rejects_cross_origin_without_allowlist(
     Pin the existing strict behaviour so a refactor of the
     Origin gate doesn't silently remove the protection.
     """
-    client = await aiohttp_client(_password_protected_app([]))
+    client = await aiohttp_client(_public_site_app([]))
     resp = await client.get("/ws", headers={"Origin": "https://evil.example.com"})
     assert resp.status == 403
     assert "Cross-origin" in await resp.text()
@@ -405,7 +401,7 @@ async def test_handler_accepts_cross_origin_when_origin_in_allowlist(
     # binds the test server there and the Host-allowlist check
     # runs after the Origin gate; without the IP entry, the test
     # would pass the Origin gate but trip the Host gate.
-    client = await aiohttp_client(_password_protected_app(["dashboard.example.com", "127.0.0.1"]))
+    client = await aiohttp_client(_public_site_app(["dashboard.example.com", "127.0.0.1"]))
     async with client.ws_connect("/ws", headers={"Origin": "https://dashboard.example.com"}) as ws:
         msg = await ws.receive(timeout=2.0)
         assert msg.type.name in ("TEXT", "BINARY")
@@ -422,7 +418,7 @@ async def test_handler_rejects_host_not_in_allowlist(
     catches it. We pass a matching ``Origin`` so the cross-origin
     gate doesn't short-circuit before the host-allowlist check.
     """
-    client = await aiohttp_client(_password_protected_app(["dashboard.example.com"]))
+    client = await aiohttp_client(_public_site_app(["dashboard.example.com"]))
     resp = await client.get(
         "/ws",
         headers={
@@ -438,7 +434,7 @@ async def test_handler_accepts_host_in_allowlist(
     aiohttp_client: AiohttpClient,
 ) -> None:
     """Host header in allowlist + same-origin → handshake succeeds."""
-    client = await aiohttp_client(_password_protected_app(["dashboard.example.com"]))
+    client = await aiohttp_client(_public_site_app(["dashboard.example.com"]))
     async with client.ws_connect(
         "/ws",
         headers={
@@ -505,7 +501,7 @@ async def test_handler_no_origin_skips_both_gates(
     ``trusted_domains`` to harden against rebinding accidentally
     locked their HA integration out.
     """
-    client = await aiohttp_client(_password_protected_app(["dashboard.example.com"]))
+    client = await aiohttp_client(_public_site_app(["dashboard.example.com"]))
     # No Origin header → CLI-style request. Host is the test
     # client's local IP:port, deliberately NOT in the allowlist.
     async with client.ws_connect("/ws") as ws:
@@ -516,15 +512,7 @@ async def test_handler_no_origin_skips_both_gates(
 async def test_handler_rejects_cross_origin_on_passwordless_public_site(
     aiohttp_client: AiohttpClient,
 ) -> None:
-    """Passwordless dashboards reject cross-origin handshakes too.
-
-    A passwordless dashboard is still reachable only by the operator's
-    own browsing sessions (and by CLI tools, which omit Origin). A
-    malicious page the operator browses must not be able to open
-    ``/ws`` and run privileged commands just because the operator
-    skipped the password — the previous skip-on-passwordless gate
-    was the canonical "looks fine, then someone visits evil.com" bug.
-    """
+    """Passwordless public site rejects cross-origin handshakes (no skip-on-passwordless gate)."""
     client = await aiohttp_client(_public_site_app([], using_password=False))
     resp = await client.get("/ws", headers={"Origin": "https://evil.example.com"})
     assert resp.status == 403
@@ -534,16 +522,11 @@ async def test_handler_rejects_cross_origin_on_passwordless_public_site(
 async def test_handler_accepts_same_origin_on_passwordless_public_site(
     aiohttp_client: AiohttpClient,
 ) -> None:
-    """Passwordless first-run access from the operator's browser still works.
+    """Passwordless same-origin handshake passes — pin the equality branch.
 
-    Same-origin (Origin's host:port == Host) is the canonical
-    "operator typed http://192.168.1.50:6052 in their browser"
-    path — has to keep working when the gate goes on by
-    default. ``aiohttp.ClientSession`` does NOT auto-set Origin
-    on ``ws_connect``, so pass it explicitly to actually
-    exercise the equality branch (otherwise the test would
-    pass via the no-Origin skip and not pin same-origin
-    acceptance).
+    ``aiohttp.ClientSession.ws_connect`` doesn't auto-set Origin,
+    so pass it explicitly; otherwise the test would pass via the
+    no-Origin skip and not exercise the same-origin acceptance.
     """
     client = await aiohttp_client(_public_site_app([], using_password=False))
     host = f"{client.host}:{client.port}"

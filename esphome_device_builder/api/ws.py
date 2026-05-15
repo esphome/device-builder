@@ -20,11 +20,7 @@ from ..helpers.api import CommandError
 from ..helpers.auth import extract_bearer_token
 from ..helpers.event_bus import StreamBackpressureError
 from ..helpers.json import JSONDecodeError, dumps_str, loads
-from ..helpers.origin import (
-    host_in_allowlist,
-    origin_in_allowlist,
-    origin_matches_host,
-)
+from ..helpers.origin import host_in_allowlist, request_origin_allowed
 from ..models import (
     CommandMessage,
     ErrorCode,
@@ -288,20 +284,8 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
     if not trusted_site:
         origin = request.headers.get("Origin")
         if origin:
-            # Cross-origin acceptance: Origin must equal Host OR
-            # Origin's hostname must be in the operator-supplied
-            # trusted-domains allowlist. Reverse-proxy deployments
-            # where Origin is ``https://dashboard.example.com`` but
-            # Host is the upstream ``localhost:6052`` need the
-            # allowlist branch.
-            if not origin_matches_host(origin, request.host) and not origin_in_allowlist(
-                origin, settings.trusted_domains
-            ):
+            if not request_origin_allowed(origin, request.host, settings.trusted_domains):
                 return web.Response(status=403, text="Cross-origin connection rejected")
-            # Defense-in-depth Host allowlist. Empty list = not
-            # configured = pass through. When set, the request's
-            # Host must be one of the trusted domains — mitigates
-            # DNS rebinding on top of the Origin equality check.
             if not host_in_allowlist(request.host, settings.trusted_domains):
                 return web.Response(status=403, text="Host not in trusted-domains allowlist")
 
