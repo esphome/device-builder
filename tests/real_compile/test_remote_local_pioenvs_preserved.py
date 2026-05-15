@@ -10,19 +10,17 @@ was bumping ``platformio.ini``'s mtime forward (extract +
 object built before that timestamp is stale" — every
 ``.pioenvs/<name>/src/*.o`` got recompiled.
 
-This test runs a real esphome compile twice with a synthetic
-remote-build round-trip in between and asserts that SCons
-recompiles **zero** files on the second run.
+This test runs a real esphome compile, packs the result through
+the production receiver-side packer, materialises it back into
+the local config_dir, runs another real esphome compile, and
+asserts SCons recompiles **zero** files.
 """
 
 from __future__ import annotations
 
-import io
-import json
 import shutil
 import subprocess
 import sys
-import tarfile
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -31,10 +29,7 @@ import pytest
 from esphome.core import CORE
 
 from esphome_device_builder.controllers.remote_build.artifacts_tarball import (
-    BUILD_INFO_MEMBER_NAME,
-    IDEDATA_MEMBER_NAME,
-    PLATFORMIO_INI_MEMBER_NAME,
-    STORAGE_MEMBER_NAME,
+    pack_build_artifacts,
 )
 from esphome_device_builder.helpers.remote_artifacts_materialise import (
     materialise_remote_artifacts,
@@ -47,76 +42,16 @@ esp8266:
   board: esp01_1m
 """
 
-_FAKE_RECEIVER_DATA_DIR = Path("/fake/receiver/.esphome")
-
-
-def _build_synthetic_receiver_tarball(local_build_path: Path, local_storage_path: Path) -> bytes:
-    """
-    Pack the local build dir into a tarball that *looks* receiver-shipped.
-
-    Rewrites every absolute path under ``local_build_path`` to a
-    fake receiver root so the materialiser exercises the same
-    remap path it would in production. Mirrors what
-    ``pack_build_artifacts`` ships for ESP32 / ESP8266 — it can't
-    pack the ``host`` platform (no ``artifact_platforms`` module),
-    so we hand-build the equivalent for this test.
-    """
-    receiver_build_path = _FAKE_RECEIVER_DATA_DIR / "build" / "kitchen"
-    local_build_str = str(local_build_path)
-    receiver_build_str = str(receiver_build_path)
-
-    storage_data = json.loads(local_storage_path.read_text())
-    storage_data["build_path"] = receiver_build_str
-    if storage_data.get("firmware_bin_path"):
-        storage_data["firmware_bin_path"] = storage_data["firmware_bin_path"].replace(
-            local_build_str, receiver_build_str
-        )
-    storage_bytes = (json.dumps(storage_data, indent=2) + "\n").encode("utf-8")
-
-    idedata_path = local_build_path / ".pioenvs" / "kitchen" / "idedata.json"
-    idedata_data = json.loads(idedata_path.read_text()) if idedata_path.is_file() else {}
-
-    def _remap(value: object) -> object:
-        if isinstance(value, str) and local_build_str in value:
-            return value.replace(local_build_str, receiver_build_str)
-        return value
-
-    if "prog_path" in idedata_data:
-        idedata_data["prog_path"] = _remap(idedata_data["prog_path"])
-    extra = idedata_data.get("extra")
-    if isinstance(extra, dict):
-        for image in extra.get("flash_images", []) or []:
-            if isinstance(image, dict) and "path" in image:
-                image["path"] = _remap(image["path"])
-    idedata_bytes = (json.dumps(idedata_data) + "\n").encode("utf-8")
-
-    members: list[tuple[str, bytes]] = [
-        (STORAGE_MEMBER_NAME, storage_bytes),
-        (IDEDATA_MEMBER_NAME, idedata_bytes),
-        (PLATFORMIO_INI_MEMBER_NAME, (local_build_path / "platformio.ini").read_bytes()),
-    ]
-    build_info_path = local_build_path / BUILD_INFO_MEMBER_NAME
-    if build_info_path.is_file():
-        members.append((BUILD_INFO_MEMBER_NAME, build_info_path.read_bytes()))
-    # Ship the firmware binary at the path the storage sidecar
-    # claims (varies per platform: esp32/esp8266 → firmware.bin,
-    # libretiny → firmware.uf2, host → program).
-    firmware_bin_path = Path(json.loads(local_storage_path.read_text())["firmware_bin_path"])
-    if firmware_bin_path.is_file():
-        arcname = str(firmware_bin_path.relative_to(local_build_path))
-        members.append((arcname, firmware_bin_path.read_bytes()))
-
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        for arcname, payload in members:
-            info = tarfile.TarInfo(name=arcname)
-            info.size = len(payload)
-            tar.addfile(info, io.BytesIO(payload))
-    return buf.getvalue()
+# Empirical floor. A minimal esp01_1m build with ``esphome:`` +
+# ``esp8266:`` lands ~100 .o files (locally observed: 106).
+# Anything below 30 almost certainly means the compile bailed
+# before SCons did real work — fail loudly rather than let the
+# "0 recompiled" assertion pass on an empty tree.
+_MIN_EXPECTED_OBJECT_FILES = 30
 
 
 def _run_esphome_compile(yaml_path: Path) -> subprocess.CompletedProcess[str]:
-    """Run ``esphome compile`` and return the captured process."""
+    """Run ``esphome compile`` on *yaml_path* and return the captured process."""
     return subprocess.run(  # noqa: S603 — fixed argv list, no shell, test-only invocation
         [sys.executable, "-m", "esphome", "compile", str(yaml_path)],
         capture_output=True,
@@ -125,54 +60,141 @@ def _run_esphome_compile(yaml_path: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
-@pytest.mark.timeout(300)
+def _snapshot_object_mtimes(pioenvs: Path) -> dict[Path, float]:
+    """Return ``{relative-path: mtime}`` for every ``*.o`` under *pioenvs*."""
+    return {p.relative_to(pioenvs): p.stat().st_mtime for p in pioenvs.rglob("*.o")}
+
+
+def _count_compiling_lines(stdout: str) -> int:
+    """Count SCons ``Compiling ...`` log lines in *stdout*."""
+    return sum(1 for line in stdout.splitlines() if line.startswith("Compiling "))
+
+
+@pytest.mark.timeout(600)
 def test_remote_local_round_trip_does_not_invalidate_pioenvs_cache() -> None:
     """
     Real ``esphome compile`` → materialise → real ``esphome compile`` recompiles 0 files.
 
-    This is the user-reported regression after PR #874:
-    ``local → remote → local`` was rebuilding from scratch on
-    every remote→local transition because the materialiser
-    bumped ``platformio.ini`` mtime forward, invalidating
-    every preserved ``.pioenvs/<name>/*.o`` for SCons.
+    Sanity-checks that the first compile actually produced a
+    full object set (otherwise the "0 recompiled" assertion
+    would pass trivially on an empty tree). Snapshots every
+    ``.o`` mtime after the first compile and asserts every one
+    survives the second compile unchanged so a partial rebuild
+    can't hide behind the ``Compiling ...`` log scrape.
     """
-    workdir = Path(tempfile.mkdtemp(prefix="dbb-slow-"))
+    workdir = Path(tempfile.mkdtemp(prefix="dbb-real-compile-"))
     try:
-        config_dir = workdir / "config"
-        config_dir.mkdir()
-        yaml_path = config_dir / "kitchen.yaml"
-        yaml_path.write_text(_MINIMAL_YAML)
+        # Set up a "receiver" config_dir, compile there, then pack the
+        # result through the production packer. This pins build_path to
+        # the receiver's tree so the materialiser exercises the same
+        # remap path it does in production (rather than a
+        # local==offloader shortcut).
+        receiver_dir = workdir / "receiver"
+        receiver_dir.mkdir()
+        receiver_yaml = receiver_dir / "kitchen.yaml"
+        receiver_yaml.write_text(_MINIMAL_YAML)
 
-        first = _run_esphome_compile(yaml_path)
+        first = _run_esphome_compile(receiver_yaml)
         assert first.returncode == 0, (
-            f"local compile #1 failed:\nstdout:\n{first.stdout[-2000:]}\n"
-            f"stderr:\n{first.stderr[-2000:]}"
+            f"receiver compile failed:\nstdout:\n{first.stdout[-4000:]}\n"
+            f"stderr:\n{first.stderr[-4000:]}"
         )
 
-        local_build_path = config_dir / ".esphome" / "build" / "kitchen"
-        storage_path = config_dir / ".esphome" / "storage" / "kitchen.yaml.json"
-        assert local_build_path.is_dir(), "build dir missing after local compile #1"
-
-        # Build the receiver-form tarball from the freshly-built local tree.
-        tarball = _build_synthetic_receiver_tarball(local_build_path, storage_path)
-
-        sentinel = config_dir / "___DASHBOARD_SENTINEL___.yaml"
-        with patch.object(CORE, "config_path", sentinel):
-            materialise_remote_artifacts(tarball, "kitchen.yaml")
-
-        second = _run_esphome_compile(yaml_path)
-        assert second.returncode == 0, (
-            f"local compile #2 failed:\nstdout:\n{second.stdout[-2000:]}\n"
-            f"stderr:\n{second.stderr[-2000:]}"
+        receiver_build_path = receiver_dir / ".esphome" / "build" / "kitchen"
+        receiver_pioenvs = receiver_build_path / ".pioenvs" / "kitchen"
+        assert (receiver_pioenvs / "firmware.bin").is_file(), (
+            f"firmware.bin missing after receiver compile — the compile didn't run. "
+            f"Last 2000 chars of stdout:\n{first.stdout[-2000:]}"
+        )
+        receiver_object_count = sum(1 for _ in receiver_pioenvs.rglob("*.o"))
+        assert receiver_object_count >= _MIN_EXPECTED_OBJECT_FILES, (
+            f"receiver compile only produced {receiver_object_count} object files "
+            f"(expected >= {_MIN_EXPECTED_OBJECT_FILES}); compile likely bailed "
+            f"early. Last 2000 chars of stdout:\n{first.stdout[-2000:]}"
+        )
+        assert _count_compiling_lines(first.stdout) >= _MIN_EXPECTED_OBJECT_FILES, (
+            f"receiver compile only printed "
+            f"{_count_compiling_lines(first.stdout)} 'Compiling ...' lines "
+            f"(expected >= {_MIN_EXPECTED_OBJECT_FILES}). "
+            f"Last 2000 chars of stdout:\n{first.stdout[-2000:]}"
         )
 
-        # SCons prints "Compiling <obj>" for every object it
-        # rebuilds. Zero "Compiling " lines on the second run is
-        # the load-bearing assertion.
-        recompiled = [line for line in second.stdout.splitlines() if line.startswith("Compiling ")]
+        # Pack the receiver's build through production.
+        receiver_sentinel = receiver_dir / "___DASHBOARD_SENTINEL___.yaml"
+        with patch.object(CORE, "config_path", receiver_sentinel):
+            packed = pack_build_artifacts("kitchen.yaml")
+
+        # Now act as the offloader: separate config_dir, run a local
+        # compile to populate .pioenvs, then materialise the receiver
+        # tarball on top.
+        offloader_dir = workdir / "offloader"
+        offloader_dir.mkdir()
+        offloader_yaml = offloader_dir / "kitchen.yaml"
+        offloader_yaml.write_text(_MINIMAL_YAML)
+
+        cold_local = _run_esphome_compile(offloader_yaml)
+        assert cold_local.returncode == 0, (
+            f"offloader cold compile failed:\nstdout:\n{cold_local.stdout[-4000:]}\n"
+            f"stderr:\n{cold_local.stderr[-4000:]}"
+        )
+
+        offloader_pioenvs = (
+            offloader_dir / ".esphome" / "build" / "kitchen" / ".pioenvs" / "kitchen"
+        )
+        assert (offloader_pioenvs / "firmware.bin").is_file(), (
+            "firmware.bin missing after offloader cold compile."
+        )
+        # Pin the offloader's per-object cache state before the
+        # remote-build step so we can prove materialise + the next
+        # local compile didn't invalidate it.
+        first_objects = _snapshot_object_mtimes(offloader_pioenvs)
+        assert len(first_objects) >= _MIN_EXPECTED_OBJECT_FILES, (
+            f"offloader cold compile produced only {len(first_objects)} object "
+            f"files (expected >= {_MIN_EXPECTED_OBJECT_FILES})."
+        )
+
+        # Materialise the receiver tarball on top of the offloader's
+        # tree — the production round-trip the user reported breaking.
+        offloader_sentinel = offloader_dir / "___DASHBOARD_SENTINEL___.yaml"
+        with patch.object(CORE, "config_path", offloader_sentinel):
+            materialise_remote_artifacts(packed.tarball, "kitchen.yaml")
+
+        warm_local = _run_esphome_compile(offloader_yaml)
+        assert warm_local.returncode == 0, (
+            f"offloader warm compile failed:\nstdout:\n{warm_local.stdout[-4000:]}\n"
+            f"stderr:\n{warm_local.stderr[-4000:]}"
+        )
+
+        # Load-bearing assertions: SCons prints "Compiling <obj>" for
+        # every object it rebuilds. Pre-fix this was 100+.
+        recompiled = [
+            line for line in warm_local.stdout.splitlines() if line.startswith("Compiling ")
+        ]
         assert recompiled == [], (
-            f"local compile #2 recompiled {len(recompiled)} object(s) — "
-            f"PR #874's preservation broke. First few:\n  " + "\n  ".join(recompiled[:5])
+            f"local compile after materialise recompiled {len(recompiled)} "
+            f"object(s) — the round-trip invalidated SCons's cache. "
+            f"First few:\n  " + "\n  ".join(recompiled[:5])
+        )
+
+        # Cross-check: every .o snapshot before materialise still
+        # exists with the same mtime afterwards. Catches a partial
+        # rebuild the log scrape could miss (e.g. SCons changes its
+        # log format) and pins that nothing got deleted either.
+        second_objects = _snapshot_object_mtimes(offloader_pioenvs)
+        missing = sorted(set(first_objects) - set(second_objects))
+        assert not missing, (
+            f"warm compile dropped {len(missing)} object file(s) the cold "
+            f"compile had built. First few: {missing[:5]}"
+        )
+        bumped = sorted(
+            obj
+            for obj, mtime in first_objects.items()
+            if second_objects[obj] != pytest.approx(mtime, abs=1e-3)
+        )
+        assert not bumped, (
+            f"warm compile rebuilt {len(bumped)} object file(s) — the cache "
+            f"was invalidated despite zero 'Compiling' log lines. "
+            f"First few: {bumped[:5]}"
         )
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
