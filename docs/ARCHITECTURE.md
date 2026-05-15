@@ -252,7 +252,7 @@ All workflow files are commented — start there for the source of truth.
 
 ## Authentication
 
-Auth is opaque server-issued session tokens, gated by the WebSocket handshake. See [API.md](API.md#authentication) for the wire protocol.
+Auth is opaque server-issued session tokens, gated by the WebSocket handshake. See [API.md](API.md#authentication) for the wire protocol and [THREAT_MODEL.md](THREAT_MODEL.md) for what the auth gate is defending (short version: authenticated callers are host-equivalent, because `external_components:` provides arbitrary Python at compile time).
 
 When `--ha-addon` is set, the server binds **two** TCP sites on a shared `DeviceBuilder` singleton:
 
