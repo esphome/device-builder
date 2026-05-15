@@ -438,25 +438,68 @@ def test_materialise_preserves_pioenvs_on_same_platform_rerun(
 def test_materialise_wipes_build_tree_on_platform_swap(
     paired_roots: tuple[Path, Path], tmp_path: Path
 ) -> None:
-    """A core_platform swap drops the prior build tree so stale artefacts can't leak."""
+    """A platform swap that drops the prior platform's component wipes stale artefacts."""
     receiver_root, offloader_root = paired_roots
-    first_tarball = _pack_in_tmp(receiver_root)
+    first_tarball = _pack_in_tmp(receiver_root, loaded_integrations=["esp32"])
     first = _materialise_in_tmp(first_tarball, offloader_root)
     stale = first / ".pioenvs" / "kitchen" / "stale.bin"
     stale.write_bytes(b"STALE")
 
-    # Re-pack from a fresh receiver root with a different core_platform.
+    # Re-pack from a fresh receiver root with a different platform; the
+    # esp32 → esp8266 swap drops esp32 from loaded_integrations which is
+    # the set diff esphome's storage_should_clean keys the wipe on.
     receiver_root_2 = tmp_path / "receiver2"
     receiver_root_2.mkdir()
     swap_tarball = _pack_in_tmp(
         receiver_root_2,
         target_platform="ESP8266",
+        loaded_integrations=["esp8266"],
         extra_build_files={".pioenvs/kitchen/firmware.elf": b"ELF"},
     )
 
     second = _materialise_in_tmp(swap_tarball, offloader_root)
 
     assert first == second
+    assert not stale.exists()
+    assert (second / ".pioenvs" / "kitchen" / "firmware.elf").read_bytes() == b"ELF"
+
+
+def test_materialise_wipes_on_loaded_integrations_removal(
+    paired_roots: tuple[Path, Path], tmp_path: Path
+) -> None:
+    """Dropping a component (sensor → no sensor) on the same platform still wipes."""
+    receiver_root, offloader_root = paired_roots
+    first_tarball = _pack_in_tmp(receiver_root, loaded_integrations=["esp32", "dht"])
+    first = _materialise_in_tmp(first_tarball, offloader_root)
+    stale = first / ".pioenvs" / "kitchen" / "stale.bin"
+    stale.write_bytes(b"STALE")
+
+    receiver_root_2 = tmp_path / "receiver2"
+    receiver_root_2.mkdir()
+    shrunk_tarball = _pack_in_tmp(receiver_root_2, loaded_integrations=["esp32"])
+
+    _materialise_in_tmp(shrunk_tarball, offloader_root)
+
+    assert not stale.exists()
+
+
+def test_materialise_wipes_when_prior_storage_is_corrupt(
+    paired_roots: tuple[Path, Path],
+) -> None:
+    """A corrupt prior sidecar reads back as None and falls through to wipe."""
+    receiver_root, offloader_root = paired_roots
+    tarball = _pack_in_tmp(receiver_root)
+    first = _materialise_in_tmp(tarball, offloader_root)
+    stale = first / ".pioenvs" / "kitchen" / "stale.bin"
+    stale.write_bytes(b"STALE")
+
+    # Corrupt the staged prior sidecar so StorageJSON.load returns None.
+    sentinel = offloader_root / "___DASHBOARD_SENTINEL___.yaml"
+    with patch.object(CORE, "config_path", sentinel):
+        resolve_storage_path("kitchen.yaml").write_text("{not-json")
+
+    _materialise_in_tmp(tarball, offloader_root)
+
     assert not stale.exists()
 
 

@@ -26,6 +26,7 @@ from typing import Any, NamedTuple
 
 from esphome.helpers import rmtree
 from esphome.storage_json import StorageJSON
+from esphome.writer import storage_should_clean
 
 from ..controllers.remote_build.artifacts_tarball import (
     IDEDATA_MEMBER_NAME,
@@ -79,12 +80,6 @@ def materialise_remote_artifacts(tarball: bytes, configuration: str) -> Path:
     side-effects (the runner) can discard it.
     """
     extracted = _open_and_extract_build_tree(tarball, configuration)
-    _stage_offloader_storage(
-        configuration=configuration,
-        receiver_storage_bytes=extracted.storage_bytes,
-        receiver_build_path=extracted.receiver_build_path,
-        offloader_build_path=extracted.build_path,
-    )
     cached_idedata_path = _stage_offloader_idedata(
         configuration=configuration,
         idedata_bytes=extracted.idedata_bytes,
@@ -131,12 +126,20 @@ def _open_and_extract_build_tree(tarball: bytes, configuration: str) -> _Extract
             receiver_build_path = _receiver_build_path_from_storage(receiver_storage)
 
             build_path = resolve_data_dir(configuration) / "build" / device_name
-            # Preserve ``.pioenvs/<name>/`` across same-platform reruns
-            # so a ``local → remote → local`` cycle stays PIO-incremental;
-            # wipe on platform / framework / component changes so a board
-            # swap (esp32 → bk72xx) can't leave stale per-platform firmware
-            # artefacts that firmware/download could pick up as wrong bytes.
-            if _should_wipe_build_tree(configuration, receiver_storage):
+            # Stage the rewritten sidecar before deciding the wipe so
+            # esphome's ``storage_should_clean`` sees the offloader-form
+            # ``build_path`` instead of the receiver-absolute one it
+            # would otherwise flag as a build_path mismatch on every
+            # call. Loading the prior first preserves it across the
+            # stage write that overwrites the same path.
+            prior_storage = StorageJSON.load(resolve_storage_path(configuration))
+            new_storage = _stage_offloader_storage(
+                configuration=configuration,
+                receiver_storage_bytes=storage_bytes,
+                receiver_build_path=receiver_build_path,
+                offloader_build_path=build_path,
+            )
+            if storage_should_clean(prior_storage, new_storage):
                 try:
                     rmtree(build_path)
                 except OSError as exc:
@@ -183,44 +186,6 @@ def _receiver_build_path_from_storage(receiver_storage: dict[str, Any]) -> Path:
     if not isinstance(receiver_build_path_str, str):
         raise MaterialiseError("tarball storage.json missing required build_path field")
     return Path(receiver_build_path_str)
-
-
-def _should_wipe_build_tree(configuration: str, receiver_storage: dict[str, Any]) -> bool:
-    """
-    Return True when the prior build tree should be wiped before extract.
-
-    Wipes on first materialise, ``core_platform`` / ``framework``
-    swap, or component removal; otherwise preserves so the
-    receiver's artefacts overlay an existing PIO cache.
-    """
-    prior = _load_prior_storage_dict(configuration)
-    if prior is None:
-        return True
-    prior_integrations = set(prior.get("loaded_integrations") or ())
-    new_integrations = set(receiver_storage.get("loaded_integrations") or ())
-    return (
-        prior.get("core_platform") != receiver_storage.get("core_platform")
-        or prior.get("framework") != receiver_storage.get("framework")
-        or bool(prior_integrations - new_integrations)
-    )
-
-
-def _load_prior_storage_dict(configuration: str) -> dict[str, Any] | None:
-    """Load the prior offloader storage.json as a dict, or None when absent / malformed."""
-    prior_path = resolve_storage_path(configuration)
-    if not prior_path.is_file():
-        return None
-    try:
-        prior_bytes = prior_path.read_bytes()
-    except OSError as exc:
-        _LOGGER.debug("materialise: prior storage at %s unreadable: %s", prior_path, exc)
-        return None
-    try:
-        prior = json_loads(prior_bytes)
-    except ValueError as exc:
-        _LOGGER.debug("materialise: prior storage at %s not JSON: %s", prior_path, exc)
-        return None
-    return prior if isinstance(prior, dict) else None
 
 
 def _read_member_optional(
@@ -333,8 +298,8 @@ def _stage_offloader_storage(
     receiver_storage_bytes: bytes,
     receiver_build_path: Path,
     offloader_build_path: Path,
-) -> None:
-    """Write the receiver's storage to the offloader's path, remap paths, save."""
+) -> StorageJSON:
+    """Write the receiver's storage to the offloader's path, remap paths, save, and return it."""
     storage_path = resolve_storage_path(configuration)
     storage_path.parent.mkdir(parents=True, exist_ok=True)
     storage_path.write_bytes(receiver_storage_bytes)
@@ -351,6 +316,7 @@ def _stage_offloader_storage(
         )
     storage.build_path = offloader_build_path
     storage.save(storage_path)
+    return storage
 
 
 def _stage_offloader_idedata(
