@@ -31,6 +31,7 @@ import logging
 import os
 import sys
 import threading
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -38,6 +39,7 @@ from unittest.mock import MagicMock
 import pytest
 from esphome.util import SerialPort
 
+from esphome_device_builder.controllers import config as config_module
 from esphome_device_builder.controllers.config import (
     _APP_DESC_MAGIC,
     _APP_DESC_SIZE,
@@ -138,10 +140,6 @@ def test_metadata_transaction_serialises_across_flocks(
     enter and must wait at the flock until A releases. Both
     updates land in the final file.
     """
-    from contextlib import nullcontext  # noqa: PLC0415
-
-    from esphome_device_builder.controllers import config as config_module  # noqa: PLC0415
-
     monkeypatch.setattr(config_module, "_METADATA_LOCK", nullcontext())
 
     thread_a_in_block = threading.Event()
