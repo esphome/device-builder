@@ -38,6 +38,7 @@ def _run_esphome_compile(yaml_path: Path) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
         check=False,
+        close_fds=False,
     )
 
 
