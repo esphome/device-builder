@@ -21,26 +21,11 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.controllers.firmware.constants import _MAX_OUTPUT_LINES_INFLIGHT
 from esphome_device_builder.models import EventType, FirmwareJob, JobStatus, JobType, StreamEvent
 
 from ...conftest import FakeWebSocketClient
-from .conftest import FirmwareControllerFactory
-
-
-def _make_controller_with_job(
-    factory: FirmwareControllerFactory, job: FirmwareJob
-) -> FirmwareController:
-    """Build a controller shell that ``follow_job`` can drive end-to-end.
-
-    ``follow_job`` reads ``self.state.jobs`` and ``self._db.bus`` only —
-    everything else is unused for this path. ``with_real_bus=True``
-    swaps in the real ``EventBus`` so the listener-attach + fire
-    semantics match production; ``with_settings=False`` skips the
-    config-dir wiring this path doesn't read.
-    """
-    return factory(job, with_real_bus=True, with_settings=False)
+from .conftest import FirmwareControllerFactory, make_follow_race_controller
 
 
 async def test_terminal_job_replays_full_history_and_returns(
@@ -55,7 +40,7 @@ async def test_terminal_job_replays_full_history_and_returns(
         output=["line a\n", "line b\n", "line c\n"],
         exit_code=0,
     )
-    controller = _make_controller_with_job(firmware_controller_factory, job)
+    controller = make_follow_race_controller(firmware_controller_factory, job)
     client = FakeWebSocketClient(yield_per_event=True)
 
     await controller.follow_job(job_id="abc", client=client, message_id="m1")
@@ -85,7 +70,7 @@ async def test_history_lines_arrive_before_live_lines_in_order(
         status=JobStatus.RUNNING,
         output=["history-1\n", "history-2\n"],
     )
-    controller = _make_controller_with_job(firmware_controller_factory, job)
+    controller = make_follow_race_controller(firmware_controller_factory, job)
     client = FakeWebSocketClient(yield_per_event=True)
     bus = controller._db.bus
 
@@ -134,7 +119,7 @@ async def test_live_events_for_other_jobs_are_filtered_out(
         status=JobStatus.RUNNING,
         output=[],
     )
-    controller = _make_controller_with_job(firmware_controller_factory, job)
+    controller = make_follow_race_controller(firmware_controller_factory, job)
     client = FakeWebSocketClient(yield_per_event=True)
     bus = controller._db.bus
 
@@ -183,7 +168,7 @@ async def test_streaming_loop_cannot_append_between_snapshot_and_subscribe(
         status=JobStatus.RUNNING,
         output=["pre-snapshot\n"],
     )
-    controller = _make_controller_with_job(firmware_controller_factory, job)
+    controller = make_follow_race_controller(firmware_controller_factory, job)
     client = FakeWebSocketClient(yield_per_event=True)
     bus = controller._db.bus
 
@@ -230,7 +215,7 @@ async def test_slow_follower_drops_lines_above_queue_cap(
         status=JobStatus.RUNNING,
         output=[],
     )
-    controller = _make_controller_with_job(firmware_controller_factory, job)
+    controller = make_follow_race_controller(firmware_controller_factory, job)
     bus = controller._db.bus
 
     # Park send_event so the drain stays blocked on the very first
@@ -299,7 +284,7 @@ async def test_terminal_sentinel_evicts_to_unblock_drain_when_queue_full(
         status=JobStatus.RUNNING,
         output=[],
     )
-    controller = _make_controller_with_job(firmware_controller_factory, job)
+    controller = make_follow_race_controller(firmware_controller_factory, job)
     bus = controller._db.bus
 
     block = asyncio.Event()
@@ -363,7 +348,7 @@ async def test_cancelled_terminal_event_returns_with_status(
         status=JobStatus.RUNNING,
         output=["pre-cancel\n"],
     )
-    controller = _make_controller_with_job(firmware_controller_factory, job)
+    controller = make_follow_race_controller(firmware_controller_factory, job)
     client = FakeWebSocketClient(yield_per_event=True)
     bus = controller._db.bus
 
@@ -405,7 +390,7 @@ async def test_failed_terminal_event_carries_job_error_text(
         status=JobStatus.RUNNING,
         output=["compiling main.cpp\n"],
     )
-    controller = _make_controller_with_job(firmware_controller_factory, job)
+    controller = make_follow_race_controller(firmware_controller_factory, job)
     client = FakeWebSocketClient(yield_per_event=True)
     bus = controller._db.bus
 
@@ -450,7 +435,7 @@ async def test_send_initial_replays_error_for_already_terminal_failed_job(
         exit_code=1,
         error="Process exited 1",
     )
-    controller = _make_controller_with_job(firmware_controller_factory, job)
+    controller = make_follow_race_controller(firmware_controller_factory, job)
     client = FakeWebSocketClient(yield_per_event=True)
 
     await controller.follow_job(job_id="abc", client=client, message_id="m1")

@@ -314,3 +314,16 @@ def capture_enqueue_order() -> Iterator[CaptureEnqueueOrderFactory]:
     for controller, original_queue, original_bus in swaps:
         controller.state.queue = original_queue
         controller._db.bus = original_bus
+
+
+def make_follow_race_controller(
+    factory: FirmwareControllerFactory, *jobs: FirmwareJob
+) -> FirmwareController:
+    """Build a ``follow_job(s)``-shaped controller via the shared factory.
+
+    ``follow_job`` / ``follow_jobs`` read ``self.state.jobs`` and
+    ``self._db.bus`` only; ``with_real_bus=True`` swaps in the real
+    ``EventBus`` so listener-attach + fire semantics match production,
+    and ``with_settings=False`` skips the unused config-dir wiring.
+    """
+    return factory(*jobs, with_real_bus=True, with_settings=False)
