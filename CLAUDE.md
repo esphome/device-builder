@@ -161,6 +161,28 @@ the official ESPHome container and Home Assistant add-on.
   A PR that touches a module *already over* 800 lines should
   not make it worse. New top-level modules start under the cap.
 
+  **Exception: pytest conftests.** Pytest's conftest is the
+  single import surface (`from .conftest import ...`) for
+  shared test fixtures and factories, and the cap's three
+  motivations apply weakly here: conftest is intentionally a
+  grab-bag (the "cross-concern coupling" the cap targets is the
+  whole point of the file), edits touch one fixture at a time
+  rather than the file as a whole, and the obvious split into
+  per-helper modules forces every test file to track which
+  helper lives where without buying anything. The 800-line cap
+  does not apply to conftest files.
+
+  When hoisting a duplicated test helper, prefer the *narrowest*
+  conftest that covers every caller; only widen to
+  `tests/conftest.py` when the callers genuinely span the whole
+  suite. Create a new subdirectory conftest (and the matching
+  test subdirectory, if needed) when a helper is shared by a
+  cohesive group of tests but not the rest of the suite. The
+  existing subdirectory conftests
+  (`tests/controllers/devices/conftest.py`,
+  `tests/controllers/firmware/conftest.py`, `tests/e2e/conftest.py`)
+  are the canonical shape.
+
 ## Commit / PR conventions
 
 - **No `Co-Authored-By: Claude` trailer.** Project preference.
