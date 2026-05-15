@@ -142,24 +142,16 @@ class EditorController:
         try:
             req_path = Path(requested).resolve()
         except (OSError, RuntimeError):
-            # Canonicalisation failed: broken symlink / ENOTDIR /
-            # EACCES (OSError), or an infinite symlink loop
-            # (RuntimeError on 3.12). The unresolved form can't
-            # be containment-checked, and read_text would fault
-            # for the same reason — refuse.
+            # Unresolvable (broken symlink / EACCES / 3.12 symlink-loop
+            # RuntimeError) can't be containment-checked — refuse.
             return ""
         main_path = (cfg_dir / configuration).resolve()
-        # Bare-basename shortcut: the validator sometimes asks for
-        # the file by name only. Structural ``Path`` equality (not
-        # just ``.name``) keeps ``/tmp/kitchen.yaml`` from sneaking
-        # past the containment check below by colliding on basename.
+        # Structural equality, not basename: ``/tmp/kitchen.yaml`` must not
+        # ride the in-memory shortcut past the containment check below.
         if req_path == main_path or Path(requested) == Path(configuration):
             return content
-        # Containment check: the validator subprocess is fed
-        # attacker-controlled YAML, and ``!include /etc/passwd``
-        # would otherwise route through here and surface the
-        # file's bytes back to the client as ``yaml_errors``
-        # parse snippets. Refuse anything outside the config dir.
+        # Attacker-controlled ``!include /etc/passwd`` would otherwise echo
+        # the file's bytes back as ``yaml_errors`` parse snippets.
         if not req_path.is_relative_to(cfg_dir):
             return ""
         try:

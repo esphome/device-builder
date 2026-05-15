@@ -151,7 +151,6 @@ def test_resolve_file_basename_shortcut_rejects_abs_path_with_matching_name(
 
     controller = _make_controller(config_dir)
     result = controller._resolve_file(str(decoy), "kitchen.yaml", "esphome:\n  name: in-memory\n")
-    # Falls through to the containment check → out-of-tree → "".
     assert result == ""
 
 
