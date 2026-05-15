@@ -129,6 +129,20 @@ def generate_component_yaml(
     else:
         unqualified = comp_id
 
+    # Singleton components (``multi_conf=False`` — ``web_server``,
+    # ``captive_portal``, ``api``, ...) only ever have one instance,
+    # so the frontend's default ``<stem>_1`` suggestion is misleading:
+    # there will never be a ``web_server_2``. Strip the trailing
+    # ``_<digits>`` so the emitted YAML reads as ``id: web_server``
+    # while leaving user-typed ids (``my_ws``, ``web_server_legacy``)
+    # untouched.
+    if (
+        not component.multi_conf
+        and isinstance(fields.get("id"), str)
+        and re.fullmatch(rf"{re.escape(unqualified)}_\d+", fields["id"])
+    ):
+        fields["id"] = unqualified
+
     # Resolve the top-level id once. We only emit it when the caller
     # explicitly opted in by including ``id`` in fields; when they
     # did but left it empty, fill in the auto-generated value here so

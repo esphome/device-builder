@@ -635,6 +635,39 @@ async def test_generate_yaml_skips_autofill_for_non_entity_subblocks(
     assert "id: hlw8012_model" not in yaml
 
 
+async def test_generate_yaml_strips_singleton_id_suffix(
+    catalog: ComponentCatalog,
+) -> None:
+    """Singleton components drop the frontend's ``_<N>`` default suffix."""
+    component = await catalog.get_component(component_id="web_server")
+    assert component is not None
+    assert component.multi_conf is False
+    yaml = generate_component_yaml(component, {"id": "web_server_1", "port": 80})
+    assert "id: web_server\n" in yaml
+    assert "web_server_1" not in yaml
+
+
+async def test_generate_yaml_preserves_singleton_custom_id(
+    catalog: ComponentCatalog,
+) -> None:
+    """Singleton stripping leaves non-numeric user-typed ids alone."""
+    component = await catalog.get_component(component_id="web_server")
+    assert component is not None
+    yaml = generate_component_yaml(component, {"id": "my_ws"})
+    assert "id: my_ws" in yaml
+
+
+async def test_generate_yaml_keeps_multi_conf_suffix(
+    catalog: ComponentCatalog,
+) -> None:
+    """Multi-conf components keep their numeric suffix — multiple instances are valid."""
+    component = await catalog.get_component(component_id="binary_sensor.as3935")
+    assert component is not None
+    assert component.multi_conf is True
+    yaml = generate_component_yaml(component, {"id": "as3935_1"})
+    assert "id: as3935_1" in yaml
+
+
 # ---------------------------------------------------------------------------
 # add_component integration: featured-id reset + end-to-end YAML
 # ---------------------------------------------------------------------------
