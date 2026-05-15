@@ -123,6 +123,31 @@ def test_first_start_creates_missing_data_dir(tmp_path: Path) -> None:
 
 
 @_REQUIRES_FCNTL
+def test_mkdir_failure_refuses_to_start(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """OSError during the data-dir mkdir surfaces ``exit_code=1`` with a log."""
+    real_mkdir = Path.mkdir
+
+    def _boom(self: Path, *args: object, **kwargs: object) -> None:
+        if self == tmp_path / ".esphome":
+            raise PermissionError("read-only fs")
+        real_mkdir(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", _boom)
+
+    with (
+        caplog.at_level("ERROR", logger=single_instance.__name__),
+        ensure_single_execution(tmp_path / ".esphome") as lock,
+    ):
+        assert lock.exit_code == 1
+
+    assert any("Could not create lock directory" in record.message for record in caplog.records)
+
+
+@_REQUIRES_FCNTL
 def test_release_lets_subsequent_start_succeed(tmp_path: Path) -> None:
     """
     Releasing the lock (context exit) lets the next start acquire cleanly.
