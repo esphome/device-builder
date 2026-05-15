@@ -173,11 +173,23 @@ class PingSource:
         # ``PermissionError``, socket-open failures all mean
         # "we tried and couldn't reach this". A subsequent
         # successful ping flips it back to ONLINE.
+        #
+        # Retry-on-miss before declaring OFFLINE. A single dropped
+        # ICMP would otherwise flap the indicator every sweep on
+        # high-loss paths (VPN, congested Wi-Fi). Send one packet
+        # first to stay cheap on a clean LAN; only pay the multi-
+        # packet wall when that first probe misses. Mirrors the
+        # legacy dashboard's "any reply = alive" semantics —
+        # ``icmplib`` itself defaults to ``count=4`` for the same
+        # reason — while keeping the steady-state sweep fast.
         monitor = self._monitor
         rtt_ms: float | None = None
         try:
-            result = await icmp_ping(target, count=1, timeout=3, privileged=False)
+            result = await icmp_ping(target, count=1, timeout=2, privileged=False)
             is_alive = result.is_alive
+            if not is_alive:
+                result = await icmp_ping(target, count=3, interval=0.5, timeout=2, privileged=False)
+                is_alive = result.is_alive
             # ``Host.min_rtt`` is 0.0 on a failed ping which would
             # surface as "0 ms" in the drawer — gate the capture
             # on ``is_alive`` so failures stay null instead.

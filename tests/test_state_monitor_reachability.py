@@ -234,6 +234,81 @@ async def test_ping_failure_does_not_record_rtt() -> None:
 
 
 @pytest.mark.asyncio
+async def test_ping_retry_absorbs_transient_miss() -> None:
+    """First-shot miss → retry-with-multiple-packets → ONLINE, not OFFLINE.
+
+    A single dropped ICMP packet on a lossy path (VPN, congested
+    Wi-Fi) used to flip the device OFFLINE every sweep. Pin the
+    retry: when the cheap ``count=1`` probe misses, we issue a
+    second multi-packet probe and use its result.
+    """
+    devices = [_make_device(state=DeviceState.ONLINE)]
+    tracker = ReachabilityTracker()
+    monitor = _make_monitor(devices, tracker)
+
+    miss = MagicMock(is_alive=False, min_rtt=0.0)
+    hit = MagicMock(is_alive=True, min_rtt=7.5)
+    fake_ping = AsyncMock(side_effect=[miss, hit])
+    with patch(
+        "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
+        fake_ping,
+    ):
+        await monitor._ping._ping_device(devices[0], "10.0.0.42")
+
+    assert fake_ping.await_count == 2
+    # First call is the cheap single-shot.
+    assert fake_ping.await_args_list[0].kwargs.get("count") == 1
+    # Retry sends multiple packets so a transient drop doesn't
+    # flap the indicator.
+    assert fake_ping.await_args_list[1].kwargs.get("count", 1) > 1
+    assert devices[0].state == DeviceState.ONLINE
+    snap = tracker.snapshot(
+        "kitchen", state=DeviceState.ONLINE, active_source="ping", ip="10.0.0.42"
+    )
+    assert snap["ping_rtt_ms"] == 7.5
+
+
+@pytest.mark.asyncio
+async def test_ping_retry_still_offline_when_retry_also_misses() -> None:
+    """Both probes miss → OFFLINE. Retry doesn't mask a genuinely-gone device."""
+    devices = [_make_device(state=DeviceState.ONLINE)]
+    tracker = ReachabilityTracker()
+    monitor = _make_monitor(devices, tracker)
+
+    miss = MagicMock(is_alive=False, min_rtt=0.0)
+    fake_ping = AsyncMock(side_effect=[miss, miss])
+    with patch(
+        "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
+        fake_ping,
+    ):
+        await monitor._ping._ping_device(devices[0], "10.0.0.42")
+
+    assert fake_ping.await_count == 2
+    assert devices[0].state == DeviceState.OFFLINE
+    snap = tracker.snapshot(
+        "kitchen", state=DeviceState.OFFLINE, active_source="ping", ip="10.0.0.42"
+    )
+    assert snap["ping_rtt_ms"] is None
+
+
+@pytest.mark.asyncio
+async def test_ping_no_retry_when_first_probe_succeeds() -> None:
+    """Healthy path stays a single packet; the retry is opt-in on miss."""
+    devices = [_make_device()]
+    monitor = _make_monitor(devices, ReachabilityTracker())
+
+    hit = MagicMock(is_alive=True, min_rtt=4.2)
+    fake_ping = AsyncMock(return_value=hit)
+    with patch(
+        "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
+        fake_ping,
+    ):
+        await monitor._ping._ping_device(devices[0], "10.0.0.42")
+
+    fake_ping.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_mdns_removed_clears_tracker_for_device() -> None:
     """A ``Removed`` mDNS event wipes every channel's history for the device.
 
