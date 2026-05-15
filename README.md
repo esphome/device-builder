@@ -16,6 +16,10 @@ managing automations, and pushing firmware updates.
 
 ## Try it
 
+> Running it behind a reverse proxy?
+> Skip ahead to [Behind a reverse proxy](#behind-a-reverse-proxy)
+> for the nginx / `--trusted-domains` setup.
+
 The dashboard ships as an **opt-in preview** in the official Home Assistant
 add-on and in [ESPHome Desktop](https://github.com/esphome/esphome-desktop).
 Pick the path that matches how you run ESPHome today:
@@ -104,6 +108,71 @@ the browser's default heuristic is fine when you're not rebuilding
 every few minutes.
 
 </details>
+
+## Behind a reverse proxy
+
+The dashboard rejects browser WebSocket handshakes whose
+`Origin` doesn't match the server's `Host` header. When a
+proxy fronts the dashboard under a different hostname (nginx,
+Caddy, Traefik, nginx-proxy-manager, ...), the browser sends
+`Origin: https://dashboard.example.com` but the upstream sees
+`Host: localhost:6052` — those don't match and the handshake
+gets 403'd. Same gate, same fix, regardless of whether the
+dashboard has a password set; it applies to every public-site
+deployment.
+
+Two ways to make it work:
+
+1. **Configure the proxy to forward the public Host** (cleanest):
+
+   ```nginx
+   location / {
+       proxy_pass http://localhost:6052;
+       proxy_http_version 1.1;
+       proxy_set_header Host $host;
+       proxy_set_header Upgrade $http_upgrade;
+       proxy_set_header Connection "upgrade";
+       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+       proxy_set_header X-Forwarded-Proto $scheme;
+       proxy_read_timeout 86400s;  # keep WS connections alive
+   }
+   ```
+
+   With `proxy_set_header Host $host;`, the dashboard sees
+   `Host: dashboard.example.com` (the hostname the browser
+   asked for), `Origin` matches, and the handshake passes.
+
+2. **If the proxy rewrites Host** (default nginx, some
+   load-balancer setups), add the public hostname to
+   `--trusted-domains`:
+
+   ```bash
+   esphome-device-builder /config \
+     --trusted-domains dashboard.example.com,proxy.example.com
+   ```
+
+   Or via the env var (`$ESPHOME_TRUSTED_DOMAINS`, same name
+   the legacy dashboard used):
+
+   ```bash
+   ESPHOME_TRUSTED_DOMAINS=dashboard.example.com esphome-device-builder /config
+   ```
+
+   The list is comma-separated, case-insensitive, port-tolerant.
+   IPv6 addresses work bracketed or bare (`::1` and `[::1]`
+   both match). Use `*` as the only entry to disable the Host
+   restriction entirely (handy when the Host varies per request
+   — but then operator-supplied auth becomes the only gate).
+
+CLI tools and the Home Assistant integration omit `Origin`
+entirely, so they're never affected — the gate is browser-only.
+The HA Ingress site (the `--ingress-host` listener the
+supervisor proxies to) skips both checks because it's bound to
+the supervisor's internal docker network and the supervisor
+handles auth upstream.
+
+See [docs/ARCHITECTURE.md § Authentication](docs/ARCHITECTURE.md#authentication)
+for the deep dive on the trust model.
 
 ## Send builds to another dashboard
 
