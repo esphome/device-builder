@@ -90,49 +90,31 @@ def json_response(data: Any, status: int = 200) -> web.Response:
 
 @web.middleware
 async def cors_middleware(request: web.Request, handler: Any) -> web.StreamResponse:
-    """Origin-allowlist CORS — reflect Origin only when allowed.
+    """Reflect Origin in CORS headers only when same-origin or in ``trusted_domains``.
 
-    Same-origin (Origin matches Host) or in the operator's
-    ``trusted_domains`` allowlist passes the gate; everything else
-    has ``Access-Control-Allow-Origin`` omitted.
-
-    Sibling of the WS handshake gate in ``api/ws.py`` — both decide
-    cross-origin acceptance off the same predicate so they can't
-    drift. Cross-origin requests from non-allowlisted browsers still
-    reach the handler (and 401 / 403 / whatever the route returns),
-    but the response carries no ``Access-Control-Allow-Origin`` so
-    the browser blocks the calling JS from reading it. CLI tools /
-    HA integration omit Origin entirely and bypass the gate; their
-    requests are authenticated by the bearer-token / in-band auth
-    chain.
+    Sibling of the WS handshake gate in ``api/ws.py`` — both share
+    ``request_origin_allowed`` so they can't drift.
     """
-    if request.method == "OPTIONS":
-        resp = web.Response()
-    else:
-        resp = await handler(request)
-
-    # Always advertise Vary: Origin — the response computation depends on
-    # Origin (reflected vs. omitted), so any shared cache MUST key on it
-    # or it'll serve the wrong variant to a peer with a different Origin.
+    resp = web.Response() if request.method == "OPTIONS" else await handler(request)
+    # Vary: Origin unconditionally — response shape depends on Origin, so a
+    # shared cache must key on it to avoid mis-serving a peer.
     resp.headers["Vary"] = "Origin"
 
     origin = request.headers.get("Origin")
-    if not origin:
-        return resp
-
-    if request.app.get("trusted_site", False):
-        # HA Ingress site: supervisor handles the boundary upstream.
-        allowed = True
-    else:
-        device_builder = request.app.get("device_builder")
-        trusted_domains: list[str] = (
-            device_builder.settings.trusted_domains if device_builder is not None else []
-        )
-        allowed = request_origin_allowed(origin, request.host, trusted_domains)
-
-    if allowed:
+    if origin and _cors_origin_allowed(request, origin):
         resp.headers["Access-Control-Allow-Origin"] = origin
         resp.headers["Access-Control-Allow-Methods"] = _CORS_METHODS
         resp.headers["Access-Control-Allow-Headers"] = _CORS_HEADERS
-
     return resp
+
+
+def _cors_origin_allowed(request: web.Request, origin: str) -> bool:
+    """Return True when CORS should reflect *origin* — same predicate as the WS gate."""
+    if request.app.get("trusted_site", False):
+        # HA Ingress: supervisor handles the boundary upstream.
+        return True
+    device_builder = request.app.get("device_builder")
+    trusted_domains: list[str] = (
+        device_builder.settings.trusted_domains if device_builder is not None else []
+    )
+    return request_origin_allowed(origin, request.host, trusted_domains)

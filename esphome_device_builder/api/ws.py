@@ -271,23 +271,14 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
     settings = device_builder.settings
     trusted_site = bool(request.app.get("trusted_site", False))
 
-    # Reject cross-origin browser connections on the public site.
-    # CORS middleware doesn't apply to WebSockets, so without this a
-    # malicious page the operator browses could open /ws against the
-    # local dashboard — even a passwordless deployment is reachable
-    # only by the operator's own browser sessions, not by anything
-    # they happen to visit. Clients without an Origin header (CLI
-    # tools, HA integration) are unaffected — Origin is spec-
-    # mandated for browser WebSocket handshakes, so any browser-
-    # driven cross-origin attack lands inside the gate while
-    # non-browser auth (bearer / in-band) keeps working.
-    if not trusted_site:
-        origin = request.headers.get("Origin")
-        if origin:
-            if not request_origin_allowed(origin, request.host, settings.trusted_domains):
-                return web.Response(status=403, text="Cross-origin connection rejected")
-            if not host_in_allowlist(request.host, settings.trusted_domains):
-                return web.Response(status=403, text="Host not in trusted-domains allowlist")
+    # Reject cross-origin browser handshakes — CORS middleware doesn't cover WS.
+    # Non-browser clients omit Origin and bypass the gate (auth is in-band).
+    origin = request.headers.get("Origin")
+    if not trusted_site and origin:
+        if not request_origin_allowed(origin, request.host, settings.trusted_domains):
+            return web.Response(status=403, text="Cross-origin connection rejected")
+        if not host_in_allowlist(request.host, settings.trusted_domains):
+            return web.Response(status=403, text="Host not in trusted-domains allowlist")
 
     ws = web.WebSocketResponse(heartbeat=_WS_HEARTBEAT_SECONDS)
     await ws.prepare(request)
