@@ -137,6 +137,11 @@
       "description": "Logical groups of featured components added together (hardware addon modules, status-LED setups, ...).",
       "items": { "$ref": "#/$defs/featured_bundle" }
     },
+    "default_components": {
+      "type": "array",
+      "description": "Components installed by default in every new device on this board. Each entry resolves through a two-step lookup, first as a local featured_components.id (picks up that entry's full field presets), then as a bare catalog component_id (no presets). The object form supplements presets with inline 'fields:' overrides (e.g. 'web_server' with 'version: 3').",
+      "items": { "$ref": "#/$defs/default_component" }
+    },
     "source": {
       "type": "object",
       "description": "Marks the manifest as imported from an external catalog. Hand-curated boards omit this block; the sync script regenerates manifests where it's present and never touches manifests where it's absent.",
@@ -274,6 +279,30 @@
           }
         }
       }
+    },
+    "default_component": {
+      "description": "Either a bare ref (string shorthand for { id: <ref> }) or an object with optional inline field presets.",
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)?$"
+        },
+        {
+          "type": "object",
+          "required": ["id"],
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)?$"
+            },
+            "fields": {
+              "type": "object",
+              "description": "Plain key: value overrides applied on top of any featured-component presets."
+            }
+          }
+        }
+      ]
     },
     "field_preset_or_value": {
       "description": "Either a primitive shorthand (pre-fills a default), a list, or a verbose object form ({value, locked, suggestions}).",

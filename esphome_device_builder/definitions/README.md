@@ -181,11 +181,38 @@ featured_bundles:
 `featured_components:` on the same board. The frontend adds bundle
 members sequentially via the regular `devices/add_component` flow.
 
+**Default components** are installed automatically in every new device
+created from this board. Unlike `featured_components` (opt-in via the
+Recommended tab) and `featured_bundles` (opt-in via the bundle picker),
+these land in the initial YAML without any user clicks. Use this for
+board-specific config the device can't compile or work without:
+
+```yaml
+default_components:
+  - accessory_power   # string shorthand: local featured_components.id — picks up its full presets
+  - id: web_server    # object form: bare catalog component_id with inline preset overrides
+    fields:
+      version: '3'
+```
+
+Each entry's `id` resolves through a two-step lookup: first as a
+local `featured_components.id` on the same board (picks up the full
+field presets, including locked values), falling through to a bare
+catalog `component_id` (emits a minimal block). The optional `fields:`
+dict layers on top of any featured presets with inline `key: value`
+overrides — useful for board-specific tweaks to a generic component
+(e.g. pinning `web_server` to `version: 3`).
+
+Default components only fire at device creation; existing devices
+keep whatever YAML they already have, and users are free to delete
+or edit any default block — the dashboard won't re-add it.
+
 The validator (`script/validate_definitions.py`) cross-checks every
 featured component against `components.json`: the `component_id` must
 exist, every key in `fields:` must match a real `ConfigEntry.key`, and
 pin values / suggestions must reference GPIOs declared in the board's
-`pins:` list.
+`pins:` list. Each `default_components` entry must resolve to either
+a local `featured_components.id` or a known catalog `component_id`.
 
 ## Adding a Component
 

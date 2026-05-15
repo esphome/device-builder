@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from ...models import BoardCatalogEntry
+    from ..components import ComponentCatalog
     from ..editor import EditorController
 
 _LOGGER = logging.getLogger(__name__)
@@ -38,12 +39,22 @@ def yaml_content_for_create(
     file_content: str | None,
     ssid: str,
     psk: str,
+    *,
+    catalog: ComponentCatalog | None = None,
 ) -> tuple[str, CreateYamlSource]:
     """Pick the YAML body for ``devices/create`` based on the inputs."""
     if file_content:
         return file_content, "user"
     if board:
-        return generate_device_yaml(name, friendly, board, ssid, psk), "template"
+        defaults = (
+            catalog.resolve_default_components(board)
+            if catalog and board.default_components
+            else None
+        )
+        return (
+            generate_device_yaml(name, friendly, board, ssid, psk, defaults=defaults),
+            "template",
+        )
     return generate_minimal_stub_yaml(name, friendly), "stub"
 
 

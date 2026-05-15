@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -21,6 +22,9 @@ from esphome_device_builder.controllers.config import (
     set_device_metadata,
 )
 from esphome_device_builder.controllers.devices import controller as devices_module
+from esphome_device_builder.controllers.devices.mutations_yaml import (
+    yaml_content_for_create,
+)
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
 
@@ -354,3 +358,32 @@ async def test_create_device_with_board_id_overwrites_archived_board_id(
 
     post = await asyncio.to_thread(get_device_metadata, config_dir, "kitchen.yaml")
     assert post == {"board_id": "rp2040-new-board"}
+
+
+def test_yaml_content_for_create_threads_default_components_through(
+    session_component_catalog: Any,
+) -> None:
+    """``yaml_content_for_create`` resolves + emits the board's ``default_components``.
+
+    Pins the wire-up: when *board* declares ``default_components``
+    and the *catalog* is provided, the resolver runs and each pair
+    flows into ``generate_device_yaml`` via the ``defaults`` kwarg.
+    A regression that dropped the catalog argument from the call
+    site would leave the generated YAML missing the default blocks
+    even though the manifest declared them.
+    """
+    board = session_component_catalog._db.boards.get_by_id("apollo-esk-1")
+    assert board is not None
+    yaml, source = yaml_content_for_create(
+        name="starter",
+        friendly="Starter Kit",
+        board=board,
+        file_content=None,
+        ssid="",
+        psk="",
+        catalog=session_component_catalog,
+    )
+    assert source == "template"
+    assert "web_server:" in yaml
+    assert "switch:" in yaml
+    assert "platform: gpio" in yaml

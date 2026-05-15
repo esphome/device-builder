@@ -438,7 +438,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         psk: str,
     ) -> tuple[str, mutations_yaml.CreateYamlSource]:
         return mutations_yaml.yaml_content_for_create(
-            name, friendly, board, file_content, ssid, psk
+            name, friendly, board, file_content, ssid, psk, catalog=self._db.components
         )
 
     async def _validate_rewritten_yaml_or_raise(

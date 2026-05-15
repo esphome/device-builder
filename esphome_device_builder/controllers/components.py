@@ -24,6 +24,7 @@ from ..models import (
 
 if TYPE_CHECKING:
     from ..device_builder import DeviceBuilder
+    from ..models import BoardCatalogEntry
 
 # Prefix used to route featured-component IDs to the featured registry.
 # Format: ``featured.<board_id>.<local_id>`` (e.g. ``featured.sonoff-basic.relay``).
@@ -395,6 +396,47 @@ class ComponentCatalog:
     def get_featured_record(self, component_id: str) -> _FeaturedRecord | None:
         """Return the registry record for a ``featured.*`` id, or ``None``."""
         return self._featured_by_id.get(component_id)
+
+    def resolve_default_components(
+        self,
+        board: BoardCatalogEntry,
+    ) -> list[tuple[ComponentCatalogEntry, dict[str, Any]]]:
+        """
+        Resolve a board's ``default_components`` into ``(component, fields)`` pairs.
+
+        Each entry's ``id`` is tried first as a local
+        ``featured_components.id`` on the same board (picking up
+        that entry's full field presets); falls through to a bare
+        catalog ``component_id`` lookup. The entry's own ``fields``
+        dict layers on top of any featured presets, with inline
+        values winning. Unknown references are skipped with a
+        warning — the manifest validator is the contract that
+        keeps these from reaching runtime.
+        """
+        # Lazy import sidesteps the components ↔ devices.helpers
+        # cycle (devices.helpers already imports _FeaturedRecord from
+        # this module under TYPE_CHECKING).
+        from .devices.helpers import _apply_featured_presets  # noqa: PLC0415
+
+        out: list[tuple[ComponentCatalogEntry, dict[str, Any]]] = []
+        for entry in board.default_components:
+            full_id = f"{_FEATURED_PREFIX}{board.id}.{entry.id}"
+            record = self._featured_by_id.get(full_id)
+            if record is not None:
+                fields = _apply_featured_presets(record, {})
+                fields.update(entry.fields)
+                out.append((record.underlying, fields))
+                continue
+            component = self._by_id.get(entry.id)
+            if component is None:
+                _LOGGER.warning(
+                    "Board %s default_components references unknown id %s — skipping",
+                    board.id,
+                    entry.id,
+                )
+                continue
+            out.append((component, dict(entry.fields)))
+        return out
 
     def _build_featured_registry(self) -> None:
         """Walk the board catalog and index every featured component."""

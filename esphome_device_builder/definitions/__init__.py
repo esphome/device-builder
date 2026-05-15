@@ -35,6 +35,7 @@ from ..models import (
     BoardPin,
     BoardTag,
     Connectivity,
+    DefaultComponent,
     Esp32Variant,
     FeaturedBundle,
     FeaturedComponent,
@@ -204,6 +205,16 @@ def _load_featured_bundle(data: dict) -> FeaturedBundle:
     )
 
 
+def _load_default_component(entry: object) -> DefaultComponent:
+    """Normalize a default_components entry (string or object) into a DefaultComponent."""
+    if isinstance(entry, str):
+        return DefaultComponent(id=entry)
+    if isinstance(entry, dict):
+        return DefaultComponent(id=entry["id"], fields=dict(entry.get("fields") or {}))
+    msg = f"default_components entry must be a string or object, got {type(entry).__name__}"
+    raise TypeError(msg)
+
+
 def _load_esphome_config(data: dict, board_id: str) -> BoardEsphomeConfig:
     """Load a BoardEsphomeConfig from a dict."""
     platform = Platform(data["platform"])
@@ -284,6 +295,9 @@ def build_board_catalog_from_manifests(*, strict: bool = False) -> BoardCatalogR
                     ],
                     featured_bundles=[
                         _load_featured_bundle(fb) for fb in data.get("featured_bundles", [])
+                    ],
+                    default_components=[
+                        _load_default_component(d) for d in data.get("default_components", [])
                     ],
                 )
             )

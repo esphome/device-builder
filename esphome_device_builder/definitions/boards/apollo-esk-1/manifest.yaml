@@ -287,3 +287,14 @@ featured_bundles:
     the board. Adding this drops the LEDs, the buzzer, and the ringtone
     player into your config all at once.
   component_ids: [rgb_leds, buzzer_output, rtttl_player]
+default_components:
+# Always-on switch that powers the FPC accessory connectors —
+# AHT20, battery monitor, and other plug-in modules need this
+# latched high before they enumerate.
+- accessory_power
+# Built-in web dashboard so users can interact with the device
+# without Home Assistant configured. Pinned to version 3 (the
+# modern UI); ESPHome's catalog default is still 2.
+- id: web_server
+  fields:
+    version: '3'

@@ -208,11 +208,12 @@ def _validate_featured(
     components_index: dict | None,
     is_imported: bool = False,
 ) -> list[str]:
-    """Validate featured_components / featured_bundles cross-references."""
+    """Validate featured_components / featured_bundles / default_components cross-references."""
     errors: list[str] = []
     featured = data.get("featured_components") or []
     bundles = data.get("featured_bundles") or []
-    if not featured and not bundles:
+    defaults = data.get("default_components") or []
+    if not featured and not bundles and not defaults:
         return errors
 
     # Local id uniqueness within featured_components and featured_bundles.
@@ -254,7 +255,39 @@ def _validate_featured(
             for cid in bundle.get("component_ids", []) or []
             if cid not in seen_fc_ids
         )
+
+    errors.extend(_validate_default_components(board_id, defaults, seen_fc_ids, components_index))
     return errors
+
+
+def _validate_default_components(
+    board_id: str,
+    defaults: list,
+    seen_fc_ids: set[str],
+    components_index: dict | None,
+) -> list[str]:
+    """Cross-check each ``default_components`` ref against featured + catalog ids."""
+    if not defaults or components_index is None:
+        return []
+    catalog_ids = set(components_index)
+    out: list[str] = []
+    for idx, entry in enumerate(defaults):
+        if isinstance(entry, str):
+            ref = entry
+        elif isinstance(entry, dict):
+            ref = entry.get("id")
+            if not isinstance(ref, str):
+                out.append(f"{board_id}.default_components[{idx}]: missing 'id' field")
+                continue
+        else:
+            continue
+        if ref in seen_fc_ids or ref in catalog_ids:
+            continue
+        out.append(
+            f"{board_id}.default_components[{idx}]: '{ref}' does not match any "
+            f"featured_components[].id or known component_id"
+        )
+    return out
 
 
 def _validate_featured_component(

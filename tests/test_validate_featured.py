@@ -32,10 +32,15 @@ def _index() -> dict | None:
     return _build_components_index()
 
 
-def _board(featured: list[dict] | None = None, bundles: list[dict] | None = None) -> dict:
+def _board(
+    featured: list[dict] | None = None,
+    bundles: list[dict] | None = None,
+    defaults: list[str] | None = None,
+) -> dict:
     return {
         "featured_components": featured or [],
         "featured_bundles": bundles or [],
+        "default_components": defaults or [],
     }
 
 
@@ -351,3 +356,64 @@ def test_bundle_id_with_hyphens_rejected(_index: dict | None) -> None:
         _index,
     )
     assert any("no hyphens" in e and "rgb-buzzer" in e for e in errors)
+
+
+def test_default_components_accepts_featured_component_ref(_index: dict | None) -> None:
+    """A default_components entry matching a featured_components.id passes."""
+    errors = _validate_featured(
+        "demo",
+        _board(
+            [{"id": "relay", "component_id": "switch.gpio", "fields": {}}],
+            defaults=["relay"],
+        ),
+        {},
+        _index,
+    )
+    assert errors == []
+
+
+def test_default_components_accepts_catalog_component_id(_index: dict | None) -> None:
+    """A bare catalog id (e.g. ``web_server``) passes the fall-through path."""
+    errors = _validate_featured("demo", _board(defaults=["web_server"]), {}, _index)
+    assert errors == []
+
+
+def test_default_components_rejects_unknown_ref(_index: dict | None) -> None:
+    """An unknown id (neither featured nor catalog) is flagged."""
+    errors = _validate_featured("demo", _board(defaults=["bogus_id"]), {}, _index)
+    assert any("default_components" in e and "bogus_id" in e for e in errors), (
+        f"expected a default_components error, got {errors!r}"
+    )
+
+
+def test_default_components_object_form_accepts_inline_fields(_index: dict | None) -> None:
+    """The ``{id, fields}`` shape is valid and the id is still cross-checked."""
+    errors = _validate_featured(
+        "demo",
+        _board(defaults=[{"id": "web_server", "fields": {"version": "3"}}]),
+        {},
+        _index,
+    )
+    assert errors == []
+
+
+def test_default_components_object_form_rejects_unknown_id(_index: dict | None) -> None:
+    """Object form with an unknown ``id`` is flagged identically to the string form."""
+    errors = _validate_featured(
+        "demo",
+        _board(defaults=[{"id": "bogus_id", "fields": {"x": 1}}]),
+        {},
+        _index,
+    )
+    assert any("bogus_id" in e for e in errors)
+
+
+def test_default_components_object_form_missing_id_flagged(_index: dict | None) -> None:
+    """Object form without an ``id`` produces a clear error."""
+    errors = _validate_featured(
+        "demo",
+        _board(defaults=[{"fields": {"x": 1}}]),
+        {},
+        _index,
+    )
+    assert any("missing 'id'" in e for e in errors)

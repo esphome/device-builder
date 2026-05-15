@@ -86,6 +86,7 @@ except ImportError:
 
 from ..models import Device, DeviceState
 from .mac_addresses import derive_interface_macs
+from .yaml import merge_component_yaml
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -93,7 +94,7 @@ _LOGGER = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from ..models import BoardCatalogEntry
+    from ..models import BoardCatalogEntry, ComponentCatalogEntry
 
 _PLATFORM_KEYS = frozenset({"esp32", "esp8266", "rp2040", "bk72xx", "rtl87xx", "ln882x", "nrf52"})
 
@@ -226,12 +227,17 @@ def generate_device_yaml(
     board: BoardCatalogEntry,
     ssid: str,
     psk: str,
+    *,
+    defaults: list[tuple[ComponentCatalogEntry, dict[str, Any]]] | None = None,
 ) -> str:
     """
     Generate a complete device YAML config from a board definition.
 
     Produces the base config with platform settings, logging, API, OTA,
-    and Wi-Fi — the most common/sane defaults for a new device.
+    and Wi-Fi — the most common/sane defaults for a new device. When
+    *defaults* is non-empty each ``(component, fields)`` pair is
+    appended via :func:`merge_component_yaml`, matching the shape
+    ``add_component`` would produce on a fresh YAML.
     """
     esphome_cfg = board.esphome
     lines: list[str] = []
@@ -330,7 +336,7 @@ def generate_device_yaml(
         # commented-out hint lets the user pick.
         lines.extend(_NO_NETWORK_TODO_LINES)
 
-    return "\n".join(lines)
+    return _apply_default_components("\n".join(lines), defaults)
 
 
 def _infer_native_wifi(board: BoardCatalogEntry) -> bool:
@@ -392,6 +398,18 @@ def _infer_native_wifi(board: BoardCatalogEntry) -> bool:
         board=esphome_cfg.board,
         variant=str(esphome_cfg.variant).upper() if esphome_cfg.variant else None,
     )
+
+
+def _apply_default_components(
+    yaml_text: str,
+    defaults: list[tuple[ComponentCatalogEntry, dict[str, Any]]] | None,
+) -> str:
+    """Append each ``(component, fields)`` pair to *yaml_text* via merge_component_yaml."""
+    if not defaults:
+        return yaml_text
+    for component, fields in defaults:
+        yaml_text = merge_component_yaml(yaml_text, component, fields)
+    return yaml_text
 
 
 def generate_minimal_stub_yaml(name: str, friendly_name: str) -> str:

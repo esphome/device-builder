@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import Any
 
 from mashumaro.mixins.orjson import DataClassORJSONMixin
 
@@ -167,6 +168,23 @@ class FeaturedBundle(DataClassORJSONMixin):
 
 
 @dataclass
+class DefaultComponent(DataClassORJSONMixin):
+    """A component installed by default in every new device on this board.
+
+    ``id`` resolves through the same two-step lookup the
+    ``default_components`` string form uses: first as a local
+    ``featured_components.id`` (picks up that entry's full field
+    presets), falling through to a bare catalog ``component_id``.
+    ``fields`` carries plain ``key: value`` overrides — no
+    ``locked`` / ``suggestions`` wrapping — that supplement (or
+    override) the featured component's presets.
+    """
+
+    id: str
+    fields: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class BoardCatalogEntry(DataClassORJSONMixin):
     """A board definition in the catalog."""
 
@@ -189,6 +207,12 @@ class BoardCatalogEntry(DataClassORJSONMixin):
     # Logical groups of featured components that the frontend adds
     # together (e.g. a status LED = output.gpio + light.binary).
     featured_bundles: list[FeaturedBundle] = field(default_factory=list)
+    # Components installed by default in every new device on this
+    # board. Each entry's ``id`` resolves either to a local
+    # ``featured_components.id`` (picks up that entry's full field
+    # presets) or a catalog ``component_id``; the entry's own
+    # ``fields`` dict supplements or overrides those presets.
+    default_components: list[DefaultComponent] = field(default_factory=list)
 
 
 @dataclass
