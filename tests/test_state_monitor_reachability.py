@@ -235,13 +235,7 @@ async def test_ping_failure_does_not_record_rtt() -> None:
 
 @pytest.mark.asyncio
 async def test_ping_retry_absorbs_transient_miss() -> None:
-    """First-shot miss → retry-with-multiple-packets → ONLINE, not OFFLINE.
-
-    A single dropped ICMP packet on a lossy path (VPN, congested
-    Wi-Fi) used to flip the device OFFLINE every sweep. Pin the
-    retry: when the cheap ``count=1`` probe misses, we issue a
-    second multi-packet probe and use its result.
-    """
+    """First-shot miss → retry with multiple packets → ONLINE, not OFFLINE."""
     devices = [_make_device(state=DeviceState.ONLINE)]
     tracker = ReachabilityTracker()
     monitor = _make_monitor(devices, tracker)
