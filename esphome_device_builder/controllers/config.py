@@ -48,9 +48,25 @@ _LOGGER = logging.getLogger(__name__)
 
 _DASHBOARD_SENTINEL_FILE = "___DASHBOARD_SENTINEL___.yaml"
 _METADATA_FILE = ".device-builder.json"
+# Sibling file used purely as an ``fcntl.flock`` rendezvous so
+# ``metadata_transaction`` serialises across processes. Separate
+# from ``_METADATA_FILE`` itself so the lock holder doesn't have
+# to worry about the data file being unlinked / replaced under it
+# (``_save_metadata`` does ``tempfile + Path.replace``, which
+# atomically swaps the inode). The lock file is created on
+# first transaction and persists; a stale file with no holder is
+# harmless and re-acquires cleanly on the next call.
+_METADATA_LOCK_FILE = ".device-builder.json.lock"
 _PREFS_KEY = "_preferences"
 _LABELS_KEY = "_labels"
 _REMOTE_BUILD_KEY = "_remote_build"
+
+try:
+    import fcntl
+
+    _HAS_FCNTL = True
+except ImportError:  # pragma: no cover — Windows path
+    _HAS_FCNTL = False
 
 
 # ---------------------------------------------------------------------------
@@ -322,6 +338,11 @@ class DashboardSettings:
 _METADATA_LOCK = threading.Lock()
 
 
+def _open_metadata_lock_file(path: str, flags: int) -> int:
+    """``open()`` opener that adds ``O_NOFOLLOW`` to reject symlinks."""
+    return os.open(path, flags | os.O_NOFOLLOW, 0o644)
+
+
 @contextmanager
 def metadata_transaction(config_dir: Path) -> Iterator[dict[str, Any]]:
     """
@@ -330,7 +351,14 @@ def metadata_transaction(config_dir: Path) -> Iterator[dict[str, Any]]:
     Yields the current metadata dict. Mutate it in place; on a clean
     exit the changes are persisted atomically. Exceptions raised
     inside the block discard the pending mutation. Concurrent
-    transactions are serialised so updates can't clobber each other.
+    transactions are serialised — within the process by the
+    per-module ``threading.Lock``, and across processes by a
+    blocking ``fcntl.flock`` on the sibling ``.device-builder.json.lock``
+    file. The cross-process serialisation matters for the HA addon
+    multi-flavor shape (Prod/Beta/DEV sharing ``/config/esphome``):
+    without it, two flavors RMW-ing disjoint keys at the same time
+    would each load the same stale snapshot and clobber the other's
+    update on save.
 
     Do not call from inside another ``metadata_transaction`` on the
     same thread. The lock is non-reentrant and will deadlock; this
@@ -339,11 +367,31 @@ def metadata_transaction(config_dir: Path) -> Iterator[dict[str, Any]]:
     (the outer save would overwrite the inner save). Helpers that
     take the same lock (e.g. ``get_or_create_identity``) must be
     called outside any open transaction.
+
+    Windows / no-fcntl platforms: degrades to the per-process
+    ``threading.Lock`` only. Two ``device-builder`` processes
+    against the same config dir can still clobber each other on
+    Windows, matching the documented Windows allowance on
+    :mod:`helpers.single_instance` (issue #451).
     """
     with _METADATA_LOCK:
-        data = _load_metadata(config_dir)
-        yield data
-        _save_metadata(config_dir, data)
+        if not _HAS_FCNTL:
+            data = _load_metadata(config_dir)
+            yield data
+            _save_metadata(config_dir, data)
+            return
+        lock_path = config_dir / _METADATA_LOCK_FILE
+        with open(lock_path, "a+", encoding="utf-8", opener=_open_metadata_lock_file) as lock_fh:
+            # Blocking ``LOCK_EX``: we want the second flavor to
+            # *wait* for the first to finish, not fail-fast (that
+            # would surface as a spurious WS error on every device
+            # CRUD across flavors). The OS releases the flock on
+            # ``close()`` / process exit, so a crashed peer can't
+            # leave the sidecar permanently locked.
+            fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX)
+            data = _load_metadata(config_dir)
+            yield data
+            _save_metadata(config_dir, data)
 
 
 def _load_metadata(config_dir: Path) -> dict[str, Any]:

@@ -13,11 +13,13 @@ Keyed on ``data_dir`` rather than ``config_dir`` so the HA
 add-on shape — where Prod/Beta/DEV flavors each have their own
 per-instance ``/data`` mount but a shared ``/config/esphome``
 YAML tree — can run in parallel without false contention. The
-state that lives in ``config_dir`` (``.device-builder.json``
-metadata sidecar, peer-link key, ``dashboard_id``) is either
-atomic-rename last-write-wins or first-write-only / idempotent
-after creation, so a shared config dir across instances is
-tolerable; the data-dir state is not. The dev shape
+``config_dir``-resident state that's still shared across
+flavors is handled separately: the ``.device-builder.json``
+metadata sidecar takes an ``fcntl.flock`` inside
+:func:`controllers.config.metadata_transaction` so cross-flavor
+RMW writes can't clobber each other; the peer-link key and
+``dashboard_id`` are first-write-only / idempotent after
+creation. The dev shape
 (``pip install esphome-device-builder`` against a checked-out
 dir) and the future Desktop shape still get the protection
 they need — two processes against the same ``--config-dir``

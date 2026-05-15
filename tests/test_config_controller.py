@@ -29,6 +29,7 @@ import asyncio
 import json
 import logging
 import os
+import sys
 import threading
 from pathlib import Path
 from typing import Any
@@ -111,6 +112,75 @@ def test_metadata_transaction_persists_changes(tmp_path: Path) -> None:
 
     raw = json.loads((tmp_path / ".device-builder.json").read_bytes())
     assert raw == {"kitchen.yaml": {"board_id": "esp32"}}
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="cross-process flock requires fcntl (POSIX-only)",
+)
+def test_metadata_transaction_serialises_across_flocks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """
+    Concurrent transactions from peer processes don't lose updates.
+
+    The HA addon multi-flavor shape — Prod/Beta/DEV sharing
+    ``/config/esphome`` — has three processes each able to RMW
+    the sidecar. Without an inter-process lock, two writers can
+    each load the same stale snapshot and clobber the other's
+    update at save time.
+
+    Simulate two processes by bypassing ``_METADATA_LOCK`` (a
+    per-process ``threading.Lock`` that would otherwise serialise
+    the two threads inside this single test process before they
+    ever reach the flock). Thread A enters the transaction and
+    blocks inside the ``with`` body; thread B then tries to
+    enter and must wait at the flock until A releases. Both
+    updates land in the final file.
+    """
+    from contextlib import nullcontext  # noqa: PLC0415
+
+    from esphome_device_builder.controllers import config as config_module  # noqa: PLC0415
+
+    monkeypatch.setattr(config_module, "_METADATA_LOCK", nullcontext())
+
+    thread_a_in_block = threading.Event()
+    release_a = threading.Event()
+    thread_b_done = threading.Event()
+
+    def _writer_a() -> None:
+        with metadata_transaction(tmp_path) as data:
+            data["a.yaml"] = {"board_id": "esp32"}
+            thread_a_in_block.set()
+            # Hold the flock so B has to wait for us.
+            release_a.wait(timeout=5.0)
+
+    def _writer_b() -> None:
+        thread_a_in_block.wait(timeout=5.0)
+        with metadata_transaction(tmp_path) as data:
+            data["b.yaml"] = {"board_id": "esp32-c3"}
+        thread_b_done.set()
+
+    t_a = threading.Thread(target=_writer_a)
+    t_b = threading.Thread(target=_writer_b)
+    t_a.start()
+    t_b.start()
+
+    # B must NOT have finished while A holds the flock.
+    assert not thread_b_done.wait(timeout=0.5), (
+        "B's transaction completed without waiting for A's flock — flock not engaged"
+    )
+
+    release_a.set()
+    t_a.join(timeout=5.0)
+    t_b.join(timeout=5.0)
+    assert not t_a.is_alive() and not t_b.is_alive()
+
+    final = json.loads((tmp_path / ".device-builder.json").read_bytes())
+    assert final == {
+        "a.yaml": {"board_id": "esp32"},
+        "b.yaml": {"board_id": "esp32-c3"},
+    }
 
 
 def test_metadata_transaction_discards_changes_on_exception(tmp_path: Path) -> None:
