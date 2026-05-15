@@ -745,6 +745,9 @@ def load_device_from_storage(
     build_size_bytes: int = 0,
     labels: tuple[str, ...] = (),
     *,
+    deployed_config_hash: str = "",
+    deployed_version: str = "",
+    api_encryption_active: str | None = None,
     previous: Device | None = None,
 ) -> Device:
     """
@@ -841,32 +844,14 @@ def load_device_from_storage(
     if storage and storage.firmware_bin_path and storage.firmware_bin_path.exists():
         bin_mtime = storage.firmware_bin_path.stat().st_mtime
 
-    deployed_config_hash = previous.deployed_config_hash if previous else ""
+    # Carry-forward: in-memory *previous* wins over the store kwarg
+    # (an apply since the last scan is fresher than disk).
+    if previous is not None:
+        deployed_config_hash = previous.deployed_config_hash
+        deployed_version = previous.deployed_version
+        api_encryption_active = previous.api_encryption_active
     state = previous.state if previous else DeviceState.UNKNOWN
-    # mDNS-derived view that isn't persisted in the metadata sidecar;
-    # carry it across reloads so a re-scan triggered by an unrelated
-    # YAML edit doesn't blank the dashboard's IP list until the next
-    # mDNS broadcast lands.
     ip_addresses = list(previous.ip_addresses) if previous else []
-    # Same carry-forward rule for the encryption-active observation:
-    # the next ``_esphomelib._tcp`` announce can be a couple of TTLs
-    # (minutes) away, and a scanner reload triggered by a flash /
-    # YAML edit / ``--only-generate`` between announces would
-    # otherwise wipe a previously-truthy ``api_encryption_active``
-    # back to ``None``. The frontend's ``getEncryptionState`` reads
-    # ``None`` as "mDNS not seen yet" and combines it with
-    # ``has_pending_changes`` to render a "Pending install" chip —
-    # so the user sees a freshly-flashed encrypted device flip into
-    # the warning state for the gap window despite the firmware on
-    # the wire still broadcasting encryption. The
-    # ``apply_api_encryption`` path follows the "Device is the
-    # source of truth" rule established in PR #75 and dedupes
-    # against ``device.api_encryption_active`` (not a monitor-side
-    # cache), so seeding the field from ``previous`` doesn't break
-    # the "next mDNS announce corrects mismatched state" guarantee
-    # — a re-announce with a different value still hits the
-    # callback path.
-    api_encryption_active = previous.api_encryption_active if previous else None
 
     has_pending = compute_has_pending_changes(
         yaml_mtime=yaml_mtime,
@@ -875,8 +860,7 @@ def load_device_from_storage(
         deployed_config_hash=deployed_config_hash,
     )
 
-    deployed = storage.esphome_version or "" if storage else ""
-    update_available = bool(deployed and deployed != const.__version__)
+    update_available = bool(deployed_version and deployed_version != const.__version__)
 
     # ``Device.target_platform`` is the lowercase platform *key*
     # (``esp32``, ``esp8266``, ``rp2040``, …) — the value the
@@ -998,7 +982,7 @@ def load_device_from_storage(
         ip_addresses=ip_addresses,
         web_port=storage.web_port if storage else None,
         current_version=const.__version__,
-        deployed_version=deployed,
+        deployed_version=deployed_version,
         expected_config_hash=expected_config_hash,
         deployed_config_hash=deployed_config_hash,
         loaded_integrations=loaded_integrations,

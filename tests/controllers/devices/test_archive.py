@@ -30,11 +30,7 @@ from esphome_device_builder.controllers.config import (
     get_device_metadata,
     set_device_metadata,
 )
-from esphome_device_builder.controllers.devices import helpers as devices_helpers
-from esphome_device_builder.controllers.devices.helpers import (
-    _archive_clear_device_sidecars,
-    _remove_device_sidecars,
-)
+from esphome_device_builder.controllers.devices.helpers import _unlink_storage_sidecar
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
 from tests._storage_fixtures import write_storage_json
@@ -155,11 +151,9 @@ async def test_archive_clears_volatile_metadata_keeps_identity(
     """
     controller = make_controller(tmp_path)
     await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
-    # ``set_device_metadata`` writes through ``metadata_transaction``
-    # which calls ``tempfile.mkstemp`` for an atomic replace —
-    # blockbuster (the CI's blocking-call detector) flags the
-    # ``os.path.abspath`` inside ``mkstemp`` from an async context,
-    # so push the write to a thread.
+    # Identity + mac_address live in the shared sidecar.
+    # ``metadata_transaction`` → ``tempfile.mkstemp`` trips the
+    # blockbuster detector from an async context; push to a thread.
     await asyncio.to_thread(
         set_device_metadata,
         tmp_path,
@@ -167,44 +161,32 @@ async def test_archive_clears_volatile_metadata_keeps_identity(
         board_id="esp32-c3-devkitm-1",
         friendly_name="Kitchen Sensor",
         comment="By the toaster",
+        mac_address="94:C9:60:1F:8C:F1",
+    )
+    # Volatile fields seeded directly into the store.
+    controller._metadata_store.update(
+        "kitchen.yaml",
         ip="192.168.1.42",
         expected_config_hash="deadbeef",
-        mac_address="94:C9:60:1F:8C:F1",
         regen_failed_mtime=1700000000.5,
         regen_failed_at=1700000005.0,
         build_size_bytes=12345678,
         build_size_dir_mtime=1714900000,
         build_size_info_mtime=1714900050,
     )
-    pre = await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml")
-    # Sanity that the seeding above wrote everything we expect.
-    assert pre["board_id"] == "esp32-c3-devkitm-1"
-    assert pre["ip"] == "192.168.1.42"
-    assert pre["expected_config_hash"] == "deadbeef"
-    assert pre["mac_address"] == "94:C9:60:1F:8C:F1"
-    assert pre["regen_failed_mtime"] == 1700000000.5
-    assert pre["regen_failed_at"] == 1700000005.0
-    assert pre["build_size_bytes"] == 12345678
-    assert pre["build_size_dir_mtime"] == 1714900000
-    assert pre["build_size_info_mtime"] == 1714900050
 
     await controller._archive_single("kitchen.yaml")
 
-    post = await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml")
-    # Identity fields survive — that's the whole point of this
-    # behaviour. A future regression that wipes the entire entry
-    # (the previous shape) fails here. The MAC counts as volatile
-    # (the YAML may later be redeployed to a different physical
-    # board on unarchive) and must be scrubbed alongside ``ip`` /
-    # ``expected_config_hash``. ``regen_failed_mtime`` /
-    # ``regen_failed_at`` are volatile too — archive moves the
-    # YAML, and a future unarchive may put it back with a fresh
-    # mtime, so any cached failure stamp would be meaningless.
-    assert post == {
+    # Identity survives in the shared sidecar; mac_address is
+    # volatile (YAML may unarchive onto a different physical
+    # board) and gets cleared alongside the store fields.
+    post_shared = await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml")
+    assert post_shared == {
         "board_id": "esp32-c3-devkitm-1",
         "friendly_name": "Kitchen Sensor",
         "comment": "By the toaster",
     }
+    assert controller._metadata_store.get("kitchen.yaml") == {}
 
 
 @pytest.mark.asyncio
@@ -222,14 +204,12 @@ async def test_archive_drops_metadata_entry_when_only_volatile_fields(
     file doesn't accumulate dead keys.
     """
     controller = make_controller(tmp_path)
-    # ``write_metadata=False`` so the starting state has no
-    # identity fields — the only metadata is the volatile ones we
-    # add below, which is the exact precondition this branch
-    # exercises.
+    # ``write_metadata=False`` so the legacy sidecar has no
+    # identity entry — the only metadata is the volatile fields we
+    # add to the store below, which is the exact precondition this
+    # branch exercises.
     await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True, write_metadata=False)
-    await asyncio.to_thread(
-        set_device_metadata,
-        tmp_path,
+    controller._metadata_store.update(
         "kitchen.yaml",
         ip="192.168.1.42",
         expected_config_hash="cafebabe",
@@ -237,8 +217,10 @@ async def test_archive_drops_metadata_entry_when_only_volatile_fields(
 
     await controller._archive_single("kitchen.yaml")
 
-    # No entry left at all — not just an empty dict.
-    assert await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml") == {}
+    # The store's volatile-only entry is gone entirely; the legacy
+    # sidecar never had an entry for this device to begin with.
+    assert controller._metadata_store.get("kitchen.yaml") == {}
+    assert controller._metadata_store.snapshot_all() == {}
     raw = await asyncio.to_thread(_load_metadata, tmp_path)
     assert "kitchen.yaml" not in raw
 
@@ -530,21 +512,16 @@ async def test_archive_rejects_path_traversal(
 
 
 # ---------------------------------------------------------------------------
-# _remove_device_sidecars exception paths
+# _unlink_storage_sidecar exception paths
 # ---------------------------------------------------------------------------
 
 
-def test_remove_device_sidecars_logs_oserror_on_storage_unlink(
-    tmp_path: Path, monkeypatch: Any, caplog: Any
-) -> None:
+def test_unlink_storage_sidecar_logs_oserror(tmp_path: Path, monkeypatch: Any, caplog: Any) -> None:
     """OSError from the storage unlink is logged, not raised.
 
-    Covers the warning branch — a permission-error / read-only fs
-    on the StorageJSON sidecar shouldn't block the rest of the
-    archive / delete flow.
+    A permission-error / read-only fs on the StorageJSON sidecar
+    shouldn't block the rest of the archive / delete flow.
     """
-    # ``redirect_storage_path`` (autouse via ``_ext_storage_for_archive``)
-    # already created ``.esphome/storage`` — just lay the JSON.
     storage_dir = tmp_path / ".esphome" / "storage"
     (storage_dir / "kitchen.yaml.json").write_text("{}", encoding="utf-8")
 
@@ -554,47 +531,7 @@ def test_remove_device_sidecars_logs_oserror_on_storage_unlink(
     monkeypatch.setattr(Path, "unlink", _raise_oserror)
 
     with caplog.at_level(logging.WARNING):
-        _remove_device_sidecars(tmp_path, "kitchen.yaml")
-    assert any("Could not remove storage file" in rec.message for rec in caplog.records)
-
-
-def test_remove_device_sidecars_logs_exception_on_metadata_remove(
-    tmp_path: Path, monkeypatch: Any, caplog: Any
-) -> None:
-    """OSError from metadata-remove is logged, not raised."""
-
-    def _raise(*args: Any, **kwargs: Any) -> None:
-        raise OSError("disk full")
-
-    monkeypatch.setattr(devices_helpers, "remove_device_metadata", _raise)
-
-    with caplog.at_level(logging.WARNING):
-        devices_helpers._remove_device_sidecars(tmp_path, "kitchen.yaml")
-    assert any("Could not remove metadata" in rec.message for rec in caplog.records)
-
-
-def test_archive_clear_device_sidecars_logs_oserror_on_storage_unlink(
-    tmp_path: Path, monkeypatch: Any, caplog: Any
-) -> None:
-    """OSError from the storage unlink is logged, not raised.
-
-    Mirrors the ``_remove_device_sidecars`` exception-path test
-    for the archive variant. The metadata clear should still run
-    after the storage unlink fails — a permission error on one
-    file mustn't block the volatile-fields wipe on the other.
-    """
-    # ``redirect_storage_path`` (autouse via ``_ext_storage_for_archive``)
-    # already created ``.esphome/storage`` — just lay the JSON.
-    storage_dir = tmp_path / ".esphome" / "storage"
-    (storage_dir / "kitchen.yaml.json").write_text("{}", encoding="utf-8")
-
-    def _raise_oserror(self: Path, missing_ok: bool = False) -> None:
-        raise OSError("permission denied")
-
-    monkeypatch.setattr(Path, "unlink", _raise_oserror)
-
-    with caplog.at_level(logging.WARNING):
-        _archive_clear_device_sidecars(tmp_path, "kitchen.yaml")
+        _unlink_storage_sidecar("kitchen.yaml")
     assert any("Could not remove storage file" in rec.message for rec in caplog.records)
 
 
@@ -621,27 +558,6 @@ def test_clear_volatile_device_metadata_drops_corrupt_non_dict_entry(
     raw = _load_metadata(tmp_path)
     assert "kitchen.yaml" not in raw
     assert get_device_metadata(tmp_path, "kitchen.yaml") == {}
-
-
-def test_archive_clear_device_sidecars_logs_exception_on_metadata_clear(
-    tmp_path: Path, monkeypatch: Any, caplog: Any
-) -> None:
-    """OSError from clear-volatile is logged, not raised.
-
-    A failure scrubbing the volatile metadata fields shouldn't
-    propagate — the YAML has already been moved to the archive
-    by the time this helper runs, so raising would surface a
-    half-completed archive operation to the caller.
-    """
-
-    def _raise(*args: Any, **kwargs: Any) -> None:
-        raise OSError("disk full")
-
-    monkeypatch.setattr(devices_helpers, "clear_volatile_device_metadata", _raise)
-
-    with caplog.at_level(logging.WARNING):
-        devices_helpers._archive_clear_device_sidecars(tmp_path, "kitchen.yaml")
-    assert any("Could not clear volatile metadata" in rec.message for rec in caplog.records)
 
 
 # ---------------------------------------------------------------------------

@@ -42,8 +42,9 @@ resolving after the subpackage split. Submodules:
 - ``metadata`` — ``DeviceMetadataBase`` carrying
   ``_resolve_device_metadata`` /
   ``_derive_board_id_from_yaml`` /
-  ``_persist_device_ip_async`` /
-  ``_persist_device_metadata_async``. Inherits from
+  ``_persist_device_metadata_async`` /
+  ``_delete_device_metadata`` /
+  ``_clear_volatile_device_metadata``. Inherits from
   ``controllers._device_builder_base.DeviceBuilderBase`` so
   ``self._db`` comes via ``super().__init__(device_builder)``;
   ``DevicesController`` inherits ``DeviceMetadataBase``

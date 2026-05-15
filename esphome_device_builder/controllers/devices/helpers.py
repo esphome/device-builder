@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from pathlib import Path, PurePosixPath, PureWindowsPath
+from pathlib import PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING, Any
 
 try:
@@ -24,7 +24,6 @@ from ...helpers.hostname import is_local_hostname, normalize_hostname
 from ...helpers.storage_path import resolve_storage_path
 from ...helpers.yaml import read_yaml_scalar, rewrite_name_or_substitution
 from ...models import ConfigEntryType, Device, ErrorCode
-from ..config import clear_volatile_device_metadata, remove_device_metadata
 from .constants import _CONCEALED_SECRET_RE
 
 if TYPE_CHECKING:
@@ -41,13 +40,12 @@ _TOP_LEVEL_KEY_RE = re.compile(r"^([a-zA-Z_][a-zA-Z0-9_]*)\s*:", re.MULTILINE)
 
 __all__ = [
     "_apply_featured_presets",
-    "_archive_clear_device_sidecars",
     "_build_address_cache_args",
     "_drop_unconfigured_dependent_fields",
     "_normalize_pin_value",
     "_redact_concealed_secrets",
-    "_remove_device_sidecars",
     "_rewrite_required_yaml_leaf",
+    "_unlink_storage_sidecar",
     "_validate_archive_configuration",
     "_wipe_device_build_dir",
     "friendly_name_slugify",
@@ -103,42 +101,19 @@ def _wipe_device_build_dir(configuration: str) -> None:
         _LOGGER.debug("_wipe_device_build_dir: rmtree(%s) failed: %s", storage.build_path, exc)
 
 
-def _remove_device_sidecars(config_dir: Path, configuration: str) -> None:
-    """
-    Remove the StorageJSON sidecar and device-metadata entry.
+def _unlink_storage_sidecar(configuration: str) -> None:
+    """Remove the StorageJSON sidecar file (no-op if absent).
 
-    Best-effort; failures are logged so a partial cleanup
-    doesn't block the rest of the delete flow.
-    """
-    storage_path = resolve_storage_path(configuration)
-    try:
-        storage_path.unlink(missing_ok=True)
-    except OSError:
-        _LOGGER.warning("Could not remove storage file for %s", configuration)
-    try:
-        remove_device_metadata(config_dir, configuration)
-    except OSError:
-        _LOGGER.warning("Could not remove metadata for %s", configuration)
-
-
-def _archive_clear_device_sidecars(config_dir: Path, configuration: str) -> None:
-    """
-    Wipe build artifacts but keep stable identity metadata.
-
-    Archive-flow variant; clears volatile metadata but
-    preserves identity fields (``board_id``, ``friendly_name``,
-    ``comment``) so an unarchive of the same YAML restores the
-    user-visible state without needing a board re-derive.
+    The per-device metadata entry is RAM-canonical in
+    ``DeviceMetadataStore``; the archive / delete flows mutate
+    it on the event loop side after this executor-side file
+    unlink returns.
     """
     storage_path = resolve_storage_path(configuration)
     try:
         storage_path.unlink(missing_ok=True)
     except OSError:
         _LOGGER.warning("Could not remove storage file for %s", configuration)
-    try:
-        clear_volatile_device_metadata(config_dir, configuration)
-    except OSError:
-        _LOGGER.warning("Could not clear volatile metadata for %s", configuration)
 
 
 def _validate_archive_configuration(configuration: str) -> None:

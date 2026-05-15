@@ -14,16 +14,17 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from esphome.core import CORE
 from esphome.helpers import write_file as atomic_write_file
-from esphome.storage_json import StorageJSON
 from esphome.zeroconf import AsyncEsphomeZeroconf
 
 from ...helpers.api import CommandError, api_command
+from ...helpers.build_size import BuildSizeRefreshResult
 from ...helpers.device_yaml import (
     configuration_stem,
 )
 from ...helpers.event_bus import Event
-from ...helpers.storage_path import resolve_storage_path
+from ...helpers.storage import ShutdownCallback
 from ...models import (
     AddComponentResponse,
     Device,
@@ -61,6 +62,8 @@ from . import (
     storage_regen,
     validate,
 )
+from ._metadata_store import DeviceMetadataStore
+from ._shared_sidecar import SharedSidecarClient
 from ._state import DevicesState
 from ._yaml_search_cache import YamlSearchCache
 from .helpers import (
@@ -99,6 +102,16 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         # Unsubscribe handle for the firmware-job-completion listener
         # wired up in start(); held so stop() can detach cleanly.
         self._unsub_job_completed: Any = None
+
+        # Constructed before the scanner so the first
+        # ``_resolve_device_metadata`` reads off the store.
+        self._shutdown_callbacks: list[ShutdownCallback] = []
+        self._metadata_store = DeviceMetadataStore(
+            config_dir=self._db.settings.config_dir,
+            data_dir=Path(CORE.data_dir),
+            shutdown_register=self._shutdown_callbacks.append,
+        )
+        self._shared_sidecar = SharedSidecarClient(self._db.settings.config_dir)
 
         # Background ``--only-generate`` bookkeeping. ``--only-generate``
         # validates a YAML and writes its ``StorageJSON`` without doing
@@ -139,11 +152,11 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         # (clean / delete N devices in a row, fleet-wide startup
         # sweep) all funnel into one queue so repeated requests
         # for the same configuration coalesce and we never pile
-        # up background tasks. Constructed after the scanner so
-        # ``on_refreshed=self._scanner.reload`` is bindable.
+        # up background tasks.
         self._build_size = BuildSizeRefresher(
-            config_dir=self._db.settings.config_dir,
             get_filenames=lambda: (d.configuration for d in self._get_devices()),
+            get_metadata_snapshot=self._metadata_store.snapshot_all,
+            persist_size=self._persist_build_size,
             on_refreshed=self._scanner.reload,
         )
         # Build the state monitor first so the reachability tracker
@@ -207,6 +220,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         """Initialise — load state, scan files, start mDNS + ping + MQTT discovery."""
         self.state.esphome_cmd = _find_esphome_cmd()
         loop = asyncio.get_running_loop()
+        # Seed the store (and migrate on first post-upgrade boot)
+        # before the scanner runs — resolver reads off it.
+        await self._metadata_store.async_load()
         await loop.run_in_executor(None, self._load_ignored_devices)
         await self._scanner.scan()
         _LOGGER.info("Devices controller started — %d devices loaded", len(self._scanner.devices))
@@ -229,6 +245,8 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         await self._build_size.stop()
         await self._mqtt_coordinator.stop()
         await self._state_monitor.stop()
+        for callback in self._shutdown_callbacks:
+            await callback()
 
     async def poll(self) -> None:
         """Poll for file changes."""
@@ -852,26 +870,13 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     def _sync_deployed_hash_after_flash(self, configuration: str) -> None:
         firmware_sync.sync_deployed_hash_after_flash(self, configuration)
 
-    async def _persist_storage_version_async(self, configuration: str, version: str) -> None:
-        await firmware_sync.persist_storage_version_async(self, configuration, version)
-
-    @staticmethod
-    def _persist_storage_version(configuration: str, version: str) -> None:
-        """Write *version* to ``StorageJSON.esphome_version`` if it differs."""
-        storage_path = resolve_storage_path(configuration)
-        storage = StorageJSON.load(storage_path)
-        if storage is None:
-            return
-        if storage.esphome_version == version:
-            return
-        previous = storage.esphome_version
-        storage.esphome_version = version
-        storage.save(storage_path)
-        _LOGGER.debug(
-            "Updated StorageJSON for %s with mdns version %s (was %s)",
+    def _persist_build_size(self, configuration: str, result: BuildSizeRefreshResult) -> None:
+        """Merge a fresh build-size triple into the metadata store."""
+        self._metadata_store.update(
             configuration,
-            version,
-            previous,
+            build_size_bytes=result.size_bytes,
+            build_size_dir_mtime=result.signal.dir_mtime,
+            build_size_info_mtime=result.signal.info_mtime,
         )
 
     def _load_ignored_devices(self) -> None:

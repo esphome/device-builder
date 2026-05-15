@@ -11,14 +11,13 @@ from ...helpers.api import CommandError
 from ...helpers.device_yaml import parse_platform_from_yaml
 from ...helpers.storage_path import resolve_storage_path
 from ...models import ErrorCode, WizardResponse
-from ..config import remove_device_metadata, set_device_metadata
 from .helpers import friendly_name_slugify
 
 if TYPE_CHECKING:
     from .controller import DevicesController
 
 
-async def create_device(  # noqa: PLR0915
+async def create_device(  # noqa: PLR0912, PLR0915
     controller: DevicesController,
     *,
     name: str,
@@ -145,19 +144,13 @@ async def create_device(  # noqa: PLR0915
         storage_path.parent.mkdir(parents=True, exist_ok=True)
         storage.save(storage_path)
 
-        # Wipe residual metadata before writing the new entry.
-        # Archive preserves identity fields (board_id /
-        # friendly_name / comment) so unarchive can restore
-        # state, but a *new* device at the same filename must
-        # start fresh; otherwise an archived device's board_id
-        # would silently mis-bind. The stub create path wouldn't
-        # otherwise overwrite the entry, so the wipe runs
-        # unconditionally.
-        remove_device_metadata(controller._db.settings.config_dir, filename)
-        if board_id:
-            set_device_metadata(controller._db.settings.config_dir, filename, board_id=board_id)
-
     await loop.run_in_executor(None, _init_storage)
+    # Archive keeps identity for unarchive; a fresh device at the
+    # same filename must start clean or an archived board_id
+    # silently mis-binds.
+    await controller._delete_device_metadata(filename)
+    if board_id:
+        await controller._persist_device_metadata_async(filename, board_id=board_id)
     # _scanner.scan fires _on_scan_change(ADDED) for the new
     # YAML and that already runs probe_device; don't double-probe.
     # file_content may carry an esphome.name that differs from

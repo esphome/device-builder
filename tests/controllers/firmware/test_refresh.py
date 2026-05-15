@@ -24,6 +24,7 @@ Three pieces are covered:
 
 from __future__ import annotations
 
+import tempfile as _tempfile
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -36,6 +37,7 @@ from esphome_device_builder.controllers._device_scanner import (
     ScanChange,
 )
 from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.controllers.devices._metadata_store import DeviceMetadataStore
 from esphome_device_builder.helpers.event_bus import Event
 from esphome_device_builder.models import (
     Device,
@@ -275,22 +277,13 @@ def test_unhandled_job_type_with_configuration_falls_through_silently() -> None:
 async def test_refresh_after_compile_persists_hash_and_reloads(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
-    """Successful compile → hash computed + persisted, then device reloaded."""
+    """Successful compile → hash computed + persisted to the store, device reloaded."""
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("esphome:\n  name: kitchen\n")
-
-    persisted: list[dict[str, Any]] = []
-
-    def _fake_set_metadata(_config_dir: Path, filename: str, **kwargs: Any) -> None:
-        persisted.append({"filename": filename, **kwargs})
 
     async def _fake_compute(_path: Path) -> str | None:
         return "1a2b3c4d"
 
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.metadata.set_device_metadata",
-        _fake_set_metadata,
-    )
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.firmware_sync.compute_yaml_config_hash",
         _fake_compute,
@@ -304,10 +297,16 @@ async def test_refresh_after_compile_persists_hash_and_reloads(
     controller._db = db
     controller._scanner = RecordingScanner()
     controller._build_size = MagicMock()
+    controller._shutdown_callbacks = []
+    controller._metadata_store = DeviceMetadataStore(
+        config_dir=tmp_path,
+        data_dir=tmp_path,
+        shutdown_register=controller._shutdown_callbacks.append,
+    )
 
     await controller._refresh_after_firmware_job("kitchen.yaml", recompute_hash=True, flashed=False)
 
-    assert persisted == [{"filename": "kitchen.yaml", "expected_config_hash": "1a2b3c4d"}]
+    assert controller._metadata_store.get("kitchen.yaml") == {"expected_config_hash": "1a2b3c4d"}
     assert controller._scanner.calls == [("reload", "kitchen.yaml")]
 
 
@@ -316,18 +315,10 @@ async def test_refresh_after_compile_skips_persist_on_hash_failure(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
     """If hash computation fails, fall back to mtime check — don't write empty hash."""
-    persisted: list[dict[str, Any]] = []
-
-    def _fake_set_metadata(_config_dir: Path, filename: str, **kwargs: Any) -> None:
-        persisted.append({"filename": filename, **kwargs})
 
     async def _fake_compute(_path: Path) -> str | None:
         return None  # YAML didn't validate, subprocess failed, etc.
 
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.metadata.set_device_metadata",
-        _fake_set_metadata,
-    )
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.firmware_sync.compute_yaml_config_hash",
         _fake_compute,
@@ -341,11 +332,21 @@ async def test_refresh_after_compile_skips_persist_on_hash_failure(
     controller._db = db
     controller._scanner = RecordingScanner()
     controller._build_size = MagicMock()
+    controller._shutdown_callbacks = []
+    tmp_dir_obj = _tempfile.TemporaryDirectory(prefix="dmstore_")
+    tmp_dir = Path(tmp_dir_obj.name)
+    controller._tmpdir = tmp_dir_obj  # keep alive
+    controller._metadata_store = DeviceMetadataStore(
+        config_dir=tmp_dir,
+        data_dir=tmp_dir,
+        shutdown_register=controller._shutdown_callbacks.append,
+    )
 
     await controller._refresh_after_firmware_job("kitchen.yaml", recompute_hash=True, flashed=False)
 
-    assert persisted == []  # don't overwrite with garbage
-    assert controller._scanner.calls == [("reload", "kitchen.yaml")]  # reload still happens
+    # Hash compute failed → no write to the store.
+    assert controller._metadata_store.snapshot_all() == {}
+    assert controller._scanner.calls == [("reload", "kitchen.yaml")]
 
 
 @pytest.mark.asyncio
@@ -425,10 +426,20 @@ def _flush_controller(device: Device) -> tuple[Any, list[Any]]:
     controller._db = db
     controller._scanner = scanner
     controller._state_monitor = state_monitor
+    controller._shutdown_callbacks = []
+    tmp_dir_obj = _tempfile.TemporaryDirectory(prefix="dmstore_")
+    tmp_dir = Path(tmp_dir_obj.name)
+    controller._tmpdir = tmp_dir_obj  # keep alive
+    controller._metadata_store = DeviceMetadataStore(
+        config_dir=tmp_dir,
+        data_dir=tmp_dir,
+        shutdown_register=controller._shutdown_callbacks.append,
+    )
     return controller, fired
 
 
-def test_sync_after_flash_pins_deployed_hash_and_clears_pending() -> None:
+@pytest.mark.asyncio
+async def test_sync_after_flash_pins_deployed_hash_and_clears_pending() -> None:
     """Post-flash sync flips deployed → expected and emits ``DEVICE_UPDATED``."""
     device = _device(
         expected_config_hash="aaaa1111",
@@ -447,7 +458,8 @@ def test_sync_after_flash_pins_deployed_hash_and_clears_pending() -> None:
     assert [t for t, _p in fired] == [EventType.DEVICE_UPDATED]
 
 
-def test_sync_after_flash_no_expected_hash_is_noop() -> None:
+@pytest.mark.asyncio
+async def test_sync_after_flash_no_expected_hash_is_noop() -> None:
     """Without ``expected_config_hash`` we have nothing to pin — fall back to mtime."""
     device = _device(
         expected_config_hash="",
@@ -464,7 +476,8 @@ def test_sync_after_flash_no_expected_hash_is_noop() -> None:
     assert fired == []
 
 
-def test_sync_after_flash_already_in_sync_is_noop() -> None:
+@pytest.mark.asyncio
+async def test_sync_after_flash_already_in_sync_is_noop() -> None:
     """Already-matching hashes skip both the cache write and the event."""
     device = _device(
         expected_config_hash="aaaa1111",
@@ -480,7 +493,8 @@ def test_sync_after_flash_already_in_sync_is_noop() -> None:
     assert fired == []
 
 
-def test_sync_after_flash_unknown_configuration_is_noop() -> None:
+@pytest.mark.asyncio
+async def test_sync_after_flash_unknown_configuration_is_noop() -> None:
     """Configuration not in the scanner's device list — silently skip."""
     device = _device(
         configuration="livingroom.yaml",

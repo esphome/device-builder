@@ -30,10 +30,15 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Iterable
-from pathlib import Path
 from typing import Any
 
-from ..helpers.build_size import find_stale_build_dirs, refresh_build_size_if_stale
+from ..helpers.build_size import (
+    BuildDirSignal,
+    BuildSizeRefreshResult,
+    coerce_sidecar_int,
+    find_stale_build_dirs,
+    refresh_build_size_if_stale,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -61,12 +66,14 @@ class BuildSizeRefresher:
 
     def __init__(
         self,
-        config_dir: Path,
         get_filenames: Callable[[], Iterable[str]],
+        get_metadata_snapshot: Callable[[], dict[str, dict[str, Any]]],
+        persist_size: Callable[[str, BuildSizeRefreshResult], None],
         on_refreshed: RefreshedCallback,
     ) -> None:
-        self._config_dir = config_dir
         self._get_filenames = get_filenames
+        self._get_metadata_snapshot = get_metadata_snapshot
+        self._persist_size = persist_size
         self._on_refreshed = on_refreshed
         self._pending: set[str] = set()
         self._wake = asyncio.Event()
@@ -135,17 +142,19 @@ class BuildSizeRefresher:
 
         One executor job stats every configured device's build
         dir + freshness pair against the cached pair in the
-        sidecar and returns the divergent set. Each one gets
-        pushed into the worker queue via :meth:`request`; the
-        worker drains the queue on its own. Used on controller
-        start to pick up CLI-compile drift across the whole
-        catalog without saturating disk I/O on the cold path.
+        per-device metadata store snapshot taken on the loop
+        side. Each divergent configuration gets pushed into the
+        worker queue via :meth:`request`; the worker drains the
+        queue on its own. Used on controller start to pick up
+        CLI-compile drift across the whole catalog without
+        saturating disk I/O on the cold path.
         """
         loop = asyncio.get_running_loop()
         filenames = list(self._get_filenames())
         if not filenames:
             return
-        stale = await loop.run_in_executor(None, find_stale_build_dirs, self._config_dir, filenames)
+        metadata = self._get_metadata_snapshot()
+        stale = await loop.run_in_executor(None, find_stale_build_dirs, filenames, metadata)
         for configuration in stale:
             self.request(configuration)
 
@@ -178,20 +187,39 @@ class BuildSizeRefresher:
         while True:
             await self._wake.wait()
             self._wake.clear()
+            # One snapshot per drain cycle, not per item, so the
+            # per-device cached-signal lookup is O(1) on a hash
+            # rather than O(N) on a fresh fleet-wide copy.
+            metadata = self._get_metadata_snapshot()
             while self._pending:
                 configuration = self._pending.pop()
+                entry = metadata.get(configuration, {})
+                cached = BuildDirSignal(
+                    dir_mtime=coerce_sidecar_int(entry.get("build_size_dir_mtime")),
+                    info_mtime=coerce_sidecar_int(entry.get("build_size_info_mtime")),
+                )
                 try:
                     result = await loop.run_in_executor(
                         None,
                         refresh_build_size_if_stale,
-                        self._config_dir,
                         configuration,
+                        cached,
                     )
                 except Exception:
                     _LOGGER.exception("Build-size refresh failed for %s", configuration)
                     continue
                 if result is None:
                     continue  # cache hit / no artifacts — nothing to publish
+                self._persist_size(configuration, result)
+                # Reflect the persisted signal into the local
+                # snapshot so a re-queue of the same configuration
+                # within this drain cycle sees the fresh cache.
+                metadata[configuration] = {
+                    **metadata.get(configuration, {}),
+                    "build_size_bytes": result.size_bytes,
+                    "build_size_dir_mtime": result.signal.dir_mtime,
+                    "build_size_info_mtime": result.signal.info_mtime,
+                }
                 try:
                     await self._on_refreshed(configuration)
                 except Exception:

@@ -544,48 +544,14 @@ def remove_device_metadata(config_dir: Path, filename: str) -> None:
         data.pop(filename, None)
 
 
-# Fields on a device-metadata entry whose meaning is tied to the
-# *running* firmware / network state, not to the YAML's identity.
-# Used by ``clear_volatile_device_metadata`` (and its caller in
-# the archive flow) to scrub these on archive while preserving
-# the stable identity fields. New volatile fields added here
-# must also be added to ``set_device_metadata`` (and any
-# accessors) so the cleared / un-cleared shapes stay aligned.
-_VOLATILE_DEVICE_METADATA_FIELDS: frozenset[str] = frozenset(
-    {
-        # Last resolved IP — meaningless once the device is no
-        # longer on the network.
-        "ip",
-        # Last successfully-compiled config hash. Pairs with the
-        # mDNS ``config_hash`` TXT record to detect "running
-        # firmware out of sync with YAML"; on archive the build
-        # dir is wiped so the hash no longer corresponds to any
-        # available artifact and would be misleading on the next
-        # compile.
-        "expected_config_hash",
-        # Last MAC observed via mDNS. Stable per device but tied
-        # to the running firmware — on archive the YAML may later
-        # be redeployed to a different physical board, and a
-        # stale persisted MAC would render until the next mDNS
-        # announce overwrote it.
-        "mac_address",
-        # YAML mtime + wall-clock timestamp at the last failed
-        # storage-regen attempt. Archive moves the YAML; a future
-        # unarchive may put it back with a fresh mtime, so any
-        # cached failure stamp would be meaningless. Cleared so
-        # the next scan retries the regen.
-        "regen_failed_mtime",
-        "regen_failed_at",
-        # Cached size of the per-device build directory at the
-        # freshness pair captured alongside it. Archive wipes the
-        # build tree (``_wipe_device_build_dir``) so the cached
-        # triple would describe a directory that no longer
-        # exists.
-        "build_size_bytes",
-        "build_size_dir_mtime",
-        "build_size_info_mtime",
-    }
-)
+# Per-device shared-sidecar fields that go stale on archive.
+# After the per-device live state moved into the data-dir store,
+# only ``mac_address`` remains in the shared sidecar with archive-
+# volatile semantics: it's intrinsic to the physical board, but
+# unarchive may rebind the YAML to a different board, so the
+# cached MAC must clear. Everything else here is identity that
+# survives archive.
+_VOLATILE_DEVICE_METADATA_FIELDS: frozenset[str] = frozenset({"mac_address"})
 
 
 def clear_volatile_device_metadata(config_dir: Path, filename: str) -> None:

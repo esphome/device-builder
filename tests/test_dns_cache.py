@@ -597,19 +597,17 @@ def test_load_device_from_storage_address_uses_storage_when_set(  # type: ignore
     assert device.address == "kitchen.lan"
 
 
-def test_on_ip_change_persists_non_empty_value() -> None:
-    """``_on_ip_change`` schedules a metadata write for non-empty IPs."""
+@pytest.mark.asyncio
+async def test_on_ip_change_persists_non_empty_value() -> None:
+    """``_on_ip_change`` writes the IP to the metadata store synchronously."""
     device = Device(name="kitchen", friendly_name="Kitchen", configuration="kitchen.yaml")
-    scheduled: list[object] = []
-    controller, _captured = make_devices_controller_with_bus(
-        [device], create_background_task=record_scheduled_coros(scheduled)
-    )
+    controller, _captured = make_devices_controller_with_bus([device])
 
     controller._on_ip_change("kitchen", "10.0.0.1", ["10.0.0.1", "fe80::1%en0"])
 
     assert device.ip == "10.0.0.1"
     assert device.ip_addresses == ["10.0.0.1", "fe80::1%en0"]
-    assert len(scheduled) == 1
+    assert controller._metadata_store.get("kitchen.yaml") == {"ip": "10.0.0.1"}
 
 
 def test_on_ip_change_skips_persist_for_empty_value() -> None:

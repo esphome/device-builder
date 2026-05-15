@@ -44,7 +44,6 @@ from pathlib import Path
 
 from esphome.storage_json import StorageJSON
 
-from ..controllers.config import get_device_metadata, set_device_metadata
 from .storage_path import resolve_storage_path
 
 _LOGGER = logging.getLogger(__name__)
@@ -101,13 +100,15 @@ def get_build_dir_signal(build_dir: Path) -> BuildDirSignal:
     )
 
 
-def find_stale_build_dirs(config_dir: Path, filenames: list[str]) -> list[str]:
+def find_stale_build_dirs(
+    filenames: list[str],
+    metadata: dict[str, dict[str, object]],
+) -> list[str]:
     """
     Cheap fleet-wide stat: return the subset whose freshness pair moved.
 
-    Run in one executor job ahead of the heavy walk so the
-    "is anything actually out of date?" question pays one
-    thread-pool hop for the whole fleet. Returns the filenames
+    Caller passes a snapshot of the per-device metadata store
+    (one RAM dict for the whole fleet). Returns the filenames
     where current ≠ cached, in the caller's input order —
     including the ``current = (0, 0)`` + cached non-zero case
     (build dir vanished after the last walk and the cache still
@@ -115,16 +116,12 @@ def find_stale_build_dirs(config_dir: Path, filenames: list[str]) -> list[str]:
     ``build_path`` are skipped silently.
     """
     stale: list[str] = []
-    # Load metadata once for the whole sweep — the per-device
-    # entries live in one JSON blob and ``get_device_metadata``
-    # would re-parse it from disk N times in the loop.
-    full_metadata = _load_full_metadata(config_dir)
     for filename in filenames:
         build_dir = resolve_build_dir(filename)
         if build_dir is None:
             continue
         current = get_build_dir_signal(build_dir)
-        entry = full_metadata.get(filename, {})
+        entry = metadata.get(filename, {})
         cached = BuildDirSignal(
             dir_mtime=coerce_sidecar_int(entry.get("build_size_dir_mtime")),
             info_mtime=coerce_sidecar_int(entry.get("build_size_info_mtime")),
@@ -141,59 +138,29 @@ def find_stale_build_dirs(config_dir: Path, filenames: list[str]) -> list[str]:
     return stale
 
 
-def _load_full_metadata(config_dir: Path) -> dict[str, dict]:
-    """Read the per-device metadata file once; ``{}`` on any error."""
-    # Local import is intentional reach into the underscore
-    # surface — a grep for ``_load_metadata`` finds the call
-    # site alongside the explanation.
-    from ..controllers.config import _load_metadata  # noqa: PLC0415
-
-    try:
-        raw = _load_metadata(config_dir)
-    except OSError:
-        return {}
-    return {k: v for k, v in raw.items() if isinstance(v, dict)}
-
-
 def refresh_build_size_if_stale(
-    config_dir: Path,
     filename: str,
+    cached_signal: BuildDirSignal,
 ) -> BuildSizeRefreshResult | None:
     """
-    Refresh the cached size when the build dir's freshness pair moved.
+    Stat + walk the per-device build dir when its freshness pair moved.
 
-    One synchronous unit (sidecar-read → resolve → stat →
-    walk → sidecar-write) so callers hand it to a single
-    ``run_in_executor`` rather than chaining four hops.
-    Returns ``None`` on cache-hit (the steady-state poll path).
-    On miss, returns the freshly-persisted triple — the
-    non-None return signals the caller to fire
-    ``DEVICE_UPDATED``.
+    Pure I/O — returns the new size + signal on a miss, ``None``
+    on cache-hit. Caller persists the result through the device
+    metadata store (the store's debounced write happens on the
+    event loop after this executor unit returns).
+
+    Short-circuits the "build dir missing AND cache empty"
+    case (``current == (0, 0) == cached``) so the steady-state
+    poll path doesn't return on every missing build.
     """
     build_dir = resolve_build_dir(filename)
     if build_dir is None:
         return None
     current = get_build_dir_signal(build_dir)
-    md = get_device_metadata(config_dir, filename)
-    cached = BuildDirSignal(
-        dir_mtime=coerce_sidecar_int(md.get("build_size_dir_mtime")),
-        info_mtime=coerce_sidecar_int(md.get("build_size_info_mtime")),
-    )
-    # Pure equality across the whole pair. Crucially this
-    # short-circuits "build dir is missing AND we never had
-    # one cached" ((0, 0) == (0, 0) → None); without that we'd
-    # walk the missing path on every poll and retrigger a
-    # scanner reload on each non-None return.
-    if current == cached:
+    if current == cached_signal:
         return None
     size = compute_build_dir_size(build_dir)
-    set_device_metadata(
-        config_dir,
-        filename,
-        build_size_bytes=size,
-        build_size_dir_mtime=current.dir_mtime,
-        build_size_info_mtime=current.info_mtime,
-    )
     return BuildSizeRefreshResult(size_bytes=size, signal=current)
 
 

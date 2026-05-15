@@ -14,8 +14,7 @@ from ...helpers.device_yaml import parse_esphome_meta
 from ...helpers.storage_path import resolve_storage_path
 from ...models import ErrorCode
 from .helpers import (
-    _archive_clear_device_sidecars,
-    _remove_device_sidecars,
+    _unlink_storage_sidecar,
     _wipe_device_build_dir,
 )
 
@@ -55,17 +54,21 @@ async def archive_single(controller: DevicesController, configuration: str) -> N
         # per-filename keyed, so a future same-name device would
         # otherwise inherit the archived device's stale
         # firmware_bin_path / loaded_integrations / target_platform.
-        # ``_archive_clear_device_sidecars`` preserves identity
-        # fields (board_id, friendly_name, comment) so unarchive of
-        # the same YAML restores the user-visible state.
         _wipe_device_build_dir(configuration)
         shutil.move(str(config_path), str(target))
-        _archive_clear_device_sidecars(config_dir, configuration)
+        _unlink_storage_sidecar(configuration)
 
     try:
         await loop.run_in_executor(None, _archive_sync)
     except FileExistsError as exc:
         raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
+    # Drop volatile fields across both stores: live mDNS state and
+    # build-dir caches in the data_dir store, plus ``mac_address``
+    # in the shared sidecar (intrinsic to the physical board, but
+    # volatile across YAML → board re-bindings on unarchive).
+    # Identity fields (board_id / friendly_name / comment / labels)
+    # survive so unarchive restores user-visible state.
+    await controller._clear_volatile_device_metadata(configuration)
 
 
 async def unarchive_single(controller: DevicesController, configuration: str) -> None:
@@ -135,7 +138,7 @@ async def delete_archived_single(controller: DevicesController, configuration: s
     archive_path = config_dir / "archive" / configuration
     active_path = controller._db.settings.rel_path(configuration)
 
-    def _delete_all() -> None:
+    def _delete_all() -> bool:
         if not archive_path.exists():
             msg = f"Archived file not found: {configuration}"
             raise FileNotFoundError(msg)
@@ -143,10 +146,17 @@ async def delete_archived_single(controller: DevicesController, configuration: s
         if active_path.exists():
             # An active config with the same filename owns the
             # sidecars now; leave them alone.
-            return
-        _remove_device_sidecars(config_dir, configuration)
+            return False
+        _unlink_storage_sidecar(configuration)
+        return True
 
-    await loop.run_in_executor(None, _delete_all)
+    sidecars_purged = await loop.run_in_executor(None, _delete_all)
+    if sidecars_purged:
+        # Drop the per-device metadata entry (both the store +
+        # shared identity sidecar) on the event loop side and
+        # flush immediately; a quick restart after the delete
+        # mustn't resurrect a stale entry.
+        await controller._delete_device_metadata(configuration)
 
 
 async def delete_single(controller: DevicesController, configuration: str) -> None:
@@ -168,9 +178,10 @@ async def delete_single(controller: DevicesController, configuration: str) -> No
         config_path.unlink(missing_ok=True)
         (config_dir / ".trash" / configuration).unlink(missing_ok=True)
         (config_dir / ".archive" / f"{configuration}.json").unlink(missing_ok=True)
-        _remove_device_sidecars(config_dir, configuration)
+        _unlink_storage_sidecar(configuration)
 
     await loop.run_in_executor(None, _delete_all)
+    await controller._delete_device_metadata(configuration)
 
 
 async def run_bulk_per_device(

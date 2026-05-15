@@ -26,6 +26,8 @@ import pytest
 from esphome_device_builder.controllers._reachability_tracker import ReachabilityTracker
 from esphome_device_builder.controllers.config import set_device_metadata
 from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.controllers.devices._metadata_store import DeviceMetadataStore
+from esphome_device_builder.controllers.devices._shared_sidecar import SharedSidecarClient
 from esphome_device_builder.controllers.devices._state import DevicesState
 from esphome_device_builder.controllers.devices._yaml_search_cache import YamlSearchCache
 from esphome_device_builder.helpers.device_yaml import configuration_stem
@@ -450,6 +452,15 @@ def make_controller() -> MakeControllerFactory:
         controller.state = DevicesState()
         controller._db.settings.config_dir = config_dir
         controller._db.settings.rel_path = lambda configuration: config_dir / configuration
+        # ``data_dir`` collapsed onto ``config_dir`` for tmp_path
+        # cleanup; real stores so round-trips hit disk.
+        controller._shutdown_callbacks = []
+        controller._metadata_store = DeviceMetadataStore(
+            config_dir=config_dir,
+            data_dir=config_dir,
+            shutdown_register=controller._shutdown_callbacks.append,
+        )
+        controller._shared_sidecar = SharedSidecarClient(config_dir)
         # Default the editor's ``validate_yaml`` to a passing result
         # so any handler that runs YAML through it (currently
         # ``edit_friendly_name``) doesn't end up awaiting the
@@ -571,15 +582,11 @@ def stub_create_device_metadata_helpers(monkeypatch: pytest.MonkeyPatch, tmp_pat
         lambda _filename: storage_path,
     )
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.metadata.set_device_metadata",
+        "esphome_device_builder.controllers.devices._shared_sidecar.set_device_metadata",
         lambda *_args, **_kwargs: None,
     )
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.mutations_create.set_device_metadata",
-        lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.mutations_create.remove_device_metadata",
+        "esphome_device_builder.controllers.devices._shared_sidecar.remove_device_metadata",
         lambda *_args, **_kwargs: None,
     )
 
@@ -599,16 +606,9 @@ def redirect_storage_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     def _ext(configuration: str) -> Path:
         return storage_dir / f"{configuration}.json"
 
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.resolve_storage_path",
-        _ext,
-    )
-    # The archive / delete flow's filesystem dance lives in
-    # ``archive.py``; ``helpers.py`` carries the
-    # ``_wipe_device_build_dir`` / ``_remove_device_sidecars`` half.
-    # Each module imports ``resolve_storage_path`` independently —
-    # rebinding only one leaves the others running against the
-    # real CORE.
+    # ``archive.py`` and ``helpers.py`` each import
+    # ``resolve_storage_path`` independently — rebinding only one
+    # leaves the other running against the real CORE.
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.archive.resolve_storage_path",
         _ext,

@@ -40,6 +40,21 @@ class DeviceFileMetadata(NamedTuple):
     # global label catalog lives at ``_labels`` in the metadata
     # sidecar; this carries the per-device assignments.
     labels: tuple[str, ...] = ()
+    # Last-known mDNS-broadcast config hash. Persisted so the
+    # drawer's "pending changes" indicator is correct on cold load
+    # without waiting for the first mDNS sweep; corrected by the
+    # next ``apply_config_hash`` if the firmware was reflashed
+    # externally while the dashboard was down.
+    deployed_config_hash: str = ""
+    # Last-known mDNS-broadcast ESPHome version. Persisted so the
+    # drawer's "update available" badge renders immediately on cold
+    # load instead of waiting for the first mDNS sweep.
+    deployed_version: str = ""
+    # Last-known mDNS api_encryption value. Truthy cipher string
+    # means encryption confirmed; ``""`` means TXT seen but key
+    # absent (plaintext-confirmed); ``None`` means not yet
+    # broadcast.
+    api_encryption_active: str | None = None
 
 
 class ScanChange(StrEnum):
@@ -388,6 +403,9 @@ class DeviceScanner:
                     metadata.mac_address,
                     metadata.build_size_bytes,
                     metadata.labels,
+                    deployed_config_hash=metadata.deployed_config_hash,
+                    deployed_version=metadata.deployed_version,
+                    api_encryption_active=metadata.api_encryption_active,
                     previous=self._index.by_path.get(path),
                 )
             except Exception:  # noqa: BLE001 — best-effort scan; one bad YAML mustn't kill the sweep

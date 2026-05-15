@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import tempfile as _tempfile
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -36,6 +37,8 @@ from esphome_device_builder.controllers.boards import BoardCatalog
 from esphome_device_builder.controllers.components import ComponentCatalog
 from esphome_device_builder.controllers.config import DashboardSettings
 from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.controllers.devices._metadata_store import DeviceMetadataStore
+from esphome_device_builder.controllers.devices._shared_sidecar import SharedSidecarClient
 from esphome_device_builder.controllers.devices._state import DevicesState
 from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.controllers.remote_build import (
@@ -88,6 +91,9 @@ _STARTUP_BLOCKING_OK: tuple[tuple[str, str], ...] = (
     # ``verify_chip`` for firmware install) but every subsequent
     # one hits the cache.
     ("controllers/firmware/helpers.py", "_find_sibling_cli"),
+    # ``CORE.data_dir`` walks ``CORE.config_dir`` which stats — one-time
+    # at controller construction.
+    ("controllers/devices/controller.py", "__init__"),
 )
 
 
@@ -714,6 +720,19 @@ def make_devices_controller_with_bus(
     for device in devices:
         by_name.setdefault(device.name, []).append(device)
     controller._scanner.get_by_name = lambda name: by_name.get(name, [])
+    # Real metadata stores anchored at a TemporaryDirectory whose
+    # lifetime is pinned to the controller; ``__del__`` cleans up
+    # the dir when the test releases its reference.
+    tmp_dir_obj = _tempfile.TemporaryDirectory(prefix="dmstore_")
+    tmp_dir = Path(tmp_dir_obj.name)
+    controller._tmpdir = tmp_dir_obj  # keep alive
+    controller._shutdown_callbacks = []
+    controller._metadata_store = DeviceMetadataStore(
+        config_dir=tmp_dir,
+        data_dir=tmp_dir,
+        shutdown_register=controller._shutdown_callbacks.append,
+    )
+    controller._shared_sidecar = SharedSidecarClient(tmp_dir)
     return controller, captured
 
 

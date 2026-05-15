@@ -23,10 +23,6 @@ from unittest.mock import patch
 
 import pytest
 
-from esphome_device_builder.controllers.config import (
-    get_device_metadata,
-    set_device_metadata,
-)
 from esphome_device_builder.helpers.build_size import (
     BuildDirSignal,
     coerce_sidecar_int,
@@ -249,18 +245,17 @@ def _fake_storage_patches(tmp_path: Path, build_dir: Path):
     )
 
 
-def test_refresh_build_size_if_stale_walks_and_persists_on_first_run(
+def test_refresh_build_size_if_stale_walks_and_returns_triple_on_first_run(
     tmp_path: Path,
 ) -> None:
-    """No cached pair → walk, persist, and return the new triple.
+    """No cached pair → walk, return the new triple.
 
-    Cold-start path: no metadata sidecar entry yet, the build dir
-    has files including ``build_info.json``, and the helper
-    writes the canonical (size, dir_mtime, info_mtime) triple to
-    the sidecar so the next call short-circuits.
+    Cold-start path: the caller's cached signal is the
+    ``(0, 0)`` sentinel; the build dir has files including
+    ``build_info.json``, and the helper returns the canonical
+    (size, dir_mtime, info_mtime) triple. Persistence is the
+    caller's job — covered separately in the refresher tests.
     """
-    config_dir = tmp_path / "config"
-    config_dir.mkdir()
     build_dir = tmp_path / "build" / "kitchen"
     build_dir.mkdir(parents=True)
     (build_dir / "firmware.bin").write_bytes(b"x" * 4096)
@@ -268,18 +263,15 @@ def test_refresh_build_size_if_stale_walks_and_persists_on_first_run(
 
     p1, p2 = _fake_storage_patches(tmp_path, build_dir)
     with p1, p2:
-        result = refresh_build_size_if_stale(config_dir, "kitchen.yaml")
+        result = refresh_build_size_if_stale(
+            "kitchen.yaml", BuildDirSignal(dir_mtime=0, info_mtime=0)
+        )
 
     assert result is not None
     body_len = len('{"config_hash": "abc"}')
     assert result.size_bytes == 4096 + body_len
     assert result.signal.dir_mtime == int(build_dir.stat().st_mtime)
     assert result.signal.info_mtime == int((build_dir / "build_info.json").stat().st_mtime)
-    # Triple is persisted so the next call short-circuits.
-    md = get_device_metadata(config_dir, "kitchen.yaml")
-    assert md["build_size_bytes"] == result.size_bytes
-    assert md["build_size_dir_mtime"] == result.signal.dir_mtime
-    assert md["build_size_info_mtime"] == result.signal.info_mtime
 
 
 def test_refresh_build_size_if_stale_short_circuits_when_pair_matches(
@@ -290,64 +282,44 @@ def test_refresh_build_size_if_stale_short_circuits_when_pair_matches(
     The whole point of the cache: a steady-state poll should be
     two ``stat()``s per device, never the recursive walk.
     """
-    config_dir = tmp_path / "config"
-    config_dir.mkdir()
     build_dir = tmp_path / "build" / "kitchen"
     build_dir.mkdir(parents=True)
     (build_dir / "firmware.bin").write_bytes(b"x" * 4096)
     (build_dir / "build_info.json").write_text('{"config_hash": "abc"}')
-    current_dir = int(build_dir.stat().st_mtime)
-    current_info = int((build_dir / "build_info.json").stat().st_mtime)
-
-    # Seed the cache with the current pair + a deliberately-wrong
-    # cached size. If the helper walks anyway, the persisted size
-    # would be corrected; that's how we detect a regression.
-    set_device_metadata(
-        config_dir,
-        "kitchen.yaml",
-        build_size_bytes=999,
-        build_size_dir_mtime=current_dir,
-        build_size_info_mtime=current_info,
+    cached = BuildDirSignal(
+        dir_mtime=int(build_dir.stat().st_mtime),
+        info_mtime=int((build_dir / "build_info.json").stat().st_mtime),
     )
 
     p1, p2 = _fake_storage_patches(tmp_path, build_dir)
     with p1, p2:
-        result = refresh_build_size_if_stale(config_dir, "kitchen.yaml")
+        result = refresh_build_size_if_stale("kitchen.yaml", cached)
 
     assert result is None
-    # The persisted size stayed the deliberately-wrong 999 — proof
-    # that the helper short-circuited and didn't walk.
-    md = get_device_metadata(config_dir, "kitchen.yaml")
-    assert md["build_size_bytes"] == 999
 
 
 def test_refresh_build_size_if_stale_re_walks_on_dir_mtime_change(
     tmp_path: Path,
 ) -> None:
     """A bumped dir-mtime alone invalidates the cache (PlatformIO sibling churn)."""
-    config_dir = tmp_path / "config"
-    config_dir.mkdir()
     build_dir = tmp_path / "build" / "kitchen"
     build_dir.mkdir(parents=True)
     (build_dir / "firmware.bin").write_bytes(b"x" * 1024)
     (build_dir / "build_info.json").write_text('{"config_hash": "abc"}')
 
-    # Seed with a stale dir mtime; info mtime matches current.
-    set_device_metadata(
-        config_dir,
-        "kitchen.yaml",
-        build_size_bytes=999,
-        build_size_dir_mtime=int(build_dir.stat().st_mtime) - 1000,
-        build_size_info_mtime=int((build_dir / "build_info.json").stat().st_mtime),
+    # Cached: stale dir mtime; info mtime matches current.
+    cached = BuildDirSignal(
+        dir_mtime=int(build_dir.stat().st_mtime) - 1000,
+        info_mtime=int((build_dir / "build_info.json").stat().st_mtime),
     )
 
     p1, p2 = _fake_storage_patches(tmp_path, build_dir)
     with p1, p2:
-        result = refresh_build_size_if_stale(config_dir, "kitchen.yaml")
+        result = refresh_build_size_if_stale("kitchen.yaml", cached)
 
     assert result is not None
     body_len = len('{"config_hash": "abc"}')
-    assert result.size_bytes == 1024 + body_len  # actual, not stale 999
+    assert result.size_bytes == 1024 + body_len
 
 
 def test_refresh_build_size_if_stale_re_walks_on_info_mtime_change(
@@ -362,108 +334,74 @@ def test_refresh_build_size_if_stale_re_walks_on_info_mtime_change(
     pair catches it; tracking only dir mtime would let the
     drawer / table show a stale size.
     """
-    config_dir = tmp_path / "config"
-    config_dir.mkdir()
     build_dir = tmp_path / "build" / "kitchen"
     build_dir.mkdir(parents=True)
     (build_dir / "firmware.bin").write_bytes(b"x" * 1024)
     (build_dir / "build_info.json").write_text('{"config_hash": "abc"}')
 
-    # Seed with current dir mtime; info mtime stale.
-    set_device_metadata(
-        config_dir,
-        "kitchen.yaml",
-        build_size_bytes=999,
-        build_size_dir_mtime=int(build_dir.stat().st_mtime),
-        build_size_info_mtime=int((build_dir / "build_info.json").stat().st_mtime) - 1000,
+    cached = BuildDirSignal(
+        dir_mtime=int(build_dir.stat().st_mtime),
+        info_mtime=int((build_dir / "build_info.json").stat().st_mtime) - 1000,
     )
 
     p1, p2 = _fake_storage_patches(tmp_path, build_dir)
     with p1, p2:
-        result = refresh_build_size_if_stale(config_dir, "kitchen.yaml")
+        result = refresh_build_size_if_stale("kitchen.yaml", cached)
 
     assert result is not None
     body_len = len('{"config_hash": "abc"}')
-    assert result.size_bytes == 1024 + body_len  # actual, not stale 999
+    assert result.size_bytes == 1024 + body_len
 
 
 def test_refresh_build_size_if_stale_no_loop_when_build_dir_missing(
     tmp_path: Path,
 ) -> None:
-    """A device whose build dir doesn't exist on disk doesn't re-walk forever.
+    """Build dir doesn't exist + empty cache → short-circuit ``(0,0)==(0,0)``.
 
-    Pre-#338 regression risk: ``StorageJSON`` carries a
-    ``build_path`` that points at a directory that doesn't
-    actually exist (clean checkout, archive flow that didn't
-    fully finalise, manual rmtree). Previous logic walked the
-    missing path on every poll and ``set_device_metadata`` cleared
-    three fields that were already absent — but the non-None
-    return triggered a ``scanner.reload`` that would re-fire
-    ``DEVICE_UPDATED`` for nothing on every cycle. The pure-pair
-    equality check short-circuits ``(0, 0) == (0, 0)`` → fresh →
-    no walk, no reload, no churn.
+    ``StorageJSON`` may carry a ``build_path`` pointing at a
+    directory that doesn't actually exist (clean checkout,
+    archive flow that didn't fully finalise, manual rmtree).
+    The pure-pair equality check short-circuits on the
+    all-zero sentinel — no walk, no caller-visible churn.
     """
-    config_dir = tmp_path / "config"
-    config_dir.mkdir()
-    # Build dir path is recorded in StorageJSON but doesn't exist
-    # on disk.
     nonexistent_build_dir = tmp_path / "build" / "kitchen"
+    empty = BuildDirSignal(dir_mtime=0, info_mtime=0)
 
     p1, p2 = _fake_storage_patches(tmp_path, nonexistent_build_dir)
     with p1, p2:
-        first = refresh_build_size_if_stale(config_dir, "kitchen.yaml")
-        # Repeat the call: it must short-circuit, not loop.
-        second = refresh_build_size_if_stale(config_dir, "kitchen.yaml")
-        third = refresh_build_size_if_stale(config_dir, "kitchen.yaml")
+        first = refresh_build_size_if_stale("kitchen.yaml", empty)
+        second = refresh_build_size_if_stale("kitchen.yaml", empty)
+        third = refresh_build_size_if_stale("kitchen.yaml", empty)
 
     assert first is None
     assert second is None
     assert third is None
-    # And the sidecar stays clean — no 0-valued fields persisted.
-    md = get_device_metadata(config_dir, "kitchen.yaml")
-    assert "build_size_bytes" not in md
-    assert "build_size_dir_mtime" not in md
-    assert "build_size_info_mtime" not in md
 
 
 def test_refresh_build_size_if_stale_clears_cache_when_build_dir_disappears(
     tmp_path: Path,
 ) -> None:
-    """A previously-walked build dir that's been wiped clears the cache once.
+    """Populated cache + vanished dir → returns the zero triple once.
 
-    Companion to the no-loop test: when cached values exist but
-    the dir is gone (user manually wiped, archive flow ran), the
-    helper falls through to the walk *once*, which writes back
-    zeros (clearing the cached fields), then subsequent calls
-    short-circuit on the (0, 0) == (0, 0) equality.
+    Companion to the no-loop test: when the cached signal is
+    non-empty but the dir is gone, the helper returns
+    ``BuildSizeRefreshResult(size_bytes=0, signal=(0, 0))``
+    so the caller can clear its cached triple. The next call
+    (cache now zero, dir still missing) short-circuits.
     """
-    config_dir = tmp_path / "config"
-    config_dir.mkdir()
-    # Seed the cache with a populated triple.
-    set_device_metadata(
-        config_dir,
-        "kitchen.yaml",
-        build_size_bytes=12345,
-        build_size_dir_mtime=1714900000,
-        build_size_info_mtime=1714900050,
-    )
     nonexistent_build_dir = tmp_path / "build" / "kitchen"
+    populated = BuildDirSignal(dir_mtime=1714900000, info_mtime=1714900050)
+    empty = BuildDirSignal(dir_mtime=0, info_mtime=0)
 
     p1, p2 = _fake_storage_patches(tmp_path, nonexistent_build_dir)
     with p1, p2:
-        first = refresh_build_size_if_stale(config_dir, "kitchen.yaml")
-        second = refresh_build_size_if_stale(config_dir, "kitchen.yaml")
+        first = refresh_build_size_if_stale("kitchen.yaml", populated)
+        second = refresh_build_size_if_stale("kitchen.yaml", empty)
 
-    # First call: cleared the cache (returned non-None to signal change).
     assert first is not None
     assert first.size_bytes == 0
     assert first.signal == BuildDirSignal(dir_mtime=0, info_mtime=0)
-    # Second call: short-circuits on pair equality, no churn.
     assert second is None
-    md = get_device_metadata(config_dir, "kitchen.yaml")
-    assert "build_size_bytes" not in md
-    assert "build_size_dir_mtime" not in md
-    assert "build_size_info_mtime" not in md
 
 
 def test_refresh_build_size_if_stale_works_without_build_info_json(
@@ -472,13 +410,10 @@ def test_refresh_build_size_if_stale_works_without_build_info_json(
     """Older firmware lacking ``build_info.json`` falls through on dir mtime alone.
 
     Pre-#16145 builds don't write ``build_info.json``. The
-    freshness pair becomes ``(dir_mtime, 0)``; both halves still
-    persist verbatim, the cache compares both, and a steady-state
-    poll on such a device short-circuits because both halves
-    match (``0 == 0``).
+    freshness pair becomes ``(dir_mtime, 0)``; the cache compares
+    both halves, and a steady-state poll on such a device
+    short-circuits because both halves match (``0 == 0``).
     """
-    config_dir = tmp_path / "config"
-    config_dir.mkdir()
     build_dir = tmp_path / "build" / "kitchen"
     build_dir.mkdir(parents=True)
     (build_dir / "firmware.bin").write_bytes(b"x" * 1024)
@@ -486,23 +421,19 @@ def test_refresh_build_size_if_stale_works_without_build_info_json(
 
     p1, p2 = _fake_storage_patches(tmp_path, build_dir)
     with p1, p2:
-        first = refresh_build_size_if_stale(config_dir, "kitchen.yaml")
+        first = refresh_build_size_if_stale(
+            "kitchen.yaml", BuildDirSignal(dir_mtime=0, info_mtime=0)
+        )
 
     assert first is not None
     assert first.size_bytes == 1024
     assert first.signal.dir_mtime > 0
-    assert first.signal.info_mtime == 0  # explicit "no build_info.json"
-    md = get_device_metadata(config_dir, "kitchen.yaml")
-    # ``set_device_metadata`` clears keys passed as 0, so info_mtime
-    # is intentionally absent rather than persisted as 0 — the
-    # subsequent read defaults to 0 anyway.
-    assert md["build_size_dir_mtime"] == first.signal.dir_mtime
-    assert "build_size_info_mtime" not in md
+    assert first.signal.info_mtime == 0
 
-    # Second call: nothing changed, so the helper short-circuits.
+    # Second call with the post-walk pair as cache → no walk.
     p1, p2 = _fake_storage_patches(tmp_path, build_dir)
     with p1, p2:
-        second = refresh_build_size_if_stale(config_dir, "kitchen.yaml")
+        second = refresh_build_size_if_stale("kitchen.yaml", first.signal)
     assert second is None
 
 
@@ -515,8 +446,6 @@ def test_find_stale_build_dirs_returns_only_divergent_filenames(tmp_path: Path) 
     (pre-first-compile — must NOT appear). Order of stale results
     matches the input order.
     """
-    config_dir = tmp_path / "config"
-    config_dir.mkdir()
     fresh_dir = tmp_path / "build" / "fresh"
     fresh_dir.mkdir(parents=True)
     (fresh_dir / "f.bin").write_bytes(b"a" * 100)
@@ -524,22 +453,17 @@ def test_find_stale_build_dirs_returns_only_divergent_filenames(tmp_path: Path) 
     stale_dir.mkdir(parents=True)
     (stale_dir / "s.bin").write_bytes(b"b" * 200)
 
-    fresh_dir_mtime = int(fresh_dir.stat().st_mtime)
-    set_device_metadata(
-        config_dir,
-        "fresh.yaml",
-        build_size_bytes=100,
-        build_size_dir_mtime=fresh_dir_mtime,
-        # No build_info.json — the absent-info sentinel is 0
-        # (set_device_metadata's clear path), which equals the
-        # current 0 stat for the missing file. Both halves match.
-    )
-    set_device_metadata(
-        config_dir,
-        "stale.yaml",
-        build_size_bytes=200,
-        build_size_dir_mtime=int(stale_dir.stat().st_mtime) - 1000,
-    )
+    metadata = {
+        "fresh.yaml": {
+            "build_size_bytes": 100,
+            "build_size_dir_mtime": int(fresh_dir.stat().st_mtime),
+            # No build_info.json — both halves end up 0.
+        },
+        "stale.yaml": {
+            "build_size_bytes": 200,
+            "build_size_dir_mtime": int(stale_dir.stat().st_mtime) - 1000,
+        },
+    }
 
     storage_map = {
         "fresh.yaml": fresh_dir,
@@ -551,10 +475,6 @@ def test_find_stale_build_dirs_returns_only_divergent_filenames(tmp_path: Path) 
             self.build_path = build_path
 
     def _fake_load(path):  # type: ignore[no-untyped-def]
-        # The mock's ext_storage_path returns one of three sentinel
-        # values; map each back to the device's fake build dir.
-        # ``never_compiled`` returns None to simulate a missing
-        # StorageJSON.
         for filename, build_dir in storage_map.items():
             if path == tmp_path / f"{filename}.json":
                 return _FakeStorage(str(build_dir))
@@ -571,28 +491,26 @@ def test_find_stale_build_dirs_returns_only_divergent_filenames(tmp_path: Path) 
         ),
     ):
         result = find_stale_build_dirs(
-            config_dir, ["fresh.yaml", "stale.yaml", "never_compiled.yaml"]
+            ["fresh.yaml", "stale.yaml", "never_compiled.yaml"],
+            metadata,
         )
 
     assert result == ["stale.yaml"]
 
 
-def test_find_stale_build_dirs_empty_list_returns_empty(tmp_path: Path) -> None:
+def test_find_stale_build_dirs_empty_list_returns_empty() -> None:
     """No devices in → no executor work, no walks, no stale list."""
-    assert find_stale_build_dirs(tmp_path, []) == []
+    assert find_stale_build_dirs([], {}) == []
 
 
-def test_find_stale_build_dirs_handles_corrupt_metadata_file(tmp_path: Path) -> None:
-    """A metadata read that raises falls back to "no cached data" → all stale.
+def test_find_stale_build_dirs_empty_metadata_marks_devices_stale(tmp_path: Path) -> None:
+    """Empty metadata dict → every device whose build dir exists is stale.
 
-    A corrupt ``.device-builder.json`` (truncated, permissions
-    issue) shouldn't crash the cold-start fleet sweep. The
-    helper treats the read failure as "no cached entries", so
-    every device whose build dir exists returns as stale on
-    that pass.
+    Mirrors the cold-start path: the store has no entries yet
+    (fresh install or post-migration), so every device's cached
+    signal is the ``(0, 0)`` sentinel and the actual dir
+    differs.
     """
-    config_dir = tmp_path / "config"
-    config_dir.mkdir()
     build_dir = tmp_path / "build" / "kitchen"
     build_dir.mkdir(parents=True)
 
@@ -600,10 +518,6 @@ def test_find_stale_build_dirs_handles_corrupt_metadata_file(tmp_path: Path) -> 
         build_path = str(build_dir)
 
     with (
-        patch(
-            "esphome_device_builder.controllers.config._load_metadata",
-            side_effect=OSError("permission denied"),
-        ),
         patch(
             "esphome_device_builder.helpers.build_size.resolve_storage_path",
             return_value=tmp_path / "fake.json",
@@ -613,17 +527,13 @@ def test_find_stale_build_dirs_handles_corrupt_metadata_file(tmp_path: Path) -> 
             return_value=_FakeStorage(),
         ),
     ):
-        result = find_stale_build_dirs(config_dir, ["kitchen.yaml"])
+        result = find_stale_build_dirs(["kitchen.yaml"], {})
 
-    # No cached pair → drift detected → kitchen flagged stale.
     assert result == ["kitchen.yaml"]
 
 
 def test_refresh_build_size_if_stale_returns_none_when_no_storage(tmp_path: Path) -> None:
     """Pre-first-compile devices (no StorageJSON) skip the whole pipeline."""
-    config_dir = tmp_path / "config"
-    config_dir.mkdir()
-
     with (
         patch(
             "esphome_device_builder.helpers.build_size.resolve_storage_path",
@@ -634,9 +544,10 @@ def test_refresh_build_size_if_stale_returns_none_when_no_storage(tmp_path: Path
             return_value=None,
         ),
     ):
-        assert refresh_build_size_if_stale(config_dir, "kitchen.yaml") is None
-    # And no sidecar entry was created either.
-    assert get_device_metadata(config_dir, "kitchen.yaml") == {}
+        assert (
+            refresh_build_size_if_stale("kitchen.yaml", BuildDirSignal(dir_mtime=0, info_mtime=0))
+            is None
+        )
 
 
 def test_resolve_build_dir_returns_none_when_storage_load_raises(tmp_path: Path) -> None:

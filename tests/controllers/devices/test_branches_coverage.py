@@ -17,8 +17,8 @@ Grouped by surface:
   guards) — small early-returns that prevent the bus from firing
   redundant events; uncovered means a regression that floods the
   WS clients can land silently.
-- **Storage / file-ops glue** (``_persist_storage_version_async``
-  thread bridge, ``_list_archived_sync`` OSError fallback,
+- **Storage / file-ops glue** (``_persist_build_size`` triple
+  unpack, ``_list_archived_sync`` OSError fallback,
   ``_stream_subprocess`` ``line_transform`` hook) — each of these
   is the code path that keeps a specific feature working when the
   FS misbehaves; pinning them keeps the feature surface honest.
@@ -34,7 +34,7 @@ import pytest
 
 import esphome_device_builder.controllers.devices.api_key as api_key_mod
 from esphome_device_builder.controllers._device_scanner import ScanChange
-from esphome_device_builder.controllers.devices.controller import StorageJSON
+from esphome_device_builder.helpers.build_size import BuildDirSignal, BuildSizeRefreshResult
 from esphome_device_builder.helpers.event_bus import Event
 from esphome_device_builder.models import (
     ConfigEntry,
@@ -45,7 +45,6 @@ from esphome_device_builder.models import (
     JobStatus,
     JobType,
 )
-from tests._storage_fixtures import write_storage_json
 from tests.conftest import make_device
 
 from .conftest import (
@@ -647,38 +646,68 @@ def test_on_firmware_job_completed_skips_when_configuration_empty(
 
 
 # ---------------------------------------------------------------------------
-# _persist_storage_version_async — thread bridge
+# _persist_build_size — dataclass unpack + store write
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_persist_storage_version_async_writes_through_executor(
+async def test_persist_build_size_writes_triple(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """``_persist_build_size`` merges the (size, dir_mtime, info_mtime) triple."""
+    controller = make_controller(tmp_path)
+    controller._persist_build_size(
+        "kitchen.yaml",
+        BuildSizeRefreshResult(
+            size_bytes=4096,
+            signal=BuildDirSignal(dir_mtime=1714900000, info_mtime=1714900050),
+        ),
+    )
+    assert controller._metadata_store.get("kitchen.yaml") == {
+        "build_size_bytes": 4096,
+        "build_size_dir_mtime": 1714900000,
+        "build_size_info_mtime": 1714900050,
+    }
+
+
+@pytest.mark.asyncio
+async def test_persist_device_metadata_async_routes_store_field_to_store(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A ``STORE_FIELDS`` member through the dispatcher lands in the store, not shared."""
+    controller = make_controller(tmp_path)
+    await controller._persist_device_metadata_async("kitchen.yaml", ip="192.168.1.42")
+    assert controller._metadata_store.get("kitchen.yaml") == {"ip": "192.168.1.42"}
+
+
+def test_derive_board_id_swallows_persist_oserror(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """The async wrapper hands off to the executor so the event loop stays free.
+    """A read-only mount on the shared sidecar logs + still returns the id.
 
-    Pin the actual write reaches the on-disk StorageJSON — the
-    sync helper's coverage proves the write logic itself, so
-    this test only verifies the async wrapper threads the
-    arguments through unchanged.
+    Catalog match succeeded; we shouldn't drop the answer just
+    because the sidecar write failed.
     """
-    storage_dir = tmp_path / ".esphome" / "storage"
-    storage_dir.mkdir(parents=True, exist_ok=True)
-    write_storage_json(tmp_path, "kitchen.yaml", overrides={"esphome_version": "2026.4.0"})
-
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.resolve_storage_path",
-        lambda configuration: storage_dir / f"{configuration}.json",
+    controller = make_controller(tmp_path, with_boards=True)
+    StubBoardLookups(controller).find_by_pio_board_returns("generic-esp32c3")
+    (tmp_path / "kitchen.yaml").write_text(
+        "esphome:\n  name: kitchen\nesp32:\n  board: esp32-c3-devkitm-1\n",
+        encoding="utf-8",
     )
 
-    controller = make_controller(tmp_path)
-    await controller._persist_storage_version_async("kitchen.yaml", "2026.5.1")
+    def _boom(*_args: Any, **_kwargs: Any) -> None:
+        raise OSError("read-only filesystem")
 
-    saved = StorageJSON.load(storage_dir / "kitchen.yaml.json")
-    assert saved is not None
-    assert saved.esphome_version == "2026.5.1"
+    monkeypatch.setattr(controller._shared_sidecar, "update_sync", _boom)
+
+    with caplog.at_level("WARNING"):
+        result = controller._derive_board_id_from_yaml(tmp_path, "kitchen.yaml")
+
+    assert result == "generic-esp32c3"
+    assert any("Could not persist derived board_id" in r.message for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------
@@ -745,36 +774,6 @@ def test_get_devices_bridge_returns_scanner_property(
     controller._scanner.devices = [_device("kitchen"), _device("bedroom")]
 
     assert [d.name for d in controller._get_devices()] == ["kitchen", "bedroom"]
-
-
-# ---------------------------------------------------------------------------
-# _persist_device_ip_async — thin wrapper around _persist_device_metadata_async
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_persist_device_ip_async_routes_through_metadata_helper(
-    tmp_path: Path, make_controller: MakeControllerFactory
-) -> None:
-    """The IP-only persist forwards to the generic metadata helper.
-
-    Trivially-thin wrapper, but pin the keyword name (``ip=...``)
-    — a regression that flipped to a positional or renamed kwarg
-    would silently write nothing because
-    ``_persist_device_metadata_async`` ignores unknown fields.
-    """
-    controller = make_controller(tmp_path)
-    captured: dict[str, Any] = {}
-
-    async def _capture(configuration: str, **fields: Any) -> None:
-        captured["configuration"] = configuration
-        captured["fields"] = fields
-
-    controller._persist_device_metadata_async = _capture  # type: ignore[method-assign]
-
-    await controller._persist_device_ip_async("kitchen.yaml", "192.168.1.42")
-
-    assert captured == {"configuration": "kitchen.yaml", "fields": {"ip": "192.168.1.42"}}
 
 
 # ---------------------------------------------------------------------------

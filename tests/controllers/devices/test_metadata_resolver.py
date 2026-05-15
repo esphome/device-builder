@@ -20,6 +20,11 @@ import pytest
 
 from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.controllers.devices._metadata_store import (
+    STORE_FIELDS,
+    DeviceMetadataStore,
+)
+from esphome_device_builder.controllers.devices._shared_sidecar import SharedSidecarClient
 from esphome_device_builder.controllers.devices._state import DevicesState
 from esphome_device_builder.models import Device, EventType
 from tests._storage_fixtures import write_synthetic_device
@@ -27,15 +32,24 @@ from tests._storage_fixtures import write_synthetic_device
 from .conftest import CaptureDevicesEventsFactory, RecordingStateMonitor
 
 
-def _make_controller(monkeypatch: Any, board_id: str = "esp32-c3-devkitm-1") -> Any:
+def _make_controller(monkeypatch: Any, tmp_path: Path, board_id: str = "esp32-c3-devkitm-1") -> Any:
     """Build a controller with the YAML-parsing path stubbed out.
 
     The board-id derivation reads StorageJSON / parses YAML — neither
     relevant to the hash-priority tests, and both heavy to set up. A
     single stub keeps the resolver focused on the metadata + hash
-    sources we actually want to assert against.
+    sources we actually want to assert against. A real metadata
+    store anchored at ``tmp_path`` is attached so the
+    resolver's two-source split works.
     """
     controller = DevicesController.__new__(DevicesController)
+    controller._shutdown_callbacks = []
+    controller._metadata_store = DeviceMetadataStore(
+        config_dir=tmp_path,
+        data_dir=tmp_path,
+        shutdown_register=controller._shutdown_callbacks.append,
+    )
+    controller._shared_sidecar = SharedSidecarClient(tmp_path)
     monkeypatch.setattr(
         controller,
         "_derive_board_id_from_yaml",
@@ -45,28 +59,49 @@ def _make_controller(monkeypatch: Any, board_id: str = "esp32-c3-devkitm-1") -> 
     return controller
 
 
-def _stub_get_metadata(monkeypatch: Any, payload: dict[str, Any]) -> None:
-    """Make ``get_device_metadata`` return *payload* — no JSON IO."""
+def _seed_metadata(
+    monkeypatch: Any,
+    controller: Any,
+    filename: str,
+    payload: dict[str, Any],
+) -> None:
+    """Split *payload* across the shared sidecar stub + the store's RAM.
+
+    Identity fields stay on the shared
+    ``get_device_metadata`` path; live state + build-dir caches
+    go through the store. Direct RAM seed on the store rather
+    than ``update(...)`` because the latter schedules an
+    ``async_delay_save`` that needs a running loop, which sync
+    resolver tests don't have.
+    """
+    shared = {k: v for k, v in payload.items() if k not in STORE_FIELDS}
+    store = {k: v for k, v in payload.items() if k in STORE_FIELDS}
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.metadata.get_device_metadata",
-        lambda _config_dir, _filename: payload,
+        controller._shared_sidecar,
+        "get_sync",
+        lambda _filename: shared,
     )
+    if store:
+        existing = controller._metadata_store._state.get(filename, {})
+        controller._metadata_store._state[filename] = {**existing, **store}
 
 
 def test_build_info_hash_wins_over_stale_sidecar(tmp_path: Path, monkeypatch: Any) -> None:
     """``build_info.json`` is authoritative; sidecar's stale value is ignored."""
+    controller = _make_controller(monkeypatch, tmp_path)
     # Sidecar carries a wrong value left over from the pre-codegen
     # subprocess bug (the user-visible regression on
     # ``acfloatmonitor32.yaml``: ``f3e21d5a``).
-    _stub_get_metadata(
+    _seed_metadata(
         monkeypatch,
+        controller,
+        "kitchen.yaml",
         {"board_id": "", "ip": "192.168.1.42", "expected_config_hash": "f3e21d5a"},
     )
 
     # build_info.json carries the firmware-canonical value.
     write_synthetic_device(tmp_path, "kitchen", config_hash=0x5A94A12D)
 
-    controller = _make_controller(monkeypatch)
     metadata = controller._resolve_device_metadata(tmp_path, "kitchen.yaml")
 
     assert metadata.expected_config_hash == "5a94a12d"
@@ -75,8 +110,11 @@ def test_build_info_hash_wins_over_stale_sidecar(tmp_path: Path, monkeypatch: An
 
 def test_falls_back_to_sidecar_when_build_dir_wiped(tmp_path: Path, monkeypatch: Any) -> None:
     """No build_info.json (e.g. after ``clean``) → use the sidecar's hash."""
-    _stub_get_metadata(
+    controller = _make_controller(monkeypatch, tmp_path)
+    _seed_metadata(
         monkeypatch,
+        controller,
+        "kitchen.yaml",
         {"board_id": "", "ip": "", "expected_config_hash": "abcd1234"},
     )
 
@@ -85,7 +123,6 @@ def test_falls_back_to_sidecar_when_build_dir_wiped(tmp_path: Path, monkeypatch:
     # only remaining trace of the previous compile's hash.
     write_synthetic_device(tmp_path, "kitchen")  # no build_info written
 
-    controller = _make_controller(monkeypatch)
     metadata = controller._resolve_device_metadata(tmp_path, "kitchen.yaml")
 
     assert metadata.expected_config_hash == "abcd1234"
@@ -103,9 +140,9 @@ def test_no_hash_anywhere_returns_empty_string(tmp_path: Path, monkeypatch: Any)
     # YAML only; no sidecar, no build_info.json.
     (config_dir / filename).write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
-    _stub_get_metadata(monkeypatch, {})
+    controller = _make_controller(monkeypatch, tmp_path)
+    _seed_metadata(monkeypatch, controller, filename, {})
 
-    controller = _make_controller(monkeypatch)
     metadata = controller._resolve_device_metadata(config_dir, filename)
 
     assert metadata.expected_config_hash == ""
@@ -121,11 +158,11 @@ def test_build_info_hash_used_even_when_sidecar_empty(tmp_path: Path, monkeypatc
     runs on every scan, so the build_info.json read has to carry
     the value through until the persist completes.
     """
-    _stub_get_metadata(monkeypatch, {})  # sidecar not yet written
+    controller = _make_controller(monkeypatch, tmp_path)
+    _seed_metadata(monkeypatch, controller, "kitchen.yaml", {})  # sidecar not yet written
 
     write_synthetic_device(tmp_path, "kitchen", config_hash=0x12345678)
 
-    controller = _make_controller(monkeypatch)
     metadata = controller._resolve_device_metadata(tmp_path, "kitchen.yaml")
 
     assert metadata.expected_config_hash == "12345678"
@@ -223,11 +260,17 @@ def test_board_id_from_sidecar_takes_priority_over_yaml(tmp_path: Path, monkeypa
     filename = "kitchen.yaml"
     (config_dir / filename).write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
-    _stub_get_metadata(monkeypatch, {"board_id": "esp32-poe"})
-
-    derive = MagicMock(return_value="should-not-be-called")
     controller = DevicesController.__new__(DevicesController)
+    controller._shutdown_callbacks = []
+    controller._metadata_store = DeviceMetadataStore(
+        config_dir=tmp_path,
+        data_dir=tmp_path,
+        shutdown_register=controller._shutdown_callbacks.append,
+    )
+    controller._shared_sidecar = SharedSidecarClient(tmp_path)
+    derive = MagicMock(return_value="should-not-be-called")
     monkeypatch.setattr(controller, "_derive_board_id_from_yaml", derive, raising=False)
+    _seed_metadata(monkeypatch, controller, filename, {"board_id": "esp32-poe"})
 
     metadata = controller._resolve_device_metadata(config_dir, filename)
 
@@ -257,9 +300,14 @@ def test_corrupt_build_size_bytes_falls_back_to_zero(
     filename = "kitchen.yaml"
     (config_dir / filename).write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
-    _stub_get_metadata(monkeypatch, {"board_id": "esp32", "build_size_bytes": bad_value})
+    controller = _make_controller(monkeypatch, tmp_path)
+    _seed_metadata(
+        monkeypatch,
+        controller,
+        filename,
+        {"board_id": "esp32", "build_size_bytes": bad_value},
+    )
 
-    controller = _make_controller(monkeypatch)
     metadata = controller._resolve_device_metadata(config_dir, filename)
 
     assert metadata.build_size_bytes == 0

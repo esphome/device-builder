@@ -17,7 +17,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
-from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.models import Device, EventType
 
 from .conftest import (
@@ -96,82 +95,19 @@ def test_apply_version_no_callback_silently_drops() -> None:
 
 
 # ----------------------------------------------------------------------
-# StorageJSON write-through
-# ----------------------------------------------------------------------
-
-
-def _patch_storage(monkeypatch: Any, tmp_path: Any, storage: Any) -> None:
-    """Wire ``StorageJSON.load`` and ``ext_storage_path`` for the workhorse tests.
-
-    ``ext_storage_path`` walks ``CORE.config_path`` — without a config
-    loaded, it raises before we even get to the mocked load. Pointing it
-    at ``tmp_path`` keeps the call inert for the test's duration.
-    """
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.StorageJSON.load",
-        lambda _path: storage,
-    )
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.resolve_storage_path",
-        lambda config: tmp_path / f"{config}.json",
-    )
-
-
-def test_persist_storage_version_writes_when_different(monkeypatch: Any, tmp_path: Any) -> None:
-    """``_persist_storage_version`` saves when the on-disk value differs."""
-    storage = MagicMock()
-    storage.esphome_version = "2026.4.0"
-    _patch_storage(monkeypatch, tmp_path, storage)
-
-    DevicesController._persist_storage_version("kitchen.yaml", "2026.5.0")
-
-    assert storage.esphome_version == "2026.5.0"
-    storage.save.assert_called_once()
-
-
-def test_persist_storage_version_skips_when_same(monkeypatch: Any, tmp_path: Any) -> None:
-    """No write when on-disk value already matches — prevents touch-mtime churn.
-
-    Without this guard, every mDNS refresh (every few seconds) would
-    bump the StorageJSON mtime, defeat the scanner's mtime-based cache,
-    and force a full re-parse of every YAML on the next poll.
-    """
-    storage = MagicMock()
-    storage.esphome_version = "2026.5.0"
-    _patch_storage(monkeypatch, tmp_path, storage)
-
-    DevicesController._persist_storage_version("kitchen.yaml", "2026.5.0")
-
-    storage.save.assert_not_called()
-
-
-def test_persist_storage_version_handles_missing_storage(monkeypatch: Any, tmp_path: Any) -> None:
-    """Device that's never been compiled has no StorageJSON — bail out cleanly."""
-    _patch_storage(monkeypatch, tmp_path, storage=None)
-
-    # Should not raise.
-    DevicesController._persist_storage_version("kitchen.yaml", "2026.5.0")
-
-
-# ----------------------------------------------------------------------
 # DevicesController._on_version_change
 # ----------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_on_version_change_updates_device_and_fires_event(monkeypatch: Any) -> None:
-    """The full pipe: callback updates the in-memory device + fires DEVICE_UPDATED."""
+async def test_on_version_change_updates_device_fires_event_and_persists(
+    monkeypatch: Any,
+) -> None:
+    """The full pipe: callback updates device, persists to store, fires DEVICE_UPDATED."""
     device = _device(deployed_version="2026.4.0")
     controller, captured = make_devices_controller_with_bus(
         [device], create_background_task=close_scheduled_coro
     )
-
-    persisted: list[tuple[str, str]] = []
-
-    async def _fake_persist(configuration: str, version: str) -> None:
-        persisted.append((configuration, version))
-
-    monkeypatch.setattr(controller, "_persist_storage_version_async", _fake_persist, raising=False)
 
     controller._on_version_change("kitchen", "2026.5.0")
 
@@ -179,6 +115,8 @@ async def test_on_version_change_updates_device_and_fires_event(monkeypatch: Any
     # current_version is "2026.5.0" too, so update_available should be False.
     assert device.update_available is False
     assert any(e.event_type == EventType.DEVICE_UPDATED for e in captured)
+    # Persisted to the store (deployed_version is a STORE_FIELDS member).
+    assert controller._metadata_store.get(device.configuration) == {"deployed_version": "2026.5.0"}
 
 
 @pytest.mark.asyncio

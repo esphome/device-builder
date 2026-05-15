@@ -9,7 +9,7 @@ from ...helpers.api import CommandError
 from ...helpers.device_yaml import configuration_stem, parse_esphome_meta
 from ...helpers.yaml import YamlUpsertNotSupportedError, upsert_yaml_leaf_under_top_block
 from ...models import Device, ErrorCode, UpdateDeviceResponse
-from ..config import get_device_metadata, set_device_labels
+from ..config import set_device_labels
 
 if TYPE_CHECKING:
     from .controller import DevicesController
@@ -31,13 +31,7 @@ async def update_device(
         friendly_name=friendly_name,
         comment=comment,
     )
-
-    # ``get_device_metadata`` reads ``.device-builder.json`` via
-    # ``Path.read_bytes()``; route through the executor so the
-    # sync I/O doesn't stall the loop (and doesn't trip
-    # blockbuster on Linux CI).
-    config_dir = controller._db.settings.config_dir
-    meta = await asyncio.to_thread(get_device_metadata, config_dir, filename)
+    meta = await controller._shared_sidecar.get(filename)
     return UpdateDeviceResponse(
         name=name,
         friendly_name=meta.get("friendly_name", name),
