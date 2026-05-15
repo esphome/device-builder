@@ -870,8 +870,6 @@ def record_scheduled_coros(coros: list[object]) -> Callable[[object], object]:
 
     def _impl(coro: object) -> object:
         coros.append(coro)
-        if hasattr(coro, "close"):
-            coro.close()
-        return coro
+        return close_scheduled_coro(coro)
 
     return _impl
