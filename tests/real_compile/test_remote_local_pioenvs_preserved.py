@@ -60,14 +60,24 @@ def _run_esphome_compile(yaml_path: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _snapshot_object_mtimes(pioenvs: Path) -> dict[Path, float]:
-    """Return ``{relative-path: mtime}`` for every ``*.o`` under *pioenvs*."""
-    return {p.relative_to(pioenvs): p.stat().st_mtime for p in pioenvs.rglob("*.o")}
+def _snapshot_object_ns_mtimes(pioenvs: Path) -> dict[Path, int]:
+    """Return ``{relative-path: st_mtime_ns}`` for every ``*.o`` under *pioenvs*.
+
+    Nanosecond precision so the cross-compile mtime equality
+    check is exact regardless of filesystem timestamp resolution.
+    """
+    return {p.relative_to(pioenvs): p.stat().st_mtime_ns for p in pioenvs.rglob("*.o")}
 
 
-def _count_compiling_lines(stdout: str) -> int:
-    """Count SCons ``Compiling ...`` log lines in *stdout*."""
-    return sum(1 for line in stdout.splitlines() if line.startswith("Compiling "))
+def _compiling_lines(stdout: str) -> list[str]:
+    r"""Return SCons ``Compiling ...`` log lines from *stdout*.
+
+    PlatformIO emits ANSI colour resets (``\x1b[0m``) at the
+    start of each line on Linux even when stdout isn't a TTY, so
+    a literal ``startswith("Compiling ")`` misses every line —
+    match the substring instead.
+    """
+    return [line for line in stdout.splitlines() if "Compiling " in line]
 
 
 @pytest.mark.timeout(600)
@@ -112,10 +122,10 @@ def test_remote_local_round_trip_does_not_invalidate_pioenvs_cache() -> None:
             f"(expected >= {_MIN_EXPECTED_OBJECT_FILES}); compile likely bailed "
             f"early. Last 2000 chars of stdout:\n{first.stdout[-2000:]}"
         )
-        assert _count_compiling_lines(first.stdout) >= _MIN_EXPECTED_OBJECT_FILES, (
-            f"receiver compile only printed "
-            f"{_count_compiling_lines(first.stdout)} 'Compiling ...' lines "
-            f"(expected >= {_MIN_EXPECTED_OBJECT_FILES}). "
+        first_compiling = _compiling_lines(first.stdout)
+        assert len(first_compiling) >= _MIN_EXPECTED_OBJECT_FILES, (
+            f"receiver compile only printed {len(first_compiling)} 'Compiling ...' "
+            f"lines (expected >= {_MIN_EXPECTED_OBJECT_FILES}). "
             f"Last 2000 chars of stdout:\n{first.stdout[-2000:]}"
         )
 
@@ -146,10 +156,12 @@ def test_remote_local_round_trip_does_not_invalidate_pioenvs_cache() -> None:
         )
         # Pin the offloader's per-object cache state before the
         # remote-build step so we can prove materialise + the next
-        # local compile didn't invalidate it.
-        first_objects = _snapshot_object_mtimes(offloader_pioenvs)
-        assert len(first_objects) >= _MIN_EXPECTED_OBJECT_FILES, (
-            f"offloader cold compile produced only {len(first_objects)} object "
+        # local compile didn't invalidate it. Snapshot in
+        # nanoseconds so the post-compile equality check is exact
+        # regardless of filesystem timestamp resolution.
+        first_objects_ns = _snapshot_object_ns_mtimes(offloader_pioenvs)
+        assert len(first_objects_ns) >= _MIN_EXPECTED_OBJECT_FILES, (
+            f"offloader cold compile produced only {len(first_objects_ns)} object "
             f"files (expected >= {_MIN_EXPECTED_OBJECT_FILES})."
         )
 
@@ -167,9 +179,7 @@ def test_remote_local_round_trip_does_not_invalidate_pioenvs_cache() -> None:
 
         # Load-bearing assertions: SCons prints "Compiling <obj>" for
         # every object it rebuilds. Pre-fix this was 100+.
-        recompiled = [
-            line for line in warm_local.stdout.splitlines() if line.startswith("Compiling ")
-        ]
+        recompiled = _compiling_lines(warm_local.stdout)
         assert recompiled == [], (
             f"local compile after materialise recompiled {len(recompiled)} "
             f"object(s) — the round-trip invalidated SCons's cache. "
@@ -177,19 +187,19 @@ def test_remote_local_round_trip_does_not_invalidate_pioenvs_cache() -> None:
         )
 
         # Cross-check: every .o snapshot before materialise still
-        # exists with the same mtime afterwards. Catches a partial
-        # rebuild the log scrape could miss (e.g. SCons changes its
-        # log format) and pins that nothing got deleted either.
-        second_objects = _snapshot_object_mtimes(offloader_pioenvs)
-        missing = sorted(set(first_objects) - set(second_objects))
+        # exists with the exact same mtime afterwards. Catches a
+        # partial rebuild the log scrape could miss (e.g. SCons
+        # changes its log format) and pins that nothing got
+        # deleted either. Nanosecond comparison so the equality is
+        # exact across FS timestamp resolutions.
+        second_objects_ns = _snapshot_object_ns_mtimes(offloader_pioenvs)
+        missing = sorted(set(first_objects_ns) - set(second_objects_ns))
         assert not missing, (
             f"warm compile dropped {len(missing)} object file(s) the cold "
             f"compile had built. First few: {missing[:5]}"
         )
         bumped = sorted(
-            obj
-            for obj, mtime in first_objects.items()
-            if second_objects[obj] != pytest.approx(mtime, abs=1e-3)
+            obj for obj, mtime_ns in first_objects_ns.items() if second_objects_ns[obj] != mtime_ns
         )
         assert not bumped, (
             f"warm compile rebuilt {len(bumped)} object file(s) — the cache "

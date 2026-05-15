@@ -261,7 +261,14 @@ asyncio_mode = "auto"
 # worker. The catalog-heavy modules use that to share one
 # ``ComponentCatalog.load`` (~2s on Linux CI) per run instead of
 # paying it on every xdist worker.
-addopts = "--dist=loadgroup"
+addopts = "--dist=loadgroup --ignore=tests/real_compile"
+# ``tests/real_compile/`` spawns full ``esphome compile``
+# subprocesses and runs minutes per test; excluded from the
+# default ``pytest`` invocation so a contributor running
+# ``pytest`` locally doesn't get surprised by a multi-minute
+# build. Runs in its own CI job (see
+# ``.github/workflows/real-compile-tests.yml``); contributors
+# can opt in locally with ``pytest tests/real_compile``.
 # Default per-test timeout (pytest-timeout plugin) so a local
 # ``pytest tests/...`` invocation doesn't wedge forever when an
 # event loop deadlocks, a subprocess hangs, or an asyncio.wait_for

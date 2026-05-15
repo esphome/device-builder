@@ -434,16 +434,20 @@ def _preserve_platformio_ini_mtime_if_unchanged(pio_path: Path) -> Iterator[None
     inside this block still bumps the mtime forward and would
     invalidate every preserved ``.pioenvs/<name>/*.o`` on the
     next local compile (the rebuild PR #874 was meant to avoid).
-    No-op when the file didn't exist before the block.
+    Snapshots and restores via ``st_mtime_ns`` / ``os.utime(...,
+    ns=...)`` so the timestamp survives exactly even on
+    filesystems with sub-second granularity that would round a
+    float-seconds round-trip. No-op when the file didn't exist
+    before the block.
     """
-    prior_mtime: float | None = None
+    prior_mtime_ns: int | None = None
     prior_bytes: bytes | None = None
     if pio_path.is_file():
-        prior_mtime = pio_path.stat().st_mtime
+        prior_mtime_ns = pio_path.stat().st_mtime_ns
         prior_bytes = pio_path.read_bytes()
     yield
-    if prior_mtime is not None and pio_path.is_file() and pio_path.read_bytes() == prior_bytes:
-        os.utime(pio_path, (prior_mtime, prior_mtime))
+    if prior_mtime_ns is not None and pio_path.is_file() and pio_path.read_bytes() == prior_bytes:
+        os.utime(pio_path, ns=(prior_mtime_ns, prior_mtime_ns))
 
 
 def _force_idedata_cache_hit(*, platformio_ini: Path, cached_idedata: Path) -> None:

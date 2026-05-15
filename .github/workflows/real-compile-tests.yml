@@ -13,6 +13,11 @@ name: Real-compile tests
 # If you add a new test under ``tests/real_compile/`` that
 # depends on additional surfaces, extend the ``paths:`` filter
 # below so the gate stays meaningful.
+#
+# YAML anchors (``&trigger-paths`` / ``*trigger-paths``) keep
+# the push and pull_request path filters in lockstep — GitHub
+# Actions resolves anchors at YAML parse time, so the two
+# triggers see one shared list.
 
 permissions:
   contents: read
@@ -20,7 +25,7 @@ permissions:
 on:
   push:
     branches: [main]
-    paths:
+    paths: &trigger-paths
       - "esphome_device_builder/helpers/remote_artifacts_materialise.py"
       - "esphome_device_builder/controllers/remote_build/artifacts_tarball.py"
       - "esphome_device_builder/helpers/storage_path.py"
@@ -28,12 +33,7 @@ on:
       - ".github/workflows/real-compile-tests.yml"
   pull_request:
     branches: [main]
-    paths:
-      - "esphome_device_builder/helpers/remote_artifacts_materialise.py"
-      - "esphome_device_builder/controllers/remote_build/artifacts_tarball.py"
-      - "esphome_device_builder/helpers/storage_path.py"
-      - "tests/real_compile/**"
-      - ".github/workflows/real-compile-tests.yml"
+    paths: *trigger-paths
 
 jobs:
   real_compile:
