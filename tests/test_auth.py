@@ -366,22 +366,22 @@ def test_rate_limiter_prune_keeps_locked_out_ips() -> None:
 # ---------------------------------------------------------------------------
 
 
-def testorigin_matches_host_accepts_same_origin() -> None:
+def test_origin_matches_host_accepts_same_origin() -> None:
     assert origin_matches_host("http://homeassistant.local:6052", "homeassistant.local:6052")
     assert origin_matches_host("https://esphome.example.com", "esphome.example.com")
 
 
-def testorigin_matches_host_rejects_cross_origin() -> None:
+def test_origin_matches_host_rejects_cross_origin() -> None:
     assert not origin_matches_host("https://attacker.com", "homeassistant.local:6052")
     assert not origin_matches_host("http://homeassistant.local:9999", "homeassistant.local:6052")
 
 
-def testorigin_matches_host_rejects_garbage() -> None:
+def test_origin_matches_host_rejects_garbage() -> None:
     assert not origin_matches_host("", "homeassistant.local:6052")
     assert not origin_matches_host("not-a-url", "homeassistant.local:6052")
 
 
-def testorigin_matches_host_rejects_invalid_ipv6_url() -> None:
+def test_origin_matches_host_rejects_invalid_ipv6_url() -> None:
     """An Origin with an unclosed IPv6 bracket makes ``urlparse`` raise.
 
     ``urlparse("http://[invalid")`` raises ``ValueError("Invalid

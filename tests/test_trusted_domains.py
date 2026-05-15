@@ -536,13 +536,17 @@ async def test_handler_accepts_same_origin_on_passwordless_public_site(
 ) -> None:
     """Passwordless first-run access from the operator's browser still works.
 
-    Same-origin (Origin's host:port == Host) was always the
-    canonical "operator typed http://192.168.1.50:6052 in their
-    browser" path — it has to keep working when the gate goes
-    on by default. ``aiohttp_client`` binds the test server on
-    127.0.0.1, so the client's auto-set Origin matches Host.
+    Same-origin (Origin's host:port == Host) is the canonical
+    "operator typed http://192.168.1.50:6052 in their browser"
+    path — has to keep working when the gate goes on by
+    default. ``aiohttp.ClientSession`` does NOT auto-set Origin
+    on ``ws_connect``, so pass it explicitly to actually
+    exercise the equality branch (otherwise the test would
+    pass via the no-Origin skip and not pin same-origin
+    acceptance).
     """
     client = await aiohttp_client(_public_site_app([], using_password=False))
-    async with client.ws_connect("/ws") as ws:
+    host = f"{client.host}:{client.port}"
+    async with client.ws_connect("/ws", headers={"Origin": f"http://{host}"}) as ws:
         msg = await ws.receive(timeout=2.0)
         assert msg.type.name in ("TEXT", "BINARY")
