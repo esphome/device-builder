@@ -6,6 +6,8 @@ hand-rolled text scanning makes regression risk meaningful.
 
 from __future__ import annotations
 
+import logging
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -30,6 +32,7 @@ from esphome_device_builder.models import (
     BoardEsphomeConfig,
     BoardHardware,
     Connectivity,
+    DefaultComponent,
     Esp32Variant,
     Platform,
 )
@@ -966,6 +969,28 @@ def test_resolve_default_components_carries_inline_fields(
     web = next((fields for component, fields in pairs if component.id == "web_server"), None)
     assert web is not None
     assert web.get("version") == "3"
+
+
+def test_resolve_default_components_skips_unknown_id_with_warning(
+    session_component_catalog: Any,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Unknown ids skip with a warning rather than raising.
+
+    The manifest validator (``script/validate_definitions.py``) is
+    the contract that keeps unknown refs from reaching runtime —
+    but a synthetic / hand-mutated ``BoardCatalogEntry`` could
+    still feed an unknown id to the resolver. Skip-with-warning
+    keeps the wizard from blowing up on what's almost always a
+    config drift between the manifest and ``components.json``.
+    """
+    board = deepcopy(session_component_catalog._db.boards.get_by_id("apollo-esk-1"))
+    assert board is not None
+    board.default_components = [DefaultComponent(id="not_a_real_component")]
+    with caplog.at_level(logging.WARNING):
+        pairs = session_component_catalog.resolve_default_components(board)
+    assert pairs == []
+    assert any("not_a_real_component" in rec.getMessage() for rec in caplog.records)
 
 
 # ---------------------------------------------------------------------------

@@ -229,3 +229,16 @@ def test_load_board_catalog_handles_corrupt_json(
     assert any(
         "boards.json" in rec.getMessage() for rec in caplog.records if rec.levelname == "ERROR"
     )
+
+
+def test_load_default_component_rejects_non_string_non_dict_entry() -> None:
+    """A malformed default_components entry (not str / dict) raises ``TypeError``.
+
+    The schema validator keeps this from reaching runtime, but the
+    loader still asserts the shape so a broken pre-commit (or a
+    direct caller in tests / scripts) surfaces the error
+    immediately instead of producing a half-built
+    ``DefaultComponent``.
+    """
+    with pytest.raises(TypeError, match="default_components entry"):
+        defs._load_default_component(123)
