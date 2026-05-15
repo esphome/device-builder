@@ -1,22 +1,32 @@
 """
-Single-process-per-``config_dir`` startup lock.
+Single-process-per-``data_dir`` startup lock.
 
-The dashboard expects exactly one process per ``<config_dir>`` —
-metadata sidecar, identity cert / key files, build tree, and
-firmware queue are all guarded by per-process ``threading.Lock``
-instances, which don't extend across processes. Two
-``device-builder`` processes running against the same config
-directory would race-write each other's state silently. The
-HA add-on shape funnels each instance into a distinct ``/data/``
-container, so this rarely surfaces today, but the dev shape
+The dashboard expects exactly one process per ``CORE.data_dir`` —
+the build tree (``<data_dir>/build/<name>/``), the firmware
+queue, and the StorageJSON sidecars (``<data_dir>/storage/``)
+are guarded by per-process ``threading.Lock`` instances that
+don't extend across processes. Two ``device-builder`` processes
+sharing a data dir would race-compile into the same build tree
+and race-write the same queue, scrambling state silently.
+
+Keyed on ``data_dir`` rather than ``config_dir`` so the HA
+add-on shape — where Prod/Beta/DEV flavors each have their own
+per-instance ``/data`` mount but a shared ``/config/esphome``
+YAML tree — can run in parallel without false contention. The
+state that lives in ``config_dir`` (``.device-builder.json``
+metadata sidecar, peer-link key, ``dashboard_id``) is either
+atomic-rename last-write-wins or first-write-only / idempotent
+after creation, so a shared config dir across instances is
+tolerable; the data-dir state is not. The dev shape
 (``pip install esphome-device-builder`` against a checked-out
-config dir) and the future Desktop shape don't enforce
-single-instance — an accidental double-launch corrupts state
-without warning.
+dir) and the future Desktop shape still get the protection
+they need — two processes against the same ``--config-dir``
+share the default ``<config_dir>/.esphome`` data dir and the
+lock fires.
 
 This module mirrors Home Assistant's
 :func:`homeassistant.runner.ensure_single_execution`: open
-``<config_dir>/.device-builder.lock`` in append mode, take an
+``<data_dir>/.device-builder.lock`` in append mode, take an
 exclusive non-blocking ``fcntl.flock``, and on success write a
 ``{pid, lock_format_version, device_builder_version, start_ts}``
 JSON record into the file for diagnostics. On contention, read
@@ -101,7 +111,7 @@ def _write_lock_info(lock_file: TextIOWrapper) -> None:
     lock_file.flush()
 
 
-def _report_existing_instance(lock_file_path: Path, config_dir: Path) -> None:
+def _report_existing_instance(lock_file_path: Path, lock_dir: Path) -> None:
     """
     Print diagnostics about the running instance to stderr.
 
@@ -158,7 +168,7 @@ def _report_existing_instance(lock_file_path: Path, config_dir: Path) -> None:
         OverflowError,
     ) as exc:
         error_lines.append(f"  Unable to read lock file details: {exc}")
-    error_lines.append(f"  Config directory: {config_dir}")
+    error_lines.append(f"  Data directory: {lock_dir}")
     error_lines.append("")
     error_lines.append("Stop the existing instance before starting a second one.")
     for line in error_lines:
@@ -181,9 +191,14 @@ def _open_lock_file(path: str, flags: int) -> int:
 
 
 @contextmanager
-def ensure_single_execution(config_dir: Path) -> Generator[SingleInstanceLock]:
+def ensure_single_execution(lock_dir: Path) -> Generator[SingleInstanceLock]:
     """
-    Acquire the per-config-dir startup lock; yield a status object.
+    Acquire the per-data-dir startup lock; yield a status object.
+
+    ``lock_dir`` is the directory the ``.device-builder.lock``
+    file lives in; callers pass ``CORE.data_dir`` so the HA
+    addon's per-instance ``/data`` segregation lets Prod/Beta/DEV
+    coexist while same-data-dir double-launches are still caught.
 
     On success, ``lock.exit_code`` stays ``None`` and the caller
     runs normally — the underlying ``flock`` is held until the
@@ -210,7 +225,7 @@ def ensure_single_execution(config_dir: Path) -> Generator[SingleInstanceLock]:
         yield lock
         return
 
-    lock_file_path = Path(config_dir) / _LOCK_FILE_NAME
+    lock_file_path = Path(lock_dir) / _LOCK_FILE_NAME
 
     # ``a+`` so the previous instance's diagnostic record stays
     # readable until our flock acquisition succeeds — the
@@ -222,7 +237,7 @@ def ensure_single_execution(config_dir: Path) -> Generator[SingleInstanceLock]:
     # lock-file path is rejected with ``ELOOP`` instead of being
     # followed and truncated. Without this, an attacker (or a
     # misconfigured environment) with write access to
-    # ``<config_dir>`` could place a symlink at
+    # ``<data_dir>`` could place a symlink at
     # ``.device-builder.lock -> /etc/passwd`` (or any other path
     # the dashboard process can write) and have ``_write_lock_info``
     # truncate the link target on every start. The ``fstat``
@@ -256,7 +271,7 @@ def ensure_single_execution(config_dir: Path) -> Generator[SingleInstanceLock]:
         try:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            _report_existing_instance(lock_file_path, Path(config_dir))
+            _report_existing_instance(lock_file_path, Path(lock_dir))
             lock.exit_code = 1
             yield lock
             return

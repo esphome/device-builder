@@ -247,6 +247,8 @@ def main() -> None:
     # Deferred so ``--version`` / ``--help`` keep working in installs
     # that omit the optional ``[esphome]`` extra — both modules below
     # transitively import ``esphome`` at module load time.
+    from esphome.core import CORE  # noqa: PLC0415
+
     from .controllers.config import DashboardSettings  # noqa: PLC0415
     from .device_builder import DeviceBuilder  # noqa: PLC0415
     from .helpers.single_instance import ensure_single_execution  # noqa: PLC0415
@@ -256,14 +258,19 @@ def main() -> None:
 
     _warn_if_unprotected(settings)
 
-    # Refuse to start a second dashboard against the same config
-    # dir — the metadata sidecar / identity / build-tree /
-    # firmware-queue locks are all per-process ``threading.Lock``s
-    # that don't extend across processes (issue #451). The OS
+    # Refuse to start a second dashboard against the same data
+    # dir — the build tree, firmware queue, and StorageJSON
+    # sidecars are per-process state that two procs would scramble
+    # silently (issue #451). Keyed on ``CORE.data_dir`` rather
+    # than ``config_dir`` so the HA addon's Prod/Beta/DEV flavors
+    # — each with its own per-instance ``/data`` but a shared
+    # ``/config/esphome`` mount — can run in parallel. The OS
     # holds the flock for the dashboard's lifetime and releases
     # it on exit (clean or crash); a stale lock file with no
     # holder is harmless and re-acquired on the next start.
-    with ensure_single_execution(settings.config_dir) as lock:
+    # ``CORE.data_dir`` resolves correctly here because
+    # ``parse_args`` above sets ``CORE.config_path``.
+    with ensure_single_execution(CORE.data_dir) as lock:
         if lock.exit_code is not None:
             sys.exit(lock.exit_code)
         device_builder = DeviceBuilder(settings)
