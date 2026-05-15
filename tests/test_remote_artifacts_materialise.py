@@ -515,15 +515,22 @@ def test_materialise_lets_platformio_ini_mtime_advance_when_content_changed(
         )
         second_tarball = pack_build_artifacts("kitchen.yaml").tarball
 
+    before_ns = time.time_ns()
     _materialise_in_tmp(second_tarball, offloader_root)
+    after_ns = time.time_ns()
 
     assert pio_ini.read_bytes() == receiver_pio.read_bytes(), "extract didn't overwrite"
-    # The exact post-extract mtime depends on the tar header (default is 0
-    # from ``tarfile.TarInfo``). The load-bearing point is that the
-    # *prior* mtime is NOT restored — that would mask a real content
-    # change and leave SCons believing nothing happened.
-    assert pio_ini.stat().st_mtime_ns != pinned_pio_ns, (
-        "prior mtime restoration should NOT fire when content changed"
+    # Content changed → helper MUST bump mtime forward (not just
+    # leave the tar member's default 0). SCons would otherwise see
+    # platformio.ini older than every existing .pioenvs/<name>/*.o
+    # and skip the rebuild — relying on PlatformIO's MD5 fallback
+    # to catch the change. The explicit forward bump removes that
+    # dependency on Decider config.
+    post_ns = pio_ini.stat().st_mtime_ns
+    assert post_ns != pinned_pio_ns, "prior mtime should NOT have been restored"
+    assert before_ns <= post_ns <= after_ns, (
+        f"diff-content extract should set mtime to ~now; got {post_ns} "
+        f"outside [{before_ns}, {after_ns}]"
     )
 
 

@@ -427,18 +427,32 @@ def _stage_offloader_validated_yaml(
 @contextmanager
 def _preserve_platformio_ini_mtime_if_unchanged(pio_path: Path) -> Iterator[None]:
     """
-    Restore *pio_path*'s prior mtime if the bytes survive an enclosed write.
+    Pin *pio_path*'s mtime around an enclosed write so SCons sees the right answer.
 
     PlatformIO/SCons keys the per-object incremental cache on
-    ``platformio.ini.mtime``; extracting a same-content copy
-    inside this block still bumps the mtime forward and would
-    invalidate every preserved ``.pioenvs/<name>/*.o`` on the
-    next local compile (the rebuild PR #874 was meant to avoid).
-    Snapshots and restores via ``st_mtime_ns`` / ``os.utime(...,
-    ns=...)`` so the timestamp survives exactly even on
-    filesystems with sub-second granularity that would round a
-    float-seconds round-trip. No-op when the file didn't exist
-    before the block.
+    ``platformio.ini.mtime``: an mtime newer than ``.pioenvs/
+    <name>/*.o`` invalidates every preserved object. Two branches
+    after the wrapped extract:
+
+    * **Same bytes** — restore the prior mtime so SCons keeps the
+      cache. The tar member's default mtime is epoch 0, so without
+      this restore an identical-content extract would still appear
+      "changed" and trigger an MD5 check (and the recompile PR
+      #874 was meant to avoid).
+    * **Different bytes** — bump mtime to "now" so SCons
+      definitively sees the file as newer than every existing
+      ``.pioenvs/<name>/*.o``. Without this we'd be relying on
+      PlatformIO's MD5-timestamp Decider catching the content
+      change after seeing mtime go *backwards* (extract default
+      0); explicit forward bump is robust against future Decider
+      config drift.
+
+    No try/finally: on a partial extract the file is in an
+    indeterminate state and restoring the prior mtime would lie
+    about its contents. The next compile re-runs from scratch
+    via storage_should_clean's wipe path, which is the right
+    recovery. Snapshots / restores in ``st_mtime_ns`` so the
+    timestamp survives exactly across FS resolutions.
     """
     prior_mtime_ns: int | None = None
     prior_bytes: bytes | None = None
@@ -446,23 +460,31 @@ def _preserve_platformio_ini_mtime_if_unchanged(pio_path: Path) -> Iterator[None
         prior_mtime_ns = pio_path.stat().st_mtime_ns
         prior_bytes = pio_path.read_bytes()
     yield
-    if prior_mtime_ns is not None and pio_path.is_file() and pio_path.read_bytes() == prior_bytes:
+    if not pio_path.is_file():
+        return
+    if prior_mtime_ns is not None and pio_path.read_bytes() == prior_bytes:
         os.utime(pio_path, ns=(prior_mtime_ns, prior_mtime_ns))
+    else:
+        now_ns = time.time_ns()
+        os.utime(pio_path, ns=(now_ns, now_ns))
 
 
 def _force_idedata_cache_hit(*, platformio_ini: Path, cached_idedata: Path) -> None:
     """
-    Push the staged idedata cache forward of platformio.ini's mtime.
+    Push *cached_idedata*'s mtime past *platformio_ini*'s.
 
-    Touches only idedata. Bumping platformio.ini's mtime would
-    invalidate PlatformIO/SCons's per-object incremental cache —
-    every src/*.o the local build had on disk would be considered
-    stale on the next compile, defeating PR #874's preservation.
+    esphome's ``_load_idedata`` short-circuits when the cache is
+    newer than ``platformio.ini``. Touches only the idedata side
+    so the SCons per-object cache (see
+    :func:`_preserve_platformio_ini_mtime_if_unchanged`) survives.
+    Operates in ``ns`` so the comparison stays exact even on
+    low-resolution filesystems where a float-seconds round-trip
+    rounds asymmetrically.
     """
     if not platformio_ini.is_file() or not cached_idedata.is_file():
         return
-    target = max(time.time(), platformio_ini.stat().st_mtime + 1)
-    os.utime(cached_idedata, (target, target))
+    target_ns = max(time.time_ns(), platformio_ini.stat().st_mtime_ns + 1)
+    os.utime(cached_idedata, ns=(target_ns, target_ns))
 
 
 def _remap_to_offloader(

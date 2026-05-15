@@ -42,11 +42,13 @@ esp8266:
   board: esp01_1m
 """
 
-# Empirical floor. A minimal esp01_1m build with ``esphome:`` +
-# ``esp8266:`` lands ~100 .o files (locally observed: 106).
-# Anything below 30 almost certainly means the compile bailed
-# before SCons did real work — fail loudly rather than let the
-# "0 recompiled" assertion pass on an empty tree.
+# Conservative floor. A minimal esp01_1m build with ``esphome:`` +
+# ``esp8266:`` lands ~100 .o files (locally observed: 106) — 30 is
+# well under that on purpose so a future esphome trim of the core
+# doesn't trip the sanity gate. If esphome ever ships a base smaller
+# than this, *lower* the floor (don't raise it); raising it would
+# convert a real-world simplification into a test failure with a
+# misleading "compile likely bailed early" message.
 _MIN_EXPECTED_OBJECT_FILES = 30
 
 
