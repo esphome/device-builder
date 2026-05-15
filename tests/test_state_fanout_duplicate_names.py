@@ -14,11 +14,11 @@ its sibling tracked the device.
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock
 
 from esphome_device_builder.models import Device, DeviceState
 
 from .conftest import (
+    close_scheduled_coro,
     make_device,
     make_devices_controller_with_bus,
     make_state_monitor_with_callbacks,
@@ -27,19 +27,6 @@ from .conftest import (
 
 def _device(configuration: str, **overrides: Any) -> Device:
     return make_device(configuration=configuration, **overrides)
-
-
-def _close_coro(coro: Any) -> Any:
-    """Close any coroutine handed to ``create_background_task``.
-
-    Without this the test stub leaves ``_persist_device_ip_async`` /
-    ``_persist_storage_version_async`` coroutines un-awaited, which
-    triggers ``RuntimeWarning: coroutine was never awaited`` (some
-    pytest configs upgrade that to a failure).
-    """
-    if hasattr(coro, "close"):
-        coro.close()
-    return MagicMock()
 
 
 def test_state_change_fans_out_to_every_matching_device() -> None:
@@ -53,7 +40,7 @@ def test_state_change_fans_out_to_every_matching_device() -> None:
     b = _device("kitchen (1).yaml")
     controller, captured = make_devices_controller_with_bus(
         [a, b],
-        create_background_task=_close_coro,
+        create_background_task=close_scheduled_coro,
     )
 
     controller._on_state_change("kitchen", DeviceState.ONLINE, "mdns")
@@ -70,7 +57,7 @@ def test_ip_change_fans_out_to_every_matching_device() -> None:
     b = _device("kitchen (1).yaml", ip="")
     controller, captured = make_devices_controller_with_bus(
         [a, b],
-        create_background_task=_close_coro,
+        create_background_task=close_scheduled_coro,
     )
 
     controller._on_ip_change("kitchen", "10.0.0.5", ["10.0.0.5"])
@@ -91,7 +78,7 @@ def test_version_change_fans_out_to_every_matching_device() -> None:
     b = _device("kitchen (1).yaml", current_version="2026.5.0", deployed_version="")
     controller, captured = make_devices_controller_with_bus(
         [a, b],
-        create_background_task=_close_coro,
+        create_background_task=close_scheduled_coro,
     )
 
     controller._on_version_change("kitchen", "2026.5.0")
@@ -114,7 +101,7 @@ def test_config_hash_change_fans_out_to_every_matching_device() -> None:
     )
     controller, captured = make_devices_controller_with_bus(
         [a, b],
-        create_background_task=_close_coro,
+        create_background_task=close_scheduled_coro,
     )
 
     controller._on_config_hash_change("kitchen", "abcd1234")
@@ -132,7 +119,7 @@ def test_api_encryption_change_fans_out_to_every_matching_device() -> None:
     b = _device("kitchen (1).yaml", api_encryption_active=None)
     controller, captured = make_devices_controller_with_bus(
         [a, b],
-        create_background_task=_close_coro,
+        create_background_task=close_scheduled_coro,
     )
 
     controller._on_api_encryption_change("kitchen", "Noise_NNpsk0_25519_ChaChaPoly_SHA256")
@@ -148,7 +135,7 @@ def test_unrelated_devices_are_not_touched() -> None:
     garage = _device("garage.yaml", name="garage", address="garage.local")
     controller, captured = make_devices_controller_with_bus(
         [kitchen, garage],
-        create_background_task=_close_coro,
+        create_background_task=close_scheduled_coro,
     )
 
     controller._on_state_change("kitchen", DeviceState.ONLINE, "mdns")

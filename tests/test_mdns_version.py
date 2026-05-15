@@ -21,9 +21,11 @@ from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.models import Device, EventType
 
 from .conftest import (
+    close_scheduled_coro,
     make_device,
     make_devices_controller_with_bus,
     make_state_monitor_with_callbacks,
+    record_scheduled_coros,
 )
 
 
@@ -156,19 +158,12 @@ def test_persist_storage_version_handles_missing_storage(monkeypatch: Any, tmp_p
 # ----------------------------------------------------------------------
 
 
-def _close_coro(coro: object) -> object:
-    """Close any scheduled coroutine to silence the un-awaited warning."""
-    if hasattr(coro, "close"):
-        coro.close()
-    return coro
-
-
 @pytest.mark.asyncio
 async def test_on_version_change_updates_device_and_fires_event(monkeypatch: Any) -> None:
     """The full pipe: callback updates the in-memory device + fires DEVICE_UPDATED."""
     device = _device(deployed_version="2026.4.0")
     controller, captured = make_devices_controller_with_bus(
-        [device], create_background_task=_close_coro
+        [device], create_background_task=close_scheduled_coro
     )
 
     persisted: list[tuple[str, str]] = []
@@ -191,13 +186,8 @@ async def test_on_version_change_skips_when_same() -> None:
     """No-op when in-memory device already has the announced version."""
     device = _device(deployed_version="2026.5.0")
     scheduled: list[object] = []
-
-    def _record(coro: object) -> object:
-        scheduled.append(coro)
-        return _close_coro(coro)
-
     controller, captured = make_devices_controller_with_bus(
-        [device], create_background_task=_record
+        [device], create_background_task=record_scheduled_coros(scheduled)
     )
 
     controller._on_version_change("kitchen", "2026.5.0")
@@ -211,7 +201,7 @@ async def test_on_version_change_marks_update_available_when_behind() -> None:
     """A device on an older version than the dashboard → ``update_available`` flips on."""
     device = _device(current_version="2026.5.0", deployed_version="2026.4.0")
     controller, _captured = make_devices_controller_with_bus(
-        [device], create_background_task=_close_coro
+        [device], create_background_task=close_scheduled_coro
     )
 
     # Simulate mDNS reporting an even older version than the previous

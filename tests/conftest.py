@@ -856,3 +856,22 @@ def make_peer_link_session(
     if with_terminate:
         session.terminate = AsyncMock()
     return session
+
+
+def close_scheduled_coro(coro: object) -> object:
+    """Close a coroutine handed to ``create_background_task`` so it doesn't leak un-awaited."""
+    if hasattr(coro, "close"):
+        coro.close()
+    return coro
+
+
+def record_scheduled_coros(coros: list[object]) -> Callable[[object], object]:
+    """Build a ``create_background_task`` side-effect that appends to *coros* and closes."""
+
+    def _impl(coro: object) -> object:
+        coros.append(coro)
+        if hasattr(coro, "close"):
+            coro.close()
+        return coro
+
+    return _impl

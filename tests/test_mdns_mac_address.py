@@ -20,7 +20,6 @@ to keep the steady-state "same MAC every announce" cycle off-disk.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Any
 
 from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
@@ -30,6 +29,7 @@ from .conftest import (
     make_device,
     make_devices_controller_with_bus,
     make_state_monitor_with_callbacks,
+    record_scheduled_coros,
 )
 
 
@@ -245,25 +245,6 @@ def test_apply_mac_address_refires_after_device_rebuild() -> None:
 # ----------------------------------------------------------------------
 
 
-def _record_scheduled(coros: list[object]) -> Callable[[object], object]:
-    """Capture + close coroutines handed to ``create_background_task``.
-
-    The persist-async branches use ``create_background_task`` to push
-    the blocking sidecar write off the event-loop thread. The tests
-    don't have a running loop, so we just record the coroutine and
-    close it to avoid the "coroutine was never awaited" warning —
-    the call count is what verifies whether the I/O was scheduled.
-    """
-
-    def _impl(coro: object) -> object:
-        coros.append(coro)
-        if hasattr(coro, "close"):
-            coro.close()
-        return coro
-
-    return _impl
-
-
 def _device_kitchen(**overrides: Any) -> Device:
     return make_device(address="", **overrides)
 
@@ -273,7 +254,7 @@ def test_on_mac_address_change_updates_device_and_fires_event() -> None:
     device = _device_kitchen()
     scheduled: list[object] = []
     controller, captured = make_devices_controller_with_bus(
-        [device], create_background_task=_record_scheduled(scheduled)
+        [device], create_background_task=record_scheduled_coros(scheduled)
     )
 
     controller._on_mac_address_change("kitchen", "94:C9:60:1F:8C:F1")
@@ -287,7 +268,7 @@ def test_on_mac_address_change_persists_to_sidecar() -> None:
     device = _device_kitchen()
     scheduled: list[object] = []
     controller, _captured = make_devices_controller_with_bus(
-        [device], create_background_task=_record_scheduled(scheduled)
+        [device], create_background_task=record_scheduled_coros(scheduled)
     )
 
     controller._on_mac_address_change("kitchen", "94:C9:60:1F:8C:F1")
@@ -307,7 +288,7 @@ def test_on_mac_address_change_skips_persist_when_unchanged() -> None:
     device = _device_kitchen(mac_address="94:C9:60:1F:8C:F1")
     scheduled: list[object] = []
     controller, captured = make_devices_controller_with_bus(
-        [device], create_background_task=_record_scheduled(scheduled)
+        [device], create_background_task=record_scheduled_coros(scheduled)
     )
 
     controller._on_mac_address_change("kitchen", "94:C9:60:1F:8C:F1")
@@ -320,7 +301,7 @@ def test_on_mac_address_change_unknown_device_is_noop() -> None:
     """Stray callback for an unconfigured name doesn't raise or fire events."""
     scheduled: list[object] = []
     controller, captured = make_devices_controller_with_bus(
-        [], create_background_task=_record_scheduled(scheduled)
+        [], create_background_task=record_scheduled_coros(scheduled)
     )
 
     controller._on_mac_address_change("ghost", "94:C9:60:1F:8C:F1")
@@ -342,7 +323,7 @@ def test_on_mac_address_change_derives_ethernet_mac_on_esp32() -> None:
     )
     scheduled: list[object] = []
     controller, _captured = make_devices_controller_with_bus(
-        [device], create_background_task=_record_scheduled(scheduled)
+        [device], create_background_task=record_scheduled_coros(scheduled)
     )
 
     controller._on_mac_address_change("kitchen", "94:C9:60:1F:8C:F0")
@@ -360,7 +341,7 @@ def test_on_mac_address_change_derives_bluetooth_mac_on_esp32() -> None:
     )
     scheduled: list[object] = []
     controller, _captured = make_devices_controller_with_bus(
-        [device], create_background_task=_record_scheduled(scheduled)
+        [device], create_background_task=record_scheduled_coros(scheduled)
     )
 
     controller._on_mac_address_change("kitchen", "94:C9:60:1F:8C:F0")
@@ -383,7 +364,7 @@ def test_on_mac_address_change_derives_ethernet_equal_primary_on_rp2040() -> Non
     )
     scheduled: list[object] = []
     controller, _captured = make_devices_controller_with_bus(
-        [device], create_background_task=_record_scheduled(scheduled)
+        [device], create_background_task=record_scheduled_coros(scheduled)
     )
 
     controller._on_mac_address_change("kitchen", "94:C9:60:1F:8C:F0")
@@ -406,7 +387,7 @@ def test_on_mac_address_change_clears_derived_on_unknown_platform() -> None:
     )
     scheduled: list[object] = []
     controller, _captured = make_devices_controller_with_bus(
-        [device], create_background_task=_record_scheduled(scheduled)
+        [device], create_background_task=record_scheduled_coros(scheduled)
     )
 
     controller._on_mac_address_change("kitchen", "94:C9:60:1F:8C:F0")
@@ -433,7 +414,7 @@ def test_on_mac_address_change_clears_stale_derived_macs_on_change() -> None:
     )
     scheduled: list[object] = []
     controller, _captured = make_devices_controller_with_bus(
-        [device], create_background_task=_record_scheduled(scheduled)
+        [device], create_background_task=record_scheduled_coros(scheduled)
     )
 
     controller._on_mac_address_change("kitchen", "94:C9:60:1F:8C:F0")
@@ -461,7 +442,7 @@ def test_on_mac_address_change_rederives_ethernet_and_bluetooth_when_primary_cha
     )
     scheduled: list[object] = []
     controller, _captured = make_devices_controller_with_bus(
-        [device], create_background_task=_record_scheduled(scheduled)
+        [device], create_background_task=record_scheduled_coros(scheduled)
     )
 
     controller._on_mac_address_change("kitchen", "AA:BB:CC:DD:EE:F0")

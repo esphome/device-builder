@@ -24,7 +24,11 @@ from esphome_device_builder.controllers.config import (
 from esphome_device_builder.helpers import device_yaml
 from esphome_device_builder.models import Device, DeviceState
 
-from .conftest import make_device, make_devices_controller_with_bus
+from .conftest import (
+    make_device,
+    make_devices_controller_with_bus,
+    record_scheduled_coros,
+)
 
 
 @pytest.fixture
@@ -593,29 +597,12 @@ def test_load_device_from_storage_address_uses_storage_when_set(  # type: ignore
     assert device.address == "kitchen.lan"
 
 
-def _record_scheduled(coros: list[object]) -> Callable[[object], object]:
-    """Build a ``create_background_task`` side-effect that records + closes coroutines.
-
-    Each scheduled coroutine lands in *coros* and is immediately
-    closed so it doesn't leak as ``RuntimeWarning: coroutine was
-    never awaited``.
-    """
-
-    def _impl(coro: object) -> object:
-        coros.append(coro)
-        if hasattr(coro, "close"):
-            coro.close()
-        return coro
-
-    return _impl
-
-
 def test_on_ip_change_persists_non_empty_value() -> None:
     """``_on_ip_change`` schedules a metadata write for non-empty IPs."""
     device = Device(name="kitchen", friendly_name="Kitchen", configuration="kitchen.yaml")
     scheduled: list[object] = []
     controller, _captured = make_devices_controller_with_bus(
-        [device], create_background_task=_record_scheduled(scheduled)
+        [device], create_background_task=record_scheduled_coros(scheduled)
     )
 
     controller._on_ip_change("kitchen", "10.0.0.1", ["10.0.0.1", "fe80::1%en0"])
@@ -636,7 +623,7 @@ def test_on_ip_change_skips_persist_for_empty_value() -> None:
     )
     scheduled: list[object] = []
     controller, _captured = make_devices_controller_with_bus(
-        [device], create_background_task=_record_scheduled(scheduled)
+        [device], create_background_task=record_scheduled_coros(scheduled)
     )
 
     controller._on_ip_change("kitchen", "", [])
