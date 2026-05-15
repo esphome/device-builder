@@ -302,11 +302,10 @@ async def test_ping_no_retry_when_first_probe_succeeds() -> None:
     fake_ping.assert_awaited_once()
 
 
-@pytest.mark.parametrize("starting_state", [DeviceState.OFFLINE, DeviceState.UNKNOWN])
 @pytest.mark.asyncio
-async def test_ping_no_retry_for_non_online_devices(starting_state: DeviceState) -> None:
-    """Retry is gated on ``was ONLINE``; non-ONLINE devices skip the retry on a missed probe."""
-    devices = [_make_device(state=starting_state)]
+async def test_ping_no_retry_when_already_offline() -> None:
+    """Already-OFFLINE devices skip the retry — the miss just confirms the state."""
+    devices = [_make_device(state=DeviceState.OFFLINE)]
     monitor = _make_monitor(devices, ReachabilityTracker())
 
     miss = MagicMock(is_alive=False, min_rtt=0.0)
@@ -319,6 +318,32 @@ async def test_ping_no_retry_for_non_online_devices(starting_state: DeviceState)
 
     fake_ping.assert_awaited_once()
     assert devices[0].state == DeviceState.OFFLINE
+
+
+@pytest.mark.asyncio
+async def test_ping_retry_absorbs_transient_miss_when_unknown() -> None:
+    """Cold-start UNKNOWN devices retry too; a single dropped packet can't flip OFFLINE.
+
+    Every device starts UNKNOWN at dashboard startup, so the
+    first ping sweep on a lossy path must retry before classifying
+    OFFLINE — otherwise the first sweep flaps the indicator on the
+    same packet-drop rate the ONLINE retry was added to absorb.
+    """
+    devices = [_make_device(state=DeviceState.UNKNOWN)]
+    monitor = _make_monitor(devices, ReachabilityTracker())
+
+    miss = MagicMock(is_alive=False, min_rtt=0.0)
+    hit = MagicMock(is_alive=True, min_rtt=7.5)
+    fake_ping = AsyncMock(side_effect=[miss, hit])
+    with patch(
+        "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
+        fake_ping,
+    ):
+        await monitor._ping._ping_device(devices[0], "10.0.0.42")
+
+    assert fake_ping.await_count == 2
+    assert fake_ping.await_args_list[1].kwargs.get("count", 1) > 1
+    assert devices[0].state == DeviceState.ONLINE
 
 
 @pytest.mark.asyncio
