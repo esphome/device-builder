@@ -261,8 +261,10 @@ def main() -> None:
     # Keyed on ``CORE.data_dir`` (not ``config_dir``) so the HA
     # addon's Prod/Beta/DEV flavors — each with its own per-instance
     # ``/data`` but a shared ``/config/esphome`` mount — can run in
-    # parallel. ``CORE.data_dir`` resolves here because ``parse_args``
-    # above sets ``CORE.config_path``.
+    # parallel. ``CORE.data_dir`` honours ``is_ha_addon()`` /
+    # ``$ESPHOME_DATA_DIR`` and falls back to ``<config_dir>/.esphome``
+    # — ``parse_args`` above sets ``CORE.config_path``, which the
+    # fallback needs.
     with ensure_single_execution(CORE.data_dir) as lock:
         if lock.exit_code is not None:
             sys.exit(lock.exit_code)

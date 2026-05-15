@@ -7,6 +7,7 @@ import hmac
 import logging
 import os
 import re
+import stat
 import tempfile
 import threading
 from collections.abc import Iterator
@@ -361,6 +362,14 @@ def metadata_transaction(config_dir: Path) -> Iterator[dict[str, Any]]:
             return
         lock_path = config_dir / _METADATA_LOCK_FILE
         with open(lock_path, "a+", encoding="utf-8", opener=_open_metadata_lock_file) as lock_fh:
+            # Defense in depth: O_NOFOLLOW rejects symlinks, but a
+            # FIFO planted at the lock path would block every
+            # transaction on ``open(..., "a+")``. Match the
+            # ``_ensure_single_execution`` shape — refuse anything
+            # that isn't a regular file.
+            st = os.fstat(lock_fh.fileno())
+            if not stat.S_ISREG(st.st_mode):
+                raise OSError(f"Lock file {lock_path} is not a regular file (mode={st.st_mode:o})")
             # Blocking LOCK_EX (not LOCK_NB like the startup
             # lock) — a transient WS-command race should queue,
             # not fail.

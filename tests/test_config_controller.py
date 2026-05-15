@@ -167,6 +167,23 @@ def test_metadata_transaction_serialises_across_flocks(
     }
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="fstat S_ISREG check is POSIX-only (fcntl path)",
+)
+def test_metadata_transaction_rejects_non_regular_lock_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Defense in depth: ``S_ISREG`` fstat refuses oddballs (e.g. block devices)."""
+    # Real block/char devices need root + a special FS; flip
+    # ``S_ISREG`` in the module so a normal regular-file open
+    # takes the rejection branch as if it had hit one.
+    monkeypatch.setattr(config_module.stat, "S_ISREG", lambda _mode: False)
+
+    with pytest.raises(OSError, match="is not a regular file"), metadata_transaction(tmp_path):
+        pass
+
+
 def test_metadata_transaction_discards_changes_on_exception(tmp_path: Path) -> None:
     """A raise inside the block drops the pending mutation.
 

@@ -101,7 +101,7 @@ def _report_existing_instance(lock_file_path: Path, lock_dir: Path) -> None:
 
     Best-effort: an empty / unreadable / partially-written lock
     file falls back to the "Unable to read lock file details"
-    line so we always print *something* useful (the config dir
+    line so we always print *something* useful (the data dir
     path + the "stop the existing instance" guidance) rather than
     swallowing the contention silently.
     """
