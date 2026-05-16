@@ -228,46 +228,40 @@ async def test_update_config_schedules_storage_regenerate(
 
 
 @pytest.mark.asyncio
-async def test_update_config_writes_before_scanner_runs(
-    tmp_path: Path, make_controller: MakeControllerFactory
+async def test_update_config_writes_before_requesting_reload(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The disk write completes before the scanner's reload is requested.
+    """``request()`` fires only after the atomic disk write returns.
 
-    The background worker reads the YAML it reloads; if the
-    request fired before the bytes landed, the worker would
-    pick up the stale on-disk version and dispatch
-    DEVICE_UPDATED with the old metadata. Pin the ordering by
-    reading the file inside a request-time hook — once
-    ``request()`` runs, the new content must already be on disk.
-
-    Read goes through ``asyncio.to_thread`` so blockbuster's
-    event-loop guard doesn't fault on the synchronous ``read_text``
-    on CI.
-
-    Regenerate-after-request is implicit: ``update_config`` calls
-    ``request()`` before ``_schedule_storage_regenerate``, so any
-    ordering of regen-vs-write follows from this request check
-    by virtue of the linear async control flow.
+    Reordering the two would make the scanner's worker pick up
+    the stale on-disk bytes and dispatch DEVICE_UPDATED with the
+    old metadata. Trace both calls and pin the order so a refactor
+    that swapped them would surface.
     """
     controller = make_controller(tmp_path)
     _stub_regenerate(controller)
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("esphome:\n  name: stale\n", encoding="utf-8")
-
     new_content = "esphome:\n  name: fresh\n"
-    seen_during_request: list[str] = []
+    order: list[str] = []
+    real_write = controller._write_yaml_atomic_async
 
-    def _record_request(filename: str) -> None:
-        # Synchronous like production; ``asyncio.to_thread`` is the
-        # blockbuster-safe way to read inside an event-loop callback.
-        seen_during_request.append(yaml_path.read_text(encoding="utf-8"))
-        assert filename == "kitchen.yaml"
+    async def _trace_write(path: Path, content: str) -> None:
+        await real_write(path, content)
+        order.append("write")
 
-    controller._scanner.request = _record_request  # type: ignore[method-assign]
+    def _trace_request(filename: str) -> None:
+        order.append(f"request:{filename}")
+
+    monkeypatch.setattr(controller, "_write_yaml_atomic_async", _trace_write)
+    monkeypatch.setattr(controller._scanner, "request", _trace_request)
 
     await controller.update_config(configuration="kitchen.yaml", content=new_content)
 
-    assert seen_during_request == [new_content]
+    assert order == ["write", "request:kitchen.yaml"]
+    assert yaml_path.read_text(encoding="utf-8") == new_content
 
 
 @pytest.mark.asyncio

@@ -841,16 +841,14 @@ async def test_edit_friendly_name_end_to_end_through_real_scanner(
             configuration="brandnew.yaml", new_friendly_name="The BRAND NEW"
         )
         # ``_persist_yaml_mutation`` queues a background reload on
-        # the scanner's worker; spin the loop until it drains so
-        # ``scanner.devices`` reflects the post-edit YAML.
-        for _ in range(50):
-            if (
-                not real_scanner._worker.pending
-                and not real_scanner._worker._wake.is_set()
-                and not real_scanner._lock.locked()
-            ):
+        # the scanner's worker; poll on the user-observable state
+        # (the reloaded device's friendly_name) so the assertion
+        # doesn't race the worker's drain.
+        for _ in range(100):
+            [device] = real_scanner.devices
+            if device.friendly_name == expected_friendly:
                 break
-            await asyncio.sleep(0)
+            await asyncio.sleep(0.01)
     finally:
         await real_scanner.stop()
 
