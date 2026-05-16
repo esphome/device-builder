@@ -61,6 +61,15 @@ class RecordingScanner:
         self.calls.append(("reload", filename))
         return self._reload_returns
 
+    def request(self, filename: str) -> None:
+        self.calls.append(("request", filename))
+
+    async def start(self) -> None:
+        self.calls.append(("start",))
+
+    async def stop(self) -> None:
+        self.calls.append(("stop",))
+
     def get_by_name(self, name: str) -> list[object]:
         self.calls.append(("get_by_name", name))
         # Fresh list snapshot — mirrors production semantics so

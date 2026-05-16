@@ -19,6 +19,7 @@ What we pin:
 
 from __future__ import annotations
 
+import asyncio
 import shutil
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -72,7 +73,7 @@ async def test_edit_friendly_name_rewrites_literal_leaf_and_scans(
     # Other leaves untouched.
     assert "  name: kitchen\n" in new_yaml
     assert '    key: "AAABBB=="' in new_yaml
-    assert ctrl._scanner.calls == [("scan",)]
+    assert ctrl._scanner.calls == [("request", "kitchen.yaml")]
 
 
 async def test_edit_friendly_name_schedules_storage_regenerate(
@@ -834,9 +835,24 @@ async def test_edit_friendly_name_end_to_end_through_real_scanner(
     # stem when the YAML doesn't carry an esphome.name.
     assert seeded.configuration == "brandnew.yaml"
 
-    result = await ctrl.edit_friendly_name(
-        configuration="brandnew.yaml", new_friendly_name="The BRAND NEW"
-    )
+    real_scanner.start()
+    try:
+        result = await ctrl.edit_friendly_name(
+            configuration="brandnew.yaml", new_friendly_name="The BRAND NEW"
+        )
+        # ``_persist_yaml_mutation`` queues a background reload on
+        # the scanner's worker; spin the loop until it drains so
+        # ``scanner.devices`` reflects the post-edit YAML.
+        for _ in range(50):
+            if (
+                not real_scanner._worker.pending
+                and not real_scanner._worker._wake.is_set()
+                and not real_scanner._lock.locked()
+            ):
+                break
+            await asyncio.sleep(0)
+    finally:
+        await real_scanner.stop()
 
     assert result == {"configuration": "brandnew.yaml", "rewritten": True}
     [updated] = real_scanner.devices

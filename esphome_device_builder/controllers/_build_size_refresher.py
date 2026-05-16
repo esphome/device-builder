@@ -22,7 +22,7 @@ Design constraints driving the class shape:
 
 - **Errors must not kill the worker.** A bad walk on one
   configuration logs and continues with the next; the worker
-  sleeps on ``self._wake`` until the next request lands.
+  sleeps on the wake event until the next request lands.
 """
 
 from __future__ import annotations
@@ -39,6 +39,7 @@ from ..helpers.build_size import (
     find_stale_build_dirs,
     refresh_build_size_if_stale,
 )
+from ._wake_worker import WakeWorker
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -75,66 +76,34 @@ class BuildSizeRefresher:
         self._get_metadata_snapshot = get_metadata_snapshot
         self._persist_size = persist_size
         self._on_refreshed = on_refreshed
-        self._pending: set[str] = set()
-        self._wake = asyncio.Event()
-        self._worker_task: asyncio.Task[None] | None = None
+        self._worker: WakeWorker[str] = WakeWorker()
 
     def request(self, configuration: str) -> None:
-        """
-        Queue a refresh and wake the worker.
+        """Queue a refresh and wake the worker.
 
-        Cheap, sync, side-effect-only — safe to call from any
-        event-loop callback. Repeated requests for the same
-        configuration coalesce because the queue is a ``set``,
-        and a refresh that's already queued doesn't add a second
-        slot. The worker picks the request up on its next
-        iteration; mid-walk requests for an already-running
-        configuration land in the same set and get a fresh walk
-        right after the current one finishes.
-        """
-        self._pending.add(configuration)
-        self._wake.set()
-
-    def start(self) -> None:
-        """Spawn the worker task. Idempotent — a second call is a no-op."""
-        if self._worker_task is not None and not self._worker_task.done():
-            return
-        self._worker_task = asyncio.create_task(self._worker())
-
-    async def stop(self) -> None:
-        """Cancel the worker and wait for it to exit cleanly.
-
-        ``CancelledError`` is the expected exit and gets
-        suppressed silently. Anything else is unexpected — a
-        per-iteration ``except`` in the worker missed something —
-        and gets logged so the failure isn't invisible during a
-        clean controller shutdown.
+        Worker drains ``set.pop()``-style so mid-walk requests
+        for an already-running configuration land in the same
+        set and get a fresh walk right after the current one
+        finishes; duplicates coalesce.
 
         A subtlety worth knowing: if the worker is mid-walk
         inside ``loop.run_in_executor(None, ...)`` when ``stop()``
         fires, cancelling the task only abandons the *await* — the
         underlying executor thread keeps running until the walk
         finishes (Python doesn't expose a way to interrupt a
-        running thread). For build-size refresh the work is just
-        a directory walk + one sidecar write per device, so the
-        thread completes on its own within a few seconds at
-        worst; ``DeviceBuilder.stop()`` then calls
+        running thread). ``DeviceBuilder.stop()`` calls
         ``loop.shutdown_default_executor()`` which waits on the
-        residual thread, so process shutdown still drains
-        cleanly. We accept this over a bespoke cancellation
-        channel into the walk, because process shutdown is the
-        only ``stop()`` caller and the trailing write is harmless.
+        residual thread, so process shutdown still drains cleanly.
         """
-        if self._worker_task is None:
-            return
-        self._worker_task.cancel()
-        try:
-            await self._worker_task
-        except asyncio.CancelledError:
-            pass
-        except Exception:
-            _LOGGER.exception("Build-size worker failed during shutdown")
-        self._worker_task = None
+        self._worker.request(configuration)
+
+    def start(self) -> None:
+        """Spawn the worker task. Idempotent."""
+        self._worker.start(self._run, name="BuildSizeRefresher")
+
+    async def stop(self) -> None:
+        """Cancel the worker and wait for it to exit cleanly."""
+        await self._worker.stop()
 
     async def enqueue_stale_fleet(self) -> None:
         """
@@ -158,41 +127,21 @@ class BuildSizeRefresher:
         for configuration in stale:
             self.request(configuration)
 
-    async def _worker(self) -> None:
-        """
-        Long-lived loop: drain the pending set when woken.
-
-        On first iteration, runs the phase-A fleet sweep so the
-        backend picks up CLI-compile drift across the whole
-        catalog without the controller having to fire a separate
-        startup task. Subsequent iterations sleep on ``self._wake``
-        until there's work, clear the event, then walk the queue
-        one configuration at a time until it's empty, then sleep
-        again. ``set.pop()`` is arbitrary-order — fine here, every
-        queued device gets walked. New requests that arrive
-        mid-iteration land in the same set and get processed
-        before the next sleep.
-
-        Per-iteration ``try`` swallows configuration-specific
-        errors so one bad walk can't kill the worker (typical
-        cause: a permission error or a vanishing path during the
-        walk). Cancellation propagates through the ``await`` and
-        breaks the outer ``while True:`` cleanly.
-        """
+    async def _run(self) -> None:
+        """Phase-A sweep on startup, then drain the pending set on every wake."""
         loop = asyncio.get_running_loop()
         try:
             await self.enqueue_stale_fleet()
         except Exception:
             _LOGGER.exception("Initial build-size fleet sweep failed")
         while True:
-            await self._wake.wait()
-            self._wake.clear()
+            await self._worker.wait()
             # One snapshot per drain cycle, not per item, so the
             # per-device cached-signal lookup is O(1) on a hash
             # rather than O(N) on a fresh fleet-wide copy.
             metadata = self._get_metadata_snapshot()
-            while self._pending:
-                configuration = self._pending.pop()
+            while self._worker.pending:
+                configuration = self._worker.pending.pop()
                 entry = metadata.get(configuration, {})
                 cached = BuildDirSignal(
                     dir_mtime=coerce_sidecar_int(entry.get("build_size_dir_mtime")),

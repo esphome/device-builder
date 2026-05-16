@@ -225,6 +225,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         await self._metadata_store.async_load()
         await loop.run_in_executor(None, self._load_ignored_devices)
         await self._scanner.scan()
+        self._scanner.start()
         _LOGGER.info("Devices controller started — %d devices loaded", len(self._scanner.devices))
         await self._state_monitor.start()
         await self._mqtt_coordinator.reconcile()
@@ -242,6 +243,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         if self._unsub_job_completed is not None:
             self._unsub_job_completed()
             self._unsub_job_completed = None
+        await self._scanner.stop()
         await self._build_size.stop()
         await self._mqtt_coordinator.stop()
         await self._state_monitor.stop()
@@ -775,9 +777,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         await loop.run_in_executor(None, atomic_write_file, path, content)
 
     async def _persist_yaml_mutation(self, configuration: str, content: str) -> None:
-        """Atomic write + scan + StorageJSON regen for in-place YAML mutators."""
+        """Atomic write + queue background reload + StorageJSON regen."""
         await self._write_yaml_atomic_async(self._db.settings.rel_path(configuration), content)
-        await self._scanner.scan()
+        self._scanner.request(configuration)
         # Mirrors the upstream dashboard's
         # ``async_schedule_storage_json_update``; without it
         # ``loaded_integrations`` stays at its pre-write state.
