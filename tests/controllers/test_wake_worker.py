@@ -35,6 +35,13 @@ class _WedgedWorker(WakeWorker[str]):
         await asyncio.Event().wait()
 
 
+async def test_default_drain_raises_not_implemented() -> None:
+    """The base ``_drain`` is abstract — calling it raises."""
+    worker: WakeWorker[str] = WakeWorker()
+    with pytest.raises(NotImplementedError):
+        await worker._drain()
+
+
 async def test_request_populates_pending_and_clears_idle() -> None:
     """``request`` is sync, deduplicates, clears idle, sets wake."""
     worker = _RecordingWorker()
