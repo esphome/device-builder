@@ -37,26 +37,27 @@ _VALIDATE_CACHE_TTL = 60.0
 
 
 @dataclass
+class _CachedValidation:
+    """Snapshot of a validate_yaml result, with the inputs needed to reuse it."""
+
+    content_hash: int
+    result: dict
+    at: float
+
+    def is_fresh_for(self, content_hash: int) -> bool:
+        return (
+            self.content_hash == content_hash and time.monotonic() - self.at < _VALIDATE_CACHE_TTL
+        )
+
+
+@dataclass
 class _EditorSession:
     """Per-configuration validator state: warm subprocess, lock, and result cache."""
 
     configuration: str
     proc: asyncio.subprocess.Process | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-    cached_hash: int = 0
-    cached_result: dict | None = None
-    cached_at: float = 0.0
-
-
-def _cached_result(session: _EditorSession, content_hash: int) -> dict | None:
-    """Return the cached result if it matches *content_hash* and is fresh."""
-    if (
-        session.cached_result is not None
-        and session.cached_hash == content_hash
-        and time.monotonic() - session.cached_at < _VALIDATE_CACHE_TTL
-    ):
-        return session.cached_result
-    return None
+    cached: _CachedValidation | None = None
 
 
 class EditorController:
@@ -215,15 +216,15 @@ class EditorController:
         content_hash = fnv1a_32(content.encode("utf-8"))
         # Fast path: avoid the lock when the previous result is
         # still fresh for the same content.
-        cached = _cached_result(session, content_hash)
-        if cached is not None:
-            return cached
+        cached = session.cached
+        if cached is not None and cached.is_fresh_for(content_hash):
+            return cached.result
         async with session.lock:
             # Re-check under the lock so a concurrent linter+save
             # for the same content only spawns one subprocess pass.
-            cached = _cached_result(session, content_hash)
-            if cached is not None:
-                return cached
+            cached = session.cached
+            if cached is not None and cached.is_fresh_for(content_hash):
+                return cached.result
             try:
                 result = await asyncio.wait_for(
                     self._validate_locked(session, configuration, content),
@@ -233,9 +234,9 @@ class EditorController:
                 # Subprocess wedged or died — kill it so the next call respawns.
                 await self._terminate_subprocess(session)
                 raise
-            session.cached_hash = content_hash
-            session.cached_result = result
-            session.cached_at = time.monotonic()
+            session.cached = _CachedValidation(
+                content_hash=content_hash, result=result, at=time.monotonic()
+            )
             return result
 
     async def _validate_locked(

@@ -901,3 +901,47 @@ async def test_validate_yaml_cache_is_per_configuration(tmp_path: Path) -> None:
 
     assert len(calls) == 2
     assert {c[0] for c in calls} == {"kitchen.yaml", "bedroom.yaml"}
+
+
+@pytest.mark.asyncio
+async def test_validate_yaml_inner_lock_recheck_coalesces_concurrent_calls(
+    tmp_path: Path,
+) -> None:
+    """Two concurrent calls for identical content share a single subprocess pass.
+
+    Both reach the fast-path check before any cache entry exists,
+    miss, then race for ``session.lock``. The winner runs
+    ``_validate_locked`` and stores the result; the loser
+    re-checks under the lock and returns the cached entry without
+    a second subprocess pass.
+    """
+    controller = _make_controller(tmp_path)
+    started = asyncio.Event()
+    release = asyncio.Event()
+    calls = 0
+
+    async def _slow_validate(_session: Any, _configuration: str, _content: str) -> dict:
+        nonlocal calls
+        calls += 1
+        started.set()
+        await release.wait()
+        return {"yaml_errors": [], "validation_errors": []}
+
+    controller._validate_locked = _slow_validate  # type: ignore[method-assign]
+
+    first = asyncio.create_task(
+        controller.validate_yaml(configuration="kitchen.yaml", content="esphome:\n")
+    )
+    # Wait for the first call to enter ``_validate_locked`` so the
+    # second call lands in the fast-path miss + lock-wait window.
+    await started.wait()
+    second = asyncio.create_task(
+        controller.validate_yaml(configuration="kitchen.yaml", content="esphome:\n")
+    )
+    # Hand the second task a tick to reach the lock acquire.
+    await asyncio.sleep(0)
+    release.set()
+    results = await asyncio.gather(first, second)
+
+    assert calls == 1
+    assert results[0] == results[1] == {"yaml_errors": [], "validation_errors": []}
