@@ -19,7 +19,6 @@ What we pin:
 
 from __future__ import annotations
 
-import asyncio
 import shutil
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -841,14 +840,9 @@ async def test_edit_friendly_name_end_to_end_through_real_scanner(
             configuration="brandnew.yaml", new_friendly_name="The BRAND NEW"
         )
         # ``_persist_yaml_mutation`` queues a background reload on
-        # the scanner's worker; poll on the user-observable state
-        # (the reloaded device's friendly_name) so the assertion
-        # doesn't race the worker's drain.
-        for _ in range(100):
-            [device] = real_scanner.devices
-            if device.friendly_name == expected_friendly:
-                break
-            await asyncio.sleep(0.01)
+        # the scanner's worker; ``wait_idle`` parks until the
+        # drain (and the reload it contains) actually completes.
+        await real_scanner._worker.wait_idle()
     finally:
         await real_scanner.stop()
 

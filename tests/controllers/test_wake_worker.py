@@ -21,12 +21,85 @@ async def test_request_populates_pending_and_sets_wake() -> None:
     assert worker._wake.is_set()
 
 
-async def test_wait_clears_event() -> None:
-    """``wait`` returns when the wake fires and leaves the event cleared."""
+async def test_drain_clears_wake_and_sets_idle_on_exit() -> None:
+    """``drain`` clears the wake on entry and idle-sets on exit when pending is empty."""
     worker: WakeWorker[str] = WakeWorker()
     worker.request("a")
-    await worker.wait()
-    assert not worker._wake.is_set()
+    async with worker.drain():
+        # Wake is cleared on entry.
+        assert not worker._wake.is_set()
+        # Drain body consumes pending (mirrors the owner's swap).
+        worker.pending.clear()
+    # Pending empty at exit → idle set.
+    assert worker._idle.is_set()
+
+
+async def test_wait_idle_blocks_until_drain_completes() -> None:
+    """``wait_idle`` parks until the run loop finishes draining the pending set."""
+    worker: WakeWorker[str] = WakeWorker()
+    drained: list[str] = []
+
+    async def _loop() -> None:
+        while True:
+            async with worker.drain():
+                drained.extend(worker.pending)
+                worker.pending.clear()
+
+    worker.start(_loop, name="t")
+    try:
+        worker.request("a")
+        worker.request("b")
+        await worker.wait_idle()
+    finally:
+        await worker.stop()
+    assert set(drained) == {"a", "b"}
+
+
+async def test_wait_idle_returns_after_stop() -> None:
+    """``stop`` unblocks any ``wait_idle`` parked through shutdown."""
+    worker: WakeWorker[str] = WakeWorker()
+
+    async def _wedged_loop() -> None:
+        # Park forever — wait_idle would otherwise hang because no
+        # drain ever fires. ``stop`` must still unblock it.
+        await asyncio.Event().wait()
+
+    worker.start(_wedged_loop, name="t")
+    worker.request("never-drained")
+    waiter = asyncio.create_task(worker.wait_idle())
+    await asyncio.sleep(0.01)
+    assert not waiter.done()
+    await worker.stop()
+    await asyncio.wait_for(waiter, timeout=1.0)
+
+
+async def test_wait_idle_stays_clear_if_request_lands_mid_drain() -> None:
+    """A request fired during drain keeps idle clear until that request is drained."""
+    worker: WakeWorker[str] = WakeWorker()
+    drained: list[str] = []
+    second_request_done = asyncio.Event()
+
+    async def _loop() -> None:
+        while True:
+            async with worker.drain():
+                items = list(worker.pending)
+                worker.pending.clear()
+                drained.extend(items)
+                # On the first cycle, simulate a concurrent request
+                # landing mid-drain by firing it before the context
+                # manager exits. ``wait_idle`` must not return until
+                # the second request is also drained.
+                if items == ["a"] and not second_request_done.is_set():
+                    worker.request("b")
+                    second_request_done.set()
+
+    worker.start(_loop, name="t")
+    try:
+        worker.request("a")
+        await worker.wait_idle()
+    finally:
+        await worker.stop()
+    assert drained == ["a", "b"]
 
 
 async def test_start_spawns_and_is_idempotent() -> None:

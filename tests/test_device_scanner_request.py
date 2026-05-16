@@ -16,8 +16,6 @@ ordering / failure-mode coverage lives in
 
 from __future__ import annotations
 
-import asyncio
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -54,17 +52,6 @@ def _stub_load(path: Path, *_a: Any, **_kw: Any) -> Device:
     return Device(name=path.stem, friendly_name=path.stem, configuration=path.name)
 
 
-async def _wait_for(predicate: Callable[[], bool], timeout: float = 1.0) -> None:
-    """Spin the loop until *predicate* returns True or *timeout* expires."""
-    deadline = asyncio.get_running_loop().time() + timeout
-    while asyncio.get_running_loop().time() < deadline:
-        if predicate():
-            return
-        await asyncio.sleep(0.005)
-    msg = "predicate did not become true within timeout"
-    raise AssertionError(msg)
-
-
 async def test_request_drains_one_file(tmp_path: Path) -> None:
     """``request()`` + a worker tick reloads the named file and fires UPDATED."""
     cfg = tmp_path / "configs"
@@ -80,7 +67,7 @@ async def test_request_drains_one_file(tmp_path: Path) -> None:
         scanner.start()
         try:
             scanner.request("kitchen.yaml")
-            await _wait_for(lambda: bool(events))
+            await scanner._worker.wait_idle()
         finally:
             await scanner.stop()
 
@@ -92,8 +79,8 @@ async def test_request_coalesces_duplicate_filenames(tmp_path: Path) -> None:
 
     A tight save-loop (the editor's keystroke-driven autosave is
     one realistic shape) must not pile up N reloads on the
-    worker. The set semantics of :attr:`_pending` carry this; pin
-    it so a refactor to a list / queue would surface.
+    worker. The set semantics of pending carry this; pin it so a
+    refactor to a list / queue would surface.
     """
     cfg = tmp_path / "configs"
     cfg.mkdir()
@@ -122,11 +109,7 @@ async def test_request_coalesces_duplicate_filenames(tmp_path: Path) -> None:
         scanner.request("kitchen.yaml")
         scanner.start()
         try:
-            await _wait_for(lambda: bool(reload_calls))
-            # Give the loop a chance to expose a duplicate reload
-            # if the coalesce property regressed.
-            for _ in range(5):
-                await asyncio.sleep(0.005)
+            await scanner._worker.wait_idle()
         finally:
             await scanner.stop()
 
@@ -155,7 +138,7 @@ async def test_request_before_start_drains_on_start(tmp_path: Path) -> None:
         scanner.request("kitchen.yaml")
         scanner.start()
         try:
-            await _wait_for(lambda: bool(events))
+            await scanner._worker.wait_idle()
         finally:
             await scanner.stop()
 
@@ -216,9 +199,9 @@ async def test_worker_survives_failing_reload(tmp_path: Path) -> None:
         scanner.start()
         try:
             scanner.request("kitchen.yaml")
-            await _wait_for(lambda: "kitchen.yaml" in reloaded)
+            await scanner._worker.wait_idle()
             scanner.request("bedroom.yaml")
-            await _wait_for(lambda: "bedroom.yaml" in reloaded)
+            await scanner._worker.wait_idle()
         finally:
             await scanner.stop()
 

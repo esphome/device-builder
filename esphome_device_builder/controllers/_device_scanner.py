@@ -361,13 +361,13 @@ class DeviceScanner:
     async def _run(self) -> None:
         """Drain pending reloads whenever the wake fires."""
         while True:
-            await self._worker.wait()
-            pending, self._worker.pending = self._worker.pending, set()
-            for filename in pending:
-                try:
-                    await self.reload(filename)
-                except Exception:
-                    _LOGGER.exception("Background reload of %s failed", filename)
+            async with self._worker.drain():
+                pending, self._worker.pending = self._worker.pending, set()
+                for filename in pending:
+                    try:
+                        await self.reload(filename)
+                    except Exception:
+                        _LOGGER.exception("Background reload of %s failed", filename)
 
     async def _do_scan(self) -> None:
         loop = asyncio.get_running_loop()

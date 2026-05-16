@@ -135,41 +135,41 @@ class BuildSizeRefresher:
         except Exception:
             _LOGGER.exception("Initial build-size fleet sweep failed")
         while True:
-            await self._worker.wait()
-            # One snapshot per drain cycle, not per item, so the
-            # per-device cached-signal lookup is O(1) on a hash
-            # rather than O(N) on a fresh fleet-wide copy.
-            metadata = self._get_metadata_snapshot()
-            while self._worker.pending:
-                configuration = self._worker.pending.pop()
-                entry = metadata.get(configuration, {})
-                cached = BuildDirSignal(
-                    dir_mtime=coerce_sidecar_int(entry.get("build_size_dir_mtime")),
-                    info_mtime=coerce_sidecar_int(entry.get("build_size_info_mtime")),
-                )
-                try:
-                    result = await loop.run_in_executor(
-                        None,
-                        refresh_build_size_if_stale,
-                        configuration,
-                        cached,
+            async with self._worker.drain():
+                # One snapshot per drain cycle, not per item, so the
+                # per-device cached-signal lookup is O(1) on a hash
+                # rather than O(N) on a fresh fleet-wide copy.
+                metadata = self._get_metadata_snapshot()
+                while self._worker.pending:
+                    configuration = self._worker.pending.pop()
+                    entry = metadata.get(configuration, {})
+                    cached = BuildDirSignal(
+                        dir_mtime=coerce_sidecar_int(entry.get("build_size_dir_mtime")),
+                        info_mtime=coerce_sidecar_int(entry.get("build_size_info_mtime")),
                     )
-                except Exception:
-                    _LOGGER.exception("Build-size refresh failed for %s", configuration)
-                    continue
-                if result is None:
-                    continue  # cache hit / no artifacts — nothing to publish
-                self._persist_size(configuration, result)
-                # Reflect the persisted signal into the local
-                # snapshot so a re-queue of the same configuration
-                # within this drain cycle sees the fresh cache.
-                metadata[configuration] = {
-                    **metadata.get(configuration, {}),
-                    "build_size_bytes": result.size_bytes,
-                    "build_size_dir_mtime": result.signal.dir_mtime,
-                    "build_size_info_mtime": result.signal.info_mtime,
-                }
-                try:
-                    await self._on_refreshed(configuration)
-                except Exception:
-                    _LOGGER.exception("on_refreshed callback failed for %s", configuration)
+                    try:
+                        result = await loop.run_in_executor(
+                            None,
+                            refresh_build_size_if_stale,
+                            configuration,
+                            cached,
+                        )
+                    except Exception:
+                        _LOGGER.exception("Build-size refresh failed for %s", configuration)
+                        continue
+                    if result is None:
+                        continue  # cache hit / no artifacts — nothing to publish
+                    self._persist_size(configuration, result)
+                    # Reflect the persisted signal into the local
+                    # snapshot so a re-queue of the same configuration
+                    # within this drain cycle sees the fresh cache.
+                    metadata[configuration] = {
+                        **metadata.get(configuration, {}),
+                        "build_size_bytes": result.size_bytes,
+                        "build_size_dir_mtime": result.signal.dir_mtime,
+                        "build_size_info_mtime": result.signal.info_mtime,
+                    }
+                    try:
+                        await self._on_refreshed(configuration)
+                    except Exception:
+                        _LOGGER.exception("on_refreshed callback failed for %s", configuration)
