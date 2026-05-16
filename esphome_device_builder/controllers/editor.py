@@ -32,7 +32,9 @@ _VALIDATE_TIMEOUT = 30.0
 # content (typing-stops → linter at 600 ms → user clicks save).
 # Cache covers that hand-off; longer would risk staleness for
 # ``!include`` / ``external_components`` files mutated outside
-# the editor.
+# the editor. ``fnv1a_32`` keys the cache (non-cryptographic;
+# collision risk negligible for the ≤dozens of buffers an editor
+# session sees inside one TTL window).
 _VALIDATE_CACHE_TTL = 60.0
 
 
@@ -41,7 +43,7 @@ class _CachedValidation:
     """Snapshot of a validate_yaml result, with the inputs needed to reuse it."""
 
     content_hash: int
-    result: dict
+    result: dict[str, Any]
     at: float
 
     def is_fresh_for(self, content_hash: int) -> bool:
