@@ -28,7 +28,11 @@ class WakeWorker[T]:
         self._idle.set()
 
     def request(self, item: T) -> None:
-        """Push *item* onto :attr:`pending` and wake the loop."""
+        """Push *item* onto :attr:`pending` and wake the loop.
+
+        Requires :meth:`start` to be in effect for progress;
+        otherwise :meth:`wait_idle` will park until ``stop``.
+        """
         self.pending.add(item)
         self._idle.clear()
         self._wake.set()
@@ -87,7 +91,10 @@ class WakeWorker[T]:
     # ------------------------------------------------------------------
 
     async def _run_loop(self) -> None:
-        await self._on_start()
+        try:
+            await self._on_start()
+        except Exception:
+            _LOGGER.exception("Worker %s _on_start raised; continuing", type(self).__name__)
         # Re-set the idle ``start`` cleared if ``_on_start`` queued no work.
         if not self.pending:
             self._idle.set()

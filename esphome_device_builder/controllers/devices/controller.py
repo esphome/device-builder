@@ -777,7 +777,12 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         await loop.run_in_executor(None, atomic_write_file, path, content)
 
     async def _persist_yaml_mutation(self, configuration: str, content: str) -> None:
-        """Atomic write + queue background reload + StorageJSON regen."""
+        """Atomic write + fire-and-forget background reload + StorageJSON regen.
+
+        Returns once the bytes are on disk; the scanner reload
+        runs on its worker, so callers don't see the post-reload
+        device row before the next event tick.
+        """
         await self._write_yaml_atomic_async(self._db.settings.rel_path(configuration), content)
         self._scanner.request(configuration)
         # Mirrors the upstream dashboard's

@@ -175,6 +175,35 @@ async def test_drain_exception_logged_and_loop_continues(
     assert any("drain raised" in r.message for r in caplog.records)
 
 
+async def test_on_start_exception_logged_and_loop_continues(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An exception escaping ``_on_start`` is logged; the drain loop still runs."""
+
+    class _FlakyStart(WakeWorker[str]):
+        def __init__(self) -> None:
+            super().__init__()
+            self.processed: list[str] = []
+
+        async def _on_start(self) -> None:
+            raise RuntimeError("on_start oops")
+
+        async def _drain(self) -> None:
+            self.processed.extend(sorted(self.pending))
+            self.pending.clear()
+
+    caplog.set_level(logging.ERROR)
+    worker = _FlakyStart()
+    worker.start()
+    try:
+        worker.request("after-broken-start")
+        await asyncio.wait_for(worker.wait_idle(), timeout=1.0)
+    finally:
+        await worker.stop()
+    assert worker.processed == ["after-broken-start"]
+    assert any("_on_start raised" in r.message for r in caplog.records)
+
+
 async def test_drain_raising_with_items_pending_drains_remainder() -> None:
     """``_drain`` raising mid-pending must not strand the unprocessed items.
 
