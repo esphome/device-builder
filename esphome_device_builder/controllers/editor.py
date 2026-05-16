@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from fnv_hash_fast import fnv1a_32
 
 from ..helpers.api import api_command
 from ..helpers.json import JSONDecodeError, dumps, loads
@@ -25,15 +28,35 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 _STARTUP_TIMEOUT = 15.0
 _VALIDATE_TIMEOUT = 30.0
+# Linter and save both call ``validate_yaml`` on identical
+# content (typing-stops → linter at 600 ms → user clicks save).
+# Cache covers that hand-off; longer would risk staleness for
+# ``!include`` / ``external_components`` files mutated outside
+# the editor.
+_VALIDATE_CACHE_TTL = 60.0
 
 
 @dataclass
 class _EditorSession:
-    """Per-configuration validator state: one warm subprocess plus a serialization lock."""
+    """Per-configuration validator state: warm subprocess, lock, and result cache."""
 
     configuration: str
     proc: asyncio.subprocess.Process | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    cached_hash: int = 0
+    cached_result: dict | None = None
+    cached_at: float = 0.0
+
+
+def _cached_result(session: _EditorSession, content_hash: int) -> dict | None:
+    """Return the cached result if it matches *content_hash* and is fresh."""
+    if (
+        session.cached_result is not None
+        and session.cached_hash == content_hash
+        and time.monotonic() - session.cached_at < _VALIDATE_CACHE_TTL
+    ):
+        return session.cached_result
+    return None
 
 
 class EditorController:
@@ -180,13 +203,29 @@ class EditorController:
         the same shape upstream ``vscode.py`` produces. Each error has a
         ``message`` and (for validation errors) a ``range`` with
         ``{start_line, start_col, end_line, end_col}`` (0-indexed).
+
+        Results are cached per session by content hash for
+        ``_VALIDATE_CACHE_TTL`` seconds — the linter and the
+        save-time re-validate hit the same content back-to-back,
+        and ESPHome's full schema run is the dominant cost.
         """
         session = self._sessions.setdefault(
             configuration, _EditorSession(configuration=configuration)
         )
+        content_hash = fnv1a_32(content.encode("utf-8"))
+        # Fast path: avoid the lock when the previous result is
+        # still fresh for the same content.
+        cached = _cached_result(session, content_hash)
+        if cached is not None:
+            return cached
         async with session.lock:
+            # Re-check under the lock so a concurrent linter+save
+            # for the same content only spawns one subprocess pass.
+            cached = _cached_result(session, content_hash)
+            if cached is not None:
+                return cached
             try:
-                return await asyncio.wait_for(
+                result = await asyncio.wait_for(
                     self._validate_locked(session, configuration, content),
                     timeout=_VALIDATE_TIMEOUT,
                 )
@@ -194,6 +233,10 @@ class EditorController:
                 # Subprocess wedged or died — kill it so the next call respawns.
                 await self._terminate_subprocess(session)
                 raise
+            session.cached_hash = content_hash
+            session.cached_result = result
+            session.cached_at = time.monotonic()
+            return result
 
     async def _validate_locked(
         self, session: _EditorSession, configuration: str, content: str

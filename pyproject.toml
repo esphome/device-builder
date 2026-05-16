@@ -22,6 +22,9 @@ dependencies = [
   "aiohttp-asyncmdnsresolver>=0.1.1",
   "colorlog>=6.8.0",
   "cryptography>=42.0.2",
+  # Cheap non-cryptographic hash for the editor's
+  # validate-result cache (content → cached subprocess result).
+  "fnv-hash-fast>=1.0.0",
   "ifaddr>=0.2.0",
   "mashumaro>=3.13",
   "orjson>=3.9.0",
