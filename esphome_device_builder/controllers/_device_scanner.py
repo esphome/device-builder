@@ -234,12 +234,15 @@ class _DeviceIndex:
             del self._devices_by_name[device.name]
 
 
-class DeviceScanner:
+class DeviceScanner(WakeWorker[str]):
     """
     Disk-backed device cache.
 
     ``scan()`` is safe to call concurrently — overlapping calls coalesce
     via an internal lock. Use ``devices`` to read the current snapshot.
+    The :class:`WakeWorker` base drives a background reload worker:
+    :meth:`request` queues a filename, :meth:`start` / :meth:`stop`
+    manage the task, :meth:`wait_idle` parks until the drain finishes.
     """
 
     def __init__(
@@ -248,12 +251,12 @@ class DeviceScanner:
         get_metadata: MetadataResolver,
         on_change: ScanCallback,
     ) -> None:
+        super().__init__()
         self._config_dir = config_dir
         self._get_metadata = get_metadata
         self._on_change = on_change
         self._index = _DeviceIndex()
         self._lock = asyncio.Lock()
-        self._worker: WakeWorker[str] = WakeWorker()
 
     @property
     def devices(self) -> list[Device]:
@@ -290,18 +293,6 @@ class DeviceScanner:
         """Refresh the device cache from disk, emitting per-file change events."""
         async with self._lock:
             await self._do_scan()
-
-    def start(self) -> None:
-        """Spawn the background reload worker. Idempotent."""
-        self._worker.start(self._run, name="DeviceScanner")
-
-    async def stop(self) -> None:
-        """Cancel the worker and await its exit."""
-        await self._worker.stop()
-
-    def request(self, filename: str) -> None:
-        """Queue a reload of *filename* and wake the worker."""
-        self._worker.request(filename)
 
     async def reload(self, filename: str) -> bool:
         """
@@ -358,16 +349,14 @@ class DeviceScanner:
     # Internals
     # ------------------------------------------------------------------
 
-    async def _run(self) -> None:
-        """Drain pending reloads whenever the wake fires."""
-        while True:
-            async with self._worker.drain():
-                pending, self._worker.pending = self._worker.pending, set()
-                for filename in pending:
-                    try:
-                        await self.reload(filename)
-                    except Exception:
-                        _LOGGER.exception("Background reload of %s failed", filename)
+    async def _drain(self) -> None:
+        """Reload every filename currently queued."""
+        pending, self.pending = self.pending, set()
+        for filename in pending:
+            try:
+                await self.reload(filename)
+            except Exception:
+                _LOGGER.exception("Background reload of %s failed", filename)
 
     async def _do_scan(self) -> None:
         loop = asyncio.get_running_loop()

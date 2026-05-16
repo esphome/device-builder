@@ -842,7 +842,7 @@ async def test_edit_friendly_name_end_to_end_through_real_scanner(
         # ``_persist_yaml_mutation`` queues a background reload on
         # the scanner's worker; ``wait_idle`` parks until the
         # drain (and the reload it contains) actually completes.
-        await real_scanner._worker.wait_idle()
+        await real_scanner.wait_idle()
     finally:
         await real_scanner.stop()
 

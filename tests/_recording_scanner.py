@@ -64,7 +64,7 @@ class RecordingScanner:
     def request(self, filename: str) -> None:
         self.calls.append(("request", filename))
 
-    async def start(self) -> None:
+    def start(self) -> None:
         self.calls.append(("start",))
 
     async def stop(self) -> None:

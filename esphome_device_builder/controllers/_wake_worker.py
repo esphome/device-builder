@@ -4,29 +4,26 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator, Callable, Coroutine
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class WakeWorker[T]:
-    """Sync-request + asyncio.Event-driven background worker scaffold.
+    """Sync-request + asyncio.Event-driven background worker base.
 
-    The base owns the pending set, the wake event, and the
-    start/stop lifecycle. Owners wrap their per-iteration work in
-    ``async with worker.drain():`` so :meth:`wait_idle` can await
-    a full drain cycle without polling internal state.
+    Subclasses implement :meth:`_drain` (called per wake) and
+    optionally :meth:`_on_start` (one-shot, before the loop).
+    The base owns the pending set, the wake event, the idle event,
+    the start/stop lifecycle, and the drain context manager that
+    pairs a wake-receive with an idle-set on exit.
     """
 
     def __init__(self) -> None:
         self.pending: set[T] = set()
         self._wake = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
-        # Set when the worker is parked with pending empty;
-        # cleared by ``request`` so callers can ``await wait_idle``
-        # to block until their request has actually been processed.
         self._idle = asyncio.Event()
         self._idle.set()
 
@@ -36,24 +33,14 @@ class WakeWorker[T]:
         self._idle.clear()
         self._wake.set()
 
-    def start(
-        self,
-        run: Callable[[], Coroutine[Any, Any, None]],
-        *,
-        name: str | None = None,
-    ) -> None:
+    def start(self) -> None:
         """Spawn the worker. Idempotent."""
         if self._task is not None and not self._task.done():
             return
-        self._task = asyncio.create_task(run(), name=name or "WakeWorker")
+        self._task = asyncio.create_task(self._run_loop(), name=type(self).__name__)
 
     async def stop(self) -> None:
-        """Cancel and await the worker. Idempotent.
-
-        Sets the idle event on the way out so any
-        :meth:`wait_idle` waiter parked through shutdown resumes
-        rather than hanging.
-        """
+        """Cancel and await the worker; unblock any :meth:`wait_idle` waiter."""
         task = self._task
         if task is None:
             return
@@ -67,13 +54,34 @@ class WakeWorker[T]:
         self._task = None
         self._idle.set()
 
-    @asynccontextmanager
-    async def drain(self) -> AsyncIterator[None]:
-        """Park until a request lands; mark idle when the body exits.
+    async def wait_idle(self) -> None:
+        """Park until pending is empty and no drain is in progress."""
+        await self._idle.wait()
 
-        Pairs the wake-receive with the idle-set in one structured
-        block so the run loop cannot leave :meth:`wait_idle` hung.
-        """
+    # ------------------------------------------------------------------
+    # Subclass hooks
+    # ------------------------------------------------------------------
+
+    async def _on_start(self) -> None:
+        """One-shot hook called before the drain loop; default no-op."""
+
+    async def _drain(self) -> None:
+        """Process the current pending set. Subclasses must override."""
+        raise NotImplementedError
+
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
+
+    async def _run_loop(self) -> None:
+        await self._on_start()
+        while True:
+            async with self._drain_cycle():
+                await self._drain()
+
+    @asynccontextmanager
+    async def _drain_cycle(self) -> AsyncIterator[None]:
+        """Wait for a wake; mark idle on exit when pending is empty."""
         await self._wake.wait()
         self._wake.clear()
         try:
@@ -81,7 +89,3 @@ class WakeWorker[T]:
         finally:
             if not self.pending:
                 self._idle.set()
-
-    async def wait_idle(self) -> None:
-        """Park until pending is empty and no drain is in progress."""
-        await self._idle.wait()

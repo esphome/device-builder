@@ -84,8 +84,8 @@ async def test_request_adds_to_pending_set_and_wakes_event(tmp_path: Path) -> No
     refresher.request("kitchen.yaml")
     refresher.request("kitchen.yaml")  # dedupe
     refresher.request("bedroom.yaml")
-    assert refresher._worker.pending == {"kitchen.yaml", "bedroom.yaml"}
-    assert refresher._worker._wake.is_set()
+    assert refresher.pending == {"kitchen.yaml", "bedroom.yaml"}
+    assert refresher._wake.is_set()
 
 
 @pytest.mark.asyncio
@@ -93,9 +93,9 @@ async def test_start_is_idempotent(tmp_path: Path) -> None:
     """A second ``start`` while the worker is alive is a no-op."""
     refresher, _, _ = _make(tmp_path)
     refresher.start()
-    first_task = refresher._worker._task
+    first_task = refresher._task
     refresher.start()
-    assert refresher._worker._task is first_task
+    assert refresher._task is first_task
     await refresher.stop()
 
 
@@ -104,7 +104,7 @@ async def test_stop_with_no_running_worker_is_noop(tmp_path: Path) -> None:
     """``stop`` on a never-started refresher must not raise."""
     refresher, _, _ = _make(tmp_path)
     await refresher.stop()  # no exception
-    assert refresher._worker._task is None
+    assert refresher._task is None
 
 
 # ----------------------------------------------------------------------
@@ -140,7 +140,7 @@ async def test_worker_drains_pending_and_fires_on_refreshed(tmp_path: Path) -> N
         await refresher.stop()
 
     assert refreshed == ["kitchen.yaml"]
-    assert refresher._worker.pending == set()
+    assert refresher.pending == set()
 
 
 @pytest.mark.asyncio
@@ -310,7 +310,7 @@ async def test_enqueue_stale_fleet_pushes_divergent_filenames(tmp_path: Path) ->
     ):
         await refresher.enqueue_stale_fleet()
 
-    assert refresher._worker.pending == {"a.yaml", "c.yaml"}
+    assert refresher.pending == {"a.yaml", "c.yaml"}
 
 
 @pytest.mark.asyncio
@@ -330,7 +330,7 @@ async def test_enqueue_stale_fleet_empty_filenames_skips_executor(tmp_path: Path
         await refresher.enqueue_stale_fleet()
 
     assert calls == []  # short-circuited before scheduling anything
-    assert refresher._worker.pending == set()
+    assert refresher.pending == set()
 
 
 # ----------------------------------------------------------------------
@@ -416,7 +416,7 @@ async def test_stop_logs_unexpected_worker_exception(tmp_path: Path, caplog: Any
             raise RuntimeError("worker exploded") from None
 
     caplog.set_level(logging.ERROR)
-    with patch.object(BuildSizeRefresher, "_run", _failing_worker):
+    with patch.object(BuildSizeRefresher, "_run_loop", _failing_worker):
         refresher.start()
         # Yield once so the worker actually starts awaiting; without
         # this, ``stop`` cancels before the task entered the try.

@@ -67,7 +67,7 @@ async def test_request_drains_one_file(tmp_path: Path) -> None:
         scanner.start()
         try:
             scanner.request("kitchen.yaml")
-            await scanner._worker.wait_idle()
+            await scanner.wait_idle()
         finally:
             await scanner.stop()
 
@@ -109,7 +109,7 @@ async def test_request_coalesces_duplicate_filenames(tmp_path: Path) -> None:
         scanner.request("kitchen.yaml")
         scanner.start()
         try:
-            await scanner._worker.wait_idle()
+            await scanner.wait_idle()
         finally:
             await scanner.stop()
 
@@ -138,7 +138,7 @@ async def test_request_before_start_drains_on_start(tmp_path: Path) -> None:
         scanner.request("kitchen.yaml")
         scanner.start()
         try:
-            await scanner._worker.wait_idle()
+            await scanner.wait_idle()
         finally:
             await scanner.stop()
 
@@ -151,10 +151,10 @@ async def test_start_is_idempotent(tmp_path: Path) -> None:
     cfg.mkdir()
     scanner, _ = _make_scanner(cfg)
     scanner.start()
-    first_task = scanner._worker._task
+    first_task = scanner._task
     try:
         scanner.start()
-        assert scanner._worker._task is first_task
+        assert scanner._task is first_task
     finally:
         await scanner.stop()
 
@@ -165,7 +165,7 @@ async def test_stop_cancels_idle_worker(tmp_path: Path) -> None:
     cfg.mkdir()
     scanner, _ = _make_scanner(cfg)
     scanner.start()
-    task = scanner._worker._task
+    task = scanner._task
     assert task is not None
     await scanner.stop()
     assert task.done()
@@ -199,9 +199,9 @@ async def test_worker_survives_failing_reload(tmp_path: Path) -> None:
         scanner.start()
         try:
             scanner.request("kitchen.yaml")
-            await scanner._worker.wait_idle()
+            await scanner.wait_idle()
             scanner.request("bedroom.yaml")
-            await scanner._worker.wait_idle()
+            await scanner.wait_idle()
         finally:
             await scanner.stop()
 
