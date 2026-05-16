@@ -175,6 +175,82 @@ async def test_drain_exception_logged_and_loop_continues(
     assert any("drain raised" in r.message for r in caplog.records)
 
 
+async def test_drain_raising_with_items_pending_drains_remainder() -> None:
+    """``_drain`` raising mid-pending must not strand the unprocessed items.
+
+    Regression for the deadlock where ``_drain_cycle.__aexit__``
+    left ``_wake`` cleared and ``_idle`` cleared, parking the
+    next ``_wake.wait()`` forever and any ``wait_idle`` waiter.
+    """
+
+    class _MidPopFlaky(WakeWorker[str]):
+        def __init__(self) -> None:
+            super().__init__()
+            self.processed: list[str] = []
+            self.raised_once = False
+
+        async def _drain(self) -> None:
+            # Pop-as-you-go pattern; raise on the first item
+            # while leaving the rest in pending.
+            item = self.pending.pop()
+            if not self.raised_once and item != "fine":
+                self.raised_once = True
+                raise RuntimeError("oops")
+            self.processed.append(item)
+
+    worker = _MidPopFlaky()
+    worker.start()
+    try:
+        worker.request("bad")
+        worker.request("fine")
+        await asyncio.wait_for(worker.wait_idle(), timeout=1.0)
+    finally:
+        await worker.stop()
+    # The "fine" item gets processed despite the earlier raise.
+    assert "fine" in worker.processed
+
+
+async def test_wait_idle_after_start_with_no_on_start_work() -> None:
+    """``wait_idle`` returns after ``start`` even if ``_on_start`` queued nothing."""
+
+    class _Quiet(WakeWorker[str]):
+        async def _drain(self) -> None:
+            self.pending.clear()
+
+    worker = _Quiet()
+    worker.start()
+    try:
+        # No request before wait_idle; _on_start did nothing.
+        # wait_idle must still return (the loop re-sets idle).
+        await asyncio.wait_for(worker.wait_idle(), timeout=1.0)
+    finally:
+        await worker.stop()
+
+
+async def test_wait_idle_after_start_waits_for_on_start_work() -> None:
+    """``wait_idle`` parks past ``_on_start`` queuing work via ``request``."""
+
+    class _SeedingStart(WakeWorker[str]):
+        def __init__(self) -> None:
+            super().__init__()
+            self.processed: list[str] = []
+
+        async def _on_start(self) -> None:
+            self.request("seeded")
+
+        async def _drain(self) -> None:
+            self.processed.extend(sorted(self.pending))
+            self.pending.clear()
+
+    worker = _SeedingStart()
+    worker.start()
+    try:
+        await asyncio.wait_for(worker.wait_idle(), timeout=1.0)
+    finally:
+        await worker.stop()
+    assert worker.processed == ["seeded"]
+
+
 async def test_start_logs_and_replaces_crashed_task(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
