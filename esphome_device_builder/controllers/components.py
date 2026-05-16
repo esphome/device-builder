@@ -21,6 +21,7 @@ from ..models import (
     PinFeature,
     PinMode,
 )
+from .devices.helpers import _apply_featured_presets
 
 if TYPE_CHECKING:
     from ..device_builder import DeviceBuilder
@@ -413,11 +414,6 @@ class ComponentCatalog:
         warning — the manifest validator is the contract that
         keeps these from reaching runtime.
         """
-        # Lazy import sidesteps the components ↔ devices.helpers
-        # cycle (devices.helpers already imports _FeaturedRecord from
-        # this module under TYPE_CHECKING).
-        from .devices.helpers import _apply_featured_presets  # noqa: PLC0415
-
         out: list[tuple[ComponentCatalogEntry, dict[str, Any]]] = []
         for entry in board.default_components:
             full_id = f"{_FEATURED_PREFIX}{board.id}.{entry.id}"
