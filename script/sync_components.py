@@ -765,8 +765,16 @@ def main() -> int:
     # Second pass: walk the same schema bundle for action / condition /
     # trigger / effect registries and emit the automation catalog. Runs
     # after ``build_catalog`` so the per-component schema cache (extends
-    # resolution, _convert_field's bookkeeping) is already warm.
-    automations = build_automations(schema_dir=schema_dir)
+    # resolution, _convert_field's bookkeeping) is already warm. The
+    # set of component ids built above is passed in so the automations
+    # generator can distinguish a real ``<domain>.<platform>`` pair
+    # (``switch.template`` — exists in the catalog) from an
+    # organisational namespace in the schema's ``<stem>.<base>`` key
+    # (``page.display`` — no ``display.page`` component): the latter
+    # flattens to bare ``<domain>`` so the action surfaces whenever
+    # a matching base domain is configured.
+    component_ids = {c["id"] for c in catalog}
+    automations = build_automations(schema_dir=schema_dir, component_ids=component_ids)
     _LOGGER.info(
         "Built automations catalog: %d triggers, %d actions, %d conditions, %d effects",
         len(automations["triggers"]),
@@ -4017,7 +4025,11 @@ _CORE_AUTOMATION_LABELS: dict[str, str] = {
 _CORE_AUTOMATION_DOCS = "https://esphome.io/automations/actions"
 
 
-def build_automations(*, schema_dir: Path) -> dict[str, list[dict]]:
+def build_automations(
+    *,
+    schema_dir: Path,
+    component_ids: set[str],
+) -> dict[str, list[dict]]:
     """
     Walk every schema file and emit the automation catalog.
 
@@ -4025,6 +4037,14 @@ def build_automations(*, schema_dir: Path) -> dict[str, list[dict]]:
     ``light_effects`` lists. Parameter schemas come out in the same
     ``ConfigEntry[]`` shape the component catalog uses, so the
     frontend renders both through one form pipeline.
+
+    *component_ids* is the set of ids in the just-built component
+    catalog (``switch.template``, ``display.ssd1306_i2c``, …).
+    Used to decide whether a schema's ``<stem>.<base>`` top_key
+    encodes a real platform (the flipped ``<base>.<stem>`` exists
+    as a component) or just an organisational namespace
+    (``page.display`` ⇒ no ``display.page`` component, so actions
+    surface against the bare ``display`` domain).
     """
     triggers: list[dict] = []
     actions: list[dict] = []
@@ -4040,10 +4060,18 @@ def build_automations(*, schema_dir: Path) -> dict[str, list[dict]]:
         for top_key, section in raw.items():
             if not isinstance(section, dict):
                 continue
-            domain = _automation_domain(top_key)
+            # ``top_key`` is the schema's raw ``<stem>.<base>`` form
+            # (e.g. ``template.switch``) — kept verbatim for entry
+            # ids so they match ESPHome's wire format
+            # (``template.switch.publish``). ``domain`` is the
+            # canonical ``<base>.<stem>`` form used for the
+            # metadata field that gets matched against the YAML
+            # scoping set.
+            domain = _automation_domain(top_key, component_ids=component_ids)
             # Component-scoped action / condition registries.
             for name, body in (section.get("action") or {}).items():
                 entry = _convert_automation_action(
+                    top_key=top_key,
                     domain=domain,
                     name=name,
                     body=body,
@@ -4053,6 +4081,7 @@ def build_automations(*, schema_dir: Path) -> dict[str, list[dict]]:
                     actions.append(entry)
             for name, body in (section.get("condition") or {}).items():
                 entry = _convert_automation_condition(
+                    top_key=top_key,
                     domain=domain,
                     name=name,
                     body=body,
@@ -4073,6 +4102,7 @@ def build_automations(*, schema_dir: Path) -> dict[str, list[dict]]:
             # (and any other ``_SCHEMA`` the file declares).
             triggers.extend(
                 _extract_triggers_from_section(
+                    top_key=top_key,
                     domain=domain,
                     section=section,
                     schema_dir=schema_dir,
@@ -4087,17 +4117,37 @@ def build_automations(*, schema_dir: Path) -> dict[str, list[dict]]:
     }
 
 
-def _automation_domain(top_key: str) -> str:
-    """Return the surface domain for automation entries from *top_key*."""
-    if top_key in _PLATFORM_DOMAINS:
-        return top_key
+def _automation_domain(top_key: str, *, component_ids: set[str]) -> str:
+    """
+    Return the canonical component id for automation entries from *top_key*.
+
+    Flips the schema's raw ``<stem>.<base>`` shape (e.g.
+    ``template.switch``) into the codebase-canonical
+    ``<base>.<stem>`` form (``switch.template``) that the
+    component catalog already uses — but only when the flipped
+    id actually exists in *component_ids*. When it doesn't, the
+    dotted prefix is an organisational namespace in the schema
+    rather than a real platform (``page.display`` has no
+    ``display.page`` component; ``date.datetime`` has no
+    ``datetime.date`` component — these are sub-feature /
+    type-discriminator namespaces) and we flatten to bare
+    ``<base>`` so the action surfaces whenever the base domain
+    is configured. Bare top_keys pass through unchanged.
+    """
     if top_key == "core":
         return "core"
+    if "." in top_key:
+        stem, base = top_key.split(".", 1)
+        canonical = f"{base}.{stem}"
+        if canonical in component_ids:
+            return canonical
+        return base
     return top_key
 
 
 def _convert_automation_action(
     *,
+    top_key: str,
     domain: str,
     name: str,
     body: dict,
@@ -4119,7 +4169,7 @@ def _convert_automation_action(
     )
     is_control_flow = bool(accepts_action_list) or has_condition_gate
     has_else_branch = "else" in (accepts_action_list or [])
-    qualified = f"{domain}.{name}" if domain != "core" else name
+    qualified = f"{top_key}.{name}" if top_key != "core" else name
     return {
         "id": qualified,
         "name": _automation_label(domain, name, docs.name),
@@ -4135,6 +4185,7 @@ def _convert_automation_action(
 
 def _convert_automation_condition(
     *,
+    top_key: str,
     domain: str,
     name: str,
     body: dict,
@@ -4151,7 +4202,7 @@ def _convert_automation_condition(
     # Boolean combinators have ``is_list: true`` + ``registry:
     # condition`` directly on the body, not inside a ``schema``.
     accepts_condition_list = bool(body.get("is_list") and body.get("registry") == "condition")
-    qualified = f"{domain}.{name}" if domain != "core" else name
+    qualified = f"{top_key}.{name}" if top_key != "core" else name
     return {
         "id": qualified,
         "name": _automation_label(domain, name, docs.name),
@@ -4198,6 +4249,7 @@ def _convert_light_effect(
 
 def _extract_triggers_from_section(
     *,
+    top_key: str,
     domain: str,
     section: dict,
     schema_dir: Path,
@@ -4211,10 +4263,11 @@ def _extract_triggers_from_section(
     """
     schemas = section.get("schemas") or {}
     out: list[dict] = []
-    is_device_level = domain == "esphome"
-    # The applies_to list for ``binary_sensor.on_press`` is
-    # ``["binary_sensor"]`` — the platform domain the user
-    # configures the trigger under in YAML.
+    is_device_level = top_key == "esphome"
+    # ``applies_to`` uses the canonical ``<base>.<stem>`` form so
+    # it matches the YAML scoping set assembled in the controller
+    # (``binary_sensor`` for bare triggers; ``cover.template`` for
+    # template-cover-only triggers).
     applies_to = [] if is_device_level or domain == "core" else [domain]
     for schema_body in schemas.values():
         if not isinstance(schema_body, dict):
@@ -4231,7 +4284,7 @@ def _extract_triggers_from_section(
             )
             out.append(
                 {
-                    "id": key if is_device_level else f"{domain}.{key}",
+                    "id": key if is_device_level else f"{top_key}.{key}",
                     "name": _automation_label(domain, key, docs.name),
                     "description": docs.text,
                     "docs_url": docs.url or _CORE_AUTOMATION_DOCS,

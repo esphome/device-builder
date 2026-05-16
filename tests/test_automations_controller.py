@@ -164,22 +164,113 @@ async def test_get_available_lists_configured_component_instances(tmp_path: Path
     assert ("switch.gpio", "relay_two") in devices
 
 
-async def test_get_available_actions_and_conditions_are_returned_in_full(
+async def test_get_available_scopes_actions_and_conditions_to_present_domains(
     tmp_path: Path,
 ) -> None:
-    """``actions`` / ``conditions`` are not scoped to present domains.
+    """``actions`` / ``conditions`` only surface for configured domains.
 
-    The frontend's id-pickers handle scoping by filtering on
-    ``references_component``; the catalog is returned unfiltered so
-    the user can pick e.g. ``light.turn_on`` even on a device that
-    has no light yet (they'll add one).
+    A minimal YAML (no components) sees only the ``core`` items —
+    control flow + ``delay`` / ``lambda`` for actions; combinators +
+    ``for`` / ``lambda`` for conditions. Adding ``switch:`` pulls in
+    ``switch.turn_on`` / ``switch.is_on``; sibling-domain items like
+    ``light.turn_on`` / ``binary_sensor.is_on`` stay filtered out.
     """
-    config = tmp_path / "min.yaml"
-    config.write_text("esphome:\n  name: m\n", encoding="utf-8")
+    minimal = tmp_path / "min.yaml"
+    minimal.write_text("esphome:\n  name: m\n", encoding="utf-8")
     controller = _make_controller(tmp_path)
-    result = await controller.get_available(configuration="min.yaml")
-    assert len(result["actions"]) == len(catalog.all_actions())
-    assert len(result["conditions"]) == len(catalog.all_conditions())
+
+    bare = await controller.get_available(configuration="min.yaml")
+    bare_action_ids = {a["id"] for a in bare["actions"]}
+    bare_condition_ids = {c["id"] for c in bare["conditions"]}
+    # Core items always present.
+    assert {"delay", "lambda", "if", "while", "repeat", "wait_until"} <= bare_action_ids
+    assert {"and", "or", "all", "any", "not", "xor", "lambda", "for"} <= bare_condition_ids
+    # Component-domain items absent without a matching YAML block.
+    assert "switch.turn_on" not in bare_action_ids
+    assert "light.turn_on" not in bare_action_ids
+    assert "switch.is_on" not in bare_condition_ids
+    assert "binary_sensor.is_on" not in bare_condition_ids
+
+    scoped = tmp_path / "scoped.yaml"
+    scoped.write_text(
+        "esphome:\n  name: s\nswitch:\n  - platform: gpio\n    id: relay\n    pin: GPIO5\n",
+        encoding="utf-8",
+    )
+    result = await controller.get_available(configuration="scoped.yaml")
+    action_ids = {a["id"] for a in result["actions"]}
+    condition_ids = {c["id"] for c in result["conditions"]}
+    assert "switch.turn_on" in action_ids
+    assert "switch.is_on" in condition_ids
+    # Domains we did not configure stay out.
+    assert "light.turn_on" not in action_ids
+    assert "binary_sensor.is_on" not in condition_ids
+
+
+async def test_get_available_scopes_to_configured_platform(tmp_path: Path) -> None:
+    """Platform-specific catalog entries only surface for the matching platform.
+
+    A switch with ``platform: gpio`` gets ``switch.turn_on`` but
+    NOT ``template.switch.publish`` (no template switch); adding a
+    template switch pulls the publish action in. Same shape on the
+    trigger side: ``template.switch.turn_on`` (the trigger fired
+    on a template switch's state-change automation) appears only
+    when ``platform: template`` is configured.
+    """
+    gpio_only = tmp_path / "gpio.yaml"
+    gpio_only.write_text(
+        "esphome:\n  name: g\nswitch:\n  - platform: gpio\n    id: relay\n    pin: GPIO5\n",
+        encoding="utf-8",
+    )
+    controller = _make_controller(tmp_path)
+    gpio = await controller.get_available(configuration="gpio.yaml")
+    gpio_actions = {a["id"] for a in gpio["actions"]}
+    assert "switch.turn_on" in gpio_actions
+    assert "template.switch.publish" not in gpio_actions
+
+    with_template = tmp_path / "tpl.yaml"
+    with_template.write_text(
+        "esphome:\n  name: t\nswitch:\n"
+        "  - platform: gpio\n    id: relay\n    pin: GPIO5\n"
+        "  - platform: template\n    name: tpl\n    id: vsw\n"
+        "    turn_on_action:\n      - delay: 1s\n",
+        encoding="utf-8",
+    )
+    tpl = await controller.get_available(configuration="tpl.yaml")
+    tpl_actions = {a["id"] for a in tpl["actions"]}
+    assert "switch.turn_on" in tpl_actions
+    assert "template.switch.publish" in tpl_actions
+
+
+async def test_get_available_surfaces_namespace_actions_on_base_domain(
+    tmp_path: Path,
+) -> None:
+    """Schema-namespace entries surface against the base domain alone.
+
+    The schema's ``<stem>.<base>`` shape conflates real platforms
+    (``template.switch`` ⇒ ``switch.template``) with organisational
+    namespaces (``page.display`` — no ``display.page`` component;
+    ``date.datetime`` — no ``datetime.date`` component). The sync
+    flattens the latter to bare ``<base>`` so they surface for
+    any matching base domain. Configuring a display with
+    ``platform: ssd1306_i2c`` should expose ``page.display.show``
+    (display-page actions, sub-feature of any display) but
+    nothing platform-locked to a different platform.
+    """
+    config = tmp_path / "screen.yaml"
+    config.write_text(
+        "esphome:\n  name: s\n"
+        "i2c:\n  sda: GPIO4\n  scl: GPIO5\n"
+        "display:\n  - platform: ssd1306_i2c\n    id: scr\n"
+        "    model: SSD1306 128x64\n",
+        encoding="utf-8",
+    )
+    controller = _make_controller(tmp_path)
+    result = await controller.get_available(configuration="screen.yaml")
+    action_ids = {a["id"] for a in result["actions"]}
+    assert "page.display.show" in action_ids
+    assert "page.display.show_next" in action_ids
+    # Platform-locked display action stays out (we have ssd1306_i2c, not nextion).
+    assert "nextion.display.set_brightness" not in action_ids
 
 
 # ---------------------------------------------------------------------------

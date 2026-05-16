@@ -60,7 +60,7 @@ def test_build_automations_extracts_component_action(tmp_path: Path) -> None:
             },
         },
     )
-    result = sync_components.build_automations(schema_dir=schema_dir)
+    result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
     actions = {a["id"]: a for a in result["actions"]}
     assert "switch.toggle" in actions
     toggle = actions["switch.toggle"]
@@ -110,7 +110,7 @@ def test_build_automations_strips_then_from_control_flow_action_params(
             },
         },
     )
-    result = sync_components.build_automations(schema_dir=schema_dir)
+    result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
     if_action = next(a for a in result["actions"] if a["id"] == "if")
     assert if_action["is_control_flow"] is True
     assert if_action["has_else_branch"] is True
@@ -142,7 +142,7 @@ def test_build_automations_extracts_condition_combinator(tmp_path: Path) -> None
             },
         },
     )
-    result = sync_components.build_automations(schema_dir=schema_dir)
+    result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
     and_cond = next(c for c in result["conditions"] if c["id"] == "and")
     assert and_cond["accepts_condition_list"] is True
     assert and_cond["domain"] == "core"
@@ -189,7 +189,7 @@ def test_build_automations_extracts_component_trigger_with_nested_params(
             },
         },
     )
-    result = sync_components.build_automations(schema_dir=schema_dir)
+    result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
     on_click = next(t for t in result["triggers"] if t["id"] == "binary_sensor.on_click")
     assert on_click["applies_to"] == ["binary_sensor"]
     assert on_click["is_device_level"] is False
@@ -223,7 +223,7 @@ def test_build_automations_extracts_light_effect(tmp_path: Path) -> None:
             },
         },
     )
-    result = sync_components.build_automations(schema_dir=schema_dir)
+    result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
     flicker = next(e for e in result["light_effects"] if e["id"] == "flicker")
     assert flicker["name"] == "Light → Flicker"
     cfg_keys = {e["key"] for e in flicker["config_entries"]}
@@ -259,6 +259,6 @@ def test_build_automations_dedupes_by_id(tmp_path: Path) -> None:
             },
         ),
     )
-    result = sync_components.build_automations(schema_dir=schema_dir)
+    result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
     matching = [a for a in result["actions"] if a["id"] == "switch.toggle"]
     assert len(matching) == 1

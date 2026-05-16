@@ -113,20 +113,22 @@ class AutomationsController:
         """
         Return the scoped catalog + script / device id surfaces.
 
-        ``triggers`` is filtered to component domains present in
-        *configuration* plus device-level. ``actions`` /
-        ``conditions`` are returned in full (id-pickers filter on
-        the frontend). ``scripts`` and ``devices`` feed the
-        context-aware param dropdowns.
+        ``triggers`` / ``actions`` / ``conditions`` are filtered to
+        the components present in *configuration*, matched by the
+        catalog's canonical ``<domain>.<platform>`` form — an
+        action whose ``domain`` is ``switch.template`` only
+        surfaces when a switch with ``platform: template`` is
+        configured. ``core`` items (control flow, lambda,
+        combinators) are always included. ``scripts`` and
+        ``devices`` feed the context-aware param dropdowns.
         """
         text = await self._read_config(configuration)
         loop = asyncio.get_running_loop()
         scoped = await loop.run_in_executor(None, _scope_from_yaml, text)
-        triggers = catalog.triggers_for_domains(scoped.domains)
         return AvailableAutomations(
-            triggers=triggers,
-            actions=catalog.all_actions(),
-            conditions=catalog.all_conditions(),
+            triggers=catalog.triggers_for_domains(scoped.domains),
+            actions=catalog.actions_for_domains(scoped.domains),
+            conditions=catalog.conditions_for_domains(scoped.domains),
             scripts=scoped.scripts,
             devices=scoped.devices,
         ).to_dict()
@@ -215,7 +217,20 @@ class _ScopedYaml:
 
 
 def _scope_from_yaml(text: str) -> _ScopedYaml:
-    """Walk *text* and surface the targets ``get_available`` returns."""
+    """Walk *text* and surface the targets ``get_available`` returns.
+
+    ``domains`` is the qualified set used to filter the catalog:
+    every top-level YAML key (e.g. ``switch``) plus every
+    ``<domain>.<platform>`` / ``<domain>.<type>`` pair read off
+    each list item (e.g. ``switch.template`` for a switch with
+    ``platform: template``; ``datetime.date`` for a datetime with
+    ``type: date``). The form matches the canonical
+    ``<domain>.<platform>`` shape the component catalog and
+    :class:`AvailableComponentInstance` already use, so catalog
+    entries whose ``domain`` field is ``switch.template`` only
+    surface when a switch with ``platform: template`` is
+    actually configured.
+    """
     yaml = parsing.make_yaml()
     try:
         data = yaml.load(text)
@@ -231,11 +246,29 @@ def _scope_from_yaml(text: str) -> _ScopedYaml:
 
     if isinstance(data.get("script"), list):
         scripts = _scope_scripts(data["script"])
-    for domain in component_domains & domains:
+    for domain in set(data.keys()):
         section = data.get(domain)
-        if isinstance(section, list):
+        if not isinstance(section, list):
+            continue
+        domains.update(_qualified_domains(domain, section))
+        if domain in component_domains:
             devices.extend(_scope_component_instances(domain, section))
     return _ScopedYaml(domains=domains, scripts=scripts, devices=devices)
+
+
+def _qualified_domains(domain: str, section: list) -> set[str]:
+    """Collect ``<domain>.<platform>`` / ``<domain>.<type>`` for one section."""
+    out: set[str] = set()
+    for item in section:
+        if not isinstance(item, dict):
+            continue
+        platform = item.get("platform")
+        if isinstance(platform, str) and platform:
+            out.add(f"{domain}.{platform}")
+        type_value = item.get("type")
+        if isinstance(type_value, str) and type_value:
+            out.add(f"{domain}.{type_value}")
+    return out
 
 
 def _component_trigger_domains() -> set[str]:

@@ -128,6 +128,50 @@ def triggers_for_domains(domains: Iterable[str]) -> list[AutomationTrigger]:
     return device_level + component
 
 
+def actions_for_domains(domains: Iterable[str]) -> list[AutomationAction]:
+    """
+    Return ``core`` actions + every action whose ``domain`` is in *domains*.
+
+    ``core`` actions (``delay`` / ``lambda`` / ``if`` / ``while`` /
+    ``repeat`` / ``wait_until``) come first (in catalogue order),
+    followed by component actions whose canonical
+    ``<domain>.<platform>`` (or bare ``<domain>``) id matches a
+    qualified key in *domains*. Mirrors :func:`triggers_for_domains`.
+    """
+    domain_set = set(domains)
+    core: list[AutomationAction] = []
+    component: list[AutomationAction] = []
+    for action in all_actions():
+        if action.domain == "core":
+            core.append(action)
+            continue
+        if action.domain in domain_set:
+            component.append(action)
+    return core + component
+
+
+def conditions_for_domains(domains: Iterable[str]) -> list[AutomationCondition]:
+    """
+    Return ``core`` conditions + every condition whose ``domain`` is in *domains*.
+
+    ``core`` conditions (``and`` / ``or`` / ``all`` / ``any`` / ``not`` /
+    ``xor`` / ``lambda`` / ``for``) come first (in catalogue order),
+    followed by component conditions whose canonical
+    ``<domain>.<platform>`` (or bare ``<domain>``) id matches a
+    qualified key in *domains*.
+    """
+    domain_set = set(domains)
+    core: list[AutomationCondition] = []
+    component: list[AutomationCondition] = []
+    for condition in all_conditions():
+        if condition.domain == "core":
+            core.append(condition)
+            continue
+        if condition.domain in domain_set:
+            component.append(condition)
+    return core + component
+
+
 # Pre-warm the catalog at module-import time so the first request
 # never trips blockbuster on the disk read — same pattern the
 # components catalog uses (``ComponentCatalog.load`` runs at

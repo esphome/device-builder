@@ -31,7 +31,15 @@ from .common import ConfigEntry
 
 @dataclass
 class AutomationTrigger(DataClassORJSONMixin):
-    """A trigger that can start an automation."""
+    """
+    A trigger that can start an automation.
+
+    ``applies_to`` carries the catalog's canonical
+    ``<domain>.<platform>`` ids the trigger is scoped to (e.g.
+    ``cover.template`` for a template-cover-only trigger,
+    ``binary_sensor`` for any binary sensor). Empty when
+    ``is_device_level`` is true or for ``core`` triggers.
+    """
 
     id: str
     name: str
@@ -44,7 +52,15 @@ class AutomationTrigger(DataClassORJSONMixin):
 
 @dataclass
 class AutomationAction(DataClassORJSONMixin):
-    """An action that can run inside an automation."""
+    """
+    An action that can run inside an automation.
+
+    ``domain`` carries the catalog's canonical
+    ``<domain>.<platform>`` id (e.g. ``switch.template``,
+    ``binary_sensor.nextion``) or the bare ``<domain>`` for
+    platform-agnostic actions (``switch.turn_on`` lives under
+    ``switch``). ``core`` covers control flow + lambda.
+    """
 
     id: str
     name: str
@@ -59,7 +75,13 @@ class AutomationAction(DataClassORJSONMixin):
 
 @dataclass
 class AutomationCondition(DataClassORJSONMixin):
-    """A condition usable inside an ``if`` / ``while`` / ``wait_until``."""
+    """
+    A condition usable inside an ``if`` / ``while`` / ``wait_until``.
+
+    ``domain`` follows the same ``<domain>.<platform>`` shape as
+    :class:`AutomationAction`. ``core`` covers boolean combinators
+    + ``for`` + ``lambda``.
+    """
 
     id: str
     name: str
@@ -254,10 +276,14 @@ class AvailableAutomations(DataClassORJSONMixin):
     """
     Context-aware catalog scoped to one device's YAML.
 
-    ``triggers`` is filtered to component domains present in the
-    YAML plus device-level. ``actions`` / ``conditions`` are
-    returned in full; ``scripts`` and ``devices`` feed the
-    action-parameter dropdowns.
+    ``triggers`` / ``actions`` / ``conditions`` are filtered to
+    the components present in the YAML, matched by the catalog's
+    canonical ``<domain>.<platform>`` form: an entry with
+    ``domain == "switch.template"`` only surfaces when a switch
+    with ``platform: template`` is configured. ``core`` items
+    (control flow, lambda, combinators) and device-level
+    triggers are always included. ``scripts`` and ``devices``
+    feed the action-parameter dropdowns.
     """
 
     triggers: list[AutomationTrigger] = field(default_factory=list)
