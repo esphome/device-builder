@@ -354,9 +354,19 @@ class DeviceScanner(WakeWorker[str]):
         pending, self.pending = self.pending, set()
         for filename in pending:
             try:
-                await self.reload(filename)
+                reloaded = await self.reload(filename)
             except Exception:
                 _LOGGER.exception("Background reload of %s failed", filename)
+                continue
+            if not reloaded:
+                # Tracked at request time but gone by drain time
+                # (concurrent delete / atomic-save mid-flight).
+                # Debug-level: the drain doesn't fail, but the
+                # vanished save is otherwise invisible.
+                _LOGGER.debug(
+                    "Background reload skipped: %s is no longer tracked",
+                    filename,
+                )
 
     async def _do_scan(self) -> None:
         loop = asyncio.get_running_loop()

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
 
 import pytest
 
@@ -137,14 +136,75 @@ async def test_stop_with_no_running_worker_is_noop() -> None:
     assert worker._task is None
 
 
-@pytest.mark.asyncio
-async def test_stop_logs_unexpected_exception(caplog: Any) -> None:
-    """A non-cancel exception from the worker is logged during ``stop``."""
-    entered_drain = asyncio.Event()
+async def test_drain_exception_logged_and_loop_continues(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An unexpected raise from ``_drain`` is logged; the loop keeps draining."""
+
+    class _FlakyDrain(WakeWorker[str]):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 0
+
+        async def _drain(self) -> None:
+            self.calls += 1
+            items = sorted(self.pending)
+            self.pending.clear()
+            if items == ["bad"]:
+                raise RuntimeError("oops")
+
+    caplog.set_level(logging.ERROR)
+    worker = _FlakyDrain()
+    worker.start()
+    try:
+        worker.request("bad")
+        await worker.wait_idle()
+        worker.request("good")
+        await worker.wait_idle()
+    finally:
+        await worker.stop()
+
+    assert worker.calls == 2
+    assert any("drain raised" in r.message for r in caplog.records)
+
+
+async def test_start_logs_and_replaces_crashed_task(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A second ``start`` after a crash logs the prior exception and restarts."""
+
+    class _Crashy(WakeWorker[str]):
+        # Override _run_loop directly so the crash bypasses the
+        # base's per-drain guard and the task ends with an
+        # exception that ``start`` has to deal with.
+        async def _run_loop(self) -> None:
+            raise RuntimeError("ka-boom")
+
+    caplog.set_level(logging.ERROR)
+    worker = _Crashy()
+    worker.start()
+    first = worker._task
+    # Let the task run and die.
+    for _ in range(5):
+        if first is not None and first.done():
+            break
+        await asyncio.sleep(0)
+    assert first is not None and first.done()
+    # Re-starting should retrieve the prior exception and spawn a fresh task.
+    worker.start()
+    assert worker._task is not first
+    await worker.stop()
+    assert any("crashed; restarting" in r.message for r in caplog.records)
+
+
+async def test_stop_logs_unexpected_exception(caplog: pytest.LogCaptureFixture) -> None:
+    """A non-cancel exception escaping ``_run_loop`` is logged during ``stop``."""
 
     class _Exploding(WakeWorker[str]):
-        async def _drain(self) -> None:
-            entered_drain.set()
+        # Override _run_loop so the raise bypasses the base's per-drain
+        # guard and the task ends with an exception that ``stop`` has
+        # to retrieve.
+        async def _run_loop(self) -> None:
             try:
                 await asyncio.Event().wait()
             except asyncio.CancelledError:
@@ -153,11 +213,7 @@ async def test_stop_logs_unexpected_exception(caplog: Any) -> None:
     caplog.set_level(logging.ERROR)
     worker = _Exploding()
     worker.start()
-    # Request kicks the loop into _drain; without this the worker
-    # would be parked on _wake.wait and the cancellation wouldn't
-    # reach the RuntimeError branch inside _drain.
-    worker.request("x")
-    await entered_drain.wait()
+    await asyncio.sleep(0)
     await worker.stop()
 
     expected = f"Worker {_Exploding.__name__} failed during shutdown"

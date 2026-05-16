@@ -35,8 +35,16 @@ class WakeWorker[T]:
 
     def start(self) -> None:
         """Spawn the worker. Idempotent."""
-        if self._task is not None and not self._task.done():
+        prior = self._task
+        if prior is not None and not prior.done():
             return
+        if prior is not None and not prior.cancelled():
+            # Retrieve any unhandled exception so it doesn't surface
+            # as "Task exception was never retrieved" at GC time and
+            # so the failure mode is visible in logs.
+            exc = prior.exception()
+            if exc is not None:
+                _LOGGER.error("Worker %s crashed; restarting", prior.get_name(), exc_info=exc)
         self._task = asyncio.create_task(self._run_loop(), name=type(self).__name__)
 
     async def stop(self) -> None:
@@ -77,7 +85,18 @@ class WakeWorker[T]:
         await self._on_start()
         while True:
             async with self._drain_cycle():
-                await self._drain()
+                try:
+                    await self._drain()
+                except Exception:
+                    # Unexpected raise from a subclass ``_drain``
+                    # body. Log and continue so a programming bug
+                    # in one drain iteration doesn't kill the
+                    # worker — that would leave every ``wait_idle``
+                    # waiter parked forever until ``stop`` runs.
+                    _LOGGER.exception(
+                        "Worker %s drain raised; continuing",
+                        type(self).__name__,
+                    )
 
     @asynccontextmanager
     async def _drain_cycle(self) -> AsyncIterator[None]:
