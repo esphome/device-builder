@@ -241,6 +241,31 @@ async def test_get_available_scopes_to_configured_platform(tmp_path: Path) -> No
     assert "template.switch.publish" in tpl_actions
 
 
+async def test_get_available_tolerates_non_dict_items_in_component_lists(
+    tmp_path: Path,
+) -> None:
+    """Scalar / non-dict items in a component list don't crash scoping.
+
+    A mid-edit YAML can briefly contain a bare scalar where a
+    dict is expected; the scoping pass skips those items rather
+    than raising, and the real items in the same list still
+    contribute platform qualifiers as usual.
+    """
+    config = tmp_path / "weird.yaml"
+    config.write_text(
+        "esphome:\n  name: w\n"
+        "switch:\n"
+        "  - bogus_scalar\n"
+        "  - platform: gpio\n    id: relay\n    pin: GPIO5\n",
+        encoding="utf-8",
+    )
+    controller = _make_controller(tmp_path)
+    result = await controller.get_available(configuration="weird.yaml")
+    action_ids = {a["id"] for a in result["actions"]}
+    # Real item still drives scoping; bogus scalar is silently skipped.
+    assert "switch.turn_on" in action_ids
+
+
 async def test_get_available_surfaces_namespace_actions_on_base_domain(
     tmp_path: Path,
 ) -> None:

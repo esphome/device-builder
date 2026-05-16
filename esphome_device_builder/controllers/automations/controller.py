@@ -221,15 +221,13 @@ def _scope_from_yaml(text: str) -> _ScopedYaml:
 
     ``domains`` is the qualified set used to filter the catalog:
     every top-level YAML key (e.g. ``switch``) plus every
-    ``<domain>.<platform>`` / ``<domain>.<type>`` pair read off
-    each list item (e.g. ``switch.template`` for a switch with
-    ``platform: template``; ``datetime.date`` for a datetime with
-    ``type: date``). The form matches the canonical
-    ``<domain>.<platform>`` shape the component catalog and
-    :class:`AvailableComponentInstance` already use, so catalog
-    entries whose ``domain`` field is ``switch.template`` only
-    surface when a switch with ``platform: template`` is
-    actually configured.
+    ``<domain>.<platform>`` pair read off each list item (e.g.
+    ``switch.template`` for a switch with ``platform: template``).
+    The form matches the canonical ``<domain>.<platform>`` shape
+    the component catalog and :class:`AvailableComponentInstance`
+    already use, so catalog entries whose ``domain`` field is
+    ``switch.template`` only surface when a switch with
+    ``platform: template`` is actually configured.
     """
     yaml = parsing.make_yaml()
     try:
@@ -257,7 +255,7 @@ def _scope_from_yaml(text: str) -> _ScopedYaml:
 
 
 def _qualified_domains(domain: str, section: list) -> set[str]:
-    """Collect ``<domain>.<platform>`` / ``<domain>.<type>`` for one section."""
+    """Collect ``<domain>.<platform>`` keys for one section."""
     out: set[str] = set()
     for item in section:
         if not isinstance(item, dict):
@@ -265,9 +263,6 @@ def _qualified_domains(domain: str, section: list) -> set[str]:
         platform = item.get("platform")
         if isinstance(platform, str) and platform:
             out.add(f"{domain}.{platform}")
-        type_value = item.get("type")
-        if isinstance(type_value, str) and type_value:
-            out.add(f"{domain}.{type_value}")
     return out
 
 
