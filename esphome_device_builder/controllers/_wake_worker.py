@@ -39,16 +39,12 @@ class WakeWorker[T]:
         if prior is not None and not prior.done():
             return
         if prior is not None and not prior.cancelled():
-            # Retrieve any unhandled exception so it doesn't surface
-            # as "Task exception was never retrieved" at GC time and
-            # so the failure mode is visible in logs.
+            # Retrieve any unhandled exception so it doesn't GC as
+            # "Task exception was never retrieved."
             exc = prior.exception()
             if exc is not None:
                 _LOGGER.error("Worker %s crashed; restarting", prior.get_name(), exc_info=exc)
-        # Clear idle so a ``wait_idle`` issued right after ``start``
-        # parks until at least ``_on_start`` + the first drain
-        # finishes. ``_run_loop`` re-sets it when ``_on_start``
-        # queues no work.
+        # ``wait_idle`` right after ``start`` parks past ``_on_start``.
         self._idle.clear()
         self._task = asyncio.create_task(self._run_loop(), name=type(self).__name__)
 
@@ -81,22 +77,8 @@ class WakeWorker[T]:
     async def _drain(self) -> None:
         """Process the current pending set. Subclasses must override.
 
-        Two patterns are supported:
-
-        * **Swap-empty**: ``pending, self.pending = self.pending,
-          set()`` once at the top, then iterate the local copy
-          with per-item ``try`` / ``except``. ``DeviceScanner``
-          uses this.
-        * **Pop-as-you-go**: ``while self.pending:
-          item = self.pending.pop()``. Lets mid-drain ``request``
-          calls land in the same cycle. ``BuildSizeRefresher``
-          uses this.
-
-        Either way, the base does not require ``_drain`` to
-        complete: a raise leaves whatever is still in
-        ``self.pending`` for the next cycle, and
-        :meth:`_drain_cycle` re-arms ``_wake`` so the worker
-        comes back instead of deadlocking.
+        A raise leaves whatever is still in :attr:`pending` for
+        the next cycle — :meth:`_drain_cycle` re-arms the wake.
         """
         raise NotImplementedError
 
@@ -106,9 +88,7 @@ class WakeWorker[T]:
 
     async def _run_loop(self) -> None:
         await self._on_start()
-        # ``start`` cleared idle so ``wait_idle`` parks past
-        # ``_on_start``; if the hook queued no work, re-set so
-        # waiters return without an artificial first-drain wait.
+        # Re-set the idle ``start`` cleared if ``_on_start`` queued no work.
         if not self.pending:
             self._idle.set()
         while True:
@@ -116,33 +96,18 @@ class WakeWorker[T]:
                 try:
                     await self._drain()
                 except Exception:
-                    # Unexpected raise from a subclass ``_drain``
-                    # body. Log and continue so a programming bug
-                    # in one drain iteration doesn't kill the
-                    # worker — that would leave every ``wait_idle``
-                    # waiter parked forever until ``stop`` runs.
-                    _LOGGER.exception(
-                        "Worker %s drain raised; continuing",
-                        type(self).__name__,
-                    )
+                    _LOGGER.exception("Worker %s drain raised; continuing", type(self).__name__)
 
     @asynccontextmanager
     async def _drain_cycle(self) -> AsyncIterator[None]:
-        """Wait for a wake; settle idle/wake on exit based on pending.
-
-        Re-arms ``_wake`` when items remain so the next iteration
-        still drains them — without this a ``_drain`` that raises
-        mid-pending would deadlock (``_wake`` was cleared on
-        entry, never re-armed, and any ``wait_idle`` waiter would
-        be stranded). ``Event.set()`` is idempotent so the normal
-        case (concurrent ``request`` already set ``_wake``) is a
-        no-op.
-        """
+        """Wait for a wake; mark idle on empty exit, re-arm wake on non-empty."""
         await self._wake.wait()
         self._wake.clear()
         try:
             yield
         finally:
+            # Re-arm wake on non-empty so a ``_drain`` that raises
+            # mid-pending isn't stranded; ``Event.set()`` is idempotent.
             if not self.pending:
                 self._idle.set()
             else:
