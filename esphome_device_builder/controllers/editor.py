@@ -208,9 +208,8 @@ class EditorController:
         ``{start_line, start_col, end_line, end_col}`` (0-indexed).
 
         Results are cached per session by content hash for
-        ``_VALIDATE_CACHE_TTL`` seconds — the linter and the
-        save-time re-validate hit the same content back-to-back,
-        and ESPHome's full schema run is the dominant cost.
+        ``_VALIDATE_CACHE_TTL`` seconds; the linter and the
+        save-time re-validate hit the same content back-to-back.
         """
         session = self._sessions.setdefault(
             configuration, _EditorSession(configuration=configuration)

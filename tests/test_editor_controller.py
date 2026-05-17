@@ -907,14 +907,7 @@ async def test_validate_yaml_cache_is_per_configuration(tmp_path: Path) -> None:
 async def test_validate_yaml_inner_lock_recheck_coalesces_concurrent_calls(
     tmp_path: Path,
 ) -> None:
-    """Two concurrent calls for identical content share a single subprocess pass.
-
-    Both reach the fast-path check before any cache entry exists,
-    miss, then race for ``session.lock``. The winner runs
-    ``_validate_locked`` and stores the result; the loser
-    re-checks under the lock and returns the cached entry without
-    a second subprocess pass.
-    """
+    """Two concurrent calls for identical content share a single subprocess pass."""
     controller = _make_controller(tmp_path)
     started = asyncio.Event()
     release = asyncio.Event()
