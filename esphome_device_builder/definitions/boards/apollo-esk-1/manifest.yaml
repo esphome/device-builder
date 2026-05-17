@@ -239,6 +239,7 @@ featured_components:
     chipset: WS2812
     num_leds: 10
     rgb_order: GRB
+    rmt_symbols: 48
 - id: onboard_rgb_led
   component_id: light.esp32_rmt_led_strip
   name: Onboard RGB LED
@@ -253,6 +254,7 @@ featured_components:
     chipset: WS2812
     num_leds: 1
     rgb_order: GRB
+    rmt_symbols: 48
 - id: buzzer_output
   component_id: output.ledc
   name: Piezo Buzzer (module)
