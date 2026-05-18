@@ -41,6 +41,19 @@ _COLUMN_NAMES = (
 )
 _UNKNOWN = "unknown"
 
+# Per-column display caps for peer-supplied mDNS labels. A neighbour on the
+# LAN broadcasting ``_esphomebuilder._tcp.local.`` controls both the service
+# instance name and every TXT value; without caps + a printable-only filter
+# a hostile broadcaster could inject ANSI escapes (clear/reflow the
+# operator's terminal) or break the column-aligned table with an oversized
+# string. Widths match the ``_FORMAT`` columns so a cap-clipped value still
+# fits cleanly. Mirrors the defence aioesphomeapi added in #1669.
+_MAX_NAME_LEN = 24
+_MAX_SERVER_LEN = 18
+_MAX_ESPHOME_LEN = 16
+_MAX_PORT_LEN = 12
+_MAX_PIN_LEN = 64
+
 
 def main() -> None:
     """CLI entry point.
@@ -122,16 +135,31 @@ async def _run(args: argparse.Namespace) -> None:
         await aiozc.async_close()
 
 
-def _decode(data: str | bytes | None) -> str:
-    """Decode a TXT-record value to ``str``, or return ``unknown``."""
+def _safe_label(value: str, limit: int) -> str:
+    r"""
+    Strip non-printable chars and cap *value* at *limit* characters.
+
+    Filters with :meth:`str.isprintable` so ANSI escape introducers
+    (``\x1b``), newlines, NUL, tabs, and other control bytes can't
+    reflow the operator's terminal, then trims to the column width
+    so a hostile broadcaster can't break ``_FORMAT``'s alignment.
+    Non-ASCII printable characters survive (a peer named ``café``
+    still renders).
+    """
+    return "".join(ch for ch in value if ch.isprintable())[:limit]
+
+
+def _decode(data: str | bytes | None, limit: int = _MAX_NAME_LEN) -> str:
+    """Decode a peer-supplied TXT-record value, sanitize, length-cap."""
     if data is None:
         return _UNKNOWN
     if isinstance(data, bytes):
-        try:
-            return data.decode("utf-8")
-        except UnicodeDecodeError:
-            return data.decode("utf-8", errors="replace")
-    return data
+        # A device on the LAN can broadcast arbitrary bytes; use
+        # ``"replace"`` so a malformed UTF-8 payload doesn't raise
+        # out of the zeroconf callback (which would silently kill
+        # the browse loop).
+        data = data.decode("utf-8", errors="replace")
+    return _safe_label(data, limit)
 
 
 def _truncate_pin(pin: str) -> str:
@@ -172,7 +200,11 @@ def _on_service_state_change(
     :mod:`controllers._device_state_monitor` /
     :mod:`controllers.remote_build.controller`).
     """
-    short_name = name.partition(".")[0]
+    # The mDNS service name is peer-controlled — sanitize before
+    # printing so a hostile broadcaster can't inject ANSI escapes /
+    # newlines / null bytes into the terminal via the instance
+    # label. Same defence as the TXT-decode path below.
+    short_name = _safe_label(name.partition(".")[0], _MAX_NAME_LEN)
     state = "OFFLINE" if state_change is ServiceStateChange.Removed else "ONLINE"
     info = AsyncServiceInfo(service_type, name)
     # ``load_from_cache`` returns ``False`` when the browser
@@ -185,10 +217,10 @@ def _on_service_state_change(
     # resolve catches up.
     info.load_from_cache(zeroconf)
     properties = info.properties or {}
-    server_version = _decode(properties.get(b"server_version"))
-    esphome_version = _decode(properties.get(b"esphome_version"))
-    pin_sha256 = _decode(properties.get(b"pin_sha256"))
-    remote_build_port = _decode(properties.get(b"remote_build_port"))
+    server_version = _decode(properties.get(b"server_version"), _MAX_SERVER_LEN)
+    esphome_version = _decode(properties.get(b"esphome_version"), _MAX_ESPHOME_LEN)
+    pin_sha256 = _decode(properties.get(b"pin_sha256"), _MAX_PIN_LEN)
+    remote_build_port = _decode(properties.get(b"remote_build_port"), _MAX_PORT_LEN)
 
     address = ""
     if v4_addresses := info.ip_addresses_by_version(IPVersion.V4Only):

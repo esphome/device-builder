@@ -28,11 +28,13 @@ from zeroconf import IPVersion, ServiceStateChange
 
 from esphome_device_builder.discover import (
     _COLUMN_NAMES,
+    _MAX_NAME_LEN,
     _UNKNOWN,
     _build_parser,
     _decode,
     _on_service_state_change,
     _run,
+    _safe_label,
     _truncate_pin,
     main,
 )
@@ -54,6 +56,126 @@ from esphome_device_builder.discover import (
 def test_decode_handles_every_txt_wire_shape(raw: str | bytes | None, expected: str) -> None:
     """``_decode`` round-trips bytes, leaves strings alone, marks missing."""
     assert _decode(raw) == expected
+
+
+def test_safe_label_strips_ansi_escape_introducer() -> None:
+    r"""A hostile broadcaster's ``\x1b[2J`` can't clear the operator's terminal.
+
+    ESC (``0x1b``) is the prefix for ANSI CSI sequences; an mDNS
+    peer that landed it in a TXT value could otherwise wipe /
+    reflow the watcher's terminal as soon as the row prints. The
+    trailing ``[2J`` survives as harmless printable text once the
+    leading ESC is gone.
+    """
+    assert _safe_label("\x1b[2Jvers1.0", 32) == "[2Jvers1.0"
+
+
+def test_safe_label_strips_newline_cr_null_tab() -> None:
+    """Control bytes that could reflow or terminate the printed row are dropped."""
+    assert _safe_label("line1\r\nline2", 32) == "line1line2"
+    assert _safe_label("col\tumn", 32) == "column"
+    assert _safe_label("esp\x0032", 32) == "esp32"
+
+
+def test_safe_label_caps_length() -> None:
+    """Oversized peer-supplied labels can't break the column-aligned table."""
+    assert _safe_label("x" * 200, 10) == "x" * 10
+
+
+def test_safe_label_preserves_non_ascii_printable() -> None:
+    """Non-ASCII printable characters survive (``str.isprintable`` is Unicode-aware)."""
+    assert _safe_label("café", 32) == "café"
+
+
+def test_decode_invalid_utf8_does_not_raise() -> None:
+    """Hostile broadcasters can send raw bytes; the callback must not raise."""
+    # Pre-fix: ``data.decode("utf-8")`` raised UnicodeDecodeError on the
+    # strict path; the except branch decoded with "replace" but a future
+    # refactor could easily lose it. Post-fix: a single decode call with
+    # ``errors="replace"`` covers it unconditionally.
+    result = _decode(b"\xff\xfe")
+    assert isinstance(result, str)
+
+
+def test_decode_applies_safe_label_to_bytes_input() -> None:
+    """Bytes path runs the ANSI-strip + length cap, not just decode."""
+    assert _decode(b"\x1b[2J0.1.62", limit=32) == "[2J0.1.62"
+
+
+def test_decode_applies_safe_label_to_str_input() -> None:
+    """Str path also runs the sanitizer (peer-provided strs are equally hostile)."""
+    assert _decode("\x1b[2J0.1.62", limit=32) == "[2J0.1.62"
+
+
+def test_decode_default_limit_caps_long_value() -> None:
+    """Default cap of ``_MAX_NAME_LEN`` keeps unbounded TXT values bounded."""
+    assert len(_decode("a" * 200)) == _MAX_NAME_LEN
+
+
+def test_on_service_state_change_sanitizes_hostile_service_name(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    r"""A peer-controlled ``name`` with ANSI escapes can't clear the terminal.
+
+    The mDNS instance name is wholly peer-controlled (the bytes before
+    ``._esphomebuilder._tcp.local.``). Pre-fix, ``name.partition(".")[0]``
+    landed straight in ``print``; a hostile broadcaster could ship
+    ``"\x1b[2Jevil"`` and wipe the watcher's terminal on every browse
+    event. Post-fix, the ESC is stripped before printing.
+    """
+    fake_info = MagicMock()
+    fake_info.properties = {}
+    fake_info.ip_addresses_by_version.return_value = ["192.168.1.10"]
+    fake_info.port = 6052
+
+    with patch("esphome_device_builder.discover.AsyncServiceInfo", return_value=fake_info):
+        _on_service_state_change(
+            MagicMock(),
+            "_esphomebuilder._tcp.local.",
+            "\x1b[2Jevil._esphomebuilder._tcp.local.",
+            ServiceStateChange.Added,
+        )
+
+    captured = capsys.readouterr().out
+    assert "\x1b" not in captured
+    assert "[2Jevil" in captured
+
+
+def test_on_service_state_change_sanitizes_hostile_txt_values(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Hostile TXT values (ESC / newline / null) never reach stdout intact.
+
+    Demonstrates the same attack surface aioesphomeapi#1669 closed for
+    ``aioesphomeapi-discover``: a malicious neighbouring dashboard could
+    set ``server_version`` to an ESC-prefixed payload and reflow the
+    operator's terminal on every state-change event.
+    """
+    fake_info = MagicMock()
+    fake_info.properties = {
+        b"server_version": b"\x1b[2J0.1.62",
+        b"esphome_version": b"line1\r\nline2",
+        b"pin_sha256": b"a" * 64,
+        b"remote_build_port": b"6053",
+    }
+    fake_info.ip_addresses_by_version.return_value = ["192.168.1.10"]
+    fake_info.port = 6052
+
+    with patch("esphome_device_builder.discover.AsyncServiceInfo", return_value=fake_info):
+        _on_service_state_change(
+            MagicMock(),
+            "_esphomebuilder._tcp.local.",
+            "build-server._esphomebuilder._tcp.local.",
+            ServiceStateChange.Added,
+        )
+
+    captured = capsys.readouterr().out
+    # Neither the ANSI introducer nor CR / LF survives into stdout.
+    assert "\x1b" not in captured
+    assert "\r\n" not in captured.replace("\n", "", 1)  # only the final print newline
+    # The harmless tail of each value still lands on the row.
+    assert "[2J0.1.62" in captured
+    assert "line1line2" in captured
 
 
 @pytest.mark.parametrize(
