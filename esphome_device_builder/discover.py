@@ -23,7 +23,6 @@ import asyncio
 import contextlib
 import logging
 import sys
-
 from unicodedata import east_asian_width
 
 from zeroconf import IPVersion, ServiceStateChange, Zeroconf
@@ -146,9 +145,7 @@ def _safe_label(value: str, limit: int) -> str:
     but occupy two terminal cells each, so a peer could otherwise
     overflow ``_FORMAT``'s column width despite the *limit* cap.
     """
-    safe = (
-        ch for ch in value if ch.isprintable() and east_asian_width(ch) not in ("W", "F")
-    )
+    safe = (ch for ch in value if ch.isprintable() and east_asian_width(ch) not in ("W", "F"))
     return "".join(safe)[:limit]
 
 
