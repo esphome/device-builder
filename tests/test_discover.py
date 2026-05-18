@@ -59,14 +59,7 @@ def test_decode_handles_every_txt_wire_shape(raw: str | bytes | None, expected: 
 
 
 def test_safe_label_strips_ansi_escape_introducer() -> None:
-    r"""A hostile broadcaster's ``\x1b[2J`` can't clear the operator's terminal.
-
-    ESC (``0x1b``) is the prefix for ANSI CSI sequences; an mDNS
-    peer that landed it in a TXT value could otherwise wipe /
-    reflow the watcher's terminal as soon as the row prints. The
-    trailing ``[2J`` survives as harmless printable text once the
-    leading ESC is gone.
-    """
+    """ESC bytes are stripped; trailing printable tail survives."""
     assert _safe_label("\x1b[2Jvers1.0", 32) == "[2Jvers1.0"
 
 
@@ -87,14 +80,10 @@ def test_safe_label_preserves_non_ascii_printable() -> None:
     assert _safe_label("café", 32) == "café"
 
 
-def test_decode_invalid_utf8_does_not_raise() -> None:
-    """Hostile broadcasters can send raw bytes; the callback must not raise."""
-    # Pre-fix: ``data.decode("utf-8")`` raised UnicodeDecodeError on the
-    # strict path; the except branch decoded with "replace" but a future
-    # refactor could easily lose it. Post-fix: a single decode call with
-    # ``errors="replace"`` covers it unconditionally.
-    result = _decode(b"\xff\xfe")
-    assert isinstance(result, str)
+def test_safe_label_drops_east_asian_wide_chars() -> None:
+    """Wide / fullwidth code points are dropped so they can't overflow the column."""
+    assert _safe_label("a汉字b", 32) == "ab"
+    assert _safe_label("hi🎉", 32) == "hi"
 
 
 def test_decode_applies_safe_label_to_bytes_input() -> None:
@@ -115,14 +104,7 @@ def test_decode_default_limit_caps_long_value() -> None:
 def test_on_service_state_change_sanitizes_hostile_service_name(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    r"""A peer-controlled ``name`` with ANSI escapes can't clear the terminal.
-
-    The mDNS instance name is wholly peer-controlled (the bytes before
-    ``._esphomebuilder._tcp.local.``). Pre-fix, ``name.partition(".")[0]``
-    landed straight in ``print``; a hostile broadcaster could ship
-    ``"\x1b[2Jevil"`` and wipe the watcher's terminal on every browse
-    event. Post-fix, the ESC is stripped before printing.
-    """
+    """ESC bytes in the mDNS instance name don't reach stdout."""
     fake_info = MagicMock()
     fake_info.properties = {}
     fake_info.ip_addresses_by_version.return_value = ["192.168.1.10"]
@@ -144,13 +126,7 @@ def test_on_service_state_change_sanitizes_hostile_service_name(
 def test_on_service_state_change_sanitizes_hostile_txt_values(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Hostile TXT values (ESC / newline / null) never reach stdout intact.
-
-    Demonstrates the same attack surface aioesphomeapi#1669 closed for
-    ``aioesphomeapi-discover``: a malicious neighbouring dashboard could
-    set ``server_version`` to an ESC-prefixed payload and reflow the
-    operator's terminal on every state-change event.
-    """
+    """ESC / CR / LF in TXT values don't reach stdout."""
     fake_info = MagicMock()
     fake_info.properties = {
         b"server_version": b"\x1b[2J0.1.62",

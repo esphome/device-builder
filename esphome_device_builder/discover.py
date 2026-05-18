@@ -24,6 +24,8 @@ import contextlib
 import logging
 import sys
 
+from unicodedata import east_asian_width
+
 from zeroconf import IPVersion, ServiceStateChange, Zeroconf
 from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo, AsyncZeroconf
 
@@ -47,7 +49,8 @@ _UNKNOWN = "unknown"
 # a hostile broadcaster could inject ANSI escapes (clear/reflow the
 # operator's terminal) or break the column-aligned table with an oversized
 # string. Widths match the ``_FORMAT`` columns so a cap-clipped value still
-# fits cleanly. Mirrors the defence aioesphomeapi added in #1669.
+# fits cleanly — except ``_MAX_PIN_LEN``, which retains the full 64-hex pin
+# because ``_truncate_pin`` collapses it to 12 chars + ellipsis at print time.
 _MAX_NAME_LEN = 24
 _MAX_SERVER_LEN = 18
 _MAX_ESPHOME_LEN = 16
@@ -137,16 +140,16 @@ async def _run(args: argparse.Namespace) -> None:
 
 def _safe_label(value: str, limit: int) -> str:
     r"""
-    Strip non-printable chars and cap *value* at *limit* characters.
+    Strip non-printable + wide chars, cap *value* at *limit* code points.
 
-    Filters with :meth:`str.isprintable` so ANSI escape introducers
-    (``\x1b``), newlines, NUL, tabs, and other control bytes can't
-    reflow the operator's terminal, then trims to the column width
-    so a hostile broadcaster can't break ``_FORMAT``'s alignment.
-    Non-ASCII printable characters survive (a peer named ``café``
-    still renders).
+    East Asian Wide / Fullwidth characters pass :meth:`str.isprintable`
+    but occupy two terminal cells each, so a peer could otherwise
+    overflow ``_FORMAT``'s column width despite the *limit* cap.
     """
-    return "".join(ch for ch in value if ch.isprintable())[:limit]
+    safe = (
+        ch for ch in value if ch.isprintable() and east_asian_width(ch) not in ("W", "F")
+    )
+    return "".join(safe)[:limit]
 
 
 def _decode(data: str | bytes | None, limit: int = _MAX_NAME_LEN) -> str:
