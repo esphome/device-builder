@@ -214,9 +214,7 @@ class AutomationTree(DataClassORJSONMixin):
 
     ``trigger_id`` is ``None`` for top-level ``script:`` /
     ``interval:`` blocks — the block kind is implied by the
-    location. ESPHome's ``AUTOMATION_SCHEMA`` has no top-level
-    condition key; any conditional gating is expressed per-action
-    through ``if`` / ``wait_until`` / ``while``.
+    location.
     """
 
     trigger_id: str | None = None
