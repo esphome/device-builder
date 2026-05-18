@@ -138,16 +138,7 @@ def actions_for_domains(domains: Iterable[str]) -> list[AutomationAction]:
     ``<domain>.<platform>`` (or bare ``<domain>``) id matches a
     qualified key in *domains*. Mirrors :func:`triggers_for_domains`.
     """
-    domain_set = set(domains)
-    core: list[AutomationAction] = []
-    component: list[AutomationAction] = []
-    for action in all_actions():
-        if action.domain == "core":
-            core.append(action)
-            continue
-        if action.domain in domain_set:
-            component.append(action)
-    return core + component
+    return _filter_by_domain(all_actions(), set(domains))
 
 
 def conditions_for_domains(domains: Iterable[str]) -> list[AutomationCondition]:
@@ -160,15 +151,21 @@ def conditions_for_domains(domains: Iterable[str]) -> list[AutomationCondition]:
     ``<domain>.<platform>`` (or bare ``<domain>``) id matches a
     qualified key in *domains*.
     """
-    domain_set = set(domains)
-    core: list[AutomationCondition] = []
-    component: list[AutomationCondition] = []
-    for condition in all_conditions():
-        if condition.domain == "core":
-            core.append(condition)
-            continue
-        if condition.domain in domain_set:
-            component.append(condition)
+    return _filter_by_domain(all_conditions(), set(domains))
+
+
+def _filter_by_domain[T: (AutomationAction, AutomationCondition)](
+    items: list[T],
+    domain_set: set[str],
+) -> list[T]:
+    """Partition *items* into core-first then component, by ``.domain``."""
+    core: list[T] = []
+    component: list[T] = []
+    for item in items:
+        if item.domain == "core":
+            core.append(item)
+        elif item.domain in domain_set:
+            component.append(item)
     return core + component
 
 
