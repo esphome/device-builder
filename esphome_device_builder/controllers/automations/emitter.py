@@ -46,15 +46,13 @@ def render_interval_item(tree: AutomationTree) -> str:
     item = CommentedMap()
     for key, value in tree.trigger_params.items():
         item[key] = encode_value(value)
-    if tree.conditions:
-        item["condition"] = emit_condition_seq(tree.conditions)
     item["then"] = emit_action_seq(tree.actions)
     return dump([item])
 
 
 def render_trigger_handler(tree: AutomationTree, *, key: str) -> str:
     """
-    Render a ``<trigger_key>:`` mapping with then / condition / params.
+    Render a ``<trigger_key>:`` mapping with then + trigger params.
 
     Canonicalises to the explicit ``then:`` form on every write so
     round-trips stay deterministic (the parser accepts both
@@ -63,8 +61,6 @@ def render_trigger_handler(tree: AutomationTree, *, key: str) -> str:
     body = CommentedMap()
     for param_key, value in tree.trigger_params.items():
         body[param_key] = encode_value(value)
-    if tree.conditions:
-        body["condition"] = emit_condition_seq(tree.conditions)
     body["then"] = emit_action_seq(tree.actions)
     wrapper = CommentedMap()
     wrapper[key] = body

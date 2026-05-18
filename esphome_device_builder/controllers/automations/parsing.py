@@ -150,7 +150,6 @@ def _parse_top_level_scripts(root: Any) -> list[ParsedAutomation]:
         tree = AutomationTree(
             trigger_id=None,
             trigger_params=_collect_block_params(item, action_list_keys={"then"}),
-            conditions=[],
             actions=_decompose_action_list(item.get("then")),
         )
         out.append(
@@ -183,7 +182,6 @@ def _parse_top_level_intervals(root: Any) -> list[ParsedAutomation]:
         tree = AutomationTree(
             trigger_id=None,
             trigger_params=_collect_block_params(item, action_list_keys={"then"}),
-            conditions=[],
             actions=_decompose_action_list(item.get("then")),
         )
         out.append(
@@ -273,7 +271,6 @@ def _parse_light_effects(root: Any) -> list[ParsedAutomation]:
             tree = AutomationTree(
                 trigger_id=None,
                 trigger_params={effect_id: _render_params(params)} if params else {effect_id: {}},
-                conditions=[],
                 actions=[],
             )
             out.append(
@@ -298,14 +295,12 @@ def _decompose_trigger_body(body: Any, *, trigger_id: str) -> AutomationTree:
     bare action (``on_press: action: ...``), explicit ``then:``.
     """
     trigger_params: dict[str, Any] = {}
-    conditions: list[ConditionNode] = []
     actions: list[ActionNode] = []
 
     if body is None:
         return AutomationTree(
             trigger_id=trigger_id,
             trigger_params={},
-            conditions=[],
             actions=[],
         )
 
@@ -313,9 +308,6 @@ def _decompose_trigger_body(body: Any, *, trigger_id: str) -> AutomationTree:
         actions = _decompose_action_list(body)
     elif isinstance(body, dict):
         trigger_params = _collect_block_params(body, action_list_keys={"then"})
-        cond_value = body.get("condition")
-        if cond_value is not None:
-            conditions = _decompose_condition_list(cond_value)
         if "then" in body:
             actions = _decompose_action_list(body["then"])
         else:
@@ -324,11 +316,7 @@ def _decompose_trigger_body(body: Any, *, trigger_id: str) -> AutomationTree:
             # ``_collect_block_params`` naively absorbed both; pull
             # the action keys back out by catalog lookup and rebuild
             # ``trigger_params`` without them.
-            action_body = {
-                k: v
-                for k, v in body.items()
-                if k != "condition" and catalog.action_by_id(k) is not None
-            }
+            action_body = {k: v for k, v in body.items() if catalog.action_by_id(k) is not None}
             if action_body:
                 actions = _decompose_action_list([action_body])
                 trigger_params = {k: v for k, v in trigger_params.items() if k not in action_body}
@@ -336,7 +324,6 @@ def _decompose_trigger_body(body: Any, *, trigger_id: str) -> AutomationTree:
     return AutomationTree(
         trigger_id=trigger_id,
         trigger_params=trigger_params,
-        conditions=conditions,
         actions=actions,
     )
 
@@ -439,10 +426,10 @@ def _collect_block_params(
     *,
     action_list_keys: set[str],
 ) -> dict[str, Any]:
-    """Collect non-then / non-condition keys as plain ``params`` values."""
+    """Collect non-action-list keys as plain ``params`` values."""
     out: dict[str, Any] = {}
     for key, value in block.items():
-        if key in action_list_keys or key == "condition":
+        if key in action_list_keys:
             continue
         out[key] = _render_value(value)
     return out

@@ -29,8 +29,6 @@ from esphome_device_builder.controllers.automations.emitter import (
     emit_condition_seq,
     emit_effect_item,
     encode_value,
-    render_interval_item,
-    render_trigger_handler,
 )
 from esphome_device_builder.controllers.automations.parsing import (
     _decompose_action,
@@ -376,32 +374,6 @@ def test_dump_slice_round_trips_mapping() -> None:
 # ---------------------------------------------------------------------------
 # emitter.py
 # ---------------------------------------------------------------------------
-
-
-def test_render_interval_item_emits_condition_block() -> None:
-    """Interval with a condition gate emits ``condition:``."""
-    text = render_interval_item(
-        AutomationTree(
-            trigger_id=None,
-            trigger_params={"interval": "30s"},
-            conditions=[ConditionNode(condition_id="switch.is_on", params={"id": "r"})],
-            actions=[ActionNode(action_id="delay", params={"id": "1s"})],
-        ),
-    )
-    assert "condition:" in text
-
-
-def test_render_trigger_handler_emits_condition_block() -> None:
-    """Trigger handler with a condition gate emits ``condition:``."""
-    text = render_trigger_handler(
-        AutomationTree(
-            trigger_id="on_boot",
-            conditions=[ConditionNode(condition_id="switch.is_on", params={"id": "r"})],
-            actions=[ActionNode(action_id="delay", params={"id": "1s"})],
-        ),
-        key="on_boot",
-    )
-    assert "condition:" in text
 
 
 def test_emit_action_node_bare_action() -> None:
@@ -828,19 +800,6 @@ def test_instance_id_no_match_returns_none() -> None:
 def test_parse_top_level_list_root_returns_empty() -> None:
     """A YAML whose root is a list parses to an empty automations list."""
     assert parse_device_yaml("- one\n- two\n") == []
-
-
-def test_parse_trigger_body_with_condition_gate() -> None:
-    """``on_press: { condition: ..., then: ... }`` surfaces the condition gate."""
-    parsed = parse_device_yaml(
-        "binary_sensor:\n  - platform: gpio\n    id: btn\n    pin: GPIO0\n"
-        "    on_press:\n      condition:\n        switch.is_on: r\n"
-        "      then:\n        - switch.toggle: r\n",
-    )
-    assert len(parsed) == 1
-    tree = parsed[0].automation
-    assert [c.condition_id for c in tree.conditions] == ["switch.is_on"]
-    assert [a.action_id for a in tree.actions] == ["switch.toggle"]
 
 
 def test_parse_action_with_non_id_params() -> None:

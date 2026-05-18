@@ -340,7 +340,6 @@ async def test_upsert_device_on_boot_returns_yaml_diff(tmp_path: Path) -> None:
         automation={
             "trigger_id": "on_boot",
             "trigger_params": {},
-            "conditions": [],
             "actions": [
                 {
                     "action_id": "delay",
@@ -370,7 +369,6 @@ async def test_upsert_rejects_unknown_location_kind(tmp_path: Path) -> None:
             automation={
                 "trigger_id": "on_boot",
                 "trigger_params": {},
-                "conditions": [],
                 "actions": [],
             },
             location={"kind": "bogus", "id": "x"},
