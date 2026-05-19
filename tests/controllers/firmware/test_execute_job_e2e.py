@@ -777,3 +777,73 @@ async def test_compile_repeats_error_pattern_short_circuits_check(
 
     assert job.status == JobStatus.FAILED
     assert job.exit_code == 0
+
+
+@pytest.mark.asyncio
+async def test_compile_cr_progress_lines_collapsed_in_storage(
+    firmware_controller_factory: FirmwareControllerFactory, tmp_path: Path
+) -> None:
+    r"""``\r``-terminated progress chunks are collapsed at storage time.
+
+    ESP-IDF / ninja builds emit a few thousand "[N/total] Compiling
+    …\r" / "Linking …\r" updates that each overwrite the previous
+    on-screen line. Without storage-side collapse, ``job.output``
+    retains every chunk — the retained 2000-line tail fills with
+    overwritten progress lines so a real error close to the end of
+    the build falls outside the window during historical replay.
+
+    This test pins the collapse rule:
+
+    - Sequence of CR-terminated progress chunks for the same line
+      slot ends with only the *last* chunk stored.
+    - Live ``JOB_OUTPUT`` events still fire once per input chunk so
+      followers' progress indicators animate; only ``job.output``
+      (the historical-replay source) is collapsed.
+    - A regular ``\n``-terminated log line after a CR-terminated
+      chunk replaces it — matches the frontend's visual-line
+      semantics, where a non-``\n`` follow-up pops the progress
+      line.
+    """
+    controller = firmware_controller_factory(with_queue=True)
+    _wire_real_queue(controller)
+    # Emit three CR-terminated progress chunks, then a real log line.
+    # ``PYTHONUNBUFFERED=1`` is set in production by ``_execute_job``
+    # so each ``write`` lands as a separate read on our pipe. Use
+    # ``stdout.buffer.write`` so Windows text-mode translation
+    # doesn't turn the trailing ``\n`` into ``\r\n`` on us.
+    _fake_esphome(
+        controller,
+        "import sys\n"
+        "sys.stdout.buffer.write(b'[1/3] Compiling a.o\\r')\n"
+        "sys.stdout.buffer.flush()\n"
+        "sys.stdout.buffer.write(b'[2/3] Compiling b.o\\r')\n"
+        "sys.stdout.buffer.flush()\n"
+        "sys.stdout.buffer.write(b'[3/3] Compiling c.o\\r')\n"
+        "sys.stdout.buffer.flush()\n"
+        "sys.stdout.buffer.write(b'INFO Compile finished.\\n')\n"
+        "sys.stdout.buffer.flush()\n"
+        "sys.exit(0)\n",
+    )
+    _seed_yaml(tmp_path)
+
+    job = await controller.compile(configuration="kitchen.yaml")
+    captured = await _run_until_terminal(controller)
+
+    assert job.status == JobStatus.COMPLETED
+
+    # Live followers see every chunk — the wire protocol isn't
+    # affected by storage-side collapse.
+    live_lines = [d["line"] for d in captured["job_output"]]
+    assert "[1/3] Compiling a.o\r" in live_lines
+    assert "[2/3] Compiling b.o\r" in live_lines
+    assert "[3/3] Compiling c.o\r" in live_lines
+    assert "INFO Compile finished.\n" in live_lines
+
+    # ``job.output`` retains only the final state. The three CR
+    # chunks collapse into the last one, then the trailing
+    # ``\n``-terminated log line pops it (mirroring the frontend's
+    # "non-``\n`` follow-up replaces the CR line" rule).
+    assert "[1/3] Compiling a.o\r" not in job.output
+    assert "[2/3] Compiling b.o\r" not in job.output
+    assert "[3/3] Compiling c.o\r" not in job.output
+    assert job.output[-1] == "INFO Compile finished.\n"

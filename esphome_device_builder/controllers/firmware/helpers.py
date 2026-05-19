@@ -316,7 +316,7 @@ def _fire_job_progress(job: FirmwareJob, bus: EventBus, progress: int) -> None:
 
 
 def _ingest_output_line(job: FirmwareJob, bus: EventBus, line: str) -> None:
-    """
+    r"""
     Append *line* to ``job.output`` and fire local follower events.
 
     Shared bookkeeping for "one line of build output arrived" —
@@ -326,7 +326,11 @@ def _ingest_output_line(job: FirmwareJob, bus: EventBus, line: str) -> None:
 
     Steps:
 
-    1. Buffer the line on ``job.output``.
+    1. Buffer the line on ``job.output``. CR-terminated chunks
+       overwrite the previous entry instead of accumulating, so
+       a ninja-driven ESP-IDF build's ~1200 "[N/total] …\r"
+       updates don't fill the retention tail with overwritten
+       progress lines (#898).
     2. Trim down to ``_INFLIGHT_TRIM_KEEP`` if the in-flight
        cap is hit, so a chatty build doesn't grow ``output``
        without bound between terminal-event trims.
@@ -346,7 +350,15 @@ def _ingest_output_line(job: FirmwareJob, bus: EventBus, line: str) -> None:
     ``failed`` status from the receiver instead of having to
     scrape stderr).
     """
-    job.output.append(line)
+    # Collapse CR-overwritten progress lines at storage time: a
+    # CR-terminated last entry followed by a non-bare-``\n`` chunk
+    # gets replaced rather than retained. ``JOB_OUTPUT`` still fires
+    # per chunk (live followers unchanged); only ``job.output``
+    # (historical replay) is collapsed.
+    if job.output and job.output[-1].endswith("\r") and line != "\n":
+        job.output[-1] = line
+    else:
+        job.output.append(line)
     if len(job.output) > _MAX_OUTPUT_LINES_INFLIGHT:
         _trim_job_output(job, keep=_INFLIGHT_TRIM_KEEP)
     out_payload: JobOutputData = {"job_id": job.job_id, "line": line}
