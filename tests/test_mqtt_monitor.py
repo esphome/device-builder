@@ -21,6 +21,7 @@ import pytest
 from esphome_device_builder.controllers import _device_mqtt_monitor as monitor_module
 from esphome_device_builder.controllers._device_mqtt_coordinator import (
     DeviceMqttCoordinator,
+    _extract_broker_from_config,
     parse_mqtt_block,
 )
 from esphome_device_builder.controllers._device_mqtt_monitor import (
@@ -295,6 +296,131 @@ async def test_coordinator_resolves_secrets_from_secrets_yaml(
     assert coord.active_brokers == 1
     assert stub_monitor.instances[0].broker.host == "10.0.0.5"
     assert stub_monitor.instances[0].broker.password == "shh"
+
+
+async def test_coordinator_resolves_broker_pulled_in_via_packages(
+    tmp_path: Path,
+    stub_monitor: type[_RecordingMonitor],
+) -> None:
+    # Common real-world shape (issue #893): each device YAML defers
+    # the ``mqtt:`` block to a shared package, so the raw-text scan
+    # of the device file finds no top-level ``mqtt:``. The
+    # resolved-config fallback expands the package and the broker
+    # resolves normally.
+    (tmp_path / "common.yaml").write_text("mqtt:\n  broker: 192.168.1.203\n")
+    (tmp_path / "alpha.yaml").write_text(
+        "esphome:\n  name: alpha\npackages:\n  shared: !include common.yaml\n"
+    )
+    device = Device(
+        name="alpha",
+        friendly_name="alpha",
+        configuration="alpha.yaml",
+        uses_mqtt=True,
+    )
+    coord = _make_coordinator(tmp_path, [device])
+    await coord.reconcile()
+    assert coord.active_brokers == 1
+    assert stub_monitor.instances[0].broker.host == "192.168.1.203"
+
+
+async def test_coordinator_warns_once_per_unresolved_device(
+    tmp_path: Path,
+    stub_monitor: type[_RecordingMonitor],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Truly unresolvable mqtt: block — neither the raw-text parse
+    # nor the resolved-config fallback can find a broker (the
+    # device claims ``uses_mqtt`` but no ``mqtt:`` is actually
+    # present anywhere).
+    (tmp_path / "alpha.yaml").write_text("esphome:\n  name: alpha\n")
+    device = Device(
+        name="alpha",
+        friendly_name="alpha",
+        configuration="alpha.yaml",
+        uses_mqtt=True,
+    )
+    coord = _make_coordinator(tmp_path, [device])
+
+    target = "esphome_device_builder.controllers._device_mqtt_coordinator"
+    with caplog.at_level("DEBUG", logger=target):
+        await coord.reconcile()
+        await coord.reconcile()
+        await coord.reconcile()
+
+    warnings = [r for r in caplog.records if r.name == target and r.levelname == "WARNING"]
+    debugs = [
+        r
+        for r in caplog.records
+        if r.name == target
+        and r.levelname == "DEBUG"
+        and "still could not be resolved" in r.getMessage()
+    ]
+    assert len(warnings) == 1, [r.getMessage() for r in warnings]
+    assert len(debugs) >= 2
+
+
+async def test_coordinator_re_warns_after_broker_recovers_and_breaks_again(
+    tmp_path: Path,
+    stub_monitor: type[_RecordingMonitor],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # The dedupe must reset when the broker resolves successfully —
+    # a later regression should produce a fresh WARNING, not a
+    # silently-suppressed DEBUG.
+    alpha_path = tmp_path / "alpha.yaml"
+    alpha_path.write_text("esphome:\n  name: alpha\n")
+    device = Device(
+        name="alpha",
+        friendly_name="alpha",
+        configuration="alpha.yaml",
+        uses_mqtt=True,
+    )
+    coord = _make_coordinator(tmp_path, [device])
+
+    target = "esphome_device_builder.controllers._device_mqtt_coordinator"
+    with caplog.at_level("WARNING", logger=target):
+        await coord.reconcile()  # unresolved → WARNING #1
+        await coord.reconcile()  # unresolved → DEBUG (suppressed)
+        alpha_path.write_text("esphome:\n  name: alpha\nmqtt:\n  broker: broker.local\n")
+        await coord.reconcile()  # resolved → flag cleared
+        alpha_path.write_text("esphome:\n  name: alpha\n")
+        await coord.reconcile()  # unresolved again → WARNING #2
+
+    warnings = [
+        r
+        for r in caplog.records
+        if r.name == target
+        and r.levelname == "WARNING"
+        and "could not be resolved" in r.getMessage()
+    ]
+    assert len(warnings) == 2
+
+
+def test_extract_broker_from_config_returns_none_for_non_dict() -> None:
+    assert _extract_broker_from_config(None) is None
+    assert _extract_broker_from_config({"mqtt": "not-a-dict"}) is None
+    assert _extract_broker_from_config({}) is None
+
+
+def test_extract_broker_from_config_reads_resolved_block() -> None:
+    # Shape after ESPHome's loader has run — secrets/includes already
+    # expanded, every field is a plain scalar. Mirrors what the user
+    # in issue #893 sees as ``esphome config`` output.
+    config = {
+        "mqtt": {
+            "broker": "192.168.1.203",
+            "port": 1883,
+            "username": "mquser",
+            "password": "topsecret",
+        }
+    }
+    broker = _extract_broker_from_config(config)
+    assert broker == MqttBrokerConfig(
+        host="192.168.1.203",
+        port=1883,
+        username="mquser",
+        password="topsecret",
+    )
 
 
 # ---------------------------------------------------------------------------

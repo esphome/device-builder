@@ -17,6 +17,7 @@ from typing import Any
 
 import yaml
 
+from ..helpers.device_yaml import load_device_yaml
 from ..helpers.yaml import FastestSafeLoader
 from ..models import Device
 from ._device_mqtt_monitor import (
@@ -52,6 +53,18 @@ class DeviceMqttCoordinator:
         self._on_state_change = on_state_change
         self._on_ip_change = on_ip_change
         self._monitors: dict[tuple[str, int], DeviceMqttMonitor] = {}
+        # Cached broker per device, keyed on the YAML's mtime so the
+        # expensive ``load_device_yaml`` fallback (resolves
+        # ``packages:`` / ``!include``) only runs again when the file
+        # actually changes. Unchanged YAMLs return their cached
+        # broker on every poll.
+        self._broker_cache: dict[str, tuple[float, MqttBrokerConfig | None]] = {}
+        # Device filenames we've already logged a broker-unresolvable
+        # WARNING for. Subsequent polls drop to DEBUG so a single
+        # mis-configured device doesn't spam the log every 5 s.
+        # Cleared when the broker resolves or the device stops
+        # declaring ``mqtt:``.
+        self._unresolved_logged: set[str] = set()
 
     @property
     def active_brokers(self) -> int:
@@ -98,23 +111,17 @@ class DeviceMqttCoordinator:
     def _collect_brokers(self) -> list[MqttBrokerConfig]:
         secrets_map = _load_secrets(self._config_dir)
         seen: dict[tuple[str, int], MqttBrokerConfig] = {}
+        seen_devices: set[str] = set()
         for device in self._get_devices():
             if not device.uses_mqtt:
                 continue
+            seen_devices.add(device.configuration)
             yaml_path = self._config_dir / device.configuration
-            try:
-                yaml_content = yaml_path.read_text(encoding="utf-8")
-            except OSError:
-                _LOGGER.debug("Could not read %s for MQTT broker config", device.configuration)
-                continue
-            broker = parse_mqtt_block(yaml_content, secrets_map)
+            broker = self._resolve_broker(yaml_path, secrets_map)
             if broker is None:
-                _LOGGER.warning(
-                    "Device %s declares mqtt: but broker could not be resolved "
-                    "(missing secret or invalid config)",
-                    device.configuration,
-                )
+                self._log_broker_unresolved(device.configuration)
                 continue
+            self._unresolved_logged.discard(device.configuration)
             existing = seen.get(broker.key)
             if existing is None:
                 seen[broker.key] = broker
@@ -126,7 +133,59 @@ class DeviceMqttCoordinator:
                     broker.host,
                     broker.port,
                 )
+        # Forget per-device tracking for devices that no longer
+        # declare ``mqtt:`` so the next time they do, the WARNING
+        # surfaces again instead of being silently suppressed.
+        self._unresolved_logged &= seen_devices
+        self._broker_cache = {k: v for k, v in self._broker_cache.items() if k in seen_devices}
         return list(seen.values())
+
+    def _resolve_broker(
+        self, yaml_path: Path, secrets_map: dict[str, Any]
+    ) -> MqttBrokerConfig | None:
+        """Resolve the broker for *yaml_path*, falling back to a full YAML resolve.
+
+        Fast path: raw-text parse of the device YAML — covers the
+        common case where ``mqtt:`` is at the top level of the file
+        itself. Slow path: ``load_device_yaml`` expands
+        ``packages:`` / ``!include`` so configs that pull the mqtt
+        block in from a shared package still resolve. The slow path
+        is cached per (file, mtime) so a steady-state poll doesn't
+        re-resolve packages every 5 s.
+        """
+        try:
+            yaml_content = yaml_path.read_text(encoding="utf-8")
+        except OSError:
+            _LOGGER.debug("Could not read %s for MQTT broker config", yaml_path.name)
+            return None
+        broker = parse_mqtt_block(yaml_content, secrets_map)
+        if broker is not None:
+            return broker
+        try:
+            mtime = yaml_path.stat().st_mtime
+        except OSError:
+            return None
+        cached = self._broker_cache.get(yaml_path.name)
+        if cached is not None and cached[0] == mtime:
+            return cached[1]
+        resolved = load_device_yaml(yaml_path)
+        broker = _extract_broker_from_config(resolved)
+        self._broker_cache[yaml_path.name] = (mtime, broker)
+        return broker
+
+    def _log_broker_unresolved(self, configuration: str) -> None:
+        if configuration in self._unresolved_logged:
+            _LOGGER.debug(
+                "Device %s declares mqtt: but broker still could not be resolved",
+                configuration,
+            )
+            return
+        _LOGGER.warning(
+            "Device %s declares mqtt: but broker could not be resolved "
+            "(missing secret or invalid config)",
+            configuration,
+        )
+        self._unresolved_logged.add(configuration)
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +235,10 @@ def parse_mqtt_block(
     Returns ``None`` when the YAML has no ``mqtt:`` block, when the
     block has no resolvable ``broker:`` field, or when the YAML fails
     to parse. ``!secret xyz`` references are resolved via *secrets_map*.
+    Sees only the literal file contents — configs that bring the
+    ``mqtt:`` block in via ``packages:`` / ``!include`` won't match;
+    callers needing that resolution go through
+    :func:`load_device_yaml` and ``_extract_broker_from_config``.
     """
     secrets_map = secrets_map or {}
     try:
@@ -205,6 +268,39 @@ def parse_mqtt_block(
     password = _resolve(mqtt.get("password"), secrets_map) or None
 
     return MqttBrokerConfig(host=host, port=port, username=username, password=password)
+
+
+def _extract_broker_from_config(config: dict | None) -> MqttBrokerConfig | None:
+    """
+    Extract broker parameters from a fully-resolved ESPHome config.
+
+    Mirrors :func:`parse_mqtt_block` but operates on the dict
+    produced by :func:`load_device_yaml` — i.e. after ``!secret``,
+    ``!include`` and ``packages:`` have been resolved by ESPHome's
+    own loader. Returns ``None`` when *config* has no ``mqtt:`` key
+    or the block has no usable ``broker:``.
+    """
+    if not isinstance(config, dict):
+        return None
+    mqtt = config.get("mqtt")
+    if not isinstance(mqtt, dict):
+        return None
+    host = mqtt.get("broker")
+    if not host:
+        return None
+    port_raw = mqtt.get("port")
+    try:
+        port = int(port_raw) if port_raw else _DEFAULT_PORT
+    except (TypeError, ValueError):
+        port = _DEFAULT_PORT
+    username = mqtt.get("username") or None
+    password = mqtt.get("password") or None
+    return MqttBrokerConfig(
+        host=str(host),
+        port=port,
+        username=str(username) if username is not None else None,
+        password=str(password) if password is not None else None,
+    )
 
 
 def _load_secrets(config_dir: Path) -> dict[str, Any]:
