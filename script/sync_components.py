@@ -979,6 +979,10 @@ def build_catalog(
                 continue
             out.append(entry)
 
+    # Workaround for an upstream esphome-docs bug: see
+    # ``_repair_field_bullet_descriptions``.
+    _repair_field_bullet_descriptions(out)
+
     # Layer MDX-frontmatter descriptions onto components whose
     # schema-supplied description is empty. This patches the upstream
     # gap where the prebuilt schema's component index lists per-platform
@@ -1002,6 +1006,68 @@ def build_catalog(
         _inject_umbrella_entries(out)
 
     return out
+
+
+# Matches a description that is actually the first bullet of an MDX
+# ``### Configuration variables`` list — ``- **<key>** (*Optional*):`` or
+# the ``*Required*`` variant. Used by ``_repair_field_bullet_descriptions``.
+_FIELD_BULLET_PATTERN = re.compile(
+    r"^-?\s*\*\*[A-Za-z_][\w]*\*\*\s*\(\s*\*(?:Optional|Required)\*\s*\)\s*[:\-]",
+)
+
+
+def _repair_field_bullet_descriptions(entries: list[dict]) -> None:
+    """
+    Repair descriptions baked from a stray first bullet of an MDX list.
+
+    Workaround for an upstream bug in ``esphome-docs``'s
+    ``script/schema_doc.py``: when an MDX page documents a platform
+    component with ``## <Platform>`` -> ``### Configuration variables``
+    (no prose intro between the two headings -- ``debug.mdx`` is the
+    canonical example), the generator's ``md_get_paragraph`` skips the
+    headings but then accepts the first ``- **field** (*Optional*):``
+    bullet as the paragraph, baking that bullet into the platform
+    component's ``docs`` field. Affects ``sensor.debug`` /
+    ``text_sensor.debug`` at the time of writing.
+
+    For each affected ``<domain>.<stem>`` entry, swap the bullet for the
+    catalog's own bare-stem entry's description -- that's the umbrella
+    component the user is actually enabling when picking the entry from
+    the wizard, and its description is the rich prose intro from the
+    same MDX file. Entries with no bare-stem umbrella are left cleared
+    so the downstream MDX backfill gets a turn.
+
+    Remove this whole function (and the regex above) when the upstream
+    fix lands and the schema bundle stops emitting these descriptions.
+    Upstream: esphome/esphome-docs#TBD.
+    """
+    by_id: dict[str, dict] = {e["id"]: e for e in entries}
+    repaired = 0
+    cleared = 0
+    for entry in entries:
+        desc = (entry.get("description") or "").strip()
+        if not desc or not _FIELD_BULLET_PATTERN.match(desc):
+            continue
+        cid = entry["id"]
+        umbrella_desc = ""
+        if "." in cid:
+            stem = cid.split(".", 1)[1]
+            umbrella = by_id.get(stem)
+            if umbrella is not None:
+                umbrella_desc = (umbrella.get("description") or "").strip()
+        if umbrella_desc:
+            entry["description"] = umbrella_desc
+            repaired += 1
+        else:
+            entry["description"] = ""
+            cleared += 1
+    if repaired or cleared:
+        _LOGGER.info(
+            "Repaired %d field-bullet description(s) from umbrella, cleared %d "
+            "(upstream esphome-docs bug)",
+            repaired,
+            cleared,
+        )
 
 
 def _backfill_descriptions_from_mdx(entries: list[dict]) -> None:

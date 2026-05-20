@@ -25,6 +25,7 @@ Run locally:
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -182,6 +183,7 @@ def main() -> int:  # noqa: C901
 
     failures.extend(_check_option_lists(catalog))
     failures.extend(_check_component_gating(catalog))
+    failures.extend(_check_no_field_bullet_descriptions(catalog))
 
     if failures:
         print(f"FAIL: {len(failures)} catalog regression(s):")
@@ -264,6 +266,28 @@ def _check_option_lists(catalog: ComponentCatalog) -> list[str]:
             failures.append(
                 f"{cid}.{path}: options count {count} < expected minimum {minimum} "
                 "(inherited enum values may have been lost)"
+            )
+    return failures
+
+
+# Detects descriptions that are actually the first bullet of an MDX
+# ``### Configuration variables`` list — symptom of the upstream
+# esphome-docs schema_doc bug; see
+# ``_repair_field_bullet_descriptions`` in script/sync_components.py.
+_FIELD_BULLET_DESCRIPTION = re.compile(
+    r"^-?\s*\*\*[A-Za-z_][\w]*\*\*\s*\(\s*\*(?:Optional|Required)\*\s*\)\s*[:\-]",
+)
+
+
+def _check_no_field_bullet_descriptions(catalog: ComponentCatalog) -> list[str]:
+    """Fail when any component's description looks like a config-var bullet."""
+    failures: list[str] = []
+    for component in catalog._components:
+        desc = (component.description or "").strip()
+        if desc and _FIELD_BULLET_DESCRIPTION.match(desc):
+            failures.append(
+                f"{component.id}: description is a config-variables bullet "
+                f"({desc[:80]!r}) — sync workaround missed it"
             )
     return failures
 
