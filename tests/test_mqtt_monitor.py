@@ -15,6 +15,7 @@ import contextlib
 import json
 from pathlib import Path
 from typing import Any, ClassVar
+from unittest.mock import patch
 
 import pytest
 
@@ -403,6 +404,38 @@ def test_extract_broker_from_config_returns_none_for_non_dict() -> None:
     assert _extract_broker_from_config(None) is None
     assert _extract_broker_from_config({"mqtt": "not-a-dict"}) is None
     assert _extract_broker_from_config({}) is None
+
+
+async def test_coordinator_handles_stat_race_after_successful_read(
+    tmp_path: Path,
+    stub_monitor: type[_RecordingMonitor],
+) -> None:
+    # Narrow race: ``_collect_brokers`` reads the YAML successfully,
+    # the raw-text parse misses (mqtt block lives in a package), and
+    # the file is gone by the time ``_resolve_broker`` calls
+    # ``stat()``. Bail without crashing.
+    (tmp_path / "common.yaml").write_text("mqtt:\n  broker: 192.168.1.50\n")
+    yaml_path = tmp_path / "alpha.yaml"
+    yaml_path.write_text("esphome:\n  name: alpha\npackages:\n  shared: !include common.yaml\n")
+    device = Device(
+        name="alpha",
+        friendly_name="alpha",
+        configuration="alpha.yaml",
+        uses_mqtt=True,
+    )
+    coord = _make_coordinator(tmp_path, [device])
+
+    real_stat = Path.stat
+
+    def _stat(self: Path, *args: Any, **kwargs: Any) -> Any:
+        if self == yaml_path:
+            raise OSError("simulated stat race")
+        return real_stat(self, *args, **kwargs)
+
+    with patch.object(Path, "stat", _stat):
+        await coord.reconcile()
+
+    assert coord.active_brokers == 0
 
 
 async def test_coordinator_caches_resolved_broker_across_polls(
