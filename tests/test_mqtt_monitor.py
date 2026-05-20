@@ -306,11 +306,8 @@ async def test_coordinator_resolves_broker_pulled_in_via_packages(
     tmp_path: Path,
     stub_monitor: type[_RecordingMonitor],
 ) -> None:
-    # Common real-world shape (issue #893): each device YAML defers
-    # the ``mqtt:`` block to a shared package, so the raw-text scan
-    # of the device file finds no top-level ``mqtt:``. The
-    # resolved-config fallback expands the package and the broker
-    # resolves normally.
+    # Issue #893: mqtt block lives in a shared package, not the
+    # device file. Resolved-config fallback expands and resolves it.
     (tmp_path / "common.yaml").write_text("mqtt:\n  broker: 192.168.1.203\n")
     (tmp_path / "alpha.yaml").write_text(
         "esphome:\n  name: alpha\npackages:\n  shared: !include common.yaml\n"
@@ -332,10 +329,8 @@ async def test_coordinator_warns_once_per_unresolved_device(
     stub_monitor: type[_RecordingMonitor],
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    # Truly unresolvable mqtt: block — neither the raw-text parse
-    # nor the resolved-config fallback can find a broker (the
-    # device claims ``uses_mqtt`` but no ``mqtt:`` is actually
-    # present anywhere).
+    # uses_mqtt set but no mqtt: present anywhere — neither path
+    # can resolve a broker.
     (tmp_path / "alpha.yaml").write_text("esphome:\n  name: alpha\n")
     device = Device(
         name="alpha",
@@ -368,9 +363,8 @@ async def test_coordinator_re_warns_after_broker_recovers_and_breaks_again(
     stub_monitor: type[_RecordingMonitor],
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    # The dedupe must reset when the broker resolves successfully —
-    # a later regression should produce a fresh WARNING, not a
-    # silently-suppressed DEBUG.
+    # Dedupe must reset on a successful resolve so a later
+    # regression surfaces a fresh WARNING, not a DEBUG.
     alpha_path = tmp_path / "alpha.yaml"
     alpha_path.write_text("esphome:\n  name: alpha\n")
     device = Device(
@@ -410,10 +404,7 @@ async def test_coordinator_handles_stat_race_after_successful_read(
     tmp_path: Path,
     stub_monitor: type[_RecordingMonitor],
 ) -> None:
-    # Narrow race: ``_collect_brokers`` reads the YAML successfully,
-    # the raw-text parse misses (mqtt block lives in a package), and
-    # the file is gone by the time ``_resolve_broker`` calls
-    # ``stat()``. Bail without crashing.
+    # Race: read_text succeeds, file disappears before stat().
     (tmp_path / "common.yaml").write_text("mqtt:\n  broker: 192.168.1.50\n")
     yaml_path = tmp_path / "alpha.yaml"
     yaml_path.write_text("esphome:\n  name: alpha\npackages:\n  shared: !include common.yaml\n")
@@ -443,10 +434,9 @@ async def test_coordinator_caches_resolved_broker_across_polls(
     stub_monitor: type[_RecordingMonitor],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # The slow-path resolve (``load_device_yaml``) can ``git clone``
-    # remote packages and is way too expensive to run every 5 s.
-    # Once a broker resolves, subsequent polls must hit the cache
-    # until the YAML or secrets.yaml mtime changes.
+    # ``load_device_yaml`` can ``git clone`` remote packages —
+    # too expensive to run every 5 s. Once resolved, polls hit
+    # the cache until an mtime moves.
     (tmp_path / "common.yaml").write_text("mqtt:\n  broker: 192.168.1.50\n")
     (tmp_path / "alpha.yaml").write_text(
         "esphome:\n  name: alpha\npackages:\n  shared: !include common.yaml\n"
@@ -480,10 +470,8 @@ async def test_coordinator_recovers_when_negative_resolve_fixed_in_secrets(
     tmp_path: Path,
     stub_monitor: type[_RecordingMonitor],
 ) -> None:
-    # Device pulls its broker from secrets.yaml. Initial state: the
-    # secret is missing, so resolution fails. The coordinator must
-    # NOT cache the failure — the next poll, after the user fills
-    # in secrets.yaml, should pick up the broker without a restart.
+    # Failure must not be cached — fix to secrets.yaml has to
+    # recover on the next poll without a restart.
     (tmp_path / "alpha.yaml").write_text(
         "esphome:\n  name: alpha\nmqtt:\n  broker: !secret mqtt_host\n"
     )
@@ -509,11 +497,8 @@ async def test_coordinator_skips_devices_with_missing_yaml(
     stub_monitor: type[_RecordingMonitor],
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    # ``uses_mqtt`` reflects the resolved-config view captured at
-    # scan time; the file may have been deleted between scans. The
-    # reconcile shouldn't crash, shouldn't fire the broker-
-    # unresolvable WARNING (that message is reserved for YAMLs the
-    # user can actually fix), just skips the device silently.
+    # YAML deleted between scans — skip silently, don't fire
+    # the broker-unresolvable WARNING (reserved for fixable YAMLs).
     device = Device(
         name="ghost",
         friendly_name="ghost",
@@ -541,9 +526,7 @@ def test_extract_broker_from_config_returns_none_when_broker_missing() -> None:
 
 
 def test_extract_broker_from_config_reads_resolved_block() -> None:
-    # Shape after ESPHome's loader has run — secrets/includes already
-    # expanded, every field is a plain scalar. Mirrors what the user
-    # in issue #893 sees as ``esphome config`` output.
+    # Post-resolver shape — every field a plain scalar.
     config = {
         "mqtt": {
             "broker": "192.168.1.203",
