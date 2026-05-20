@@ -1034,13 +1034,18 @@ def _repair_field_bullet_descriptions(entries: list[dict]) -> None:
     catalog's own bare-stem entry's description -- that's the umbrella
     component the user is actually enabling when picking the entry from
     the wizard, and its description is the rich prose intro from the
-    same MDX file. Entries with no bare-stem umbrella are left cleared
-    so the downstream MDX backfill gets a turn.
+    same MDX file. Skipped when ``<domain>`` is one of the synthetic-
+    umbrella domains (``_UMBRELLA_ENTRIES`` -- currently ``ota``,
+    ``time``), because in those cases ``<stem>`` is a platform name
+    rather than a sub-component (``ota.esphome``'s stem ``esphome``
+    would resolve to the unrelated core ``esphome`` component).
+    Entries with no usable umbrella are left cleared so the downstream
+    MDX backfill gets a turn.
 
     Remove this whole function (and the regex above) when the upstream
     fix lands and the schema bundle stops emitting these descriptions.
-    Upstream: esphome/esphome-docs#TBD.
     """
+    umbrella_domains = {spec["id"] for spec in _UMBRELLA_ENTRIES}
     by_id: dict[str, dict] = {e["id"]: e for e in entries}
     repaired = 0
     cleared = 0
@@ -1051,10 +1056,11 @@ def _repair_field_bullet_descriptions(entries: list[dict]) -> None:
         cid = entry["id"]
         umbrella_desc = ""
         if "." in cid:
-            stem = cid.split(".", 1)[1]
-            umbrella = by_id.get(stem)
-            if umbrella is not None:
-                umbrella_desc = (umbrella.get("description") or "").strip()
+            domain, stem = cid.split(".", 1)
+            if domain not in umbrella_domains:
+                umbrella = by_id.get(stem)
+                if umbrella is not None:
+                    umbrella_desc = (umbrella.get("description") or "").strip()
         if umbrella_desc:
             entry["description"] = umbrella_desc
             repaired += 1

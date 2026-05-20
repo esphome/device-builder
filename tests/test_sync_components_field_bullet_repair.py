@@ -1,14 +1,4 @@
-"""Unit tests for ``_repair_field_bullet_descriptions`` in ``script/sync_components.py``.
-
-Workaround for an upstream esphome-docs bug that bakes the first MDX
-``### Configuration variables`` bullet into platform components'
-``docs`` field (e.g. ``sensor.debug``'s description landed as
-``- **free** (*Optional*): Reports the free heap size...``).
-
-These tests pin the workaround's contract against synthetic catalog
-fragments so a regression doesn't silently re-ship the bullet to the
-frontend.
-"""
+"""Contract tests for ``_repair_field_bullet_descriptions``."""
 
 from __future__ import annotations
 
@@ -107,3 +97,21 @@ def test_handles_bare_stem_components_with_bullet_description() -> None:
     ]
     _repair_field_bullet_descriptions(entries)
     assert entries[0]["description"] == ""
+
+
+def test_skips_stem_lookup_for_synthetic_umbrella_domains() -> None:
+    """Skip stem-based umbrella for ``ota``/``time`` domains -- stem can collide."""
+    entries = [
+        # The core ``esphome`` component is a real catalog entry with its
+        # own description, but it has no relationship to ``ota.esphome``.
+        # Substituting would land the core config description on an OTA
+        # platform entry.
+        {"id": "esphome", "description": "Core ESPHome configuration."},
+        {
+            "id": "ota.esphome",
+            "description": "- **password** (*Optional*): the OTA password.",
+        },
+    ]
+    _repair_field_bullet_descriptions(entries)
+    assert entries[0]["description"] == "Core ESPHome configuration."
+    assert entries[1]["description"] == ""
