@@ -26,6 +26,7 @@ from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models.api import ErrorCode
 from esphome_device_builder.models.automations import (
     ActionNode,
+    ApiActionLocation,
     AutomationTree,
     ComponentOnLocation,
     DeviceOnLocation,
@@ -242,6 +243,154 @@ def test_delete_light_effect_removes_one_list_item() -> None:
     # ``flicker`` is gone, ``pulse`` remains.
     assert "flicker" not in new_text
     assert "pulse" in new_text
+
+
+# ---------------------------------------------------------------------------
+# api.actions
+# ---------------------------------------------------------------------------
+
+
+def test_round_trip_api_action_preserves_action_name_and_variables() -> None:
+    """Parse → upsert with same tree → parse keeps the api-action stable."""
+    text = _load("api_action_with_variables.yaml")
+    parsed_first = parse_device_yaml(text)[0]
+    new_text, _diff = render_upsert(
+        text,
+        tree=parsed_first.automation,
+        location=parsed_first.location,
+    )
+    parsed_second = parse_device_yaml(new_text)
+    api_entries = [p for p in parsed_second if p.location.kind == "api_action"]
+    assert len(api_entries) == 1
+    assert api_entries[0].location.action_name == "notify_user"
+    assert api_entries[0].automation.trigger_params["variables"] == {
+        "message": "string",
+        "urgency": "int",
+    }
+
+
+def test_upsert_api_action_creates_block_when_absent() -> None:
+    """A YAML with no ``api:`` block gains one when an api-action lands."""
+    text = "esphome:\n  name: x\n"
+    new_text, diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="delay", params={"id": "1s"})],
+        ),
+        location=ApiActionLocation(action_name="my_action"),
+    )
+    assert "api:" in new_text
+    assert "actions:" in new_text
+    assert "- action: my_action" in new_text
+    assert "delay: 1s" in new_text
+    assert diff.replacement.strip() != ""
+
+
+def test_upsert_api_action_creates_actions_under_existing_api_block() -> None:
+    """An ``api:`` block without an ``actions:`` key gains the key + first item."""
+    text = "esphome:\n  name: x\napi:\n  encryption:\n    key: 'aaaa'\n"
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="delay", params={"id": "1s"})],
+        ),
+        location=ApiActionLocation(action_name="my_action"),
+    )
+    # The new actions key sits under the existing api block, and the
+    # encryption key it inherited is untouched.
+    assert "encryption:" in new_text
+    assert "key: 'aaaa'" in new_text
+    assert "actions:" in new_text
+    assert "- action: my_action" in new_text
+
+
+def test_upsert_api_action_appends_to_existing_list() -> None:
+    """Appending a new api-action leaves existing siblings byte-stable."""
+    text = _load("api_actions_multiple.yaml")
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="delay", params={"id": "5s"})],
+        ),
+        location=ApiActionLocation(action_name="pause_laundry"),
+    )
+    parsed = parse_device_yaml(new_text)
+    api_names = [p.location.action_name for p in parsed if p.location.kind == "api_action"]
+    assert api_names == ["start_laundry", "stop_laundry", "pause_laundry"]
+    # Sibling text is still present verbatim.
+    assert "Starting laundry cycle" in new_text
+    assert "Stopping laundry cycle" in new_text
+
+
+def test_upsert_api_action_replaces_matching_action_name() -> None:
+    """Upserting against an existing ``action_name`` replaces that item in place."""
+    text = _load("api_actions_multiple.yaml")
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="delay", params={"id": "1s"})],
+        ),
+        location=ApiActionLocation(action_name="stop_laundry"),
+    )
+    parsed = parse_device_yaml(new_text)
+    api_entries = [p for p in parsed if p.location.kind == "api_action"]
+    assert [e.location.action_name for e in api_entries] == ["start_laundry", "stop_laundry"]
+    # The replaced item carries the new ``delay`` action, not the
+    # original logger.log.
+    stop = next(e for e in api_entries if e.location.action_name == "stop_laundry")
+    assert [a.action_id for a in stop.automation.actions] == ["delay"]
+    # The unrelated sibling stayed intact.
+    assert "Starting laundry cycle" in new_text
+
+
+def test_delete_api_action_drops_only_matching_item() -> None:
+    """Deleting one api-action leaves the other survivors untouched."""
+    text = _load("api_actions_multiple.yaml")
+    new_text, diff = render_delete(
+        text,
+        location=ApiActionLocation(action_name="start_laundry"),
+    )
+    parsed = parse_device_yaml(new_text)
+    api_names = [p.location.action_name for p in parsed if p.location.kind == "api_action"]
+    assert api_names == ["stop_laundry"]
+    assert "Starting laundry cycle" not in new_text
+    assert "Stopping laundry cycle" in new_text
+    assert diff.replacement == ""
+
+
+def test_delete_last_api_action_drops_the_actions_key() -> None:
+    """Deleting the final api-action leaves no ``actions: []`` noise."""
+    text = _load("api_action_simple.yaml")
+    new_text, _diff = render_delete(
+        text,
+        location=ApiActionLocation(action_name="start_laundry"),
+    )
+    assert "actions:" not in new_text
+    assert "start_laundry" not in new_text
+    # The ``api:`` block itself is preserved — encryption / password
+    # siblings (if present) wouldn't be touched. We don't have one
+    # here, so it's just the bare ``api:`` header.
+    assert "api:" in new_text
+
+
+def test_delete_api_action_raises_not_found_when_block_absent() -> None:
+    """Deleting from a YAML with no ``api:`` block raises NOT_FOUND."""
+    text = "esphome:\n  name: x\n"
+    with pytest.raises(CommandError) as err:
+        render_delete(text, location=ApiActionLocation(action_name="absent"))
+    assert err.value.code == ErrorCode.NOT_FOUND
+
+
+def test_delete_api_action_raises_not_found_when_name_missing() -> None:
+    """Deleting an unknown ``action_name`` raises NOT_FOUND."""
+    text = _load("api_actions_multiple.yaml")
+    with pytest.raises(CommandError) as err:
+        render_delete(text, location=ApiActionLocation(action_name="never_added"))
+    assert err.value.code == ErrorCode.NOT_FOUND
 
 
 # ---------------------------------------------------------------------------

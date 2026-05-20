@@ -479,6 +479,73 @@ async def test_delete_device_on_returns_empty_replacement(tmp_path: Path) -> Non
     assert diff["toLine"] >= diff["fromLine"]
 
 
+async def test_upsert_api_action_returns_yaml_diff(tmp_path: Path) -> None:
+    """Upserting an api-action returns a splice that drops the new entry in."""
+    config = tmp_path / "u.yaml"
+    config.write_text(
+        "esphome:\n  name: u\napi:\n  actions:\n"
+        "    - action: existing\n      then:\n        - delay: 1s\n",
+        encoding="utf-8",
+    )
+    controller = _make_controller(tmp_path)
+    result = await controller.upsert(
+        configuration="u.yaml",
+        automation={
+            "trigger_id": None,
+            "trigger_params": {"variables": {"x": "int"}},
+            "actions": [
+                {
+                    "action_id": "logger.log",
+                    "params": {"id": "tick"},
+                    "children": {},
+                    "conditions": [],
+                },
+            ],
+        },
+        location={"kind": "api_action", "action_name": "new_action"},
+    )
+    diff = result["yaml_diff"]
+    assert diff["fromLine"] >= 1
+    assert "- action: new_action" in diff["replacement"]
+    assert "variables:" in diff["replacement"]
+
+
+async def test_delete_api_action_returns_empty_replacement(tmp_path: Path) -> None:
+    """Deleting an api-action returns an empty replacement over its line range."""
+    config = tmp_path / "d.yaml"
+    config.write_text(
+        "esphome:\n  name: d\napi:\n  actions:\n"
+        "    - action: gone\n      then:\n        - delay: 1s\n"
+        "    - action: keep\n      then:\n        - delay: 2s\n",
+        encoding="utf-8",
+    )
+    controller = _make_controller(tmp_path)
+    result = await controller.delete(
+        configuration="d.yaml",
+        location={"kind": "api_action", "action_name": "gone"},
+    )
+    diff = result["yaml_diff"]
+    assert diff["replacement"] == ""
+    assert diff["toLine"] >= diff["fromLine"]
+
+
+async def test_parse_surfaces_api_actions(tmp_path: Path) -> None:
+    """``automations/parse`` returns one ``api_action`` entry per item."""
+    config = tmp_path / "p.yaml"
+    config.write_text(
+        "esphome:\n  name: p\napi:\n  actions:\n"
+        "    - action: first\n      then:\n        - delay: 1s\n"
+        "    - action: second\n      variables:\n        name: string\n"
+        "      then:\n        - delay: 2s\n",
+        encoding="utf-8",
+    )
+    controller = _make_controller(tmp_path)
+    result = await controller.parse(configuration="p.yaml")
+    api_entries = [p for p in result if p["location"]["kind"] == "api_action"]
+    assert [e["location"]["action_name"] for e in api_entries] == ["first", "second"]
+    assert api_entries[1]["automation"]["trigger_params"]["variables"] == {"name": "string"}
+
+
 async def test_parse_raises_on_unknown_action_id(tmp_path: Path) -> None:
     """Unknown action ids surface as ``CommandError(INVALID_ARGS)``."""
     config = tmp_path / "x.yaml"

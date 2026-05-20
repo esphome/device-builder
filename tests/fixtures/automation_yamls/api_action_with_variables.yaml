@@ -1,0 +1,10 @@
+esphome:
+  name: x
+api:
+  actions:
+    - action: notify_user
+      variables:
+        message: string
+        urgency: int
+      then:
+        - logger.log: 'Notifying user'

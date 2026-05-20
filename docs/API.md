@@ -227,9 +227,10 @@ Parsing and writing live on the backend: the frontend exchanges structured `Auto
 {kind: "component_on",  component_id: string, trigger: string}
 {kind: "device_on",     trigger: string}
 {kind: "light_effect",  component_id: string, index: int}
+{kind: "api_action",    action_name: string}
 ```
 
-`upsert` / `delete` consume the same shape so the writer knows the exact YAML range to splice.
+`upsert` / `delete` consume the same shape so the writer knows the exact YAML range to splice. `api_action` covers user-defined actions under `api.actions:` — structurally a callable (named, typed `variables:`, `then:` action list, no trigger) so the editor reuses the script pipeline. The deprecated `service:` discriminator is accepted on read; the writer emits `action:`.
 
 | Command | Args | Response | Description |
 |---------|------|----------|-------------|
@@ -238,7 +239,7 @@ Parsing and writing live on the backend: the frontend exchanges structured `Auto
 | `automations/get_conditions` | `{platform?, board_id?}` | `[AutomationCondition]` | Full condition catalog (includes core combinators: `and`, `or`, `all`, `any`, `not`, `xor`, `for`, `lambda`). |
 | `automations/get_light_effects` | `{platform?, board_id?}` | `[LightEffect]` | Full light-effects catalog. |
 | `automations/get_available` | `{configuration}` | `{triggers, actions, conditions, scripts, devices}` | Scoped catalog for a single device. `triggers` / `actions` / `conditions` filtered to the components present in the YAML, matched by the catalog's canonical `<domain>.<platform>` form (e.g. an action with `domain == "switch.template"` only surfaces when a switch with `platform: template` is configured); `core` items (control flow, lambda, combinators) and device-level triggers are always included. `scripts` lists declared `script: id`s with their `parameters:` map. `devices` lists every configured component instance with its `id` / `name` for id-picker dropdowns. |
-| `automations/parse` | `{configuration}` | `[ParsedAutomation]` | Walk the device YAML and return every recognised automation (top-level `script:` / `interval:`, device-level `esphome.on_*`, inline component `on_*:`, light `effects:` entries). Unknown action / condition ids raise `INVALID_ARGS` rather than best-effort rebuilding. |
+| `automations/parse` | `{configuration}` | `[ParsedAutomation]` | Walk the device YAML and return every recognised automation (top-level `script:` / `interval:`, `api.actions:`, device-level `esphome.on_*`, inline component `on_*:`, light `effects:` entries). Unknown action / condition ids raise `INVALID_ARGS` rather than best-effort rebuilding. |
 | `automations/upsert` | `{configuration, automation, location}` | `{yaml_diff: YamlDiff}` | Insert or replace one automation at `location`. Returns the splice the frontend applies in place. |
 | `automations/delete` | `{configuration, location}` | `{yaml_diff: YamlDiff}` | Remove the automation at `location`. |
 

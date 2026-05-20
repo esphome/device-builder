@@ -1,0 +1,15 @@
+esphome:
+  name: x
+api:
+  actions:
+    - action: toggle_when_on
+      variables:
+        relay_id: string
+      then:
+        - if:
+            condition:
+              switch.is_on: relay1
+            then:
+              - switch.turn_off: relay1
+            else:
+              - switch.turn_on: relay1

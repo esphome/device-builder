@@ -28,6 +28,7 @@ from ...helpers.api import CommandError
 from ...models.api import ErrorCode
 from ...models.automations import (
     ActionNode,
+    ApiActionLocation,
     AutomationTree,
     ComponentOnLocation,
     ConditionNode,
@@ -80,6 +81,7 @@ def parse_device_yaml(yaml_text: str) -> list[ParsedAutomation]:
     out.extend(_parse_device_level(data))
     out.extend(_parse_top_level_scripts(data))
     out.extend(_parse_top_level_intervals(data))
+    out.extend(_parse_api_actions(data))
     out.extend(_parse_inline_component_triggers(data))
     out.extend(_parse_light_effects(data))
     return out
@@ -188,6 +190,50 @@ def _parse_top_level_intervals(root: Any) -> list[ParsedAutomation]:
             ParsedAutomation(
                 location=IntervalLocation(index=idx),
                 label=label,
+                automation=tree,
+                from_line=from_line,
+                to_line=to_line,
+                raw_yaml=_dump_slice([item]),
+            )
+        )
+    return out
+
+
+def _parse_api_actions(root: Any) -> list[ParsedAutomation]:
+    """
+    Parse ``api.actions:`` list items as callable automations.
+
+    Structurally a near-duplicate of ``script:`` — named callable
+    with typed ``variables:`` and a ``then:`` action list — so the
+    same :class:`AutomationTree` shape carries it. The deprecated
+    ``service:`` discriminator key is accepted as an alias for
+    ``action:`` on read; the writer emits ``action:``.
+    """
+    if not isinstance(root, dict):
+        return []
+    api_block = root.get("api")
+    if not isinstance(api_block, dict):
+        return []
+    actions = api_block.get("actions")
+    if not isinstance(actions, list):
+        return []
+    out: list[ParsedAutomation] = []
+    for idx, item in enumerate(actions):
+        if not isinstance(item, dict):
+            continue
+        action_name = item.get("action") or item.get("service")
+        if not action_name:
+            continue
+        from_line, to_line = _item_range(actions, idx)
+        tree = AutomationTree(
+            trigger_id=None,
+            trigger_params=_collect_api_action_params(item),
+            actions=_decompose_action_list(item.get("then")),
+        )
+        out.append(
+            ParsedAutomation(
+                location=ApiActionLocation(action_name=str(action_name)),
+                label=f"API: {action_name}",
                 automation=tree,
                 from_line=from_line,
                 to_line=to_line,
@@ -430,6 +476,16 @@ def _collect_block_params(
     out: dict[str, Any] = {}
     for key, value in block.items():
         if key in action_list_keys:
+            continue
+        out[key] = _render_value(value)
+    return out
+
+
+def _collect_api_action_params(block: dict) -> dict[str, Any]:
+    """Collect ``api.actions:`` item params, dropping the discriminator + ``then:``."""
+    out: dict[str, Any] = {}
+    for key, value in block.items():
+        if key in ("then", "action", "service"):
             continue
         out[key] = _render_value(value)
     return out

@@ -160,12 +160,21 @@ class LightEffectLocation(DataClassORJSONMixin):
     kind: Literal["light_effect"] = "light_effect"
 
 
+@dataclass
+class ApiActionLocation(DataClassORJSONMixin):
+    """A user-defined action inside the ``api.actions:`` list."""
+
+    action_name: str
+    kind: Literal["api_action"] = "api_action"
+
+
 AutomationLocation = Annotated[
     ScriptLocation
     | IntervalLocation
     | ComponentOnLocation
     | DeviceOnLocation
-    | LightEffectLocation,
+    | LightEffectLocation
+    | ApiActionLocation,
     Discriminator(field="kind", include_supertypes=True),
 ]
 

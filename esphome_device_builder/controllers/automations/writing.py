@@ -25,6 +25,7 @@ from ...helpers.yaml import (
 )
 from ...models.api import ErrorCode
 from ...models.automations import (
+    ApiActionLocation,
     AutomationLocation,
     AutomationTree,
     ComponentOnLocation,
@@ -34,10 +35,11 @@ from ...models.automations import (
     ScriptLocation,
     YamlDiff,
 )
-from . import catalog
+from . import api_actions, catalog
 from .emitter import (
     dump,
     emit_effect_item,
+    render_api_action_item,
     render_interval_item,
     render_script_item,
     render_trigger_handler,
@@ -72,6 +74,8 @@ def render_upsert(
         return _upsert_component_on(yaml_text, tree, location)
     if isinstance(location, LightEffectLocation):
         return _upsert_light_effect(yaml_text, tree, location)
+    if isinstance(location, ApiActionLocation):
+        return _upsert_api_action(yaml_text, tree, location)
     msg = f"Unsupported AutomationLocation: {type(location).__name__}"
     raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
@@ -88,6 +92,8 @@ def render_delete(
         return _delete_component_on(yaml_text, location)
     if isinstance(location, LightEffectLocation):
         return _delete_light_effect(yaml_text, location)
+    if isinstance(location, ApiActionLocation):
+        return _delete_api_action(yaml_text, location)
     msg = f"Unsupported AutomationLocation: {type(location).__name__}"
     raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
@@ -160,6 +166,36 @@ def _upsert_component_on(
         toLine=to_line,
         replacement=replacement,
     )
+
+
+def _upsert_api_action(
+    yaml_text: str,
+    tree: AutomationTree,
+    location: ApiActionLocation,
+) -> tuple[str, YamlDiff]:
+    """Splice or replace an ``api.actions:`` list item by ``action_name``."""
+    rendered = render_api_action_item(tree, location.action_name)
+    lines = yaml_text.splitlines(keepends=True)
+    api_span = _locate_singleton_block(lines, "api")
+    if api_span is None:
+        new_text, _block = api_actions.render_create_block(yaml_text, rendered)
+        return new_text, _build_diff_for_append(yaml_text, new_text)
+    actions_span = api_actions.locate_actions_list(lines, api_span)
+    if actions_span is None:
+        return api_actions.render_insert_actions_key(lines, api_span, rendered)
+    actions_start, actions_end, item_indent = actions_span
+    existing = api_actions.find_item(
+        lines,
+        actions_start,
+        actions_end,
+        item_indent,
+        location.action_name,
+    )
+    if existing is not None:
+        item_start, item_end = existing
+        rendered_text = api_actions.indent_for_list(rendered, item_indent)
+        return api_actions.render_replacement(lines, item_start, item_end, rendered_text)
+    return api_actions.render_append(lines, actions_end, item_indent, rendered)
 
 
 def _upsert_light_effect(
@@ -462,6 +498,46 @@ def _delete_component_on(
         raise CommandError(ErrorCode.NOT_FOUND, msg)
     new_text, from_line, to_line = res
     return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement="")
+
+
+def _delete_api_action(
+    yaml_text: str,
+    location: ApiActionLocation,
+) -> tuple[str, YamlDiff]:
+    """Drop a single ``api.actions:`` item; drop ``actions:`` when emptied."""
+    lines = yaml_text.splitlines(keepends=True)
+    api_span = _locate_singleton_block(lines, "api")
+    if api_span is None:
+        msg = "api: block not present; nothing to delete"
+        raise CommandError(ErrorCode.NOT_FOUND, msg)
+    actions_span = api_actions.locate_actions_list(lines, api_span)
+    if actions_span is None:
+        msg = "api.actions: not present; nothing to delete"
+        raise CommandError(ErrorCode.NOT_FOUND, msg)
+    actions_start, actions_end, item_indent = actions_span
+    existing = api_actions.find_item(
+        lines,
+        actions_start,
+        actions_end,
+        item_indent,
+        location.action_name,
+    )
+    if existing is None:
+        msg = f"api.actions[action={location.action_name!r}] not present"
+        raise CommandError(ErrorCode.NOT_FOUND, msg)
+    item_start, item_end = existing
+    siblings = api_actions.count_siblings(
+        lines,
+        actions_start,
+        actions_end,
+        item_indent,
+        existing,
+    )
+    if siblings > 0:
+        return api_actions.render_delete_item(lines, item_start, item_end)
+    # Last sibling — drop the entire ``actions:`` key as well so the
+    # file doesn't grow ``actions: []`` noise.
+    return api_actions.render_delete_actions_key(lines, actions_start, actions_end)
 
 
 def _delete_light_effect(

@@ -1,0 +1,7 @@
+esphome:
+  name: x
+api:
+  actions:
+    - action: start_laundry
+      then:
+        - logger.log: 'Starting laundry cycle'

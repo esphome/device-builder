@@ -18,6 +18,7 @@ from ruamel.yaml import YAMLError
 from ...helpers.api import CommandError, api_command
 from ...models.api import ErrorCode
 from ...models.automations import (
+    ApiActionLocation,
     AutomationLocation,
     AutomationTree,
     AvailableAutomations,
@@ -370,5 +371,7 @@ def _decode_location(raw: dict) -> AutomationLocation:
         return DeviceOnLocation.from_dict(raw)
     if kind == "light_effect":
         return LightEffectLocation.from_dict(raw)
+    if kind == "api_action":
+        return ApiActionLocation.from_dict(raw)
     msg = f"Unknown location kind: {kind!r}"
     raise CommandError(ErrorCode.INVALID_ARGS, msg)

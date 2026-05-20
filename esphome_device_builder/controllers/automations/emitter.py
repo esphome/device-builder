@@ -50,6 +50,18 @@ def render_interval_item(tree: AutomationTree) -> str:
     return dump([item])
 
 
+def render_api_action_item(tree: AutomationTree, action_name: str) -> str:
+    """Render a single ``- action: <name>`` api-actions list item."""
+    item = CommentedMap()
+    item["action"] = action_name
+    for key, value in tree.trigger_params.items():
+        if key in ("action", "service"):
+            continue
+        item[key] = encode_value(value)
+    item["then"] = emit_action_seq(tree.actions)
+    return dump([item])
+
+
 def render_trigger_handler(tree: AutomationTree, *, key: str) -> str:
     """
     Render a ``<trigger_key>:`` mapping with then + trigger params.
