@@ -638,14 +638,7 @@ def test_upsert_api_action_drops_action_key_smuggled_in_trigger_params() -> None
 
 
 def test_upsert_api_action_inserts_under_empty_api_with_section_banner_below() -> None:
-    """An empty ``api:`` block followed by a column-0 banner gets canonical indent.
-
-    The block locator used to absorb the next section's ``# Foo``
-    banner into the api span and read ``child_indent`` off it,
-    yielding ``""`` — the new ``actions:`` key then landed at
-    column 0 *below* the banner instead of column 2 directly under
-    ``api:``.
-    """
+    """An empty ``api:`` block followed by a column-0 banner gets canonical indent."""
     text = "esphome:\n  name: x\napi:\n\n# BLE proxy\nesp32_ble_tracker:\n  setup_priority: -500\n"
     new_text, _diff = render_upsert(
         text,
@@ -654,16 +647,34 @@ def test_upsert_api_action_inserts_under_empty_api_with_section_banner_below() -
     )
     assert "  actions:\n" in new_text
     assert "    - action: test\n" in new_text
-    # actions: lands directly under api:, above the section banner.
     api_idx = new_text.index("api:")
     actions_idx = new_text.index("  actions:")
     banner_idx = new_text.index("# BLE proxy")
     assert api_idx < actions_idx < banner_idx
-    # The banner still introduces esp32_ble_tracker:, not actions:.
     assert "# BLE proxy\nesp32_ble_tracker:" in new_text
     parsed = parse_device_yaml(new_text)
     api_entries = [p for p in parsed if p.location.kind == "api_action"]
     assert [e.location.action_name for e in api_entries] == ["test"]
+
+
+def test_upsert_api_action_appends_when_column_zero_comment_precedes_actions() -> None:
+    """A column-0 comment between ``api:`` and an indented ``actions:`` child is a no-op."""
+    text = (
+        "esphome:\n  name: x\n"
+        "api:\n"
+        "# note\n"
+        "  actions:\n"
+        "    - action: existing\n      then:\n        - delay: 1s\n"
+    )
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(trigger_id=None, actions=[]),
+        location=ApiActionLocation(action_name="new_one"),
+    )
+    assert new_text.count("actions:") == 1
+    parsed = parse_device_yaml(new_text)
+    api_entries = [p for p in parsed if p.location.kind == "api_action"]
+    assert [e.location.action_name for e in api_entries] == ["existing", "new_one"]
 
 
 def test_upsert_api_action_appends_when_actions_has_trailing_blank() -> None:
