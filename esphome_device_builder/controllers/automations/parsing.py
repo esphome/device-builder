@@ -4,10 +4,11 @@ YAML → :class:`ParsedAutomation` list.
 ruamel.yaml round-trip mode preserves the user's comments, key
 order, blank lines, and quoting so a "no-op" round-trip through
 parse → upsert leaves the document visually identical. The parser
-walks four shapes:
+walks five shapes:
 
 - Top-level ``script:`` and ``interval:`` list blocks.
 - ``esphome.on_boot`` / ``on_loop`` / ``on_shutdown``.
+- ``api.actions:`` user-defined callable list items.
 - Configured component instances with inline ``on_*:`` handlers.
 - Light ``effects:`` lists.
 

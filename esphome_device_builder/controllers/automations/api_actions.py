@@ -4,10 +4,12 @@
 The ``api:`` block hosts a list of named callables under ``actions:``
 — structurally near-identical to ``script:``, but nested two levels
 deep rather than at the top level. The lookup, item-locator, and
-re-indent helpers live here so :mod:`writing` stays under the
-800-line file-size cap; the dispatch surface (the two
-``render_*_api_action`` entry points) stays in :mod:`writing`
-alongside every other location type for grep-ability.
+re-indent helpers live here so :mod:`writing` stays close to the
+800-line file-size cap; the dispatch surface (the
+``_upsert_api_action`` / ``_delete_api_action`` branches of
+:func:`writing.render_upsert` / :func:`writing.render_delete`)
+stays in :mod:`writing` alongside every other location type for
+grep-ability.
 """
 
 from __future__ import annotations
