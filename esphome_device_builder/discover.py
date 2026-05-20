@@ -22,6 +22,7 @@ import argparse
 import asyncio
 import contextlib
 import logging
+import re
 import sys
 
 from zeroconf import IPVersion, ServiceStateChange, Zeroconf
@@ -40,6 +41,24 @@ _COLUMN_NAMES = (
     "Pin (sha256)",
 )
 _UNKNOWN = "unknown"
+
+# Per-column display caps for peer-supplied mDNS labels, derived from the
+# _FORMAT widths so a hostile broadcaster can't widen a column by stuffing a
+# long value; deriving from _FORMAT keeps the caps in lock-step if the table
+# layout is ever re-tuned.
+_COLUMN_WIDTHS = tuple(int(w) for w in re.findall(r"<\s*(\d+)", _FORMAT))
+assert len(_COLUMN_WIDTHS) == len(_COLUMN_NAMES), (
+    "_FORMAT width count must match _COLUMN_NAMES; update one and the other together"
+)
+_MAX_NAME_DISPLAY = _COLUMN_WIDTHS[_COLUMN_NAMES.index("Name")]
+_MAX_SERVER_DISPLAY = _COLUMN_WIDTHS[_COLUMN_NAMES.index("Server")]
+_MAX_ESPHOME_DISPLAY = _COLUMN_WIDTHS[_COLUMN_NAMES.index("ESPHome")]
+_MAX_PORT_DISPLAY = _COLUMN_WIDTHS[_COLUMN_NAMES.index("RB Port")]
+# Pin column is 16 chars wide but `_truncate_pin` collapses a full 64-hex pin
+# to 12 chars + ellipsis at print time, so the raw cap stays at 64 to keep
+# legitimate pins intact; an oversized hostile value is still bounded by the
+# subsequent truncation.
+_MAX_PIN_DISPLAY = 64
 
 
 def main() -> None:
@@ -122,16 +141,20 @@ async def _run(args: argparse.Namespace) -> None:
         await aiozc.async_close()
 
 
-def _decode(data: str | bytes | None) -> str:
-    """Decode a TXT-record value to ``str``, or return ``unknown``."""
+def _safe_label(raw: str, limit: int) -> str:
+    """Strip non-printables and length-cap a peer-supplied label for stdout."""
+    return "".join(filter(str.isprintable, raw))[:limit]
+
+
+def _decode_mdns_label_or_unknown(data: str | bytes | None, limit: int = _MAX_NAME_DISPLAY) -> str:
+    """Decode peer-supplied mDNS bytes, strip non-printables, length-cap."""
     if data is None:
         return _UNKNOWN
     if isinstance(data, bytes):
-        try:
-            return data.decode("utf-8")
-        except UnicodeDecodeError:
-            return data.decode("utf-8", errors="replace")
-    return data
+        # A device on the LAN can broadcast arbitrary bytes; use "replace" so
+        # a malformed UTF-8 payload doesn't raise out of the zeroconf callback.
+        data = data.decode("utf-8", "replace")
+    return _safe_label(data, limit)
 
 
 def _truncate_pin(pin: str) -> str:
@@ -172,7 +195,10 @@ def _on_service_state_change(
     :mod:`controllers._device_state_monitor` /
     :mod:`controllers.remote_build.controller`).
     """
-    short_name = name.partition(".")[0]
+    # The mDNS service name is peer-controlled; sanitize before printing so a
+    # hostile broadcaster can't inject ANSI escapes / newlines / null bytes
+    # into the terminal via the instance label.
+    short_name = _safe_label(name.partition(".")[0], _MAX_NAME_DISPLAY)
     state = "OFFLINE" if state_change is ServiceStateChange.Removed else "ONLINE"
     info = AsyncServiceInfo(service_type, name)
     # ``load_from_cache`` returns ``False`` when the browser
@@ -185,10 +211,16 @@ def _on_service_state_change(
     # resolve catches up.
     info.load_from_cache(zeroconf)
     properties = info.properties or {}
-    server_version = _decode(properties.get(b"server_version"))
-    esphome_version = _decode(properties.get(b"esphome_version"))
-    pin_sha256 = _decode(properties.get(b"pin_sha256"))
-    remote_build_port = _decode(properties.get(b"remote_build_port"))
+    server_version = _decode_mdns_label_or_unknown(
+        properties.get(b"server_version"), _MAX_SERVER_DISPLAY
+    )
+    esphome_version = _decode_mdns_label_or_unknown(
+        properties.get(b"esphome_version"), _MAX_ESPHOME_DISPLAY
+    )
+    pin_sha256 = _decode_mdns_label_or_unknown(properties.get(b"pin_sha256"), _MAX_PIN_DISPLAY)
+    remote_build_port = _decode_mdns_label_or_unknown(
+        properties.get(b"remote_build_port"), _MAX_PORT_DISPLAY
+    )
 
     address = ""
     if v4_addresses := info.ip_addresses_by_version(IPVersion.V4Only):
