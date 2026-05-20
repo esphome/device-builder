@@ -212,6 +212,35 @@ def test_parse_api_action_accepts_legacy_service_key() -> None:
     assert parsed[0].location.action_name == "legacy_name"
 
 
+def test_parse_api_block_without_actions_returns_empty() -> None:
+    """An ``api:`` block without an ``actions:`` key yields no api_action entries.
+
+    The api block carries unrelated configuration (encryption, password,
+    port, ...) that's not an automation surface.
+    """
+    yaml = "esphome:\n  name: x\napi:\n  encryption:\n    key: 'aaaa'\n"
+    parsed = parse_device_yaml(yaml)
+    assert [p for p in parsed if p.location.kind == "api_action"] == []
+
+
+def test_parse_api_actions_skips_malformed_items() -> None:
+    """Items missing the discriminator or with a non-dict shape are silently skipped.
+
+    Defensive against mid-edit YAMLs where the user has typed a
+    partial item — surfacing an error would block the parse for
+    every other valid entry.
+    """
+    yaml = (
+        "esphome:\n  name: x\n"
+        "api:\n  actions:\n"
+        "    - then:\n        - delay: 1s\n"  # no action: key
+        "    - action: good\n      then:\n        - delay: 2s\n"
+    )
+    parsed = parse_device_yaml(yaml)
+    api_entries = [p for p in parsed if p.location.kind == "api_action"]
+    assert [e.location.action_name for e in api_entries] == ["good"]
+
+
 # ---------------------------------------------------------------------------
 # Recursive / control-flow
 # ---------------------------------------------------------------------------

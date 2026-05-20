@@ -393,6 +393,36 @@ def test_delete_api_action_raises_not_found_when_name_missing() -> None:
     assert err.value.code == ErrorCode.NOT_FOUND
 
 
+def test_upsert_api_action_matches_when_discriminator_is_on_a_later_line() -> None:
+    """``action:`` doesn't have to be on the dash line — pick it up from a child line.
+
+    Round-trip from the dashboard always emits ``- action: <name>``
+    inline, but a hand-edited YAML may carry ``variables:`` or other
+    keys above ``action:``. The lookup must find the match either way.
+    """
+    text = (
+        "esphome:\n  name: x\n"
+        "api:\n  actions:\n"
+        "    - variables:\n        msg: string\n"
+        "      action: notify\n"
+        "      then:\n        - delay: 1s\n"
+    )
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="delay", params={"id": "5s"})],
+        ),
+        location=ApiActionLocation(action_name="notify"),
+    )
+    parsed = parse_device_yaml(new_text)
+    api_entries = [p for p in parsed if p.location.kind == "api_action"]
+    # The replace path took effect (one entry, replaced delay value)
+    # rather than an append leaving two ``notify`` siblings.
+    assert [e.location.action_name for e in api_entries] == ["notify"]
+    assert [a.action_id for a in api_entries[0].automation.actions] == ["delay"]
+
+
 # ---------------------------------------------------------------------------
 # Comment / blank-line preservation
 # ---------------------------------------------------------------------------
