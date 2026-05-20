@@ -282,8 +282,22 @@ def _format_yaml_value(value: Any) -> str:
     return str(value)
 
 
+# YAML 1.1 plain scalars can only re-parse as a non-string when the
+# first character is a digit, sign, or ``.`` (covers int / float /
+# hex / binary / ``.inf`` / ``.nan`` / dates / timestamps). Every
+# other plain leading character resolves to a string, so the cheap
+# membership test rules out the ``yaml.safe_load`` call for typical
+# values like ``"GPIO4"`` or ``"Bedroom Light"`` — without the
+# pre-filter the parser ran on every emitted string field and
+# regressed ``merge_component_yaml`` by ~600µs per emission
+# (CodSpeed flagged this on #908).
+_YAML_AMBIGUOUS_FIRST = frozenset("0123456789-+.")
+
+
 def _yaml_reparses_as_non_string(value: str) -> bool:
     """Return True when ``yaml.safe_load(value)`` is not a string."""
+    if not value or value[0] not in _YAML_AMBIGUOUS_FIRST:
+        return False
     try:
         parsed = yaml.safe_load(value)
     except yaml.YAMLError:
