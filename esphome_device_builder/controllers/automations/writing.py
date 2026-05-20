@@ -511,16 +511,16 @@ def _delete_light_effect(
                 toLine=to_line,
                 replacement=replacement,
             )
-        res = remove_inline_handler(
+        removed = remove_inline_handler(
             yaml_text,
             component_domain="light",
             component_id=location.component_id,
             handler_key="effects",
         )
-        if res is None:  # pragma: no cover — instance found above
+        if removed is None:  # pragma: no cover — instance found above
             msg = f"effects: not found on light id={location.component_id!r}"
             raise CommandError(ErrorCode.NOT_FOUND, msg)
-        new_text, from_line, to_line = res
+        new_text, from_line, to_line = removed
         return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement="")
     msg = f"Light id={location.component_id!r} not found"
     raise CommandError(ErrorCode.NOT_FOUND, msg)
