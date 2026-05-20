@@ -106,6 +106,7 @@ class DeviceMqttCoordinator:
 
     def _collect_brokers(self) -> list[MqttBrokerConfig]:
         secrets_map = _load_secrets(self._config_dir)
+        secrets_mtime = _safe_mtime(self._config_dir / "secrets.yaml")
         seen: dict[tuple[str, int], MqttBrokerConfig] = {}
         seen_devices: set[str] = set()
         for device in self._get_devices():
@@ -115,12 +116,15 @@ class DeviceMqttCoordinator:
             yaml_path = self._config_dir / device.configuration
             try:
                 yaml_content = yaml_path.read_text(encoding="utf-8")
+                yaml_mtime = yaml_path.stat().st_mtime
             except OSError:
                 # Skip silently — the WARNING is reserved for
                 # present-but-unresolvable YAMLs, not deleted ones.
                 _LOGGER.debug("Could not read %s for MQTT broker config", device.configuration)
                 continue
-            broker = self._resolve_broker(yaml_path, yaml_content, secrets_map)
+            broker = self._resolve_broker(
+                yaml_path, yaml_content, yaml_mtime, secrets_mtime, secrets_map
+            )
             if broker is None:
                 self._log_broker_unresolved(device.configuration)
                 continue
@@ -142,17 +146,18 @@ class DeviceMqttCoordinator:
         return list(seen.values())
 
     def _resolve_broker(
-        self, yaml_path: Path, yaml_content: str, secrets_map: dict[str, Any]
+        self,
+        yaml_path: Path,
+        yaml_content: str,
+        yaml_mtime: float,
+        secrets_mtime: float,
+        secrets_map: dict[str, Any],
     ) -> MqttBrokerConfig | None:
         """Return the broker for *yaml_path*, or None if unresolvable."""
         broker = parse_mqtt_block(yaml_content, secrets_map)
         if broker is not None:
             return broker
-        try:
-            yaml_mtime = yaml_path.stat().st_mtime
-        except OSError:
-            return None
-        cache_key = (yaml_mtime, _safe_mtime(self._config_dir / "secrets.yaml"))
+        cache_key = (yaml_mtime, secrets_mtime)
         cached = self._broker_cache.get(yaml_path.name)
         if cached is not None and cached[0] == cache_key:
             return cached[1]
@@ -244,19 +249,14 @@ def parse_mqtt_block(
     mqtt = data.get("mqtt")
     if not isinstance(mqtt, dict):
         return None
-
-    host = _resolve(mqtt.get("broker"), secrets_map)
-    if not host:
-        return None
-    port_raw = _resolve(mqtt.get("port"), secrets_map)
-    try:
-        port = int(port_raw) if port_raw else _DEFAULT_PORT
-    except (TypeError, ValueError):
-        port = _DEFAULT_PORT
-    username = _resolve(mqtt.get("username"), secrets_map) or None
-    password = _resolve(mqtt.get("password"), secrets_map) or None
-
-    return MqttBrokerConfig(host=host, port=port, username=username, password=password)
+    return _broker_from_block(
+        {
+            "broker": _resolve(mqtt.get("broker"), secrets_map),
+            "port": _resolve(mqtt.get("port"), secrets_map),
+            "username": _resolve(mqtt.get("username"), secrets_map),
+            "password": _resolve(mqtt.get("password"), secrets_map),
+        }
+    )
 
 
 def _extract_broker_from_config(config: dict | None) -> MqttBrokerConfig | None:
@@ -266,6 +266,11 @@ def _extract_broker_from_config(config: dict | None) -> MqttBrokerConfig | None:
     mqtt = config.get("mqtt")
     if not isinstance(mqtt, dict):
         return None
+    return _broker_from_block(mqtt)
+
+
+def _broker_from_block(mqtt: dict) -> MqttBrokerConfig | None:
+    """Build an :class:`MqttBrokerConfig` from a resolved ``mqtt:`` block."""
     host = mqtt.get("broker")
     if not host:
         return None

@@ -403,9 +403,10 @@ def test_extract_broker_from_config_returns_none_for_non_dict() -> None:
 async def test_coordinator_handles_stat_race_after_successful_read(
     tmp_path: Path,
     stub_monitor: type[_RecordingMonitor],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    # Race: read_text succeeds, file disappears before stat().
-    (tmp_path / "common.yaml").write_text("mqtt:\n  broker: 192.168.1.50\n")
+    # Race: read_text succeeds, file disappears before stat(). Skip
+    # silently — the WARNING is reserved for fixable configs.
     yaml_path = tmp_path / "alpha.yaml"
     yaml_path.write_text("esphome:\n  name: alpha\npackages:\n  shared: !include common.yaml\n")
     device = Device(
@@ -423,10 +424,13 @@ async def test_coordinator_handles_stat_race_after_successful_read(
             raise OSError("simulated stat race")
         return real_stat(self, *args, **kwargs)
 
-    with patch.object(Path, "stat", _stat):
+    target = "esphome_device_builder.controllers._device_mqtt_coordinator"
+    with patch.object(Path, "stat", _stat), caplog.at_level("DEBUG", logger=target):
         await coord.reconcile()
 
     assert coord.active_brokers == 0
+    warnings = [r for r in caplog.records if r.name == target and r.levelname == "WARNING"]
+    assert warnings == [], [r.getMessage() for r in warnings]
 
 
 async def test_coordinator_caches_resolved_broker_across_polls(
