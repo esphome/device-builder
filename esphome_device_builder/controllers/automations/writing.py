@@ -781,9 +781,17 @@ def _locate_singleton_block(
         stripped = lines[idx].rstrip("\n\r")
         if not stripped:
             continue
-        if stripped[0].isalpha() and not stripped.startswith(" "):
-            end = idx
-            break
+        if not stripped.startswith(" "):
+            # Alphabetic column-0 keys always terminate the block.
+            # Column-0 comments terminate it only while nothing
+            # indented has been seen yet — they're section banners
+            # introducing the next block, not mid-block notes — and
+            # otherwise we'd both poison ``indent`` with ``""`` and
+            # splice past them into the next section.
+            if stripped[0].isalpha() or not captured:
+                end = idx
+                break
+            continue
         if not captured:
             indent = " " * (len(stripped) - len(stripped.lstrip(" ")))
             captured = True
