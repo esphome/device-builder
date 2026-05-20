@@ -18,6 +18,9 @@ from typing import Any, ClassVar
 
 import pytest
 
+from esphome_device_builder.controllers import (
+    _device_mqtt_coordinator as coordinator_module,
+)
 from esphome_device_builder.controllers import _device_mqtt_monitor as monitor_module
 from esphome_device_builder.controllers._device_mqtt_coordinator import (
     DeviceMqttCoordinator,
@@ -400,6 +403,44 @@ def test_extract_broker_from_config_returns_none_for_non_dict() -> None:
     assert _extract_broker_from_config(None) is None
     assert _extract_broker_from_config({"mqtt": "not-a-dict"}) is None
     assert _extract_broker_from_config({}) is None
+
+
+async def test_coordinator_caches_resolved_broker_across_polls(
+    tmp_path: Path,
+    stub_monitor: type[_RecordingMonitor],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The slow-path resolve (``load_device_yaml``) can ``git clone``
+    # remote packages and is way too expensive to run every 5 s.
+    # Once a broker resolves, subsequent polls must hit the cache
+    # until the YAML or secrets.yaml mtime changes.
+    (tmp_path / "common.yaml").write_text("mqtt:\n  broker: 192.168.1.50\n")
+    (tmp_path / "alpha.yaml").write_text(
+        "esphome:\n  name: alpha\npackages:\n  shared: !include common.yaml\n"
+    )
+    device = Device(
+        name="alpha",
+        friendly_name="alpha",
+        configuration="alpha.yaml",
+        uses_mqtt=True,
+    )
+    coord = _make_coordinator(tmp_path, [device])
+
+    calls = 0
+    real_loader = coordinator_module.load_device_yaml
+
+    def counting_loader(path: Path) -> dict | None:
+        nonlocal calls
+        calls += 1
+        return real_loader(path)
+
+    monkeypatch.setattr(coordinator_module, "load_device_yaml", counting_loader)
+
+    await coord.reconcile()
+    await coord.reconcile()
+    await coord.reconcile()
+    assert calls == 1
+    assert coord.active_brokers == 1
 
 
 async def test_coordinator_recovers_when_negative_resolve_fixed_in_secrets(
