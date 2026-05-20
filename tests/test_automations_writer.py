@@ -385,12 +385,140 @@ def test_delete_api_action_raises_not_found_when_block_absent() -> None:
     assert err.value.code == ErrorCode.NOT_FOUND
 
 
+def test_delete_api_action_raises_not_found_when_actions_key_missing() -> None:
+    """An ``api:`` block without an ``actions:`` key is also NOT_FOUND."""
+    text = "esphome:\n  name: x\napi:\n  encryption:\n    key: 'aaaa'\n"
+    with pytest.raises(CommandError) as err:
+        render_delete(text, location=ApiActionLocation(action_name="absent"))
+    assert err.value.code == ErrorCode.NOT_FOUND
+
+
 def test_delete_api_action_raises_not_found_when_name_missing() -> None:
     """Deleting an unknown ``action_name`` raises NOT_FOUND."""
     text = _load("api_actions_multiple.yaml")
     with pytest.raises(CommandError) as err:
         render_delete(text, location=ApiActionLocation(action_name="never_added"))
     assert err.value.code == ErrorCode.NOT_FOUND
+
+
+def test_upsert_api_action_preserves_api_siblings_after_actions() -> None:
+    """An ``api:`` block with siblings (encryption, port, ...) keeps them intact.
+
+    Pins the actions-list locator's boundary scan — it has to stop
+    at ``encryption:`` (sibling at child indent) rather than
+    swallowing the rest of the api block. Without that the splice
+    point lands inside the wrong key.
+    """
+    text = (
+        "esphome:\n  name: x\n"
+        "api:\n"
+        "  actions:\n"
+        "    - action: existing\n      then:\n        - delay: 1s\n"
+        "\n"
+        "  encryption:\n    key: 'aaaa'\n"
+    )
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="delay", params={"id": "2s"})],
+        ),
+        location=ApiActionLocation(action_name="new_one"),
+    )
+    # Sibling encryption: survived.
+    assert "encryption:" in new_text
+    assert "key: 'aaaa'" in new_text
+    # Both api actions are present, encryption is still its own block.
+    parsed = parse_device_yaml(new_text)
+    api_entries = [p for p in parsed if p.location.kind == "api_action"]
+    assert [e.location.action_name for e in api_entries] == ["existing", "new_one"]
+
+
+def test_upsert_api_action_creates_block_when_yaml_has_no_trailing_newline() -> None:
+    """A YAML missing its trailing newline still gets a well-formed new api block."""
+    text = "esphome:\n  name: x"  # no trailing newline
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="delay", params={"id": "1s"})],
+        ),
+        location=ApiActionLocation(action_name="my_action"),
+    )
+    assert new_text.endswith("\n")
+    assert "- action: my_action" in new_text
+
+
+def test_upsert_api_action_inserts_actions_key_when_api_has_trailing_blanks() -> None:
+    """Trailing blank lines inside the ``api:`` block don't shift the insert point.
+
+    Pins the insert-point trim — the new ``actions:`` key has to land
+    above any trailing blank lines so subsequent top-level blocks
+    don't collide with it.
+    """
+    text = "esphome:\n  name: x\napi:\n  encryption:\n    key: 'aaaa'\n\n\nwifi:\n  ssid: x\n"
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="delay", params={"id": "1s"})],
+        ),
+        location=ApiActionLocation(action_name="my_action"),
+    )
+    # The api block's trailing structure should survive; the new
+    # actions key lands above the blank-line gap and wifi remains
+    # its own top-level block.
+    assert "wifi:" in new_text
+    assert "  actions:" in new_text
+    # Parser sees both the api action and otherwise valid YAML.
+    parsed = parse_device_yaml(new_text)
+    api_entries = [p for p in parsed if p.location.kind == "api_action"]
+    assert [e.location.action_name for e in api_entries] == ["my_action"]
+
+
+def test_upsert_api_action_drops_action_key_smuggled_in_trigger_params() -> None:
+    """An explicit ``action`` key on the tree's trigger_params is ignored.
+
+    The discriminator lives on the location, not the tree. A
+    hand-built tree may still carry ``action: <name>`` in
+    trigger_params (e.g. round-tripped from a pre-rename shape);
+    the emitter must not write two ``action:`` lines per item.
+    """
+    text = "esphome:\n  name: x\n"
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id=None,
+            trigger_params={"action": "ignored_name", "service": "also_ignored"},
+            actions=[ActionNode(action_id="delay", params={"id": "1s"})],
+        ),
+        location=ApiActionLocation(action_name="real_name"),
+    )
+    # Only the location-derived action_name is emitted.
+    assert "- action: real_name" in new_text
+    assert "ignored_name" not in new_text
+    assert "also_ignored" not in new_text
+
+
+def test_upsert_api_action_appends_when_actions_has_trailing_blank() -> None:
+    """A trailing blank line below the last item doesn't push the new item past it."""
+    text = (
+        "esphome:\n  name: x\n"
+        "api:\n  actions:\n"
+        "    - action: existing\n      then:\n        - delay: 1s\n"
+        "\n"
+    )
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="delay", params={"id": "2s"})],
+        ),
+        location=ApiActionLocation(action_name="new_one"),
+    )
+    parsed = parse_device_yaml(new_text)
+    api_entries = [p for p in parsed if p.location.kind == "api_action"]
+    assert [e.location.action_name for e in api_entries] == ["existing", "new_one"]
 
 
 def test_upsert_api_action_matches_when_discriminator_is_on_a_later_line() -> None:

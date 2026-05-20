@@ -241,6 +241,24 @@ def test_parse_api_actions_skips_malformed_items() -> None:
     assert [e.location.action_name for e in api_entries] == ["good"]
 
 
+def test_parse_api_actions_skips_non_dict_list_items() -> None:
+    """A bare scalar item in ``actions:`` is silently skipped, not raised.
+
+    A mid-edit YAML can carry a stray ``- foo`` while the user is
+    typing — losing every following valid item to a parse error
+    would be hostile.
+    """
+    yaml = (
+        "esphome:\n  name: x\n"
+        "api:\n  actions:\n"
+        "    - bogus_scalar\n"
+        "    - action: real\n      then:\n        - delay: 1s\n"
+    )
+    parsed = parse_device_yaml(yaml)
+    api_entries = [p for p in parsed if p.location.kind == "api_action"]
+    assert [e.location.action_name for e in api_entries] == ["real"]
+
+
 # ---------------------------------------------------------------------------
 # Recursive / control-flow
 # ---------------------------------------------------------------------------
