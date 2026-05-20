@@ -5,6 +5,9 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any
 
+import yaml
+
+from ...models import ConfigEntryType
 from .scalar import ESPHOME_YAML_INDENT
 
 if TYPE_CHECKING:
@@ -115,6 +118,7 @@ def generate_component_yaml(
       (no name) or can't be referenced from automations (no id).
     """
     fields = dict(fields)
+    _coerce_string_map_values(component, fields)
     category = component.category
     comp_id = component.id
 
@@ -173,6 +177,31 @@ def generate_component_yaml(
         lines.extend(_emit_field(key, value, indent))
 
     return "\n".join(lines)
+
+
+def _coerce_string_map_values(
+    component: ComponentCatalogEntry,
+    fields: dict[str, Any],
+) -> None:
+    """
+    Stringify dict values for MAP fields whose value template is STRING.
+
+    ``sdkconfig_options`` validates as ``Dict[str, str]`` on the
+    ESPHome side; a frontend that sends JSON number ``100`` for the
+    value would otherwise emit ``CONFIG_FOO: 100`` and trip
+    ``cv.string_strict`` (issue #901).
+    """
+    for entry in component.config_entries:
+        if entry.type != ConfigEntryType.MAP:
+            continue
+        if not entry.config_entries:
+            continue
+        if entry.config_entries[0].type != ConfigEntryType.STRING:
+            continue
+        value = fields.get(entry.key)
+        if not isinstance(value, dict):
+            continue
+        fields[entry.key] = {k: str(v) if not isinstance(v, str) else v for k, v in value.items()}
 
 
 def _append_block(existing: str, block: str) -> str:
@@ -242,8 +271,24 @@ def _format_yaml_value(value: Any) -> str:
             return f'"{value}"'
         if value.startswith("!") or ":" in value or "#" in value:
             return f'"{value}"'
+        # Quote strings YAML would re-parse as a non-string scalar
+        # (``"100"`` -> int, ``"3.14"`` -> float, ``"2024-01-01"`` ->
+        # date). Without this, ``sdkconfig_options`` entries whose
+        # value is a numeric-looking string get parsed back as int and
+        # ESPHome's ``cv.string_strict`` rejects them (issue #901).
+        if _yaml_reparses_as_non_string(value):
+            return f'"{value}"'
         return value
     return str(value)
+
+
+def _yaml_reparses_as_non_string(value: str) -> bool:
+    """Return True when ``yaml.safe_load(value)`` is not a string."""
+    try:
+        parsed = yaml.safe_load(value)
+    except yaml.YAMLError:
+        return False
+    return parsed is not None and not isinstance(parsed, str)
 
 
 def _format_flow_yaml_value(value: Any) -> str:

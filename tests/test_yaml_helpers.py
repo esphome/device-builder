@@ -44,6 +44,7 @@ from esphome_device_builder.helpers.yaml import (
     rewrite_yaml_scalar,
     upsert_yaml_leaf_under_top_block,
 )
+from esphome_device_builder.models.common import ConfigEntry, ConfigEntryType
 from esphome_device_builder.models.components import (
     ComponentCatalogEntry,
     ComponentCategory,
@@ -1067,6 +1068,20 @@ def test_generate_component_yaml_emits_numeric_value_via_str(value: int | float)
     assert f'"{value}"' not in out
 
 
+@pytest.mark.parametrize(
+    "value",
+    ["100", "-5", "+5", "3.14", "0xFF", "0b101", ".inf", ".nan", "2024-01-01"],
+    ids=["int", "neg-int", "pos-int", "float", "hex", "binary", "inf", "nan", "date"],
+)
+def test_generate_component_yaml_quotes_strings_that_reparse_as_non_string(
+    value: str,
+) -> None:
+    """Strings whose YAML re-parse isn't a string get quoted (issue #901)."""
+    component = _component(component_id="myc", category=ComponentCategory.MISC)
+    out = generate_component_yaml(component, {"v": value})
+    assert f'  v: "{value}"' in out
+
+
 # ---------------------------------------------------------------------------
 # generate_component_yaml — nested fields (_emit_field branches)
 # ---------------------------------------------------------------------------
@@ -1187,6 +1202,53 @@ def test_generate_component_yaml_quotes_flow_string_with_flow_indicator() -> Non
     component = _component(component_id="myc", category=ComponentCategory.MISC)
     out = generate_component_yaml(component, {"items": ["a,b", "c"]})
     assert '  items: ["a,b", c]' in out
+
+
+# ---------------------------------------------------------------------------
+# generate_component_yaml — MAP fields with string value templates
+# ---------------------------------------------------------------------------
+
+
+def _component_with_string_map(key: str) -> ComponentCatalogEntry:
+    """Component with one MAP entry whose value template is STRING."""
+    return ComponentCatalogEntry(
+        id="myc",
+        name="myc",
+        description="",
+        category=ComponentCategory.MISC,
+        config_entries=[
+            ConfigEntry(
+                key=key,
+                type=ConfigEntryType.MAP,
+                label="Map",
+                config_entries=[
+                    ConfigEntry(key="value", type=ConfigEntryType.STRING, label="Value"),
+                ],
+            ),
+        ],
+    )
+
+
+def test_generate_component_yaml_quotes_map_string_value_that_looks_numeric() -> None:
+    """A MAP string-typed value sent as ``"100"`` lands quoted (issue #901)."""
+    component = _component_with_string_map("sdkconfig_options")
+    out = generate_component_yaml(component, {"sdkconfig_options": {"CONFIG_FOO": "100"}})
+    assert '    CONFIG_FOO: "100"' in out
+
+
+def test_generate_component_yaml_coerces_map_numeric_value_to_quoted_string() -> None:
+    """A MAP string-typed value sent as JSON number ``100`` lands as ``"100"``."""
+    component = _component_with_string_map("sdkconfig_options")
+    out = generate_component_yaml(component, {"sdkconfig_options": {"CONFIG_FOO": 100}})
+    assert '    CONFIG_FOO: "100"' in out
+
+
+def test_generate_component_yaml_leaves_plain_map_string_value_unquoted() -> None:
+    """A MAP string value that round-trips as itself stays unquoted."""
+    component = _component_with_string_map("sdkconfig_options")
+    out = generate_component_yaml(component, {"sdkconfig_options": {"CONFIG_FOO": "y"}})
+    assert "    CONFIG_FOO: y" in out
+    assert '"y"' not in out
 
 
 # ---------------------------------------------------------------------------
