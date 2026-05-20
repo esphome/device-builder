@@ -134,15 +134,19 @@ def indent_for_list(rendered_item: str, item_indent: str) -> str:
     two (``  - key: value``) because ``offset=2`` indents each dash
     two columns inside its parent sequence. ``api.actions:`` items
     live two levels deeper than that, so add the *item_indent* - 2
-    delta to every non-empty line.
+    delta to every non-empty line. Blank lines inside ``|`` block
+    scalars (e.g. a multi-paragraph ``lambda:`` body) are left
+    untouched — padding them with spaces would change the scalar's
+    content, since YAML treats whitespace-only lines and fully
+    empty lines differently inside a literal block.
     """
-    # item_indent is always at least ``  `` (the canonical 4-space
-    # nesting under ``api.actions:``) in every reachable path, so
-    # *extra* is always positive — the ``dump([item])`` shape that
-    # rendered_item comes from is bounded too (no embedded blank
-    # lines, always trailing ``\n``).
     pad = " " * (len(item_indent) - 2)
-    out_lines = [pad + line for line in rendered_item.splitlines()]
+    out_lines: list[str] = []
+    for line in rendered_item.splitlines():
+        if not line:
+            out_lines.append("")
+            continue
+        out_lines.append(pad + line)
     if not out_lines or out_lines[-1] != "":
         out_lines.append("")
     return "\n".join(out_lines)

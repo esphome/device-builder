@@ -474,6 +474,40 @@ def test_upsert_api_action_skips_malformed_sibling_during_lookup() -> None:
     assert "delay: 9s" in new_text
 
 
+def test_upsert_api_action_preserves_blank_lines_in_lambda_block_scalar() -> None:
+    """A ``|``-style lambda body with an embedded blank line round-trips intact.
+
+    Padding the blank line with spaces would turn it into a
+    whitespace-only line — which YAML treats differently inside a
+    literal block scalar than a fully empty line, corrupting the
+    lambda's content. Pin that the writer keeps blank lines blank.
+    """
+    text = "esphome:\n  name: x\n"
+    body = 'ESP_LOGI("tag", "before");\n\nESP_LOGI("tag", "after");'
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[
+                ActionNode(action_id="lambda", params={"id": {"_lambda": body}}),
+            ],
+        ),
+        location=ApiActionLocation(action_name="logme"),
+    )
+    # The embedded blank line stays a fully-empty line (no leading
+    # whitespace).
+    assert "\n\n" in new_text
+    # Round-trip parses back to the same lambda body.
+    parsed = parse_device_yaml(new_text)
+    api_entries = [p for p in parsed if p.location.kind == "api_action"]
+    assert len(api_entries) == 1
+    params = api_entries[0].automation.actions[0].params
+    src = params["id"]["_lambda"] if "id" in params else params["_lambda"]
+    assert "before" in src
+    assert "after" in src
+    assert "\n\n" in src
+
+
 def test_upsert_api_action_tolerates_actions_key_with_trailing_comment() -> None:
     """``actions: # a note`` is still a block-style key; splice as normal."""
     text = (
