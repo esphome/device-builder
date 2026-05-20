@@ -1003,7 +1003,7 @@ def test_generate_component_yaml_emits_bool_false_lowercase() -> None:
     assert "  enabled: false" in out
 
 
-@pytest.mark.parametrize("keyword", ["true", "false", "null", "yes", "no", "on", "off"])
+@pytest.mark.parametrize("keyword", ["true", "false", "null", "yes", "no", "on", "off", "~", ""])
 def test_generate_component_yaml_quotes_yaml_keyword_strings(keyword: str) -> None:
     """Strings whose value is a YAML 1.1 boolean keyword get quoted.
 
@@ -1012,7 +1012,9 @@ def test_generate_component_yaml_quotes_yaml_keyword_strings(keyword: str) -> No
     these as enum values for several components (e.g. light states),
     so the helper has to disambiguate. ``null`` / ``yes`` / ``no``
     follow the same logic; pin every keyword in the helper's
-    allowlist so a regression that drops one shows up here.
+    allowlist so a regression that drops one shows up here. ``~`` and
+    the empty string round-trip as YAML null, same class of bug as
+    #901 for any field validating as a strict string.
     """
     component = _component(component_id="myc", category=ComponentCategory.MISC)
     out = generate_component_yaml(component, {"state": keyword})
