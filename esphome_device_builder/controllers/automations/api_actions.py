@@ -136,16 +136,13 @@ def indent_for_list(rendered_item: str, item_indent: str) -> str:
     live two levels deeper than that, so add the *item_indent* - 2
     delta to every non-empty line.
     """
-    extra = max(len(item_indent) - 2, 0)
-    if extra == 0:
-        return rendered_item if rendered_item.endswith("\n") else rendered_item + "\n"
-    pad = " " * extra
-    out_lines: list[str] = []
-    for line in rendered_item.splitlines():
-        if not line:
-            out_lines.append("")
-            continue
-        out_lines.append(pad + line)
+    # item_indent is always at least ``  `` (the canonical 4-space
+    # nesting under ``api.actions:``) in every reachable path, so
+    # *extra* is always positive — the ``dump([item])`` shape that
+    # rendered_item comes from is bounded too (no embedded blank
+    # lines, always trailing ``\n``).
+    pad = " " * (len(item_indent) - 2)
+    out_lines = [pad + line for line in rendered_item.splitlines()]
     if not out_lines or out_lines[-1] != "":
         out_lines.append("")
     return "\n".join(out_lines)
@@ -170,13 +167,12 @@ def render_create_block(yaml_text: str, rendered: str) -> tuple[str, str]:
     """Return ``(new_yaml, block_text)`` for a fresh ``api:`` block at EOF."""
     item_indent = "    "
     item_text = indent_for_list(rendered, item_indent)
+    # ``item_text`` always ends with ``\n``, so the block does too and
+    # the final concatenation lands a trailing newline on EOF.
     block = "api:\n  actions:\n" + item_text
     base = yaml_text.rstrip()
     separator = "\n\n" if base else ""
-    new_text = f"{base}{separator}{block}"
-    if not new_text.endswith("\n"):
-        new_text += "\n"
-    return new_text, block
+    return f"{base}{separator}{block}", block
 
 
 def render_insert_actions_key(

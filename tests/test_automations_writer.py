@@ -422,6 +422,58 @@ def test_delete_api_action_refuses_inline_actions_list() -> None:
     assert err.value.code == ErrorCode.INVALID_ARGS
 
 
+def test_upsert_api_action_appends_into_empty_actions_with_sibling_key() -> None:
+    """``actions:`` with no items but a sibling key below gains its first item.
+
+    Hits the ``item_indent`` fallback in ``locate_actions_list`` —
+    there's no existing dash to derive the indent from, so the
+    canonical child + 2 nesting is used.
+    """
+    text = "esphome:\n  name: x\napi:\n  actions:\n  encryption:\n    key: 'aaaa'\n"
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="delay", params={"id": "1s"})],
+        ),
+        location=ApiActionLocation(action_name="first"),
+    )
+    # The new item landed under actions:, encryption: stayed intact.
+    parsed = parse_device_yaml(new_text)
+    api_entries = [p for p in parsed if p.location.kind == "api_action"]
+    assert [e.location.action_name for e in api_entries] == ["first"]
+    assert "encryption:" in new_text
+    assert "key: 'aaaa'" in new_text
+
+
+def test_upsert_api_action_skips_malformed_sibling_during_lookup() -> None:
+    """A malformed sibling item (no ``action:`` key) doesn't derail the lookup.
+
+    Hits the ``_discriminator`` returns-None branch — ``find_item``
+    walks every list item, and items missing a discriminator are
+    silently skipped instead of crashing the upsert.
+    """
+    text = (
+        "esphome:\n  name: x\n"
+        "api:\n  actions:\n"
+        "    - variables:\n        foo: int\n"  # no action: key at all
+        "    - action: real\n      then:\n        - delay: 1s\n"
+    )
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="delay", params={"id": "9s"})],
+        ),
+        location=ApiActionLocation(action_name="real"),
+    )
+    # The ``real`` action was replaced (not appended as a duplicate).
+    parsed = parse_device_yaml(new_text)
+    api_entries = [p for p in parsed if p.location.kind == "api_action"]
+    assert [e.location.action_name for e in api_entries] == ["real"]
+    assert "delay: 9s" in new_text
+
+
 def test_upsert_api_action_tolerates_actions_key_with_trailing_comment() -> None:
     """``actions: # a note`` is still a block-style key; splice as normal."""
     text = (
