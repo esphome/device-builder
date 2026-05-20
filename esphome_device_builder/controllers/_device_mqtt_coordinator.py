@@ -53,15 +53,19 @@ class DeviceMqttCoordinator:
         self._on_state_change = on_state_change
         self._on_ip_change = on_ip_change
         self._monitors: dict[tuple[str, int], DeviceMqttMonitor] = {}
-        # Cached broker per device, keyed on the YAML's mtime and
-        # ``secrets.yaml``'s mtime so the expensive
-        # ``load_device_yaml`` fallback (resolves ``packages:`` /
-        # ``!include`` / ``!secret``) only runs again when something
-        # the resolve depends on actually changes. Only successful
-        # resolves are cached — ``None`` results are re-tried every
-        # poll so a user edit to a ``!include``d / package file
-        # (whose mtime we don't track) recovers without a process
-        # restart.
+        # Cached broker per device, keyed on the device YAML's mtime
+        # and ``secrets.yaml``'s mtime — covers the common shared-
+        # dependency case for ``!secret``-driven broker fields. Only
+        # successful resolves are cached; ``None`` results are
+        # re-tried every poll so a fix to a previously-broken
+        # ``!include`` / package file recovers without a process
+        # restart. Changes to a ``packages:`` / ``!include`` file
+        # that previously resolved successfully are NOT picked up
+        # until the device YAML or ``secrets.yaml`` mtime changes —
+        # walking every transitively-included file on every poll
+        # isn't worth the I/O for the rare live-package-edit case;
+        # the user can touch the device YAML or restart the
+        # dashboard if they need an immediate refresh.
         self._broker_cache: dict[str, tuple[tuple[float, float], MqttBrokerConfig]] = {}
         # Device filenames we've already logged a broker-unresolvable
         # WARNING for. Subsequent polls drop to DEBUG so a single
@@ -121,7 +125,17 @@ class DeviceMqttCoordinator:
                 continue
             seen_devices.add(device.configuration)
             yaml_path = self._config_dir / device.configuration
-            broker = self._resolve_broker(yaml_path, secrets_map)
+            try:
+                yaml_content = yaml_path.read_text(encoding="utf-8")
+            except OSError:
+                # File deleted between the scanner snapshot and this
+                # poll — not user-actionable, skip silently. The
+                # broker-unresolvable WARNING is reserved for YAMLs
+                # that DO exist but whose ``mqtt:`` block can't be
+                # made sense of.
+                _LOGGER.debug("Could not read %s for MQTT broker config", device.configuration)
+                continue
+            broker = self._resolve_broker(yaml_path, yaml_content, secrets_map)
             if broker is None:
                 self._log_broker_unresolved(device.configuration)
                 continue
@@ -145,11 +159,11 @@ class DeviceMqttCoordinator:
         return list(seen.values())
 
     def _resolve_broker(
-        self, yaml_path: Path, secrets_map: dict[str, Any]
+        self, yaml_path: Path, yaml_content: str, secrets_map: dict[str, Any]
     ) -> MqttBrokerConfig | None:
         """Resolve the broker for *yaml_path*, falling back to a full YAML resolve.
 
-        Fast path: raw-text parse of the device YAML — covers the
+        Fast path: raw-text parse of *yaml_content* — covers the
         common case where ``mqtt:`` is at the top level of the file
         itself. Slow path: ``load_device_yaml`` expands
         ``packages:`` / ``!include`` / ``!secret`` so configs that
@@ -160,11 +174,6 @@ class DeviceMqttCoordinator:
         positive results are cached so a fix to a transitively-
         included file recovers on the next poll without a restart.
         """
-        try:
-            yaml_content = yaml_path.read_text(encoding="utf-8")
-        except OSError:
-            _LOGGER.debug("Could not read %s for MQTT broker config", yaml_path.name)
-            return None
         broker = parse_mqtt_block(yaml_content, secrets_map)
         if broker is not None:
             return broker

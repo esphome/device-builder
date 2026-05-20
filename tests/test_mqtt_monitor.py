@@ -474,10 +474,13 @@ async def test_coordinator_recovers_when_negative_resolve_fixed_in_secrets(
 async def test_coordinator_skips_devices_with_missing_yaml(
     tmp_path: Path,
     stub_monitor: type[_RecordingMonitor],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     # ``uses_mqtt`` reflects the resolved-config view captured at
     # scan time; the file may have been deleted between scans. The
-    # reconcile shouldn't crash — it just skips the device.
+    # reconcile shouldn't crash, shouldn't fire the broker-
+    # unresolvable WARNING (that message is reserved for YAMLs the
+    # user can actually fix), just skips the device silently.
     device = Device(
         name="ghost",
         friendly_name="ghost",
@@ -485,8 +488,12 @@ async def test_coordinator_skips_devices_with_missing_yaml(
         uses_mqtt=True,
     )
     coord = _make_coordinator(tmp_path, [device])
-    await coord.reconcile()
+    target = "esphome_device_builder.controllers._device_mqtt_coordinator"
+    with caplog.at_level("DEBUG", logger=target):
+        await coord.reconcile()
     assert coord.active_brokers == 0
+    warnings = [r for r in caplog.records if r.name == target and r.levelname == "WARNING"]
+    assert warnings == [], [r.getMessage() for r in warnings]
 
 
 def test_extract_broker_from_config_handles_invalid_port() -> None:
