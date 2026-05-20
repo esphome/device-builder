@@ -180,6 +180,9 @@ def _upsert_api_action(
     if api_span is None:
         new_text, _block = api_actions.render_create_block(yaml_text, rendered)
         return new_text, _build_diff_for_append(yaml_text, new_text)
+    if api_actions.has_inline_actions_value(lines, api_span):
+        msg = "api.actions: is inline (e.g. `actions: []`); rewrite it as a block list first"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
     actions_span = api_actions.locate_actions_list(lines, api_span)
     if actions_span is None:
         return api_actions.render_insert_actions_key(lines, api_span, rendered)
@@ -510,6 +513,9 @@ def _delete_api_action(
     if api_span is None:
         msg = "api: block not present; nothing to delete"
         raise CommandError(ErrorCode.NOT_FOUND, msg)
+    if api_actions.has_inline_actions_value(lines, api_span):
+        msg = "api.actions: is inline (e.g. `actions: []`); rewrite it as a block list first"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
     actions_span = api_actions.locate_actions_list(lines, api_span)
     if actions_span is None:
         msg = "api.actions: not present; nothing to delete"

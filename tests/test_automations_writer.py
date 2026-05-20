@@ -393,6 +393,57 @@ def test_delete_api_action_raises_not_found_when_actions_key_missing() -> None:
     assert err.value.code == ErrorCode.NOT_FOUND
 
 
+def test_upsert_api_action_refuses_inline_actions_list() -> None:
+    """``actions: []`` (or any inline value) is rejected with INVALID_ARGS.
+
+    A line-based splice can't safely insert dash items below
+    ``actions: []`` without producing invalid YAML or doubling the
+    key. Surface a clear error so the user converts to a block list
+    explicitly.
+    """
+    text = "esphome:\n  name: x\napi:\n  actions: []\n"
+    with pytest.raises(CommandError) as err:
+        render_upsert(
+            text,
+            tree=AutomationTree(
+                trigger_id=None,
+                actions=[ActionNode(action_id="delay", params={"id": "1s"})],
+            ),
+            location=ApiActionLocation(action_name="new"),
+        )
+    assert err.value.code == ErrorCode.INVALID_ARGS
+
+
+def test_delete_api_action_refuses_inline_actions_list() -> None:
+    """Same INVALID_ARGS guard fires on the delete path."""
+    text = "esphome:\n  name: x\napi:\n  actions: null\n"
+    with pytest.raises(CommandError) as err:
+        render_delete(text, location=ApiActionLocation(action_name="anything"))
+    assert err.value.code == ErrorCode.INVALID_ARGS
+
+
+def test_upsert_api_action_tolerates_actions_key_with_trailing_comment() -> None:
+    """``actions: # a note`` is still a block-style key; splice as normal."""
+    text = (
+        "esphome:\n  name: x\n"
+        "api:\n  actions:  # the user added a note here\n"
+        "    - action: existing\n      then:\n        - delay: 1s\n"
+    )
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="delay", params={"id": "2s"})],
+        ),
+        location=ApiActionLocation(action_name="newer"),
+    )
+    parsed = parse_device_yaml(new_text)
+    api_entries = [p for p in parsed if p.location.kind == "api_action"]
+    assert [e.location.action_name for e in api_entries] == ["existing", "newer"]
+    # Comment survived intact.
+    assert "the user added a note here" in new_text
+
+
 def test_delete_api_action_raises_not_found_when_name_missing() -> None:
     """Deleting an unknown ``action_name`` raises NOT_FOUND."""
     text = _load("api_actions_multiple.yaml")

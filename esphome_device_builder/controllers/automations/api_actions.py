@@ -19,6 +19,30 @@ import re
 from ...models.automations import YamlDiff
 
 
+def has_inline_actions_value(
+    lines: list[str],
+    api_span: tuple[int, int, str],
+) -> bool:
+    """Return True iff ``actions:`` under *api_span* carries an inline value.
+
+    Flow-style values (``actions: []``, ``actions: null``,
+    ``actions: !secret foo``, …) can't be spliced into the way the
+    line-based writer wants. Callers should refuse the upsert /
+    delete and surface a clear error rather than emit a second
+    ``actions:`` key alongside the inline one.
+    """
+    api_start, api_end, child_indent = api_span
+    header = f"{child_indent}actions:"
+    for idx in range(api_start + 1, api_end):
+        text = lines[idx].rstrip("\n\r")
+        if text == header:
+            return False
+        if text.startswith(header + " "):
+            rest = text[len(header) :].strip()
+            return bool(rest) and not rest.startswith("#")
+    return False
+
+
 def locate_actions_list(
     lines: list[str],
     api_span: tuple[int, int, str],
