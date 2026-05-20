@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
-from ...models import ConfigEntryType
+from ...models.common import ConfigEntryType
 from .scalar import ESPHOME_YAML_INDENT
 
 if TYPE_CHECKING:
