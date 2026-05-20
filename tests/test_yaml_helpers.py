@@ -1251,6 +1251,82 @@ def test_generate_component_yaml_leaves_plain_map_string_value_unquoted() -> Non
     assert '"y"' not in out
 
 
+def test_generate_component_yaml_coerce_skips_non_map_entry() -> None:
+    """Non-MAP entries pass through the coerce step untouched."""
+    component = ComponentCatalogEntry(
+        id="myc",
+        name="myc",
+        description="",
+        category=ComponentCategory.MISC,
+        config_entries=[
+            ConfigEntry(key="label", type=ConfigEntryType.STRING, label="Label"),
+        ],
+    )
+    out = generate_component_yaml(component, {"label": "kitchen"})
+    assert "  label: kitchen" in out
+
+
+def test_generate_component_yaml_coerce_skips_map_without_value_template() -> None:
+    """A MAP entry without an inner ``config_entries[0]`` is left alone."""
+    component = ComponentCatalogEntry(
+        id="myc",
+        name="myc",
+        description="",
+        category=ComponentCategory.MISC,
+        config_entries=[
+            ConfigEntry(key="opts", type=ConfigEntryType.MAP, label="Opts"),
+        ],
+    )
+    out = generate_component_yaml(component, {"opts": {"k": 1}})
+    assert "    k: 1" in out
+
+
+def test_generate_component_yaml_coerce_skips_map_with_non_string_template() -> None:
+    """A MAP whose value template is INTEGER preserves the int value."""
+    component = ComponentCatalogEntry(
+        id="myc",
+        name="myc",
+        description="",
+        category=ComponentCategory.MISC,
+        config_entries=[
+            ConfigEntry(
+                key="opts",
+                type=ConfigEntryType.MAP,
+                label="Opts",
+                config_entries=[
+                    ConfigEntry(key="value", type=ConfigEntryType.INTEGER, label="Value"),
+                ],
+            ),
+        ],
+    )
+    out = generate_component_yaml(component, {"opts": {"k": 7}})
+    assert "    k: 7" in out
+    assert '"7"' not in out
+
+
+def test_generate_component_yaml_coerce_skips_map_value_that_isnt_a_dict() -> None:
+    """A MAP key whose value is not a dict (None / missing) is left alone."""
+    component = _component_with_string_map("sdkconfig_options")
+    # ``None`` would land here when the frontend submits the field
+    # with an empty payload; the coerce step must not blow up.
+    out = generate_component_yaml(component, {"sdkconfig_options": None})
+    assert "  sdkconfig_options: null" in out or "  sdkconfig_options: None" in out
+
+
+def test_generate_component_yaml_quotes_unparseable_string_starting_with_digit() -> None:
+    r"""A digit-led string yaml can't parse (``"0\t"``) falls through unquoted.
+
+    Exercises the ``yaml.YAMLError`` branch in
+    ``_yaml_reparses_as_non_string`` — the pre-filter lets the value
+    through, the parser raises, and the helper returns False so the
+    string emits without quotes.
+    """
+    component = _component(component_id="myc", category=ComponentCategory.MISC)
+    out = generate_component_yaml(component, {"v": "0\t"})
+    # The value rendered bare — no extra quotes from the reparse check.
+    assert '  v: "' not in out
+
+
 # ---------------------------------------------------------------------------
 # _splice_into_domain_block — defensive guards
 # ---------------------------------------------------------------------------
