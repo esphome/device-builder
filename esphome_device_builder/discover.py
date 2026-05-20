@@ -47,9 +47,12 @@ _UNKNOWN = "unknown"
 # long value; deriving from _FORMAT keeps the caps in lock-step if the table
 # layout is ever re-tuned.
 _COLUMN_WIDTHS = tuple(int(w) for w in re.findall(r"<\s*(\d+)", _FORMAT))
-assert len(_COLUMN_WIDTHS) == len(_COLUMN_NAMES), (
-    "_FORMAT width count must match _COLUMN_NAMES; update one and the other together"
-)
+if len(_COLUMN_WIDTHS) != len(_COLUMN_NAMES):
+    # Runtime check, not `assert`, so the invariant still holds under
+    # `python -O` (which strips assert statements).
+    raise RuntimeError(
+        "_FORMAT width count must match _COLUMN_NAMES; update one and the other together"
+    )
 _MAX_NAME_DISPLAY = _COLUMN_WIDTHS[_COLUMN_NAMES.index("Name")]
 _MAX_SERVER_DISPLAY = _COLUMN_WIDTHS[_COLUMN_NAMES.index("Server")]
 _MAX_ESPHOME_DISPLAY = _COLUMN_WIDTHS[_COLUMN_NAMES.index("ESPHome")]

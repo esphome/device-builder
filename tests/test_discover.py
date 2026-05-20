@@ -61,7 +61,7 @@ from esphome_device_builder.discover import (
     ],
 )
 def test_decode_handles_every_txt_wire_shape(raw: str | bytes | None, expected: str) -> None:
-    """``_decode_mdns_label_or_unknown`` round-trips bytes, leaves strings alone, marks missing."""
+    """``_decode_mdns_label_or_unknown`` decodes / sanitizes bytes + str, marks missing."""
     assert _decode_mdns_label_or_unknown(raw) == expected
 
 
