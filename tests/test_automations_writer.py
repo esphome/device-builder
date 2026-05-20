@@ -677,6 +677,35 @@ def test_upsert_api_action_appends_when_column_zero_comment_precedes_actions() -
     assert [e.location.action_name for e in api_entries] == ["existing", "new_one"]
 
 
+def test_upsert_api_action_handles_blank_then_section_banner_after_empty_api() -> None:
+    """A blank line between the empty ``api:`` block and a column-0 banner is skipped."""
+    text = "esphome:\n  name: x\napi:\n# banner\n\nwifi:\n  ssid: x\n"
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(trigger_id=None, actions=[]),
+        location=ApiActionLocation(action_name="test"),
+    )
+    assert "  actions:\n" in new_text
+    assert "    - action: test\n" in new_text
+    parsed = parse_device_yaml(new_text)
+    api_entries = [p for p in parsed if p.location.kind == "api_action"]
+    assert [e.location.action_name for e in api_entries] == ["test"]
+
+
+def test_upsert_api_action_handles_trailing_column_zero_comment_at_eof() -> None:
+    """A column-0 comment as the last non-blank line stays inside the ``api:`` span."""
+    text = "esphome:\n  name: x\napi:\n# trailing\n"
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(trigger_id=None, actions=[]),
+        location=ApiActionLocation(action_name="test"),
+    )
+    assert "  actions:\n" in new_text
+    parsed = parse_device_yaml(new_text)
+    api_entries = [p for p in parsed if p.location.kind == "api_action"]
+    assert [e.location.action_name for e in api_entries] == ["test"]
+
+
 def test_upsert_api_action_appends_when_actions_has_trailing_blank() -> None:
     """A trailing blank line below the last item doesn't push the new item past it."""
     text = (
