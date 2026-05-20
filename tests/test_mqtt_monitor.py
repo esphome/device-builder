@@ -402,6 +402,63 @@ def test_extract_broker_from_config_returns_none_for_non_dict() -> None:
     assert _extract_broker_from_config({}) is None
 
 
+async def test_coordinator_recovers_when_negative_resolve_fixed_in_secrets(
+    tmp_path: Path,
+    stub_monitor: type[_RecordingMonitor],
+) -> None:
+    # Device pulls its broker from secrets.yaml. Initial state: the
+    # secret is missing, so resolution fails. The coordinator must
+    # NOT cache the failure — the next poll, after the user fills
+    # in secrets.yaml, should pick up the broker without a restart.
+    (tmp_path / "alpha.yaml").write_text(
+        "esphome:\n  name: alpha\nmqtt:\n  broker: !secret mqtt_host\n"
+    )
+    device = Device(
+        name="alpha",
+        friendly_name="alpha",
+        configuration="alpha.yaml",
+        uses_mqtt=True,
+    )
+    coord = _make_coordinator(tmp_path, [device])
+
+    await coord.reconcile()
+    assert coord.active_brokers == 0
+
+    (tmp_path / "secrets.yaml").write_text("mqtt_host: 192.168.1.42\n")
+    await coord.reconcile()
+    assert coord.active_brokers == 1
+    assert stub_monitor.instances[0].broker.host == "192.168.1.42"
+
+
+async def test_coordinator_skips_devices_with_missing_yaml(
+    tmp_path: Path,
+    stub_monitor: type[_RecordingMonitor],
+) -> None:
+    # ``uses_mqtt`` reflects the resolved-config view captured at
+    # scan time; the file may have been deleted between scans. The
+    # reconcile shouldn't crash — it just skips the device.
+    device = Device(
+        name="ghost",
+        friendly_name="ghost",
+        configuration="ghost.yaml",
+        uses_mqtt=True,
+    )
+    coord = _make_coordinator(tmp_path, [device])
+    await coord.reconcile()
+    assert coord.active_brokers == 0
+
+
+def test_extract_broker_from_config_handles_invalid_port() -> None:
+    config = {"mqtt": {"broker": "broker.local", "port": "not-a-number"}}
+    broker = _extract_broker_from_config(config)
+    assert broker is not None
+    assert broker.port == 1883
+
+
+def test_extract_broker_from_config_returns_none_when_broker_missing() -> None:
+    assert _extract_broker_from_config({"mqtt": {"username": "u"}}) is None
+
+
 def test_extract_broker_from_config_reads_resolved_block() -> None:
     # Shape after ESPHome's loader has run — secrets/includes already
     # expanded, every field is a plain scalar. Mirrors what the user

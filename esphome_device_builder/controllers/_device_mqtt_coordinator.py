@@ -53,12 +53,16 @@ class DeviceMqttCoordinator:
         self._on_state_change = on_state_change
         self._on_ip_change = on_ip_change
         self._monitors: dict[tuple[str, int], DeviceMqttMonitor] = {}
-        # Cached broker per device, keyed on the YAML's mtime so the
-        # expensive ``load_device_yaml`` fallback (resolves
-        # ``packages:`` / ``!include``) only runs again when the file
-        # actually changes. Unchanged YAMLs return their cached
-        # broker on every poll.
-        self._broker_cache: dict[str, tuple[float, MqttBrokerConfig | None]] = {}
+        # Cached broker per device, keyed on the YAML's mtime and
+        # ``secrets.yaml``'s mtime so the expensive
+        # ``load_device_yaml`` fallback (resolves ``packages:`` /
+        # ``!include`` / ``!secret``) only runs again when something
+        # the resolve depends on actually changes. Only successful
+        # resolves are cached — ``None`` results are re-tried every
+        # poll so a user edit to a ``!include``d / package file
+        # (whose mtime we don't track) recovers without a process
+        # restart.
+        self._broker_cache: dict[str, tuple[tuple[float, float], MqttBrokerConfig]] = {}
         # Device filenames we've already logged a broker-unresolvable
         # WARNING for. Subsequent polls drop to DEBUG so a single
         # mis-configured device doesn't spam the log every 5 s.
@@ -148,10 +152,13 @@ class DeviceMqttCoordinator:
         Fast path: raw-text parse of the device YAML — covers the
         common case where ``mqtt:`` is at the top level of the file
         itself. Slow path: ``load_device_yaml`` expands
-        ``packages:`` / ``!include`` so configs that pull the mqtt
-        block in from a shared package still resolve. The slow path
-        is cached per (file, mtime) so a steady-state poll doesn't
-        re-resolve packages every 5 s.
+        ``packages:`` / ``!include`` / ``!secret`` so configs that
+        pull the mqtt block in from a shared package or read the
+        broker from ``secrets.yaml`` still resolve. The slow path is
+        cached per ``(yaml_mtime, secrets_mtime)`` so a steady-state
+        poll doesn't re-resolve packages every 5 s, and only
+        positive results are cached so a fix to a transitively-
+        included file recovers on the next poll without a restart.
         """
         try:
             yaml_content = yaml_path.read_text(encoding="utf-8")
@@ -162,15 +169,19 @@ class DeviceMqttCoordinator:
         if broker is not None:
             return broker
         try:
-            mtime = yaml_path.stat().st_mtime
+            yaml_mtime = yaml_path.stat().st_mtime
         except OSError:
             return None
+        cache_key = (yaml_mtime, _safe_mtime(self._config_dir / "secrets.yaml"))
         cached = self._broker_cache.get(yaml_path.name)
-        if cached is not None and cached[0] == mtime:
+        if cached is not None and cached[0] == cache_key:
             return cached[1]
         resolved = load_device_yaml(yaml_path)
         broker = _extract_broker_from_config(resolved)
-        self._broker_cache[yaml_path.name] = (mtime, broker)
+        if broker is not None:
+            self._broker_cache[yaml_path.name] = (cache_key, broker)
+        else:
+            self._broker_cache.pop(yaml_path.name, None)
         return broker
 
     def _log_broker_unresolved(self, configuration: str) -> None:
@@ -317,6 +328,14 @@ def _load_secrets(config_dir: Path) -> dict[str, Any]:
         _LOGGER.warning("Could not parse secrets.yaml — MQTT broker secrets unavailable")
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def _safe_mtime(path: Path) -> float:
+    """Return *path*'s mtime, or ``0.0`` when the file is missing."""
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
 
 
 def _resolve(value: Any, secrets_map: dict[str, Any]) -> str | None:
