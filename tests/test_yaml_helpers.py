@@ -1307,12 +1307,48 @@ def test_generate_component_yaml_coerce_skips_map_with_non_string_template() -> 
 
 
 def test_generate_component_yaml_coerce_skips_map_value_that_isnt_a_dict() -> None:
-    """A MAP key whose value is not a dict (None / missing) is left alone."""
+    """A MAP field whose value is None emits as ``null`` (coerce no-ops)."""
     component = _component_with_string_map("sdkconfig_options")
     # ``None`` would land here when the frontend submits the field
-    # with an empty payload; the coerce step must not blow up.
+    # with an empty payload; the coerce step must not blow up and the
+    # emitter renders YAML ``null`` rather than Python's ``None``.
     out = generate_component_yaml(component, {"sdkconfig_options": None})
-    assert "  sdkconfig_options: null" in out or "  sdkconfig_options: None" in out
+    assert "  sdkconfig_options: null" in out
+
+
+@pytest.mark.parametrize(
+    ("py_value", "expected"),
+    [(True, '"true"'), (False, '"false"'), (None, '"null"')],
+    ids=["bool-true", "bool-false", "none"],
+)
+def test_generate_component_yaml_quotes_map_bool_and_none_values(
+    py_value: Any, expected: str
+) -> None:
+    """A MAP string-typed value sent as JSON ``true`` / ``false`` / ``null``.
+
+    Coerce canonicalises to the lowercase YAML keyword, which the
+    emitter then quotes — so the round-tripped value stays a string
+    rather than landing as a YAML bool / null and tripping
+    ``cv.string_strict`` (same class of bug as #901, raised in PR
+    review).
+    """
+    component = _component_with_string_map("sdkconfig_options")
+    out = generate_component_yaml(component, {"sdkconfig_options": {"K": py_value}})
+    assert f"    K: {expected}" in out
+
+
+@pytest.mark.parametrize("variant", ["True", "TRUE", "False", "FALSE", "Null", "NULL"])
+def test_generate_component_yaml_quotes_case_variant_keyword_strings(variant: str) -> None:
+    """``"True"`` / ``"FALSE"`` etc. round-trip as bool/null on YAML 1.1.
+
+    The base allowlist only carried the lowercase forms; PyYAML
+    recognises every case variant the spec lists, so a Python string
+    ``"True"`` (e.g. ``str(True)``) re-parsed to ``True``. Quote any
+    case variant so the value survives as a string.
+    """
+    component = _component(component_id="myc", category=ComponentCategory.MISC)
+    out = generate_component_yaml(component, {"v": variant})
+    assert f'  v: "{variant}"' in out
 
 
 def test_generate_component_yaml_quotes_unparseable_string_starting_with_digit() -> None:

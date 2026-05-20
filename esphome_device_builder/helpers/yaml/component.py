@@ -201,7 +201,21 @@ def _coerce_string_map_values(
         value = fields.get(entry.key)
         if not isinstance(value, dict):
             continue
-        fields[entry.key] = {k: str(v) if not isinstance(v, str) else v for k, v in value.items()}
+        fields[entry.key] = {k: _coerce_map_scalar_to_string(v) for k, v in value.items()}
+
+
+def _coerce_map_scalar_to_string(value: Any) -> str:
+    """Convert a MAP-value scalar to its YAML-string form."""
+    if isinstance(value, str):
+        return value
+    # ``str(True)`` is ``"True"`` which YAML 1.1 re-parses as bool;
+    # canonicalise to the lowercase form so the downstream quoter
+    # recognises and quotes it.
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if value is None:
+        return "null"
+    return str(value)
 
 
 def _append_block(existing: str, block: str) -> str:
@@ -264,22 +278,33 @@ def _splice_into_domain_block(existing: str, domain: str, block: str) -> str | N
 
 def _format_yaml_value(value: Any) -> str:
     """Format a Python value for YAML output."""
+    if value is None:
+        return "null"
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, str):
-        if value in ("true", "false", "null", "yes", "no", "on", "off", "%", "~", ""):
-            return f'"{value}"'
-        if value.startswith("!") or ":" in value or "#" in value:
-            return f'"{value}"'
-        # Quote strings YAML would re-parse as a non-string scalar
-        # (``"100"`` -> int, ``"3.14"`` -> float, ``"2024-01-01"`` ->
-        # date). Without this, ``sdkconfig_options`` entries whose
-        # value is a numeric-looking string get parsed back as int and
-        # ESPHome's ``cv.string_strict`` rejects them (issue #901).
-        if _yaml_reparses_as_non_string(value):
-            return f'"{value}"'
-        return value
+        return f'"{value}"' if _string_needs_quoting(value) else value
     return str(value)
+
+
+_YAML_RESERVED_KEYWORDS = frozenset({"true", "false", "null", "yes", "no", "on", "off"})
+
+
+def _string_needs_quoting(value: str) -> bool:
+    """Return True when *value* needs YAML quoting to round-trip as a string."""
+    # YAML 1.1 recognises every case variant of the reserved words
+    # (``true``/``True``/``TRUE`` etc.) as bool/null, so ``str(True)``
+    # from a JSON bool would otherwise re-parse as ``True``. ``%`` is
+    # a YAML directive indicator; ``~`` and empty string are YAML null
+    # shorthands; ``!`` opens a tag; ``:`` opens a mapping value;
+    # ``#`` opens a comment. Anything that survives those checks then
+    # gets the (cheap pre-filtered) ``yaml.safe_load`` round-trip test
+    # for numeric-looking strings — the original #901 case.
+    if value.lower() in _YAML_RESERVED_KEYWORDS or value in ("%", "~", ""):
+        return True
+    if value.startswith("!") or ":" in value or "#" in value:
+        return True
+    return _yaml_reparses_as_non_string(value)
 
 
 # YAML 1.1 plain scalars can only re-parse as a non-string when the
