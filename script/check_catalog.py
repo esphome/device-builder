@@ -25,7 +25,6 @@ Run locally:
 
 from __future__ import annotations
 
-import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -35,6 +34,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from esphome_device_builder.controllers.components import ComponentCatalog
+from script.sync_components import _FIELD_BULLET_PATTERN
 
 # Per-component shape assertions. Each entry is a tuple of
 # ``(component_id, [(field_key, type, required, refs)])``. A field
@@ -270,21 +270,18 @@ def _check_option_lists(catalog: ComponentCatalog) -> list[str]:
     return failures
 
 
-# Detects descriptions that are actually the first bullet of an MDX
-# ``### Configuration variables`` list — symptom of the upstream
-# esphome-docs schema_doc bug; see
-# ``_repair_field_bullet_descriptions`` in script/sync_components.py.
-_FIELD_BULLET_DESCRIPTION = re.compile(
-    r"^-?\s*\*\*[A-Za-z_][\w]*\*\*\s*\(\s*\*(?:Optional|Required)\*\s*\)\s*[:\-]",
-)
-
-
 def _check_no_field_bullet_descriptions(catalog: ComponentCatalog) -> list[str]:
-    """Fail when any component's description looks like a config-var bullet."""
+    """Fail when any component's description matches the field-bullet pattern.
+
+    The pattern is imported from ``script/sync_components.py`` so a widening
+    on the sync side automatically tightens the check side — they cannot
+    drift apart. Triggered when the upstream esphome-docs schema_doc bug
+    leaks past ``_repair_field_bullet_descriptions``.
+    """
     failures: list[str] = []
-    for component in catalog._components:
+    for component in catalog._by_id.values():
         desc = (component.description or "").strip()
-        if desc and _FIELD_BULLET_DESCRIPTION.match(desc):
+        if desc and _FIELD_BULLET_PATTERN.match(desc):
             failures.append(
                 f"{component.id}: description is a config-variables bullet "
                 f"({desc[:80]!r}) — sync workaround missed it"
