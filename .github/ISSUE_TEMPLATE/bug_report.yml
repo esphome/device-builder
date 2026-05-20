@@ -8,13 +8,18 @@ body:
       value: |
         Thanks for trying the new dashboard! 🙏
 
+        **Looking to request a feature?** This template is for bug reports only. Feature ideas belong in the
+        [esphome org-level Discussions board](https://github.com/orgs/esphome/discussions);
+        planned / in-progress work is tracked on the
+        [Device Builder project board](https://github.com/orgs/esphome/projects/7/views/1?filterQuery=project%3A%22device-builder%22).
+
         Before filing, please confirm:
         - **Not an ESPHome core problem** — compile errors / device behaviour /
           component bugs belong in the [esphome repo](https://github.com/esphome/esphome/issues/new/choose).
         - **Not already tracked** — check
           [open issues](https://github.com/esphome/device-builder-dashboard-backend/issues)
           and the
-          [project backlog](https://github.com/orgs/esphome/projects/7/views/1?filterQuery=project%3A%22device-builder-dashboard%22).
+          [project backlog](https://github.com/orgs/esphome/projects/7/views/1?filterQuery=project%3A%22device-builder%22).
         - **Not better suited to chat** — quick questions and feedback land
           faster in the
           [Discord channel](https://discord.gg/Rf2jWGVjaK).
