@@ -364,6 +364,23 @@ def test_load_config_entry_drops_required_groups_with_empty_keys() -> None:
     assert entry.required_groups == []
 
 
+def test_load_config_entry_skips_required_groups_with_non_dict_items() -> None:
+    """Non-dict items in the list are ignored without breaking the rest."""
+    entry = _load_config_entry(
+        {
+            "key": "x",
+            "type": "nested",
+            "label": "X",
+            "required_groups": [
+                "garbage",
+                ["also", "garbage"],
+                {"kind": "at_least_one", "keys": ["good"]},
+            ],
+        }
+    )
+    assert [g.kind for g in entry.required_groups] == [RequiredGroupKind.AT_LEAST_ONE]
+
+
 def test_materialise_entry_carries_group_and_required_groups() -> None:
     """The per-request copy keeps both new fields visible to the frontend."""
     loaded = _load_config_entry(
