@@ -666,6 +666,7 @@ def extract_directly_referenced_integrations(
 
 def parse_esphome_meta(  # noqa: PLR0912
     yaml_content: str,
+    extra_substitutions: dict[str, str] | None = None,
 ) -> tuple[str | None, str | None, str | None, str | None]:
     """
     Parse the top-level ``esphome:`` block for ``(name, friendly_name, comment, area)``.
@@ -685,6 +686,13 @@ def parse_esphome_meta(  # noqa: PLR0912
 
     yields ``friendly_name = "Living Room Lamp"`` instead of the raw
     ``$friendly_name`` token. Unknown references are left untouched.
+
+    *extra_substitutions* is an optional fallback map of substitutions
+    contributed by ``packages:`` / ``!include`` blocks — typically the
+    ``substitutions`` key off the resolved config returned by
+    :func:`load_device_yaml`. The file's own ``substitutions:`` block
+    still wins on key conflicts, mirroring esphome's package merge
+    precedence (local config overrides package contributions).
     """
     name: str | None = None
     friendly_name: str | None = None
@@ -722,11 +730,19 @@ def parse_esphome_meta(  # noqa: PLR0912
             if sep:
                 substitutions[sub_key.strip()] = _parse_inline_value(sub_raw)
 
-    if substitutions:
-        name = _resolve_substitutions(name, substitutions)
-        friendly_name = _resolve_substitutions(friendly_name, substitutions)
-        comment = _resolve_substitutions(comment, substitutions)
-        area = _resolve_substitutions(area, substitutions)
+    # Merge extras under the file-local substitutions so a key defined
+    # both in the file and in a package keeps the local value — the
+    # same precedence esphome applies during ``do_packages_pass``.
+    if extra_substitutions:
+        merged: dict[str, str] = {**extra_substitutions, **substitutions}
+    else:
+        merged = substitutions
+
+    if merged:
+        name = _resolve_substitutions(name, merged)
+        friendly_name = _resolve_substitutions(friendly_name, merged)
+        comment = _resolve_substitutions(comment, merged)
+        area = _resolve_substitutions(area, merged)
 
     return name, friendly_name, comment, area
 
@@ -804,13 +820,20 @@ def load_device_from_storage(
         yaml_content = path.read_text(encoding="utf-8")
     except OSError:
         yaml_content = ""
-    yaml_name, yaml_friendly, yaml_comment, yaml_area = parse_esphome_meta(yaml_content)
     # Full resolved config (``!include`` / packages / ``!secret``
     # expanded) drives the api-encryption flag — a bare regex on raw
     # YAML would miss configs that pull the api block in via include
     # or split it across packages. ``None`` on parse failure is fine;
     # ``api_encrypted`` falls back to False.
     resolved_config = load_device_yaml(path)
+    # Feed the merged ``substitutions:`` from the resolved config back
+    # into the meta reader so ``esphome.friendly_name: $room`` resolves
+    # against substitutions contributed by ``packages:`` / ``!include``
+    # — not just the ones inline in this file (#917).
+    yaml_name, yaml_friendly, yaml_comment, yaml_area = parse_esphome_meta(
+        yaml_content,
+        extra_substitutions=_extract_resolved_substitutions(resolved_config),
+    )
 
     fallback_name = configuration_stem(filename)
     storage_name = storage.name if storage else None
@@ -1220,3 +1243,21 @@ def _resolve_substitutions(value: str | None, subs: dict[str, str]) -> str | Non
             break
 
     return value
+
+
+def _extract_resolved_substitutions(config: dict | None) -> dict[str, str]:
+    """
+    Pull a string-only ``substitutions:`` map off a resolved config.
+
+    Skips entries whose value isn't a string — substitution values
+    are always strings in valid ESPHome configs, and the meta reader
+    only knows how to interpolate strings. Returns ``{}`` when the
+    config is ``None``, has no ``substitutions:`` block, or its
+    block isn't a mapping.
+    """
+    if not isinstance(config, dict):
+        return {}
+    block = config.get(const.CONF_SUBSTITUTIONS)
+    if not isinstance(block, dict):
+        return {}
+    return {k: v for k, v in block.items() if isinstance(k, str) and isinstance(v, str)}

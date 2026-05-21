@@ -256,6 +256,77 @@ esphome:
     assert friendly_name in {"${a}", "${b}"}
 
 
+def test_parse_meta_resolves_substitution_from_extras() -> None:
+    """Substitutions absent from the file but supplied via *extra_substitutions* resolve.
+
+    Mirrors the regression in #917: the user keeps shared
+    substitutions in a ``packages:`` / ``!include`` file, so
+    ``friendly_name: $room`` is unresolved when the reader only
+    looks at the file-local ``substitutions:`` block.
+    """
+    yaml_content = """
+esphome:
+  name: living-room-lamp
+  friendly_name: $room
+"""
+    _, friendly_name, _, _ = parse_esphome_meta(
+        yaml_content,
+        extra_substitutions={"room": "Living Room"},
+    )
+    assert friendly_name == "Living Room"
+
+
+def test_parse_meta_file_substitution_overrides_extras() -> None:
+    """File-local ``substitutions:`` win over *extra_substitutions* on key collisions.
+
+    Mirrors esphome's ``do_packages_pass`` precedence: the main
+    config's substitutions override package-contributed ones.
+    """
+    yaml_content = """
+substitutions:
+  room: "Office"
+esphome:
+  friendly_name: $room
+"""
+    _, friendly_name, _, _ = parse_esphome_meta(
+        yaml_content,
+        extra_substitutions={"room": "Living Room"},
+    )
+    assert friendly_name == "Office"
+
+
+def test_parse_meta_extras_fill_gaps_in_file_substitutions() -> None:
+    """Keys only present in extras still resolve when the file has its own subs block.
+
+    The two maps are merged, not swapped: a local ``substitutions:``
+    block doesn't shadow unrelated keys contributed by a package.
+    """
+    yaml_content = """
+substitutions:
+  room: "Office"
+esphome:
+  friendly_name: "${room} ${suffix}"
+"""
+    _, friendly_name, _, _ = parse_esphome_meta(
+        yaml_content,
+        extra_substitutions={"suffix": "Lamp"},
+    )
+    assert friendly_name == "Office Lamp"
+
+
+def test_parse_meta_extras_none_matches_default() -> None:
+    """Passing ``None`` for *extra_substitutions* matches the no-arg behaviour."""
+    yaml_content = """
+substitutions:
+  room: Bedroom
+esphome:
+  friendly_name: $room
+"""
+    assert parse_esphome_meta(yaml_content, extra_substitutions=None) == parse_esphome_meta(
+        yaml_content
+    )
+
+
 # ----------------------------------------------------------------------
 # compute_has_pending_changes
 # ----------------------------------------------------------------------
@@ -1222,6 +1293,64 @@ def test_load_device_falls_back_to_empty_yaml_on_read_error(
     # so the loader leans on StorageJSON for those fields.
     assert device.name == "kitchen"  # from StorageJSON.name (write_storage_json default)
     assert device.configuration == "kitchen.yaml"
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_resolves_friendly_name_from_packages(tmp_path: Path) -> None:
+    """``friendly_name: $room`` resolves against substitutions inside ``packages:``.
+
+    Regression for #917: shared substitutions kept in a package
+    file weren't visible to the meta reader, so the dashboard
+    rendered ``$room`` (or the raw token) on the device card
+    instead of the resolved string.
+    """
+    (tmp_path / "common.yaml").write_text(
+        "substitutions:\n  room: Living Room\n",
+        encoding="utf-8",
+    )
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text(
+        "esphome:\n"
+        "  name: lamp\n"
+        "  friendly_name: $room\n"
+        "packages:\n"
+        "  common: !include common.yaml\n",
+        encoding="utf-8",
+    )
+    write_storage_json(tmp_path, "lamp.yaml")
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.friendly_name == "Living Room"
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_local_substitution_wins_over_package(tmp_path: Path) -> None:
+    """A file-local ``substitutions:`` override beats the package contribution.
+
+    Mirrors esphome's ``do_packages_pass`` precedence; the
+    dashboard card matches what the compiler would see.
+    """
+    (tmp_path / "common.yaml").write_text(
+        "substitutions:\n  room: Package Default\n",
+        encoding="utf-8",
+    )
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text(
+        "substitutions:\n"
+        "  room: Local Override\n"
+        "esphome:\n"
+        "  name: lamp\n"
+        "  friendly_name: $room\n"
+        "packages:\n"
+        "  common: !include common.yaml\n",
+        encoding="utf-8",
+    )
+    write_storage_json(tmp_path, "lamp.yaml")
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.friendly_name == "Local Override"
 
 
 @pytest.mark.usefixtures("_redirect_ext_storage")
