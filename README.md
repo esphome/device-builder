@@ -109,6 +109,78 @@ every few minutes.
 
 </details>
 
+## Username / password authentication
+
+The three install paths each handle network reach and the auth gate
+differently. The Home Assistant add-on runs ingress-only with no
+password under the new preview, so access goes through the HA
+sidebar and port `6052` stays unbound; ESPHome Desktop binds only
+to `127.0.0.1`, so there's nothing on the LAN to authenticate
+against in the first place; the standalone PyPI install binds
+`0.0.0.0:6052`, is LAN-reachable by default, and prints a startup
+banner warning that there is no auth gate until you configure one.
+
+Configuring a username and password is only wired up for the
+standalone install today. The HA add-on doesn't ship a knob for it
+(see below for the rationale, this is by design) and Desktop is
+localhost-only, so the knob doesn't add anything there. The backend
+itself accepts credentials anywhere it runs; it's the packaging
+around the HA add-on and Desktop that doesn't pass any in.
+
+### Home Assistant add-on
+
+When the **Use new Device Builder Preview** toggle is on, the add-on
+is reached through Home Assistant itself: you open it from the HA
+sidebar in your browser, and the Home Assistant Companion App opens
+it the same way. Both paths come in over Home Assistant Ingress, so
+the dashboard is already protected by your Home Assistant login;
+there's no separate username or password to configure for the
+add-on, and port `6052` stays unbound to keep the dashboard off the
+LAN by default.
+
+This is the supported way to use the add-on and we're not planning
+to add a "just expose the port directly" option for it. The classic
+dashboard let you opt in to binding port `6052` on the LAN and
+forwarded your Home Assistant username and password through the
+supervisor `/auth` endpoint to gate it; that endpoint has no rate
+limiting or lockout, so opting into the exposed port turned the
+dashboard into an open brute-force target against every account on
+the Home Assistant instance. We chose not to carry that risk
+forward (see
+[device-builder issue #85](https://github.com/esphome/device-builder/issues/85)).
+
+If you need port `6052` reachable on the LAN, please file a feature
+request describing the use case. For LAN access today, run the
+standalone PyPI install on the same network as your add-on with its
+own dashboard-managed password.
+
+### Standalone (PyPI)
+
+Set the credentials through environment variables before launching the
+dashboard:
+
+```bash
+export ESPHOME_USERNAME=admin
+export ESPHOME_PASSWORD='<pick a strong password>'
+esphome-device-builder ~/esphome-configs
+```
+
+Both values must be set together; setting only one fails the
+credential check at startup. The env var names are `ESPHOME_USERNAME`
+and `ESPHOME_PASSWORD`, not the legacy dashboard's bare `USERNAME` /
+`PASSWORD`, because the bare names collide with the OS-supplied
+`$USERNAME` on Windows and most login shells.
+
+The `--username` / `--password` CLI flags are still accepted for
+parity with the legacy dashboard's CLI, but please avoid
+`--password` in particular: command-line arguments show up in
+process listings (`ps` output on Linux / macOS, Task Manager on
+Windows, plus `/proc/<pid>/cmdline` on Linux unless `hidepid` is
+locked down), so another local user on the host can usually read
+the dashboard password. Use the env vars instead (or a `.env` /
+systemd `EnvironmentFile=` that's only readable by the dashboard's
+user).
+
 ## Behind a reverse proxy
 
 The dashboard rejects browser WebSocket handshakes whose
