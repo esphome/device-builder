@@ -25,6 +25,7 @@ import pytest
 import voluptuous as vol
 
 from script.sync_components import (  # type: ignore[import-not-found]
+    _annotate_constraint_descriptions,
     _apply_inclusive_groups,
     _apply_required_groups,
     _collect_inclusive_groups,
@@ -393,6 +394,175 @@ def test_promote_constraint_members_resorts_after_demoting() -> None:
     # Non-advanced entries lead; previously-advanced siblings trail.
     assert [e["key"] for e in out[:2]] == ["advanced_first", "promoted"]
     assert out[-1]["key"] == "later_advanced"
+
+
+# ---------------------------------------------------------------------------
+# _annotate_constraint_descriptions
+# ---------------------------------------------------------------------------
+
+
+def test_annotate_descriptions_prepends_exactly_one_hint() -> None:
+    """A field referenced in ``exactly_one`` gets the prose hint above its docs."""
+    component = {
+        "config_entries": [
+            {"key": "chipset", "description": "Pick a chipset."},
+            {"key": "bit0_high", "description": "Bit 0 high time."},
+            {"key": "rgb_order", "description": "RGB ordering."},
+        ],
+        "required_groups": [{"kind": "exactly_one", "keys": ["chipset", "bit0_high"]}],
+    }
+    _annotate_constraint_descriptions(component)
+    by_key = {e["key"]: e for e in component["config_entries"]}
+    assert by_key["chipset"]["description"].startswith(
+        "**Required — set exactly one of:** `chipset`, `bit0_high`.",
+    )
+    assert "Pick a chipset." in by_key["chipset"]["description"]
+    assert by_key["bit0_high"]["description"].startswith(
+        "**Required — set exactly one of:** `chipset`, `bit0_high`.",
+    )
+    # Unrelated sibling stays untouched.
+    assert by_key["rgb_order"]["description"] == "RGB ordering."
+
+
+def test_annotate_descriptions_handles_each_kind() -> None:
+    """Each ``cv.has_*_one_key`` flavour gets its own readable prefix."""
+    component = {
+        "config_entries": [
+            {"key": "a", "description": ""},
+            {"key": "b", "description": ""},
+        ],
+        "required_groups": [
+            {"kind": "at_least_one", "keys": ["a", "b"]},
+            {"kind": "at_most_one", "keys": ["a", "b"]},
+            {"kind": "none_or_all", "keys": ["a", "b"]},
+        ],
+    }
+    _annotate_constraint_descriptions(component)
+    desc_a = component["config_entries"][0]["description"]
+    assert "**Required — set at least one of:** `a`, `b`." in desc_a
+    assert "**Set at most one of:** `a`, `b`." in desc_a
+    assert "**Set together — all of these must be set, or all left blank:**" in desc_a
+
+
+def test_annotate_descriptions_appends_inclusive_group_hint() -> None:
+    """``cv.Inclusive`` siblings get a "set together with" hint listing partners."""
+    component = {
+        "config_entries": [
+            {"key": "bit0_high", "description": "0-bit high.", "group": "custom"},
+            {"key": "bit0_low", "description": "0-bit low.", "group": "custom"},
+            {"key": "bit1_high", "description": "1-bit high.", "group": "custom"},
+            {"key": "bit1_low", "description": "1-bit low.", "group": "custom"},
+        ],
+        "required_groups": [],
+    }
+    _annotate_constraint_descriptions(component)
+    desc = component["config_entries"][0]["description"]
+    # ``bit0_high`` itself isn't listed; the other three are.
+    assert "`bit0_low`" in desc and "`bit1_high`" in desc and "`bit1_low`" in desc
+    assert "`bit0_high`" not in desc.split("\n\n")[0]  # not in the prefix
+    assert "(all-or-none)" in desc
+    assert "0-bit high." in desc
+
+
+def test_annotate_descriptions_composes_both_hints_when_both_apply() -> None:
+    """A field with both signals gets both prefixes, each on its own paragraph.
+
+    ``bit0_high`` on ``light.esp32_rmt_led_strip`` is the canonical
+    case — it's the named representative of the
+    ``has_exactly_one_key`` constraint *and* part of the
+    ``Inclusive("custom")`` group whose siblings are bit0_low /
+    bit1_high / bit1_low. The user needs to see both rules to
+    understand the form.
+    """
+    component = {
+        "config_entries": [
+            {"key": "chipset", "description": "Chipset."},
+            {
+                "key": "bit0_high",
+                "description": "0-bit high.",
+                "group": "custom",
+            },
+            {"key": "bit0_low", "description": "0-bit low.", "group": "custom"},
+        ],
+        "required_groups": [{"kind": "exactly_one", "keys": ["chipset", "bit0_high"]}],
+    }
+    _annotate_constraint_descriptions(component)
+    desc = component["config_entries"][1]["description"]
+    paragraphs = desc.split("\n\n")
+    assert paragraphs[0].startswith("**Required — set exactly one of:**")
+    assert paragraphs[1].startswith("**Set together with:**")
+    assert paragraphs[-1] == "0-bit high."
+
+
+def test_annotate_descriptions_recurses_into_nested_entries() -> None:
+    """A nested entry's ``required_groups`` annotate its children."""
+    component = {
+        "config_entries": [
+            {
+                "key": "eap",
+                "description": "EAP settings.",
+                "required_groups": [
+                    {"kind": "at_least_one", "keys": ["identity", "certificate"]},
+                ],
+                "config_entries": [
+                    {"key": "identity", "description": "User identity."},
+                    {
+                        "key": "certificate",
+                        "description": "Client cert.",
+                        "group": "cert_and_key",
+                    },
+                    {
+                        "key": "key",
+                        "description": "Client key.",
+                        "group": "cert_and_key",
+                    },
+                ],
+            },
+        ],
+        "required_groups": [],
+    }
+    _annotate_constraint_descriptions(component)
+    eap_inner = {e["key"]: e for e in component["config_entries"][0]["config_entries"]}
+    assert eap_inner["identity"]["description"].startswith(
+        "**Required — set at least one of:** `identity`, `certificate`.",
+    )
+    assert "**Set together with:** `key` (all-or-none)." in eap_inner["certificate"]["description"]
+    # ``key`` isn't part of the required_group — only the inclusive hint.
+    key_desc = eap_inner["key"]["description"]
+    assert "**Required" not in key_desc
+    assert "**Set together with:** `certificate` (all-or-none)." in key_desc
+
+
+def test_annotate_descriptions_is_a_no_op_without_constraints() -> None:
+    """Components with no constraints leave every description untouched."""
+    component = {
+        "config_entries": [
+            {"key": "ssid", "description": "Network SSID."},
+            {"key": "password", "description": "Network password."},
+        ],
+        "required_groups": [],
+    }
+    _annotate_constraint_descriptions(component)
+    assert [e["description"] for e in component["config_entries"]] == [
+        "Network SSID.",
+        "Network password.",
+    ]
+
+
+def test_annotate_descriptions_handles_none_description() -> None:
+    """A field with ``description=None`` still gets the prefix (no crash)."""
+    component = {
+        "config_entries": [
+            {"key": "a", "description": None},
+            {"key": "b", "description": None},
+        ],
+        "required_groups": [{"kind": "exactly_one", "keys": ["a", "b"]}],
+    }
+    _annotate_constraint_descriptions(component)
+    desc = component["config_entries"][0]["description"]
+    assert desc.startswith("**Required — set exactly one of:** `a`, `b`.")
+    # No trailing empty paragraph from a None original.
+    assert not desc.endswith("\n\n")
 
 
 # ---------------------------------------------------------------------------

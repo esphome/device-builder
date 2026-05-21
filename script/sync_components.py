@@ -1678,6 +1678,12 @@ def build_component_entry(
     # nested ``NESTED`` entries; the applier needs the whole
     # component dict to stamp both locations.
     _apply_required_groups(component, introspection.get("required_groups") or {})
+    # Prepend a markdown hint to each constraint-involved field's
+    # description so an older frontend (one that doesn't yet
+    # consume ``required_groups`` / ``group``) still surfaces the
+    # rule to the user as readable prose — issue #924. Drops out
+    # naturally once the FE renders the structured fields inline.
+    _annotate_constraint_descriptions(component)
     return component
 
 
@@ -4066,6 +4072,91 @@ def _promote_constraint_members(
     if not mutated:
         return entries
     return _sort_entries(entries)
+
+
+# Human-readable prefixes per ``cv.has_*_one_key`` kind. Kept short
+# and ``**bold**`` so the markdown renderer makes the rule jump out
+# above the schema-author's prose. The keys here mirror
+# :data:`_HAS_KEY_QUALNAMES` values one-for-one.
+_REQUIRED_GROUP_PREFIX: dict[str, str] = {
+    "exactly_one": "**Required — set exactly one of:**",
+    "at_least_one": "**Required — set at least one of:**",
+    "at_most_one": "**Set at most one of:**",
+    "none_or_all": "**Set together — all of these must be set, or all left blank:**",
+}
+
+
+def _annotate_constraint_descriptions(component: dict) -> None:
+    """
+    Prepend a markdown hint to descriptions of constraint-involved fields.
+
+    The structured ``group`` / ``required_groups`` fields are the
+    contract the frontend should eventually consume, but until that
+    lands the rule has to reach the user through the description
+    prose — otherwise issue #924 lingers (chipset is now visible,
+    but the user has no idea they must pick it OR the manual-timing
+    fields). The injected prefix is on its own paragraph above the
+    original description so a future FE update that drops it can
+    pattern-match the leading ``**Required`` / ``**Set`` lines.
+
+    Recurses into nested ``NESTED`` entries' ``config_entries``,
+    using each parent's ``required_groups`` for the in-scope hint.
+    """
+
+    def visit(entries: list[dict], groups: list[dict[str, Any]]) -> None:
+        _annotate_scope(entries, groups)
+        for entry in entries:
+            inner = entry.get("config_entries")
+            if inner:
+                visit(inner, entry.get("required_groups") or [])
+
+    visit(
+        component.get("config_entries") or [],
+        component.get("required_groups") or [],
+    )
+
+
+def _annotate_scope(entries: list[dict], required_groups: list[dict[str, Any]]) -> None:
+    """Annotate one sibling list with its in-scope required + inclusive hints."""
+    if not entries:
+        return
+    inclusive_members: dict[str, list[str]] = {}
+    for entry in entries:
+        group_name = entry.get("group")
+        if group_name:
+            inclusive_members.setdefault(group_name, []).append(entry["key"])
+
+    for entry in entries:
+        prefixes: list[str] = []
+        for group in required_groups:
+            if entry["key"] not in group.get("keys", []):
+                continue
+            others = [k for k in group["keys"] if k != entry["key"]]
+            if not others:
+                continue
+            prefix = _REQUIRED_GROUP_PREFIX.get(group.get("kind", ""))
+            if prefix is None:
+                continue
+            prefixes.append(f"{prefix} {_format_key_list(group['keys'])}.")
+        group_name = entry.get("group")
+        if group_name:
+            siblings = [k for k in inclusive_members.get(group_name, []) if k != entry["key"]]
+            if siblings:
+                prefixes.append(
+                    f"**Set together with:** {_format_key_list(siblings)} (all-or-none).",
+                )
+        if not prefixes:
+            continue
+        # Blank-line separator preserves paragraph breaks in
+        # CommonMark — the prefix lands as a standalone paragraph
+        # above the schema-author's prose.
+        original = entry.get("description") or ""
+        entry["description"] = "\n\n".join([*prefixes, original]).strip()
+
+
+def _format_key_list(keys: list[str]) -> str:
+    """Render keys as a comma-separated backticked list (markdown inline code)."""
+    return ", ".join(f"`{k}`" for k in keys)
 
 
 def _numeric_range_bounds(node: Any) -> tuple[int | float, int | float] | None:
