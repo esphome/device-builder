@@ -1654,10 +1654,11 @@ def build_component_entry(
     _apply_platform_constraints(config_entries, introspection.get("platform_constraints") or {})
     _apply_field_ranges(config_entries, introspection.get("field_ranges") or {})
     _apply_refined_types(config_entries, introspection.get("refined_types") or {})
+    _apply_inclusive_groups(config_entries, introspection.get("inclusive_groups") or {})
     _apply_unit_of_measurement_options(config_entries)
     _promote_multi_value_keys(config_entries)
 
-    return {
+    component = {
         "id": component_id,
         "name": _resolve_name(component_id, stem, docs.name),
         "description": docs.text,
@@ -1673,6 +1674,11 @@ def build_component_entry(
         ),
         "config_entries": config_entries,
     }
+    # Required-groups straddle the component root (path ``()``) and
+    # nested ``NESTED`` entries; the applier needs the whole
+    # component dict to stamp both locations.
+    _apply_required_groups(component, introspection.get("required_groups") or {})
+    return component
 
 
 # ---------------------------------------------------------------------------
@@ -2882,28 +2888,25 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     raw_auto_load = manifest.auto_load
     auto_load: list[str] = list(raw_auto_load) if isinstance(raw_auto_load, list) else []
 
-    refined_types = _collect_refined_types(manifest)
-    # Merge platform-manifest refinements on top — the platform
-    # schema's reference_voltage etc. don't appear on the parent
-    # component manifest. Paths come back keyed by entry name so
-    # they slot into the same dict the catalog walk consumes.
-    for platform_manifest in platform_manifests:
-        for path, refined in _collect_refined_types(platform_manifest).items():
-            refined_types.setdefault(path, refined)
+    # Bare manifest results take precedence (``setdefault`` keep-first);
+    # platform-manifest results fill in fields that only exist on the
+    # platform schema (e.g. ``sensor.debug.psram``'s ``cv.only_on_esp32``
+    # gate lives on the ``debug.sensor`` manifest, not the bare
+    # ``debug`` one).
+    def merge_from_platforms(
+        collect: Callable[[Any], dict[tuple[str, ...], Any]],
+    ) -> dict[tuple[str, ...], Any]:
+        merged = collect(manifest)
+        for platform_manifest in platform_manifests:
+            for path, value in collect(platform_manifest).items():
+                merged.setdefault(path, value)
+        return merged
 
-    platform_constraints = _collect_platform_constraints(manifest)
-    # Same pattern as ``refined_types``: the platform-domain
-    # manifest (e.g. ``debug.sensor``) carries the per-field gate
-    # for ``sensor.debug.psram`` while the bare ``debug`` manifest
-    # only describes the top-level ``debug:`` block.
-    for platform_manifest in platform_manifests:
-        for path, plats in _collect_platform_constraints(platform_manifest).items():
-            platform_constraints.setdefault(path, plats)
-
-    field_ranges = _collect_field_ranges(manifest)
-    for platform_manifest in platform_manifests:
-        for path, bounds in _collect_field_ranges(platform_manifest).items():
-            field_ranges.setdefault(path, bounds)
+    refined_types = merge_from_platforms(_collect_refined_types)
+    platform_constraints = merge_from_platforms(_collect_platform_constraints)
+    field_ranges = merge_from_platforms(_collect_field_ranges)
+    inclusive_groups = merge_from_platforms(_collect_inclusive_groups)
+    required_groups = merge_from_platforms(_collect_required_groups)
 
     return {
         "multi_conf": bool(getattr(manifest, "multi_conf", False)),
@@ -2912,6 +2915,8 @@ def introspect_component(component_id: str) -> dict[str, Any]:
         "platform_constraints": platform_constraints,
         "field_ranges": field_ranges,
         "refined_types": refined_types,
+        "inclusive_groups": inclusive_groups,
+        "required_groups": required_groups,
         "auto_load": auto_load,
     }
 
@@ -3079,6 +3084,8 @@ _ENTRY_DEFAULTS: dict[str, Any] = {
     "translation_params": None,
     "config_entries": None,
     "platform_type": None,
+    "group": None,
+    "required_groups": [],
 }
 
 _COMPONENT_DEFAULTS: dict[str, Any] = {
@@ -3088,6 +3095,7 @@ _COMPONENT_DEFAULTS: dict[str, Any] = {
     "multi_conf": False,
     "supported_platforms": [],
     "config_entries": [],
+    "required_groups": [],
 }
 
 
@@ -3146,9 +3154,17 @@ def _walk_schema_keys(
         for _ in range(8):
             if isinstance(node, dict):
                 return node
-            if hasattr(node, "schema"):
-                node = node.schema
-                continue
+            # Compound validators (``vol.All`` / ``vol.Any``) get their
+            # ``.schema`` attribute set during voluptuous compilation
+            # to the *outer* ``Schema`` being compiled — not the inner
+            # sub-schema — via ``_WithSubValidators.__voluptuous_compile__``.
+            # Following it on a compiled tree therefore leads back to
+            # the outer schema (already in ``visited``) and the walker
+            # silently stops descending into nested ``vol.All`` values
+            # like ``wifi.eap``. Prefer the ``validators`` tuple — the
+            # source of truth on compound validators — and fall back to
+            # ``.schema`` for plain ``vol.Schema`` wrappers that have no
+            # ``validators`` attribute.
             inner = getattr(node, "validators", None)
             if inner:
                 next_node = None
@@ -3159,6 +3175,9 @@ def _walk_schema_keys(
                 if next_node is None:
                     return None
                 node = next_node
+                continue
+            if hasattr(node, "schema"):
+                node = node.schema
                 continue
             return None
         return None
@@ -3790,6 +3809,263 @@ def _apply_platform_constraints(
             entry["supported_platforms"] = list(constraint)
 
     _walk_catalog_entries(entries, visit)
+
+
+# ``cv.has_*_one_key`` closures share the qualname template
+# ``has_<kind>_key.<locals>.validate``. We pin against that template
+# rather than the ``__name__`` (uniformly ``"validate"``) so a
+# legitimate validator from another factory can't masquerade as a
+# cardinality constraint. Mirrors the
+# :data:`RequiredGroupKind` wire values one-for-one — if upstream
+# adds a fifth cardinality validator the mapping needs a new entry
+# and the model enum a new member, in lockstep.
+_HAS_KEY_QUALNAMES: dict[str, str] = {
+    "has_exactly_one_key.<locals>.validate": "exactly_one",
+    "has_at_least_one_key.<locals>.validate": "at_least_one",
+    "has_at_most_one_key.<locals>.validate": "at_most_one",
+    "has_none_or_all_keys.<locals>.validate": "none_or_all",
+}
+
+
+def _required_group_from_validator(node: Any) -> dict[str, Any] | None:
+    """Return a ``{kind, keys}`` spec when *node* is a ``cv.has_*_one_key`` closure."""
+    qualname = getattr(node, "__qualname__", "") or ""
+    kind = _HAS_KEY_QUALNAMES.get(qualname)
+    if kind is None:
+        return None
+    try:
+        nonlocals = inspect.getclosurevars(node).nonlocals
+    except (TypeError, ValueError):
+        return None
+    keys = nonlocals.get("keys")
+    if not isinstance(keys, tuple | list) or not keys:
+        return None
+    str_keys = [k for k in keys if isinstance(k, str)]
+    if not str_keys:
+        return None
+    return {"kind": kind, "keys": str_keys}
+
+
+def _collect_inclusive_groups(
+    manifest: Any,
+) -> dict[tuple[str, ...], str]:
+    """
+    Walk the live ``CONFIG_SCHEMA`` for ``cv.Inclusive(...)`` markers.
+
+    Returns ``{key_path: group_name}`` keyed by tuple paths. A
+    field wrapped in ``cv.Inclusive(key, "foo")`` upstream surfaces
+    as ``{("...", key): "foo"}`` — the frontend pairs this with
+    the parent schema's ``required_groups`` to render the full
+    "all members of group must be set, or none" rule.
+
+    Empty dict when the component has no schema.
+    """
+    schema = getattr(manifest, "config_schema", None)
+    if schema is None:
+        return {}
+
+    out: dict[tuple[str, ...], str] = {}
+
+    def visit(key: Any, _key_name: str, _val: Any, path: tuple[str, ...]) -> None:
+        if not isinstance(key, vol.Inclusive):
+            return
+        # voluptuous historically named the attribute
+        # ``group_of_exclusion`` (matching the sibling
+        # ``Exclusive.group_of_exclusion``); esphome's vendored
+        # voluptuous and modern upstream both renamed it to
+        # ``group_of_inclusion``. Check both for resilience across
+        # voluptuous releases.
+        group = getattr(key, "group_of_inclusion", None) or getattr(key, "group_of_exclusion", None)
+        if isinstance(group, str) and group:
+            out[path] = group
+
+    _walk_schema_keys(schema, visit)
+    return out
+
+
+def _collect_required_groups(
+    manifest: Any,
+) -> dict[tuple[str, ...], list[dict[str, Any]]]:
+    """
+    Walk the live ``CONFIG_SCHEMA`` for ``cv.has_*_one_key`` constraints.
+
+    Returns ``{schema_path: [{kind, keys}, ...]}`` keyed by tuple
+    paths. ``()`` is the component's top-level schema; non-empty
+    paths target a nested schema (e.g.
+    ``("networks", "eap")`` for ``wifi.networks[].eap``).
+
+    Detection looks at the ``__qualname__`` of each callable
+    validator inside the ``vol.All`` chain wrapping a schema.
+    ``cv.has_exactly_one_key`` and friends are factory functions
+    that return closures named ``"validate"`` — the qualname
+    keeps the factory name (e.g.
+    ``has_exactly_one_key.<locals>.validate``) so we can both
+    detect them and recover their kind. The captured ``keys``
+    nonlocal carries the field names the constraint applies to.
+
+    Empty dict when the component has no schema.
+    """
+    schema = getattr(manifest, "config_schema", None)
+    if schema is None:
+        return {}
+
+    out: dict[tuple[str, ...], list[dict[str, Any]]] = {}
+    visited: set[int] = set()
+
+    def collect_at(node: Any, path: tuple[str, ...]) -> None:
+        # Walk through ``vol.All`` wrappers at the current level
+        # surfacing every ``cv.has_*_one_key`` validator. The cap
+        # mirrors the ``unwrap`` budget below — a misbehaving
+        # cyclic ``vol.All`` chain can't lock the walker.
+        for _ in range(8):
+            if not isinstance(node, vol.All):
+                return
+            for child in node.validators:
+                group = _required_group_from_validator(child)
+                if group is not None:
+                    out.setdefault(path, []).append(group)
+            inner = next(
+                (v for v in node.validators if isinstance(v, vol.All)),
+                None,
+            )
+            if inner is None:
+                return
+            node = inner
+
+    def unwrap_to_dict(node: Any) -> dict | None:
+        # Same shape (and same vol-compile workaround) as
+        # :func:`_walk_schema_keys`'s ``unwrap_to_dict`` — prefer
+        # ``validators`` over ``.schema`` on compound validators.
+        for _ in range(8):
+            if isinstance(node, dict):
+                return node
+            inner = getattr(node, "validators", None)
+            if inner:
+                next_node = next(
+                    (v for v in inner if isinstance(v, dict) or hasattr(v, "schema")),
+                    None,
+                )
+                if next_node is None:
+                    return None
+                node = next_node
+                continue
+            if hasattr(node, "schema"):
+                node = node.schema
+                continue
+            return None
+        return None
+
+    def walk(node: Any, path: tuple[str, ...], depth: int) -> None:
+        if depth > 6:
+            return
+        collect_at(node, path)
+        target = unwrap_to_dict(node)
+        if target is None:
+            return
+        if id(target) in visited:
+            return
+        visited.add(id(target))
+        for key, val in target.items():
+            key_name = key.schema if hasattr(key, "schema") else str(key)
+            walk(val, (*path, key_name), depth + 1)
+
+    try:
+        walk(schema, (), 0)
+    except Exception:
+        _LOGGER.debug("required-groups walk aborted on %r", schema, exc_info=True)
+    return out
+
+
+def _apply_inclusive_groups(
+    entries: list[dict],
+    groups: dict[tuple[str, ...], str],
+) -> None:
+    """Stamp ``group`` onto entries whose path is a ``cv.Inclusive`` marker."""
+    if not groups:
+        return
+
+    def visit(entry: dict, path: tuple[str, ...]) -> None:
+        group = groups.get(path)
+        if group:
+            entry["group"] = group
+
+    _walk_catalog_entries(entries, visit)
+
+
+def _apply_required_groups(
+    component: dict,
+    groups: dict[tuple[str, ...], list[dict[str, Any]]],
+) -> None:
+    """
+    Stamp ``required_groups`` onto the component root + nested entries.
+
+    Constraints at path ``()`` live on the component itself; deeper
+    paths attach to the matching nested ``ConfigEntry`` (only
+    meaningful when the target entry is a ``NESTED`` container).
+    Paths that don't match any catalog entry are silently dropped —
+    schema-only constructs (``cv.ensure_list`` markers, internal
+    wrappers) can show up in the schema walk without a catalog
+    counterpart.
+
+    Constraint-referenced sibling fields (plus every ``Inclusive``
+    group member that shares the same group name) are promoted off
+    ``advanced`` so the user can see the choices upstream actually
+    requires — issue #924, where ``light.esp32_rmt_led_strip``'s
+    required ``chipset`` field sat hidden under Advanced Settings.
+    """
+    if not groups:
+        return
+    root = groups.get(())
+    if root:
+        component["required_groups"] = [dict(g) for g in root]
+        component["config_entries"] = _promote_constraint_members(
+            component.get("config_entries") or [], root
+        )
+
+    def visit(entry: dict, path: tuple[str, ...]) -> None:
+        nested = groups.get(path)
+        if not nested:
+            return
+        entry["required_groups"] = [dict(g) for g in nested]
+        entry["config_entries"] = _promote_constraint_members(
+            entry.get("config_entries") or [], nested
+        )
+
+    _walk_catalog_entries(component.get("config_entries") or [], visit)
+
+
+def _promote_constraint_members(
+    entries: list[dict],
+    groups: list[dict[str, Any]],
+) -> list[dict]:
+    """
+    Demote constraint-referenced siblings off ``advanced`` and re-sort.
+
+    A field whose key appears in any ``required_group.keys`` — or
+    that shares a ``group`` (``cv.Inclusive``) with such a field —
+    must be visible on the main form, because the upstream schema
+    fails validation without it. Returns the original list when
+    nothing changed; otherwise a fresh, re-sorted list (the
+    advanced/main split feeds into :func:`_sort_entries`'s key, so
+    a demotion changes ordering).
+    """
+    keys_in_groups = {key for g in groups for key in g.get("keys", [])}
+    if not keys_in_groups:
+        return entries
+    inclusive_groups = {
+        e["group"] for e in entries if e["key"] in keys_in_groups and e.get("group")
+    }
+    mutated = False
+    for entry in entries:
+        if (
+            entry["key"] in keys_in_groups
+            or (inclusive_groups and entry.get("group") in inclusive_groups)
+        ) and entry.get("advanced"):
+            entry["advanced"] = False
+            mutated = True
+    if not mutated:
+        return entries
+    return _sort_entries(entries)
 
 
 def _numeric_range_bounds(node: Any) -> tuple[int | float, int | float] | None:

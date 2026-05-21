@@ -16,10 +16,11 @@ either gets covered or lights up CI.
 from __future__ import annotations
 
 from esphome_device_builder.controllers.components import (
+    _load_component,
     _load_config_entry,
     _materialise_entry,
 )
-from esphome_device_builder.models.common import ConfigEntryType
+from esphome_device_builder.models.common import ConfigEntryType, RequiredGroupKind
 
 
 def test_load_config_entry_propagates_unit_options() -> None:
@@ -283,3 +284,141 @@ def test_materialise_entry_carries_supported_platforms_through_nested() -> None:
     materialised = _materialise_entry(loaded, target_platform="esp32")
     assert materialised.config_entries is not None
     assert materialised.config_entries[0].supported_platforms == ["esp32"]
+
+
+def test_load_config_entry_propagates_group() -> None:
+    """``group`` rides through the JSON load for ``cv.Inclusive`` fields (issue #924)."""
+    entry = _load_config_entry(
+        {
+            "key": "bit0_high",
+            "type": "time_period",
+            "label": "Bit 0 high",
+            "group": "custom",
+        }
+    )
+    assert entry.group == "custom"
+
+
+def test_load_config_entry_group_defaults_to_none() -> None:
+    """Entries without ``group`` (the common case) load with ``None``."""
+    entry = _load_config_entry(
+        {"key": "ssid", "type": "string", "label": "SSID"},
+    )
+    assert entry.group is None
+
+
+def test_load_config_entry_required_groups_round_trips() -> None:
+    """Nested ``required_groups`` parse into typed ``RequiredGroup`` objects."""
+    entry = _load_config_entry(
+        {
+            "key": "eap",
+            "type": "nested",
+            "label": "EAP",
+            "required_groups": [
+                {"kind": "at_least_one", "keys": ["identity", "certificate"]},
+            ],
+        }
+    )
+    assert len(entry.required_groups) == 1
+    assert entry.required_groups[0].kind is RequiredGroupKind.AT_LEAST_ONE
+    assert entry.required_groups[0].keys == ["identity", "certificate"]
+
+
+def test_load_config_entry_drops_required_groups_with_unknown_kind() -> None:
+    """
+    Unknown ``kind`` values fold away — same fail-soft policy as ``_safe_enum``.
+
+    A catalog from a future release that introduces a fifth
+    cardinality validator must not crash an older dashboard's
+    loader; the offending entry is dropped so the rest of the
+    constraint list still reaches the frontend.
+    """
+    entry = _load_config_entry(
+        {
+            "key": "eap",
+            "type": "nested",
+            "label": "EAP",
+            "required_groups": [
+                {"kind": "at_least_one", "keys": ["a"]},
+                {"kind": "future_variant", "keys": ["b"]},
+            ],
+        }
+    )
+    assert [g.kind for g in entry.required_groups] == [RequiredGroupKind.AT_LEAST_ONE]
+
+
+def test_load_config_entry_drops_required_groups_with_empty_keys() -> None:
+    """A group with no string keys is meaningless and gets dropped."""
+    entry = _load_config_entry(
+        {
+            "key": "x",
+            "type": "nested",
+            "label": "X",
+            "required_groups": [
+                {"kind": "exactly_one", "keys": []},
+                {"kind": "exactly_one", "keys": [42, None]},
+                {"kind": "exactly_one"},  # missing keys
+            ],
+        }
+    )
+    assert entry.required_groups == []
+
+
+def test_materialise_entry_carries_group_and_required_groups() -> None:
+    """The per-request copy keeps both new fields visible to the frontend."""
+    loaded = _load_config_entry(
+        {
+            "key": "eap",
+            "type": "nested",
+            "label": "EAP",
+            "required_groups": [
+                {"kind": "at_least_one", "keys": ["identity", "certificate"]},
+            ],
+            "config_entries": [
+                {
+                    "key": "certificate",
+                    "type": "string",
+                    "label": "Certificate",
+                    "group": "cert_and_key",
+                },
+            ],
+        }
+    )
+    materialised = _materialise_entry(loaded, target_platform="esp32")
+    assert len(materialised.required_groups) == 1
+    assert materialised.required_groups[0].kind is RequiredGroupKind.AT_LEAST_ONE
+    assert materialised.config_entries is not None
+    assert materialised.config_entries[0].group == "cert_and_key"
+
+
+def test_load_component_reads_top_level_required_groups() -> None:
+    """Component-level ``required_groups`` (issue #924) round-trip from JSON."""
+    component = _load_component(
+        {
+            "id": "light.esp32_rmt_led_strip",
+            "name": "ESP32 RMT LED Strip",
+            "description": "",
+            "category": "light",
+            "required_groups": [
+                {"kind": "exactly_one", "keys": ["chipset", "bit0_high"]},
+            ],
+            "config_entries": [],
+        }
+    )
+    assert len(component.required_groups) == 1
+    assert component.required_groups[0].kind is RequiredGroupKind.EXACTLY_ONE
+    assert component.required_groups[0].keys == ["chipset", "bit0_high"]
+
+
+def test_load_component_required_groups_defaults_to_empty_list() -> None:
+    """A component without ``required_groups`` parses as the empty-list default."""
+    component = _load_component(
+        {
+            "id": "wifi",
+            "name": "Wi-Fi",
+            "description": "",
+            "category": "core",
+            "config_entries": [],
+        }
+    )
+    assert component.required_groups == []

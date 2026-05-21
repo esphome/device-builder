@@ -20,6 +20,8 @@ from ..models import (
     PagedComponentsResponse,
     PinFeature,
     PinMode,
+    RequiredGroup,
+    RequiredGroupKind,
 )
 from .devices.helpers import _apply_featured_presets
 
@@ -737,6 +739,8 @@ def _materialise_entry(entry: ConfigEntry, target_platform: str | None) -> Confi
         config_entries=nested,
         platform_type=entry.platform_type,
         supported_platforms=list(entry.supported_platforms),
+        group=entry.group,
+        required_groups=list(entry.required_groups),
     )
 
 
@@ -818,6 +822,35 @@ def _load_display_format(raw: Any) -> str | None:
     return None
 
 
+def _load_required_groups(raw: Any) -> list[RequiredGroup]:
+    """
+    Normalise the JSON ``required_groups`` field into ``RequiredGroup`` objects.
+
+    Returns an empty list for missing / malformed input so callers
+    can store the field unconditionally. Unknown ``kind`` values
+    (a future cardinality validator a stale dashboard wouldn't
+    understand) drop the offending entry — same fail-soft policy
+    as ``_load_display_format`` / ``_safe_enum``.
+    """
+    if not isinstance(raw, list) or not raw:
+        return []
+    out: list[RequiredGroup] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        kind = _safe_enum(RequiredGroupKind, item.get("kind"))
+        if kind is None:
+            continue
+        keys_raw = item.get("keys")
+        if not isinstance(keys_raw, list):
+            continue
+        keys = [str(k) for k in keys_raw if isinstance(k, str)]
+        if not keys:
+            continue
+        out.append(RequiredGroup(kind=kind, keys=keys))
+    return out
+
+
 def _load_config_entry(data: dict) -> ConfigEntry:
     """Load a ConfigEntry from its JSON representation."""
     range_val: tuple[int | float, int | float] | None = None
@@ -862,6 +895,8 @@ def _load_config_entry(data: dict) -> ConfigEntry:
         config_entries=nested,
         platform_type=data.get("platform_type") or None,
         supported_platforms=list(data.get("supported_platforms") or []),
+        group=data.get("group") or None,
+        required_groups=_load_required_groups(data.get("required_groups")),
     )
 
 
@@ -878,4 +913,5 @@ def _load_component(data: dict) -> ComponentCatalogEntry:
         multi_conf=bool(data.get("multi_conf", False)),
         supported_platforms=list(data.get("supported_platforms", [])),
         config_entries=[_load_config_entry(e) for e in data.get("config_entries", [])],
+        required_groups=_load_required_groups(data.get("required_groups")),
     )

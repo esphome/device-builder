@@ -544,6 +544,47 @@ class ConfigValueOption(DataClassORJSONMixin):
     value: str
 
 
+class RequiredGroupKind(StrEnum):
+    """
+    Cross-field cardinality constraint over a group of sibling keys.
+
+    Mirrors the four ``cv.has_*_one_key`` validators upstream
+    esphome exposes: a schema decorated with one of these must
+    satisfy the cardinality rule across the named keys at
+    validation time. The wire form is the StrEnum value; the
+    frontend renders an inline hint and validates client-side.
+    """
+
+    # Exactly one of the listed keys must be present (e.g.
+    # ``esp32_rmt_led_strip`` requires either ``chipset`` *or* the
+    # manual-timing fields, never both).
+    EXACTLY_ONE = "exactly_one"
+    # At least one of the listed keys must be present (e.g.
+    # ``wifi.networks[].eap`` requires either an ``identity`` or a
+    # client certificate).
+    AT_LEAST_ONE = "at_least_one"
+    # At most one of the listed keys may be present.
+    AT_MOST_ONE = "at_most_one"
+    # Either none or all of the listed keys must be present.
+    NONE_OR_ALL = "none_or_all"
+
+
+@dataclass
+class RequiredGroup(DataClassORJSONMixin):
+    """
+    Cross-field "must specify one of these" constraint.
+
+    Lives on the schema that owns the referenced keys —
+    ``ComponentCatalogEntry.required_groups`` for component-level
+    constraints, ``ConfigEntry.required_groups`` (when
+    ``type=NESTED``) for nested-schema constraints. ``keys`` lists
+    the sibling YAML key names the cardinality rule applies to.
+    """
+
+    kind: RequiredGroupKind
+    keys: list[str] = field(default_factory=list)
+
+
 @dataclass
 class ConfigEntry(DataClassORJSONMixin):
     """A single field in a component's configuration schema.
@@ -726,6 +767,17 @@ class ConfigEntry(DataClassORJSONMixin):
     # `{"min": 0, "max": 100}` for a range message).
     translation_params: dict[str, Any] | None = None
 
+    # === cross-field constraints ===
+
+    # Inclusive-group name (esphome's ``cv.Inclusive(key, group)``):
+    # fields sharing the same ``group`` value are all-or-nothing —
+    # the user must set every member of the group, or none. None
+    # when the field stands alone. Frontend pairs this with the
+    # parent schema's ``required_groups`` to render the full
+    # "either X or all of {Y, Z, …}" rule (e.g. the manual-timing
+    # fields on ``light.esp32_rmt_led_strip``).
+    group: str | None = None
+
     # === nested entries (only meaningful when type == NESTED) ===
 
     # Inner config entries when this entry's value is a structured YAML
@@ -734,6 +786,14 @@ class ConfigEntry(DataClassORJSONMixin):
     # temperature / humidity readings). Frontend renders the parent
     # field as a collapsible group containing the inner form.
     config_entries: list[ConfigEntry] | None = None
+
+    # Cross-field cardinality constraints over this entry's
+    # ``config_entries``. Empty by default; populated when the
+    # nested schema is wrapped in ``cv.has_*_one_key(...)``
+    # upstream (e.g. ``wifi.networks[].eap`` requires at least one
+    # of ``identity`` / ``certificate``). Only meaningful when
+    # ``type == NESTED``.
+    required_groups: list[RequiredGroup] = field(default_factory=list)
 
     # Set when the nested entry represents an ESPHome entity (sensor,
     # binary_sensor, ...) rather than a plain config group. The

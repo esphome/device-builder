@@ -8,7 +8,7 @@ from typing import Any
 
 from mashumaro.mixins.orjson import DataClassORJSONMixin
 
-from .common import ConfigEntry, PagedResponse
+from .common import ConfigEntry, PagedResponse, RequiredGroup
 
 
 class ComponentCategory(StrEnum):
@@ -126,6 +126,15 @@ class ComponentCatalogEntry(DataClassORJSONMixin):
     # ConfigEntry instances of type=NESTED that carry their own
     # ``config_entries``.
     config_entries: list[ConfigEntry] = field(default_factory=list)
+
+    # Cross-field cardinality constraints over ``config_entries``.
+    # Empty by default; populated when the upstream component
+    # wraps its top-level ``CONFIG_SCHEMA`` in
+    # ``cv.has_*_one_key(...)`` (e.g. ``light.esp32_rmt_led_strip``
+    # requires exactly one of ``chipset`` / the manual-timing
+    # group). Frontend pairs these with each entry's ``group`` to
+    # render the full "either X or all of {Y, Z, …}" rule.
+    required_groups: list[RequiredGroup] = field(default_factory=list)
 
 
 @dataclass
