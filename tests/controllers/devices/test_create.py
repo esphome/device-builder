@@ -132,15 +132,7 @@ async def test_create_device_emits_minimal_stub_when_no_board_or_file_content(
 async def test_create_device_slugifies_hostname_and_preserves_raw_name_as_friendly(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """Raw user input becomes ``friendly_name``; the slug becomes ``name`` and filename.
-
-    Regression for #926: the wizard previously slugified
-    ``friendly_name`` too, so "Lüftung EG Bad" rendered as
-    ``luftung-eg-bad`` for both fields. The hostname has to stay
-    slugified (mDNS / filename / esphome.name: schema), but the
-    friendly_name is a display label and should round-trip the
-    user's input character-for-character.
-    """
+    """Pins that raw input drives ``friendly_name`` while a slug drives ``name`` and filename."""
     ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
     boards = StubBoardLookups(ctrl)
     boards.find_by_pio_board_returns(None)
@@ -154,10 +146,30 @@ async def test_create_device_slugifies_hostname_and_preserves_raw_name_as_friend
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_create_device_quotes_friendly_name_with_yaml_metachars(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """Pins that YAML metacharacters in ``friendly_name`` round-trip through quoted scalars."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    boards = StubBoardLookups(ctrl)
+    boards.find_by_pio_board_returns(None)
+    boards.find_by_platform_variant_returns(None)
+
+    result = await ctrl.create_device(name="Bedroom #2: lamp")
+
+    assert result.configuration == "bedroom-2-lamp.yaml"
+    content = (tmp_path / "bedroom-2-lamp.yaml").read_text("utf-8")
+    # `#` would otherwise start a comment; `: ` would split into a
+    # nested key/value pair. The safe-scalar renderer double-quotes
+    # the value so neither happens on round trip.
+    assert '  friendly_name: "Bedroom #2: lamp"\n' in content
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
 async def test_create_device_rejects_name_with_no_hostname_safe_characters(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """A name that slugifies to empty (e.g. only emoji) raises ``INVALID_ARGS``."""
+    """Pins that a name slugifying to empty (only emoji etc.) raises ``INVALID_ARGS``."""
     ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
 
     with pytest.raises(CommandError) as excinfo:

@@ -22,6 +22,7 @@ from esphome.core import EsphomeError
 from esphome.storage_json import StorageJSON
 
 from .storage_path import resolve_storage_path
+from .yaml import _safe_yaml_scalar
 
 # Prefer the central dispatcher landing in esphome/esphome#16300
 # so we depend on a stable upstream API rather than reaching into
@@ -250,10 +251,15 @@ def generate_device_yaml(
     lines.append(f"# Definition: definitions/boards/{board.id}/manifest.yaml")
     lines.append("")
 
-    # ESPHome core
+    # ESPHome core. ``name`` arrives already slug-safe (see
+    # ``mutations_create``), but ``friendly_name`` is raw user
+    # input that may contain ``:``, ``#``, leading indicators, or
+    # other YAML metacharacters — route it through the safe-scalar
+    # renderer so a label like ``Bedroom #2`` doesn't truncate at
+    # the comment marker on round trip.
     lines.append("esphome:")
     lines.append(f"  name: {name}")
-    lines.append(f"  friendly_name: {friendly_name}")
+    lines.append(f"  friendly_name: {_safe_yaml_scalar(friendly_name)}")
     lines.append("")
 
     # Platform config
@@ -436,7 +442,8 @@ def generate_minimal_stub_yaml(name: str, friendly_name: str) -> str:
     """
     api_key = base64.b64encode(secrets.token_bytes(32)).decode()
     return (
-        f"esphome:\n  name: {name}\n  friendly_name: {friendly_name}\n\n"
+        f"esphome:\n  name: {name}\n"
+        f"  friendly_name: {_safe_yaml_scalar(friendly_name)}\n\n"
         "# Replace this with your actual platform if you aren't using ESP32.\n"
         "esp32:\n  board: esp32dev\n\n"
         "logger:\n\n"
