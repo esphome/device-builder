@@ -27,7 +27,10 @@ from unittest.mock import patch
 
 import pytest
 
-from esphome_device_builder.__main__ import _validate_credentials
+from esphome_device_builder.__main__ import (
+    _validate_credentials,
+    _warn_deprecated_credential_flags,
+)
 from esphome_device_builder.controllers.config import DashboardSettings
 
 
@@ -153,6 +156,41 @@ def test_validate_credentials_error_message_names_new_env_vars(
     # reintroduce the system-var collision footgun.
     assert "$USERNAME" not in err
     assert "$PASSWORD" not in err
+
+
+# ---------------------------------------------------------------------------
+# _warn_deprecated_credential_flags — log on --username / --password
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("username", "password"),
+    [
+        ("admin", "hunter2"),
+        ("admin", ""),
+        ("", "hunter2"),
+    ],
+)
+def test_warn_deprecated_credential_flags_logs_when_cli_used(
+    username: str,
+    password: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A CLI value on either flag triggers the deprecation log."""
+    args = argparse.Namespace(username=username, password=password)
+    with caplog.at_level("WARNING", logger="esphome_device_builder"):
+        _warn_deprecated_credential_flags(args)
+    assert any("DEPRECATION" in r.getMessage() for r in caplog.records)
+
+
+def test_warn_deprecated_credential_flags_silent_when_env_only(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """No warning when neither CLI flag is set."""
+    args = argparse.Namespace(username="", password="")
+    with caplog.at_level("WARNING", logger="esphome_device_builder"):
+        _warn_deprecated_credential_flags(args)
+    assert caplog.records == []
 
 
 # ---------------------------------------------------------------------------

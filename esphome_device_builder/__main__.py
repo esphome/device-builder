@@ -133,14 +133,19 @@ def main() -> None:
         "--username",
         default="",
         help=(
-            "Dashboard username (must be paired with --password; falls back to $ESPHOME_USERNAME)"
+            "Deprecated; use $ESPHOME_USERNAME instead. Dashboard username "
+            "(must be paired with --password). The flag will be removed in "
+            "a future release"
         ),
     )
     parser.add_argument(
         "--password",
         default="",
         help=(
-            "Dashboard password (must be paired with --username; falls back to $ESPHOME_PASSWORD)"
+            "Deprecated; use $ESPHOME_PASSWORD instead. Dashboard password "
+            "(must be paired with --username). The flag will be removed in "
+            "a future release; values passed on the command line are visible "
+            "to every other local user via process listings"
         ),
     )
     parser.add_argument("--ha-addon", action="store_true", help="Running as HA add-on")
@@ -244,6 +249,8 @@ def main() -> None:
 
     _setup_logging(args.log_level, args.log_file)
 
+    _warn_deprecated_credential_flags(args)
+
     # Deferred so ``--version`` / ``--help`` keep working in installs
     # that omit the optional ``[esphome]`` extra — both modules below
     # transitively import ``esphome`` at module load time.
@@ -339,6 +346,18 @@ def _validate_credentials(parser: argparse.ArgumentParser, args: argparse.Namesp
         )
 
 
+def _warn_deprecated_credential_flags(args: argparse.Namespace) -> None:
+    """Log a deprecation warning when --username / --password are used."""
+    if not (args.username or args.password):
+        return
+    logging.getLogger(_LOGGER_NAME).warning(
+        "DEPRECATION: --username / --password are deprecated and will be "
+        "removed in a future release. Use $ESPHOME_USERNAME / "
+        "$ESPHOME_PASSWORD env vars instead; command-line arguments are "
+        "visible to every other local user via process listings."
+    )
+
+
 def _warn_if_unprotected(settings: DashboardSettings) -> None:
     """Print a banner when starting without any authentication boundary."""
     if settings.using_password:
@@ -352,7 +371,7 @@ def _warn_if_unprotected(settings: DashboardSettings) -> None:
         "\n%s\n"
         " WARNING: Dashboard is running WITHOUT AUTHENTICATION.\n"
         " Anyone with network access to %s:%d can manage your devices.\n"
-        " Set --username and --password (or $ESPHOME_USERNAME / $ESPHOME_PASSWORD) to enable.\n"
+        " Set $ESPHOME_USERNAME / $ESPHOME_PASSWORD env vars to enable.\n"
         "%s",
         banner,
         settings.host,
