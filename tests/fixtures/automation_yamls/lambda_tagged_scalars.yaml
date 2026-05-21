@@ -1,0 +1,14 @@
+esphome:
+  name: x
+
+script:
+  - id: warmtepomp_turn_off_sequence
+    then:
+      - delay: !lambda return 0;
+
+interval:
+  - interval: 5s
+    then:
+      - lambda: !lambda |
+          // body
+          return;

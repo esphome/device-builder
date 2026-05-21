@@ -15,7 +15,6 @@ from unittest.mock import patch
 
 import pytest
 from ruamel.yaml.scalarstring import LiteralScalarString
-from ruamel.yaml.tag import Tag
 
 from esphome_device_builder.controllers.automations import catalog
 from esphome_device_builder.controllers.automations.controller import (
@@ -328,14 +327,17 @@ def test_render_value_passes_lists_through_recursively() -> None:
 
 
 def test_render_value_handles_tagged_lambda_scalar() -> None:
-    """A ruamel scalar with a ``!lambda`` tag surfaces as the lambda sentinel."""
+    """A ruamel ``!lambda``-tagged plain scalar surfaces as the lambda sentinel."""
+    yaml = make_yaml()
+    data = yaml.load('a: !lambda ESP_LOGI("x");\n')
+    assert _render_value(data["a"]) == {"_lambda": 'ESP_LOGI("x");'}
 
-    class _Tagged(str):
-        pass
 
-    tagged = _Tagged('ESP_LOGI("x");')
-    tagged.yaml_tag = Tag(suffix="!lambda")  # type: ignore[attr-defined]
-    assert _render_value(tagged) == {"_lambda": 'ESP_LOGI("x");'}
+def test_render_value_falls_back_to_str_for_unknown_tagged_scalar() -> None:
+    """A non-``!lambda`` tagged scalar surfaces as its plain string value."""
+    yaml = make_yaml()
+    data = yaml.load("a: !custom hello\n")
+    assert _render_value(data["a"]) == "hello"
 
 
 def test_render_params_wraps_non_dict_under_value_key() -> None:

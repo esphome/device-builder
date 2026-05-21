@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import orjson
 import pytest
 
 from esphome_device_builder.controllers.automations.parsing import parse_device_yaml
@@ -301,6 +302,28 @@ def test_parse_lambda_action_surfaces_lambda_sentinel() -> None:
     assert isinstance(body, dict)
     assert "_lambda" in body
     assert "ESP_LOGI" in body["_lambda"]
+
+
+def test_parse_tagged_lambda_scalars_render_as_sentinel() -> None:
+    """!lambda-tagged scalars (plain + ``|`` block) parse to the sentinel and are JSON-safe."""
+    parsed = parse_device_yaml(_load("lambda_tagged_scalars.yaml"))
+    by_kind = {p.location.kind: p for p in parsed}
+
+    # Script: ``- delay: !lambda return 0;`` → params={"id": {"_lambda": "return 0;"}}.
+    script_actions = by_kind["script"].automation.actions
+    assert [a.action_id for a in script_actions] == ["delay"]
+    assert script_actions[0].params == {"id": {"_lambda": "return 0;"}}
+
+    # Interval: ``- lambda: !lambda |`` block → params={"id": {"_lambda": "<body>"}}.
+    interval_actions = by_kind["interval"].automation.actions
+    assert [a.action_id for a in interval_actions] == ["lambda"]
+    interval_body = interval_actions[0].params.get("id") or interval_actions[0].params
+    assert isinstance(interval_body, dict)
+    assert interval_body.get("_lambda", "").strip().endswith("return;")
+
+    # The whole response round-trips through orjson — TaggedScalar
+    # would have raised "Type is not JSON serializable" here.
+    orjson.dumps([p.to_dict() for p in parsed])
 
 
 # ---------------------------------------------------------------------------

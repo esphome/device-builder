@@ -23,6 +23,7 @@ from io import StringIO
 from typing import Any
 
 from ruamel.yaml import YAML
+from ruamel.yaml.comments import TaggedScalar
 from ruamel.yaml.scalarstring import LiteralScalarString
 
 from ...helpers.api import CommandError
@@ -498,18 +499,17 @@ def _render_value(value: Any) -> Any:
 
     Lambda block scalars (``|`` or ``!lambda`` tagged) become the
     ``{"_lambda": "<source>"}`` sentinel; ruamel maps and lists
-    become plain dicts/lists, recursively.
+    become plain dicts/lists, recursively. Tagged scalars from
+    ruamel are not JSON-serialisable on their own, so any
+    unrecognised tag falls back to its plain string value.
     """
     if isinstance(value, LiteralScalarString):
         return {"_lambda": str(value)}
-    # Tagged ``!lambda`` scalars come through ruamel as a regular
-    # string carrying a ``.yaml_tag`` attribute; the LiteralScalar
-    # branch above handles the common case of an unmarked ``|``
-    # block, which ESPHome treats as a lambda when the schema's
-    # ``templatable`` flag is set.
-    tag = getattr(value, "yaml_tag", None)
-    if tag and getattr(tag, "value", "") == "!lambda":
-        return {"_lambda": str(value)}
+    if isinstance(value, TaggedScalar):
+        tag = getattr(value.tag, "value", "") if value.tag is not None else ""
+        if tag == "!lambda":
+            return {"_lambda": str(value)}
+        return str(value)
     if isinstance(value, dict):
         return {k: _render_value(v) for k, v in value.items()}
     if isinstance(value, list):
