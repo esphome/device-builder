@@ -43,12 +43,16 @@ async def create_device(  # noqa: PLR0912, PLR0915
     (its hard-coded ``board: esp32dev`` would mis-bind).
     """
     # The wizard passes the user's raw input here — capitalisation,
-    # spaces, unicode all intact. Slugify it for the hostname (mDNS
-    # / filename / esphome.name: schema all require the canonical
-    # lowercase-dashed form) and keep the original as the display
-    # label written into esphome.friendly_name:. Centralising the
-    # slug here keeps the frontend out of the sanitisation business
-    # and avoids two different slug implementations drifting apart.
+    # inter-word spaces, and unicode all stay intact (only the
+    # surrounding whitespace is trimmed, since accidental leading
+    # / trailing spaces on a display label are almost certainly
+    # noise). Slugify the cleaned value for the hostname (mDNS /
+    # filename / esphome.name: schema all require the canonical
+    # lowercase-dashed form) and keep the cleaned original as the
+    # display label written into esphome.friendly_name:.
+    # Centralising the slug here keeps the frontend out of the
+    # sanitisation business and avoids two slug implementations
+    # drifting apart.
     friendly = name.strip()
     if not friendly:
         raise CommandError(ErrorCode.INVALID_ARGS, "name is required")

@@ -16,6 +16,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from esphome.storage_json import StorageJSON
 
 from esphome_device_builder.controllers.config import (
     get_device_metadata,
@@ -143,6 +144,10 @@ async def test_create_device_slugifies_hostname_and_preserves_raw_name_as_friend
     assert result.configuration == "luftung-eg-bad.yaml"
     content = (tmp_path / "luftung-eg-bad.yaml").read_text("utf-8")
     assert "esphome:\n  name: luftung-eg-bad\n  friendly_name: Lüftung EG Bad\n" in content
+    storage = StorageJSON.load(tmp_path / "storage.json")
+    assert storage is not None
+    assert storage.name == "luftung-eg-bad"
+    assert storage.friendly_name == "Lüftung EG Bad"
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
@@ -163,6 +168,9 @@ async def test_create_device_quotes_friendly_name_with_yaml_metachars(
     # nested key/value pair. The safe-scalar renderer double-quotes
     # the value so neither happens on round trip.
     assert '  friendly_name: "Bedroom #2: lamp"\n' in content
+    storage = StorageJSON.load(tmp_path / "storage.json")
+    assert storage is not None
+    assert storage.friendly_name == "Bedroom #2: lamp"
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
