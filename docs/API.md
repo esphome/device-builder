@@ -97,7 +97,7 @@ Connections that arrive on the trusted ingress site (HA add-on supervisor proxy)
 |---------|------|----------|-------------|
 | `devices/list` | — | `DevicesResponse` | List configured + importable devices |
 | `devices/get_states` | — | `dict` | Get device online/offline states |
-| `devices/create` | `{name, board_id, config_type?, ssid?, psk?, file_content?}` | `WizardResponse` | Create device from board definition |
+| `devices/create` | `{name, board_id, config_type?, ssid?, psk?, file_content?}` | `WizardResponse` | Create device from board definition. `name` is the user's raw display label (capitalisation, spaces, unicode all preserved); the backend slugifies it for `esphome.name:` and the YAML filename and writes the original verbatim into `esphome.friendly_name:`. Callers that already pass a slugified value get the same hostname/friendly_name pair as before (slug-of-slug is a no-op). |
 | `devices/update` | `{name, friendly_name?, comment?, board_id?}` | `UpdateDeviceResponse` | Update device metadata |
 | `devices/set_labels` | `{configuration, label_ids: string[]}` | `Device` | Replace this device's label assignments. Pass `[]` to clear. Unknown ids return `INVALID_ARGS`. Fires `device_updated` after the scanner reload. |
 | `devices/rename` | `{configuration, new_name}` | — | Rename device via ESPHome CLI |

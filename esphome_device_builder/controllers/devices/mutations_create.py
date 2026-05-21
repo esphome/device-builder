@@ -42,9 +42,22 @@ async def create_device(  # noqa: PLR0912, PLR0915
     when not explicitly provided, except for the stub branch
     (its hard-coded ``board: esp32dev`` would mis-bind).
     """
-    name = name.strip()
-    if not name:
+    # The wizard passes the user's raw input here — capitalisation,
+    # spaces, unicode all intact. Slugify it for the hostname (mDNS
+    # / filename / esphome.name: schema all require the canonical
+    # lowercase-dashed form) and keep the original as the display
+    # label written into esphome.friendly_name:. Centralising the
+    # slug here keeps the frontend out of the sanitisation business
+    # and avoids two different slug implementations drifting apart.
+    friendly = name.strip()
+    if not friendly:
         raise CommandError(ErrorCode.INVALID_ARGS, "name is required")
+    name = friendly_name_slugify(friendly)
+    if not name:
+        raise CommandError(
+            ErrorCode.INVALID_ARGS,
+            f"name {friendly!r} has no hostname-safe characters",
+        )
 
     filename = f"{name}.yaml"
     config_path = controller._db.settings.rel_path(filename)
@@ -68,7 +81,6 @@ async def create_device(  # noqa: PLR0912, PLR0915
             msg = f"Unknown board: {board_id}"
             raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
-    friendly = friendly_name_slugify(name)
     yaml_content, source = controller._yaml_content_for_create(
         name, friendly, board, file_content, ssid, psk
     )
