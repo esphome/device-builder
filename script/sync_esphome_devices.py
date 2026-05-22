@@ -51,7 +51,8 @@ _LOGGER = logging.getLogger("sync_esphome_devices")
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _DEFINITIONS_DIR = _REPO_ROOT / "esphome_device_builder" / "definitions"
 _BOARDS_DIR = _DEFINITIONS_DIR / "boards"
-_COMPONENTS_JSON = _DEFINITIONS_DIR / "components.json"
+_COMPONENTS_INDEX_JSON = _DEFINITIONS_DIR / "components.index.json"
+_COMPONENTS_BODIES_DIR = _DEFINITIONS_DIR / "components"
 _CACHE_ROOT = _REPO_ROOT / ".cache"
 _DEVICES_CLONE_DIR = _CACHE_ROOT / "esphome-devices"
 _DEVICES_REPO_URL = "https://github.com/esphome/esphome-devices.git"
@@ -1362,11 +1363,24 @@ def _prune_removed(active_remote_ids: set[str]) -> list[str]:
 
 
 def _load_components_index() -> dict[str, dict[str, Any]]:
-    """Index ``definitions/components.json`` by component id."""
-    if not _COMPONENTS_JSON.is_file():
-        raise SystemExit(f"{_COMPONENTS_JSON} not found — run script/sync_components.py first.")
-    raw = json.loads(_COMPONENTS_JSON.read_text(encoding="utf-8"))
-    return {comp["id"]: comp for comp in raw.get("components", []) if comp.get("id")}
+    """Join the slim component index with each per-id body, keyed by component id."""
+    if not _COMPONENTS_INDEX_JSON.is_file():
+        raise SystemExit(
+            f"{_COMPONENTS_INDEX_JSON} not found — run script/sync_components.py first."
+        )
+    raw = json.loads(_COMPONENTS_INDEX_JSON.read_text(encoding="utf-8"))
+    by_id: dict[str, dict[str, Any]] = {}
+    for comp in raw.get("components", []):
+        cid = comp.get("id")
+        if not cid:
+            continue
+        body_path = _COMPONENTS_BODIES_DIR / f"{cid}.json"
+        if body_path.is_file():
+            body = json.loads(body_path.read_text(encoding="utf-8"))
+            by_id[cid] = {**comp, **body}
+        else:
+            by_id[cid] = comp
+    return by_id
 
 
 def _parse_args() -> argparse.Namespace:

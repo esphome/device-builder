@@ -1,0 +1,1 @@
+{"id":"lvgl","name":"LVGL Binary Sensor","description":"The `lvgl` binary sensor platform creates a binary sensor from an LVGL widget and requires [LVGL](https://esphome.io/components/lvgl/) to be configured.","category":"misc","docs_url":"https://esphome.io/components/binary_sensor/lvgl","image_url":"https://esphome.io/images/lvgl_c_num.png","dependencies":["display"]}

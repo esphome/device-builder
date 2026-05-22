@@ -85,7 +85,7 @@ async def create_device(  # noqa: PLR0912, PLR0915, C901
             msg = f"Unknown board: {board_id}"
             raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
-    yaml_content, source = controller._yaml_content_for_create(
+    yaml_content, source = await controller._yaml_content_for_create(
         name, friendly, board, file_content, ssid, psk
     )
 

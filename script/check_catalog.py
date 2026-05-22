@@ -33,7 +33,10 @@ from typing import Any
 # installing the package.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from esphome_device_builder.controllers.components import ComponentCatalog
+from esphome_device_builder.controllers.components import (
+    ComponentCatalog,
+    _load_body_from_disk,
+)
 from script.sync_components import _FIELD_BULLET_PATTERN
 
 # Per-component shape assertions. Each entry is a tuple of
@@ -156,9 +159,12 @@ def main() -> int:  # noqa: C901
 
     failures: list[str] = []
     for component_id, fields in _EXPECTATIONS:
-        component = catalog._by_id.get(component_id)
-        if component is None:
+        if component_id not in catalog._by_id:
             failures.append(f"missing component: {component_id}")
+            continue
+        component = _load_body_from_disk(component_id)
+        if component is None:
+            failures.append(f"missing component body on disk: {component_id}")
             continue
         for key, expected_type, expected_required, expected_refs in fields:
             entry = next((e for e in component.config_entries if e.key == key), None)
@@ -253,9 +259,12 @@ def _check_option_lists(catalog: ComponentCatalog) -> list[str]:
     """Return a failure message per field whose option list is too small."""
     failures: list[str] = []
     for cid, path, minimum in _OPTION_EXPECTATIONS:
-        component = catalog._by_id.get(cid)
-        if component is None:
+        if cid not in catalog._by_id:
             failures.append(f"options check: missing component {cid}")
+            continue
+        component = _load_body_from_disk(cid)
+        if component is None:
+            failures.append(f"options check: missing body for {cid}")
             continue
         entry = _resolve_field(component, path)
         if entry is None:
@@ -293,9 +302,12 @@ def _check_component_gating(catalog: ComponentCatalog) -> list[str]:
     """Return a failure message per field missing its ``depends_on_component``."""
     failures: list[str] = []
     for cid, path, gate in _GATING_EXPECTATIONS:
-        component = catalog._by_id.get(cid)
-        if component is None:
+        if cid not in catalog._by_id:
             failures.append(f"gating check: missing component {cid}")
+            continue
+        component = _load_body_from_disk(cid)
+        if component is None:
+            failures.append(f"gating check: missing body for {cid}")
             continue
         entry = _resolve_field(component, path)
         if entry is None:

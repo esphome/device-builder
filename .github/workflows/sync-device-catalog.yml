@@ -50,7 +50,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           # The device sync only needs the base package (pyyaml +
-          # components.json reader). No esphome introspection here.
+          # component catalog reader). No esphome introspection here.
           pip install -e '.[test]'
 
       - name: Run sync_esphome_devices
@@ -65,7 +65,7 @@ jobs:
 
       - name: Validate definitions
         # Re-validates every board (curated + imported) against the
-        # JSON Schema and the components.json cross-references.
+        # JSON Schema and the component catalog cross-references.
         run: python script/validate_definitions.py
 
       - name: Regenerate boards.json

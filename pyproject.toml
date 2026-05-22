@@ -94,7 +94,8 @@ esphome_device_builder = [
   "py.typed",
   "definitions/boards/*/images/*",
   "definitions/boards.json",
-  "definitions/components.json",
+  "definitions/components.index.json",
+  "definitions/components/*.json",
   "definitions/automations.json",
 ]
 

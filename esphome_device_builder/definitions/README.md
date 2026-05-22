@@ -208,7 +208,7 @@ keep whatever YAML they already have, and users are free to delete
 or edit any default block — the dashboard won't re-add it.
 
 The validator (`script/validate_definitions.py`) cross-checks every
-featured component against `components.json`: the `component_id` must
+featured component against the component catalog: the `component_id` must
 exist, every key in `fields:` must match a real `ConfigEntry.key`, and
 pin values / suggestions must reference GPIOs declared in the board's
 `pins:` list. Each `default_components` entry must resolve to either

@@ -1,0 +1,1 @@
+{"id":"microphone.i2s_audio","name":"I²S Audio Microphone","description":"I²S based microphones in ESPHome.","category":"microphone","docs_url":"https://esphome.io/components/microphone/i2s_audio","image_url":"https://esphome.io/images/i2s_audio.svg","dependencies":["i2s_audio"],"multi_conf":true}

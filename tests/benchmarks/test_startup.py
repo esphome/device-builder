@@ -3,13 +3,11 @@
 ``DeviceBuilder.start()`` blocks on two synchronous catalog loads
 before the first WS frame can be served: ``BoardCatalog.load()``
 deserializes ``definitions/boards.json`` via ``orjson`` +
-mashumaro; ``ComponentCatalog.load()`` decodes the ~20 MB
-``definitions/components.json`` and instantiates ~900
-``ComponentCatalogEntry`` objects. Together they account for the
-bulk of the wall-time gap a user feels comparing the new
-dashboard's startup against the legacy Tornado one — and on
-constrained hardware (HA Green) the absolute number runs into
-tens of seconds.
+mashumaro; ``ComponentCatalog.load()`` decodes the slim
+``definitions/components.index.json`` and instantiates ~900
+``ComponentCatalogIndexEntry`` objects. Component bodies load
+lazily on detail-view; this bench still measures the per-entry
+cost via ``_load_component`` against one body file.
 
 The per-board YAML parse benchmark covers ``script/sync_boards.py``
 rather than the runtime path — a regression in the libyaml loader
@@ -61,16 +59,11 @@ _BOARD_MANIFEST_BYTES = (
 # A representative component dict from the live catalog. Picked
 # for its non-trivial nesting — ``sensor.dht`` carries a handful
 # of nested ``config_entries`` plus units / options, so the
-# ``_load_config_entry`` recursion fires. Pre-extracting one
-# entry from the full catalog at collection time means the
-# benchmark measures the per-entry dataclass-build cost the
-# production load multiplies ~900x — not the one-shot orjson
-# decode of the 20 MB blob, which doesn't realistically regress
-# on its own and would dominate the callgrind sample.
-_COMPONENTS_JSON_BYTES = (_DEFINITIONS / "components.json").read_bytes()
-_SAMPLE_COMPONENT = next(
-    c for c in loads(_COMPONENTS_JSON_BYTES)["components"] if c.get("id") == "sensor.dht"
-)
+# ``_load_config_entry`` recursion fires. Read directly from the
+# per-id body file so the benchmark measures the per-entry
+# dataclass-build cost the lazy-body path repeats on every
+# detail-view open.
+_SAMPLE_COMPONENT = loads((_DEFINITIONS / "components" / "sensor.dht.json").read_bytes())
 
 
 def test_parse_one_board_manifest(benchmark: BenchmarkFixture) -> None:
@@ -118,16 +111,18 @@ def test_parse_one_board_manifest(benchmark: BenchmarkFixture) -> None:
 
 
 def test_load_one_component_entry(benchmark: BenchmarkFixture) -> None:
-    """Pin the per-component dataclass-build cost — repeated ~900x by ``ComponentCatalog.load()``.
+    """Pin the per-component dataclass-build cost — paid on every detail-view open.
 
-    The 20 MB ``components.json`` decode is a single ``orjson``
-    call that doesn't realistically regress on its own; the
-    per-entry walk that builds a ``ComponentCatalogEntry`` (and
-    recursively builds its ``ConfigEntry`` children) is the work
-    that compounds across the catalog. ``sensor.dht`` is picked
-    as a representative entry — non-trivial nested
-    ``config_entries`` exercise the ``_load_config_entry``
-    recursion that's the bulk of the per-component cost.
+    The catalog ships ~900 per-id body files behind a slim
+    ``components.index.json``; the body files hydrate lazily on
+    detail view through ``ComponentCatalog.get_body``. This bench
+    measures the per-entry walk that builds a
+    ``ComponentCatalogEntry`` (and recursively builds its
+    ``ConfigEntry`` children) — the work that runs on every cache
+    miss. ``sensor.dht`` is picked as a representative entry —
+    non-trivial nested ``config_entries`` exercise the
+    ``_load_config_entry`` recursion that's the bulk of the
+    per-component cost.
     """
     # Validate the build path ONCE outside the loop so a refactor
     # that stubs ``_load_config_entry`` to ``return None`` fails

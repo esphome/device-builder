@@ -1,0 +1,1 @@
+{"id":"output.modbus_controller","name":"Modbus Controller Output","description":"A modbus_controller device output.","category":"output","docs_url":"https://esphome.io/components/output/modbus_controller","image_url":"https://esphome.io/images/modbus.png","dependencies":["modbus_controller"],"multi_conf":true}

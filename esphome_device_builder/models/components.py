@@ -75,6 +75,30 @@ class ComponentCategory(StrEnum):
 
 
 @dataclass
+class ComponentCatalogIndexEntry(DataClassORJSONMixin):
+    """
+    Slim catalog entry returned by list / search endpoints.
+
+    Carries every field the catalog UI needs to render the card grid,
+    apply the platform / category / query filters, and resolve docs
+    URLs — but omits the per-field ``config_entries`` tree. The
+    detail-view variant (:class:`ComponentCatalogEntry`) adds that
+    tree and is fetched on demand via
+    :meth:`ComponentCatalog.get_body` when the user opens a card.
+    """
+
+    id: str
+    name: str
+    description: str
+    category: ComponentCategory
+    docs_url: str = ""
+    image_url: str = ""
+    dependencies: list[str] = field(default_factory=list)
+    multi_conf: bool = False
+    supported_platforms: list[str] = field(default_factory=list)
+
+
+@dataclass
 class ComponentCatalogEntry(DataClassORJSONMixin):
     """A component in the catalog.
 
@@ -157,7 +181,13 @@ class AddComponentResponse(DataClassORJSONMixin):
 
 @dataclass
 class PagedComponentsResponse(PagedResponse):
-    """Paginated component catalog API response."""
+    """Paginated component catalog API response.
 
-    components: list[ComponentCatalogEntry] = field(default_factory=list)
+    Entries are the slim :class:`ComponentCatalogIndexEntry` shape —
+    the per-field ``config_entries`` tree is omitted from list /
+    search responses and fetched per-component via
+    ``components/get_component`` when the user opens a card.
+    """
+
+    components: list[ComponentCatalogIndexEntry] = field(default_factory=list)
     categories: list[dict[str, str | int]] = field(default_factory=list)

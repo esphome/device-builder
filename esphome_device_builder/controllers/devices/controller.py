@@ -455,7 +455,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             new_friendly_name=new_friendly_name,
         )
 
-    def _yaml_content_for_create(
+    async def _yaml_content_for_create(
         self,
         name: str,
         friendly: str,
@@ -464,7 +464,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         ssid: str,
         psk: str,
     ) -> tuple[str, mutations_yaml.CreateYamlSource]:
-        return mutations_yaml.yaml_content_for_create(
+        return await mutations_yaml.yaml_content_for_create(
             name, friendly, board, file_content, ssid, psk, catalog=self._db.components
         )
 

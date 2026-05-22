@@ -1,0 +1,1 @@
+{"id":"sensor.uptime","name":"Uptime Sensor","description":"The `uptime` sensor allows you to track the time the ESP has stayed up for in seconds. Time rollovers are automatically handled.","category":"sensor","docs_url":"https://esphome.io/components/sensor/uptime","image_url":"https://esphome.io/images/timer.svg"}

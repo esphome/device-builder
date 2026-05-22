@@ -719,7 +719,7 @@ When changing the sync script or catalog handling, watch for these:
 | `esphome_device_builder/controllers/*.py` | One file per API surface (components, boards, labels, ...). Larger surfaces (devices, firmware, remote_build) are packages — same shape, with a `controller.py` for the main class plus per-concern submodules and an `__init__.py` re-exporting the controller. |
 | `esphome_device_builder/models/*.py` | Data classes (mashumaro) — pure shape, no logic |
 | `esphome_device_builder/api/ws.py` | WebSocket dispatch |
-| `esphome_device_builder/definitions/components.json` | Generated; do not hand-edit |
+| `esphome_device_builder/definitions/components.index.json` + `components/<id>.json` | Generated; do not hand-edit. Slim index loaded eagerly; per-id bodies hydrate lazily via `ComponentCatalog.get_body`. |
 | `esphome_device_builder/definitions/boards/<id>/manifest.yaml` | Curated; hand-edited |
 | `script/sync_components.py` | Regenerates the component catalog |
 | `script/check_catalog.py` | Smoke test for popular components |
@@ -729,10 +729,10 @@ When changing the sync script or catalog handling, watch for these:
 
 ## Things not to do
 
-- **Don't hand-edit `components.json`.** Regenerate via
-  `script/sync_components.py`. CI runs the sync nightly and opens a
-  PR with diff summary + smoke-test verification — that's the
-  intended update path.
+- **Don't hand-edit `components.index.json` / `components/<id>.json`.**
+  Regenerate via `script/sync_components.py`. CI runs the sync nightly
+  and opens a PR with diff summary + smoke-test verification — that's
+  the intended update path.
 - **Don't auto-merge catalog PRs.** Schema regressions and sync-
   script bugs both surface as PR diffs; a human gate catches them
   before they ship. The diff summary in the PR body is designed for

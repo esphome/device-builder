@@ -42,5 +42,5 @@ companion frontend PR if there is one.
 - [ ] The code change is tested and works locally.
 - [ ] Pre-commit hooks pass (`ruff`, `codespell`, yaml/json/python checks).
 - [ ] Tests have been added or updated under `tests/` where applicable.
-- [ ] `components.json` has **not** been hand-edited (regenerate via `script/sync_components.py` if a sync is needed).
+- [ ] `components.index.json` / `definitions/components/*.json` have **not** been hand-edited (regenerate via `script/sync_components.py` if a sync is needed).
 - [ ] Architecture-level changes are reflected in `docs/ARCHITECTURE.md` and/or `docs/API.md`.

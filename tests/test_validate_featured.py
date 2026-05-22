@@ -75,7 +75,7 @@ def test_unknown_component_id(_index: dict | None) -> None:
         {},
         _index,
     )
-    assert any("not found in components.json" in e for e in errors)
+    assert any("not found in components.index.json" in e for e in errors)
 
 
 def test_unknown_field_key(_index: dict | None) -> None:

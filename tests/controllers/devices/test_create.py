@@ -314,6 +314,9 @@ async def test_create_device_template_invalid_yaml_surfaces_internal_error(
     board.hardware.connectivity = []
     board.name = "Generic ESP32-C3"
     board.manufacturer = "Generic"
+    # Empty default_components skips the awaitable catalog resolver
+    # path — this test only exercises the generator failure mode.
+    board.default_components = []
     ctrl._db.boards.get_board = AsyncMock(return_value=board)
     ctrl._db.editor.validate_yaml = AsyncMock(
         return_value={
@@ -417,6 +420,9 @@ async def test_create_device_with_board_id_overwrites_archived_board_id(
     new_board.id = "rp2040-new-board"
     new_board.esphome.platform = "rp2040"
     new_board.template = None
+    # Skip the awaitable default-components resolver — this test
+    # only cares about the metadata-overwrite path.
+    new_board.default_components = []
     ctrl._db.boards.get_board = AsyncMock(return_value=new_board)
 
     await ctrl.create_device(name="kitchen", board_id="rp2040-new-board")
@@ -426,7 +432,7 @@ async def test_create_device_with_board_id_overwrites_archived_board_id(
 
 
 @pytest.mark.xdist_group("catalog")
-def test_yaml_content_for_create_threads_default_components_through(
+async def test_yaml_content_for_create_threads_default_components_through(
     session_component_catalog: Any,
 ) -> None:
     """``yaml_content_for_create`` resolves + emits the board's ``default_components``.
@@ -440,7 +446,7 @@ def test_yaml_content_for_create_threads_default_components_through(
     """
     board = session_component_catalog._db.boards.get_by_id("apollo-esk-1")
     assert board is not None
-    yaml, source = yaml_content_for_create(
+    yaml, source = await yaml_content_for_create(
         name="starter",
         friendly="Starter Kit",
         board=board,

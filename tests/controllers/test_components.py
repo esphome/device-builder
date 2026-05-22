@@ -35,7 +35,7 @@ from esphome_device_builder.controllers.components import (
     _load_pin_features,
 )
 from esphome_device_builder.models import (
-    ComponentCatalogEntry,
+    ComponentCatalogIndexEntry,
     ComponentCategory,
     FeaturedComponent,
     PinFeature,
@@ -58,13 +58,14 @@ def _make_entry(
     category: ComponentCategory = ComponentCategory.MISC,
     docs_url: str = "",
     supported_platforms: list[str] | None = None,
-) -> ComponentCatalogEntry:
-    """Build a minimal ``ComponentCatalogEntry`` for catalog-state tests.
+) -> ComponentCatalogIndexEntry:
+    """Build a minimal ``ComponentCatalogIndexEntry`` for catalog-state tests.
 
-    Real catalog entries have ~20 fields; the dataclass defaults
-    cover the ones we don't care about for these branch tests.
+    The catalog now holds slim index entries in memory; bodies
+    hydrate lazily through ``get_body``. Tests that just need an
+    entry to live in ``_components`` / ``_by_id`` use this helper.
     """
-    return ComponentCatalogEntry(
+    return ComponentCatalogIndexEntry(
         id=entry_id,
         name=name or entry_id,
         description=description,
@@ -74,28 +75,27 @@ def _make_entry(
         dependencies=[],
         multi_conf=False,
         supported_platforms=supported_platforms or [],
-        config_entries=[],
     )
 
 
 # ── load() ──────────────────────────────────────────────────────────
 
 
-def test_load_warns_and_leaves_catalog_empty_when_components_json_missing(
+def test_load_warns_and_leaves_catalog_empty_when_index_missing(
     caplog: pytest.LogCaptureFixture,
     tmp_path: Path,
 ) -> None:
-    """Missing ``components.json`` warns and leaves the catalog empty.
+    """Missing ``components.index.json`` warns and leaves the catalog empty.
 
-    The catalog should not crash when the JSON is absent — it
+    The catalog should not crash when the index is absent — it
     logs a warning and stays empty so the rest of the controller
     can run (with empty results) until the file is regenerated.
     """
-    missing = tmp_path / "no-such-components.json"
+    missing = tmp_path / "no-such-components.index.json"
     cat = ComponentCatalog()
     with (
         patch(
-            "esphome_device_builder.controllers.components._COMPONENTS_JSON",
+            "esphome_device_builder.controllers.components._COMPONENTS_INDEX_JSON",
             missing,
         ),
         caplog.at_level(logging.WARNING),
@@ -103,7 +103,7 @@ def test_load_warns_and_leaves_catalog_empty_when_components_json_missing(
         cat.load()
     assert cat._components == []
     assert cat._by_id == {}
-    assert any("Component catalog not found" in rec.message for rec in caplog.records)
+    assert any("Component index not found" in rec.message for rec in caplog.records)
 
 
 def test_load_filters_out_internal_helper_components(tmp_path: Path) -> None:
@@ -118,23 +118,17 @@ def test_load_filters_out_internal_helper_components(tmp_path: Path) -> None:
     when the denylist is extended (and catches a regression that
     drops the filter against the same set of inputs).
     """
-    user_facing = {
-        "id": "web_server",
-        "name": "Web Server",
-        "category": "core",
-        "config_entries": [],
-    }
+    user_facing = {"id": "web_server", "name": "Web Server", "category": "core"}
     components = [user_facing] + [
-        {"id": cid, "name": cid, "category": "core", "config_entries": []}
-        for cid in INTERNAL_COMPONENT_IDS
+        {"id": cid, "name": cid, "category": "core"} for cid in INTERNAL_COMPONENT_IDS
     ]
-    components_json = tmp_path / "components.json"
-    components_json.write_text(json.dumps({"components": components}))
+    index_path = tmp_path / "components.index.json"
+    index_path.write_text(json.dumps({"components": components}))
 
     cat = ComponentCatalog()
     with patch(
-        "esphome_device_builder.controllers.components._COMPONENTS_JSON",
-        components_json,
+        "esphome_device_builder.controllers.components._COMPONENTS_INDEX_JSON",
+        index_path,
     ):
         cat.load()
 
@@ -398,7 +392,7 @@ def test_featured_components_for_board_skips_records_missing_from_index() -> Non
     cat = ComponentCatalog()
     cat._featured_by_board = {"phantom-board": ["featured.phantom-board.ghost"]}
     cat._featured_by_id = {}  # diverged: id missing
-    out = cat._featured_components_for_board("phantom-board", target_platform=None, query=None)
+    out = cat._featured_components_for_board("phantom-board", query=None)
     assert out == []
 
 
@@ -459,12 +453,98 @@ def test_load_options_accepts_plain_string_list() -> None:
     assert out[1].value == "no"
 
 
-def test_featured_record_underlying_id_returns_full_underlying_id() -> None:
-    """``_FeaturedRecord.underlying_id`` delegates to the catalog entry's id."""
+def test_featured_record_carries_underlying_id() -> None:
+    """``_FeaturedRecord.underlying_id`` is the catalog id the body lookups go through."""
     record = _FeaturedRecord(
         full_id="featured.example.relay",
         board_id="example",
         featured=FeaturedComponent(id="relay", component_id="switch.gpio"),
-        underlying=_make_entry(entry_id="switch.gpio", category=ComponentCategory.SWITCH),
+        underlying_id="switch.gpio",
     )
     assert record.underlying_id == "switch.gpio"
+
+
+# ── get_body() ──────────────────────────────────────────────────────
+
+
+async def test_get_body_returns_none_for_id_absent_from_index(tmp_path: Path) -> None:
+    """Unknown ids short-circuit before touching disk."""
+    cat = ComponentCatalog()
+    cat._by_id = {"wifi": _make_entry(entry_id="wifi")}
+    assert await cat.get_body("does-not-exist") is None
+
+
+async def test_get_body_reads_from_disk_and_caches(tmp_path: Path) -> None:
+    """First call hydrates from disk; second call hits the LRU."""
+    cat = ComponentCatalog()
+    cat._by_id = {"wifi": _make_entry(entry_id="wifi")}
+    bodies_dir = tmp_path / "components"
+    bodies_dir.mkdir()
+    (bodies_dir / "wifi.json").write_text(
+        json.dumps({"id": "wifi", "name": "Wi-Fi", "category": "core", "config_entries": []})
+    )
+    with patch(
+        "esphome_device_builder.controllers.components._COMPONENT_BODIES_DIR",
+        bodies_dir,
+    ):
+        first = await cat.get_body("wifi")
+        second = await cat.get_body("wifi")
+
+    assert first is not None
+    assert first.id == "wifi"
+    # The second call must hit the cache — exposing the identity here pins
+    # the LRU contract; if hydrate-on-every-call regresses, this fails.
+    assert second is first
+
+
+async def test_get_body_evicts_least_recently_used(tmp_path: Path) -> None:
+    """LRU stays bounded under repeated detail-view opens."""
+    cat = ComponentCatalog()
+    cat._by_id = {f"comp_{i}": _make_entry(entry_id=f"comp_{i}") for i in range(70)}
+    bodies_dir = tmp_path / "components"
+    bodies_dir.mkdir()
+    for i in range(70):
+        (bodies_dir / f"comp_{i}.json").write_text(
+            json.dumps(
+                {"id": f"comp_{i}", "name": f"comp_{i}", "category": "misc", "config_entries": []}
+            )
+        )
+    with (
+        patch(
+            "esphome_device_builder.controllers.components._COMPONENT_BODIES_DIR",
+            bodies_dir,
+        ),
+        patch(
+            "esphome_device_builder.controllers.components._BODY_CACHE_MAXSIZE",
+            64,
+        ),
+    ):
+        for i in range(70):
+            await cat.get_body(f"comp_{i}")
+
+    # 70 reads with maxsize=64 ⇒ first ~6 entries evicted.
+    assert len(cat._body_cache) == 64
+    assert "comp_0" not in cat._body_cache
+    assert "comp_69" in cat._body_cache
+
+
+async def test_get_body_returns_none_when_body_missing_on_disk(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Index says yes, disk says no — return ``None`` with a warning."""
+    cat = ComponentCatalog()
+    cat._by_id = {"phantom": _make_entry(entry_id="phantom")}
+    bodies_dir = tmp_path / "components"
+    bodies_dir.mkdir()
+    with (
+        patch(
+            "esphome_device_builder.controllers.components._COMPONENT_BODIES_DIR",
+            bodies_dir,
+        ),
+        caplog.at_level(logging.WARNING),
+    ):
+        result = await cat.get_body("phantom")
+
+    assert result is None
+    assert any("body missing on disk" in rec.message for rec in caplog.records)

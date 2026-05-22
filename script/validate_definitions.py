@@ -25,7 +25,8 @@ except ImportError:
 
 DEFINITIONS_DIR = Path(__file__).resolve().parent.parent / "esphome_device_builder" / "definitions"
 SCHEMAS_DIR = DEFINITIONS_DIR / "schemas"
-COMPONENTS_JSON = DEFINITIONS_DIR / "components.json"
+COMPONENTS_INDEX_JSON = DEFINITIONS_DIR / "components.index.json"
+COMPONENTS_BODIES_DIR = DEFINITIONS_DIR / "components"
 
 # Categories excluded from featured-component eligibility — these belong in
 # the dedicated "Add core configuration" dialog, not in board recommendations.
@@ -179,24 +180,33 @@ def validate_board(manifest: Path, components_index: dict | None = None) -> list
 
 def _build_components_index() -> dict | None:
     """
-    Index ``components.json`` for featured-component cross-checks.
+    Index the component catalog for featured-component cross-checks.
 
-    Returns ``None`` when the file is missing — featured-component
-    cross-validation is skipped (schema-only) and a warning is printed
-    so contributors know to run ``script/sync_components.py`` first.
+    Joins ``components.index.json`` with each per-id body file so
+    every entry carries the ``config_entries`` tree the featured-
+    field validation needs. Returns ``None`` when the catalog is
+    missing — featured-component cross-validation is skipped
+    (schema-only) and a warning is printed so contributors know
+    to run ``script/sync_components.py`` first.
     """
-    if not COMPONENTS_JSON.exists():
+    if not COMPONENTS_INDEX_JSON.exists():
         print(
-            f"WARNING: {COMPONENTS_JSON} not found — skipping featured-component "
+            f"WARNING: {COMPONENTS_INDEX_JSON} not found — skipping featured-component "
             "cross-validation. Run script/sync_components.py first.",
             file=sys.stderr,
         )
         return None
-    raw = json.loads(COMPONENTS_JSON.read_text(encoding="utf-8"))
+    raw = json.loads(COMPONENTS_INDEX_JSON.read_text(encoding="utf-8"))
     by_id: dict[str, dict] = {}
     for comp in raw.get("components", []):
         cid = comp.get("id")
-        if cid:
+        if not cid:
+            continue
+        body_path = COMPONENTS_BODIES_DIR / f"{cid}.json"
+        if body_path.is_file():
+            body = json.loads(body_path.read_text(encoding="utf-8"))
+            by_id[cid] = {**comp, **body}
+        else:
             by_id[cid] = comp
     return by_id
 
@@ -333,7 +343,7 @@ def _validate_featured_component(  # noqa: C901
         return errors
 
     if component_id not in components_index:
-        errors.append(f"{path}: component_id '{component_id}' not found in components.json")
+        errors.append(f"{path}: component_id '{component_id}' not found in components.index.json")
         return errors
 
     component = components_index[component_id]

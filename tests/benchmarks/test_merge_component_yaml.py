@@ -17,10 +17,7 @@ _DEFINITIONS = Path(__file__).resolve().parents[2] / "esphome_device_builder" / 
 # pattern as ``test_startup.py``. ``sensor.dht`` is a platform-style
 # component with nested config entries so the bench exercises both
 # the recursive generate and the splice-under-domain path.
-_COMPONENTS_JSON_BYTES = (_DEFINITIONS / "components.json").read_bytes()
-_SENSOR_DHT = _load_component(
-    next(c for c in loads(_COMPONENTS_JSON_BYTES)["components"] if c.get("id") == "sensor.dht")
-)
+_SENSOR_DHT = _load_component(loads((_DEFINITIONS / "components" / "sensor.dht.json").read_bytes()))
 
 _FIELDS = {
     "name": "Living Room DHT",

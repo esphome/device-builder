@@ -1,0 +1,1 @@
+{"id":"sensor.ble_client","name":"BLE Client Sensor","description":"Fetch numeric values from BLE devices.","category":"sensor","docs_url":"https://esphome.io/components/sensor/ble_client","image_url":"https://esphome.io/images/bluetooth.svg","dependencies":["ble_client"],"multi_conf":true}
