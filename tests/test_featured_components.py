@@ -725,6 +725,26 @@ async def test_add_component_featured_unknown_id_raises(
         )
 
 
+async def test_add_component_featured_missing_body_raises(
+    catalog: ComponentCatalog, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Featured ref whose body file vanished mid-flight surfaces as a clear error.
+
+    Bodies hydrate lazily; if the per-id file is missing on disk while
+    the index still carries the id, ``get_body`` returns ``None``.
+    The add-path raises a typed error instead of crashing on the
+    ``None`` shape.
+    """
+    ctrl = _make_controller(catalog, tmp_path)
+    monkeypatch.setattr(catalog, "get_body", AsyncMock(return_value=None))
+    with pytest.raises(ValueError, match="Unknown component body for featured ref"):
+        await ctrl.add_component(
+            configuration="plug.yaml",
+            component_id="featured.sonoff-basic.relay",
+            fields={},
+        )
+
+
 async def test_add_component_featured_emits_explicit_name_and_id(
     catalog: ComponentCatalog, tmp_path: Any
 ) -> None:

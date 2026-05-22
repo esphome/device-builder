@@ -1228,6 +1228,39 @@ async def test_resolve_default_components_skips_unknown_id_with_warning(
     assert any("not_a_real_component" in rec.getMessage() for rec in caplog.records)
 
 
+async def test_resolve_default_components_skips_featured_with_missing_body(
+    session_component_catalog: Any,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A featured ref whose body file vanished mid-flight skips with a warning.
+
+    Bodies hydrate lazily through ``get_body``; if a per-id file is
+    deleted (or the catalog is mid-regen), the resolver should log
+    and skip rather than reach into ``None``. Synthesized by stubbing
+    ``get_body`` to return ``None`` for the featured underlying.
+    """
+    board = deepcopy(session_component_catalog._db.boards.get_by_id("apollo-esk-1"))
+    assert board is not None
+    original_get_body = session_component_catalog.get_body
+
+    async def empty_body(component_id: str) -> Any:
+        # Drop the featured path's underlying; let the catalog-id
+        # fallback (web_server) still return its real body so the
+        # warning isn't swamped by the fallback's own warning.
+        if component_id == "switch.gpio":
+            return None
+        return await original_get_body(component_id)
+
+    monkeypatch.setattr(session_component_catalog, "get_body", empty_body)
+    with caplog.at_level(logging.WARNING):
+        pairs = await session_component_catalog.resolve_default_components(board)
+    # Featured ref skipped; web_server (catalog fallback) still resolves.
+    assert any(c.id == "web_server" for c, _ in pairs)
+    assert not any(c.id == "switch.gpio" for c, _ in pairs)
+    assert any("has no body" in rec.getMessage() for rec in caplog.records)
+
+
 # ---------------------------------------------------------------------------
 # Fallback wifi-helpers — exercise the pure-Python implementations the
 # inference falls back on when upstream esphome doesn't ship the new
