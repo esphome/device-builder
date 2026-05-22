@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -759,6 +760,26 @@ def _safe_enum(enum_cls: type, value: Any, default: Any | None = None) -> Any:
         return default
 
 
+# Closed-vocabulary string fields on ConfigEntry / ComponentCatalogEntry
+# (``platform_type``, ``references_component``, ``supported_platforms``
+# members) draw from a few dozen unique values shared across ~13k
+# ConfigEntry instances. ``sys.intern`` collapses every occurrence onto
+# a single PyUnicode object, trimming several MB off the loaded
+# catalog's resident size for free — no wire-shape change.
+def _intern_optional(value: Any) -> str | None:
+    """Intern *value* when it's a non-empty string; return ``None`` otherwise."""
+    if isinstance(value, str) and value:
+        return sys.intern(value)
+    return None
+
+
+def _intern_str_list(values: Any) -> list[str]:
+    """Build a list of interned strings; empty list for missing or malformed input."""
+    if not isinstance(values, list):
+        return []
+    return [sys.intern(v) for v in values if isinstance(v, str)]
+
+
 def _load_pin_features(raw: Any) -> list[PinFeature]:
     """Parse a list of pin-feature strings, dropping unknown values."""
     if not isinstance(raw, list):
@@ -884,7 +905,7 @@ def _load_config_entry(data: dict) -> ConfigEntry:
         depends_on_value=data.get("depends_on_value"),
         depends_on_value_not=data.get("depends_on_value_not"),
         depends_on_component=data.get("depends_on_component"),
-        references_component=data.get("references_component"),
+        references_component=_intern_optional(data.get("references_component")),
         pin_features=_load_pin_features(data.get("pin_features")),
         pin_mode=_safe_enum(PinMode, data.get("pin_mode")),
         advanced=bool(data.get("advanced", False)),
@@ -893,8 +914,8 @@ def _load_config_entry(data: dict) -> ConfigEntry:
         translation_key=data.get("translation_key"),
         translation_params=data.get("translation_params"),
         config_entries=nested,
-        platform_type=data.get("platform_type") or None,
-        supported_platforms=list(data.get("supported_platforms") or []),
+        platform_type=_intern_optional(data.get("platform_type")),
+        supported_platforms=_intern_str_list(data.get("supported_platforms")),
         group=data.get("group") or None,
         required_groups=_load_required_groups(data.get("required_groups")),
     )
@@ -911,7 +932,7 @@ def _load_component(data: dict) -> ComponentCatalogEntry:
         image_url=data.get("image_url", ""),
         dependencies=list(data.get("dependencies", [])),
         multi_conf=bool(data.get("multi_conf", False)),
-        supported_platforms=list(data.get("supported_platforms", [])),
+        supported_platforms=_intern_str_list(data.get("supported_platforms")),
         config_entries=[_load_config_entry(e) for e in data.get("config_entries", [])],
         required_groups=_load_required_groups(data.get("required_groups")),
     )
