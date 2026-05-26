@@ -1,7 +1,7 @@
 name: 🪲 Device Builder Dashboard bug report
 description: Report a problem with the Device Builder Dashboard itself (UI, backend, install).
 title: "[Bug] "
-labels: ["bugfix"]
+type: ["Bug"]
 body:
   - type: markdown
     attributes:
