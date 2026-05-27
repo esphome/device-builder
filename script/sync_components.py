@@ -1951,9 +1951,15 @@ def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noq
     if entry_type is None:
         entry_type = "string"
 
-    # Type promotion: schema-given ``string`` whose key/name implies a
-    # secret -> secure_string.
-    if entry_type == "string" and any(frag in key.lower() for frag in _SECRET_KEY_FRAGMENTS):
+    # Type promotion: prefer the explicit ``"sensitive"`` flag the upstream
+    # esphome dumper emits for fields wrapped in ``cv.sensitive(...)`` (added
+    # in esphome/esphome#16673; explicit migrations in #16677 cover api/wifi/
+    # ota/mqtt/web_server passwords plus SSIDs); fall back to the local
+    # key-name heuristic for older esphome versions that don't carry the
+    # flag, or for unmigrated/third-party schemas.
+    if entry_type == "string" and (
+        raw.get("sensitive") or any(frag in key.lower() for frag in _SECRET_KEY_FRAGMENTS)
+    ):
         entry_type = "secure_string"
 
     # Cleaned docs ⇒ description + help_link/docs_url candidate.
