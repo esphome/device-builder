@@ -87,7 +87,9 @@ handy as a fallback if PyPI is unreachable.
 python -m venv .venv && source .venv/bin/activate
 
 # Replace <version> with a release tag (X.Y.Z stable, X.Y.ZbN beta).
-pip install "https://github.com/esphome/device-builder/releases/download/<version>/esphome_device_builder-<version>-py3-none-any.whl"
+# ``[esphome] @ <url>`` carries the optional extra through the
+# direct-URL install so the dashboard finds esphome at startup.
+pip install "esphome-device-builder[esphome] @ https://github.com/esphome/device-builder/releases/download/<version>/esphome_device_builder-<version>-py3-none-any.whl"
 
 esphome-device-builder ~/esphome-configs
 ```

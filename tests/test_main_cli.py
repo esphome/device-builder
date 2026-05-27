@@ -89,12 +89,45 @@ def test_esphome_version_returns_none_when_import_fails(monkeypatch: pytest.Monk
         level: int = 0,
     ) -> object:
         if name == "esphome" or name.startswith("esphome."):
-            raise ModuleNotFoundError(f"No module named '{name}'")
+            # ``name=name`` mirrors how CPython's import machinery
+            # populates the attribute — ``_esphome_version`` keys its
+            # missing-extra check on it.
+            raise ModuleNotFoundError(f"No module named '{name}'", name=name)
         return real_import(name, globals, locals, fromlist, level)
 
     monkeypatch.setattr(builtins, "__import__", _block_esphome)
 
     assert main_module._esphome_version() is None
+
+
+def test_esphome_version_re_raises_non_esphome_module_not_found_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A ModuleNotFoundError rooted somewhere other than ``esphome`` must propagate.
+
+    Pins the boundary between "extra missing" and "something else
+    broke inside esphome.const" — only the former should degrade to
+    ``None`` (#919).
+    """
+    real_import = builtins.__import__
+
+    def _block_unrelated(
+        name: str,
+        globals: object = None,  # noqa: A002
+        locals: object = None,  # noqa: A002
+        fromlist: object = (),
+        level: int = 0,
+    ) -> object:
+        # Pretend importing ``esphome.const`` fails because *something
+        # else* it imports is missing — not the esphome package itself.
+        if name == "esphome.const":
+            raise ModuleNotFoundError("No module named 'something_else'", name="something_else")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", _block_unrelated)
+
+    with pytest.raises(ModuleNotFoundError, match="something_else"):
+        main_module._esphome_version()
 
 
 # ---------------------------------------------------------------------------
