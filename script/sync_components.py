@@ -4790,26 +4790,44 @@ _LIGHT_SCHEMA_NAMES = (
 
 _LIGHT_SCHEMA_RE = re.compile(r"\blight\.(" + "|".join(_LIGHT_SCHEMA_NAMES) + r")\b")
 
+# Chases helper schemas defined in a sibling component (e.g.
+# ``fastled_base.BASE_SCHEMA`` which in turn extends a light schema).
+# We follow ``<module>.<NAME_WITH_SCHEMA>`` refs into the named module's
+# source files; the recursion is bounded by ``components_dir`` membership.
+_INDIRECT_SCHEMA_REF_RE = re.compile(r"\b(\w+)\.\w*SCHEMA\w*\b")
 
-def _scan_light_schema_ref(path: Path) -> str | None:
-    """Return the abstract light schema *path* references, or None."""
+
+def _resolve_schema_ref(
+    path: Path,
+    components_dir: Path,
+    visited: set[Path],
+) -> str | None:
+    """Return the abstract light schema *path* (transitively) references."""
+    if path in visited or not path.is_file():
+        return None
+    visited.add(path)
     try:
         text = path.read_text()
     except OSError:
         return None
     m = _LIGHT_SCHEMA_RE.search(text)
-    return m.group(1) if m else None
-
-
-def _resolve_fastled_platforms(components_dir: Path, out: dict[str, set[str]]) -> None:
-    """Resolve fastled platforms transitively via ``fastled_base``."""
-    base_path = components_dir / "fastled_base" / "__init__.py"
-    base_schema = _scan_light_schema_ref(base_path) if base_path.is_file() else None
-    if base_schema is None:
-        return
-    for fastled in ("fastled_clockless", "fastled_spi"):
-        if (components_dir / fastled / "light.py").is_file():
-            out[base_schema].add(f"light.{fastled}")
+    if m is not None:
+        return m.group(1)
+    for module in _INDIRECT_SCHEMA_REF_RE.findall(text):
+        if module == "light":
+            continue
+        module_dir = components_dir / module
+        if not module_dir.is_dir():
+            continue
+        for candidate in (
+            module_dir / "__init__.py",
+            module_dir / "light.py",
+            module_dir / "light" / "__init__.py",
+        ):
+            ref = _resolve_schema_ref(candidate, components_dir, visited)
+            if ref is not None:
+                return ref
+    return None
 
 
 @cache
@@ -4818,7 +4836,9 @@ def _derive_light_platforms_by_schema() -> dict[str, frozenset[str]]:
 
     Reads upstream esphome's ``<platform>/light.py`` (and
     ``<platform>/light/__init__.py``) for ``light.<SCHEMA>``
-    references so the catalog tracks new platforms automatically.
+    references, transitively chasing helper schemas defined in
+    sibling components so platforms like ``fastled_clockless`` that
+    inherit via ``fastled_base.BASE_SCHEMA`` resolve correctly.
     Empty when esphome isn't importable; callers fall back to "no
     applies_to restriction" in that case.
     """
@@ -4841,10 +4861,9 @@ def _derive_light_platforms_by_schema() -> dict[str, frozenset[str]]:
         for path in components_dir.glob("*/light/__init__.py")
     )
     for path, platform_id in candidates:
-        schema = _scan_light_schema_ref(path)
+        schema = _resolve_schema_ref(path, components_dir, set())
         if schema is not None:
             out[schema].add(platform_id)
-    _resolve_fastled_platforms(components_dir, out)
     return {k: frozenset(v) for k, v in out.items()}
 
 
