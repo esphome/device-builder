@@ -4780,6 +4780,96 @@ def _dedupe_filters(filters: list[dict]) -> list[dict]:
     return list(by_id.values())
 
 
+_LIGHT_SCHEMA_NAMES = (
+    "ADDRESSABLE_LIGHT_SCHEMA",
+    "RGB_LIGHT_SCHEMA",
+    "BRIGHTNESS_ONLY_LIGHT_SCHEMA",
+    "BINARY_LIGHT_SCHEMA",
+)
+
+
+_LIGHT_SCHEMA_RE = re.compile(r"\blight\.(" + "|".join(_LIGHT_SCHEMA_NAMES) + r")\b")
+
+
+def _scan_light_schema_ref(path: Path) -> str | None:
+    """Return the abstract light schema *path* references, or None."""
+    try:
+        text = path.read_text()
+    except OSError:
+        return None
+    m = _LIGHT_SCHEMA_RE.search(text)
+    return m.group(1) if m else None
+
+
+def _resolve_fastled_platforms(components_dir: Path, out: dict[str, set[str]]) -> None:
+    """Resolve fastled platforms transitively via ``fastled_base``."""
+    base_path = components_dir / "fastled_base" / "__init__.py"
+    base_schema = _scan_light_schema_ref(base_path) if base_path.is_file() else None
+    if base_schema is None:
+        return
+    for fastled in ("fastled_clockless", "fastled_spi"):
+        if (components_dir / fastled / "light.py").is_file():
+            out[base_schema].add(f"light.{fastled}")
+
+
+@cache
+def _derive_light_platforms_by_schema() -> dict[str, frozenset[str]]:
+    """Map each abstract light schema to the platform ids that use it.
+
+    Reads upstream esphome's ``<platform>/light.py`` (and
+    ``<platform>/light/__init__.py``) for ``light.<SCHEMA>``
+    references so the catalog tracks new platforms automatically.
+    Empty when esphome isn't importable; callers fall back to "no
+    applies_to restriction" in that case.
+    """
+    try:
+        import esphome
+    except ImportError:
+        return {}
+    components_dir = Path(esphome.__file__).resolve().parent / "components"
+    if not components_dir.is_dir():
+        return {}
+    out: dict[str, set[str]] = {name: set() for name in _LIGHT_SCHEMA_NAMES}
+    # ``components/<platform>/light.py`` is the single-platform shape;
+    # ``components/<platform>/light/__init__.py`` is the multi-platform
+    # shape (binary, hbridge, lvgl, m5stack_8angle, status_led, tuya).
+    candidates: list[tuple[Path, str]] = [
+        (path, f"light.{path.parent.name}") for path in components_dir.glob("*/light.py")
+    ]
+    candidates.extend(
+        (path, f"light.{path.parent.parent.name}")
+        for path in components_dir.glob("*/light/__init__.py")
+    )
+    for path, platform_id in candidates:
+        schema = _scan_light_schema_ref(path)
+        if schema is not None:
+            out[schema].add(platform_id)
+    _resolve_fastled_platforms(components_dir, out)
+    return {k: frozenset(v) for k, v in out.items()}
+
+
+def _resolve_light_effects_applies_to(
+    effect_name: str,
+    schema_dir: Path,
+) -> list[str]:
+    """Return the canonical light-platform ids that accept *effect_name*."""
+    try:
+        with Path(schema_dir / "light.json").open() as f:
+            light_schema = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+    schemas = (light_schema.get("light") or {}).get("schemas") or {}
+    platforms_by_schema = _derive_light_platforms_by_schema()
+    applies: set[str] = set()
+    for schema_name, platforms in platforms_by_schema.items():
+        schema_body = schemas.get(schema_name) or {}
+        cv = (schema_body.get("schema") or {}).get("config_vars") or {}
+        effects_filter = (cv.get("effects") or {}).get("filter") or []
+        if effect_name in effects_filter:
+            applies.update(platforms)
+    return sorted(applies)
+
+
 def _convert_light_effect(
     *,
     name: str,
@@ -4787,24 +4877,11 @@ def _convert_light_effect(
     schema_dir: Path,
 ) -> dict | None:
     """Build one ``LightEffect`` dict from a light.effects registry entry."""
-    # The schema doesn't carry a clean "this effect applies to which
-    # light platforms" map. Heuristic: effects whose id starts with
-    # ``addressable_`` need an addressable platform; everything else
-    # is valid on any light platform.
-    applies_to: list[str] = []
-    if name.startswith("addressable_"):
-        applies_to = [
-            "light.addressable_rgb",
-            "light.fastled_clockless",
-            "light.fastled_spi",
-            "light.neopixelbus",
-            "light.rgb",
-        ]
     return _convert_registry_entry(
         name=name,
         body=body,
         label_domain="light",
-        applies_to=applies_to,
+        applies_to=_resolve_light_effects_applies_to(name, schema_dir),
         schema_dir=schema_dir,
     )
 
