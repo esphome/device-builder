@@ -976,6 +976,7 @@ def test_generate_device_yaml_with_no_defaults_arg_unchanged() -> None:
     assert "switch:" not in out
 
 
+@pytest.mark.xdist_group("catalog")
 def test_generate_device_yaml_for_apollo_esk_1_includes_default_blocks(
     session_component_catalog: Any,
 ) -> None:
@@ -1003,6 +1004,7 @@ def test_generate_device_yaml_for_apollo_esk_1_includes_default_blocks(
     assert "web_server:" in out
 
 
+@pytest.mark.xdist_group("catalog")
 def test_resolve_default_components_falls_through_to_catalog_id(
     session_component_catalog: Any,
 ) -> None:
@@ -1023,6 +1025,7 @@ def test_resolve_default_components_falls_through_to_catalog_id(
     assert "switch.gpio" in component_ids
 
 
+@pytest.mark.xdist_group("catalog")
 def test_resolve_default_components_carries_inline_fields(
     session_component_catalog: Any,
 ) -> None:
@@ -1042,6 +1045,7 @@ def test_resolve_default_components_carries_inline_fields(
     assert web.get("version") == "3"
 
 
+@pytest.mark.xdist_group("catalog")
 def test_resolve_default_components_skips_unknown_id_with_warning(
     session_component_catalog: Any,
     caplog: pytest.LogCaptureFixture,

@@ -425,6 +425,7 @@ async def test_create_device_with_board_id_overwrites_archived_board_id(
     assert post == {"board_id": "rp2040-new-board"}
 
 
+@pytest.mark.xdist_group("catalog")
 def test_yaml_content_for_create_threads_default_components_through(
     session_component_catalog: Any,
 ) -> None:
