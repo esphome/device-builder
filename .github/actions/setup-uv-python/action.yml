@@ -1,11 +1,21 @@
 name: Set up uv and managed Python
 description: |
-  Installs uv plus astral's PGO/LTO/BOLT/mimalloc-built CPython for
-  the requested version. setup-uv only sets ``UV_PYTHON``; this
-  composite also runs ``uv python install`` so the interpreter is
-  on disk before later steps reach for it (otherwise a job that
-  restores a cached venv would race a lazy fetch and blow up on
-  broken symlinks).
+  Installs uv and configures it for astral's PGO/LTO/BOLT/mimalloc-built
+  CPython at the requested version. setup-uv only sets ``UV_PYTHON``;
+  the interpreter itself is fetched lazily on the first ``uv venv`` /
+  ``uv pip install`` the caller runs, which is enough for every job
+  the composite is used in today.
+
+  The previous explicit ``uv python install`` step has been removed
+  because it flakes on Windows when the cached interpreter dir is
+  restored: ``uv`` then tries to recreate the minor-version reparse
+  point and trips ``os error 4394`` ("mismatch between the tag
+  specified in the request and the tag present in the reparse
+  point"). ``uv venv`` doesn't recreate the link and so doesn't
+  collide. If a future job restores a cached venv without ever
+  running ``uv venv`` / ``uv pip`` (so the lazy install never
+  fires), re-add the explicit step gated on
+  ``runner.os != 'Windows'`` to dodge the same race.
 
   Built for the 3.14 CI matrix where the tail-call interpreter
   measurably shortens the suite; jobs that need stock CPython
@@ -37,9 +47,3 @@ runs:
         # touching deps, so the post-step cache save would
         # otherwise abort the job.
         ignore-nothing-to-cache: true
-
-    - name: Install Python interpreter
-      shell: bash
-      env:
-        PYTHON_VERSION: ${{ inputs.python-version }}
-      run: uv python install "${PYTHON_VERSION}"
