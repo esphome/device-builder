@@ -99,16 +99,11 @@ def derive_light_platforms_from_dir(
 
 @cache
 def derive_light_platforms_by_schema() -> dict[str, frozenset[str]]:
-    """Map each abstract light schema to the platform ids that use it.
+    """
+    Map each abstract light schema to the platform ids that use it.
 
-    Reads upstream esphome's ``<platform>/light.py`` (and
-    ``<platform>/light/__init__.py``) for ``light.<SCHEMA>``
-    references, transitively chasing helper schemas defined in
-    sibling components so platforms like ``fastled_clockless`` that
-    inherit via ``fastled_base.BASE_SCHEMA`` resolve correctly.
-    Empty when esphome isn't importable; callers fall back to "no
-    applies_to restriction" in that case (an empty applies_to list
-    means the frontend picker offers the entry on every section).
+    Empty when esphome isn't importable; an empty applies_to is
+    rendered as "no restriction" on the frontend.
     """
     try:
         import esphome

@@ -4731,11 +4731,8 @@ def _convert_registry_entry(
     }
 
 
-# Separator between domain and name in the catalog's display
-# ``name`` for component-scoped registry entries. Defined here so
-# both the producer (:func:`_automation_label`) and the consumer
-# that strips the prefix on multi-domain merges
-# (:func:`_dedupe_filters`) share one source of truth.
+# Shared by `_automation_label` (producer) and `_dedupe_filters`
+# (multi-domain prefix stripper).
 _AUTOMATION_LABEL_SEPARATOR = " → "
 
 
