@@ -1262,6 +1262,33 @@ async def test_start_drives_ping_pipeline_to_online_state(
 
 
 @pytest.mark.asyncio
+async def test_start_disables_sweep_when_privilege_probe_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Probe returning ``None`` logs a warning and exits the loop cleanly."""
+    monitor, _callbacks = _make_monitor()
+    monitor.state.dns_cache.async_resolve = AsyncMock()
+
+    async def _probe_denied() -> None:
+        return None
+
+    monkeypatch.setattr(ping_module, "_can_use_icmp_lib_with_privilege", _probe_denied)
+    _shrink_ping_intervals(monkeypatch)
+
+    with caplog.at_level(logging.WARNING, logger=ping_module.__name__):
+        await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
+        try:
+            assert monitor._ping_task is not None
+            await asyncio.wait_for(monitor._ping_task, timeout=1.0)
+        finally:
+            await _stop_and_drain(monitor)
+
+    monitor.state.dns_cache.async_resolve.assert_not_called()
+    assert any("privileges are insufficient" in rec.message for rec in caplog.records)
+
+
+@pytest.mark.asyncio
 async def test_start_with_icmplib_unavailable_skips_dns_resolution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
