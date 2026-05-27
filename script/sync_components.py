@@ -87,6 +87,9 @@ sys.path.insert(0, str(_REPO_ROOT))
 from esphome_device_builder.controllers.components import (  # noqa: E402
     INTERNAL_COMPONENT_IDS as _INTERNAL_COMPONENT_IDS,
 )
+from script._light_schemas import (  # noqa: E402
+    resolve_light_effects_applies_to,
+)
 
 # Top-level platform domains in the schema (also keys in our category enum).
 # Components keyed as ``<id>.<domain>`` in the schema files — e.g.
@@ -4713,13 +4716,7 @@ def _convert_registry_entry(
     applies_to: list[str],
     schema_dir: Path,
 ) -> dict | None:
-    """Shared builder for registry-shaped catalog entries.
-
-    ``LightEffect`` and ``Filter`` are structurally identical (``id``,
-    ``name``, ``config_entries``, ``applies_to``); the only
-    difference is how ``applies_to`` is computed and which domain
-    feeds ``_automation_label``. Both wrappers delegate here.
-    """
+    """Build a registry catalog dict (id, name, config_entries, applies_to)."""
     if not isinstance(body, dict):
         return None
     docs = clean_docs(body.get("docs"))
@@ -4731,6 +4728,14 @@ def _convert_registry_entry(
         "config_entries": [_strip_entry_defaults(e) for e in config_entries],
         "applies_to": applies_to,
     }
+
+
+# Separator between domain and name in the catalog's display
+# ``name`` for component-scoped registry entries. Defined here so
+# both the producer (:func:`_automation_label`) and the consumer
+# that strips the prefix on multi-domain merges
+# (:func:`_dedupe_filters`) share one source of truth.
+_AUTOMATION_LABEL_SEPARATOR = " → "
 
 
 def _convert_filter(
@@ -4774,119 +4779,9 @@ def _dedupe_filters(filters: list[dict]) -> list[dict]:
         # Multi-domain entry: strip the "<Domain> → " prefix so the
         # bare name reads correctly regardless of editing context.
         name = existing.get("name") or ""
-        marker = " → "
-        if len(merged_applies_to) > 1 and marker in name:
-            existing["name"] = name.split(marker, 1)[1]
+        if len(merged_applies_to) > 1 and _AUTOMATION_LABEL_SEPARATOR in name:
+            existing["name"] = name.split(_AUTOMATION_LABEL_SEPARATOR, 1)[1]
     return list(by_id.values())
-
-
-_LIGHT_SCHEMA_NAMES = (
-    "ADDRESSABLE_LIGHT_SCHEMA",
-    "RGB_LIGHT_SCHEMA",
-    "BRIGHTNESS_ONLY_LIGHT_SCHEMA",
-    "BINARY_LIGHT_SCHEMA",
-)
-
-
-_LIGHT_SCHEMA_RE = re.compile(r"\blight\.(" + "|".join(_LIGHT_SCHEMA_NAMES) + r")\b")
-
-# Chases helper schemas defined in a sibling component (e.g.
-# ``fastled_base.BASE_SCHEMA`` which in turn extends a light schema).
-# We follow ``<module>.<NAME_WITH_SCHEMA>`` refs into the named module's
-# source files; the recursion is bounded by ``components_dir`` membership.
-_INDIRECT_SCHEMA_REF_RE = re.compile(r"\b(\w+)\.\w*SCHEMA\w*\b")
-
-
-def _resolve_schema_ref(
-    path: Path,
-    components_dir: Path,
-    visited: set[Path],
-) -> str | None:
-    """Return the abstract light schema *path* (transitively) references."""
-    if path in visited or not path.is_file():
-        return None
-    visited.add(path)
-    try:
-        text = path.read_text()
-    except OSError:
-        return None
-    m = _LIGHT_SCHEMA_RE.search(text)
-    if m is not None:
-        return m.group(1)
-    for module in _INDIRECT_SCHEMA_REF_RE.findall(text):
-        if module == "light":
-            continue
-        module_dir = components_dir / module
-        if not module_dir.is_dir():
-            continue
-        for candidate in (
-            module_dir / "__init__.py",
-            module_dir / "light.py",
-            module_dir / "light" / "__init__.py",
-        ):
-            ref = _resolve_schema_ref(candidate, components_dir, visited)
-            if ref is not None:
-                return ref
-    return None
-
-
-@cache
-def _derive_light_platforms_by_schema() -> dict[str, frozenset[str]]:
-    """Map each abstract light schema to the platform ids that use it.
-
-    Reads upstream esphome's ``<platform>/light.py`` (and
-    ``<platform>/light/__init__.py``) for ``light.<SCHEMA>``
-    references, transitively chasing helper schemas defined in
-    sibling components so platforms like ``fastled_clockless`` that
-    inherit via ``fastled_base.BASE_SCHEMA`` resolve correctly.
-    Empty when esphome isn't importable; callers fall back to "no
-    applies_to restriction" in that case.
-    """
-    try:
-        import esphome
-    except ImportError:
-        return {}
-    components_dir = Path(esphome.__file__).resolve().parent / "components"
-    if not components_dir.is_dir():
-        return {}
-    out: dict[str, set[str]] = {name: set() for name in _LIGHT_SCHEMA_NAMES}
-    # ``components/<platform>/light.py`` is the single-platform shape;
-    # ``components/<platform>/light/__init__.py`` is the multi-platform
-    # shape (binary, hbridge, lvgl, m5stack_8angle, status_led, tuya).
-    candidates: list[tuple[Path, str]] = [
-        (path, f"light.{path.parent.name}") for path in components_dir.glob("*/light.py")
-    ]
-    candidates.extend(
-        (path, f"light.{path.parent.parent.name}")
-        for path in components_dir.glob("*/light/__init__.py")
-    )
-    for path, platform_id in candidates:
-        schema = _resolve_schema_ref(path, components_dir, set())
-        if schema is not None:
-            out[schema].add(platform_id)
-    return {k: frozenset(v) for k, v in out.items()}
-
-
-def _resolve_light_effects_applies_to(
-    effect_name: str,
-    schema_dir: Path,
-) -> list[str]:
-    """Return the canonical light-platform ids that accept *effect_name*."""
-    try:
-        with Path(schema_dir / "light.json").open() as f:
-            light_schema = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return []
-    schemas = (light_schema.get("light") or {}).get("schemas") or {}
-    platforms_by_schema = _derive_light_platforms_by_schema()
-    applies: set[str] = set()
-    for schema_name, platforms in platforms_by_schema.items():
-        schema_body = schemas.get(schema_name) or {}
-        cv = (schema_body.get("schema") or {}).get("config_vars") or {}
-        effects_filter = (cv.get("effects") or {}).get("filter") or []
-        if effect_name in effects_filter:
-            applies.update(platforms)
-    return sorted(applies)
 
 
 def _convert_light_effect(
@@ -4900,7 +4795,7 @@ def _convert_light_effect(
         name=name,
         body=body,
         label_domain="light",
-        applies_to=_resolve_light_effects_applies_to(name, schema_dir),
+        applies_to=resolve_light_effects_applies_to(name, schema_dir),
         schema_dir=schema_dir,
     )
 
@@ -5026,7 +4921,7 @@ def _automation_label(domain: str, name: str, docs_name: str | None) -> str:
     if domain in ("core", "esphome") or not domain:
         return pretty_name
     domain_label = domain.replace("_", " ").title()
-    return f"{domain_label} → {pretty_name}"
+    return f"{domain_label}{_AUTOMATION_LABEL_SEPARATOR}{pretty_name}"
 
 
 def _dedupe_by_id(entries: list[dict]) -> list[dict]:

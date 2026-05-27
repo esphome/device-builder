@@ -216,7 +216,7 @@ select = [
 # BLE001 is waived because sync scripts iterate over hundreds of catalog
 # entries and want "log + continue" for any failure shape; per-entry noqa
 # would be noise.
-"script/*" = ["T20", "S108", "S310", "S110", "S603", "S607", "E501", "PLC0415", "SLF001", "BLE001", "FBT001", "FBT002", "TRY400"]
+"script/*" = ["T20", "S108", "S310", "S110", "S603", "S607", "E501", "PLC0415", "SLF001", "BLE001", "FBT001", "FBT002", "TRY400", "INP001"]
 # Discovery CLI: prints are the entire UX (mirrors aioesphomeapi-discover).
 "esphome_device_builder/discover.py" = ["T20"]
 # Tests need free access to controller privates for setup / assertion;
