@@ -603,12 +603,17 @@ async def test_windows_receiver_tarball_materialises_for_local_firmware_download
     assert ack["accepted"] is True
     receiver_job = created_jobs[0]
     images = _write_build_artifacts_on_disk(tmp_path, configuration=receiver_job.configuration)
-    # Add the factory binary the user's install would download.
-    receiver_storage = StorageJSON.load(resolve_storage_path(receiver_job.configuration))
-    assert receiver_storage is not None
-    receiver_build = str(receiver_storage.build_path)
-    factory_path = Path(receiver_storage.firmware_bin_path).parent / "firmware.factory.bin"
-    factory_path.write_bytes(b"FACTORY-BIN-BYTES")
+
+    def _seed_factory_binary() -> str:
+        # resolve_storage_path + StorageJSON.load + write_bytes all
+        # block, so bundle them into one thread hop.
+        receiver_storage = StorageJSON.load(resolve_storage_path(receiver_job.configuration))
+        assert receiver_storage is not None
+        factory_path = Path(receiver_storage.firmware_bin_path).parent / "firmware.factory.bin"
+        factory_path.write_bytes(b"FACTORY-BIN-BYTES")
+        return str(receiver_storage.build_path)
+
+    receiver_build = await asyncio.to_thread(_seed_factory_binary)
     images["firmware.factory.bin"] = b"FACTORY-BIN-BYTES"
 
     paired_instances.receiver_bus.fire(EventType.JOB_QUEUED, JobLifecycleData(job=receiver_job))
@@ -623,7 +628,10 @@ async def test_windows_receiver_tarball_materialises_for_local_firmware_download
 
     build_path = await asyncio.to_thread(materialise_remote_artifacts, munged, "kitchen.yaml")
 
-    staged_storage = await asyncio.to_thread(StorageJSON.load, resolve_storage_path("kitchen.yaml"))
+    def _load_staged() -> StorageJSON | None:
+        return StorageJSON.load(resolve_storage_path("kitchen.yaml"))
+
+    staged_storage = await asyncio.to_thread(_load_staged)
     assert staged_storage is not None
     assert staged_storage.firmware_bin_path is not None
     # firmware_bin_path was a Windows absolute on the wire; the
