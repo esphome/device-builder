@@ -74,17 +74,11 @@ def merge_component_yaml(
     """
     Render *component* and merge it into *existing* YAML.
 
-    Three merge shapes:
-
-    * Platform-style components (``sensor:``, ``output:``, ...) splice
-      the new ``- platform: ...`` list item under an existing domain
-      block when one is present.
-    * ``multi_conf`` non-platform components (``rtttl:``, ``i2c:``,
-      ``uart:``, ...) splice a new list item under an existing
-      top-level block, converting a mapping-form body to list form on
-      the first repeat (#953).
-    * Everything else (singleton components like ``wifi:`` / ``api:``)
-      falls through to a plain append.
+    Platform-style entity domains (``sensor:``, ``output:``, ...) and
+    ``multi_conf`` non-platform components (``rtttl:``, ``i2c:``,
+    ``uart:``, ...) splice the new entry under an existing top-level
+    block — without this, repeated adds emit duplicate top-level keys,
+    which ESPHome rejects. Singletons fall through to a plain append.
     """
     block = generate_component_yaml(component, fields)
     is_platform = component.category in _ENTITY_CATEGORIES
@@ -234,67 +228,65 @@ def _append_block(existing: str, block: str) -> str:
     return f"{base}{separator}{block}\n"
 
 
+def _find_top_level_block_bounds(file_lines: list[str], key: str) -> tuple[int, int] | None:
+    """
+    Locate the ``<key>:`` block in *file_lines*; return ``(header, end)``.
+
+    *end* is the index of the first line that belongs to the next
+    top-level block (or ``len(file_lines)`` at EOF), rewound past any
+    trailing blank lines so an inserted item lands directly after the
+    last content line. Returns ``None`` when no matching header exists.
+    """
+    header_re = re.compile(rf"^{re.escape(key)}:\s*(?:#.*)?$")
+    block_start: int | None = None
+    for idx, line in enumerate(file_lines):
+        if header_re.match(line.rstrip("\n\r")):
+            block_start = idx
+            break
+    if block_start is None:
+        return None
+
+    block_end = len(file_lines)
+    for idx in range(block_start + 1, len(file_lines)):
+        stripped = file_lines[idx].rstrip("\n\r")
+        if stripped and stripped[0].isalpha() and not stripped.startswith(" "):
+            block_end = idx
+            break
+    while block_end > block_start + 1 and not file_lines[block_end - 1].strip():
+        block_end -= 1
+    return block_start, block_end
+
+
 def _splice_into_domain_block(existing: str, domain: str, block: str) -> str | None:
     """
     Insert the platform-list item from *block* under an existing ``<domain>:``.
 
-    Returns the merged YAML, or ``None`` when the existing file has no
-    ``<domain>:`` section (caller should fall back to appending). The
-    splice walks line-by-line: it locates the domain header, then finds
-    the first subsequent line that starts a new top-level key (column
-    zero, alphabetic) — everything in between is the existing block. The
-    new list item is inserted before that boundary, preserving any
-    trailing blank lines and content that follows.
+    Returns ``None`` when the existing file has no ``<domain>:``
+    section so the caller can fall back to appending.
     """
     block_lines = block.splitlines()
     if len(block_lines) < 2 or block_lines[0].rstrip() != f"{domain}:":
         return None
-    inner_lines = block_lines[1:]
-
     file_lines = existing.splitlines(keepends=True)
-    header_re = re.compile(rf"^{re.escape(domain)}:\s*(?:#.*)?$")
-    domain_start: int | None = None
-    for idx, line in enumerate(file_lines):
-        if header_re.match(line.rstrip("\n\r")):
-            domain_start = idx
-            break
-    if domain_start is None:
+    bounds = _find_top_level_block_bounds(file_lines, domain)
+    if bounds is None:
         return None
-
-    # Walk forward to find the first line that opens a new top-level
-    # block, or stop at EOF.
-    domain_end = len(file_lines)
-    for idx in range(domain_start + 1, len(file_lines)):
-        stripped = file_lines[idx].rstrip("\n\r")
-        if stripped and stripped[0].isalpha() and not stripped.startswith(" "):
-            domain_end = idx
-            break
-
-    # Trim trailing blank lines belonging to the domain block — we want
-    # the new item appended directly after the last content line, then
-    # the blank lines preserved before whatever comes next.
-    last_content = domain_end
-    while last_content > domain_start + 1 and not file_lines[last_content - 1].strip():
-        last_content -= 1
+    _, last_content = bounds
 
     before = "".join(file_lines[:last_content])
     after = "".join(file_lines[last_content:])
     if before and not before.endswith("\n"):
         before += "\n"
-    insertion = "\n".join(inner_lines) + "\n"
+    insertion = "\n".join(block_lines[1:]) + "\n"
     return before + insertion + after
 
 
 def _splice_into_multi_conf_block(existing: str, comp_id: str, block: str) -> str | None:
     """
-    Splice *block* into an existing ``<comp_id>:`` block.
+    Normalise ``<comp_id>:`` to list-form, then splice *block* in.
 
-    Returns ``None`` when the YAML has no ``<comp_id>:`` section (the
-    caller falls back to a plain append). Normalises any mapping-form
-    body to list-form first, then delegates to
-    :func:`_splice_into_domain_block` for the actual list-item splice
-    so trailing-blank-line and following-block handling stay shared
-    with the platform path.
+    Returns ``None`` when no such block exists so the caller can
+    fall back to a plain append.
     """
     normalized = _normalize_multi_conf_block(existing, comp_id)
     if normalized is None:
@@ -310,36 +302,22 @@ def _normalize_multi_conf_block(existing: str, comp_id: str) -> str | None:
     """
     Ensure the existing ``<comp_id>:`` body is in YAML list-form.
 
-    Returns the (possibly rewritten) YAML, or ``None`` when no
-    matching top-level block is present. A body that already starts
-    with ``- `` is returned unchanged; a mapping body is rewritten as
-    a single ``- mapping`` list item via :func:`_mapping_body_to_list_item`.
+    Returns ``None`` when no such block exists. A body whose first
+    non-comment line starts ``- ...`` (or is a bare ``-``) is already
+    list-form and passes through; a mapping body is rewritten as a
+    single ``- mapping`` item.
     """
     file_lines = existing.splitlines(keepends=True)
-    header_re = re.compile(rf"^{re.escape(comp_id)}:\s*(?:#.*)?$")
-    block_start: int | None = None
-    for idx, line in enumerate(file_lines):
-        if header_re.match(line.rstrip("\n\r")):
-            block_start = idx
-            break
-    if block_start is None:
+    bounds = _find_top_level_block_bounds(file_lines, comp_id)
+    if bounds is None:
         return None
-
-    block_end = len(file_lines)
-    for idx in range(block_start + 1, len(file_lines)):
-        stripped = file_lines[idx].rstrip("\n\r")
-        if stripped and stripped[0].isalpha() and not stripped.startswith(" "):
-            block_end = idx
-            break
-    last_content = block_end
-    while last_content > block_start + 1 and not file_lines[last_content - 1].strip():
-        last_content -= 1
+    block_start, last_content = bounds
 
     for idx in range(block_start + 1, last_content):
-        stripped = file_lines[idx].lstrip()
+        stripped = file_lines[idx].strip()
         if not stripped or stripped.startswith("#"):
             continue
-        if stripped.startswith("- "):
+        if stripped.startswith("- ") or stripped == "-":
             return existing
         break
 
@@ -352,12 +330,9 @@ def _mapping_body_to_list_item(body_lines: list[str]) -> list[str]:
     """
     Convert a 2-space-indented mapping body to a YAML list item.
 
-    Each non-blank line gains one extra level of indent and the first
-    non-blank, non-comment line's leading indent is replaced with
-    ``  - ``. Anchoring the marker on a key line (not a leading
-    ``# ...``) avoids demoting a comment-decorated mapping into a
-    ``- # comment`` head item whose original mapping then dangles at
-    the wrong nesting depth.
+    The ``- `` marker is anchored on the first non-comment key line;
+    a leading ``# ...`` keeps its position so a comment-decorated
+    mapping doesn't demote into a ``- # comment`` null head item.
     """
     result: list[str] = []
     marked = False
@@ -371,7 +346,7 @@ def _mapping_body_to_list_item(body_lines: list[str]) -> list[str]:
             and not line.lstrip().startswith("#")
             and indented.startswith(ESPHOME_YAML_INDENT * 2)
         ):
-            indented = "  - " + indented[len(ESPHOME_YAML_INDENT * 2) :]
+            indented = f"{ESPHOME_YAML_INDENT}- " + indented[len(ESPHOME_YAML_INDENT * 2) :]
             marked = True
         result.append(indented)
     return result

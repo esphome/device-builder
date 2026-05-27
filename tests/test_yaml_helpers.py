@@ -1039,23 +1039,14 @@ def test_merge_component_yaml_singleton_without_multi_conf_falls_through() -> No
 
 
 def test_splice_into_multi_conf_block_rejects_mismatched_header() -> None:
-    """A *block* whose header doesn't match ``comp_id`` returns ``None``.
-
-    Defensive guard against a caller wiring a wrong header to the
-    splice helper; the caller falls back to a plain append.
-    """
+    """A *block* whose header doesn't match ``comp_id`` returns ``None``."""
     existing = "rtttl:\n  id: rtttl_1\n  output: buzz\n"
     block = "wifi:\n  ssid: home\n"
     assert _splice_into_multi_conf_block(existing, "rtttl", block) is None
 
 
 def test_normalize_multi_conf_block_skips_comments_above_list_form() -> None:
-    """A leading comment inside the block doesn't trigger a rewrite.
-
-    The form detector walks past comment / blank lines before
-    deciding mapping vs list, so a ``# ...`` line above an existing
-    ``- `` list item must not flip the block back to mapping form.
-    """
+    """A leading ``#`` comment above an existing ``- `` item doesn't trigger a rewrite."""
     component = _component(component_id="rtttl", category=ComponentCategory.MISC, multi_conf=True)
     existing = "rtttl:\n  # buzzers for the kitchen\n  - id: rtttl_1\n    output: buzz\n"
     result = merge_component_yaml(existing, component, {"id": "rtttl_2", "output": "buzz"})
@@ -1063,6 +1054,16 @@ def test_normalize_multi_conf_block_skips_comments_above_list_form() -> None:
     assert result.count("rtttl:\n") == 1
     assert "  - id: rtttl_1" in result
     assert "  - id: rtttl_2" in result
+
+
+def test_normalize_multi_conf_block_treats_bare_dash_as_list_form() -> None:
+    """A body whose head line is a bare ``-`` is already list-form."""
+    component = _component(component_id="rtttl", category=ComponentCategory.MISC, multi_conf=True)
+    existing = "rtttl:\n  -\n    id: rtttl_1\n    output: buzz\n"
+    result = merge_component_yaml(existing, component, {"id": "rtttl_2", "output": "buzz"})
+    assert result.count("rtttl:\n") == 1
+    assert "  -\n    id: rtttl_1" in result
+    assert "  - id: rtttl_2\n" in result
 
 
 def test_merge_component_yaml_multi_conf_preserves_leading_comment() -> None:
