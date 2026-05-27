@@ -70,14 +70,6 @@ def _instrument_loop(
     monkeypatch.setattr(shared_module, "resolve_non_api_mdns_targets", _resolve)
     monitor._ping._ping_sweep = _sweep  # type: ignore[method-assign]
 
-    # Bypass the icmp-socket privilege probe; the loop body is what
-    # this suite exercises, and we don't want the real probe to open
-    # ICMP sockets in CI runners that may lack the capabilities.
-    async def _probe_ok() -> bool:
-        return True
-
-    monkeypatch.setattr(ping_module, "_can_use_icmp_lib_with_privilege", _probe_ok)
-
     # Skip the bootstrap delay; collapse the post-sweep idle wait
     # so the loop ticks fast enough for an asyncio.sleep(0)-driven
     # spin. Tests cancel the task to exit cleanly.

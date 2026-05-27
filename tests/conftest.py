@@ -33,6 +33,7 @@ from esphome_device_builder.controllers._device_mqtt_coordinator import (
     DeviceMqttCoordinator,
 )
 from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
+from esphome_device_builder.controllers._device_state_monitor import ping as _ping_module
 from esphome_device_builder.controllers.boards import BoardCatalog
 from esphome_device_builder.controllers.components import ComponentCatalog
 from esphome_device_builder.controllers.config import DashboardSettings
@@ -146,6 +147,25 @@ def blockbuster() -> Iterator[BlockBuster | None]:
 @pytest.fixture(autouse=True)
 def _core_config_path_in_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(CORE, "config_path", tmp_path / "___DASHBOARD_SENTINEL___.yaml")
+
+
+@pytest.fixture(autouse=True)
+def _stub_icmp_privilege_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bypass ``PingSource.run``'s ICMP socket privilege probe.
+
+    The real probe opens ``SOCK_RAW`` / ``SOCK_DGRAM`` against
+    ``127.0.0.1``; on CI runners and locked-down dev machines
+    that fails, ``run`` returns early, and tests that drive the
+    ping loop see zero sweeps. Tests that exercise the probe
+    itself (``test_can_use_icmp_lib_with_privilege_*``) call the
+    function through their imported binding, bypassing this
+    monkeypatch.
+    """
+
+    async def _probe_ok() -> bool:
+        return True
+
+    monkeypatch.setattr(_ping_module, "_can_use_icmp_lib_with_privilege", _probe_ok)
 
 
 # ---------------------------------------------------------------------------

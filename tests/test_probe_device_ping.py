@@ -66,13 +66,6 @@ def _patch_loop_for_wake_tests(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(ping_module.shared, "resolve_non_api_mdns_targets", _noop_resolve)
 
-    # Bypass the icmp-socket privilege probe so ``run`` reaches the
-    # sweep on CI runners that may lack the capabilities.
-    async def _probe_ok() -> bool:
-        return True
-
-    monkeypatch.setattr(ping_module, "_can_use_icmp_lib_with_privilege", _probe_ok)
-
 
 @asynccontextmanager
 async def _running_loop(monitor: DeviceStateMonitor) -> AsyncIterator[None]:
