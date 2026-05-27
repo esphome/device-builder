@@ -1,0 +1,45 @@
+name: Set up uv and managed Python
+description: |
+  Installs uv plus astral's PGO/LTO/BOLT/mimalloc-built CPython for
+  the requested version. setup-uv only sets ``UV_PYTHON``; this
+  composite also runs ``uv python install`` so the interpreter is
+  on disk before later steps reach for it (otherwise a job that
+  restores a cached venv would race a lazy fetch and blow up on
+  broken symlinks).
+
+  Built for the 3.14 CI matrix where the tail-call interpreter
+  measurably shortens the suite; jobs that need stock CPython
+  (notably the CodSpeed benchmarks, where mimalloc + tail-call
+  dispatch would shift callgrind instruction counts) should stay
+  on ``actions/setup-python``.
+
+inputs:
+  python-version:
+    description: The Python version uv should install and use.
+    required: true
+
+outputs:
+  python-version:
+    description: The Python version uv reports as installed.
+    value: ${{ steps.uv.outputs.python-version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up uv
+      id: uv
+      uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
+      with:
+        python-version: ${{ inputs.python-version }}
+        enable-cache: true
+        cache-python: true
+        # Lint-only / codegen steps reuse this action without
+        # touching deps, so the post-step cache save would
+        # otherwise abort the job.
+        ignore-nothing-to-cache: true
+
+    - name: Install Python interpreter
+      shell: bash
+      env:
+        PYTHON_VERSION: ${{ inputs.python-version }}
+      run: uv python install "${PYTHON_VERSION}"
