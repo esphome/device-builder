@@ -90,7 +90,7 @@ def merge_component_yaml(
     return _append_block(existing, block)
 
 
-def generate_component_yaml(
+def generate_component_yaml(  # noqa: C901
     component: ComponentCatalogEntry,
     fields: dict[str, Any],
 ) -> str:

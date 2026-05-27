@@ -42,7 +42,7 @@ async def run_queue(controller: FirmwareController) -> None:
         await controller._execute_job(job)
 
 
-async def execute_job(  # noqa: PLR0912, PLR0915
+async def execute_job(  # noqa: PLR0912, PLR0915, C901
     controller: FirmwareController, job: FirmwareJob
 ) -> None:
     """Execute a single firmware job."""

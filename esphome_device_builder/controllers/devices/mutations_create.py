@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from .controller import DevicesController
 
 
-async def create_device(  # noqa: PLR0912, PLR0915
+async def create_device(  # noqa: PLR0912, PLR0915, C901
     controller: DevicesController,
     *,
     name: str,

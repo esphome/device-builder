@@ -1345,7 +1345,7 @@ _CONFIG_VAR_LINE = re.compile(
 )
 
 
-def _extract_mdx_field_descriptions(text: str) -> dict[str, str]:
+def _extract_mdx_field_descriptions(text: str) -> dict[str, str]:  # noqa: C901
     """Parse the ``## Configuration variables`` section into a field map.
 
     Captures one description per top-level bullet — including
@@ -1457,7 +1457,7 @@ _FRONTMATTER_DESCRIPTION = re.compile(
 )
 
 
-def _extract_mdx_description(text: str) -> str:
+def _extract_mdx_description(text: str) -> str:  # noqa: C901
     """Return the curated description for a component MDX file.
 
     Tries the frontmatter ``description:`` field first; falls back to
@@ -1767,7 +1767,7 @@ def _apply_visibility_cascade(
             )
 
 
-def _convert_config_vars(
+def _convert_config_vars(  # noqa: C901
     schema_node: dict,
     schema_dir: Path,
     *,
@@ -1828,7 +1828,7 @@ def _convert_config_vars(
     return _sort_entries(out)
 
 
-def _resolve_extends(ref: str, schema_dir: Path) -> dict[str, dict]:
+def _resolve_extends(ref: str, schema_dir: Path) -> dict[str, dict]:  # noqa: C901
     """Look up an ``extends`` reference and return its config_vars.
 
     *ref* is shaped ``<file>.<schema_name>`` — e.g.
@@ -1877,7 +1877,7 @@ def _resolve_extends(ref: str, schema_dir: Path) -> dict[str, dict]:
     return inner
 
 
-def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noqa: PLR0912, PLR0915
+def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noqa: PLR0912, PLR0915, C901
     """Build a single ConfigEntry dict from a schema's config_var entry."""
     if not isinstance(raw, dict):
         # Some schemas use bare ``{}``-shaped placeholders for fields
@@ -3137,7 +3137,7 @@ def _strip_entry_defaults(entry: dict) -> dict:
     return out
 
 
-def _walk_schema_keys(
+def _walk_schema_keys(  # noqa: C901
     schema: Any,
     visit: Callable[[Any, str, Any, tuple[str, ...]], None],
 ) -> None:
@@ -3338,7 +3338,7 @@ _UNIT_FALLBACKS: dict[str, list[str]] = {
 }
 
 
-def _extract_validator_units(validator: Any) -> list[str] | None:  # noqa: PLR0911
+def _extract_validator_units(validator: Any) -> list[str] | None:  # noqa: PLR0911, C901
     """Pull the unit option list out of a ``cv.float_with_unit`` validator.
 
     Inspects the closure cells produced by ``float_with_unit``: a
@@ -3411,7 +3411,7 @@ def _extract_validator_units(validator: Any) -> list[str] | None:  # noqa: PLR09
     return None
 
 
-def _collect_refined_types(
+def _collect_refined_types(  # noqa: C901
     manifest: Any,
 ) -> dict[tuple[str, ...], RefinedType]:
     """Walk the live ``CONFIG_SCHEMA`` to recover types the schema lost.
@@ -3895,7 +3895,7 @@ def _collect_inclusive_groups(
     return out
 
 
-def _collect_required_groups(
+def _collect_required_groups(  # noqa: C901
     manifest: Any,
 ) -> dict[tuple[str, ...], list[dict[str, Any]]]:
     """
@@ -4122,7 +4122,7 @@ def _annotate_constraint_descriptions(component: dict) -> None:
     )
 
 
-def _annotate_scope(entries: list[dict], required_groups: list[dict[str, Any]]) -> None:
+def _annotate_scope(entries: list[dict], required_groups: list[dict[str, Any]]) -> None:  # noqa: C901
     """Annotate one sibling list with its in-scope required + inclusive hints."""
     if not entries:
         return
@@ -4398,7 +4398,7 @@ _CORE_AUTOMATION_LABELS: dict[str, str] = {
 _CORE_AUTOMATION_DOCS = "https://esphome.io/automations/actions"
 
 
-def build_automations(
+def build_automations(  # noqa: C901
     *,
     schema_dir: Path,
     component_ids: set[str],

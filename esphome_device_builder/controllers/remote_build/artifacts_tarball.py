@@ -182,7 +182,7 @@ def _load_storage_for_pack(configuration: str) -> tuple[Path, StorageJSON]:
     return storage_path, storage
 
 
-def _collect_pack_members(
+def _collect_pack_members(  # noqa: C901
     *,
     configuration: str,
     storage: StorageJSON,

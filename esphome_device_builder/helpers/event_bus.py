@@ -197,7 +197,7 @@ class StreamControls:
     end: Callable[[], None]
 
 
-async def stream_events(
+async def stream_events(  # noqa: C901
     *,
     client: Any,
     message_id: str,

@@ -449,7 +449,7 @@ class PeerLinkClient:
             self._last_connect_error = f"{type(exc).__name__}: {exc}"
             return _LOCAL_CLOSE_TRANSPORT_ERROR
 
-    async def _run_session_loops(self, channel: PeerLinkChannel) -> str:
+    async def _run_session_loops(self, channel: PeerLinkChannel) -> str:  # noqa: C901
         """
         Run the receive loop with a heartbeat task in parallel.
 

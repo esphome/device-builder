@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from .controller import DevicesController
 
 
-async def clone_device(
+async def clone_device(  # noqa: C901
     controller: DevicesController,
     *,
     configuration: str,

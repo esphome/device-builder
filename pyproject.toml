@@ -164,6 +164,10 @@ select = [
   "B", # flake8-bugbear
   "BLE", # flake8-blind-except — flag ``except Exception:`` so the catch scope is deliberate
   "C4", # flake8-comprehensions
+  "C90", # mccabe complexity — flag new functions whose cyclomatic complexity
+  # exceeds the default 10 branches. 31 pre-existing offenders are
+  # grandfathered with inline ``# noqa: C901`` so this rule catches *new*
+  # accidental complexity without forcing a refactor on existing code.
   "D", # pydocstyle
   "DTZ", # flake8-datetimez — flag naive datetime construction; force explicit tz
   "E", # pycodestyle errors
