@@ -421,8 +421,11 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             configuration = row.get("configuration") if isinstance(row, dict) else None
             if not isinstance(configuration, str):
                 raise CommandError(ErrorCode.INVALID_ARGS, "configuration must be a string")
+            label_ids = row.get("label_ids") if isinstance(row, dict) else None
+            if not isinstance(label_ids, list):
+                raise CommandError(ErrorCode.INVALID_ARGS, "label_ids must be a list")
             await mutations_simple.set_labels(
-                self, configuration=configuration, label_ids=row.get("label_ids")
+                self, configuration=configuration, label_ids=label_ids
             )
 
         def _extract(row: dict[str, Any]) -> str:
