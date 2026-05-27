@@ -392,6 +392,29 @@ async def test_can_use_icmp_lib_with_privilege_returns_none_when_both_denied() -
 
 
 @pytest.mark.asyncio
+async def test_can_use_icmp_lib_with_privilege_returns_none_when_icmplib_missing() -> None:
+    """``icmp_ping`` is ``None`` (icmplib not installed) → probe returns ``None``."""
+    with patch(
+        "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
+        None,
+    ):
+        assert await _can_use_icmp_lib_with_privilege() is None
+
+
+@pytest.mark.asyncio
+async def test_can_use_icmp_lib_with_privilege_returns_none_on_unexpected_oserror() -> None:
+    """Non-permission ``OSError`` also degrades gracefully; the task doesn't die."""
+    fake_ping = AsyncMock(side_effect=[OSError("EAFNOSUPPORT"), OSError("EAFNOSUPPORT")])
+    with patch(
+        "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
+        fake_ping,
+    ):
+        assert await _can_use_icmp_lib_with_privilege() is None
+
+    assert fake_ping.await_count == 2
+
+
+@pytest.mark.asyncio
 async def test_ping_device_uses_privileged_flag_from_probe() -> None:
     """``_ping_device`` forwards ``self._privileged`` to every ``icmp_ping`` call."""
     devices = [_make_device(state=DeviceState.UNKNOWN)]

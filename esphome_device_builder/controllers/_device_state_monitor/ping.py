@@ -13,11 +13,10 @@ from . import shared
 
 try:
     from icmplib import async_ping as icmp_ping
-    from icmplib.exceptions import ICMPLibError, SocketPermissionError
+    from icmplib.exceptions import ICMPLibError
 except ImportError:  # pragma: no cover — icmplib is optional
     icmp_ping = None  # type: ignore[assignment]
     ICMPLibError = Exception  # type: ignore[misc,assignment]
-    SocketPermissionError = Exception  # type: ignore[misc,assignment]
 
 if TYPE_CHECKING:
     from .controller import DeviceStateMonitor
@@ -55,10 +54,10 @@ async def _can_use_icmp_lib_with_privilege() -> bool | None:
         return None
     try:
         await icmp_ping("127.0.0.1", count=0, timeout=0, privileged=True)
-    except SocketPermissionError:
+    except (ICMPLibError, OSError):
         try:
             await icmp_ping("127.0.0.1", count=0, timeout=0, privileged=False)
-        except SocketPermissionError:
+        except (ICMPLibError, OSError):
             return None
         return False
     return True
