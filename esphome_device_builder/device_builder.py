@@ -426,7 +426,7 @@ class DeviceBuilder:
             len(self.command_handlers),
         )
 
-    async def stop(self) -> None:
+    async def stop(self) -> None:  # noqa: C901
         """Shut down the application."""
         if self._bg_task:
             self._bg_task.cancel()
@@ -1244,7 +1244,7 @@ class DeviceBuilder:
             return None
 
     @staticmethod
-    def _register_frontend(
+    def _register_frontend(  # noqa: C901
         app: web.Application, frontend_dir: Path, *, dev_mode: bool = False
     ) -> None:
         """Register routes for the built frontend.

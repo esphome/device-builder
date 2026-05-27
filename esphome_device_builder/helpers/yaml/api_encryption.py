@@ -41,7 +41,7 @@ def rewrite_api_encryption_key(yaml_text: str, new_key: str) -> str:
         # mask the ``${`` prefix and cause us to rewrite a value the
         # user explicitly indirected.
         unquoted = _strip_yaml_quotes(raw)
-        if unquoted.startswith("!secret") or unquoted.startswith("${"):
+        if unquoted.startswith(("!secret", "${")):
             return None
         return rendered
 

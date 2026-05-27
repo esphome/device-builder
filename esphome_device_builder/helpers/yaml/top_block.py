@@ -13,7 +13,7 @@ from .scalar import (
 from .substitution import rewrite_name_or_substitution
 
 
-def _locate_top_block(lines: list[str], block_key: str) -> tuple[int, int, str] | None:
+def _locate_top_block(lines: list[str], block_key: str) -> tuple[int, int, str] | None:  # noqa: C901
     """
     Find the column-0 ``block_key:`` block; return ``(start, end, child_indent)``.
 

@@ -44,7 +44,7 @@ from .remote_build_layout import BUNDLE_SUFFIX, REMOTE_BUILDS_SUBDIR, RemoteBuil
 _LOGGER = logging.getLogger(__name__)
 
 
-def sweep_remote_builds(
+def sweep_remote_builds(  # noqa: C901
     config_dir: Path,
     *,
     ttl_seconds: float,

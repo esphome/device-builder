@@ -671,7 +671,7 @@ def extract_directly_referenced_integrations(
     return sorted(out)
 
 
-def parse_esphome_meta(  # noqa: PLR0912
+def parse_esphome_meta(  # noqa: PLR0912, C901
     yaml_content: str,
     extra_substitutions: dict[str, str] | None = None,
 ) -> tuple[str | None, str | None, str | None, str | None]:
@@ -1098,7 +1098,7 @@ def _parse_inline_value(raw: str) -> str:
     Strips an inline ``# comment`` and matching surrounding quotes.
     """
     value = raw.strip()
-    if "#" in value and not (value.startswith('"') or value.startswith("'")):
+    if "#" in value and not value.startswith(('"', "'")):
         value = value.split("#", 1)[0].rstrip()
     if (value.startswith('"') and value.endswith('"')) or (
         value.startswith("'") and value.endswith("'")

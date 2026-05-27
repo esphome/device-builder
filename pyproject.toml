@@ -164,6 +164,10 @@ select = [
   "B", # flake8-bugbear
   "BLE", # flake8-blind-except — flag ``except Exception:`` so the catch scope is deliberate
   "C4", # flake8-comprehensions
+  "C90", # mccabe complexity — flag new functions whose cyclomatic complexity
+  # exceeds the default 10 branches. 31 pre-existing offenders are
+  # grandfathered with inline ``# noqa: C901`` so this rule catches *new*
+  # accidental complexity without forcing a refactor on existing code.
   "D", # pydocstyle
   "DTZ", # flake8-datetimez — flag naive datetime construction; force explicit tz
   "E", # pycodestyle errors
@@ -179,6 +183,8 @@ select = [
   "LOG", # flake8-logging — catch ``logging.warn`` / wrong exception handling on the logger
   "N", # pep8-naming
   "PERF", # performance
+  "PGH", # pygrep-hooks — flag blanket ``# type: ignore`` / ``# noqa`` without a code
+  "PIE", # flake8-pie — misc lints (collapse duplicate startswith/endswith, prefer ``list`` over ``lambda: []``)
   "PL", # pylint
   "PTH", # flake8-use-pathlib — prefer pathlib over os.path/os primitives
   "PLR0904", # too-many-public-methods (preview) — cap new god-classes at 20
@@ -189,10 +195,12 @@ select = [
   "SLF", # flake8-self — flag cross-class private member access so the State
   # dataclass boundary stays load-bearing; sibling-module access within a
   # controller package is exempted via per-file-ignores below.
+  "T10", # flake8-debugger — flag stray ``breakpoint()`` / ``pdb.set_trace()`` calls
   "T20", # flake8-print
   "TRY", # tryceratops — exception-handling antipatterns (TRY003 globally ignored above)
   "UP", # pyupgrade
   "W", # pycodestyle warnings
+  "YTT", # flake8-2020 — flag ``sys.version`` / ``sys.version_info`` slicing bugs
 ]
 
 [tool.ruff.lint.per-file-ignores]
