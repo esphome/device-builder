@@ -79,13 +79,14 @@ from esphome_device_builder.models.automations import (
 
 def test_load_catalog_returns_empty_when_definitions_missing() -> None:
     """A missing ``automations.json`` resolves to empty lists, not a crash."""
-    catalog.load_catalog.cache_clear()
+    # Call ``__wrapped__`` to bypass ``functools.cache`` without
+    # touching the global cache state; a ``cache_clear`` + re-warm
+    # would otherwise re-parse the full catalog (~2.5s) for the
+    # benefit of subsequent tests.
     with patch("esphome_device_builder.controllers.automations.catalog.resources.files") as files:
         files.side_effect = ModuleNotFoundError
-        result = catalog.load_catalog()
+        result = catalog.load_catalog.__wrapped__()
     assert result == {"triggers": [], "actions": [], "conditions": [], "light_effects": []}
-    catalog.load_catalog.cache_clear()
-    catalog.load_catalog()  # re-warm with real data
 
 
 def test_condition_by_id_returns_none_for_unknown_id() -> None:
