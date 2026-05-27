@@ -270,13 +270,7 @@ async def test_update_config_writes_before_requesting_reload(
 async def test_update_config_refuses_empty_content(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """Empty content raises ``INVALID_ARGS``; the existing file is untouched.
-
-    Pins the data-loss guard against #951: a frontend state-clear that
-    led to ``content=""`` would otherwise wipe ``secrets.yaml`` (or any
-    device YAML) atomically on disk. Refuse at the endpoint regardless
-    of which client called in.
-    """
+    """Empty content raises ``INVALID_ARGS``; file and side effects untouched."""
     controller = make_controller(tmp_path)
     regenerated = _stub_regenerate(controller)
     target = tmp_path / "secrets.yaml"
@@ -296,14 +290,9 @@ async def test_update_config_refuses_empty_content(
 async def test_update_config_refuses_whitespace_only_content(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """Whitespace-only content is treated the same as empty.
-
-    A buffer the user blanked except for stray newlines / tabs is the
-    same data-loss shape as a truly empty buffer; the existing file is
-    untouched.
-    """
+    """Whitespace-only content is rejected the same as empty."""
     controller = make_controller(tmp_path)
-    _stub_regenerate(controller)
+    regenerated = _stub_regenerate(controller)
     target = tmp_path / "secrets.yaml"
     original = "wifi_password: hunter2\n"
     target.write_text(original, encoding="utf-8")
@@ -313,6 +302,8 @@ async def test_update_config_refuses_whitespace_only_content(
 
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
     assert target.read_text(encoding="utf-8") == original
+    assert regenerated == []
+    assert controller._scanner.calls == []
 
 
 @pytest.mark.asyncio

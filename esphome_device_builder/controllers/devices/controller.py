@@ -606,7 +606,8 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         if not content.strip():
             raise CommandError(
                 ErrorCode.INVALID_ARGS,
-                "refusing to write empty content; delete the file directly instead",
+                f"refusing to write empty content to {configuration!r} to prevent "
+                "accidental data loss; use the delete action to remove a file",
             )
         await self._persist_yaml_mutation(configuration, content)
 
