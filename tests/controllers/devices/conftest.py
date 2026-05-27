@@ -24,7 +24,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from esphome_device_builder.controllers._reachability_tracker import ReachabilityTracker
-from esphome_device_builder.controllers.config import set_device_metadata
+from esphome_device_builder.controllers.config import get_device_metadata, set_device_metadata
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.devices._metadata_store import DeviceMetadataStore
 from esphome_device_builder.controllers.devices._shared_sidecar import SharedSidecarClient
@@ -33,9 +33,10 @@ from esphome_device_builder.controllers.devices._yaml_search_cache import YamlSe
 from esphome_device_builder.helpers.device_yaml import configuration_stem
 from esphome_device_builder.helpers.event_bus import Event, EventBus
 from esphome_device_builder.helpers.hostname import normalize_hostname
-from esphome_device_builder.models import AdoptableDevice, DeviceState, EventType
+from esphome_device_builder.models import AdoptableDevice, Device, DeviceState, EventType
 from tests._recording_scanner import RecordingScanner
 from tests._storage_fixtures import write_storage_json
+from tests.conftest import make_device
 
 
 class RecordingStateMonitor:
@@ -627,3 +628,58 @@ def redirect_storage_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
         _ext,
         raising=False,
     )
+
+
+class ReloadingScanner(RecordingScanner):
+    """``RecordingScanner`` whose ``reload`` rehydrates the live device.
+
+    The production scanner reruns the metadata resolver on every
+    ``reload`` and replaces the ``Device`` in its index. The bare
+    ``RecordingScanner`` only records the call, so controller methods
+    that read the live ``Device`` back from ``self._scanner.devices``
+    after reload would always see the stale pre-populated stub. This
+    fake walks ``self.devices`` for the matching configuration and
+    copies the freshly-persisted ``labels`` off the sidecar onto it.
+    """
+
+    def __init__(self, config_dir: Path, devices: list[Device]) -> None:
+        super().__init__()
+        self._config_dir = config_dir
+        self.devices = list(devices)
+
+    async def reload(self, filename: str) -> bool:
+        self.calls.append(("reload", filename))
+        md = await asyncio.to_thread(get_device_metadata, self._config_dir, filename)
+        raw_labels = md.get("labels", [])
+        new_labels = (
+            [item for item in raw_labels if isinstance(item, str)]
+            if isinstance(raw_labels, list)
+            else []
+        )
+        for device in self.devices:
+            if device.configuration == filename:
+                device.labels = new_labels
+        return True
+
+
+def make_label_test_device(
+    filename: str = "kitchen.yaml", labels: list[str] | None = None
+) -> Device:
+    """Build a ``Device`` whose ``configuration`` / ``labels`` round-trip the sidecar."""
+    name = configuration_stem(filename)
+    return make_device(
+        name=name,
+        friendly_name=name,
+        configuration=filename,
+        address="",
+        labels=list(labels or []),
+    )
+
+
+def attach_reloading_scanner(
+    controller: DevicesController, config_dir: Path, devices: list[Device]
+) -> ReloadingScanner:
+    """Swap the default ``RecordingScanner`` for the reload-aware one seeded with N devices."""
+    scanner = ReloadingScanner(config_dir, devices)
+    controller._scanner = scanner
+    return scanner

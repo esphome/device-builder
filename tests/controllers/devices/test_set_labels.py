@@ -33,74 +33,25 @@ from esphome_device_builder.controllers.config import (
 )
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.helpers.api import CommandError
-from esphome_device_builder.helpers.device_yaml import configuration_stem
 from esphome_device_builder.models import Device, ErrorCode, Label
-from tests._recording_scanner import RecordingScanner
-from tests.conftest import make_device
 
-from .conftest import MakeControllerFactory
-
-
-class _ReloadingScanner(RecordingScanner):
-    """RecordingScanner whose ``reload`` rehydrates the live ``Device.labels``.
-
-    The production scanner re-runs the metadata resolver on every
-    ``reload`` and replaces the ``Device`` in its index. The bare
-    ``RecordingScanner`` only records the call, so the controller's
-    ``set_labels`` (which reads back the live ``Device`` from
-    ``self._scanner.devices`` after reload) would always see the
-    stale pre-populated stub.
-
-    This fake walks ``self.devices`` for the matching configuration
-    and copies the freshly-persisted ``labels`` field off the
-    sidecar onto it. Narrower than swapping in
-    ``load_device_from_storage`` (which would require redirecting
-    ``ext_storage_path`` and dragging in the full StorageJSON
-    round-trip), but exactly the slice ``set_labels`` cares about.
-    """
-
-    def __init__(self, config_dir: Path, device: Device) -> None:
-        super().__init__()
-        self._config_dir = config_dir
-        self.devices = [device]
-
-    async def reload(self, filename: str) -> bool:
-        self.calls.append(("reload", filename))
-        # ``get_device_metadata`` reads ``.device-builder.json`` via
-        # ``Path.read_bytes`` — sync I/O. Hop through a thread the
-        # way the production scanner does so blockbuster on Linux CI
-        # doesn't fault on the inner ``os.path.abspath`` resolve.
-        md = await asyncio.to_thread(get_device_metadata, self._config_dir, filename)
-        raw_labels = md.get("labels", [])
-        new_labels = (
-            [item for item in raw_labels if isinstance(item, str)]
-            if isinstance(raw_labels, list)
-            else []
-        )
-        for device in self.devices:
-            if device.configuration == filename:
-                device.labels = new_labels
-        return True
-
-
-def _make_device(filename: str = "kitchen.yaml", labels: list[str] | None = None) -> Device:
-    name = configuration_stem(filename)
-    return make_device(
-        name=name,
-        friendly_name=name,
-        configuration=filename,
-        address="",
-        labels=list(labels or []),
-    )
+from .conftest import (
+    MakeControllerFactory,
+    ReloadingScanner,
+    attach_reloading_scanner,
+    make_label_test_device,
+)
 
 
 def _attach_reloading_scanner(
     controller: DevicesController, config_dir: Path, device: Device
-) -> _ReloadingScanner:
-    """Swap ``make_controller``'s default RecordingScanner for the reload-aware one."""
-    scanner = _ReloadingScanner(config_dir, device)
-    controller._scanner = scanner
-    return scanner
+) -> ReloadingScanner:
+    """Adapt the multi-device hoisted helper for the existing single-device call sites."""
+    return attach_reloading_scanner(controller, config_dir, [device])
+
+
+def _make_device(filename: str = "kitchen.yaml", labels: list[str] | None = None) -> Device:
+    return make_label_test_device(filename, labels)
 
 
 @pytest.mark.asyncio

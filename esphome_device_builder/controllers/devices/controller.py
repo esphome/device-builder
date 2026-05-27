@@ -403,6 +403,13 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             self, configuration=configuration, label_ids=label_ids
         )
 
+    @api_command("devices/set_labels_bulk")
+    async def set_labels_bulk(
+        self, *, updates: list[dict[str, Any]], **kwargs: Any
+    ) -> list[dict[str, Any]]:
+        """Assign labels across multiple devices."""
+        return await mutations_simple.set_labels_bulk(self, updates=updates)
+
     @api_command("devices/rename")
     async def rename_device(
         self,
