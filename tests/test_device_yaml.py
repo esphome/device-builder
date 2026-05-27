@@ -564,6 +564,166 @@ esphome:
     assert area == "Living Room"
 
 
+@pytest.mark.parametrize(
+    ("yaml_content", "expected_area"),
+    [
+        pytest.param(
+            """
+esphome:
+  name: lamp
+  area:
+    id: kitchen
+    name: "Kitchen"
+""",
+            "Kitchen",
+            id="block_form",
+        ),
+        pytest.param(
+            """
+esphome:
+  name: lamp
+  area:
+    name: "Kitchen"
+    id: kitchen
+""",
+            "Kitchen",
+            id="block_form_name_first",
+        ),
+        pytest.param(
+            """
+esphome:
+  name: lamp
+  area:
+    id: bedroom_master
+    name: "Bedroom, Master"
+""",
+            "Bedroom, Master",
+            id="block_form_quoted_name_with_comma",
+        ),
+        pytest.param(
+            """
+substitutions:
+  device_area: "Living Room"
+esphome:
+  name: lamp
+  area:
+    id: ${device_area}
+    name: "${device_area}"
+""",
+            "Living Room",
+            id="block_form_with_substitution",
+        ),
+        pytest.param(
+            """
+esphome:
+  name: lamp
+  area: {id: kitchen, name: "Kitchen"}
+""",
+            "Kitchen",
+            id="flow_form",
+        ),
+        pytest.param(
+            """
+esphome:
+  name: lamp
+  area: {name: "Kitchen", id: kitchen}
+""",
+            "Kitchen",
+            id="flow_form_name_first",
+        ),
+        pytest.param(
+            """
+esphome:
+  name: lamp
+  area:
+    id: kitchen
+""",
+            None,
+            id="block_form_no_name",
+        ),
+        pytest.param(
+            """
+esphome:
+  name: lamp
+  area: {id: kitchen}
+""",
+            None,
+            id="flow_form_no_name",
+        ),
+        pytest.param(
+            """
+esphome:
+  name: lamp
+  area: {id: kitchen, name: "Bedroom, Master"}
+""",
+            "Bedroom, Master",
+            id="flow_form_quoted_name_with_comma",
+        ),
+        pytest.param(
+            """
+esphome:
+  name: lamp
+  area: ""
+""",
+            "",
+            id="explicit_empty_string",
+        ),
+    ],
+)
+def test_parse_meta_area_object_shapes(yaml_content: str, expected_area: str | None) -> None:
+    """``esphome.area`` resolves across every shape the schema accepts."""
+    *_, area = parse_esphome_meta(yaml_content)
+    assert area == expected_area
+
+
+def test_parse_meta_area_block_form_isolates_nested_keys() -> None:
+    """Nested ``name:`` / ``id:`` under ``area:`` don't leak to siblings."""
+    yaml_content = """
+esphome:
+  name: lamp
+  area:
+    id: kitchen
+    name: "Kitchen"
+  comment: "real comment"
+"""
+    name, _, comment, area = parse_esphome_meta(yaml_content)
+    assert name == "lamp"
+    assert area == "Kitchen"
+    assert comment == "real comment"
+
+
+def test_parse_meta_top_level_comment_does_not_close_esphome_block() -> None:
+    """A column-0 ``# Comment: ...`` line doesn't terminate the esphome block."""
+    yaml_content = """
+esphome:
+  name: lamp
+# Board: ESP32 dev kit
+  friendly_name: Kitchen Lamp
+  area: Kitchen
+"""
+    name, friendly_name, _, area = parse_esphome_meta(yaml_content)
+    assert name == "lamp"
+    assert friendly_name == "Kitchen Lamp"
+    assert area == "Kitchen"
+
+
+def test_parse_meta_ignores_unknown_esphome_keys_and_their_children() -> None:
+    """Unknown sub-blocks under ``esphome:`` don't leak into meta fields."""
+    yaml_content = """
+esphome:
+  name: lamp
+  platformio_options:
+    board_build.f_cpu: 240000000L
+    build_flags:
+      - -DSOMETHING
+  comment: after-block comment
+"""
+    name, _, comment, area = parse_esphome_meta(yaml_content)
+    assert name == "lamp"
+    assert comment == "after-block comment"
+    assert area is None
+
+
 # ----------------------------------------------------------------------
 # parse_platform_from_yaml — pure-text scanner
 # ----------------------------------------------------------------------

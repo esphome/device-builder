@@ -475,10 +475,10 @@ def parse_platform_from_yaml(yaml_content: str) -> tuple[str, str, str]:
     in_platform = False
 
     for line in yaml_content.splitlines():
-        if line and not line[0].isspace() and ":" in line:
-            key = line.split(":")[0].strip()
-            if key in _PLATFORM_KEYS:
-                platform = key
+        top_key = _match_top_level_key(line)
+        if top_key is not None:
+            if top_key in _PLATFORM_KEYS:
+                platform = top_key
                 in_platform = True
             else:
                 in_platform = False
@@ -552,15 +552,7 @@ def yaml_has_top_level_block(yaml_content: str, key: str) -> bool:
     (mid-edit drafts, missing secrets) so the indicator doesn't
     silently flip off while the user is typing.
     """
-    for line in yaml_content.splitlines():
-        if not line or line[0].isspace():
-            continue
-        stripped = line.strip()
-        if stripped.startswith("#") or ":" not in stripped:
-            continue
-        if stripped.split(":", 1)[0].strip() == key:
-            return True
-    return False
+    return any(_match_top_level_key(line) == key for line in yaml_content.splitlines())
 
 
 def device_uses_mqtt(yaml_content: str) -> bool:
@@ -671,7 +663,7 @@ def extract_directly_referenced_integrations(
     return sorted(out)
 
 
-def parse_esphome_meta(  # noqa: PLR0912, C901
+def parse_esphome_meta(
     yaml_content: str,
     extra_substitutions: dict[str, str] | None = None,
 ) -> tuple[str | None, str | None, str | None, str | None]:
@@ -701,17 +693,18 @@ def parse_esphome_meta(  # noqa: PLR0912, C901
     still wins on key conflicts, mirroring esphome's package merge
     precedence (local config overrides package contributions).
     """
-    name: str | None = None
-    friendly_name: str | None = None
-    comment: str | None = None
-    area: str | None = None
+    meta: dict[str, str | None] = dict.fromkeys(_ESPHOME_META_FIELDS)
     substitutions: dict[str, str] = {}
     current_block: str | None = None
+    esphome_child_indent: int | None = None
+    area_block_indent: int | None = None
 
     for line in yaml_content.splitlines():
-        if line and not line[0].isspace() and ":" in line:
-            key = line.split(":")[0].strip()
-            current_block = key if key in ("esphome", "substitutions") else None
+        top_key = _match_top_level_key(line)
+        if top_key is not None:
+            current_block = top_key if top_key in ("esphome", "substitutions") else None
+            esphome_child_indent = None
+            area_block_indent = None
             continue
         if current_block is None:
             continue
@@ -719,19 +712,10 @@ def parse_esphome_meta(  # noqa: PLR0912, C901
         if stripped.startswith("#") or not stripped:
             continue
         if current_block == "esphome":
-            for field in ("name", "friendly_name", "comment", "area"):
-                prefix = f"{field}:"
-                if stripped.startswith(prefix):
-                    value = _parse_inline_value(stripped[len(prefix) :])
-                    if field == "name":
-                        name = value
-                    elif field == "friendly_name":
-                        friendly_name = value
-                    elif field == "comment":
-                        comment = value
-                    else:
-                        area = value
-                    break
+            indent = len(line) - len(line.lstrip())
+            esphome_child_indent, area_block_indent = _consume_esphome_line(
+                stripped, indent, meta, esphome_child_indent, area_block_indent
+            )
         else:  # current_block == "substitutions"
             sub_key, sep, sub_raw = stripped.partition(":")
             if sep:
@@ -740,18 +724,13 @@ def parse_esphome_meta(  # noqa: PLR0912, C901
     # Merge extras under the file-local substitutions so a key defined
     # both in the file and in a package keeps the local value — the
     # same precedence esphome applies during ``do_packages_pass``.
-    if extra_substitutions:
-        merged: dict[str, str] = {**extra_substitutions, **substitutions}
-    else:
-        merged = substitutions
+    merged = {**extra_substitutions, **substitutions} if extra_substitutions else substitutions
 
     if merged:
-        name = _resolve_substitutions(name, merged)
-        friendly_name = _resolve_substitutions(friendly_name, merged)
-        comment = _resolve_substitutions(comment, merged)
-        area = _resolve_substitutions(area, merged)
+        for field in _ESPHOME_META_FIELDS:
+            meta[field] = _resolve_substitutions(meta[field], merged)
 
-    return name, friendly_name, comment, area
+    return meta["name"], meta["friendly_name"], meta["comment"], meta["area"]
 
 
 # ---------------------------------------------------------------------------
@@ -1091,6 +1070,22 @@ def compute_has_pending_changes(
 # ---------------------------------------------------------------------------
 
 
+def _match_top_level_key(line: str) -> str | None:
+    """
+    Return the key for a top-level ``key:`` line, or ``None``.
+
+    Skips blank lines, indented lines, comments, and lines without
+    a colon, so a top-level ``# Comment: ...`` doesn't masquerade as
+    a real YAML key and prematurely close the block being scanned.
+    """
+    if not line or line[0].isspace():
+        return None
+    stripped = line.strip()
+    if stripped.startswith("#") or ":" not in stripped:
+        return None
+    return stripped.split(":", 1)[0].strip()
+
+
 def _parse_inline_value(raw: str) -> str:
     """
     Clean a raw YAML scalar value.
@@ -1105,6 +1100,80 @@ def _parse_inline_value(raw: str) -> str:
     ):
         value = value[1:-1]
     return value
+
+
+_FLOW_AREA_NAME_RE = re.compile(r"""\bname\s*:\s*("[^"]*"|'[^']*'|[^,}]+)""")
+
+_ESPHOME_META_FIELDS = ("name", "friendly_name", "comment", "area")
+
+
+def _parse_flow_area_name(raw: str) -> str | None:
+    """Extract ``name`` from a flow-form ``area`` mapping; ``None`` when absent."""
+    match = _FLOW_AREA_NAME_RE.search(raw)
+    if match is None:
+        return None
+    return _parse_inline_value(match.group(1))
+
+
+def _capture_area_from_remainder(remainder: str) -> tuple[str | None, bool]:
+    """
+    Parse the inline part of ``area:`` into ``(value, enter_block)``.
+
+    ``enter_block=True`` defers to the nested sub-block; ``name``
+    arrives on a later line. ``False`` means *value* is already
+    final (a flow-form mapping or a plain inline scalar).
+    """
+    stripped_remainder = remainder.strip()
+    if not stripped_remainder:
+        return None, True
+    if stripped_remainder.startswith("{"):
+        return _parse_flow_area_name(stripped_remainder), False
+    return _parse_inline_value(remainder), False
+
+
+def _consume_esphome_line(
+    stripped: str,
+    indent: int,
+    meta: dict[str, str | None],
+    esphome_child_indent: int | None,
+    area_block_indent: int | None,
+) -> tuple[int | None, int | None]:
+    """
+    Consume one non-blank, non-comment line inside the ``esphome:`` block.
+
+    Mutates *meta* with any matched field and returns the updated
+    ``(esphome_child_indent, area_block_indent)`` carry so the caller's
+    loop can track the sub-block boundary across lines.
+    """
+    if area_block_indent is not None:
+        if indent > area_block_indent:
+            # Inside a nested ``area:`` block — only ``name:`` carries
+            # the label the dashboard surfaces. Suppressing the
+            # top-level prefix matcher here also keeps the nested
+            # ``name:`` from clobbering ``esphome.name``.
+            if stripped.startswith("name:"):
+                meta["area"] = _parse_inline_value(stripped[len("name:") :])
+            return esphome_child_indent, area_block_indent
+        area_block_indent = None
+    if esphome_child_indent is None:
+        esphome_child_indent = indent
+    if indent != esphome_child_indent:
+        return esphome_child_indent, area_block_indent
+    for field in _ESPHOME_META_FIELDS:
+        prefix = f"{field}:"
+        if not stripped.startswith(prefix):
+            continue
+        remainder = stripped[len(prefix) :]
+        if field == "area":
+            captured, enter_block = _capture_area_from_remainder(remainder)
+            if enter_block:
+                area_block_indent = indent
+            else:
+                meta["area"] = captured
+        else:
+            meta[field] = _parse_inline_value(remainder)
+        break
+    return esphome_child_indent, area_block_indent
 
 
 def load_device_yaml(path: Path) -> dict | None:
