@@ -146,7 +146,7 @@ _EXPECTATIONS: list[tuple[str, list[tuple[str, str, bool | None, str | None]]]] 
 ]
 
 
-def main() -> int:
+def main() -> int:  # noqa: C901
     catalog = ComponentCatalog()
     catalog.load()
     if not catalog._components:

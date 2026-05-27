@@ -1165,7 +1165,7 @@ def _build_tags(name: str, type_field: str | None) -> list[str]:
     return tags
 
 
-def _make_record(  # noqa: PLR0911 — distinct skip reasons each get their own early exit
+def _make_record(  # noqa: C901, PLR0911 — distinct skip reasons each get their own early exit
     src: _DeviceSource,
     components_index: dict[str, dict[str, Any]],
     revision: str,

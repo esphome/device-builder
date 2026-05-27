@@ -73,7 +73,7 @@ _LOGGER = logging.getLogger(__name__)
 _TERMINAL_WIRE_STATUSES: frozenset[str] = frozenset({"completed", "failed", "cancelled"})
 
 
-async def run_remote_job(
+async def run_remote_job(  # noqa: C901
     controller: FirmwareController,
     job: FirmwareJob,
 ) -> None:

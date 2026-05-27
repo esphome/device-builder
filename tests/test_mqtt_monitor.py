@@ -1167,7 +1167,7 @@ async def test_start_spawns_run_task_when_paho_available(
     assert monitor.running is False
 
 
-async def test_connect_and_listen_subscribes_publishes_and_runs_listen_ping(
+async def test_connect_and_listen_subscribes_publishes_and_runs_listen_ping(  # noqa: C901
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``_connect_and_listen`` wires paho callbacks, subscribes, and runs the inner tasks.

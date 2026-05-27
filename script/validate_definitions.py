@@ -201,7 +201,7 @@ def _build_components_index() -> dict | None:
     return by_id
 
 
-def _validate_featured(
+def _validate_featured(  # noqa: C901
     board_id: str,
     data: dict,
     pins_by_gpio: dict[int, dict],
@@ -290,7 +290,7 @@ def _validate_default_components(
     return out
 
 
-def _validate_featured_component(
+def _validate_featured_component(  # noqa: C901
     board_id: str,
     idx: int,
     entry: dict,
