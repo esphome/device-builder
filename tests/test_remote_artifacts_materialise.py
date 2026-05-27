@@ -750,27 +750,14 @@ def _windows_storage_dict(*, build_path: str, firmware_bin_path: str) -> dict[st
 def test_remap_to_offloader_translates_receiver_path_across_os(
     tmp_path: Path, receiver_build: Any, receiver_firmware: str
 ) -> None:
-    """A receiver path remaps under the offloader build, even when the OS flavours differ.
-
-    Repro for #945: a Windows ``firmware_bin_path`` parsed with
-    ``Path()`` on Linux collapses to a single-component PosixPath
-    whose ``relative_to`` falls through to the unchanged-input
-    branch, leaving the offloader's ``firmware/download`` looking
-    in the wrong place.
-    """
+    """Receiver path under receiver build remaps under offloader build for either flavour."""
     offloader_build = tmp_path / "build" / "dev"
     result = _remap_to_offloader(receiver_firmware, receiver_build, offloader_build)
     assert result == offloader_build / ".pioenvs" / "dev" / "firmware.bin"
 
 
 def test_remap_to_offloader_rejects_dotdot_traversal_in_receiver_path(tmp_path: Path) -> None:
-    """A receiver ``..`` segment after the build prefix is rejected as traversal.
-
-    ``PurePath.relative_to`` doesn't normalise, so a malicious
-    ``firmware_bin_path = <build>/../../etc/passwd`` would
-    otherwise land in the offloader's join and escape on the
-    next ``.resolve()``.
-    """
+    """A ``..`` segment in the computed relative raises MaterialiseError."""
     receiver_build = PureWindowsPath(_WIN_BUILD_PATH)
     offloader_build = tmp_path / "build" / "dev"
     malicious = _WIN_BUILD_PATH + r"\..\..\..\Windows\System32\evil.bin"
@@ -779,14 +766,7 @@ def test_remap_to_offloader_rejects_dotdot_traversal_in_receiver_path(tmp_path: 
 
 
 def test_materialise_windows_receiver_storage_remaps_firmware_bin_path(tmp_path: Path) -> None:
-    """A Windows-receiver tarball materialises with offloader-local paths.
-
-    Repro for #945: build_path / firmware_bin_path arrive as
-    Windows absolutes; tar arcnames stay POSIX. Asserts the
-    staged StorageJSON points into the offloader's tree so
-    ``firmware/download`` can read the factory binary off
-    ``firmware_bin_path.parent``.
-    """
+    """Windows-flavoured tarball metadata materialises to offloader-local paths on disk."""
     win_firmware_bin = _WIN_BUILD_PATH + r"\.pioenvs\dev\firmware.bin"
     storage = _windows_storage_dict(build_path=_WIN_BUILD_PATH, firmware_bin_path=win_firmware_bin)
     idedata = {

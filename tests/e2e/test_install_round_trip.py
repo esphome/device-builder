@@ -578,15 +578,7 @@ async def test_windows_receiver_tarball_materialises_for_local_firmware_download
     paired_instances: PairedInstances,
     tmp_path: Path,
 ) -> None:
-    """#945: a Windows-receiver tarball materialises with offloader-local paths.
-
-    Drives the full transparent-install chain on one Noise
-    session (submit → fan-out → download_artifacts), then
-    rewrites the tarball's metadata members to look like a
-    Windows receiver sent them. Materialise + the
-    ``firmware/download`` read path must still resolve the
-    factory binary off ``firmware_bin_path.parent``.
-    """
+    """Windows-receiver tarball over a real Noise session lands a readable factory binary."""
     await paired_instances.wait_until_session_opened()
     created_jobs = _wire_receiver_firmware_recorder(paired_instances)
     state_changes = capture_events(
