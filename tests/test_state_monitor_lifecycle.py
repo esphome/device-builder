@@ -1303,7 +1303,12 @@ async def test_start_marks_offline_on_icmp_exception(
     device = _device(address="example.com", state=DeviceState.UNKNOWN)
     monitor, _callbacks = _make_monitor([device])
 
-    async def _boom(*_a: Any, **_kw: Any) -> None:
+    async def _boom(*_a: Any, **kw: Any) -> Any:
+        # ``count=0`` is the privilege-probe call against ``127.0.0.1``;
+        # let it through so the loop reaches the actual sweep where
+        # the failure mode under test fires.
+        if kw.get("count") == 0:
+            return MagicMock()
         raise OSError("name lookup failed")
 
     monkeypatch.setattr(ping_module, "icmp_ping", _boom)
@@ -1335,7 +1340,10 @@ async def test_start_skips_ping_for_cached_dns_failures(
     icmp_called: list[str] = []
 
     async def _icmp(target: str, **_kw: Any) -> Any:
-        icmp_called.append(target)
+        # Ignore the ``127.0.0.1`` privilege probe; the assertion
+        # below pins that no real device target was hit.
+        if target != "127.0.0.1":
+            icmp_called.append(target)
         return MagicMock(is_alive=True)
 
     monkeypatch.setattr(ping_module, "icmp_ping", _icmp)
@@ -1568,9 +1576,11 @@ async def test_start_uses_v6_fallback_when_only_v6_in_mdns_cache(
     cached_info.parsed_scoped_addresses.return_value = ["fe80::1%en0"]
     monkeypatch.setattr(mdns_module, "AddressResolver", lambda _name: cached_info)
 
-    async def _icmp(*_a: Any, **_kw: Any) -> Any:
-        # Should not be reached — the cached-addresses path
-        # claims ONLINE and skips the icmp probe.
+    async def _icmp(*args: Any, **_kw: Any) -> Any:
+        # ``127.0.0.1`` is the privilege-probe target; the assertion
+        # only fires for real device pings.
+        if args and args[0] == "127.0.0.1":
+            return MagicMock()
         raise AssertionError("icmp_ping must not be called for cached-mdns devices")
 
     monkeypatch.setattr(ping_module, "icmp_ping", _icmp)

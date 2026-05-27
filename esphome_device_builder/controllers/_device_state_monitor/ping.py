@@ -13,10 +13,11 @@ from . import shared
 
 try:
     from icmplib import async_ping as icmp_ping
-    from icmplib.exceptions import ICMPLibError
+    from icmplib.exceptions import ICMPLibError, SocketPermissionError
 except ImportError:  # pragma: no cover — icmplib is optional
     icmp_ping = None  # type: ignore[assignment]
     ICMPLibError = Exception  # type: ignore[misc,assignment]
+    SocketPermissionError = Exception  # type: ignore[misc,assignment]
 
 if TYPE_CHECKING:
     from .controller import DeviceStateMonitor
@@ -41,6 +42,28 @@ _PING_BOOTSTRAP_DELAY = 10
 _PING_BATCH_SIZE = 24
 
 
+async def _can_use_icmp_lib_with_privilege() -> bool | None:
+    """Probe both ICMP socket modes once; return the one that works.
+
+    Privileged ``SOCK_RAW`` needs ``CAP_NET_RAW``; unprivileged
+    ``SOCK_DGRAM`` needs ``net.ipv4.ping_group_range`` to
+    include the process GID, which most container images do
+    not set by default. ``None`` when neither works (sweep
+    disabled, state follows mDNS only).
+    """
+    if icmp_ping is None:
+        return None
+    try:
+        await icmp_ping("127.0.0.1", count=0, timeout=0, privileged=True)
+    except SocketPermissionError:
+        try:
+            await icmp_ping("127.0.0.1", count=0, timeout=0, privileged=False)
+        except SocketPermissionError:
+            return None
+        return False
+    return True
+
+
 class PingSource:
     """ICMP ping loop owning the periodic sweep and the wake-on-add early trigger."""
 
@@ -56,6 +79,9 @@ class PingSource:
         # flicker (120s TTL vs 60s sweep) so the line only re-emits on
         # real membership change.
         self._last_logged_targets: tuple[tuple[str, str], ...] = ()
+        # Set in ``run`` once the privilege probe lands; the pre-
+        # ``run`` default is only seen by tests that mock ``icmp_ping``.
+        self._privileged: bool = True
         # 0→1 multiplexed into the same wake event so a subscriber
         # arriving mid-idle gets fresh ICMP without waiting out the
         # rest of the interval.
@@ -64,6 +90,15 @@ class PingSource:
 
     async def run(self) -> None:
         await asyncio.sleep(_PING_BOOTSTRAP_DELAY)
+        privileged = await _can_use_icmp_lib_with_privilege()
+        if privileged is None:
+            _LOGGER.warning(
+                "Cannot use icmplib because privileges are insufficient; "
+                "ICMP ping sweep disabled, device state will only update via mDNS"
+            )
+            return
+        self._privileged = privileged
+        _LOGGER.debug("Using icmplib in privileged=%s mode for the ICMP ping sweep", privileged)
         # Strict pause when wired to a SubscriberPresence gate: only
         # sweep while at least one dashboard client is subscribed,
         # so a quiet network with no observers generates no ICMP
@@ -183,14 +218,17 @@ class PingSource:
         # immediately label a reachable device OFFLINE on a single
         # dropped packet.
         needs_retry = device.state is not DeviceState.OFFLINE
+        privileged = self._privileged
         try:
-            result = await icmp_ping(target, count=1, timeout=3, privileged=False)
+            result = await icmp_ping(target, count=1, timeout=3, privileged=privileged)
             is_alive = result.is_alive
             if not is_alive and needs_retry:
                 # Retry with multiple packets before flapping the
                 # indicator. A single dropped ICMP would otherwise
                 # flap on lossy paths (VPN, congested Wi-Fi).
-                result = await icmp_ping(target, count=3, interval=0.5, timeout=2, privileged=False)
+                result = await icmp_ping(
+                    target, count=3, interval=0.5, timeout=2, privileged=privileged
+                )
                 is_alive = result.is_alive
             # ``Host.min_rtt`` is 0.0 on a failed ping which would
             # surface as "0 ms" in the drawer — gate the capture
