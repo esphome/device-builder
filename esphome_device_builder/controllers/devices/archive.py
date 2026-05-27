@@ -202,8 +202,7 @@ async def run_bulk_per_row[T](
     """Run *action* per row; one result row per input row in input order.
 
     Use when each row carries payload beyond a bare configuration
-    string (e.g. ``set_labels_bulk`` rows carry ``label_ids``).
-    Duplicate configurations produce duplicate result rows;
+    string. Duplicate configurations produce duplicate result rows;
     last-write-wins on disk. ``get_configuration`` is called on
     failures too, so it must tolerate malformed rows — return
     ``""`` for "couldn't extract".

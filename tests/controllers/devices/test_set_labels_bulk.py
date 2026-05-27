@@ -181,13 +181,19 @@ async def test_set_labels_bulk_malformed_row_isolates_failure(
     result = await controller.set_labels_bulk(
         updates=[
             {"label_ids": ["lbl-a"]},  # missing "configuration"
+            {"configuration": "ghost.yaml"},  # missing "label_ids"
+            {"configuration": "elsewhere.yaml", "label_ids": "lbl-a"},  # non-list label_ids
             {"configuration": "kitchen.yaml", "label_ids": ["lbl-a"]},
         ]
     )
 
     assert result[0]["success"] is False
     assert "configuration" in result[0]["error"]
-    assert result[1] == {"configuration": "kitchen.yaml", "success": True}
+    assert result[1]["success"] is False
+    assert "label_ids" in result[1]["error"]
+    assert result[2]["success"] is False
+    assert "label_ids" in result[2]["error"]
+    assert result[3] == {"configuration": "kitchen.yaml", "success": True}
 
     raw = json.loads((tmp_path / ".device-builder.json").read_bytes())
     assert raw["kitchen.yaml"]["labels"] == ["lbl-a"]
