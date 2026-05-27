@@ -31,8 +31,10 @@ import pytest
 
 from esphome_device_builder.helpers.yaml import (
     YamlUpsertNotSupportedError,
+    _mapping_body_to_list_item,
     _safe_yaml_scalar,
     _splice_into_domain_block,
+    _splice_into_multi_conf_block,
     _strip_yaml_quotes,
     generate_api_encryption_key,
     generate_component_yaml,
@@ -1047,6 +1049,47 @@ def test_merge_component_yaml_singleton_without_multi_conf_falls_through() -> No
     )
 
     assert result.count("wifi:\n") == 2
+
+
+def test_splice_into_multi_conf_block_rejects_mismatched_header() -> None:
+    """A *block* whose header doesn't match ``comp_id`` returns ``None``.
+
+    Defensive guard against a caller wiring a wrong header to the
+    splice helper; the caller falls back to a plain append.
+    """
+    existing = "rtttl:\n  id: rtttl_1\n  output: buzz\n"
+    block = "wifi:\n  ssid: home\n"
+    assert _splice_into_multi_conf_block(existing, "rtttl", block) is None
+
+
+def test_normalize_multi_conf_block_skips_comments_above_list_form() -> None:
+    """A leading comment inside the block doesn't trigger a rewrite.
+
+    The form detector walks past comment / blank lines before
+    deciding mapping vs list, so a ``# ...`` line above an existing
+    ``- `` list item must not flip the block back to mapping form.
+    """
+    component = _component(component_id="rtttl", category=ComponentCategory.MISC, multi_conf=True)
+    existing = "rtttl:\n  # buzzers for the kitchen\n  - id: rtttl_1\n    output: buzz\n"
+    result = merge_component_yaml(existing, component, {"id": "rtttl_2", "output": "buzz"})
+    assert "  # buzzers for the kitchen" in result
+    assert result.count("rtttl:\n") == 1
+    assert "  - id: rtttl_1" in result
+    assert "  - id: rtttl_2" in result
+
+
+def test_mapping_body_to_list_item_preserves_blank_lines() -> None:
+    """Blank lines inside the mapping body survive the list conversion.
+
+    Vertical spacing the user put between fields shouldn't collapse
+    when the block flips to list form.
+    """
+    body = ["  id: rtttl_1", "", "  output: buzz"]
+    assert _mapping_body_to_list_item(body) == [
+        "  - id: rtttl_1",
+        "",
+        "    output: buzz",
+    ]
 
 
 # ---------------------------------------------------------------------------
