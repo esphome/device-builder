@@ -12,8 +12,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ...helpers.api import CommandError
 from ...models import (
+    ErrorCode,
     EventType,
+    OffloaderAllowMajorVersionMismatchChangedData,
     OffloaderRemoteBuildSettingsView,
     OffloaderRemoteBuildsToggledData,
 )
@@ -36,39 +39,62 @@ def offloader_settings_view(
     return OffloaderRemoteBuildSettingsView(
         pairings=controller.pairings_snapshot(),
         remote_builds_enabled=controller.state.remote_builds_enabled,
+        allow_major_version_mismatch=controller.state.allow_major_version_mismatch,
     )
 
 
 async def get_offloader_settings(
     controller: OffloaderController,
 ) -> OffloaderRemoteBuildSettingsView:
-    """Return the offloader-side settings view (master toggle + pairings list)."""
+    """Return the offloader-side settings view (master toggles + pairings list)."""
     return offloader_settings_view(controller)
 
 
 async def set_offloader_settings(
-    controller: OffloaderController, *, remote_builds_enabled: bool
+    controller: OffloaderController,
+    *,
+    remote_builds_enabled: bool | None = None,
+    allow_major_version_mismatch: bool | None = None,
 ) -> OffloaderRemoteBuildSettingsView:
     """
-    Flip the offloader-side master toggle for transparent install.
+    Flip one or both offloader-side master toggles.
 
-    ``False`` short-circuits :func:`pick_build_path` to
-    LOCAL; peer-link sessions stay open and the manual
-    Send-builds dialog still works. The intent is "keep the
-    pairings but stop auto-routing for now."
-
-    Fires ``OFFLOADER_REMOTE_BUILDS_TOGGLED`` for cross-tab
-    sync; debounce-saves through ``_pairings_store`` (same
-    on-disk shape).
+    Passing ``None`` (or omitting) leaves that flag untouched;
+    each flipped flag fires its own event. Refusing the
+    all-``None`` call keeps a frontend bug from silently
+    no-op'ing.
     """
-    controller.state.remote_builds_enabled = validate_bool(
-        remote_builds_enabled,
-        command="remote_build/set_offloader_settings",
-        field="remote_builds_enabled",
-    )
-    toggled: OffloaderRemoteBuildsToggledData = {
-        "remote_builds_enabled": remote_builds_enabled,
-    }
-    controller._db.bus.fire(EventType.OFFLOADER_REMOTE_BUILDS_TOGGLED, toggled)
-    controller._schedule_pairings_save()
+    if remote_builds_enabled is None and allow_major_version_mismatch is None:
+        msg = (
+            "remote_build/set_offloader_settings: at least one of "
+            "remote_builds_enabled or allow_major_version_mismatch must be supplied"
+        )
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    save_needed = False
+    if remote_builds_enabled is not None:
+        clean_remote_builds_enabled = validate_bool(
+            remote_builds_enabled,
+            command="remote_build/set_offloader_settings",
+            field="remote_builds_enabled",
+        )
+        controller.state.remote_builds_enabled = clean_remote_builds_enabled
+        toggled: OffloaderRemoteBuildsToggledData = {
+            "remote_builds_enabled": clean_remote_builds_enabled,
+        }
+        controller._db.bus.fire(EventType.OFFLOADER_REMOTE_BUILDS_TOGGLED, toggled)
+        save_needed = True
+    if allow_major_version_mismatch is not None:
+        clean_allow_mismatch = validate_bool(
+            allow_major_version_mismatch,
+            command="remote_build/set_offloader_settings",
+            field="allow_major_version_mismatch",
+        )
+        controller.state.allow_major_version_mismatch = clean_allow_mismatch
+        gate: OffloaderAllowMajorVersionMismatchChangedData = {
+            "allow_major_version_mismatch": clean_allow_mismatch,
+        }
+        controller._db.bus.fire(EventType.OFFLOADER_ALLOW_MAJOR_VERSION_MISMATCH_CHANGED, gate)
+        save_needed = True
+    if save_needed:
+        controller._schedule_pairings_save()
     return offloader_settings_view(controller)

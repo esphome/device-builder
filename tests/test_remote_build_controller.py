@@ -3657,6 +3657,25 @@ def test_encode_decode_pairings_round_trip() -> None:
     assert decoded == settings
 
 
+def test_serialize_pairings_includes_master_gate_toggle(tmp_path: Path) -> None:
+    """``_serialize_pairings`` projects every persisted master flag."""
+    controller = _make_controller(config_dir=tmp_path)
+    pairing = _valid_stored_pairing()
+    controller.offloader.state.pairings[pairing.pin_sha256] = pairing
+    controller.offloader.state.remote_builds_enabled = False
+    controller.offloader.state.allow_major_version_mismatch = False
+
+    serialized = controller.offloader._serialize_pairings()
+
+    assert serialized.remote_builds_enabled is False
+    assert serialized.allow_major_version_mismatch is False
+    assert serialized.pairings == [pairing]
+    # Round-trip through the on-disk codec to pin that every flag
+    # survives a save / reload cycle.
+    decoded = decode_pairings(encode_pairings(serialized))
+    assert decoded == serialized
+
+
 def test_decode_pairings_recovers_to_empty_on_garbage(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -4375,6 +4394,48 @@ async def test_set_pairing_enabled_rejects_non_bool(tmp_path: Path) -> None:
     assert exc.value.code == ErrorCode.INVALID_ARGS
     # Row's enabled untouched.
     assert pairing.enabled is True
+
+
+@pytest.mark.asyncio
+async def test_set_offloader_settings_flips_major_version_gate(tmp_path: Path) -> None:
+    """Flipping the gate flag fires the new event and updates the snapshot."""
+    controller = _make_controller(config_dir=tmp_path, real_bus=True)
+    captured: list[Any] = []
+    controller.offloader._db.bus.add_listener(
+        EventType.OFFLOADER_ALLOW_MAJOR_VERSION_MISMATCH_CHANGED,
+        lambda event: captured.append(event.data),
+    )
+
+    view = await controller.offloader.set_offloader_settings(allow_major_version_mismatch=False)
+
+    assert controller.offloader.state.allow_major_version_mismatch is False
+    assert view.allow_major_version_mismatch is False
+    # ``remote_builds_enabled`` left untouched when omitted.
+    assert view.remote_builds_enabled is True
+    assert captured == [{"allow_major_version_mismatch": False}]
+
+
+@pytest.mark.asyncio
+async def test_set_offloader_settings_rejects_all_none_args(tmp_path: Path) -> None:
+    """Passing neither flag raises INVALID_ARGS rather than silently no-op'ing."""
+    controller = _make_controller(config_dir=tmp_path)
+    with pytest.raises(CommandError) as exc:
+        await controller.offloader.set_offloader_settings()
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+
+
+@pytest.mark.asyncio
+async def test_build_scheduler_snapshot_resolves_esphome_version_per_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Snapshot re-reads ``esphome.const.__version__`` each call."""
+    controller = _make_controller(config_dir=tmp_path)
+    monkeypatch.setattr("esphome.const.__version__", "2026.4.5")
+    first = controller.offloader.build_scheduler_snapshot()
+    assert first.offloader_esphome_version == "2026.4.5"
+    monkeypatch.setattr("esphome.const.__version__", "2026.6.0")
+    second = controller.offloader.build_scheduler_snapshot()
+    assert second.offloader_esphome_version == "2026.6.0"
 
 
 @pytest.mark.asyncio

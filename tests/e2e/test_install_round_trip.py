@@ -54,6 +54,7 @@ import asyncio
 import io
 import json
 import tarfile
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -286,6 +287,36 @@ async def test_cold_connect_offloader_observes_initial_queue_status_then_picks_r
     decision = pick_build_path(snapshot)
     assert decision.path is BuildPath.REMOTE
     assert decision.pin_sha256 == paired_instances.pin_sha256
+
+
+@pytest.mark.asyncio
+async def test_major_version_gate_filters_mismatched_peer_end_to_end(
+    paired_instances: PairedInstances,
+) -> None:
+    """Strict-mode master flip filters a mismatched peer; permissive lets it through."""
+    await paired_instances.wait_until_session_opened()
+    pin = paired_instances.pin_sha256
+    pairing = paired_instances.offloader.state.pairings[pin]
+
+    # Pin both ends explicitly so the gate sees the mismatch
+    # regardless of the bundled ``esphome.const.__version__``.
+    pairing.esphome_version = "2026.4.5"
+    snapshot = paired_instances.offloader.build_scheduler_snapshot()
+    snapshot_permissive = replace(
+        snapshot,
+        offloader_esphome_version="2026.6.0",
+        allow_major_version_mismatch=True,
+    )
+    # Default master (allow) — mismatched peer still eligible.
+    decision = pick_build_path(snapshot_permissive)
+    assert decision.path is BuildPath.REMOTE
+    assert decision.pin_sha256 == pin
+
+    # Flip the master off (strict mode) — mismatched peer filtered.
+    snapshot_strict = replace(snapshot_permissive, allow_major_version_mismatch=False)
+    decision = pick_build_path(snapshot_strict)
+    assert decision.path is BuildPath.LOCAL
+    assert decision.pin_sha256 is None
 
 
 @pytest.mark.asyncio

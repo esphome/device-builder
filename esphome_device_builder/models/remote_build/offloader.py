@@ -198,10 +198,16 @@ class OffloaderRemoteBuildSettings(DataClassORJSONMixin):
     Send-builds power-user dialog still works); only the
     implicit "Install → maybe route to a receiver" path is
     gated off.
+
+    ``allow_major_version_mismatch=True`` (default) skips the
+    major-version gate in :func:`pick_build_path`. Flipping
+    ``False`` filters peers whose ``YYYY.MM`` differs from the
+    offloader's own.
     """
 
     pairings: list[StoredPairing] = field(default_factory=list)
     remote_builds_enabled: bool = True
+    allow_major_version_mismatch: bool = True
 
 
 @dataclass
@@ -215,6 +221,7 @@ class OffloaderRemoteBuildSettingsView(DataClassORJSONMixin):
 
     pairings: list[PairingSummary] = field(default_factory=list)
     remote_builds_enabled: bool = True
+    allow_major_version_mismatch: bool = True
 
 
 @dataclass

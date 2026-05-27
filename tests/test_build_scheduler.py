@@ -33,6 +33,7 @@ def _stub_pairing(
     paired_at: float = 1.0,
     status: PeerStatus = PeerStatus.APPROVED,
     enabled: bool = True,
+    esphome_version: str = "",
 ) -> StoredPairing:
     """Build a :class:`StoredPairing` with defaults aimed at the scheduler tests.
 
@@ -51,6 +52,7 @@ def _stub_pairing(
         paired_at=paired_at,
         status=status,
         enabled=enabled,
+        esphome_version=esphome_version,
     )
 
 
@@ -80,21 +82,25 @@ def _inputs(
     pairings: dict[str, StoredPairing] | None = None,
     open_peer_links: set[str] | None = None,
     peer_queue_status: dict[str, PeerQueueStatusSnapshotEntry] | None = None,
+    offloader_esphome_version: str = "",
+    allow_major_version_mismatch: bool = True,
 ) -> BuildSchedulerInputs:
     """Build :class:`BuildSchedulerInputs` with the test's slices.
 
-    Wraps the four-field construction so each test reads as
-    "set up some state, call pick_build_path, assert the
-    decision" rather than re-typing the snapshot-view dance.
-    Converts ``set`` to ``frozenset`` and ``dict`` to a
-    read-through ``Mapping`` at the boundary so tests don't
-    have to think about the immutability discipline.
+    Wraps the construction so each test reads as "set up some
+    state, call pick_build_path, assert the decision" rather
+    than re-typing the snapshot-view dance. Converts ``set``
+    to ``frozenset`` and ``dict`` to a read-through ``Mapping``
+    at the boundary so tests don't have to think about the
+    immutability discipline.
     """
     return BuildSchedulerInputs(
         remote_builds_enabled=remote_builds_enabled,
         pairings=pairings or {},
         open_peer_links=frozenset(open_peer_links or set()),
         peer_queue_status=peer_queue_status or {},
+        offloader_esphome_version=offloader_esphome_version,
+        allow_major_version_mismatch=allow_major_version_mismatch,
     )
 
 
@@ -607,3 +613,50 @@ def test_decision_is_frozen() -> None:
     decision = BuildPathDecision.remote("a" * 64)
     with pytest.raises(Exception, match="cannot assign to field"):
         decision.pin_sha256 = "b" * 64  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------
+# Major-version-match gate.
+# ---------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("offloader_version", "peer_version", "master_allow", "expected_remote"),
+    [
+        # Versions match — eligible regardless of master.
+        pytest.param("2026.6.0", "2026.6.0", False, True, id="match_strict"),
+        pytest.param("2026.6.0", "2026.6.1", False, True, id="patch_diff_strict"),
+        # Default master (allow) — mismatched peer still eligible.
+        pytest.param("2026.6.0", "2026.5.0", True, True, id="drift_master_allows"),
+        # Master flipped off (strict mode) — mismatched peer filtered.
+        pytest.param("2026.6.0", "2026.5.0", False, False, id="drift_strict_filtered"),
+        # Empty peer version (fresh APPROVED row that hasn't
+        # session-opened yet) — gate doesn't fire even strict.
+        pytest.param("2026.6.0", "", False, True, id="never_connected_strict"),
+        # Empty offloader version (defensive) also bypasses the gate.
+        pytest.param("", "2026.5.0", False, True, id="empty_offloader_strict"),
+    ],
+)
+def test_major_version_gate_matrix(
+    offloader_version: str,
+    peer_version: str,
+    master_allow: bool,
+    expected_remote: bool,
+) -> None:
+    """Eligibility matrix for the major-version gate."""
+    pin = "a" * 64
+    pairing = _stub_pairing(pin_sha256=pin, esphome_version=peer_version)
+    inputs = _inputs(
+        pairings={pin: pairing},
+        open_peer_links={pin},
+        peer_queue_status={pin: _stub_queue_status(pin_sha256=pin)},
+        offloader_esphome_version=offloader_version,
+        allow_major_version_mismatch=master_allow,
+    )
+    decision = pick_build_path(inputs)
+    if expected_remote:
+        assert decision.path is BuildPath.REMOTE
+        assert decision.pin_sha256 == pin
+    else:
+        assert decision.path is BuildPath.LOCAL
+        assert decision.pin_sha256 is None

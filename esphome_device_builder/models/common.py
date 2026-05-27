@@ -369,6 +369,11 @@ class EventType(StrEnum):
     # ``_pairings`` dict via the snapshot.
     OFFLOADER_PAIRING_ENABLED_CHANGED = "offloader_pairing_enabled_changed"
 
+    # Cross-tab sync for the master major-version-match gate.
+    OFFLOADER_ALLOW_MAJOR_VERSION_MISMATCH_CHANGED = (
+        "offloader_allow_major_version_mismatch_changed"
+    )
+
 
 class StreamEvent(StrEnum):
     """Per-stream frame names sent via ``WebSocketClient.send_event``.

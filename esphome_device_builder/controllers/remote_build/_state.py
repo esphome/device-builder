@@ -55,6 +55,7 @@ class OffloaderState:
     offloader_remote_jobs: dict[str, OffloaderRemoteJobSnapshotEntry] = field(default_factory=dict)
     rebind_probe_until: dict[str, float] = field(default_factory=dict)
     remote_builds_enabled: bool = True
+    allow_major_version_mismatch: bool = True
 
     # Identity / discovery refs reassigned during start() / discovery.
     # ``offloader_peer_link_priv`` and ``offloader_dashboard_id`` are

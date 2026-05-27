@@ -330,6 +330,12 @@ class OffloaderPairingEnabledChangedData(TypedDict):
     enabled: bool
 
 
+class OffloaderAllowMajorVersionMismatchChangedData(TypedDict):
+    """Payload for ``EventType.OFFLOADER_ALLOW_MAJOR_VERSION_MISMATCH_CHANGED``."""
+
+    allow_major_version_mismatch: bool
+
+
 class OffloaderRemoteJobSnapshotEntry(TypedDict):
     """
     Snapshot row in the offloader-side in-flight remote-job cache.
