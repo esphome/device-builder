@@ -4705,23 +4705,20 @@ def _convert_automation_condition(
     }
 
 
-def _convert_filter(
+def _convert_registry_entry(
     *,
     name: str,
     body: dict,
-    domain: str,
+    label_domain: str,
+    applies_to: list[str],
     schema_dir: Path,
 ) -> dict | None:
-    """Build one ``Filter`` dict from a ``<domain>.filter`` registry entry.
+    """Shared builder for registry-shaped catalog entries.
 
-    *domain* is the schema's top-level key (``sensor`` /
-    ``binary_sensor`` / ``text_sensor``) and lands in ``applies_to``
-    so the frontend renderer can scope the per-row picker against
-    the parent component's domain. Filters with the same id across
-    domains (``lambda``) are merged downstream by
-    :func:`_dedupe_filters` — applies_to unions across domains,
-    config_entries from the first occurrence (good enough for V1;
-    the per-domain return-type differences are documented).
+    ``LightEffect`` and ``Filter`` are structurally identical (``id``,
+    ``name``, ``config_entries``, ``applies_to``); the only
+    difference is how ``applies_to`` is computed and which domain
+    feeds ``_automation_label``. Both wrappers delegate here.
     """
     if not isinstance(body, dict):
         return None
@@ -4730,21 +4727,31 @@ def _convert_filter(
     config_entries, _alist, _hcg = _extract_automation_param_schema(schema, schema_dir)
     return {
         "id": name,
-        "name": _automation_label(domain, name, docs.name),
+        "name": _automation_label(label_domain, name, docs.name),
         "config_entries": [_strip_entry_defaults(e) for e in config_entries],
-        "applies_to": [domain],
+        "applies_to": applies_to,
     }
 
 
-def _dedupe_filters(filters: list[dict]) -> list[dict]:
-    """Merge filters sharing an ``id`` across domains.
+def _convert_filter(
+    *,
+    name: str,
+    body: dict,
+    domain: str,
+    schema_dir: Path,
+) -> dict | None:
+    """Build one ``Filter`` dict from a ``<domain>.filter`` registry entry."""
+    return _convert_registry_entry(
+        name=name,
+        body=body,
+        label_domain=domain,
+        applies_to=[domain],
+        schema_dir=schema_dir,
+    )
 
-    The same filter ``id`` (``lambda``, ``delta``, …) can appear in
-    multiple ``<domain>.filter`` registries with slightly different
-    schemas. Union the ``applies_to`` lists and keep the first
-    occurrence's ``config_entries`` (V1: domain-specific schema
-    differences fall back to the YAML pane).
-    """
+
+def _dedupe_filters(filters: list[dict]) -> list[dict]:
+    """Merge filters sharing an ``id`` across domains; union ``applies_to``."""
     by_id: dict[str, dict] = {}
     for f in filters:
         existing = by_id.get(f["id"])
@@ -4763,11 +4770,6 @@ def _convert_light_effect(
     schema_dir: Path,
 ) -> dict | None:
     """Build one ``LightEffect`` dict from a light.effects registry entry."""
-    if not isinstance(body, dict):
-        return None
-    docs = clean_docs(body.get("docs"))
-    schema = body.get("schema") if isinstance(body.get("schema"), dict) else None
-    config_entries, _alist, _hcg = _extract_automation_param_schema(schema, schema_dir)
     # The schema doesn't carry a clean "this effect applies to which
     # light platforms" map. Heuristic: effects whose id starts with
     # ``addressable_`` need an addressable platform; everything else
@@ -4781,12 +4783,13 @@ def _convert_light_effect(
             "light.neopixelbus",
             "light.rgb",
         ]
-    return {
-        "id": name,
-        "name": _automation_label("light", name, docs.name),
-        "config_entries": [_strip_entry_defaults(e) for e in config_entries],
-        "applies_to": applies_to,
-    }
+    return _convert_registry_entry(
+        name=name,
+        body=body,
+        label_domain="light",
+        applies_to=applies_to,
+        schema_dir=schema_dir,
+    )
 
 
 def _extract_triggers_from_section(
