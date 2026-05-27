@@ -1098,7 +1098,7 @@ def _parse_inline_value(raw: str) -> str:
     Strips an inline ``# comment`` and matching surrounding quotes.
     """
     value = raw.strip()
-    if "#" in value and not (value.startswith('"') or value.startswith("'")):
+    if "#" in value and not value.startswith(('"', "'")):
         value = value.split("#", 1)[0].rstrip()
     if (value.startswith('"') and value.endswith('"')) or (
         value.startswith("'") and value.endswith("'")

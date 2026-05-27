@@ -1924,7 +1924,7 @@ def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noq
             if "time_period" in ref:
                 entry_type = "time_period"
                 break
-            if ref.endswith(".positive_float") or ref.endswith(".float_"):
+            if ref.endswith((".positive_float", ".float_")):
                 entry_type = "float"
                 break
             if "positive_int" in ref or ref.endswith(".int_"):

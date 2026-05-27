@@ -179,6 +179,7 @@ select = [
   "LOG", # flake8-logging — catch ``logging.warn`` / wrong exception handling on the logger
   "N", # pep8-naming
   "PERF", # performance
+  "PIE", # flake8-pie — misc lints (collapse duplicate startswith/endswith, prefer ``list`` over ``lambda: []``)
   "PL", # pylint
   "PTH", # flake8-use-pathlib — prefer pathlib over os.path/os primitives
   "PLR0904", # too-many-public-methods (preview) — cap new god-classes at 20

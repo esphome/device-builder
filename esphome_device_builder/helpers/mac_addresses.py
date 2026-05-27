@@ -48,10 +48,7 @@ def _has_bluetooth(loaded_integrations: list[str]) -> bool:
     new bluetooth-related integration name added upstream Just Works
     without a parallel update here.
     """
-    return any(
-        name.startswith("esp32_ble") or name.startswith("bluetooth_")
-        for name in loaded_integrations
-    )
+    return any(name.startswith(("esp32_ble", "bluetooth_")) for name in loaded_integrations)
 
 
 def _offset_last_octet(primary: str, offset: int) -> str:
