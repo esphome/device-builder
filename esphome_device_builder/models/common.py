@@ -522,6 +522,14 @@ class ConfigEntryType(StrEnum):
     # component log levels), ``substitutions:``, ``globals:`` etc.
     MAP = "map"
 
+    # Polymorphic list of single-key items drawn from a named
+    # registry. Each item is ``{<registry_id>: <params> | null}``.
+    # The frontend's REGISTRY_LIST renderer fetches the catalog named
+    # by ``ConfigEntry.registry`` (currently only ``"light_effects"``
+    # is wired end-to-end) and renders one row per item with a per-
+    # row type picker. Used by light ``effects:`` (#941).
+    REGISTRY_LIST = "registry_list"
+
     # Layout / decoration entries (no value, used to structure the form)
     LABEL = "label"
     DIVIDER = "divider"
@@ -672,6 +680,13 @@ class ConfigEntry(DataClassORJSONMixin):
     # ``0x76`` and ``118`` on entry. None = decimal display
     # (the default for plain ``cv.int_range`` integers).
     display_format: str | None = None
+
+    # Catalog name for ``REGISTRY_LIST`` entries — currently only
+    # ``"light_effects"`` is wired end-to-end. The frontend
+    # renderer fetches the named catalog via the automation-catalog
+    # cache and uses its entries for the per-row type picker. Null
+    # on every other entry type. #941.
+    registry: str | None = None
 
     # Unit choices for ``FLOAT_WITH_UNIT`` entries. The frontend
     # renders a unit picker populated from this list; each option's

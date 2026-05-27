@@ -1981,6 +1981,21 @@ def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noq
     if entry_type is None and data_type in _DATA_TYPE_PRIMITIVE:
         entry_type = _DATA_TYPE_PRIMITIVE[data_type]
 
+    # Polymorphic registry list (#941). Upstream lights emit
+    # ``effects:`` as ``{filter: [<ids>], key: Optional}`` with no
+    # ``type`` — a list of single-key items drawn from a named
+    # catalog. The frontend's REGISTRY_LIST renderer pulls the
+    # matching catalog (currently only ``light_effects`` is wired
+    # end-to-end) and renders one row per item with a type picker.
+    # Sensors' ``filters:`` uses ``type: registry, registry:
+    # sensor.filter, is_list: true`` and would map to a separate
+    # ``filter`` catalog; left at the legacy multi_value=true string
+    # fallback until that catalog lands.
+    registry_name: str | None = None
+    if key == "effects" and isinstance(raw.get("filter"), list) and raw["filter"]:
+        entry_type = "registry_list"
+        registry_name = "light_effects"
+
     # An ``enum`` whose values are ``true`` and ``false`` is really a
     # boolean — the schema uses cv.boolean which produces this shape.
     if (entry_type == "string" or entry_type is None) and _looks_like_boolean_enum(raw):
@@ -2075,7 +2090,13 @@ def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noq
         "allow_custom_value": False,
         "range": list(_DATA_TYPE_RANGE[data_type]) if data_type in _DATA_TYPE_RANGE else None,
         "display_format": "hex" if data_type in _DATA_TYPE_HEX else None,
-        "multi_value": bool(raw.get("is_list")),
+        "registry": registry_name,
+        # REGISTRY_LIST fields are inherently list-shaped — the
+        # upstream ``filter: [...]`` schema doesn't carry an explicit
+        # ``is_list`` flag, so the bool conversion of ``None`` would
+        # otherwise emit ``multi_value: false`` and the parser /
+        # serializer round-trip would miss the array contract.
+        "multi_value": (True if entry_type == "registry_list" else bool(raw.get("is_list"))),
         "templatable": bool(raw.get("templatable")),
         "depends_on": None,
         "depends_on_value": None,
