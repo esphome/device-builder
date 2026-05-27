@@ -189,6 +189,7 @@ select = [
   "SLF", # flake8-self — flag cross-class private member access so the State
   # dataclass boundary stays load-bearing; sibling-module access within a
   # controller package is exempted via per-file-ignores below.
+  "T10", # flake8-debugger — flag stray ``breakpoint()`` / ``pdb.set_trace()`` calls
   "T20", # flake8-print
   "TRY", # tryceratops — exception-handling antipatterns (TRY003 globally ignored above)
   "UP", # pyupgrade
