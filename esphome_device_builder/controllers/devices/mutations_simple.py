@@ -129,11 +129,16 @@ async def set_labels_bulk(
     extracted at all return ``{configuration: "", ...}``.
     """
 
-    async def _apply(row: dict[str, Any]) -> None:
+    async def _apply(row: Any) -> None:
+        # ``row`` is typed ``Any`` because the bulk runner calls
+        # this for every input entry — including the non-dict
+        # rows that ``test_set_labels_bulk_malformed_row_isolates_failure``
+        # exercises. ``_row_configuration`` is the validation
+        # boundary; it returns None for both non-dict rows and
+        # dicts whose ``configuration`` isn't a string.
         configuration = _row_configuration(row)
         if configuration is None:
             raise CommandError(ErrorCode.INVALID_ARGS, "configuration must be a string")
-        # ``_row_configuration`` already confirmed ``row`` is a dict.
         label_ids = row.get("label_ids")
         if not isinstance(label_ids, list):
             raise CommandError(ErrorCode.INVALID_ARGS, "label_ids must be a list")
