@@ -90,19 +90,28 @@ def test_resolve_schema_ref_missing_file_returns_none(tmp_path: Path) -> None:
 
 def test_resolve_schema_ref_oserror_is_logged(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    # Monkeypatch ``Path.read_text`` instead of ``chmod(0o000)`` so the
+    # OSError branch is exercised consistently across Linux / macOS /
+    # Windows (Windows ACLs ignore POSIX permission bits).
     components = tmp_path / "components"
     target = components / "broken" / "light.py"
     _write(target, "BASE = light.ADDRESSABLE_LIGHT_SCHEMA\n")
-    target.chmod(0o000)
-    try:
-        with caplog.at_level(logging.WARNING, logger="script._light_schemas"):
-            ref = resolve_schema_ref(target, components, set())
-        assert ref is None
-        assert any("failed to read" in r.message for r in caplog.records)
-    finally:
-        target.chmod(0o644)
+
+    original = Path.read_text
+
+    def boom(self: Path, *args: object, **kwargs: object) -> str:
+        if self == target:
+            raise PermissionError("forced for test")
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", boom)
+    with caplog.at_level(logging.WARNING, logger="script._light_schemas"):
+        ref = resolve_schema_ref(target, components, set())
+    assert ref is None
+    assert any("failed to read" in r.message for r in caplog.records)
 
 
 def test_derive_light_platforms_from_dir_buckets_by_schema(tmp_path: Path) -> None:
