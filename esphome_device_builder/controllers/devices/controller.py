@@ -403,6 +403,26 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             self, configuration=configuration, label_ids=label_ids
         )
 
+    @api_command("devices/set_labels_bulk")
+    async def set_labels_bulk(
+        self, *, updates: list[dict[str, Any]], **kwargs: Any
+    ) -> list[dict[str, Any]]:
+        """
+        Assign labels across multiple devices.
+
+        Each entry in ``updates`` is ``{configuration: str, label_ids:
+        list[str]}``. Returns one ``{configuration, success, error?}``
+        per entry. Mirrors ``delete_bulk`` / ``archive_bulk``.
+        """
+        by_config = {item["configuration"]: item["label_ids"] for item in updates}
+
+        async def _apply(configuration: str) -> None:
+            await mutations_simple.set_labels(
+                self, configuration=configuration, label_ids=by_config[configuration]
+            )
+
+        return await self._run_bulk_per_device(list(by_config.keys()), _apply)
+
     @api_command("devices/rename")
     async def rename_device(
         self,
