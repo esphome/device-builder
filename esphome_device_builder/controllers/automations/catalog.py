@@ -33,11 +33,13 @@ _CATALOG_FILE = "automations.json"
 @cache
 def load_catalog() -> dict[str, list]:
     """
-    Return the four catalog lists keyed by section.
+    Return the five catalog lists keyed by section.
 
-    Empty lists when ``automations.json`` is missing — a fresh
-    checkout that hasn't run ``script/sync_components.py`` yet
-    boots cleanly with an empty catalog instead of crashing.
+    Keys: ``triggers`` / ``actions`` / ``conditions`` /
+    ``light_effects`` / ``filters``. Empty lists when
+    ``automations.json`` is missing — a fresh checkout that hasn't
+    run ``script/sync_components.py`` yet boots cleanly with an
+    empty catalog instead of crashing.
     """
     try:
         raw_bytes = resources.files(_DEFINITIONS_PACKAGE).joinpath(_CATALOG_FILE).read_bytes()

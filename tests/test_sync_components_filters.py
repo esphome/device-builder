@@ -1,11 +1,10 @@
-"""Contract tests for the filter-registry sync path (#941).
+"""
+Contract tests for the filter-registry sync path.
 
 Covers the pieces that have no upstream-schema dependency: the
 ``_dedupe_filters`` merge contract and the ``_convert_field``
 detection branches that promote ``effects:`` / ``filters:`` to
-``type=registry_list``. The full ``build_automations`` walk is
-exercised end-to-end by ``test_automations_controller`` against
-the regenerated catalog.
+``type=registry_list``.
 """
 
 from __future__ import annotations

@@ -3202,6 +3202,7 @@ _ENTRY_DEFAULTS: dict[str, Any] = {
     "platform_type": None,
     "group": None,
     "required_groups": [],
+    "registry": None,
 }
 
 _COMPONENT_DEFAULTS: dict[str, Any] = {
@@ -4511,9 +4512,9 @@ def build_automations(  # noqa: C901
     Walk every schema file and emit the automation catalog.
 
     Returns a dict with ``triggers`` / ``actions`` / ``conditions`` /
-    ``light_effects`` lists. Parameter schemas come out in the same
-    ``ConfigEntry[]`` shape the component catalog uses, so the
-    frontend renders both through one form pipeline.
+    ``light_effects`` / ``filters`` lists. Parameter schemas come
+    out in the same ``ConfigEntry[]`` shape the component catalog
+    uses, so the frontend renders both through one form pipeline.
 
     *component_ids* is the set of ids in the just-built component
     catalog (``switch.template``, ``display.ssd1306_i2c``, …).
@@ -4756,17 +4757,13 @@ def _convert_filter(
 
 
 def _dedupe_filters(filters: list[dict]) -> list[dict]:
-    """Merge filters sharing an ``id`` across domains; union ``applies_to``.
+    """
+    Merge filters sharing an ``id`` across domains; union ``applies_to``.
 
-    When the same filter id appears in multiple registries (``lambda``
-    in sensor + binary_sensor + text_sensor), keep the first
-    occurrence's ``config_entries`` and union ``applies_to``. The
-    catalog stores names as ``"<Domain> → <Name>"`` for the global
-    automation editor's cross-domain disambiguation, but for a
-    multi-domain entry that prefix is misleading (a user editing
-    ``lambda`` under ``sensor:`` would see "Binary Sensor → Lambda").
-    Strip the prefix when the merged entry spans more than one
-    domain so the name reads as the bare filter id.
+    Multi-domain merges strip the ``"<Domain> → "`` prefix from the
+    display name since it would otherwise read wrong in whichever
+    domain the user is editing (``lambda`` under ``sensor:`` would
+    show "Binary Sensor → Lambda" otherwise).
     """
     by_id: dict[str, dict] = {}
     for f in filters:
