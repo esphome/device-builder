@@ -100,6 +100,17 @@ class AutomationsController:
         del platform
         return [e.to_dict() for e in catalog.all_light_effects()]
 
+    @api_command("automations/get_filters")
+    async def get_filters(
+        self,
+        *,
+        platform: str | None = None,
+        **_kwargs: Any,
+    ) -> list[dict]:
+        """Return every sensor / binary_sensor / text_sensor filter."""
+        del platform
+        return [f.to_dict() for f in catalog.all_filters()]
+
     # ------------------------------------------------------------------
     # Device-scoped helpers
     # ------------------------------------------------------------------

@@ -1981,20 +1981,28 @@ def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noq
     if entry_type is None and data_type in _DATA_TYPE_PRIMITIVE:
         entry_type = _DATA_TYPE_PRIMITIVE[data_type]
 
-    # Polymorphic registry list (#941). Upstream lights emit
-    # ``effects:`` as ``{filter: [<ids>], key: Optional}`` with no
-    # ``type`` — a list of single-key items drawn from a named
-    # catalog. The frontend's REGISTRY_LIST renderer pulls the
-    # matching catalog (currently only ``light_effects`` is wired
-    # end-to-end) and renders one row per item with a type picker.
-    # Sensors' ``filters:`` uses ``type: registry, registry:
-    # sensor.filter, is_list: true`` and would map to a separate
-    # ``filter`` catalog; left at the legacy multi_value=true string
-    # fallback until that catalog lands.
+    # Polymorphic registry list (#941). Two upstream shapes:
+    #   1. Lights' ``effects:`` carries ``{filter: [<ids>], key:
+    #      Optional}`` with no ``type`` — collapse to the
+    #      ``light_effects`` catalog.
+    #   2. Sensors' / binary_sensors' / text_sensors' ``filters:``
+    #      carries ``{type: registry, registry: <domain>.filter,
+    #      is_list: true}`` — collapse to the shared ``filter``
+    #      catalog (dedupe across domains).
+    # The frontend's REGISTRY_LIST renderer pulls the matching
+    # catalog and renders one row per item with a type picker.
     registry_name: str | None = None
     if key == "effects" and isinstance(raw.get("filter"), list) and raw["filter"]:
         entry_type = "registry_list"
         registry_name = "light_effects"
+    elif (
+        schema_type == "registry"
+        and raw.get("is_list")
+        and isinstance(raw.get("registry"), str)
+        and raw["registry"].endswith(".filter")
+    ):
+        entry_type = "registry_list"
+        registry_name = "filter"
 
     # An ``enum`` whose values are ``true`` and ``false`` is really a
     # boolean — the schema uses cv.boolean which produces this shape.
@@ -4516,6 +4524,7 @@ def build_automations(  # noqa: C901
     actions: list[dict] = []
     conditions: list[dict] = []
     effects: list[dict] = []
+    filters: list[dict] = []
 
     for path in iter_schema_files(schema_dir):
         try:
@@ -4564,6 +4573,21 @@ def build_automations(  # noqa: C901
                 )
                 if entry is not None:
                     effects.append(entry)
+            # Filter registry — sensor / binary_sensor / text_sensor
+            # each carry their own filter registry under a ``filter:``
+            # subsection (sensor has 27, binary_sensor 8, text_sensor
+            # 7). ``applies_to`` tracks the originating domain so the
+            # frontend renderer scopes the per-row picker against the
+            # parent component's domain. #941.
+            for name, body in (section.get("filter") or {}).items():
+                entry = _convert_filter(
+                    name=name,
+                    body=body,
+                    domain=top_key,
+                    schema_dir=schema_dir,
+                )
+                if entry is not None:
+                    filters.append(entry)
             # Triggers — surfaced through CONFIG_SCHEMA's config_vars
             # (and any other ``_SCHEMA`` the file declares).
             triggers.extend(
@@ -4580,6 +4604,7 @@ def build_automations(  # noqa: C901
         "actions": _dedupe_by_id(actions),
         "conditions": _dedupe_by_id(conditions),
         "light_effects": _dedupe_by_id(effects),
+        "filters": _dedupe_filters(filters),
     }
 
 
@@ -4678,6 +4703,57 @@ def _convert_automation_condition(
         "config_entries": [_strip_entry_defaults(e) for e in config_entries],
         "accepts_condition_list": accepts_condition_list,
     }
+
+
+def _convert_filter(
+    *,
+    name: str,
+    body: dict,
+    domain: str,
+    schema_dir: Path,
+) -> dict | None:
+    """Build one ``Filter`` dict from a ``<domain>.filter`` registry entry.
+
+    *domain* is the schema's top-level key (``sensor`` /
+    ``binary_sensor`` / ``text_sensor``) and lands in ``applies_to``
+    so the frontend renderer can scope the per-row picker against
+    the parent component's domain. Filters with the same id across
+    domains (``lambda``) are merged downstream by
+    :func:`_dedupe_filters` — applies_to unions across domains,
+    config_entries from the first occurrence (good enough for V1;
+    the per-domain return-type differences are documented).
+    """
+    if not isinstance(body, dict):
+        return None
+    docs = clean_docs(body.get("docs"))
+    schema = body.get("schema") if isinstance(body.get("schema"), dict) else None
+    config_entries, _alist, _hcg = _extract_automation_param_schema(schema, schema_dir)
+    return {
+        "id": name,
+        "name": _automation_label(domain, name, docs.name),
+        "config_entries": [_strip_entry_defaults(e) for e in config_entries],
+        "applies_to": [domain],
+    }
+
+
+def _dedupe_filters(filters: list[dict]) -> list[dict]:
+    """Merge filters sharing an ``id`` across domains.
+
+    The same filter ``id`` (``lambda``, ``delta``, …) can appear in
+    multiple ``<domain>.filter`` registries with slightly different
+    schemas. Union the ``applies_to`` lists and keep the first
+    occurrence's ``config_entries`` (V1: domain-specific schema
+    differences fall back to the YAML pane).
+    """
+    by_id: dict[str, dict] = {}
+    for f in filters:
+        existing = by_id.get(f["id"])
+        if existing is None:
+            by_id[f["id"]] = f
+            continue
+        merged_applies_to = sorted({*existing.get("applies_to", []), *f.get("applies_to", [])})
+        existing["applies_to"] = merged_applies_to
+    return list(by_id.values())
 
 
 def _convert_light_effect(

@@ -103,6 +103,25 @@ class LightEffect(DataClassORJSONMixin):
 
 
 @dataclass
+class Filter(DataClassORJSONMixin):
+    """A sensor / binary_sensor / text_sensor filter (``delta``, ``lambda``, ...).
+
+    Same shape as :class:`LightEffect`: registry-keyed catalog entry
+    with its own parameter schema. ``applies_to`` lists the
+    component domains the filter is valid on (e.g. ``["sensor"]``,
+    ``["binary_sensor"]``, ``["text_sensor"]``). The frontend's
+    REGISTRY_LIST renderer fetches this catalog via
+    ``automations/get_filters`` and uses ``applies_to`` to filter
+    the per-row picker against the parent component's domain.
+    """
+
+    id: str
+    name: str
+    config_entries: list[ConfigEntry] = field(default_factory=list)
+    applies_to: list[str] = field(default_factory=list)
+
+
+@dataclass
 class AutomationCatalog(DataClassORJSONMixin):
     """Top-level shape of ``definitions/automations.json``."""
 
@@ -111,6 +130,7 @@ class AutomationCatalog(DataClassORJSONMixin):
     actions: list[AutomationAction] = field(default_factory=list)
     conditions: list[AutomationCondition] = field(default_factory=list)
     light_effects: list[LightEffect] = field(default_factory=list)
+    filters: list[Filter] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
