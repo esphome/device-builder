@@ -17,6 +17,12 @@ import pytest
 from esphome_device_builder.controllers.automations import AutomationsController, catalog
 from esphome_device_builder.helpers.api import CommandError
 
+# Co-locate every test that walks the automations catalog onto one
+# xdist worker so the ``@cache``-d :func:`catalog.load_catalog`
+# (~2.8s on CI) pays its first-call cost once instead of once per
+# worker that picks up an automations test.
+pytestmark = pytest.mark.xdist_group("automations")
+
 
 def _make_controller(config_dir: Path) -> AutomationsController:
     """Build a controller wired to a tmp config dir.
