@@ -1446,10 +1446,18 @@ async def test_dns_failure_flicker_does_not_re_emit_log(
     monitor.state.dns_cache.has_cached_failure = MagicMock(side_effect=_has_cached_failure)
     _shrink_ping_intervals(monkeypatch)
 
+    async def _wait_for_flicker() -> None:
+        # Drive the loop until ``zom.local`` has been re-examined
+        # enough times to cross the dns_failed boundary at least once;
+        # a fixed ``asyncio.sleep`` flakes on slow xdist workers when
+        # only the first sweep lands inside the window.
+        while cache_calls["n"] < 4:
+            await asyncio.sleep(0)
+
     with caplog.at_level(logging.DEBUG, logger=ping_module.__name__):
         await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
         try:
-            await _let_ping_loop_run_briefly(monitor)
+            await asyncio.wait_for(_wait_for_flicker(), timeout=2.0)
         finally:
             await _stop_and_drain(monitor)
 
@@ -1457,7 +1465,7 @@ async def test_dns_failure_flicker_does_not_re_emit_log(
         r for r in caplog.records if "Pinging" in r.message or "Skipping" in r.message
     ]
     assert len(membership_logs) == 1
-    assert cache_calls["n"] >= 2
+    assert cache_calls["n"] >= 4
 
 
 @pytest.mark.asyncio
