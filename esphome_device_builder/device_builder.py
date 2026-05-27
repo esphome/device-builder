@@ -1355,7 +1355,7 @@ class DeviceBuilder:
             # CSS / etc. on a hard-reload of a deep URL — see
             # ``_ASSET_EXTENSIONS`` for the rationale.
             if tail and Path(tail).suffix.lower() in _ASSET_EXTENSIONS:
-                raise web.HTTPNotFound()
+                raise web.HTTPNotFound
             return _render_shell(request, tail=tail)
 
         app.router.add_static("/assets", assets_dir)

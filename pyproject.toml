@@ -189,6 +189,7 @@ select = [
   "PTH", # flake8-use-pathlib — prefer pathlib over os.path/os primitives
   "PLR0904", # too-many-public-methods (preview) — cap new god-classes at 20
   "RET", # flake8-return
+  "RSE", # flake8-raise — flag unnecessary parens on raised exception classes (``raise X()`` → ``raise X``)
   "RUF", # ruff-specific
   "S", # flake8-bandit
   "SIM", # flake8-simplify
