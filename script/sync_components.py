@@ -4751,7 +4751,18 @@ def _convert_filter(
 
 
 def _dedupe_filters(filters: list[dict]) -> list[dict]:
-    """Merge filters sharing an ``id`` across domains; union ``applies_to``."""
+    """Merge filters sharing an ``id`` across domains; union ``applies_to``.
+
+    When the same filter id appears in multiple registries (``lambda``
+    in sensor + binary_sensor + text_sensor), keep the first
+    occurrence's ``config_entries`` and union ``applies_to``. The
+    catalog stores names as ``"<Domain> → <Name>"`` for the global
+    automation editor's cross-domain disambiguation, but for a
+    multi-domain entry that prefix is misleading (a user editing
+    ``lambda`` under ``sensor:`` would see "Binary Sensor → Lambda").
+    Strip the prefix when the merged entry spans more than one
+    domain so the name reads as the bare filter id.
+    """
     by_id: dict[str, dict] = {}
     for f in filters:
         existing = by_id.get(f["id"])
@@ -4760,6 +4771,12 @@ def _dedupe_filters(filters: list[dict]) -> list[dict]:
             continue
         merged_applies_to = sorted({*existing.get("applies_to", []), *f.get("applies_to", [])})
         existing["applies_to"] = merged_applies_to
+        # Multi-domain entry: strip the "<Domain> → " prefix so the
+        # bare name reads correctly regardless of editing context.
+        name = existing.get("name") or ""
+        marker = " → "
+        if len(merged_applies_to) > 1 and marker in name:
+            existing["name"] = name.split(marker, 1)[1]
     return list(by_id.values())
 
 
