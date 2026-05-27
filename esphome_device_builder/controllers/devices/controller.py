@@ -603,6 +603,11 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     @api_command("devices/update_config")
     async def update_config(self, *, configuration: str, content: str, **kwargs: Any) -> None:
         """Write device config YAML."""
+        if not content.strip():
+            raise CommandError(
+                ErrorCode.INVALID_ARGS,
+                "refusing to write empty content; delete the file directly instead",
+            )
         await self._persist_yaml_mutation(configuration, content)
 
     def _schedule_storage_regenerate(self, configuration: str) -> None:
