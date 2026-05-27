@@ -141,6 +141,61 @@ def test_main_version_flag_prints_and_exits(
 
 
 # ---------------------------------------------------------------------------
+# end-to-end ``main(['./configs'])`` when the ``[esphome]`` extra is missing
+# ---------------------------------------------------------------------------
+
+
+def test_main_exits_with_actionable_error_when_esphome_extra_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Pins #919 — surface the install hint, not a raw ModuleNotFoundError."""
+    # ``_setup_logging`` installs a queue handler that offloads log
+    # delivery to a listener thread, which prevents ``caplog`` from
+    # seeing the error record synchronously. The queue-handler
+    # behaviour is exercised by the existing ``_setup_logging``
+    # tests below; here we only care that the friendly-error log
+    # line is emitted to the project logger.
+    monkeypatch.setattr(main_module, "_setup_logging", lambda *a, **kw: None)
+
+    real_import = builtins.__import__
+
+    def _block_esphome(
+        name: str,
+        globals: object = None,  # noqa: A002 — matches ``__import__`` signature
+        locals: object = None,  # noqa: A002
+        fromlist: object = (),
+        level: int = 0,
+    ) -> object:
+        if name == "esphome" or name.startswith("esphome."):
+            raise ModuleNotFoundError(f"No module named '{name}'", name=name)
+        return real_import(name, globals, locals, fromlist, level)
+
+    # Evict cached ``esphome.*`` entries so the lazy import in
+    # ``main`` re-enters ``__import__`` instead of short-circuiting
+    # through ``sys.modules``.
+    for cached in [
+        name for name in sys.modules if name == "esphome" or name.startswith("esphome.")
+    ]:
+        monkeypatch.delitem(sys.modules, cached)
+
+    monkeypatch.setattr(builtins, "__import__", _block_esphome)
+    monkeypatch.setattr("sys.argv", ["esphome-device-builder", "./configs"])
+
+    with (
+        caplog.at_level(logging.ERROR, logger="esphome_device_builder"),
+        pytest.raises(SystemExit) as excinfo,
+    ):
+        main_module.main()
+
+    assert excinfo.value.code == 1
+    assert any(
+        "pip install 'esphome-device-builder[esphome]'" in record.getMessage()
+        for record in caplog.records
+    ), "Expected the actionable [esphome] extra hint in the captured log records"
+
+
+# ---------------------------------------------------------------------------
 # __main__._setup_logging — uncaught-exception hooks
 # ---------------------------------------------------------------------------
 

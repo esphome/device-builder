@@ -53,14 +53,21 @@ add-on / Desktop shapes:
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install esphome-device-builder
+pip install 'esphome-device-builder[esphome]'
 
 esphome-device-builder ~/esphome-configs
 ```
 
+The `[esphome]` extra pulls in the upstream `esphome` package the
+dashboard needs to compile, flash, and discover devices. The HA
+add-on / Desktop builds ship `esphome` separately, so the bare
+`pip install esphome-device-builder` (no extra) is for those
+contexts only.
+
 For the beta channel, pass `--pre` to opt the resolver into
-prereleases — e.g. `pip install --pre esphome-device-builder` for a
-fresh install, or `pip install --upgrade --pre esphome-device-builder`
+prereleases — e.g. `pip install --pre 'esphome-device-builder[esphome]'`
+for a fresh install, or
+`pip install --upgrade --pre 'esphome-device-builder[esphome]'`
 to pull the newest beta on top of an existing install. `--pre` only
 opts the *current* command into prereleases; rerun the upgrade
 command to refresh.

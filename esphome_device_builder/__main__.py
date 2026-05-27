@@ -253,12 +253,27 @@ def main() -> None:
 
     # Deferred so ``--version`` / ``--help`` keep working in installs
     # that omit the optional ``[esphome]`` extra — both modules below
-    # transitively import ``esphome`` at module load time.
-    from esphome.core import CORE  # noqa: PLC0415
+    # transitively import ``esphome`` at module load time. Wrapped so
+    # the missing-extra path surfaces an actionable hint instead of a
+    # raw traceback (#919).
+    try:
+        from esphome.core import CORE  # noqa: PLC0415
 
-    from .controllers.config import DashboardSettings  # noqa: PLC0415
-    from .device_builder import DeviceBuilder  # noqa: PLC0415
-    from .helpers.single_instance import ensure_single_execution  # noqa: PLC0415
+        from .controllers.config import DashboardSettings  # noqa: PLC0415
+        from .device_builder import DeviceBuilder  # noqa: PLC0415
+        from .helpers.single_instance import ensure_single_execution  # noqa: PLC0415
+    except ModuleNotFoundError as exc:
+        if exc.name and exc.name.split(".", 1)[0] == "esphome":
+            # ``error`` not ``exception``: the raw traceback is the
+            # bad UX we're replacing (#919); the actionable hint is
+            # the whole point.
+            logging.getLogger(_LOGGER_NAME).error(  # noqa: TRY400
+                "Running esphome-device-builder needs the 'esphome' "
+                "package; reinstall with the [esphome] extra: "
+                "pip install 'esphome-device-builder[esphome]'"
+            )
+            sys.exit(1)
+        raise
 
     settings = DashboardSettings()
     settings.parse_args(args)
