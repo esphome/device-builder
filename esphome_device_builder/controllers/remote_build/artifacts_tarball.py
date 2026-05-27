@@ -62,6 +62,7 @@ from typing import TYPE_CHECKING, Any, cast
 from esphome.storage_json import StorageJSON
 
 from ...helpers.build_artifacts import _firmware_offset_for_platform
+from ...helpers.cross_os_path import cross_os_basename
 from ...helpers.json import loads as json_loads
 from ...helpers.peer_link_bundle import FIRMWARE_MAX_TOTAL_BYTES
 from ...helpers.storage_path import (
@@ -596,7 +597,7 @@ def _flash_image_basename_offset(entry: object) -> tuple[str, str]:
     if not isinstance(path_str, str) or not isinstance(offset, str):
         msg = "idedata.extra.flash_images entry missing path/offset"
         raise UnpackArtifactsError(msg)
-    return Path(path_str).name, offset
+    return cross_os_basename(path_str), offset
 
 
 def _rewrite_idedata_paths(idedata: dict[str, Any]) -> dict[str, Any]:
@@ -616,7 +617,7 @@ def _rewrite_idedata_paths(idedata: dict[str, Any]) -> dict[str, Any]:
         return idedata
     flash_images = extra.get("flash_images") or []
     rewritten = [
-        {**entry, "path": Path(entry["path"]).name}
+        {**entry, "path": cross_os_basename(entry["path"])}
         for entry in flash_images
         if isinstance(entry, dict) and isinstance(entry.get("path"), str)
     ]

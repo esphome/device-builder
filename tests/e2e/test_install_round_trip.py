@@ -51,7 +51,9 @@ on the offloader side."
 from __future__ import annotations
 
 import asyncio
+import io
 import json
+import tarfile
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -62,6 +64,8 @@ from esphome.storage_json import StorageJSON
 
 from esphome_device_builder.controllers.remote_build.artifacts_tarball import (
     BUILD_INFO_MEMBER_NAME,
+    IDEDATA_MEMBER_NAME,
+    STORAGE_MEMBER_NAME,
 )
 from esphome_device_builder.helpers.build_scheduler import (
     BuildPath,
@@ -515,6 +519,122 @@ async def test_remote_compile_materialises_for_local_firmware_download(
     yaml_path = Path(CORE.config_path).parent / "kitchen.yaml"
     hex_hash = await asyncio.to_thread(read_build_info_hash, yaml_path)
     assert hex_hash == "5a94a12d"
+
+
+_WIN_BUILD_PATH = (
+    r"C:\Users\receiver\esphome\.esphome\.remote_builds"
+    r"\_pin\.esphome\build\kitchen"
+)
+
+
+def _rewrite_tarball_to_windows_receiver(tarball: bytes, *, posix_build: str) -> bytes:
+    """Repack *tarball* with metadata paths rewritten under :data:`_WIN_BUILD_PATH`.
+
+    Lets a POSIX test host stand in for a Windows receiver: the
+    real ``pack_build_artifacts`` ran on Linux (so build-tree
+    files exist), then we munge ``storage.json`` /
+    ``idedata.json`` to look like a Windows receiver's wire
+    shape. Build-tree arcnames stay POSIX, which is what
+    production ships regardless of receiver OS.
+    """
+    buf_in = io.BytesIO(tarball)
+    buf_out = io.BytesIO()
+    with (
+        tarfile.open(fileobj=buf_in, mode="r:gz") as tar_in,
+        tarfile.open(fileobj=buf_out, mode="w:gz") as tar_out,
+    ):
+        for member in tar_in.getmembers():
+            payload = tar_in.extractfile(member).read()  # type: ignore[union-attr]
+            if member.name in (STORAGE_MEMBER_NAME, IDEDATA_MEMBER_NAME):
+                payload = _swap_metadata_paths_to_windows(payload, posix_build=posix_build)
+            info = tarfile.TarInfo(name=member.name)
+            info.size = len(payload)
+            tar_out.addfile(info, io.BytesIO(payload))
+    return buf_out.getvalue()
+
+
+def _swap_metadata_paths_to_windows(payload: bytes, *, posix_build: str) -> bytes:
+    """Rewrite every absolute path field under *posix_build* into :data:`_WIN_BUILD_PATH`."""
+    data = json.loads(payload)
+    for field in ("build_path", "firmware_bin_path", "prog_path"):
+        value = data.get(field)
+        if isinstance(value, str) and value.startswith(posix_build):
+            data[field] = _swap_prefix(value, posix_build, _WIN_BUILD_PATH)
+    for image in data.get("extra", {}).get("flash_images", []):
+        path = image.get("path")
+        if isinstance(path, str) and path.startswith(posix_build):
+            image["path"] = _swap_prefix(path, posix_build, _WIN_BUILD_PATH)
+    return json.dumps(data).encode("utf-8")
+
+
+def _swap_prefix(absolute_posix: str, posix_prefix: str, win_prefix: str) -> str:
+    """Replace *posix_prefix* with *win_prefix*, converting trailing separators to backslashes."""
+    suffix = absolute_posix[len(posix_prefix) :].lstrip("/").replace("/", "\\")
+    return win_prefix + ("\\" + suffix if suffix else "")
+
+
+@pytest.mark.asyncio
+async def test_windows_receiver_tarball_materialises_for_local_firmware_download(
+    paired_instances: PairedInstances,
+    tmp_path: Path,
+) -> None:
+    """#945: a Windows-receiver tarball materialises with offloader-local paths.
+
+    Drives the full transparent-install chain on one Noise
+    session (submit → fan-out → download_artifacts), then
+    rewrites the tarball's metadata members to look like a
+    Windows receiver sent them. Materialise + the
+    ``firmware/download`` read path must still resolve the
+    factory binary off ``firmware_bin_path.parent``.
+    """
+    await paired_instances.wait_until_session_opened()
+    created_jobs = _wire_receiver_firmware_recorder(paired_instances)
+    state_changes = capture_events(
+        paired_instances.offloader_bus, EventType.OFFLOADER_JOB_STATE_CHANGED
+    )
+
+    handle = paired_instances.offloader.state.peer_link_clients[paired_instances.pin_sha256]
+    ack = await handle.client.submit_job(
+        job_id="off-windows-1",
+        configuration_filename="kitchen.yaml",
+        target="compile",
+        bundle_bytes=make_real_bundle(),
+    )
+    assert ack["accepted"] is True
+    receiver_job = created_jobs[0]
+    images = _write_build_artifacts_on_disk(tmp_path, configuration=receiver_job.configuration)
+    # Add the factory binary the user's install would download.
+    receiver_storage = StorageJSON.load(resolve_storage_path(receiver_job.configuration))
+    assert receiver_storage is not None
+    receiver_build = str(receiver_storage.build_path)
+    factory_path = Path(receiver_storage.firmware_bin_path).parent / "firmware.factory.bin"
+    factory_path.write_bytes(b"FACTORY-BIN-BYTES")
+    images["firmware.factory.bin"] = b"FACTORY-BIN-BYTES"
+
+    paired_instances.receiver_bus.fire(EventType.JOB_QUEUED, JobLifecycleData(job=receiver_job))
+    paired_instances.receiver_bus.fire(EventType.JOB_STARTED, JobLifecycleData(job=receiver_job))
+    await state_changes.wait_for_status("running")
+    paired_instances.receiver_bus.fire(EventType.JOB_COMPLETED, JobLifecycleData(job=receiver_job))
+    await state_changes.wait_for_status("completed")
+    receiver_job.status = JobStatus.COMPLETED
+
+    packed = await handle.client.download_artifacts(job_id="off-windows-1")
+    munged = _rewrite_tarball_to_windows_receiver(packed.tarball, posix_build=receiver_build)
+
+    build_path = await asyncio.to_thread(materialise_remote_artifacts, munged, "kitchen.yaml")
+
+    staged_storage = await asyncio.to_thread(StorageJSON.load, resolve_storage_path("kitchen.yaml"))
+    assert staged_storage is not None
+    assert staged_storage.firmware_bin_path is not None
+    # firmware_bin_path was a Windows absolute on the wire; the
+    # offloader's staged copy must point into its own build tree.
+    assert str(staged_storage.firmware_bin_path).startswith(str(build_path))
+    download_dir = Path(staged_storage.firmware_bin_path).parent
+    # The #945 bug: this lookup raised "Binary not found" because
+    # firmware_bin_path stayed a Windows string and .parent
+    # collapsed to the dashboard cwd.
+    assert (download_dir / "firmware.factory.bin").read_bytes() == images["firmware.factory.bin"]
+    assert (download_dir / "firmware.bin").read_bytes() == images["firmware.bin"]
 
 
 def _drive_receiver_lifecycle(
