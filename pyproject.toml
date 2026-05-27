@@ -199,6 +199,7 @@ select = [
   "TRY", # tryceratops — exception-handling antipatterns (TRY003 globally ignored above)
   "UP", # pyupgrade
   "W", # pycodestyle warnings
+  "YTT", # flake8-2020 — flag ``sys.version`` / ``sys.version_info`` slicing bugs
 ]
 
 [tool.ruff.lint.per-file-ignores]
