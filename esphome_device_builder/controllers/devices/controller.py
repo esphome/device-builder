@@ -412,16 +412,24 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
         Each entry in ``updates`` is ``{configuration: str, label_ids:
         list[str]}``. Returns one ``{configuration, success, error?}``
-        per entry. Mirrors ``delete_bulk`` / ``archive_bulk``.
+        per entry, in input order (duplicates in ``updates`` produce
+        duplicate result rows). Per-entry failures (unknown id,
+        missing device, malformed row) don't block the rest.
         """
-        by_config = {item["configuration"]: item["label_ids"] for item in updates}
 
-        async def _apply(configuration: str) -> None:
+        async def _apply(row: dict[str, Any]) -> None:
+            configuration = row.get("configuration") if isinstance(row, dict) else None
+            if not isinstance(configuration, str):
+                raise CommandError(ErrorCode.INVALID_ARGS, "configuration must be a string")
             await mutations_simple.set_labels(
-                self, configuration=configuration, label_ids=by_config[configuration]
+                self, configuration=configuration, label_ids=row.get("label_ids")
             )
 
-        return await self._run_bulk_per_device(list(by_config.keys()), _apply)
+        def _extract(row: dict[str, Any]) -> str:
+            cfg = row.get("configuration") if isinstance(row, dict) else None
+            return cfg if isinstance(cfg, str) else ""
+
+        return await archive.run_bulk_per_row(self, updates, _apply, _extract)
 
     @api_command("devices/rename")
     async def rename_device(

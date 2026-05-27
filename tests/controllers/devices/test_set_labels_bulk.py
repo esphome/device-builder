@@ -9,7 +9,9 @@ multi-device entry. The contract:
 2. Mixed path: a per-entry failure (unknown label id) returns
    ``{success: False, error: ...}`` for that entry; the valid
    entries still land.
-3. Empty ``updates`` returns ``[]`` and never touches the scanner.
+3. Empty ``updates`` returns ``[]`` with no per-device ``reload``
+   queued (the trailing ``scan()`` from the bulk loop still fires,
+   matching ``delete_bulk`` / ``archive_bulk``).
 """
 
 from __future__ import annotations
@@ -126,6 +128,69 @@ async def test_set_labels_bulk_reports_per_entry_failure(
     assert raw["kitchen.yaml"]["labels"] == ["lbl-a"]
     # The failing entry never touched the sidecar (no orphan).
     assert "garage.yaml" not in raw
+
+
+@pytest.mark.asyncio
+async def test_set_labels_bulk_preserves_input_order_with_duplicates(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Duplicate configurations in ``updates`` yield duplicate result rows.
+
+    A frontend bug (or a power-user re-applying labels via repeated
+    rows) shouldn't silently drop entries. The contract is one result
+    per input row, in input order; the last write per configuration
+    wins on disk because the rows are applied sequentially.
+    """
+    await asyncio.to_thread(
+        save_labels,
+        tmp_path,
+        [Label(id="lbl-a", name="Alpha"), Label(id="lbl-b", name="Bravo")],
+    )
+
+    controller = make_controller(tmp_path)
+    _attach_multi_scanner(controller, tmp_path, [_make_device("kitchen.yaml")])
+
+    result = await controller.set_labels_bulk(
+        updates=[
+            {"configuration": "kitchen.yaml", "label_ids": ["lbl-a"]},
+            {"configuration": "kitchen.yaml", "label_ids": ["lbl-b"]},
+        ]
+    )
+
+    # Two result rows for the two input rows, in order.
+    assert [r["configuration"] for r in result] == ["kitchen.yaml", "kitchen.yaml"]
+    assert all(r["success"] for r in result)
+
+    # Last write wins on disk.
+    raw = json.loads((tmp_path / ".device-builder.json").read_bytes())
+    assert raw["kitchen.yaml"]["labels"] == ["lbl-b"]
+
+
+@pytest.mark.asyncio
+async def test_set_labels_bulk_malformed_row_isolates_failure(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A row missing required keys fails for that row only, not the rest."""
+    await asyncio.to_thread(save_labels, tmp_path, [Label(id="lbl-a", name="Alpha")])
+
+    controller = make_controller(tmp_path)
+    _attach_multi_scanner(controller, tmp_path, [_make_device("kitchen.yaml")])
+
+    result = await controller.set_labels_bulk(
+        updates=[
+            {"label_ids": ["lbl-a"]},  # missing "configuration"
+            {"configuration": "kitchen.yaml", "label_ids": ["lbl-a"]},
+        ]
+    )
+
+    assert result[0]["success"] is False
+    assert "configuration" in result[0]["error"]
+    assert result[1] == {"configuration": "kitchen.yaml", "success": True}
+
+    raw = json.loads((tmp_path / ".device-builder.json").read_bytes())
+    assert raw["kitchen.yaml"]["labels"] == ["lbl-a"]
 
 
 @pytest.mark.asyncio
