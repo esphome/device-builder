@@ -290,7 +290,7 @@ async def test_update_config_refuses_empty_content(
 async def test_update_config_refuses_whitespace_only_content(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """Whitespace-only content is rejected the same as empty."""
+    """Whitespace-only content raises ``INVALID_ARGS``; file and side effects untouched."""
     controller = make_controller(tmp_path)
     regenerated = _stub_regenerate(controller)
     target = tmp_path / "secrets.yaml"
