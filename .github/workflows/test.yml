@@ -130,32 +130,37 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+      - name: Set up uv and Python ${{ matrix.python-version }}
+        # Astral-managed Python (PGO + LTO + BOLT + mimalloc, plus
+        # the PEP 744 tail-call interpreter on 3.14+) shortens the
+        # suite end-to-end. The benchmarks job below stays on stock
+        # CPython so CodSpeed's callgrind instruction counts remain
+        # comparable against the historical baseline.
+        uses: ./.github/actions/setup-uv-python
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
-        with:
-          enable-cache: true
-
-      - name: Install package + test deps
-        run: uv pip install --system -e '.[esphome,test]'
+      - name: Create venv + install package + test deps
+        # Managed Python isn't a system interpreter; install into a
+        # uv-discovered ``.venv`` and invoke pytest via ``uv run``.
+        # Cross-platform: ``uv venv`` works the same on POSIX +
+        # Windows runners and avoids per-shell activate scripts.
+        run: |
+          uv venv
+          uv pip install -e '.[esphome,test]'
 
       - name: Run pytest
-        # Single-line command — Windows runners default to PowerShell,
-        # which doesn't accept bash-style ``\`` line continuation.
-        # ``-n auto`` runs the suite under pytest-xdist with one
-        # worker per logical CPU; pytest-cov auto-merges the
-        # per-worker ``.coverage`` files at the end so the xml
-        # report still reflects the whole suite. Mirrors the
-        # upstream esphome workflow's ``-n auto`` invocation.
-        # ``--maxfail=5`` keeps CI snappy when something fundamental
-        # is broken; ``-q`` keeps the log readable without ``-vv``.
-        # The ``benchmarks/`` subtree is excluded — it's CodSpeed-driven,
-        # runs in a separate job, and its assertions only check chunk
-        # counts (not behaviour).
+        # ``uv run`` resolves the .venv created above. Single-line —
+        # Windows runners default to PowerShell, which doesn't accept
+        # bash-style ``\`` line continuation. ``-n auto`` runs the
+        # suite under pytest-xdist with one worker per logical CPU;
+        # pytest-cov auto-merges the per-worker ``.coverage`` files
+        # at the end so the xml report still reflects the whole
+        # suite. ``--maxfail=5`` keeps CI snappy when something
+        # fundamental is broken; ``-q`` keeps the log readable
+        # without ``-vv``. The ``benchmarks/`` subtree is excluded —
+        # it's CodSpeed-driven, runs in a separate job, and its
+        # assertions only check chunk counts (not behaviour).
         # Two-layer hang protection:
         # * ``--timeout=120`` (pytest-timeout plugin) faults any
         #   individual test that wedges for more than 2 minutes,
@@ -166,7 +171,7 @@ jobs:
         #   at ~1-2 minutes; without the cap a single hung worker
         #   burns the runner's full 6h budget.
         timeout-minutes: 5
-        run: pytest -q -n auto --maxfail=5 --durations=10 --timeout=120 --ignore=tests/benchmarks --ignore=tests/real_compile --cov=esphome_device_builder --cov-report=xml --cov-report=term
+        run: uv run pytest -q -n auto --maxfail=5 --durations=10 --timeout=120 --ignore=tests/benchmarks --ignore=tests/real_compile --cov=esphome_device_builder --cov-report=xml --cov-report=term
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354  # v6.0.1
@@ -198,7 +203,7 @@ jobs:
             # (uv's flag — pip's ``--pre`` doesn't apply here).
             # ``--upgrade`` makes uv pick the highest one even if a
             # stable is already installed transitively.
-            install: uv pip install --system --upgrade --prerelease=allow esphome
+            install: uv pip install --upgrade --prerelease=allow esphome
             allow_failure: false
           - channel: dev
             os: ubuntu-latest
@@ -206,7 +211,7 @@ jobs:
             # The ``dev`` branch is ESPHome's nightly working copy;
             # it can break at any time and we want the signal but
             # not the gate.
-            install: uv pip install --system --upgrade git+https://github.com/esphome/esphome.git@dev
+            install: uv pip install --upgrade git+https://github.com/esphome/esphome.git@dev
             allow_failure: true
     # Job-level ``continue-on-error`` decides whether a failure of
     # this matrix entry fails the whole workflow. ``dev`` opts into
@@ -218,18 +223,15 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+      - name: Set up uv and Python ${{ matrix.python-version }}
+        uses: ./.github/actions/setup-uv-python
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
-        with:
-          enable-cache: true
-
-      - name: Install package + test deps
-        run: uv pip install --system -e '.[esphome,test]'
+      - name: Create venv + install package + test deps
+        run: |
+          uv venv
+          uv pip install -e '.[esphome,test]'
 
       - name: Install esphome (${{ matrix.channel }} channel)
         run: ${{ matrix.install }}
@@ -237,19 +239,20 @@ jobs:
       - name: Show installed esphome version
         # Logs the resolved version so a failure tied to a specific
         # release is greppable in the workflow log without re-running.
-        run: uv pip show --system esphome | grep -E '^(Name|Version):'
+        run: uv pip show esphome | grep -E '^(Name|Version):'
 
       - name: Run pytest
-        # ``-n auto`` runs under pytest-xdist for the same speedup
-        # the OS-axis matrix gets. No ``--cov`` here — the merged
-        # coverage report comes from the OS-axis ``test`` job; this
-        # run is purely a "does the suite still pass against
-        # upstream X" probe. ``--timeout=120`` (per-test) +
-        # ``timeout-minutes: 5`` (outer hard cap) match the OS-axis
-        # job — hangs against upstream beta/dev are exactly the case
-        # this protects against.
+        # ``uv run`` resolves the .venv created above. ``-n auto``
+        # runs under pytest-xdist for the same speedup the OS-axis
+        # matrix gets. No ``--cov`` here — the merged coverage report
+        # comes from the OS-axis ``test`` job; this run is purely a
+        # "does the suite still pass against upstream X" probe.
+        # ``--timeout=120`` (per-test) + ``timeout-minutes: 5``
+        # (outer hard cap) match the OS-axis job — hangs against
+        # upstream beta/dev are exactly the case this protects
+        # against.
         timeout-minutes: 5
-        run: pytest -q -n auto --maxfail=5 --durations=10 --timeout=120 --ignore=tests/benchmarks --ignore=tests/real_compile
+        run: uv run pytest -q -n auto --maxfail=5 --durations=10 --timeout=120 --ignore=tests/benchmarks --ignore=tests/real_compile
 
   benchmarks:
     name: Run benchmarks (CodSpeed)
