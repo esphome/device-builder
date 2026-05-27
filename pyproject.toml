@@ -192,6 +192,7 @@ select = [
   "RUF", # ruff-specific
   "S", # flake8-bandit
   "SIM", # flake8-simplify
+  "SLOT", # flake8-slots — require ``__slots__`` on ``str`` / ``tuple`` / ``namedtuple`` subclasses
   "SLF", # flake8-self — flag cross-class private member access so the State
   # dataclass boundary stays load-bearing; sibling-module access within a
   # controller package is exempted via per-file-ignores below.

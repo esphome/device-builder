@@ -26,6 +26,8 @@ from esphome_device_builder.helpers.json import (
 class _StrSubclass(str):
     """Stand-in for ESPHome's ``EStr`` (a ``str`` subclass)."""
 
+    __slots__ = ()
+
 
 def test_dumps_rejects_str_subclass_keys() -> None:
     """Plain ``dumps`` keeps orjson's strict default.
