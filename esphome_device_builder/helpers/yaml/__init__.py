@@ -37,7 +37,10 @@ except AttributeError:  # pragma: no cover
 # the split arc.
 from .api_encryption import generate_api_encryption_key as generate_api_encryption_key
 from .api_encryption import rewrite_api_encryption_key as rewrite_api_encryption_key
+from .component import _mapping_body_to_list_item as _mapping_body_to_list_item
+from .component import _normalize_multi_conf_block as _normalize_multi_conf_block
 from .component import _splice_into_domain_block as _splice_into_domain_block
+from .component import _splice_into_multi_conf_block as _splice_into_multi_conf_block
 from .component import generate_component_yaml as generate_component_yaml
 from .component import merge_component_yaml as merge_component_yaml
 from .inline import _indent_block as _indent_block

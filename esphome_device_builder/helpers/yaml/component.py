@@ -74,17 +74,26 @@ def merge_component_yaml(
     """
     Render *component* and merge it into *existing* YAML.
 
-    For platform-style components (``sensor:``, ``output:``, ...) the
-    new ``- platform: ...`` list item is appended under the existing
-    domain block when one is already present — without this, repeatedly
-    adding components of the same domain would produce duplicate
-    top-level ``output:`` / ``sensor:`` blocks. Other components fall
-    through to a plain append.
+    Three merge shapes:
+
+    * Platform-style components (``sensor:``, ``output:``, ...) splice
+      the new ``- platform: ...`` list item under an existing domain
+      block when one is present.
+    * ``multi_conf`` non-platform components (``rtttl:``, ``i2c:``,
+      ``uart:``, ...) splice a new list item under an existing
+      top-level block, converting a mapping-form body to list form on
+      the first repeat (#953).
+    * Everything else (singleton components like ``wifi:`` / ``api:``)
+      falls through to a plain append.
     """
     block = generate_component_yaml(component, fields)
     is_platform = component.category in _ENTITY_CATEGORIES
     if is_platform:
         spliced = _splice_into_domain_block(existing, str(component.category), block)
+        if spliced is not None:
+            return spliced
+    elif component.multi_conf:
+        spliced = _splice_into_multi_conf_block(existing, component.id, block)
         if spliced is not None:
             return spliced
     return _append_block(existing, block)
@@ -274,6 +283,93 @@ def _splice_into_domain_block(existing: str, domain: str, block: str) -> str | N
         before += "\n"
     insertion = "\n".join(inner_lines) + "\n"
     return before + insertion + after
+
+
+def _splice_into_multi_conf_block(existing: str, comp_id: str, block: str) -> str | None:
+    """
+    Splice *block* into an existing ``<comp_id>:`` block.
+
+    Returns ``None`` when the YAML has no ``<comp_id>:`` section (the
+    caller falls back to a plain append). Normalises any mapping-form
+    body to list-form first, then delegates to
+    :func:`_splice_into_domain_block` for the actual list-item splice
+    so trailing-blank-line and following-block handling stay shared
+    with the platform path.
+    """
+    normalized = _normalize_multi_conf_block(existing, comp_id)
+    if normalized is None:
+        return None
+    block_lines = block.splitlines()
+    if len(block_lines) < 2 or block_lines[0].rstrip() != f"{comp_id}:":
+        return None
+    list_block = f"{comp_id}:\n" + "\n".join(_mapping_body_to_list_item(block_lines[1:]))
+    return _splice_into_domain_block(normalized, comp_id, list_block)
+
+
+def _normalize_multi_conf_block(existing: str, comp_id: str) -> str | None:
+    """
+    Ensure the existing ``<comp_id>:`` body is in YAML list-form.
+
+    Returns the (possibly rewritten) YAML, or ``None`` when no
+    matching top-level block is present. A body that already starts
+    with ``- `` is returned unchanged; a mapping body is rewritten as
+    a single ``- mapping`` list item via :func:`_mapping_body_to_list_item`.
+    """
+    file_lines = existing.splitlines(keepends=True)
+    header_re = re.compile(rf"^{re.escape(comp_id)}:\s*(?:#.*)?$")
+    block_start: int | None = None
+    for idx, line in enumerate(file_lines):
+        if header_re.match(line.rstrip("\n\r")):
+            block_start = idx
+            break
+    if block_start is None:
+        return None
+
+    block_end = len(file_lines)
+    for idx in range(block_start + 1, len(file_lines)):
+        stripped = file_lines[idx].rstrip("\n\r")
+        if stripped and stripped[0].isalpha() and not stripped.startswith(" "):
+            block_end = idx
+            break
+    last_content = block_end
+    while last_content > block_start + 1 and not file_lines[last_content - 1].strip():
+        last_content -= 1
+
+    for idx in range(block_start + 1, last_content):
+        stripped = file_lines[idx].lstrip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.startswith("- "):
+            return existing
+        break
+
+    body_lines = [line.rstrip("\n\r") for line in file_lines[block_start + 1 : last_content]]
+    rewritten = "\n".join(_mapping_body_to_list_item(body_lines)) + "\n"
+    return "".join(file_lines[: block_start + 1]) + rewritten + "".join(file_lines[last_content:])
+
+
+def _mapping_body_to_list_item(body_lines: list[str]) -> list[str]:
+    """
+    Convert a 2-space-indented mapping body to a YAML list item.
+
+    Each non-blank line gains one extra level of indent and the first
+    non-blank line's leading indent is replaced with ``  - `` so the
+    block reads as a single ``- mapping`` entry. Blank lines are kept
+    verbatim so vertical spacing inside the block survives the
+    rewrite.
+    """
+    result: list[str] = []
+    marked = False
+    for line in body_lines:
+        if not line.strip():
+            result.append(line)
+            continue
+        indented = ESPHOME_YAML_INDENT + line
+        if not marked and indented.startswith(ESPHOME_YAML_INDENT * 2):
+            indented = "  - " + indented[len(ESPHOME_YAML_INDENT * 2) :]
+            marked = True
+        result.append(indented)
+    return result
 
 
 def _format_yaml_value(value: Any) -> str:

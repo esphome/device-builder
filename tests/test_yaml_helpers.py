@@ -56,6 +56,7 @@ def _component(
     component_id: str,
     category: ComponentCategory,
     name: str = "test",
+    multi_conf: bool = False,
 ) -> ComponentCatalogEntry:
     """Minimal ComponentCatalogEntry — fields needed by yaml helpers only.
 
@@ -69,6 +70,7 @@ def _component(
         name=name,
         description="",
         category=category,
+        multi_conf=multi_conf,
     )
 
 
@@ -963,6 +965,88 @@ def test_merge_component_yaml_splices_other_platform_categories(
     assert result.count(f"{category.value}:\n") == 1
     assert "- platform: ledc" in result
     assert "- platform: gpio" in result
+
+
+_RTTTL_MAPPING = "rtttl:\n  id: rtttl_1\n  output: buzz\n"
+_RTTTL_LIST = "rtttl:\n  - id: rtttl_1\n    output: buzz\n  - id: rtttl_2\n    output: buzz\n"
+
+
+@pytest.mark.parametrize(
+    ("existing", "new_id", "expected_ids", "expected_suffix"),
+    [
+        pytest.param(
+            "esphome:\n  name: kitchen\n",
+            "rtttl_1",
+            ["rtttl_1"],
+            "rtttl:\n  id: rtttl_1\n  output: buzz\n",
+            id="first_add_emits_mapping",
+        ),
+        pytest.param(
+            f"esphome:\n  name: kitchen\n\n{_RTTTL_MAPPING}",
+            "rtttl_2",
+            ["rtttl_1", "rtttl_2"],
+            None,
+            id="second_add_converts_mapping_to_list",
+        ),
+        pytest.param(
+            f"esphome:\n  name: kitchen\n\n{_RTTTL_LIST}",
+            "rtttl_3",
+            ["rtttl_1", "rtttl_2", "rtttl_3"],
+            None,
+            id="third_add_splices_into_list",
+        ),
+        pytest.param(
+            f"esphome:\n  name: kitchen\n\n{_RTTTL_MAPPING}\nlogger:\n  level: DEBUG\n",
+            "rtttl_2",
+            ["rtttl_1", "rtttl_2"],
+            "logger:\n  level: DEBUG\n",
+            id="trailing_block_survives_conversion",
+        ),
+    ],
+)
+def test_merge_component_yaml_multi_conf(
+    existing: str,
+    new_id: str,
+    expected_ids: list[str],
+    expected_suffix: str | None,
+) -> None:
+    """Issue #953: repeated adds of a ``multi_conf`` non-platform component.
+
+    First add lands as a mapping body (single-instance shape is
+    valid ESPHome YAML and prettier than a one-item list). The
+    second add rewrites the body to list form and appends the new
+    entry; subsequent adds splice as sibling list items. A trailing
+    top-level block after the ``rtttl:`` section must survive the
+    rewrite intact.
+    """
+    component = _component(component_id="rtttl", category=ComponentCategory.MISC, multi_conf=True)
+    result = merge_component_yaml(existing, component, {"id": new_id, "output": "buzz"})
+
+    assert result.count("rtttl:\n") == 1
+    positions = [result.index(stem) for stem in expected_ids]
+    assert positions == sorted(positions)
+    if len(expected_ids) > 1:
+        for stem in expected_ids:
+            assert f"- id: {stem}\n" in result
+    if expected_suffix is not None:
+        assert expected_suffix in result
+
+
+def test_merge_component_yaml_singleton_without_multi_conf_falls_through() -> None:
+    """A ``multi_conf=False`` non-platform component skips the splice.
+
+    Singletons (``wifi:`` / ``api:``) should never trigger the list
+    rewrite; the caller is expected to refuse the duplicate upstream
+    rather than have the YAML helper paper over it.
+    """
+    component = _component(component_id="wifi", category=ComponentCategory.MISC, multi_conf=False)
+    result = merge_component_yaml(
+        "esphome:\n  name: kitchen\n\nwifi:\n  ssid: other\n",
+        component,
+        {"ssid": "home"},
+    )
+
+    assert result.count("wifi:\n") == 2
 
 
 # ---------------------------------------------------------------------------
