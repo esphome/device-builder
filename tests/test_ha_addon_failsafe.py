@@ -113,7 +113,13 @@ def test_ha_addon_no_password_with_ingress_runs_ingress_only(
         "expected the loud 'Public port ... NOT bound' warning describing "
         "why the public port was suppressed and how to enable it"
     )
-    assert "USERNAME and PASSWORD" in warning_messages[0]
+    # Pin the addon-specific framing so a future copy edit can't
+    # silently regress to the pre-#943 wording that pointed
+    # operators at add-on options that don't exist.
+    warning = warning_messages[0]
+    assert "ingress-only" in warning
+    assert "doesn't expose" in warning
+    assert "standalone PyPI install" in warning
 
 
 def test_ha_addon_no_password_no_ingress_refuses_to_start(

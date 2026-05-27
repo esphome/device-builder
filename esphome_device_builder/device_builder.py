@@ -1193,21 +1193,24 @@ class DeviceBuilder:
                 # add-on log so the operator sees exactly what to
                 # change.
                 msg = (
-                    "Refusing to start: --ha-addon is set, "
-                    "DISABLE_HA_AUTHENTICATION forces public-port auth, "
-                    "and USERNAME/PASSWORD is not configured. Set "
-                    "USERNAME and PASSWORD via the add-on options, or "
-                    "unset DISABLE_HA_AUTHENTICATION to use ingress-only "
-                    "mode."
+                    "Refusing to start: DISABLE_HA_AUTHENTICATION "
+                    "forces public-port auth, but the HA add-on is "
+                    "ingress-only by design and doesn't expose "
+                    "USERNAME/PASSWORD options. Turn "
+                    '"Disable external authentication" off to use '
+                    "ingress-only mode, or run the standalone PyPI "
+                    "install for password-gated LAN access. See "
+                    'README "Home Assistant add-on".'
                 )
                 raise RuntimeError(msg)
             _LOGGER.warning(
-                "Public port %d NOT bound: --ha-addon is set but "
-                "USERNAME/PASSWORD is not configured. Running "
-                "ingress-only — the dashboard works through the Home "
-                "Assistant UI. To enable LAN access on port %d, set "
-                "USERNAME and PASSWORD via the add-on options.",
-                settings.port,
+                "Public port %d NOT bound: the HA add-on is "
+                "ingress-only by design and doesn't expose "
+                "USERNAME/PASSWORD options. The dashboard is "
+                "reachable through the Home Assistant UI. For "
+                "password-gated LAN access, run the standalone PyPI "
+                'install on the same network. See README "Home '
+                'Assistant add-on".',
                 settings.port,
             )
             app = self.create_app(trusted=True, with_ingress_site=False)
