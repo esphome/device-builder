@@ -624,7 +624,9 @@ async def test_windows_receiver_tarball_materialises_for_local_firmware_download
     receiver_job.status = JobStatus.COMPLETED
 
     packed = await handle.client.download_artifacts(job_id="off-windows-1")
-    munged = _rewrite_tarball_to_windows_receiver(packed.tarball, posix_build=receiver_build)
+    munged = await asyncio.to_thread(
+        _rewrite_tarball_to_windows_receiver, packed.tarball, posix_build=receiver_build
+    )
 
     build_path = await asyncio.to_thread(materialise_remote_artifacts, munged, "kitchen.yaml")
 
