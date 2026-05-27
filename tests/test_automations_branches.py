@@ -86,7 +86,13 @@ def test_load_catalog_returns_empty_when_definitions_missing() -> None:
     with patch("esphome_device_builder.controllers.automations.catalog.resources.files") as files:
         files.side_effect = ModuleNotFoundError
         result = catalog.load_catalog.__wrapped__()
-    assert result == {"triggers": [], "actions": [], "conditions": [], "light_effects": []}
+    assert result == {
+        "triggers": [],
+        "actions": [],
+        "conditions": [],
+        "light_effects": [],
+        "filters": [],
+    }
 
 
 def test_condition_by_id_returns_none_for_unknown_id() -> None:
