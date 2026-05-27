@@ -188,6 +188,7 @@ select = [
   "PL", # pylint
   "PTH", # flake8-use-pathlib — prefer pathlib over os.path/os primitives
   "PLR0904", # too-many-public-methods (preview) — cap new god-classes at 20
+  "PYI", # flake8-pyi — type-stub correctness (collapses ``int | float`` to ``float``, etc.)
   "RET", # flake8-return
   "RUF", # ruff-specific
   "S", # flake8-bandit

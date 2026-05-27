@@ -1183,7 +1183,7 @@ def test_generate_component_yaml_emits_plain_string_unquoted() -> None:
 
 
 @pytest.mark.parametrize("value", [42, 3.14])
-def test_generate_component_yaml_emits_numeric_value_via_str(value: int | float) -> None:
+def test_generate_component_yaml_emits_numeric_value_via_str(value: float) -> None:
     """Numbers render via ``str()`` — ints stay ints, floats keep the dot.
 
     A regression that quoted numbers (``priority: "0"``) changes the
