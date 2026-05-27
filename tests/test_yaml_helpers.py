@@ -1012,15 +1012,7 @@ def test_merge_component_yaml_multi_conf(
     expected_ids: list[str],
     expected_suffix: str | None,
 ) -> None:
-    """Issue #953: repeated adds of a ``multi_conf`` non-platform component.
-
-    First add lands as a mapping body (single-instance shape is
-    valid ESPHome YAML and prettier than a one-item list). The
-    second add rewrites the body to list form and appends the new
-    entry; subsequent adds splice as sibling list items. A trailing
-    top-level block after the ``rtttl:`` section must survive the
-    rewrite intact.
-    """
+    """Repeated adds of a ``multi_conf`` component splice under one block."""
     component = _component(component_id="rtttl", category=ComponentCategory.MISC, multi_conf=True)
     result = merge_component_yaml(existing, component, {"id": new_id, "output": "buzz"})
 
@@ -1035,12 +1027,7 @@ def test_merge_component_yaml_multi_conf(
 
 
 def test_merge_component_yaml_singleton_without_multi_conf_falls_through() -> None:
-    """A ``multi_conf=False`` non-platform component skips the splice.
-
-    Singletons (``wifi:`` / ``api:``) should never trigger the list
-    rewrite; the caller is expected to refuse the duplicate upstream
-    rather than have the YAML helper paper over it.
-    """
+    """A ``multi_conf=False`` non-platform component skips the splice."""
     component = _component(component_id="wifi", category=ComponentCategory.MISC, multi_conf=False)
     result = merge_component_yaml(
         "esphome:\n  name: kitchen\n\nwifi:\n  ssid: other\n",
@@ -1076,6 +1063,18 @@ def test_normalize_multi_conf_block_skips_comments_above_list_form() -> None:
     assert result.count("rtttl:\n") == 1
     assert "  - id: rtttl_1" in result
     assert "  - id: rtttl_2" in result
+
+
+def test_merge_component_yaml_multi_conf_preserves_leading_comment() -> None:
+    """A leading ``#`` comment in the mapping body keeps its key as the list head."""
+    component = _component(component_id="rtttl", category=ComponentCategory.MISC, multi_conf=True)
+    existing = "rtttl:\n  # buzzer notes\n  id: rtttl_1\n  output: buzz\n"
+    result = merge_component_yaml(existing, component, {"id": "rtttl_2", "output": "buzz"})
+
+    assert "# buzzer notes" in result
+    assert "  - # " not in result
+    assert "  - id: rtttl_1\n" in result
+    assert "  - id: rtttl_2\n" in result
 
 
 def test_mapping_body_to_list_item_preserves_blank_lines() -> None:

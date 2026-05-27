@@ -353,10 +353,11 @@ def _mapping_body_to_list_item(body_lines: list[str]) -> list[str]:
     Convert a 2-space-indented mapping body to a YAML list item.
 
     Each non-blank line gains one extra level of indent and the first
-    non-blank line's leading indent is replaced with ``  - `` so the
-    block reads as a single ``- mapping`` entry. Blank lines are kept
-    verbatim so vertical spacing inside the block survives the
-    rewrite.
+    non-blank, non-comment line's leading indent is replaced with
+    ``  - ``. Anchoring the marker on a key line (not a leading
+    ``# ...``) avoids demoting a comment-decorated mapping into a
+    ``- # comment`` head item whose original mapping then dangles at
+    the wrong nesting depth.
     """
     result: list[str] = []
     marked = False
@@ -365,7 +366,11 @@ def _mapping_body_to_list_item(body_lines: list[str]) -> list[str]:
             result.append(line)
             continue
         indented = ESPHOME_YAML_INDENT + line
-        if not marked and indented.startswith(ESPHOME_YAML_INDENT * 2):
+        if (
+            not marked
+            and not line.lstrip().startswith("#")
+            and indented.startswith(ESPHOME_YAML_INDENT * 2)
+        ):
             indented = "  - " + indented[len(ESPHOME_YAML_INDENT * 2) :]
             marked = True
         result.append(indented)
