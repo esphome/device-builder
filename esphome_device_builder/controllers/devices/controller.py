@@ -407,32 +407,8 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     async def set_labels_bulk(
         self, *, updates: list[dict[str, Any]], **kwargs: Any
     ) -> list[dict[str, Any]]:
-        """
-        Assign labels across multiple devices.
-
-        Each entry in ``updates`` is ``{configuration: str, label_ids:
-        list[str]}``. Returns one ``{configuration, success, error?}``
-        per entry, in input order (duplicates in ``updates`` produce
-        duplicate result rows). Per-entry failures (unknown id,
-        missing device, malformed row) don't block the rest.
-        """
-
-        async def _apply(row: dict[str, Any]) -> None:
-            configuration = row.get("configuration") if isinstance(row, dict) else None
-            if not isinstance(configuration, str):
-                raise CommandError(ErrorCode.INVALID_ARGS, "configuration must be a string")
-            label_ids = row.get("label_ids") if isinstance(row, dict) else None
-            if not isinstance(label_ids, list):
-                raise CommandError(ErrorCode.INVALID_ARGS, "label_ids must be a list")
-            await mutations_simple.set_labels(
-                self, configuration=configuration, label_ids=label_ids
-            )
-
-        def _extract(row: dict[str, Any]) -> str:
-            cfg = row.get("configuration") if isinstance(row, dict) else None
-            return cfg if isinstance(cfg, str) else ""
-
-        return await archive.run_bulk_per_row(self, updates, _apply, _extract)
+        """Assign labels across multiple devices."""
+        return await mutations_simple.set_labels_bulk(self, updates=updates)
 
     @api_command("devices/rename")
     async def rename_device(

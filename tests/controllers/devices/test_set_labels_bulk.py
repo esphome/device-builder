@@ -1,18 +1,4 @@
-"""Coverage for ``DevicesController.set_labels_bulk`` (#928).
-
-Mirrors ``test_set_labels.py``'s per-device coverage but for the
-multi-device entry. The contract:
-
-1. All-success path: each entry in ``updates`` lands its sidecar
-   write, reload fires per device, response is one
-   ``{configuration, success: True}`` per entry.
-2. Mixed path: a per-entry failure (unknown label id) returns
-   ``{success: False, error: ...}`` for that entry; the valid
-   entries still land.
-3. Empty ``updates`` returns ``[]`` with no per-device ``reload``
-   queued (the trailing ``scan()`` from the bulk loop still fires,
-   matching ``delete_bulk`` / ``archive_bulk``).
-"""
+"""Coverage for ``DevicesController.set_labels_bulk``."""
 
 from __future__ import annotations
 
@@ -23,34 +9,13 @@ from pathlib import Path
 import pytest
 
 from esphome_device_builder.controllers.config import save_labels
-from esphome_device_builder.controllers.devices import DevicesController
-from esphome_device_builder.helpers.device_yaml import configuration_stem
-from esphome_device_builder.models import Device, Label
-from tests.conftest import make_device
+from esphome_device_builder.models import Label
 
-from .conftest import MakeControllerFactory
-from .test_set_labels import _ReloadingScanner
-
-
-def _make_device(filename: str, labels: list[str] | None = None) -> Device:
-    name = configuration_stem(filename)
-    return make_device(
-        name=name,
-        friendly_name=name,
-        configuration=filename,
-        address="",
-        labels=list(labels or []),
-    )
-
-
-def _attach_multi_scanner(
-    controller: DevicesController, config_dir: Path, devices: list[Device]
-) -> _ReloadingScanner:
-    """Like ``test_set_labels._attach_reloading_scanner`` but seeds N devices."""
-    scanner = _ReloadingScanner(config_dir, devices[0])
-    scanner.devices = list(devices)
-    controller._scanner = scanner
-    return scanner
+from .conftest import (
+    MakeControllerFactory,
+    attach_reloading_scanner,
+    make_label_test_device,
+)
 
 
 @pytest.mark.asyncio
@@ -58,7 +23,7 @@ async def test_set_labels_bulk_applies_each_update(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """All entries succeed: per-device sidecar writes + reloads, success=True."""
+    """Two updates each land on disk; both devices get reloaded."""
     await asyncio.to_thread(
         save_labels,
         tmp_path,
@@ -66,10 +31,10 @@ async def test_set_labels_bulk_applies_each_update(
     )
 
     controller = make_controller(tmp_path)
-    scanner = _attach_multi_scanner(
+    scanner = attach_reloading_scanner(
         controller,
         tmp_path,
-        [_make_device("kitchen.yaml"), _make_device("garage.yaml")],
+        [make_label_test_device("kitchen.yaml"), make_label_test_device("garage.yaml")],
     )
 
     result = await controller.set_labels_bulk(
@@ -97,19 +62,14 @@ async def test_set_labels_bulk_reports_per_entry_failure(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """An unknown label id fails its entry without blocking the rest.
-
-    The valid entry's sidecar still lands. Pin per-entry error
-    isolation so a future refactor that short-circuited the whole
-    bulk call on first failure would surface.
-    """
+    """Unknown label id fails its entry; valid entries still land."""
     await asyncio.to_thread(save_labels, tmp_path, [Label(id="lbl-a", name="Alpha")])
 
     controller = make_controller(tmp_path)
-    _attach_multi_scanner(
+    attach_reloading_scanner(
         controller,
         tmp_path,
-        [_make_device("kitchen.yaml"), _make_device("garage.yaml")],
+        [make_label_test_device("kitchen.yaml"), make_label_test_device("garage.yaml")],
     )
 
     result = await controller.set_labels_bulk(
@@ -126,7 +86,6 @@ async def test_set_labels_bulk_reports_per_entry_failure(
 
     raw = json.loads((tmp_path / ".device-builder.json").read_bytes())
     assert raw["kitchen.yaml"]["labels"] == ["lbl-a"]
-    # The failing entry never touched the sidecar (no orphan).
     assert "garage.yaml" not in raw
 
 
@@ -135,13 +94,7 @@ async def test_set_labels_bulk_preserves_input_order_with_duplicates(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """Duplicate configurations in ``updates`` yield duplicate result rows.
-
-    A frontend bug (or a power-user re-applying labels via repeated
-    rows) shouldn't silently drop entries. The contract is one result
-    per input row, in input order; the last write per configuration
-    wins on disk because the rows are applied sequentially.
-    """
+    """Duplicate configurations in ``updates`` yield duplicate result rows; last write wins."""
     await asyncio.to_thread(
         save_labels,
         tmp_path,
@@ -149,7 +102,7 @@ async def test_set_labels_bulk_preserves_input_order_with_duplicates(
     )
 
     controller = make_controller(tmp_path)
-    _attach_multi_scanner(controller, tmp_path, [_make_device("kitchen.yaml")])
+    attach_reloading_scanner(controller, tmp_path, [make_label_test_device("kitchen.yaml")])
 
     result = await controller.set_labels_bulk(
         updates=[
@@ -158,11 +111,9 @@ async def test_set_labels_bulk_preserves_input_order_with_duplicates(
         ]
     )
 
-    # Two result rows for the two input rows, in order.
     assert [r["configuration"] for r in result] == ["kitchen.yaml", "kitchen.yaml"]
     assert all(r["success"] for r in result)
 
-    # Last write wins on disk.
     raw = json.loads((tmp_path / ".device-builder.json").read_bytes())
     assert raw["kitchen.yaml"]["labels"] == ["lbl-b"]
 
@@ -172,28 +123,31 @@ async def test_set_labels_bulk_malformed_row_isolates_failure(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """A row missing required keys fails for that row only, not the rest."""
+    """Each malformed row shape fails on its own row; valid rows still land."""
     await asyncio.to_thread(save_labels, tmp_path, [Label(id="lbl-a", name="Alpha")])
 
     controller = make_controller(tmp_path)
-    _attach_multi_scanner(controller, tmp_path, [_make_device("kitchen.yaml")])
+    attach_reloading_scanner(controller, tmp_path, [make_label_test_device("kitchen.yaml")])
 
     result = await controller.set_labels_bulk(
         updates=[
             {"label_ids": ["lbl-a"]},  # missing "configuration"
             {"configuration": "ghost.yaml"},  # missing "label_ids"
             {"configuration": "elsewhere.yaml", "label_ids": "lbl-a"},  # non-list label_ids
+            None,  # type: ignore[list-item]  # non-dict row
+            "oops",  # type: ignore[list-item]  # non-dict row
             {"configuration": "kitchen.yaml", "label_ids": ["lbl-a"]},
         ]
     )
 
-    assert result[0]["success"] is False
+    assert result[0] == {"configuration": "", "success": False, "error": result[0]["error"]}
     assert "configuration" in result[0]["error"]
-    assert result[1]["success"] is False
-    assert "label_ids" in result[1]["error"]
-    assert result[2]["success"] is False
-    assert "label_ids" in result[2]["error"]
-    assert result[3] == {"configuration": "kitchen.yaml", "success": True}
+    assert result[1]["success"] is False and "label_ids" in result[1]["error"]
+    assert result[2]["success"] is False and "label_ids" in result[2]["error"]
+    # Non-dict rows: configuration can't be extracted, so it surfaces as ""
+    assert result[3] == {"configuration": "", "success": False, "error": result[3]["error"]}
+    assert result[4] == {"configuration": "", "success": False, "error": result[4]["error"]}
+    assert result[5] == {"configuration": "kitchen.yaml", "success": True}
 
     raw = json.loads((tmp_path / ".device-builder.json").read_bytes())
     assert raw["kitchen.yaml"]["labels"] == ["lbl-a"]
@@ -204,14 +158,11 @@ async def test_set_labels_bulk_empty_updates_returns_empty(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """Empty ``updates`` returns ``[]`` and never reloads any device.
-
-    ``run_bulk_per_device`` always fires its trailing ``scan()``; the
-    invariant that matters here is that no per-device ``reload`` was
-    queued.
-    """
+    """Empty ``updates`` returns ``[]`` with no per-device reload queued."""
     controller = make_controller(tmp_path)
-    scanner = _attach_multi_scanner(controller, tmp_path, [_make_device("kitchen.yaml")])
+    scanner = attach_reloading_scanner(
+        controller, tmp_path, [make_label_test_device("kitchen.yaml")]
+    )
 
     result = await controller.set_labels_bulk(updates=[])
 
