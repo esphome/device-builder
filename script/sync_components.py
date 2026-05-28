@@ -4766,10 +4766,22 @@ _LAMBDA_REGISTRY_ID = "lambda"
 
 
 def _scalar_value_type_for_schema(name: str, schema: dict | None) -> str | None:
-    """Return the scalar primitive *schema* collapses to, or None."""
+    """
+    Return the scalar primitive the schema accepts, or None.
+
+    Covers two shapes: a pure scalar (``delayed_on: 50ms``) where the
+    schema has only ``extends`` to a scalar primitive, and the
+    polymorphic ``cv.Any(scalar, Schema({...}))`` form
+    (``delayed_on_off: 50ms`` OR ``delayed_on_off: {time_on, time_off}``)
+    where the schema carries both ``extends`` to a scalar primitive
+    AND a mapping in ``config_vars``. Both cases signal "the frontend
+    should accept the scalar shorthand"; the polymorphic case still
+    has ``config_entries`` extracted from the ``config_vars`` (see
+    ``_convert_registry_entry``).
+    """
     if name == _LAMBDA_REGISTRY_ID and not schema:
         return _LAMBDA_REGISTRY_ID
-    if not schema or schema.get("config_vars"):
+    if not schema:
         return None
     extends = schema.get("extends") or []
     if not extends:
@@ -4821,10 +4833,21 @@ def _convert_registry_entry(
     docs = clean_docs(body.get("docs"))
     schema = body.get("schema") if isinstance(body.get("schema"), dict) else None
     value_type = _scalar_value_type_for_schema(name, schema)
-    if value_type is not None:
+    has_config_vars = bool(schema and schema.get("config_vars"))
+    if value_type is not None and not has_config_vars:
+        # Pure scalar shorthand (``delayed_on: 50ms``).
         config_entries: list[dict] = []
     else:
-        config_entries, _alist, _hcg = _extract_automation_param_schema(schema, schema_dir)
+        # Pure mapping OR polymorphic mapping+scalar
+        # (``cv.Any(time_period, Schema({...}))`` for delayed_on_off).
+        # In the polymorphic case strip ``extends`` before extraction
+        # so the scalar primitive's unit-parts
+        # (days/hours/minutes/...) don't leak in alongside the
+        # ``config_vars`` mapping fields.
+        extract_schema: dict | None = schema
+        if value_type is not None and has_config_vars and schema is not None:
+            extract_schema = {k: v for k, v in schema.items() if k != "extends"}
+        config_entries, _alist, _hcg = _extract_automation_param_schema(extract_schema, schema_dir)
         config_entries = _apply_field_overrides(name, config_entries)
     return {
         "id": name,

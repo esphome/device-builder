@@ -280,6 +280,50 @@ def test_convert_registry_entry_returns_empty_config_entries_for_returning_lambd
     assert entry["value_type"] == "lambda"
 
 
+def test_convert_registry_entry_polymorphic_mapping_plus_scalar_extends() -> None:
+    """
+    Polymorphic ``delayed_on_off``-shaped filter keeps both shapes.
+
+    Schema has both ``config_vars`` (the mapping form) and ``extends``
+    to a scalar primitive (the shorthand). The catalog should carry
+    ``value_type=time_period`` *and* the mapping's config_entries,
+    with NO leaked unit-parts (days/hours/minutes/...).
+    """
+    entry = _convert_registry_entry(
+        name="delayed_on_off",
+        body={
+            "schema": {
+                "config_vars": {
+                    "time_off": {
+                        "key": "Required",
+                        "schema": {"extends": ["core.positive_time_period_milliseconds"]},
+                        "type": "schema",
+                        "docs": "OFF delay.",
+                    },
+                    "time_on": {
+                        "key": "Required",
+                        "schema": {"extends": ["core.positive_time_period_milliseconds"]},
+                        "type": "schema",
+                        "docs": "ON delay.",
+                    },
+                },
+                "extends": ["core.positive_time_period_milliseconds"],
+            },
+            "type": "schema",
+        },
+        label_domain="binary_sensor",
+        applies_to=["binary_sensor"],
+        schema_dir=_UNUSED_SCHEMA_DIR,
+    )
+    assert entry is not None
+    assert entry["value_type"] == "time_period"
+    keys = [e["key"] for e in entry["config_entries"]]
+    assert keys == ["time_off", "time_on"]
+    # Pin that NO unit-parts leaked through the scalar extends.
+    leaked = {"days", "hours", "minutes", "seconds", "milliseconds", "microseconds"}
+    assert leaked.isdisjoint(keys), f"scalar-extends leaked into config_entries: {keys}"
+
+
 def test_convert_registry_entry_keeps_mapping_for_non_scalar_extends() -> None:
     """`extends` to a non-scalar schema name shouldn't trigger the bail-out."""
     entry = _convert_registry_entry(
