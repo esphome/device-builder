@@ -14,7 +14,6 @@ suite doesn't reach:
 - ``_featured_components_for_board`` skips when the index
   diverges from ``_featured_by_id``.
 - ``_resolve_platform`` lower-casing + unknown-board-id branches.
-- ``_load_pin_features`` / ``_load_options`` rejection paths.
 """
 
 from __future__ import annotations
@@ -33,14 +32,11 @@ from esphome_device_builder.controllers.components import (
     INTERNAL_COMPONENT_IDS,
     ComponentCatalog,
     _FeaturedRecord,
-    _load_options,
-    _load_pin_features,
 )
 from esphome_device_builder.models import (
     ComponentCatalogIndexEntry,
     ComponentCategory,
     FeaturedComponent,
-    PinFeature,
 )
 
 
@@ -120,9 +116,10 @@ def test_load_filters_out_internal_helper_components(tmp_path: Path) -> None:
     when the denylist is extended (and catches a regression that
     drops the filter against the same set of inputs).
     """
-    user_facing = {"id": "web_server", "name": "Web Server", "category": "core"}
+    user_facing = {"id": "web_server", "name": "Web Server", "category": "core", "description": ""}
     components = [user_facing] + [
-        {"id": cid, "name": cid, "category": "core"} for cid in INTERNAL_COMPONENT_IDS
+        {"id": cid, "name": cid, "category": "core", "description": ""}
+        for cid in INTERNAL_COMPONENT_IDS
     ]
     index_path = tmp_path / "components.index.json"
     index_path.write_text(json.dumps({"components": components}))
@@ -451,36 +448,6 @@ def test_resolve_platform_returns_none_for_unknown_board_id() -> None:
     assert cat._resolve_platform(None, board_id="no-such-board-zzz") is None
 
 
-# ── _load_pin_features() / _load_options() ──────────────────────────
-
-
-def test_load_pin_features_drops_unknown_values() -> None:
-    """Unknown pin-feature strings are silently dropped.
-
-    Known features pass through. The catalog's ``pin_features``
-    is expected to be a list of valid enum values, but a
-    sync-script bug or schema drift shouldn't crash the load.
-    """
-    out = _load_pin_features([PinFeature.ADC.value, "definitely-not-a-feature"])
-    assert PinFeature.ADC in out
-    assert len(out) == 1
-
-
-def test_load_options_accepts_plain_string_list() -> None:
-    """Plain-string options list round-trips into ConfigValueOption pairs.
-
-    Each string is used as both label and value. The dict-shaped
-    form is handled by the next branch.
-    """
-    out = _load_options(["yes", "no"])
-    assert out is not None
-    assert len(out) == 2
-    assert out[0].label == "yes"
-    assert out[0].value == "yes"
-    assert out[1].label == "no"
-    assert out[1].value == "no"
-
-
 def test_featured_record_carries_underlying_id() -> None:
     """``_FeaturedRecord.underlying_id`` is the catalog id the body lookups go through."""
     record = _FeaturedRecord(
@@ -509,7 +476,15 @@ async def test_get_body_reads_from_disk_and_caches(tmp_path: Path) -> None:
     bodies_dir = tmp_path / "components"
     bodies_dir.mkdir()
     (bodies_dir / "wifi.json").write_text(
-        json.dumps({"id": "wifi", "name": "Wi-Fi", "category": "core", "config_entries": []})
+        json.dumps(
+            {
+                "id": "wifi",
+                "name": "Wi-Fi",
+                "category": "core",
+                "description": "",
+                "config_entries": [],
+            }
+        )
     )
     with patch(
         "esphome_device_builder.controllers.components._COMPONENT_BODIES_DIR",
@@ -534,7 +509,13 @@ async def test_get_body_evicts_least_recently_used(tmp_path: Path) -> None:
     for i in range(70):
         (bodies_dir / f"comp_{i}.json").write_text(
             json.dumps(
-                {"id": f"comp_{i}", "name": f"comp_{i}", "category": "misc", "config_entries": []}
+                {
+                    "id": f"comp_{i}",
+                    "name": f"comp_{i}",
+                    "category": "misc",
+                    "description": "",
+                    "config_entries": [],
+                }
             )
         )
     with (
@@ -570,7 +551,13 @@ async def test_get_component_bodies_returns_full_batch_larger_than_cache(
     for i in range(200):
         (bodies_dir / f"comp_{i}.json").write_text(
             json.dumps(
-                {"id": f"comp_{i}", "name": f"comp_{i}", "category": "misc", "config_entries": []}
+                {
+                    "id": f"comp_{i}",
+                    "name": f"comp_{i}",
+                    "category": "misc",
+                    "description": "",
+                    "config_entries": [],
+                }
             )
         )
     with (
@@ -611,7 +598,15 @@ async def test_get_body_refuses_path_traversal_id(
     # Drop a file at the would-be-escape target so the test would
     # incorrectly succeed if the guard were missing.
     (tmp_path / "escape.json").write_text(
-        json.dumps({"id": "escape", "name": "escape", "category": "misc", "config_entries": []})
+        json.dumps(
+            {
+                "id": "escape",
+                "name": "escape",
+                "category": "misc",
+                "description": "",
+                "config_entries": [],
+            }
+        )
     )
     with (
         patch.object(components_module, "_COMPONENT_BODIES_DIR", bodies_dir),
@@ -659,7 +654,15 @@ async def test_get_body_coalesces_concurrent_calls_into_one_disk_read(
     bodies_dir = tmp_path / "components"
     bodies_dir.mkdir()
     (bodies_dir / "wifi.json").write_text(
-        json.dumps({"id": "wifi", "name": "Wi-Fi", "category": "core", "config_entries": []})
+        json.dumps(
+            {
+                "id": "wifi",
+                "name": "Wi-Fi",
+                "category": "core",
+                "description": "",
+                "config_entries": [],
+            }
+        )
     )
 
     call_count = 0
@@ -698,7 +701,13 @@ async def test_get_component_bodies_bulk_loads_in_one_executor_hop(
     for i in range(10):
         (bodies_dir / f"comp_{i}.json").write_text(
             json.dumps(
-                {"id": f"comp_{i}", "name": f"comp_{i}", "category": "misc", "config_entries": []}
+                {
+                    "id": f"comp_{i}",
+                    "name": f"comp_{i}",
+                    "category": "misc",
+                    "description": "",
+                    "config_entries": [],
+                }
             )
         )
 
@@ -738,7 +747,15 @@ async def test_load_bodies_dedupes_repeated_ids_before_disk_read(
     bodies_dir = tmp_path / "components"
     bodies_dir.mkdir()
     (bodies_dir / "wifi.json").write_text(
-        json.dumps({"id": "wifi", "name": "Wi-Fi", "category": "core", "config_entries": []})
+        json.dumps(
+            {
+                "id": "wifi",
+                "name": "Wi-Fi",
+                "category": "core",
+                "description": "",
+                "config_entries": [],
+            }
+        )
     )
 
     call_count = 0
@@ -805,7 +822,15 @@ async def test_get_component_bodies_returns_dict_keyed_by_id(tmp_path: Path) -> 
     bodies_dir.mkdir()
     for cid in ("wifi", "api"):
         (bodies_dir / f"{cid}.json").write_text(
-            json.dumps({"id": cid, "name": cid, "category": "core", "config_entries": []})
+            json.dumps(
+                {
+                    "id": cid,
+                    "name": cid,
+                    "category": "core",
+                    "description": "",
+                    "config_entries": [],
+                }
+            )
         )
     with patch(
         "esphome_device_builder.controllers.components._COMPONENT_BODIES_DIR",

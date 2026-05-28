@@ -6,7 +6,7 @@ import asyncio
 import logging
 from collections import OrderedDict
 from dataclasses import dataclass
-from functools import cache, lru_cache
+from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -17,15 +17,9 @@ from ..models import (
     ComponentCatalogIndexEntry,
     ComponentCategory,
     ConfigEntry,
-    ConfigEntryType,
-    ConfigValueOption,
     FeaturedComponent,
     FieldPreset,
     PagedComponentsResponse,
-    PinFeature,
-    PinMode,
-    RequiredGroup,
-    RequiredGroupKind,
 )
 from .devices.helpers import _apply_featured_presets
 
@@ -140,7 +134,7 @@ class ComponentCatalog:
         # Drop ESPHome internal-helper / auto-load-target components
         # — see ``INTERNAL_COMPONENT_IDS`` for the why.
         self._components = [
-            _load_index_entry(c)
+            ComponentCatalogIndexEntry.from_dict(c)
             for c in data.get("components", [])
             if c.get("id") not in INTERNAL_COMPONENT_IDS
         ]
@@ -957,200 +951,6 @@ def _materialise_entry(entry: ConfigEntry, target_platform: str | None) -> Confi
 # ---------------------------------------------------------------------------
 
 
-@cache
-def _enum_value_map(enum_cls: type) -> dict[Any, Any]:
-    """Memoised ``{member.value: member}`` map for an enum.
-
-    Hot-path replacement for ``enum_cls(value)``; the stdlib's
-    enum call walks every member on each lookup, which costs
-    ~30% of catalog hydrate time across the 243k ``_safe_enum``
-    calls a 100-component batch makes. One dict lookup beats the
-    enum's per-call linear search.
-    """
-    return {m.value: m for m in enum_cls}  # type: ignore[attr-defined]
-
-
-def _safe_enum(enum_cls: type, value: Any, default: Any | None = None) -> Any:
-    """Coerce *value* to an enum member, returning *default* on failure."""
-    if not value:
-        return default
-    return _enum_value_map(enum_cls).get(value, default)
-
-
-def _load_pin_features(raw: Any) -> list[PinFeature]:
-    """Parse a list of pin-feature strings, dropping unknown values."""
-    if not isinstance(raw, list):
-        return []
-    out: list[PinFeature] = []
-    for item in raw:
-        feat = _safe_enum(PinFeature, item)
-        if feat is not None:
-            out.append(feat)
-    return out
-
-
-def _load_unit_options(raw: Any) -> list[str] | None:
-    """Normalise the JSON ``unit_options`` field into a list of strings.
-
-    ``None`` for non-FLOAT_WITH_UNIT entries (the catalog omits the
-    field entirely on those). Non-list / empty values fold back to
-    ``None`` so a malformed catalog entry doesn't reach the frontend
-    as a half-populated picker — same shape as ``_load_options``.
-    """
-    if not isinstance(raw, list) or not raw:
-        return None
-    out = [str(item) for item in raw if isinstance(item, str)]
-    return out or None
-
-
-def _load_options(raw: Any) -> list[ConfigValueOption] | None:
-    """
-    Normalise the JSON ``options`` field into ConfigValueOption objects.
-
-    Accepts either a list of plain strings (each used as both label and
-    value) or a list of ``{label, value}`` dicts.
-    """
-    if not isinstance(raw, list) or not raw:
-        return None
-    out: list[ConfigValueOption] = []
-    for item in raw:
-        if isinstance(item, str):
-            out.append(ConfigValueOption(label=item, value=item))
-        elif isinstance(item, dict):
-            value = str(item.get("value", ""))
-            label = str(item.get("label", value))
-            out.append(ConfigValueOption(label=label, value=value))
-    return out or None
-
-
-def _load_display_format(raw: Any) -> str | None:
-    """
-    Normalise the JSON ``display_format`` field.
-
-    Currently only ``"hex"`` is recognised; anything else (an unknown
-    future variant a stale frontend wouldn't understand, garbage in
-    the catalog, the common ``None`` for non-hex fields) folds back
-    to ``None`` so the frontend's renderer falls through to the
-    decimal-number default. Mirrors the ``_safe_enum`` policy used
-    for ``pin_mode`` etc. — the catalog can introduce new variants
-    without breaking dashboards still on an older release.
-    """
-    if raw == "hex":
-        return "hex"
-    return None
-
-
-def _load_required_groups(raw: Any) -> list[RequiredGroup]:
-    """
-    Normalise the JSON ``required_groups`` field into ``RequiredGroup`` objects.
-
-    Returns an empty list for missing / malformed input so callers
-    can store the field unconditionally. Unknown ``kind`` values
-    (a future cardinality validator a stale dashboard wouldn't
-    understand) drop the offending entry — same fail-soft policy
-    as ``_load_display_format`` / ``_safe_enum``.
-    """
-    if not isinstance(raw, list) or not raw:
-        return []
-    out: list[RequiredGroup] = []
-    for item in raw:
-        if not isinstance(item, dict):
-            continue
-        kind = _safe_enum(RequiredGroupKind, item.get("kind"))
-        if kind is None:
-            continue
-        keys_raw = item.get("keys")
-        if not isinstance(keys_raw, list):
-            continue
-        keys = [str(k) for k in keys_raw if isinstance(k, str)]
-        if not keys:
-            continue
-        out.append(RequiredGroup(kind=kind, keys=keys))
-    return out
-
-
-def _load_config_entry(data: dict) -> ConfigEntry:
-    """Load a ConfigEntry from its JSON representation."""
-    range_val: tuple[int | float, int | float] | None = None
-    raw_range = data.get("range")
-    if isinstance(raw_range, (list, tuple)) and len(raw_range) == 2:
-        range_val = (raw_range[0], raw_range[1])
-
-    nested_raw = data.get("config_entries")
-    nested = (
-        [_load_config_entry(e) for e in nested_raw]
-        if isinstance(nested_raw, list) and nested_raw
-        else None
-    )
-
-    return ConfigEntry(
-        key=data["key"],
-        type=_safe_enum(ConfigEntryType, data.get("type"), ConfigEntryType.UNKNOWN),
-        label=data.get("label") or data["key"],
-        description=data.get("description"),
-        required=bool(data.get("required", False)),
-        default_value=data.get("default_value"),
-        platform_defaults=data.get("platform_defaults"),
-        options=_load_options(data.get("options")),
-        allow_custom_value=bool(data.get("allow_custom_value", False)),
-        range=range_val,
-        display_format=_load_display_format(data.get("display_format")),
-        registry=data.get("registry"),
-        unit_options=_load_unit_options(data.get("unit_options")),
-        multi_value=bool(data.get("multi_value", False)),
-        templatable=bool(data.get("templatable", False)),
-        depends_on=data.get("depends_on"),
-        depends_on_value=data.get("depends_on_value"),
-        depends_on_value_not=data.get("depends_on_value_not"),
-        depends_on_component=data.get("depends_on_component"),
-        references_component=data.get("references_component"),
-        pin_features=_load_pin_features(data.get("pin_features")),
-        pin_mode=_safe_enum(PinMode, data.get("pin_mode")),
-        advanced=bool(data.get("advanced", False)),
-        hidden=bool(data.get("hidden", False)),
-        help_link=data.get("help_link"),
-        translation_key=data.get("translation_key"),
-        translation_params=data.get("translation_params"),
-        config_entries=nested,
-        platform_type=data.get("platform_type") or None,
-        supported_platforms=list(data.get("supported_platforms") or []),
-        group=data.get("group") or None,
-        required_groups=_load_required_groups(data.get("required_groups")),
-    )
-
-
-def _load_index_entry(data: dict) -> ComponentCatalogIndexEntry:
-    """Load a ComponentCatalogIndexEntry from its JSON representation."""
-    return ComponentCatalogIndexEntry(
-        id=data["id"],
-        name=data.get("name", data["id"]),
-        description=data.get("description", ""),
-        category=_safe_enum(ComponentCategory, data.get("category"), ComponentCategory.MISC),
-        docs_url=data.get("docs_url", ""),
-        image_url=data.get("image_url", ""),
-        dependencies=list(data.get("dependencies", [])),
-        multi_conf=bool(data.get("multi_conf", False)),
-        supported_platforms=list(data.get("supported_platforms", [])),
-    )
-
-
-def _load_component(data: dict) -> ComponentCatalogEntry:
-    """Load a ComponentCatalogEntry from its JSON representation."""
-    return ComponentCatalogEntry(
-        id=data["id"],
-        name=data.get("name", data["id"]),
-        description=data.get("description", ""),
-        category=_safe_enum(ComponentCategory, data.get("category"), ComponentCategory.MISC),
-        docs_url=data.get("docs_url", ""),
-        image_url=data.get("image_url", ""),
-        dependencies=list(data.get("dependencies", [])),
-        multi_conf=bool(data.get("multi_conf", False)),
-        supported_platforms=list(data.get("supported_platforms", [])),
-        config_entries=[_load_config_entry(e) for e in data.get("config_entries", [])],
-        required_groups=_load_required_groups(data.get("required_groups")),
-    )
-
-
 def _load_body_from_disk(component_id: str) -> ComponentCatalogEntry | None:
     """Read ``components/<component_id>.json`` and hydrate into a ComponentCatalogEntry."""
     # Defense-in-depth path-traversal guard. ``component_id``
@@ -1158,10 +958,7 @@ def _load_body_from_disk(component_id: str) -> ComponentCatalogEntry | None:
     # chain is bounded because ``get_body`` short-circuits on
     # ``component_id not in self._by_id`` and the index is shipped
     # with the wheel, but a local reject-by-syntax check keeps the
-    # safety property of the loader readable in isolation. The
-    # check is purely on the id string (parent refs / separators /
-    # null bytes) so the hot path stays out of the kernel ``lstat``
-    # walk that ``Path.resolve`` does on every hydrate.
+    # safety property of the loader readable in isolation.
     if is_unsafe_component_id(component_id):
         _LOGGER.warning("Refusing component body for traversal-shaped id: %r", component_id)
         return None
@@ -1169,7 +966,7 @@ def _load_body_from_disk(component_id: str) -> ComponentCatalogEntry | None:
     if not body_path.is_file():
         _LOGGER.warning("Component body missing on disk: %s", body_path)
         return None
-    return _load_component(loads(body_path.read_bytes()))
+    return ComponentCatalogEntry.from_dict(loads(body_path.read_bytes()))
 
 
 @lru_cache(maxsize=_UNSAFE_ID_CACHE_MAXSIZE)
