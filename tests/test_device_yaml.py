@@ -1551,6 +1551,124 @@ def test_load_device_local_substitution_wins_over_package(tmp_path: Path) -> Non
 
 
 @pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_unresolved_comment_defers_to_storage(tmp_path: Path) -> None:
+    """An unresolved ``${...}`` comment uses the compiled StorageJSON value."""
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text(
+        "substitutions:\n"
+        "  device:\n"
+        '    comment: "Front Room"\n'
+        "esphome:\n"
+        "  name: lamp\n"
+        "  comment: ${device.comment}\n",
+        encoding="utf-8",
+    )
+    write_storage_json(tmp_path, "lamp.yaml", overrides={"comment": "Front Room"})
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.comment == "Front Room"
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_unresolved_friendly_name_defers_to_storage(tmp_path: Path) -> None:
+    """An unresolved ``${...}`` friendly_name uses the compiled StorageJSON value."""
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text(
+        "substitutions:\n"
+        "  device:\n"
+        '    friendly_name: "Front Room"\n'
+        "esphome:\n"
+        "  name: lamp\n"
+        "  friendly_name: ${device.friendly_name}\n",
+        encoding="utf-8",
+    )
+    write_storage_json(tmp_path, "lamp.yaml", overrides={"friendly_name": "Front Room"})
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.friendly_name == "Front Room"
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_area_from_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``area`` comes from StorageJSON when the YAML value is unresolved."""
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text(
+        "substitutions:\n"
+        "  device:\n"
+        '    area: "Living Room"\n'
+        "esphome:\n"
+        "  name: lamp\n"
+        "  area: ${device.area}\n",
+        encoding="utf-8",
+    )
+    write_storage_json(tmp_path, "lamp.yaml")
+
+    # The pinned esphome's ``_load_impl`` doesn't read ``area`` yet, so
+    # simulate the future build output (esphome/esphome#16710) by setting
+    # it on the loaded StorageJSON.
+    real_load = device_yaml.StorageJSON.load
+
+    def _load_with_area(path: Path) -> Any:
+        storage = real_load(path)
+        if storage is not None:
+            storage.area = "Living Room"
+        return storage
+
+    monkeypatch.setattr(device_yaml.StorageJSON, "load", staticmethod(_load_with_area))
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.area == "Living Room"
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_resolved_yaml_meta_wins_over_storage(tmp_path: Path) -> None:
+    """A fully resolved YAML value still beats StorageJSON (immediate edits)."""
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text(
+        "esphome:\n  name: lamp\n  comment: Edited In Editor\n",
+        encoding="utf-8",
+    )
+    write_storage_json(tmp_path, "lamp.yaml", overrides={"comment": "Old Compiled"})
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.comment == "Edited In Editor"
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_cleared_comment_not_replaced_by_storage(tmp_path: Path) -> None:
+    """An explicitly cleared ``comment: ""`` stays empty, not refilled from storage."""
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text(
+        'esphome:\n  name: lamp\n  comment: ""\n',
+        encoding="utf-8",
+    )
+    write_storage_json(tmp_path, "lamp.yaml", overrides={"comment": "Old Compiled"})
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.comment == ""
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_literal_dollar_comment_is_not_unresolved(tmp_path: Path) -> None:
+    """A literal ``$`` that isn't substitution-shaped still wins over storage."""
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text(
+        'esphome:\n  name: lamp\n  comment: "Replaces a $40 sensor"\n',
+        encoding="utf-8",
+    )
+    write_storage_json(tmp_path, "lamp.yaml", overrides={"comment": "Old Compiled"})
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.comment == "Replaces a $40 sensor"
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
 def test_load_device_records_firmware_bin_mtime_when_present(tmp_path: Path) -> None:
     """``bin_mtime`` is populated when the firmware binary actually exists on disk.
 

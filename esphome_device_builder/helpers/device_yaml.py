@@ -179,6 +179,13 @@ _has_native_wifi = _select_wifi_helper(_esphome_has_native_wifi)
 # matches ``$name`` or ``${name}`` where name is alphanumeric + underscore.
 _SUBSTITUTION_RE = re.compile(r"\$(\{[a-zA-Z0-9_]*\}|[a-zA-Z0-9_]+)")
 
+# "Looks like an unresolved substitution token" — any ``${...}`` (incl. the
+# nested jinja ``${device.area}`` form ``_SUBSTITUTION_RE`` deliberately
+# won't match) or ``$identifier``. Excludes a literal ``$`` followed by a
+# digit / space / punctuation (e.g. ``"Replaces a $40 sensor"``) so a
+# fully-resolved edit carrying a literal ``$`` isn't mistaken for one.
+_UNRESOLVED_SUBSTITUTION_RE = re.compile(r"\$\{|\$[a-zA-Z_]")
+
 # Cap on recursive substitution passes — protects against circular
 # references (``a: ${b}`` / ``b: ${a}``) without bailing on legitimately
 # deep chains a user might write.
@@ -733,6 +740,23 @@ def parse_esphome_meta(
     return meta["name"], meta["friendly_name"], meta["comment"], meta["area"]
 
 
+def _effective_meta(yaml_value: str | None, storage_value: str | None) -> str | None:
+    """
+    Pick the metadata to display, preferring a resolved value.
+
+    The raw-text YAML read reflects unsaved edits immediately, so it
+    wins when fully resolved. A value still holding a substitution token
+    (a nested ``${device.area}`` the raw reader can't expand) defers to
+    StorageJSON, which esphome resolved at build time. A literal ``$``
+    that isn't substitution-shaped doesn't count as unresolved.
+    """
+    if yaml_value is not None and not _UNRESOLVED_SUBSTITUTION_RE.search(yaml_value):
+        return yaml_value
+    if storage_value:
+        return storage_value
+    return yaml_value
+
+
 # ---------------------------------------------------------------------------
 # Device construction
 # ---------------------------------------------------------------------------
@@ -839,14 +863,17 @@ def load_device_from_storage(
     )
 
     storage_friendly = storage.friendly_name if storage else None
-    friendly_name = yaml_friendly if yaml_friendly is not None else (storage_friendly or name)
+    ef_friendly = _effective_meta(yaml_friendly, storage_friendly)
+    friendly_name = ef_friendly if ef_friendly is not None else name
 
     storage_comment = storage.comment if storage else None
-    comment = yaml_comment if yaml_comment is not None else storage_comment
+    comment = _effective_meta(yaml_comment, storage_comment)
 
-    # ``esphome.area`` only lives in the YAML — StorageJSON doesn't carry
-    # it, so there's no fallback. Empty string when absent.
-    area = yaml_area or ""
+    # ``StorageJSON`` carries ``area`` on esphome builds that persist it
+    # (resolved post-compile); ``getattr`` falls through to the raw YAML
+    # token on older builds and never-compiled devices.
+    storage_area = getattr(storage, "area", None) if storage else None
+    area = _effective_meta(yaml_area, storage_area) or ""
 
     yaml_mtime = path.stat().st_mtime if path.exists() else None
     bin_mtime: float | None = None
