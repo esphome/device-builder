@@ -4293,7 +4293,7 @@ def test_remote_builds_enabled_default_is_true(tmp_path: Path) -> None:
     controller = _make_controller(config_dir=tmp_path)
     assert controller.offloader.offloader_settings_snapshot() == {
         "remote_builds_enabled": True,
-        "version_match_policy": "any",
+        "version_match_policy": VersionMatchPolicy.ANY,
     }
     assert controller.offloader.build_scheduler_snapshot().remote_builds_enabled is True
 
@@ -4426,6 +4426,16 @@ async def test_set_offloader_settings_rejects_unknown_policy(tmp_path: Path) -> 
     controller = _make_controller(config_dir=tmp_path)
     with pytest.raises(CommandError) as exc:
         await controller.offloader.set_offloader_settings(version_match_policy="not_a_policy")
+    assert exc.value.code is ErrorCode.INVALID_ARGS
+    assert controller.offloader.state.version_match_policy is VersionMatchPolicy.ANY
+
+
+@pytest.mark.asyncio
+async def test_set_offloader_settings_rejects_non_string_policy(tmp_path: Path) -> None:
+    """A non-string ``version_match_policy`` (e.g. ``int``, ``bool``) raises INVALID_ARGS."""
+    controller = _make_controller(config_dir=tmp_path)
+    with pytest.raises(CommandError) as exc:
+        await controller.offloader.set_offloader_settings(version_match_policy=42)  # type: ignore[arg-type]
     assert exc.value.code is ErrorCode.INVALID_ARGS
     assert controller.offloader.state.version_match_policy is VersionMatchPolicy.ANY
 

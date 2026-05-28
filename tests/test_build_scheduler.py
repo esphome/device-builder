@@ -716,7 +716,7 @@ def test_exact_required_raises_no_compatible_peer_when_filtered() -> None:
 
 
 def test_exact_required_falls_through_when_no_pairings_exist() -> None:
-    """``EXACT_REQUIRED`` only hard-fails on *filtered* peers — empty pairings stay LOCAL.
+    """``EXACT_REQUIRED`` only hard-fails on intentional peers — empty pairings stay LOCAL.
 
     A fresh dashboard with no paired build servers should compile
     locally, not raise. The hard-fail is the "you paired servers
@@ -725,6 +725,66 @@ def test_exact_required_falls_through_when_no_pairings_exist() -> None:
     """
     inputs = _inputs(
         pairings={},
+        open_peer_links=set(),
+        peer_queue_status={},
+        offloader_esphome_version="2026.6.0",
+        version_match_policy=VersionMatchPolicy.EXACT_REQUIRED,
+    )
+    decision = pick_build_path(inputs)
+    assert decision.path is BuildPath.LOCAL
+    assert decision.pin_sha256 is None
+
+
+def test_exact_required_raises_when_peer_disconnected() -> None:
+    """``EXACT_REQUIRED`` hard-fails when APPROVED+enabled peer has a closed session.
+
+    Pins the issue-985 reporter's intent: silently falling back to
+    LOCAL when their build server is just offline is the same UX
+    failure as silently falling back when the version doesn't
+    match. Both are "I configured remote builds and the dashboard
+    is routing locally without telling me."
+    """
+    pin = "a" * 64
+    pairing = _stub_pairing(pin_sha256=pin, esphome_version="2026.6.0")
+    inputs = _inputs(
+        pairings={pin: pairing},
+        open_peer_links=set(),  # Session closed.
+        peer_queue_status={},
+        offloader_esphome_version="2026.6.0",
+        version_match_policy=VersionMatchPolicy.EXACT_REQUIRED,
+    )
+    with pytest.raises(CommandError) as exc:
+        pick_build_path(inputs)
+    assert exc.value.code is ErrorCode.NO_COMPATIBLE_PEER
+
+
+def test_exact_required_falls_through_when_only_disabled_peers() -> None:
+    """``enabled=False`` is a deliberate opt-out — LOCAL is correct, not a hard-fail.
+
+    Disabling a pairing is the operator saying "I configured this
+    peer but I don't want to use it right now." Treating that as
+    "no compatible peer" would punish the deliberate choice.
+    """
+    pin = "a" * 64
+    pairing = _stub_pairing(pin_sha256=pin, esphome_version="2026.6.0", enabled=False)
+    inputs = _inputs(
+        pairings={pin: pairing},
+        open_peer_links={pin},
+        peer_queue_status={pin: _stub_queue_status(pin_sha256=pin)},
+        offloader_esphome_version="2026.6.0",
+        version_match_policy=VersionMatchPolicy.EXACT_REQUIRED,
+    )
+    decision = pick_build_path(inputs)
+    assert decision.path is BuildPath.LOCAL
+    assert decision.pin_sha256 is None
+
+
+def test_exact_required_falls_through_when_only_pending_peers() -> None:
+    """PENDING rows aren't operator intent yet — LOCAL is correct, not a hard-fail."""
+    pin = "a" * 64
+    pairing = _stub_pairing(pin_sha256=pin, esphome_version="2026.6.0", status=PeerStatus.PENDING)
+    inputs = _inputs(
+        pairings={pin: pairing},
         open_peer_links=set(),
         peer_queue_status={},
         offloader_esphome_version="2026.6.0",

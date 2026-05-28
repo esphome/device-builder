@@ -45,6 +45,7 @@ from ...models import (
     OffloaderRemoteBuildSettings,
     OffloaderRemoteBuildSettingsView,
     OffloaderRemoteJobSnapshotEntry,
+    OffloaderSettingsSnapshot,
     PairingSummary,
     PeerQueueStatusSnapshotEntry,
     PeerStatus,
@@ -481,11 +482,11 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         """Return the :class:`StoredPairing` for *pin_sha256*, or ``None``."""
         return self.state.pairings.get(pin_sha256)
 
-    def offloader_settings_snapshot(self) -> dict[str, object]:
+    def offloader_settings_snapshot(self) -> OffloaderSettingsSnapshot:
         """Bundle the offloader-wide settings for the initial-state seed."""
         return {
             "remote_builds_enabled": self.state.remote_builds_enabled,
-            "version_match_policy": self.state.version_match_policy.value,
+            "version_match_policy": self.state.version_match_policy,
         }
 
     def build_scheduler_snapshot(self) -> BuildSchedulerInputs:

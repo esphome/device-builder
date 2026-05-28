@@ -338,6 +338,13 @@ class OffloaderVersionMatchPolicyChangedData(TypedDict):
     version_match_policy: VersionMatchPolicy
 
 
+class OffloaderSettingsSnapshot(TypedDict):
+    """Offloader-wide scalars merged into the ``subscribe_events`` seed."""
+
+    remote_builds_enabled: bool
+    version_match_policy: VersionMatchPolicy
+
+
 class OffloaderRemoteJobSnapshotEntry(TypedDict):
     """
     Snapshot row in the offloader-side in-flight remote-job cache.

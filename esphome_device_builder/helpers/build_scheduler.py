@@ -92,46 +92,63 @@ class BuildPathDecision:
 
 
 def pick_build_path(inputs: BuildSchedulerInputs) -> BuildPathDecision:
-    """Decide whether a firmware job runs locally or on a paired receiver.
+    """Decide whether a firmware job runs LOCAL or on a paired receiver.
 
-    Eligible pairings are APPROVED + per-pairing-enabled + have
-    an open peer-link session + survive the version-match policy
-    filter against the offloader's own ``esphome_version``. The
-    pick is two-tier: idle remotes first (so concurrent installs
-    fan out), then the oldest eligible pairing regardless of
-    idle state (the receiver queues behind its current build
-    rather than splitting the install across two compile
-    contexts). Sort key ``(paired_at, pin_sha256)`` keeps the
-    pick deterministic across Mapping orderings.
+    ``EXACT_REQUIRED`` hard-fails (raises ``NO_COMPATIBLE_PEER``)
+    whenever any APPROVED + enabled pairing exists and none make
+    it past the filter — for *any* reason, not just version
+    mismatch. The carve-out is what issue #985 asked for: silently
+    falling back to a 20-minute Home Assistant Green compile
+    behind a disconnected receiver is the same failure shape, and
+    gating the hard-fail on a single filter would leak it through
+    the others. PENDING or disabled rows don't count as intent.
 
-    LOCAL fallback fires when no candidate survives the filter
-    OR when ``remote_builds_enabled`` is ``False``. The one
-    exception is ``VersionMatchPolicy.EXACT_REQUIRED``: when
-    that policy filters every peer out, this helper raises
-    ``CommandError(NO_COMPATIBLE_PEER)`` instead of falling
-    through, so the install surfaces the policy violation to
-    the operator instead of masking it with a slow LOCAL
-    compile.
-
-    The status gate is ``is PeerStatus.APPROVED`` — any future
-    enum member is silent-fallback-LOCAL until the scheduler
-    is explicitly taught about it.
+    Any future ``PeerStatus`` is silent-fallback-LOCAL until the
+    scheduler is explicitly taught about it.
     """
     if not inputs.remote_builds_enabled:
         return BuildPathDecision.local()
+    eligible, intentional_peers = _eligible_pairings(inputs)
+    for pin_sha256, _pairing in eligible:
+        snapshot = inputs.peer_queue_status.get(pin_sha256)
+        if snapshot is not None and snapshot["idle"]:
+            return BuildPathDecision.remote(pin_sha256)
+    if eligible:
+        pin_sha256, _pairing = eligible[0]
+        return BuildPathDecision.remote(pin_sha256)
+    if intentional_peers > 0 and inputs.version_match_policy is VersionMatchPolicy.EXACT_REQUIRED:
+        msg = (
+            f"version policy 'exact_required' with {intentional_peers} intended "
+            f"peer(s) but none eligible (offloader={inputs.offloader_esphome_version!r}); "
+            f"refusing to fall back to LOCAL"
+        )
+        raise CommandError(ErrorCode.NO_COMPATIBLE_PEER, msg)
+    return BuildPathDecision.local()
+
+
+def _eligible_pairings(
+    inputs: BuildSchedulerInputs,
+) -> tuple[list[tuple[str, StoredPairing]], int]:
+    """Return ``(eligible_pairings, operator_intent_count)`` after the per-peer filter.
+
+    ``operator_intent_count`` counts APPROVED + enabled pairings —
+    rows that didn't survive the open-session / version-policy
+    filter still count, since the operator's intent (route to
+    remote) is what drives the ``EXACT_REQUIRED`` hard-fail.
+    """
     ordered = sorted(
         inputs.pairings.items(),
         key=lambda item: (item[1].paired_at, item[0]),
     )
     policy = inputs.version_match_policy
     eligible: list[tuple[str, StoredPairing]] = []
-    version_filtered: list[str] = []
+    intentional_peers = 0
+    version_filtered = 0
     for pin_sha256, pairing in ordered:
-        if (
-            pairing.status is not PeerStatus.APPROVED
-            or not pairing.enabled
-            or pin_sha256 not in inputs.open_peer_links
-        ):
+        if pairing.status is not PeerStatus.APPROVED or not pairing.enabled:
+            continue
+        intentional_peers += 1
+        if pin_sha256 not in inputs.open_peer_links:
             continue
         if not version_satisfies_policy(
             inputs.offloader_esphome_version, pairing.esphome_version, policy
@@ -143,27 +160,13 @@ def pick_build_path(inputs: BuildSchedulerInputs) -> BuildPathDecision:
                 pairing.esphome_version,
                 inputs.offloader_esphome_version,
             )
-            version_filtered.append(pin_sha256)
+            version_filtered += 1
             continue
         eligible.append((pin_sha256, pairing))
-    for pin_sha256, _pairing in eligible:
-        snapshot = inputs.peer_queue_status.get(pin_sha256)
-        if snapshot is not None and snapshot["idle"]:
-            return BuildPathDecision.remote(pin_sha256)
-    if eligible:
-        pin_sha256, _pairing = eligible[0]
-        return BuildPathDecision.remote(pin_sha256)
-    if version_filtered and policy is VersionMatchPolicy.EXACT_REQUIRED:
-        msg = (
-            f"version policy 'exact_required' filtered every paired peer "
-            f"(offloader={inputs.offloader_esphome_version!r}); refusing to "
-            f"fall back to LOCAL"
-        )
-        raise CommandError(ErrorCode.NO_COMPATIBLE_PEER, msg)
-    if version_filtered:
+    if not eligible and version_filtered and policy is not VersionMatchPolicy.EXACT_REQUIRED:
         _LOGGER.info(
             "pick_build_path: version policy %s filtered %d peer(s); falling back to LOCAL",
             policy.value,
-            len(version_filtered),
+            version_filtered,
         )
-    return BuildPathDecision.local()
+    return eligible, intentional_peers

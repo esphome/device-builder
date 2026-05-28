@@ -93,8 +93,6 @@ async def set_offloader_settings(
 
 def _validate_version_match_policy(raw: object) -> VersionMatchPolicy:
     """Coerce a wire ``version_match_policy`` value to its enum member."""
-    if isinstance(raw, VersionMatchPolicy):
-        return raw
     if not isinstance(raw, str):
         msg = "remote_build/set_offloader_settings: 'version_match_policy' must be a string"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
