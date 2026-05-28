@@ -19,6 +19,7 @@ suite doesn't reach:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -26,6 +27,7 @@ from unittest.mock import patch
 
 import pytest
 
+from esphome_device_builder.controllers import components as components_module
 from esphome_device_builder.controllers.boards import BoardCatalog
 from esphome_device_builder.controllers.components import (
     INTERNAL_COMPONENT_IDS,
@@ -548,3 +550,69 @@ async def test_get_body_returns_none_when_body_missing_on_disk(
 
     assert result is None
     assert any("body missing on disk" in rec.message for rec in caplog.records)
+
+
+async def test_get_body_coalesces_concurrent_calls_into_one_disk_read(
+    tmp_path: Path,
+) -> None:
+    """Two ``get_body`` calls for the same id share one disk read.
+
+    Pins the in-flight coalescing contract: the batch endpoint and a
+    concurrent singleton fetch must not both schedule a thread-pool
+    read for the same component.
+    """
+    cat = ComponentCatalog()
+    cat._by_id = {"wifi": _make_entry(entry_id="wifi")}
+    bodies_dir = tmp_path / "components"
+    bodies_dir.mkdir()
+    (bodies_dir / "wifi.json").write_text(
+        json.dumps({"id": "wifi", "name": "Wi-Fi", "category": "core", "config_entries": []})
+    )
+
+    call_count = 0
+    real_loader = components_module._load_body_from_disk
+
+    def _counting_loader(component_id: str):
+        nonlocal call_count
+        call_count += 1
+        return real_loader(component_id)
+
+    with (
+        patch.object(components_module, "_COMPONENT_BODIES_DIR", bodies_dir),
+        patch.object(components_module, "_load_body_from_disk", _counting_loader),
+    ):
+        first, second = await asyncio.gather(cat.get_body("wifi"), cat.get_body("wifi"))
+
+    assert first is second
+    assert call_count == 1
+    assert "wifi" not in cat._body_inflight
+
+
+# ── get_component_bodies() ──────────────────────────────────────────
+
+
+async def test_get_component_bodies_returns_dict_keyed_by_id(tmp_path: Path) -> None:
+    """Batch hydrate returns one entry per known id; unknown ids drop out."""
+    cat = ComponentCatalog()
+    cat._by_id = {
+        "wifi": _make_entry(entry_id="wifi"),
+        "api": _make_entry(entry_id="api"),
+    }
+    cat._components = list(cat._by_id.values())
+    bodies_dir = tmp_path / "components"
+    bodies_dir.mkdir()
+    for cid in ("wifi", "api"):
+        (bodies_dir / f"{cid}.json").write_text(
+            json.dumps({"id": cid, "name": cid, "category": "core", "config_entries": []})
+        )
+    with patch(
+        "esphome_device_builder.controllers.components._COMPONENT_BODIES_DIR",
+        bodies_dir,
+    ):
+        result = await cat.get_component_bodies(
+            component_ids=["wifi", "api", "does-not-exist", "wifi"],
+        )
+
+    assert set(result) == {"wifi", "api"}
+    assert result["wifi"].id == "wifi"
+    assert result["api"].id == "api"

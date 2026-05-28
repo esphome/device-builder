@@ -99,6 +99,12 @@ class ComponentCatalog:
         self._featured_by_id: dict[str, _FeaturedRecord] = {}
         self._featured_by_board: dict[str, list[str]] = {}
         self._body_cache: OrderedDict[str, ComponentCatalogEntry] = OrderedDict()
+        # Per-id in-flight futures so concurrent ``get_body`` calls for
+        # the same id share one disk read; mirrors the frontend's
+        # ``component-name-cache`` coalescing on the backend side so a
+        # batch call that overlaps with an in-flight singleton fetch
+        # piggybacks on the same load.
+        self._body_inflight: dict[str, asyncio.Future[ComponentCatalogEntry | None]] = {}
 
     def load(self) -> None:
         """
@@ -267,33 +273,45 @@ class ComponentCatalog:
         underlying component with the board's ``FieldPreset`` overrides
         baked into ``default_value`` / ``locked`` / ``suggestions``.
         """
-        if component_id.startswith(_FEATURED_PREFIX):
-            record = self._featured_by_id.get(component_id)
-            if record is None:
-                return None
-            # The featured id already encodes the board, so we pin platform
-            # resolution to ``record.board_id``. A caller-supplied ``board_id``
-            # that disagrees is almost certainly a bug — log it but don't
-            # honour it (it'd resolve platform_defaults from the wrong board).
-            if board_id is not None and board_id != record.board_id:
-                _LOGGER.warning(
-                    "Featured component %s requested with mismatched board_id %s; "
-                    "resolving platform from %s",
-                    component_id,
-                    board_id,
-                    record.board_id,
-                )
-            target_platform = self._resolve_platform(platform, record.board_id)
-            body = await self.get_body(record.underlying_id)
-            if body is None:
-                return None
-            return _materialise_featured(record, body, target_platform)
+        return await self._resolve_one(
+            component_id,
+            platform=platform,
+            board_id=board_id,
+            warn_on_featured_board_mismatch=True,
+        )
 
-        target_platform = self._resolve_platform(platform, board_id)
-        body = await self.get_body(component_id)
-        if body is None:
-            return None
-        return _materialise(body, target_platform)
+    @api_command("components/get_component_bodies")
+    async def get_component_bodies(
+        self,
+        *,
+        component_ids: list[str],
+        platform: str | None = None,
+        board_id: str | None = None,
+        **kwargs: Any,
+    ) -> dict[str, ComponentCatalogEntry]:
+        """
+        Batch variant of :meth:`get_component`.
+
+        Loads every requested body in parallel through the same
+        in-flight-coalesced :meth:`get_body` the singleton uses, so a
+        navigator mounting N components pays one WS round trip
+        instead of N. Returns a dict keyed by the requested id;
+        missing / unknown ids are omitted (the singleton's ``None``
+        return doesn't translate to a dict). Duplicate ids in
+        ``component_ids`` collapse to one entry.
+
+        ``platform`` / ``board_id`` resolve the same way as the
+        singleton call and apply uniformly to every returned entry.
+        ``featured.*`` ids are accepted and resolved against the
+        featured registry just like the singleton path; the
+        per-id board-mismatch warning is suppressed because a batch
+        legitimately spans boards.
+        """
+        unique_ids = list(dict.fromkeys(component_ids))
+        results = await asyncio.gather(
+            *(self._resolve_one(cid, platform=platform, board_id=board_id) for cid in unique_ids),
+        )
+        return {cid: entry for cid, entry in zip(unique_ids, results, strict=True) if entry}
 
     @api_command("components/get_components")
     async def get_components(
@@ -419,8 +437,10 @@ class ComponentCatalog:
 
         Reads ``definitions/components/<id>.json`` on first access via
         a worker thread and caches up to ``_BODY_CACHE_MAXSIZE``
-        recent entries in an LRU. Returns ``None`` when the id is
-        absent from the index or its body file is missing on disk.
+        recent entries in an LRU. Concurrent calls for the same id
+        share one disk read via the in-flight future map. Returns
+        ``None`` when the id is absent from the index or its body
+        file is missing on disk.
         """
         cached = self._body_cache.get(component_id)
         if cached is not None:
@@ -428,18 +448,75 @@ class ComponentCatalog:
             return cached
         if component_id not in self._by_id:
             return None
-        body = await asyncio.to_thread(_load_body_from_disk, component_id)
-        if body is None:
-            return None
-        self._body_cache[component_id] = body
-        self._body_cache.move_to_end(component_id)
-        if len(self._body_cache) > _BODY_CACHE_MAXSIZE:
-            self._body_cache.popitem(last=False)
+        inflight = self._body_inflight.get(component_id)
+        if inflight is not None:
+            return await inflight
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[ComponentCatalogEntry | None] = loop.create_future()
+        self._body_inflight[component_id] = future
+        try:
+            body = await asyncio.to_thread(_load_body_from_disk, component_id)
+        except BaseException as exc:
+            self._body_inflight.pop(component_id, None)
+            if not future.done():
+                future.set_exception(exc)
+            raise
+        self._body_inflight.pop(component_id, None)
+        if body is not None:
+            self._body_cache[component_id] = body
+            self._body_cache.move_to_end(component_id)
+            if len(self._body_cache) > _BODY_CACHE_MAXSIZE:
+                self._body_cache.popitem(last=False)
+        future.set_result(body)
         return body
 
     def get_featured_record(self, component_id: str) -> _FeaturedRecord | None:
         """Return the registry record for a ``featured.*`` id, or ``None``."""
         return self._featured_by_id.get(component_id)
+
+    async def _resolve_one(
+        self,
+        component_id: str,
+        *,
+        platform: str | None,
+        board_id: str | None,
+        warn_on_featured_board_mismatch: bool = False,
+    ) -> ComponentCatalogEntry | None:
+        """
+        Resolve one id (featured or regular) into a materialised entry.
+
+        Shared core for :meth:`get_component` (singular,
+        warn-on-mismatch) and :meth:`get_component_bodies` (batch,
+        silent). For a featured id, the explicit ``platform`` still
+        wins; ``board_id`` falls back to the record's own board so
+        ``platform_defaults`` resolve against the right target.
+        """
+        if component_id.startswith(_FEATURED_PREFIX):
+            record = self._featured_by_id.get(component_id)
+            if record is None:
+                return None
+            if (
+                warn_on_featured_board_mismatch
+                and board_id is not None
+                and board_id != record.board_id
+            ):
+                _LOGGER.warning(
+                    "Featured component %s requested with mismatched board_id %s; "
+                    "resolving platform from %s",
+                    component_id,
+                    board_id,
+                    record.board_id,
+                )
+            target_platform = self._resolve_platform(platform, record.board_id)
+            body = await self.get_body(record.underlying_id)
+            if body is None:
+                return None
+            return _materialise_featured(record, body, target_platform)
+        target_platform = self._resolve_platform(platform, board_id)
+        body = await self.get_body(component_id)
+        if body is None:
+            return None
+        return _materialise(body, target_platform)
 
     async def resolve_default_components(
         self,
