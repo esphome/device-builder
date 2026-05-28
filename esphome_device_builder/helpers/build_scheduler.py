@@ -94,17 +94,11 @@ class BuildPathDecision:
 def pick_build_path(inputs: BuildSchedulerInputs) -> BuildPathDecision:
     """Decide whether a firmware job runs LOCAL or on a paired receiver.
 
-    ``EXACT_REQUIRED`` hard-fails (raises ``NO_COMPATIBLE_PEER``)
-    whenever any APPROVED + enabled pairing exists and none make
-    it past the filter — for *any* reason, not just version
-    mismatch. The carve-out is what issue #985 asked for: silently
-    falling back to a 20-minute Home Assistant Green compile
-    behind a disconnected receiver is the same failure shape, and
-    gating the hard-fail on a single filter would leak it through
-    the others. PENDING or disabled rows don't count as intent.
-
-    Any future ``PeerStatus`` is silent-fallback-LOCAL until the
-    scheduler is explicitly taught about it.
+    ``EXACT_REQUIRED`` raises ``NO_COMPATIBLE_PEER`` whenever any
+    APPROVED + enabled pairing exists and none make it past the
+    filter, for any reason — issue #985 was about silent
+    LOCAL-fallback, and gating the hard-fail on a single filter
+    would leak the same shape through the others.
     """
     if not inputs.remote_builds_enabled:
         return BuildPathDecision.local()
@@ -129,12 +123,11 @@ def pick_build_path(inputs: BuildSchedulerInputs) -> BuildPathDecision:
 def _eligible_pairings(
     inputs: BuildSchedulerInputs,
 ) -> tuple[list[tuple[str, StoredPairing]], int]:
-    """Return ``(eligible_pairings, operator_intent_count)`` after the per-peer filter.
+    """Return ``(eligible, operator_intent_count)`` after the per-peer filter.
 
-    ``operator_intent_count`` counts APPROVED + enabled pairings —
-    rows that didn't survive the open-session / version-policy
-    filter still count, since the operator's intent (route to
-    remote) is what drives the ``EXACT_REQUIRED`` hard-fail.
+    ``operator_intent_count`` counts every APPROVED + enabled
+    pairing — including ineligible ones — since that's what
+    drives the ``EXACT_REQUIRED`` hard-fail in the caller.
     """
     ordered = sorted(
         inputs.pairings.items(),

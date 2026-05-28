@@ -3748,17 +3748,11 @@ def test_decode_pairings_back_compat_missing_enabled_defaults_true() -> None:
 
 
 def test_decode_pairings_drops_legacy_allow_major_version_mismatch_field() -> None:
-    """A pre-rework sidecar carrying ``allow_major_version_mismatch`` deserialises cleanly.
+    """A pre-rework sidecar's ``allow_major_version_mismatch`` is silently dropped.
 
-    The 4-state policy rework removed ``allow_major_version_mismatch``
-    from the on-disk schema; operators upgrading from a beta that
-    had flipped the old boolean to ``False`` (= activate the
-    major-version gate) get the new default (``ANY``) and need to
-    re-select ``release`` from the new picker. Mashumaro's default
-    behaviour silently drops unknown fields, which is the
-    mechanism the migration relies on — pin it here so a future
-    ``Config.forbid_extra_keys=True`` (or similar) flip can't
-    silently turn first-boot-after-upgrade into a parse error.
+    Pins the upgrade-path mechanism (mashumaro ignores unknown
+    fields) against a future ``Config.forbid_extra_keys=True``
+    flip turning first-boot-after-upgrade into a parse error.
     """
     legacy_payload = json.dumps(
         {

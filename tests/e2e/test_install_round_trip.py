@@ -296,18 +296,7 @@ async def test_cold_connect_offloader_observes_initial_queue_status_then_picks_r
 async def test_version_match_policy_filters_mismatched_peer_end_to_end(
     paired_instances: PairedInstances,
 ) -> None:
-    """End-to-end policy matrix on a live paired session.
-
-    Pins the wire-and-state path the install command actually
-    walks: a real session is open, the offloader's snapshot
-    sees the peer's broadcast ``esphome_version``, and the
-    scheduler's eligibility decision matches the picker's
-    contract — ``ANY`` lets every drift through, ``RELEASE``
-    forgives only patch diffs, ``EXACT`` requires identity,
-    and the LOCAL fallback fires when the strict policies
-    filter the peer (the matching ``EXACT_REQUIRED`` hard-fail
-    has its own test).
-    """
+    """End-to-end policy matrix on a live paired session (ANY / RELEASE / EXACT)."""
     await paired_instances.wait_until_session_opened()
     pin = paired_instances.pin_sha256
     pairing = paired_instances.offloader.state.pairings[pin]
@@ -351,16 +340,7 @@ async def test_version_match_policy_filters_mismatched_peer_end_to_end(
 async def test_exact_required_raises_no_compatible_peer_end_to_end(
     paired_instances: PairedInstances,
 ) -> None:
-    """``EXACT_REQUIRED`` over a live session refuses to fall back to LOCAL.
-
-    Pins the issue-985 reporter's hard-stop semantic against a
-    real paired session: when the operator selects the strictest
-    policy and the peer's bundled ESPHome version no longer
-    matches the offloader, the scheduler raises
-    ``CommandError(NO_COMPATIBLE_PEER)`` instead of compiling
-    locally (which on a Home Assistant Green would silently
-    pin every install for minutes).
-    """
+    """``EXACT_REQUIRED`` over a live session raises instead of LOCAL-fallback."""
     await paired_instances.wait_until_session_opened()
     pin = paired_instances.pin_sha256
     pairing = paired_instances.offloader.state.pairings[pin]

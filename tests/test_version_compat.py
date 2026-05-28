@@ -104,12 +104,7 @@ def test_version_satisfies_policy(
 
 
 def test_version_satisfies_policy_empty_strings_pass_every_policy() -> None:
-    """Empty-string forgiveness flows through every policy uniformly.
-
-    Pins the shared seam so a future strict-policy addition that
-    forgets the carve-out trips this test rather than silently
-    filtering every fresh APPROVED pairing.
-    """
+    """Empty-string forgiveness flows uniformly through every policy."""
     for policy in VersionMatchPolicy:
         assert version_satisfies_policy("", "2026.5.0", policy) is True
         assert version_satisfies_policy("2026.5.0", "", policy) is True
