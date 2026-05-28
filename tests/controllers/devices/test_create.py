@@ -444,7 +444,7 @@ async def test_yaml_content_for_create_threads_default_components_through(
     site would leave the generated YAML missing the default blocks
     even though the manifest declared them.
     """
-    board = session_component_catalog._db.boards.get_by_id("apollo-esk-1")
+    board = await session_component_catalog._db.boards.get_board(board_id="apollo-esk-1")
     assert board is not None
     yaml, source = await yaml_content_for_create(
         name="starter",

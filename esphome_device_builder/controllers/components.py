@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ..definitions import load_featured_components_index
 from ..helpers.api import api_command
 from ..helpers.json import loads
 from ..helpers.lazy_catalog import LazyBodyStore, is_unsafe_catalog_id
@@ -539,33 +540,37 @@ class ComponentCatalog:
         return out
 
     def _build_featured_registry(self) -> None:
-        """Walk the board catalog and index every featured component."""
+        """Index every featured component from the precomputed map.
+
+        Reads ``definitions/featured_components.index.json`` directly
+        rather than walking per-board bodies — the index carries
+        every ``FeaturedComponent`` aggregated by board id, so the
+        registry build pays zero board-body loads at startup.
+        """
         self._featured_by_id = {}
         self._featured_by_board = {}
-        if self._db is None or self._db.boards is None:
-            return
-        for board in self._db.boards.iter_boards():
+        for board_id, featured in load_featured_components_index().items():
             ids: list[str] = []
-            for fc in board.featured_components:
-                full_id = f"{_FEATURED_PREFIX}{board.id}.{fc.id}"
+            for fc in featured:
+                full_id = f"{_FEATURED_PREFIX}{board_id}.{fc.id}"
                 underlying = self._by_id.get(fc.component_id)
                 if underlying is None:
                     _LOGGER.warning(
                         "Board %s featured.%s references unknown component %s — skipping",
-                        board.id,
+                        board_id,
                         fc.id,
                         fc.component_id,
                     )
                     continue
                 self._featured_by_id[full_id] = _FeaturedRecord(
                     full_id=full_id,
-                    board_id=board.id,
+                    board_id=board_id,
                     featured=fc,
                     underlying_id=underlying.id,
                 )
                 ids.append(full_id)
             if ids:
-                self._featured_by_board[board.id] = ids
+                self._featured_by_board[board_id] = ids
 
     def _categories_for_board(
         self,

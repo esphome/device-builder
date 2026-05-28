@@ -88,6 +88,9 @@ async def test_create_device_writes_file_content_verbatim(
     boards = StubBoardLookups(controller)
     pio_lookup = boards.find_by_pio_board_returns("esp32-c3-devkitm-1")
     boards.find_by_platform_variant_returns(None)
+    # ``find_by_pio_board`` returns a slim entry post-split; production
+    # then fetches the full body via ``get_board``.
+    boards.get_board_returns("esp32-c3-devkitm-1")
 
     yaml_text = (
         "esphome:\n  name: kitchen\nesp32:\n  board: esp32-c3-devkitm-1\n  variant: esp32c3\n"
@@ -121,6 +124,8 @@ async def test_create_device_falls_back_to_platform_variant_lookup(
     boards = StubBoardLookups(controller)
     boards.find_by_pio_board_returns(None)
     variant_lookup = boards.find_by_platform_variant_returns("generic-esp32-c3")
+    # Slim-entry fallback → fetch full body via ``get_board``.
+    boards.get_board_returns("generic-esp32-c3")
 
     yaml_text = "esphome:\n  name: kitchen\nesp32:\n  variant: esp32c3\n"
     await controller.create_device(name="kitchen", file_content=yaml_text)

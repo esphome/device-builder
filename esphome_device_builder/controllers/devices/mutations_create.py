@@ -120,8 +120,13 @@ async def create_device(  # noqa: PLR0912, PLR0915, C901
             if matched is None and parsed_platform:
                 matched = controller._db.boards.find_by_platform_variant(parsed_platform, variant)
             if matched:
-                board = matched
-                board_id = matched.id
+                # ``find_by_*`` returns slim index entries; fetch the
+                # full body so ``_yaml_content_for_create`` can read
+                # default_components / pins / featured_components.
+                body = await controller._db.boards.get_board(board_id=matched.id)
+                if body is not None:
+                    board = body
+                    board_id = matched.id
 
     loop = asyncio.get_running_loop()
 

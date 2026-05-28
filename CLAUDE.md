@@ -532,7 +532,9 @@ When changing the sync script or catalog handling, watch for these:
 | `esphome_device_builder/models/*.py` | Data classes (mashumaro) — pure shape, no logic |
 | `esphome_device_builder/api/ws.py` | WebSocket dispatch |
 | `esphome_device_builder/definitions/components.index.json` + `components/<id>.json` | Generated; do not hand-edit. Slim index loaded eagerly; per-id bodies hydrate lazily via `ComponentCatalog.get_body`. |
-| `esphome_device_builder/definitions/boards/<id>/manifest.yaml` | Curated; hand-edited |
+| `esphome_device_builder/definitions/boards.index.json` + `board_bodies/<id>.json` + `featured_components.index.json` | Generated; do not hand-edit. Slim board index + per-id lazy bodies (via `BoardCatalog._body_store`) + aggregated featured-components map (read once by the components controller's registry build). |
+| `esphome_device_builder/definitions/boards/<id>/manifest.yaml` | Curated; hand-edited. The body directory is `board_bodies/` (separate from this manifests dir) so the body-swap rmtree can't trample the hand-curated source. |
+| `script/sync_boards.py` | Regenerates the split board catalog from the manifests |
 | `script/sync_components.py` | Regenerates the component catalog |
 | `script/check_catalog.py` | Smoke test for popular components |
 | `script/validate_definitions.py` | Lint board manifests |
