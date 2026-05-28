@@ -115,6 +115,9 @@ def pick_build_path(inputs: BuildSchedulerInputs) -> BuildPathDecision:
         pin_sha256, _pairing = eligible[0]
         return BuildPathDecision.remote(pin_sha256)
     if intentional_peers > 0 and inputs.version_match_policy is VersionMatchPolicy.EXACT_REQUIRED:
+        # English-only diagnostic for logs / e2e tests — the
+        # frontend keys its localised toast on
+        # ``ErrorCode.NO_COMPATIBLE_PEER`` and ignores this string.
         msg = (
             f"version policy 'exact_required' with {intentional_peers} intended "
             f"peer(s) but none eligible (offloader={inputs.offloader_esphome_version!r}); "
