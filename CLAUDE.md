@@ -253,22 +253,30 @@ correctness; the browser verifies what the user actually sees.
    Configure the *frontend dev server* port; the backend
    stays on 6052 and the proxy still works.
 
-**Run both in the background** (Claude should use
-`run_in_background`) and `lsof -iTCP:6052 -sTCP:LISTEN` /
-`lsof -iTCP:5174 -sTCP:LISTEN` to wait for both to be listening
-before telling the user the dev URL. Then point the user at
-`http://localhost:<frontend-port>/`.
+**Run both in the background.** If you're driving this via
+Claude Code (the agent harness this file is written for), use
+`Bash` with `run_in_background: true` so the long-lived
+processes don't block the conversation; otherwise use whatever
+your shell offers (`nohup … &`, `tmux`, a separate terminal).
 
-**Cleanup.** When the user is done, kill both processes:
+**Wait for both before telling the user the URL.** Poll
+`lsof -iTCP:6052 -sTCP:LISTEN` for the backend and
+`lsof -iTCP:<frontend-port> -sTCP:LISTEN` for the frontend
+(`<frontend-port>` is whatever you started the dev server on:
+5173 by default, or your `PORT=` override). Once both report
+LISTEN, point the user at `http://localhost:<frontend-port>/`.
+
+**Cleanup.** When the user is done, kill both processes (again
+substituting the actual `<frontend-port>` you used):
 
 ```bash
-lsof -iTCP:6052 -iTCP:5174 -sTCP:LISTEN -t | xargs kill
+lsof -iTCP:6052 -iTCP:<frontend-port> -sTCP:LISTEN -t | xargs kill
 ```
 
 **Alternative: production-shape testing.** When you want the
 backend to serve the actual built bundle (closer to what ships),
-build the frontend with `npm run build` in the paired checkout —
-the build output lands in the `esphome_device_builder_frontend`
+run `npm run build` in the companion frontend checkout — the
+build output lands in the `esphome_device_builder_frontend`
 site-packages dir the backend reads from `_get_frontend_dir`. No
 proxy needed, just browse to `http://localhost:6052/`. Use the
 dev-server path for fast iteration; use the built path when you
