@@ -97,7 +97,7 @@ from esphome_device_builder.controllers.components import (  # noqa: E402
 from esphome_device_builder.controllers.components import (  # noqa: E402
     is_unsafe_component_id,
 )
-from esphome_device_builder.models import ComponentCatalogEntry  # noqa: E402
+from esphome_device_builder.models import ComponentCatalogEntry, PinFeature  # noqa: E402
 from script._light_schemas import (  # noqa: E402
     resolve_light_effects_applies_to,
 )
@@ -2540,15 +2540,19 @@ def _is_own_id_field(raw: dict) -> bool:
     return bool(isinstance(raw.get("id_type"), dict) and "use_id_type" not in raw)
 
 
+_PIN_FEATURE_VALUES = frozenset(f.value for f in PinFeature)
+
+
 def _resolve_pin_features(raw: dict) -> list[str]:
-    """Translate the schema's ``modes`` list into our PinFeature enum keys."""
+    """Translate the schema's ``modes`` list into PinFeature enum keys.
+
+    Drops GPIO mode flags (input / output / pullup / pulldown /
+    open_drain) that the schema mixes in; only hardware-capability
+    tags (adc, dac, i2c_*, spi_*, ...) belong on
+    ``ConfigEntry.pin_features``.
+    """
     modes = raw.get("modes") or []
-    # Schema uses ``input``/``output``/``pullup``/``pulldown`` etc.
-    # Our PinFeature enum tracks more capability tags (i2c_sda,
-    # spi_clk, ...) but those don't appear here — only directional
-    # / pull modes do. Pass them through; downstream code can drop
-    # unknown values via _safe_enum.
-    return [m for m in modes if isinstance(m, str)]
+    return [m for m in modes if isinstance(m, str) and m in _PIN_FEATURE_VALUES]
 
 
 def _detect_platform_type(inner_schema: dict) -> str | None:
