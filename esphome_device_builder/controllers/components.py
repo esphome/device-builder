@@ -6,6 +6,7 @@ import asyncio
 import logging
 from collections import OrderedDict
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -1127,9 +1128,36 @@ def _load_component(data: dict) -> ComponentCatalogEntry:
     )
 
 
+@cache
+def _resolved_bodies_dir(bodies_dir: Path) -> Path:
+    """Memoised ``Path.resolve`` for the bodies dir.
+
+    The path-traversal guard in :func:`_load_body_from_disk`
+    resolves the bodies dir on every hydrate; in steady state
+    that's the same path each call. ``functools.cache`` keyed on
+    the (immutable) Path object reduces the per-hydrate work to
+    a dict lookup while keeping test patching of
+    ``_COMPONENT_BODIES_DIR`` to a tmp dir transparent (different
+    tmp paths cache independently).
+    """
+    return bodies_dir.resolve()
+
+
 def _load_body_from_disk(component_id: str) -> ComponentCatalogEntry | None:
     """Read ``components/<component_id>.json`` and hydrate into a ComponentCatalogEntry."""
-    body_path = _COMPONENT_BODIES_DIR / f"{component_id}.json"
+    # Defense-in-depth path-traversal guard. ``component_id``
+    # ultimately flows in from a WS handler kwarg; today the trust
+    # chain is bounded because ``get_body`` short-circuits on
+    # ``component_id not in self._by_id`` and the index is shipped
+    # with the wheel, but resolving both sides and asserting
+    # containment keeps the safety property of the loader readable
+    # in isolation and survives any future change that leaks an
+    # attacker-controllable id into ``_by_id``.
+    bodies_dir = _resolved_bodies_dir(_COMPONENT_BODIES_DIR)
+    body_path = (bodies_dir / f"{component_id}.json").resolve()
+    if not body_path.is_relative_to(bodies_dir):
+        _LOGGER.warning("Refusing to load component body outside bodies dir: %s", body_path)
+        return None
     if not body_path.is_file():
         _LOGGER.warning("Component body missing on disk: %s", body_path)
         return None

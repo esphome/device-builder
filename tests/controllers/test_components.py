@@ -589,6 +589,40 @@ async def test_get_component_bodies_returns_full_batch_larger_than_cache(
     assert result["comp_199"].id == "comp_199"
 
 
+async def test_get_body_refuses_path_traversal_id(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A traversal-shaped id is rejected by the loader even if it slips past the index check.
+
+    Pins the defense-in-depth path-traversal guard in
+    ``_load_body_from_disk``. The id check in ``get_body`` (``not in
+    self._by_id``) is the first line of defence; the loader's
+    ``is_relative_to`` guard makes the safety property local so it
+    survives any future change that leaks an attacker-controllable
+    id into ``_by_id``.
+    """
+    cat = ComponentCatalog()
+    # Plant the traversal id directly in the index so get_body
+    # proceeds past its own guard and reaches the loader.
+    cat._by_id = {"../escape": _make_entry(entry_id="../escape")}
+    bodies_dir = tmp_path / "components"
+    bodies_dir.mkdir()
+    # Drop a file at the would-be-escape target so the test would
+    # incorrectly succeed if the guard were missing.
+    (tmp_path / "escape.json").write_text(
+        json.dumps({"id": "escape", "name": "escape", "category": "misc", "config_entries": []})
+    )
+    with (
+        patch.object(components_module, "_COMPONENT_BODIES_DIR", bodies_dir),
+        caplog.at_level(logging.WARNING),
+    ):
+        result = await cat.get_body("../escape")
+
+    assert result is None
+    assert any("outside bodies dir" in rec.message for rec in caplog.records)
+
+
 async def test_get_body_returns_none_when_body_missing_on_disk(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
