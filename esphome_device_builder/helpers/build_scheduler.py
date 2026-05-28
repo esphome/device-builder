@@ -18,12 +18,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
+from ..models.api import ErrorCode
 from ..models.remote_build import (
     PeerQueueStatusSnapshotEntry,
     PeerStatus,
     StoredPairing,
 )
-from .version_compat import major_versions_match
+from .api import CommandError
+from .version_compat import VersionMatchPolicy, version_satisfies_policy
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -60,9 +62,7 @@ class BuildSchedulerInputs:
     # Passed in rather than imported so the helper stays pure;
     # empty string disables the gate.
     offloader_esphome_version: str = ""
-    # Master toggle for the major-version gate; ``True``
-    # bypasses the gate entirely.
-    allow_major_version_mismatch: bool = True
+    version_match_policy: VersionMatchPolicy = VersionMatchPolicy.ANY
 
 
 @dataclass(frozen=True)
@@ -95,26 +95,23 @@ def pick_build_path(inputs: BuildSchedulerInputs) -> BuildPathDecision:
     """Decide whether a firmware job runs locally or on a paired receiver.
 
     Eligible pairings are APPROVED + per-pairing-enabled + have
-    an open peer-link session + pass the major-version gate
-    (matching ``YYYY.MM`` release line, or the master gate is
-    off). The pick is two-tier:
+    an open peer-link session + survive the version-match policy
+    filter against the offloader's own ``esphome_version``. The
+    pick is two-tier: idle remotes first (so concurrent installs
+    fan out), then the oldest eligible pairing regardless of
+    idle state (the receiver queues behind its current build
+    rather than splitting the install across two compile
+    contexts). Sort key ``(paired_at, pin_sha256)`` keeps the
+    pick deterministic across Mapping orderings.
 
-    1. First pass picks the oldest idle eligible pairing so
-       concurrent installs fan out across idle remotes.
-    2. Second pass picks the oldest eligible pairing
-       regardless of idle state — the receiver queues the
-       dispatch behind its current build rather than the
-       scheduler silently falling back to LOCAL (which would
-       split the install across two compile contexts and
-       confuse the user).
-
-    Sort is on ``(paired_at, pin_sha256)`` so the chosen
-    receiver is deterministic regardless of how the caller's
-    :class:`Mapping` orders keys.
-
-    Falls back to LOCAL only when no candidate qualifies, or
-    when ``remote_builds_enabled`` is ``False`` (the master
-    Settings toggle short-circuits before the walk).
+    LOCAL fallback fires when no candidate survives the filter
+    OR when ``remote_builds_enabled`` is ``False``. The one
+    exception is ``VersionMatchPolicy.EXACT_REQUIRED``: when
+    that policy filters every peer out, this helper raises
+    ``CommandError(NO_COMPATIBLE_PEER)`` instead of falling
+    through, so the install surfaces the policy violation to
+    the operator instead of masking it with a slow LOCAL
+    compile.
 
     The status gate is ``is PeerStatus.APPROVED`` — any future
     enum member is silent-fallback-LOCAL until the scheduler
@@ -126,6 +123,7 @@ def pick_build_path(inputs: BuildSchedulerInputs) -> BuildPathDecision:
         inputs.pairings.items(),
         key=lambda item: (item[1].paired_at, item[0]),
     )
+    policy = inputs.version_match_policy
     eligible: list[tuple[str, StoredPairing]] = []
     version_filtered: list[str] = []
     for pin_sha256, pairing in ordered:
@@ -135,12 +133,13 @@ def pick_build_path(inputs: BuildSchedulerInputs) -> BuildPathDecision:
             or pin_sha256 not in inputs.open_peer_links
         ):
             continue
-        if not inputs.allow_major_version_mismatch and not major_versions_match(
-            inputs.offloader_esphome_version, pairing.esphome_version
+        if not version_satisfies_policy(
+            inputs.offloader_esphome_version, pairing.esphome_version, policy
         ):
             _LOGGER.debug(
-                "pick_build_path: filtered %s on version mismatch (peer=%s, offloader=%s)",
+                "pick_build_path: filtered %s on version policy %s (peer=%s, offloader=%s)",
                 pin_sha256,
+                policy.value,
                 pairing.esphome_version,
                 inputs.offloader_esphome_version,
             )
@@ -154,9 +153,17 @@ def pick_build_path(inputs: BuildSchedulerInputs) -> BuildPathDecision:
     if eligible:
         pin_sha256, _pairing = eligible[0]
         return BuildPathDecision.remote(pin_sha256)
+    if version_filtered and policy is VersionMatchPolicy.EXACT_REQUIRED:
+        msg = (
+            f"version policy 'exact_required' filtered every paired peer "
+            f"(offloader={inputs.offloader_esphome_version!r}); refusing to "
+            f"fall back to LOCAL"
+        )
+        raise CommandError(ErrorCode.NO_COMPATIBLE_PEER, msg)
     if version_filtered:
         _LOGGER.info(
-            "pick_build_path: strict version gate filtered %d peer(s); falling back to LOCAL",
+            "pick_build_path: version policy %s filtered %d peer(s); falling back to LOCAL",
+            policy.value,
             len(version_filtered),
         )
     return BuildPathDecision.local()

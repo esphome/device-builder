@@ -68,6 +68,7 @@ from esphome_device_builder.controllers.remote_build.artifacts_tarball import (
     IDEDATA_MEMBER_NAME,
     STORAGE_MEMBER_NAME,
 )
+from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.build_scheduler import (
     BuildPath,
     pick_build_path,
@@ -80,6 +81,7 @@ from esphome_device_builder.helpers.remote_build_layout import (
     parse_from_configuration as parse_remote_build_path,
 )
 from esphome_device_builder.helpers.storage_path import resolve_storage_path
+from esphome_device_builder.helpers.version_compat import VersionMatchPolicy
 from esphome_device_builder.models import (
     EventType,
     FirmwareJob,
@@ -88,6 +90,7 @@ from esphome_device_builder.models import (
     JobType,
     QueueStatus,
 )
+from esphome_device_builder.models.api import ErrorCode
 
 from .._storage_fixtures import write_storage_json
 from ..conftest import capture_events, wire_firmware_remote_peer_api_mocks
@@ -290,33 +293,101 @@ async def test_cold_connect_offloader_observes_initial_queue_status_then_picks_r
 
 
 @pytest.mark.asyncio
-async def test_major_version_gate_filters_mismatched_peer_end_to_end(
+async def test_version_match_policy_filters_mismatched_peer_end_to_end(
     paired_instances: PairedInstances,
 ) -> None:
-    """Strict-mode master flip filters a mismatched peer; permissive lets it through."""
+    """End-to-end policy matrix on a live paired session.
+
+    Pins the wire-and-state path the install command actually
+    walks: a real session is open, the offloader's snapshot
+    sees the peer's broadcast ``esphome_version``, and the
+    scheduler's eligibility decision matches the picker's
+    contract — ``ANY`` lets every drift through, ``RELEASE``
+    forgives only patch diffs, ``EXACT`` requires identity,
+    and the LOCAL fallback fires when the strict policies
+    filter the peer (the matching ``EXACT_REQUIRED`` hard-fail
+    has its own test).
+    """
     await paired_instances.wait_until_session_opened()
     pin = paired_instances.pin_sha256
     pairing = paired_instances.offloader.state.pairings[pin]
 
     # Pin both ends explicitly so the gate sees the mismatch
     # regardless of the bundled ``esphome.const.__version__``.
-    pairing.esphome_version = "2026.4.5"
+    pairing.esphome_version = "2026.6.1"
     snapshot = paired_instances.offloader.build_scheduler_snapshot()
-    snapshot_permissive = replace(
-        snapshot,
-        offloader_esphome_version="2026.6.0",
-        allow_major_version_mismatch=True,
-    )
-    # Default master (allow) — mismatched peer still eligible.
-    decision = pick_build_path(snapshot_permissive)
+    base = replace(snapshot, offloader_esphome_version="2026.6.0")
+
+    # ANY (default) — peer survives any drift.
+    decision = pick_build_path(replace(base, version_match_policy=VersionMatchPolicy.ANY))
     assert decision.path is BuildPath.REMOTE
     assert decision.pin_sha256 == pin
 
-    # Flip the master off (strict mode) — mismatched peer filtered.
-    snapshot_strict = replace(snapshot_permissive, allow_major_version_mismatch=False)
-    decision = pick_build_path(snapshot_strict)
+    # RELEASE — patch diff OK.
+    decision = pick_build_path(replace(base, version_match_policy=VersionMatchPolicy.RELEASE))
+    assert decision.path is BuildPath.REMOTE
+    assert decision.pin_sha256 == pin
+
+    # EXACT — patch diff filtered, falls back to LOCAL.
+    decision = pick_build_path(replace(base, version_match_policy=VersionMatchPolicy.EXACT))
     assert decision.path is BuildPath.LOCAL
     assert decision.pin_sha256 is None
+
+    # Peer flips to matching version — EXACT picks it up.
+    pairing.esphome_version = "2026.6.0"
+    matched = paired_instances.offloader.build_scheduler_snapshot()
+    decision = pick_build_path(
+        replace(
+            matched,
+            offloader_esphome_version="2026.6.0",
+            version_match_policy=VersionMatchPolicy.EXACT,
+        )
+    )
+    assert decision.path is BuildPath.REMOTE
+    assert decision.pin_sha256 == pin
+
+
+@pytest.mark.asyncio
+async def test_exact_required_raises_no_compatible_peer_end_to_end(
+    paired_instances: PairedInstances,
+) -> None:
+    """``EXACT_REQUIRED`` over a live session refuses to fall back to LOCAL.
+
+    Pins the issue-985 reporter's hard-stop semantic against a
+    real paired session: when the operator selects the strictest
+    policy and the peer's bundled ESPHome version no longer
+    matches the offloader, the scheduler raises
+    ``CommandError(NO_COMPATIBLE_PEER)`` instead of compiling
+    locally (which on a Home Assistant Green would silently
+    pin every install for minutes).
+    """
+    await paired_instances.wait_until_session_opened()
+    pin = paired_instances.pin_sha256
+    pairing = paired_instances.offloader.state.pairings[pin]
+    pairing.esphome_version = "2026.6.1"
+    snapshot = paired_instances.offloader.build_scheduler_snapshot()
+    snapshot = replace(
+        snapshot,
+        offloader_esphome_version="2026.6.0",
+        version_match_policy=VersionMatchPolicy.EXACT_REQUIRED,
+    )
+    with pytest.raises(CommandError) as exc:
+        pick_build_path(snapshot)
+    assert exc.value.code is ErrorCode.NO_COMPATIBLE_PEER
+
+    # And the same policy lets the install through when the
+    # peer's version comes back into line — confirming the
+    # filter is "no eligible peer" not "policy turned on".
+    pairing.esphome_version = "2026.6.0"
+    matched = paired_instances.offloader.build_scheduler_snapshot()
+    matched = replace(
+        matched,
+        offloader_esphome_version="2026.6.0",
+        version_match_policy=VersionMatchPolicy.EXACT_REQUIRED,
+    )
+    decision = pick_build_path(matched)
+    assert decision.path is BuildPath.REMOTE
+    assert decision.pin_sha256 == pin
 
 
 @pytest.mark.asyncio

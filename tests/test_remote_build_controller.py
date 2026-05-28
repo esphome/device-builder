@@ -63,6 +63,7 @@ from esphome_device_builder.helpers.dashboard_advertise import SERVICE_TYPE
 from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.helpers.peer_link_identity import PeerLinkIdentityStore
 from esphome_device_builder.helpers.remote_build_layout import RemoteBuildPath
+from esphome_device_builder.helpers.version_compat import VersionMatchPolicy
 from esphome_device_builder.models import (
     ErrorCode,
     EventType,
@@ -3657,20 +3658,20 @@ def test_encode_decode_pairings_round_trip() -> None:
     assert decoded == settings
 
 
-def test_serialize_pairings_includes_master_gate_toggle(tmp_path: Path) -> None:
-    """``_serialize_pairings`` projects every persisted master flag."""
+def test_serialize_pairings_includes_master_settings(tmp_path: Path) -> None:
+    """``_serialize_pairings`` projects every persisted master field."""
     controller = _make_controller(config_dir=tmp_path)
     pairing = _valid_stored_pairing()
     controller.offloader.state.pairings[pairing.pin_sha256] = pairing
     controller.offloader.state.remote_builds_enabled = False
-    controller.offloader.state.allow_major_version_mismatch = False
+    controller.offloader.state.version_match_policy = VersionMatchPolicy.EXACT_REQUIRED
 
     serialized = controller.offloader._serialize_pairings()
 
     assert serialized.remote_builds_enabled is False
-    assert serialized.allow_major_version_mismatch is False
+    assert serialized.version_match_policy is VersionMatchPolicy.EXACT_REQUIRED
     assert serialized.pairings == [pairing]
-    # Round-trip through the on-disk codec to pin that every flag
+    # Round-trip through the on-disk codec to pin that every field
     # survives a save / reload cycle.
     decoded = decode_pairings(encode_pairings(serialized))
     assert decoded == serialized
@@ -3741,7 +3742,7 @@ def test_decode_pairings_back_compat_missing_enabled_defaults_true() -> None:
     ).encode()
     decoded = decode_pairings(legacy_payload)
     assert decoded.remote_builds_enabled is True
-    assert decoded.allow_major_version_mismatch is True
+    assert decoded.version_match_policy is VersionMatchPolicy.ANY
     assert len(decoded.pairings) == 1
     assert decoded.pairings[0].enabled is True
 
@@ -4292,7 +4293,7 @@ def test_remote_builds_enabled_default_is_true(tmp_path: Path) -> None:
     controller = _make_controller(config_dir=tmp_path)
     assert controller.offloader.offloader_settings_snapshot() == {
         "remote_builds_enabled": True,
-        "allow_major_version_mismatch": True,
+        "version_match_policy": "any",
     }
     assert controller.offloader.build_scheduler_snapshot().remote_builds_enabled is True
 
@@ -4401,22 +4402,32 @@ async def test_set_pairing_enabled_rejects_non_bool(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_set_offloader_settings_flips_major_version_gate(tmp_path: Path) -> None:
-    """Flipping the gate flag fires the new event and updates the snapshot."""
+async def test_set_offloader_settings_flips_version_match_policy(tmp_path: Path) -> None:
+    """Setting the policy fires the new event and updates the snapshot."""
     controller = _make_controller(config_dir=tmp_path, real_bus=True)
     captured: list[Any] = []
     controller.offloader._db.bus.add_listener(
-        EventType.OFFLOADER_ALLOW_MAJOR_VERSION_MISMATCH_CHANGED,
+        EventType.OFFLOADER_VERSION_MATCH_POLICY_CHANGED,
         lambda event: captured.append(event.data),
     )
 
-    view = await controller.offloader.set_offloader_settings(allow_major_version_mismatch=False)
+    view = await controller.offloader.set_offloader_settings(version_match_policy="exact_required")
 
-    assert controller.offloader.state.allow_major_version_mismatch is False
-    assert view.allow_major_version_mismatch is False
+    assert controller.offloader.state.version_match_policy is VersionMatchPolicy.EXACT_REQUIRED
+    assert view.version_match_policy is VersionMatchPolicy.EXACT_REQUIRED
     # ``remote_builds_enabled`` left untouched when omitted.
     assert view.remote_builds_enabled is True
-    assert captured == [{"allow_major_version_mismatch": False}]
+    assert captured == [{"version_match_policy": VersionMatchPolicy.EXACT_REQUIRED}]
+
+
+@pytest.mark.asyncio
+async def test_set_offloader_settings_rejects_unknown_policy(tmp_path: Path) -> None:
+    """An unknown wire value raises ``INVALID_ARGS`` and leaves state untouched."""
+    controller = _make_controller(config_dir=tmp_path)
+    with pytest.raises(CommandError) as exc:
+        await controller.offloader.set_offloader_settings(version_match_policy="not_a_policy")
+    assert exc.value.code is ErrorCode.INVALID_ARGS
+    assert controller.offloader.state.version_match_policy is VersionMatchPolicy.ANY
 
 
 @pytest.mark.asyncio

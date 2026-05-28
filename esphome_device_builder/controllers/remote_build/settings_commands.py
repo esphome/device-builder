@@ -13,12 +13,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ...helpers.api import CommandError
+from ...helpers.version_compat import VersionMatchPolicy
 from ...models import (
     ErrorCode,
     EventType,
-    OffloaderAllowMajorVersionMismatchChangedData,
     OffloaderRemoteBuildSettingsView,
     OffloaderRemoteBuildsToggledData,
+    OffloaderVersionMatchPolicyChangedData,
 )
 from ._validators import validate_bool
 
@@ -29,17 +30,11 @@ if TYPE_CHECKING:
 def offloader_settings_view(
     controller: OffloaderController,
 ) -> OffloaderRemoteBuildSettingsView:
-    """Project the in-RAM offloader-side state to its wire view.
-
-    Pure sync RAM read off :attr:`_pairings` +
-    :attr:`_remote_builds_enabled`, which are canonical
-    after :meth:`OffloaderController.start` seeds them from
-    disk.
-    """
+    """Project the in-RAM offloader-side state to its wire view."""
     return OffloaderRemoteBuildSettingsView(
         pairings=controller.pairings_snapshot(),
         remote_builds_enabled=controller.state.remote_builds_enabled,
-        allow_major_version_mismatch=controller.state.allow_major_version_mismatch,
+        version_match_policy=controller.state.version_match_policy,
     )
 
 
@@ -54,20 +49,20 @@ async def set_offloader_settings(
     controller: OffloaderController,
     *,
     remote_builds_enabled: bool | None = None,
-    allow_major_version_mismatch: bool | None = None,
+    version_match_policy: str | None = None,
 ) -> OffloaderRemoteBuildSettingsView:
     """
-    Flip one or both offloader-side master toggles.
+    Flip one or both offloader-side master settings.
 
-    Passing ``None`` (or omitting) leaves that flag untouched;
-    each flipped flag fires its own event. Refusing the
+    Passing ``None`` (or omitting) leaves that field untouched;
+    each changed field fires its own event. Refusing the
     all-``None`` call keeps a frontend bug from silently
     no-op'ing.
     """
-    if remote_builds_enabled is None and allow_major_version_mismatch is None:
+    if remote_builds_enabled is None and version_match_policy is None:
         msg = (
             "remote_build/set_offloader_settings: at least one of "
-            "remote_builds_enabled or allow_major_version_mismatch must be supplied"
+            "remote_builds_enabled or version_match_policy must be supplied"
         )
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     save_needed = False
@@ -83,18 +78,31 @@ async def set_offloader_settings(
         }
         controller._db.bus.fire(EventType.OFFLOADER_REMOTE_BUILDS_TOGGLED, toggled)
         save_needed = True
-    if allow_major_version_mismatch is not None:
-        clean_allow_mismatch = validate_bool(
-            allow_major_version_mismatch,
-            command="remote_build/set_offloader_settings",
-            field="allow_major_version_mismatch",
-        )
-        controller.state.allow_major_version_mismatch = clean_allow_mismatch
-        gate: OffloaderAllowMajorVersionMismatchChangedData = {
-            "allow_major_version_mismatch": clean_allow_mismatch,
+    if version_match_policy is not None:
+        clean_policy = _validate_version_match_policy(version_match_policy)
+        controller.state.version_match_policy = clean_policy
+        changed: OffloaderVersionMatchPolicyChangedData = {
+            "version_match_policy": clean_policy,
         }
-        controller._db.bus.fire(EventType.OFFLOADER_ALLOW_MAJOR_VERSION_MISMATCH_CHANGED, gate)
+        controller._db.bus.fire(EventType.OFFLOADER_VERSION_MATCH_POLICY_CHANGED, changed)
         save_needed = True
     if save_needed:
         controller._schedule_pairings_save()
     return offloader_settings_view(controller)
+
+
+def _validate_version_match_policy(raw: object) -> VersionMatchPolicy:
+    """Coerce a wire ``version_match_policy`` value to its enum member."""
+    if isinstance(raw, VersionMatchPolicy):
+        return raw
+    if not isinstance(raw, str):
+        msg = "remote_build/set_offloader_settings: 'version_match_policy' must be a string"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    try:
+        return VersionMatchPolicy(raw)
+    except ValueError as exc:
+        msg = (
+            "remote_build/set_offloader_settings: 'version_match_policy' must be one of "
+            f"{sorted(v.value for v in VersionMatchPolicy)}; got {raw!r}"
+        )
+        raise CommandError(ErrorCode.INVALID_ARGS, msg) from exc

@@ -13,7 +13,6 @@ from .offloader import (
 )
 from .offloader_events import (
     OffloaderAlertSnapshotEntry,
-    OffloaderAllowMajorVersionMismatchChangedData,
     OffloaderJobOutputData,
     OffloaderJobStateChangedData,
     OffloaderPairAlertDismissedData,
@@ -29,6 +28,7 @@ from .offloader_events import (
     OffloaderQueueStatusChangedData,
     OffloaderRemoteBuildsToggledData,
     OffloaderRemoteJobSnapshotEntry,
+    OffloaderVersionMatchPolicyChangedData,
     PeerQueueStatusSnapshotEntry,
     RemoteBuildHostAddedData,
     RemoteBuildHostRemovedData,
@@ -82,7 +82,6 @@ __all__ = (
     "JobOutputFrameData",
     "JobStateChangedFrameData",
     "OffloaderAlertSnapshotEntry",
-    "OffloaderAllowMajorVersionMismatchChangedData",
     "OffloaderJobOutputData",
     "OffloaderJobStateChangedData",
     "OffloaderPairAlertDismissedData",
@@ -100,6 +99,7 @@ __all__ = (
     "OffloaderRemoteBuildSettingsView",
     "OffloaderRemoteBuildsToggledData",
     "OffloaderRemoteJobSnapshotEntry",
+    "OffloaderVersionMatchPolicyChangedData",
     "PairingSummary",
     "PairingWindowState",
     "PeerLinkIntent",

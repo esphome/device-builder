@@ -369,10 +369,8 @@ class EventType(StrEnum):
     # ``_pairings`` dict via the snapshot.
     OFFLOADER_PAIRING_ENABLED_CHANGED = "offloader_pairing_enabled_changed"
 
-    # Cross-tab sync for the master major-version-match gate.
-    OFFLOADER_ALLOW_MAJOR_VERSION_MISMATCH_CHANGED = (
-        "offloader_allow_major_version_mismatch_changed"
-    )
+    # Cross-tab sync for the master version-match policy.
+    OFFLOADER_VERSION_MATCH_POLICY_CHANGED = "offloader_version_match_policy_changed"
 
 
 class StreamEvent(StrEnum):

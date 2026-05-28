@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from zeroconf.asyncio import AsyncServiceBrowser
 
 from ...helpers.peer_link_resolver import PeerLinkDNSResolver
+from ...helpers.version_compat import VersionMatchPolicy
 from ...models import (
     OffloaderAlertSnapshotEntry,
     OffloaderRemoteJobSnapshotEntry,
@@ -55,7 +56,7 @@ class OffloaderState:
     offloader_remote_jobs: dict[str, OffloaderRemoteJobSnapshotEntry] = field(default_factory=dict)
     rebind_probe_until: dict[str, float] = field(default_factory=dict)
     remote_builds_enabled: bool = True
-    allow_major_version_mismatch: bool = True
+    version_match_policy: VersionMatchPolicy = VersionMatchPolicy.ANY
 
     # Identity / discovery refs reassigned during start() / discovery.
     # ``offloader_peer_link_priv`` and ``offloader_dashboard_id`` are

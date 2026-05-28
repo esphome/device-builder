@@ -107,7 +107,7 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
             for pairing in settings.pairings:
                 state.pairings[pairing.pin_sha256] = pairing
             state.remote_builds_enabled = settings.remote_builds_enabled
-            state.allow_major_version_mismatch = settings.allow_major_version_mismatch
+            state.version_match_policy = settings.version_match_policy
         peer_link_identity, dashboard_identity = await self._load_offloader_identities_async()
         state.offloader_peer_link_priv = peer_link_identity.private_bytes
         state.offloader_dashboard_id = dashboard_identity.dashboard_id
@@ -356,14 +356,14 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         self,
         *,
         remote_builds_enabled: bool | None = None,
-        allow_major_version_mismatch: bool | None = None,
+        version_match_policy: str | None = None,
         **kwargs: Any,
     ) -> OffloaderRemoteBuildSettingsView:
-        """Flip the offloader-side master toggles for transparent install."""
+        """Flip the offloader-side master settings for transparent install."""
         return await settings_commands.set_offloader_settings(
             self,
             remote_builds_enabled=remote_builds_enabled,
-            allow_major_version_mismatch=allow_major_version_mismatch,
+            version_match_policy=version_match_policy,
         )
 
     @api_command("remote_build/set_pairing_enabled")
@@ -481,11 +481,11 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         """Return the :class:`StoredPairing` for *pin_sha256*, or ``None``."""
         return self.state.pairings.get(pin_sha256)
 
-    def offloader_settings_snapshot(self) -> dict[str, bool]:
-        """Bundle the offloader-wide toggle scalars for the initial-state seed."""
+    def offloader_settings_snapshot(self) -> dict[str, object]:
+        """Bundle the offloader-wide settings for the initial-state seed."""
         return {
             "remote_builds_enabled": self.state.remote_builds_enabled,
-            "allow_major_version_mismatch": self.state.allow_major_version_mismatch,
+            "version_match_policy": self.state.version_match_policy.value,
         }
 
     def build_scheduler_snapshot(self) -> BuildSchedulerInputs:
@@ -501,7 +501,7 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
             open_peer_links=frozenset(self.state.open_peer_links),
             peer_queue_status=dict(self.state.peer_queue_status),
             offloader_esphome_version=_esphome_const.__version__,
-            allow_major_version_mismatch=self.state.allow_major_version_mismatch,
+            version_match_policy=self.state.version_match_policy,
         )
 
     def pairings_snapshot(self) -> list[PairingSummary]:
@@ -557,7 +557,7 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         return OffloaderRemoteBuildSettings(
             pairings=[p for p in self.state.pairings.values() if p.status is PeerStatus.APPROVED],
             remote_builds_enabled=self.state.remote_builds_enabled,
-            allow_major_version_mismatch=self.state.allow_major_version_mismatch,
+            version_match_policy=self.state.version_match_policy,
         )
 
     # ------------------------------------------------------------------

@@ -1,21 +1,39 @@
-"""
-Major-version match helper for the offloader's compat gate.
-
-Mirrors the frontend's ``classifyVersionMismatch`` so the
-gate's verdict matches the version-skew warning the operator
-sees on the pairing row.
-"""
+"""Version-match policy helpers for the offloader's compat gate."""
 
 from __future__ import annotations
 
 import re
+from enum import StrEnum
 
 _DIGITS_PREFIX_RE = re.compile(r"^(\d+)")
 
 
-def major_versions_match(local: str, peer: str) -> bool:
+class VersionMatchPolicy(StrEnum):
+    """How strictly the offloader filters peers by ESPHome version.
+
+    ``EXACT_REQUIRED`` shares the per-peer comparison with
+    ``EXACT``; they differ only at the scheduler — the former
+    hard-fails the install when no compatible peer survives,
+    the latter (and ``RELEASE``) fall through to a LOCAL build.
     """
-    Return ``True`` when *local* and *peer* share a ``YYYY.MM`` release line.
+
+    ANY = "any"
+    RELEASE = "release"
+    EXACT = "exact"
+    EXACT_REQUIRED = "exact_required"
+
+
+def version_satisfies_policy(local: str, peer: str, policy: VersionMatchPolicy) -> bool:
+    """Return whether *peer* survives the *policy*-level filter against *local*."""
+    if policy is VersionMatchPolicy.ANY:
+        return True
+    if policy is VersionMatchPolicy.RELEASE:
+        return major_versions_match(local, peer)
+    return versions_match_exactly(local, peer)
+
+
+def major_versions_match(local: str, peer: str) -> bool:
+    """Return ``True`` when *local* and *peer* share a ``YYYY.MM`` release line.
 
     Empty strings on either side match so a fresh APPROVED
     pairing isn't filtered before its first session-open.
@@ -25,6 +43,13 @@ def major_versions_match(local: str, peer: str) -> bool:
     if local == peer:
         return True
     return _release_key(local) == _release_key(peer)
+
+
+def versions_match_exactly(local: str, peer: str) -> bool:
+    """Return ``True`` when *local* and *peer* are identical (or either is empty)."""
+    if not local or not peer:
+        return True
+    return local == peer
 
 
 def _release_key(version: str) -> str:

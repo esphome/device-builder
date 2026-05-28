@@ -248,13 +248,13 @@ async def test_subscribe_events_includes_peers_snapshot_in_initial_state() -> No
 
 
 async def test_subscribe_events_includes_offloader_settings_in_initial_state() -> None:
-    """``_send_initial`` merges the offloader-wide toggle scalars into the seed.
+    """``_send_initial`` merges the offloader-wide settings into the seed.
 
-    Without this, the frontend's "Allow major-version mismatch"
-    toggle stays hidden on first connect (its context gates on a
-    non-null value) until the gate happens to flip, and any
-    additional offloader-wide settings added later would face the
-    same trap.
+    Without this the frontend's version-match policy picker (and
+    the remote-builds toggle) have no value to render against on
+    first connect — both gate on a non-null context, so absent the
+    seed they don't appear until the operator flips the setting
+    (or in the picker's case never, since there's nothing to flip).
     """
     db = DeviceBuilder.__new__(DeviceBuilder)
     db.bus = EventBus()
@@ -266,7 +266,7 @@ async def test_subscribe_events_includes_offloader_settings_in_initial_state() -
     remote_build.offloader_settings_snapshot = MagicMock(
         return_value={
             "remote_builds_enabled": False,
-            "allow_major_version_mismatch": True,
+            "version_match_policy": "exact_required",
         }
     )
     db.remote_build_offloader = remote_build
@@ -283,7 +283,7 @@ async def test_subscribe_events_includes_offloader_settings_in_initial_state() -
     assert len(initial_events) == 1
     _, _, payload = initial_events[0]
     assert payload["remote_builds_enabled"] is False
-    assert payload["allow_major_version_mismatch"] is True
+    assert payload["version_match_policy"] == "exact_required"
     remote_build.offloader_settings_snapshot.assert_called_once()
 
     handler_task.cancel()
