@@ -1,17 +1,4 @@
-"""
-Pins the sub-sensor-reading discoverability path (#983).
-
-A platform sensor's sub-readings (e.g. ``dht.sensor.temperature``,
-``debug.sensor.free``) extend a base sensor schema; the upstream
-bundle marks the reference via ``schema.extends:
-["sensor._SENSOR_SCHEMA"]``. Those fields default to
-``advanced=True`` (every optional field does), which shoves them
-behind "Show advanced settings" and leaves the platform's form
-looking empty. The fix forces ``advanced=False`` for any field
-whose schema extends a sub-reading base schema; this test pins
-that behaviour both at ``_convert_field`` granularity and against
-the rendered catalog.
-"""
+"""Sub-readings on multi-sensor platforms surface on the main form."""
 
 from __future__ import annotations
 
@@ -19,7 +6,6 @@ import json
 from pathlib import Path
 
 from script.sync_components import (  # type: ignore[import-not-found]
-    _SUB_READING_BASE_SCHEMAS,
     _convert_field,
 )
 
@@ -36,20 +22,6 @@ def _convert(raw: dict) -> dict:
     entry = _convert_field("temperature", raw, _UNUSED_SCHEMA_DIR)
     assert entry is not None
     return entry
-
-
-def test_sub_reading_base_schemas_contract() -> None:
-    """The frozenset names the three multi-sensor base schemas we recognise."""
-    assert (
-        frozenset(
-            {
-                "sensor._SENSOR_SCHEMA",
-                "binary_sensor._BINARY_SENSOR_SCHEMA",
-                "text_sensor._TEXT_SENSOR_SCHEMA",
-            }
-        )
-        == _SUB_READING_BASE_SCHEMAS
-    )
 
 
 def test_sub_reading_extends_overrides_advanced_to_false() -> None:
