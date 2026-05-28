@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from enum import StrEnum
+from typing import assert_never
 
 _DIGITS_PREFIX_RE = re.compile(r"^(\d+)")
 
@@ -34,11 +35,17 @@ def version_satisfies_policy(local: str, peer: str, policy: VersionMatchPolicy) 
         return True
     if policy is VersionMatchPolicy.RELEASE:
         return major_versions_match(local, peer)
+    if policy is VersionMatchPolicy.EXACT:
+        return versions_match_exactly(local, peer)
     if policy is VersionMatchPolicy.EXACT_REQUIRED:
         # No LOCAL fallback — unknown peer version is a no-match;
         # see :class:`VersionMatchPolicy` for the rationale.
         return bool(local) and bool(peer) and local == peer
-    return versions_match_exactly(local, peer)
+    # Fail loudly on a new policy member that hasn't been wired
+    # in — silent fallthrough would have a fresh strict policy
+    # behaving like EXACT and the regression wouldn't surface
+    # until an operator-reproduced bug report.
+    assert_never(policy)
 
 
 def major_versions_match(local: str, peer: str) -> bool:

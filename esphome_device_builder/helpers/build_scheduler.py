@@ -141,10 +141,12 @@ class _FilterResult:
     ``intentional`` counts every APPROVED + enabled pairing — including
     ineligible ones — since that's what drives the ``EXACT_REQUIRED``
     hard-fail. The per-reason counts (``version_filtered``,
-    ``disconnected``) are diagnostic only.
+    ``disconnected``) are diagnostic only. ``eligible`` is a
+    ``tuple`` rather than ``list`` so ``frozen=True`` actually
+    freezes the held membership.
     """
 
-    eligible: list[tuple[str, StoredPairing]]
+    eligible: tuple[tuple[str, StoredPairing], ...]
     intentional: int
     version_filtered: int
     disconnected: int
@@ -188,7 +190,7 @@ def _eligible_pairings(inputs: BuildSchedulerInputs) -> _FilterResult:
             version_filtered,
         )
     return _FilterResult(
-        eligible=eligible,
+        eligible=tuple(eligible),
         intentional=intentional,
         version_filtered=version_filtered,
         disconnected=disconnected,
