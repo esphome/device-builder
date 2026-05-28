@@ -10,6 +10,7 @@ from esphome_device_builder.definitions import (
     build_board_catalog_from_manifests,
     load_board_catalog,
 )
+from esphome_device_builder.models.common import FieldPreset
 
 _BOARDS_JSON = (
     Path(__file__).parent.parent / "esphome_device_builder" / "definitions" / "boards.json"
@@ -46,3 +47,20 @@ def test_boards_json_omits_default_fields() -> None:
     # rather than an accidentally-empty regeneration.
     payload = orjson.loads(raw)
     assert len(payload["boards"]) > 100
+
+
+def test_omit_default_preserves_meaningful_falsy() -> None:
+    """``locked=True`` / falsy non-default ``value`` survive the strip."""
+    # ``omit_default`` removes a field only when its runtime value
+    # equals the *declared* default. ``FieldPreset.value`` defaults
+    # to ``None``, so meaningful ``False`` / ``0`` / ``""`` survive
+    # — and ``locked=True`` survives because the declared default
+    # is ``False``. The board catalog leans on this asymmetry; pin
+    # it so a future "make every preset field optional" sweep
+    # doesn't silently break the wire shape.
+    assert FieldPreset(value=False).to_dict() == {"value": False}
+    assert FieldPreset(value=0).to_dict() == {"value": 0}
+    assert FieldPreset(value="").to_dict() == {"value": ""}
+    assert FieldPreset(value=5, locked=True).to_dict() == {"value": 5, "locked": True}
+    # All-defaults round-trips to an empty dict (the strip's whole point).
+    assert FieldPreset().to_dict() == {}

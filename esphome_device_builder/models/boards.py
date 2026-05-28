@@ -6,18 +6,14 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from mashumaro.config import BaseConfig
 from mashumaro.mixins.orjson import DataClassORJSONMixin
 
-from .common import FieldPreset, PagedResponse, PinFeature  # PinFeature re-exported
-
-
-class _CatalogConfig(BaseConfig):
-    """Omit fields whose runtime value equals the declared default or ``None``."""
-
-    omit_default = True
-    omit_none = True
-
+from .common import (
+    FieldPreset,
+    PagedResponse,
+    PinFeature,
+    _CatalogConfig,
+)
 
 # `PinFeature` lives in .common (it's shared with config-entry pin
 # constraints), but is re-imported here for stability of existing

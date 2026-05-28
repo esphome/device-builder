@@ -16,6 +16,18 @@ from mashumaro.config import BaseConfig
 from mashumaro.mixins.orjson import DataClassORJSONMixin
 
 # ---------------------------------------------------------------------------
+# Catalog-shared mashumaro Config
+# ---------------------------------------------------------------------------
+
+
+class _CatalogConfig(BaseConfig):
+    """Omit fields whose runtime value equals the declared default or ``None``."""
+
+    omit_default = True
+    omit_none = True
+
+
+# ---------------------------------------------------------------------------
 # Paged response base
 # ---------------------------------------------------------------------------
 
@@ -853,8 +865,5 @@ class FieldPreset(DataClassORJSONMixin):
     locked: bool = False
     suggestions: list[ConfigPrimitive] | None = None
 
-    class Config(BaseConfig):
-        """Omit ``locked=False`` and ``suggestions=None`` on serialise."""
-
-        omit_default = True
-        omit_none = True
+    class Config(_CatalogConfig):
+        """Omit ``locked=False`` / ``suggestions=None``; see :class:`_CatalogConfig`."""
