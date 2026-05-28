@@ -28,6 +28,11 @@ def test_emit_split_catalog_refuses_body_that_fails_mashumaro_roundtrip(
             "id": "stepper.bench",
             "name": "Bench Stepper",
             "category": "stepper",
+            # ``description`` is required with no default; without it
+            # from_dict would fail on the missing field before ever
+            # reaching ``pin_features``, so the test would pass even if
+            # the bad value below were replaced with a valid one.
+            "description": "",
             "config_entries": [
                 {
                     "key": "dir_pin",
