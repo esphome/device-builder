@@ -233,12 +233,12 @@ correctness; the browser verifies what the user actually sees.
    so a rebuilt frontend bundle isn't masked by a stale SPA
    shell.
 
-2. Frontend dev server in the **paired** frontend checkout
-   (`device-builder_2` pairs with `device-builder-frontend_2`,
-   etc.). The default port is 5173:
+2. Frontend dev server in a checkout of the companion repo
+   ([`esphome/device-builder-frontend`](https://github.com/esphome/device-builder-frontend)).
+   The default port is 5173:
 
    ```bash
-   cd ../device-builder-frontend_2
+   cd <path-to-device-builder-frontend>
    npm run dev
    ```
 
