@@ -332,13 +332,20 @@ async def test_get_categories_endpoint_unaffected_by_query_filter_change() -> No
 # ── _build_featured_registry() ──────────────────────────────────────
 
 
-def test_build_featured_registry_is_empty_when_no_boards() -> None:
-    """No boards → empty featured registry, no crash.
+def test_build_featured_registry_is_empty_when_index_is_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An empty ``featured_components.index.json`` builds an empty registry.
 
-    The featured registry depends on the boards catalog; a
-    catalog constructed without one (or whose ``boards`` is
-    ``None``) builds an empty registry rather than crashing.
+    Post-split, the registry reads from the precomputed index
+    rather than walking board bodies; the no-boards-loaded case
+    becomes "the index is empty," which still has to short-circuit
+    cleanly without crashing.
     """
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.components.load_featured_components_index",
+        dict,
+    )
     cat = ComponentCatalog(_Container(boards=None))
     cat._build_featured_registry()
     assert cat._featured_by_id == {}

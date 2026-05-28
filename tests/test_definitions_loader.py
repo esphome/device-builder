@@ -22,7 +22,10 @@ from esphome_device_builder.definitions import (
     _parse_pin_features,
     _parse_tags,
     build_board_catalog_from_manifests,
+    load_board_body_from_disk,
+    load_board_catalog,
     load_board_index,
+    load_featured_components_index,
 )
 from esphome_device_builder.models import (
     BoardCatalogIndex,
@@ -229,6 +232,107 @@ def test_load_board_index_handles_corrupt_json(
         for rec in caplog.records
         if rec.levelname == "ERROR"
     )
+
+
+def test_load_board_body_refuses_traversal_id(caplog: pytest.LogCaptureFixture) -> None:
+    """A traversal-shaped id is refused with a warning and ``None`` return.
+
+    Defense in depth: the LazyBodyStore caller already gates on the
+    slim index's ``is_known``, so a traversal id can't reach here
+    from production. But the same loader is reachable through
+    ``load_board_catalog`` / direct callers, so the guard is part
+    of the loader contract.
+    """
+    with caplog.at_level(logging.WARNING):
+        assert load_board_body_from_disk("../etc/passwd") is None
+    assert any("traversal-shaped" in rec.getMessage() for rec in caplog.records)
+
+
+def test_load_board_body_missing_returns_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-existent body file returns ``None`` silently (LazyBodyStore handles it)."""
+    monkeypatch.setattr(defs, "_BOARDS_BODIES_DIR", tmp_path)
+    assert load_board_body_from_disk("nonexistent") is None
+
+
+def test_load_board_body_corrupt_returns_none_logs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A malformed body file logs at ERROR and returns ``None``."""
+    monkeypatch.setattr(defs, "_BOARDS_BODIES_DIR", tmp_path)
+    (tmp_path / "broken.json").write_bytes(b"{not valid json")
+    with caplog.at_level(logging.ERROR):
+        assert load_board_body_from_disk("broken") is None
+    assert any(
+        "Failed to load board body" in rec.getMessage()
+        for rec in caplog.records
+        if rec.levelname == "ERROR"
+    )
+
+
+def test_load_featured_components_index_warns_when_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Missing ``featured_components.index.json`` returns empty + warns."""
+    monkeypatch.setattr(defs, "_FEATURED_COMPONENTS_INDEX_JSON", tmp_path / "missing.json")
+    with caplog.at_level(logging.WARNING):
+        assert load_featured_components_index() == {}
+    assert any("featured_components.index.json" in rec.getMessage() for rec in caplog.records)
+
+
+def test_load_featured_components_index_handles_corrupt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Malformed ``featured_components.index.json`` returns empty instead of crashing."""
+    json_path = tmp_path / "featured.json"
+    json_path.write_bytes(b"{not valid json")
+    monkeypatch.setattr(defs, "_FEATURED_COMPONENTS_INDEX_JSON", json_path)
+    with caplog.at_level(logging.ERROR):
+        assert load_featured_components_index() == {}
+    assert any(
+        "Failed to load featured_components.index.json" in rec.getMessage()
+        for rec in caplog.records
+        if rec.levelname == "ERROR"
+    )
+
+
+def test_load_board_catalog_skips_when_body_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """When the slim index lists an id but its body file is gone, log + skip.
+
+    Pins the half-installed-wheel fallback in the reassembly
+    helper — a sync regen mid-flight could expose the window
+    where the slim index has a new id but the body file isn't on
+    disk yet. The catalog skips that entry rather than crashing.
+    """
+    index_path = tmp_path / "boards.index.json"
+    bodies_dir = tmp_path / "bodies"
+    bodies_dir.mkdir()
+    index_path.write_bytes(
+        orjson.dumps(
+            {
+                "boards": [
+                    BoardCatalogIndex(
+                        id="missing-body",
+                        name="No Body",
+                        description="",
+                        manufacturer="",
+                        esphome=BoardEsphomeConfig(platform=Platform.ESP32, board="esp32dev"),
+                    ).to_dict()
+                ]
+            }
+        )
+    )
+    monkeypatch.setattr(defs, "_BOARDS_INDEX_JSON", index_path)
+    monkeypatch.setattr(defs, "_BOARDS_BODIES_DIR", bodies_dir)
+    with caplog.at_level(logging.WARNING):
+        result = load_board_catalog()
+    assert result.boards == []
+    assert any("Board body missing" in rec.getMessage() for rec in caplog.records)
 
 
 def test_load_default_component_rejects_non_string_non_dict_entry() -> None:

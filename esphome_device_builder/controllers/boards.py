@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, TypedDict
+from typing import Any
 
 from ..definitions import (
     load_board_body_from_disk,
@@ -27,12 +27,6 @@ _LOGGER = logging.getLogger(__name__)
 # the wizard pre-fetch can blow past 128 but the cap exists so a
 # misuse can't grow the heap unbounded.
 _BODY_CACHE_MAXSIZE = 128
-
-
-class BoardBodyRef(TypedDict):
-    """Wire shape of one entry in the ``boards/get_board_bodies`` ``ids`` list."""
-
-    id: str
 
 
 class BoardCatalog:
@@ -140,14 +134,6 @@ class BoardCatalog:
                 return board
         return None
 
-    def get_body_sync(self, board_id: str) -> BoardCatalogEntry | None:
-        """Sync accessor for the full body — worker-thread callers only.
-
-        Blocks on a cache miss with a single disk read. Used by the
-        device-create path's YAML generator which runs in an executor.
-        """
-        return self._body_store.get_sync(board_id)
-
     def iter_boards(self) -> list[BoardCatalogIndex]:
         """Return every slim board index entry (read-only view)."""
         return self._boards
@@ -157,8 +143,8 @@ class BoardCatalog:
         Find a board by its PlatformIO board id, preferring a matching variant.
 
         Returns the slim index entry; the caller fetches the full
-        body via :meth:`get_board` / :meth:`get_body_sync` when it
-        needs pins / featured_components / default_components.
+        body via :meth:`get_board` when it needs pins /
+        featured_components / default_components.
 
         When multiple catalog entries share the same PlatformIO board
         id (e.g. several products are physically built on the same
