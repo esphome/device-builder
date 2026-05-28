@@ -6,6 +6,10 @@ name: PR Labels
 # the "Types of changes" checkbox in the PR template and apply it
 # automatically — most external contributors can't label their own
 # PRs. The job only fails when no checkbox is ticked.
+#
+# Bot-authored PRs (dependabot, pre-commit-ci, …) don't fill in the
+# PR template; they tag themselves with the appropriate label
+# directly, so the job skips them.
 
 # yamllint disable-line rule:truthy
 on:
@@ -26,7 +30,9 @@ jobs:
   apply_label:
     name: Apply
     runs-on: ubuntu-latest
-    if: github.event.pull_request.state == 'open'
+    if: >-
+      github.event.pull_request.state == 'open'
+      && github.event.pull_request.user.type != 'Bot'
     steps:
       - name: 🏷 Apply label from PR description checkbox
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
