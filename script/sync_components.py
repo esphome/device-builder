@@ -4782,6 +4782,31 @@ def _scalar_value_type_for_schema(name: str, schema: dict | None) -> str | None:
     return types[0]
 
 
+# Per-filter field overrides for shapes the upstream schema bundle
+# can't surface because the validator is a custom callable (e.g.
+# ``ntc_process_calibration``) instead of a structural cv.*
+# combinator the bundle dumper can introspect. Each entry promotes
+# the field to ``multi_value: True`` so the frontend renders an
+# add/remove list editor rather than a single text input that loses
+# the YAML list on save. Add new entries here as they surface; the
+# fix lives upstream when the bundle dumper grows support for the
+# custom validators.
+_REGISTRY_FIELD_OVERRIDES: dict[tuple[str, str], dict] = {
+    ("to_ntc_resistance", "calibration"): {"multi_value": True},
+    ("to_ntc_temperature", "calibration"): {"multi_value": True},
+}
+
+
+def _apply_field_overrides(entry_id: str, config_entries: list[dict]) -> list[dict]:
+    """Apply ``_REGISTRY_FIELD_OVERRIDES`` to entries keyed by id."""
+    return [
+        {**e, **_REGISTRY_FIELD_OVERRIDES[(entry_id, e["key"])]}
+        if (entry_id, e["key"]) in _REGISTRY_FIELD_OVERRIDES
+        else e
+        for e in config_entries
+    ]
+
+
 def _convert_registry_entry(
     *,
     name: str,
@@ -4800,6 +4825,7 @@ def _convert_registry_entry(
         config_entries: list[dict] = []
     else:
         config_entries, _alist, _hcg = _extract_automation_param_schema(schema, schema_dir)
+        config_entries = _apply_field_overrides(name, config_entries)
     return {
         "id": name,
         "name": _automation_label(label_domain, name, docs.name),

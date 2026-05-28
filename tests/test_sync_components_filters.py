@@ -295,3 +295,50 @@ def test_convert_registry_entry_keeps_mapping_for_non_scalar_extends() -> None:
     # rather than the scalar-bail; the assertion that matters is the
     # routing distinction (no early return).
     assert entry["id"] == "delta"
+
+
+# ---------------------------------------------------------------------------
+# _REGISTRY_FIELD_OVERRIDES — schema-bundle workarounds
+# ---------------------------------------------------------------------------
+
+
+def test_to_ntc_resistance_calibration_promoted_to_multi_value() -> None:
+    """Upstream's custom ``ntc_process_calibration`` validator hides the list shape."""
+    entry = _convert_registry_entry(
+        name="to_ntc_resistance",
+        body={
+            "schema": {
+                "config_vars": {
+                    "calibration": {"key": "Required", "docs": "calibration data."},
+                },
+            },
+            "type": "schema",
+        },
+        label_domain="sensor",
+        applies_to=["sensor"],
+        schema_dir=_UNUSED_SCHEMA_DIR,
+    )
+    assert entry is not None
+    cal = next(c for c in entry["config_entries"] if c["key"] == "calibration")
+    assert cal["multi_value"] is True
+
+
+def test_to_ntc_temperature_calibration_promoted_to_multi_value() -> None:
+    """Same override as the resistance variant; both share the validator."""
+    entry = _convert_registry_entry(
+        name="to_ntc_temperature",
+        body={
+            "schema": {
+                "config_vars": {
+                    "calibration": {"key": "Required", "docs": "calibration data."},
+                },
+            },
+            "type": "schema",
+        },
+        label_domain="sensor",
+        applies_to=["sensor"],
+        schema_dir=_UNUSED_SCHEMA_DIR,
+    )
+    assert entry is not None
+    cal = next(c for c in entry["config_entries"] if c["key"] == "calibration")
+    assert cal["multi_value"] is True
