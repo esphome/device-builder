@@ -9,6 +9,7 @@ detection branches that promote ``effects:`` / ``filters:`` to
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -146,7 +147,12 @@ def test_convert_field_filter_branch_accepts_each_sensor_domain() -> None:
 async def test_loaded_catalog_preserves_registry_field() -> None:
     """The runtime catalog loader keeps ``ConfigEntry.registry`` populated."""
     cat = ComponentCatalog(MagicMock())
-    cat.load()
+    # ``load()`` is sync and reads the index file off disk; CI's
+    # blockbuster harness flags that as a blocking call when the
+    # test itself is async, so hop into a worker thread for the
+    # sync setup phase. Production paths call ``load()`` once at
+    # startup before the event loop is hot.
+    await asyncio.to_thread(cat.load)
     light = await cat.get_body("light.esp32_rmt_led_strip")
     assert light is not None
     effects = next(e for e in light.config_entries if e.key == "effects")

@@ -3272,9 +3272,18 @@ def _emit_split_catalog(catalog: list[dict], version: str) -> None:
     filter paths reference; the per-id bodies under
     ``definitions/components/<id>.json`` carry the full
     ``config_entries`` tree the detail-view fetches on demand.
-    Bodies land in a sibling ``components.next/`` first and the
-    whole directory is swapped into place so a Ctrl-C mid-write
-    leaves the old catalog intact.
+
+    Crash-safety is best-effort; this is a build-time tool. Both
+    outputs land at sibling temp paths first so a Ctrl-C
+    mid-serialize never overwrites the live catalog. The bodies
+    dir swap (rmtree old + rename next) has a sub-millisecond
+    window where the dir is absent; the index is written via
+    ``os.replace`` so its swap is atomic. Between the bodies swap
+    and the index swap, the live index briefly points at the old
+    id set against the new bodies; the runtime loader handles
+    that gracefully (missing body files log a warning, new ids
+    aren't yet listed), so a reader landing in that window
+    degrades rather than crashes.
     """
     next_bodies = _OUTPUT_BODIES_DIR.parent / "components.next"
     if next_bodies.exists():
@@ -3286,19 +3295,24 @@ def _emit_split_catalog(catalog: list[dict], version: str) -> None:
         body_path = next_bodies / f"{component['id']}.json"
         body_path.write_bytes(orjson.dumps(stripped, option=orjson.OPT_APPEND_NEWLINE))
 
+    # Serialize the new index to a sibling temp so a partial
+    # write can't leave the live file truncated. orjson keeps the
+    # wheel size in check; indented stdlib json was ~39 MB on the
+    # monolithic file vs ~19 MB packed here, ~600 KB off the
+    # wheel after deflate.
+    index_payload = {
+        "esphome_schema_version": version,
+        "components": [_strip_index_defaults(c) for c in catalog],
+    }
+    next_index = _OUTPUT_INDEX_FILE.with_suffix(".json.next")
+    next_index.write_bytes(orjson.dumps(index_payload, option=orjson.OPT_APPEND_NEWLINE))
+
     if _OUTPUT_BODIES_DIR.exists():
         shutil.rmtree(_OUTPUT_BODIES_DIR)
     next_bodies.rename(_OUTPUT_BODIES_DIR)
     _LOGGER.info("Wrote %d body files to %s", len(catalog), _OUTPUT_BODIES_DIR)
 
-    index_payload = {
-        "esphome_schema_version": version,
-        "components": [_strip_index_defaults(c) for c in catalog],
-    }
-    # orjson keeps the wheel size in check — indented stdlib json was
-    # ~39 MB on the monolithic file vs ~19 MB packed here, ~600 KB off
-    # the wheel after deflate.
-    _OUTPUT_INDEX_FILE.write_bytes(orjson.dumps(index_payload, option=orjson.OPT_APPEND_NEWLINE))
+    Path(next_index).replace(_OUTPUT_INDEX_FILE)
     _LOGGER.info("Wrote %s", _OUTPUT_INDEX_FILE)
 
 

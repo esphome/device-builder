@@ -663,6 +663,40 @@ async def test_get_component_bodies_bulk_loads_in_one_executor_hop(
 # ── get_component_bodies() ──────────────────────────────────────────
 
 
+async def test_get_component_bodies_skips_featured_with_missing_body(
+    tmp_path: Path,
+) -> None:
+    """A featured ref whose underlying body wasn't loaded drops out silently.
+
+    Pins the ``_resolve_one_from_bodies`` defensive branch: when the
+    featured registry has a record but its underlying body never
+    made it into the load batch (e.g. the body file was deleted
+    mid-sync), the entry is simply absent from the result rather
+    than throwing.
+    """
+    cat = ComponentCatalog()
+    cat._by_id = {"switch.gpio": _make_entry(entry_id="switch.gpio")}
+    cat._components = list(cat._by_id.values())
+    cat._featured_by_id = {
+        "featured.test-board.relay": _FeaturedRecord(
+            full_id="featured.test-board.relay",
+            board_id="test-board",
+            featured=FeaturedComponent(id="relay", component_id="switch.gpio"),
+            underlying_id="switch.gpio",
+        )
+    }
+    bodies_dir = tmp_path / "components"
+    bodies_dir.mkdir()
+    # NOTE: deliberately don't write switch.gpio.json — the body
+    # load returns nothing, so the featured resolve should bail.
+    with patch.object(components_module, "_COMPONENT_BODIES_DIR", bodies_dir):
+        result = await cat.get_component_bodies(
+            component_ids=["featured.test-board.relay"],
+        )
+
+    assert result == {}
+
+
 async def test_get_component_bodies_returns_dict_keyed_by_id(tmp_path: Path) -> None:
     """Batch hydrate returns one entry per known id; unknown ids drop out."""
     cat = ComponentCatalog()
