@@ -1,0 +1,1 @@
+{"id":"pmwcs3.air_calibration","name":"Pmwcs3 → Air Calibration","description":"The pmwcs3 probe can to be calibrated in dry/air conditions. The air calibration is a 30s procedure.","docs_url":"https://esphome.io/automations/actions","domain":"pmwcs3","config_entries":[],"is_control_flow":false,"has_else_branch":false,"accepts_action_list":[]}

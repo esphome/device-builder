@@ -1,0 +1,1 @@
+{"id":"nau7802.calibrate_internal_offset","name":"Nau7802 → Calibrate Internal Offset","description":"","docs_url":"https://esphome.io/automations/actions","domain":"nau7802","config_entries":[],"is_control_flow":false,"has_else_branch":false,"accepts_action_list":[]}

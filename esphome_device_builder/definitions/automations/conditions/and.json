@@ -1,0 +1,1 @@
+{"id":"and","name":"And","description":"Check a combination of conditions. `all` is a synonym for `and`, and `any` is a synonym for `or`. `all` and `any` may also be used directly in place of `condition`.","docs_url":"https://esphome.io/automations/actions","domain":"core","config_entries":[],"accepts_condition_list":true}

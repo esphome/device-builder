@@ -1,0 +1,1 @@
+{"id":"micro_wake_word.start","name":"Micro Wake Word → Start","description":"","docs_url":"https://esphome.io/automations/actions","domain":"micro_wake_word","config_entries":[{"key":"id","type":"id","label":"ID","advanced":true}],"is_control_flow":false,"has_else_branch":false,"accepts_action_list":[]}

@@ -1,0 +1,1 @@
+{"id":"thermostat.climate.heat_action","name":"Climate.Thermostat → Heat Action","description":"The action to call when the climate device should enter heating mode to increase the current temperature.","docs_url":"https://esphome.io/components/climate/thermostat#configuration-variables","applies_to":["climate.thermostat"],"is_device_level":false,"config_entries":[]}

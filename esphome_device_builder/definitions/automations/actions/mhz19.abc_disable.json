@@ -1,0 +1,1 @@
+{"id":"mhz19.abc_disable","name":"Mhz19 → Abc Disable","description":"This [action](https://esphome.io/automations/actions#all-actions) disables automatic baseline calibration on the sensor with the given ID.","docs_url":"https://esphome.io/automations/actions","domain":"mhz19","config_entries":[],"is_control_flow":false,"has_else_branch":false,"accepts_action_list":[]}

@@ -1,0 +1,1 @@
+{"id":"speaker.media_player.on_unmute","name":"Media Player.Speaker → On Unmute","description":"An automation to perform when unmuted.","docs_url":"https://esphome.io/components/media_player/speaker#configuration-variables","applies_to":["media_player.speaker"],"is_device_level":false,"config_entries":[]}

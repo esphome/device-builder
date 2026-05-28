@@ -1,0 +1,1 @@
+{"id":"thermostat.climate.swing_horizontal_action","name":"Climate.Thermostat → Swing Horizontal Action","description":"The action to call when the fan should oscillate in a horizontal direction.","docs_url":"https://esphome.io/components/climate/thermostat#configuration-variables","applies_to":["climate.thermostat"],"is_device_level":false,"config_entries":[]}

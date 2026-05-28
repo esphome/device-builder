@@ -1,0 +1,1 @@
+{"id":"delayed_off","name":"Binary Sensor → Delayed Off","config_entries":[],"applies_to":["binary_sensor"],"value_type":"time_period"}

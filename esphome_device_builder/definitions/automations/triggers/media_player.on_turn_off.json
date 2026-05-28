@@ -1,0 +1,1 @@
+{"id":"media_player.on_turn_off","name":"Media Player → On Turn Off","description":"An automation to perform when media_player is turned off, implements the `supports_turn_off_on` trait.","docs_url":"https://esphome.io/components/media_player/speaker#configuration-variables","applies_to":["media_player"],"is_device_level":false,"config_entries":[]}

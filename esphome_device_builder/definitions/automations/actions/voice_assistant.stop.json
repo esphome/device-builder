@@ -1,0 +1,1 @@
+{"id":"voice_assistant.stop","name":"Voice Assistant → Stop","description":"Stop listening for voice commands.","docs_url":"https://esphome.io/automations/actions","domain":"voice_assistant","config_entries":[{"key":"id","type":"id","label":"ID","advanced":true}],"is_control_flow":false,"has_else_branch":false,"accepts_action_list":[]}

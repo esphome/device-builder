@@ -1,0 +1,1 @@
+{"id":"throttle_average","name":"Sensor → Throttle Average","config_entries":[],"applies_to":["sensor"],"value_type":"time_period"}

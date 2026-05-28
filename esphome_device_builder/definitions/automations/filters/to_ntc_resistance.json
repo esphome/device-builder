@@ -1,0 +1,1 @@
+{"id":"to_ntc_resistance","name":"Sensor → To Ntc Resistance","config_entries":[{"key":"calibration","type":"string","label":"Calibration","description":"calibration data.","required":true,"display_format":null,"multi_value":true,"help_link":"https://esphome.io/components/sensor/filter/to_ntc_resistance#to-ntc-resistance-filter"}],"applies_to":["sensor"],"value_type":null}

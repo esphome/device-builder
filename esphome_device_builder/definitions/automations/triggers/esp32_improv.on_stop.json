@@ -1,0 +1,1 @@
+{"id":"esp32_improv.on_stop","name":"Esp32 Improv → On Stop","description":"An action to be performed when Improv has stopped. See [`on_stop`](https://esphome.io/components/esp32_improv#improv-on_stop).","docs_url":"https://esphome.io/components/esp32_improv#configuration-variables","applies_to":["esp32_improv"],"is_device_level":false,"config_entries":[]}

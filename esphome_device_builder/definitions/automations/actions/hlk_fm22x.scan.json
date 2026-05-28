@@ -1,0 +1,1 @@
+{"id":"hlk_fm22x.scan","name":"Hlk Fm22X → Scan","description":"Scans and tries to match to an enrolled face. Triggers one of the on_face_scan triggers.","docs_url":"https://esphome.io/automations/actions","domain":"hlk_fm22x","config_entries":[{"key":"id","type":"id","label":"ID","advanced":true}],"is_control_flow":false,"has_else_branch":false,"accepts_action_list":[]}

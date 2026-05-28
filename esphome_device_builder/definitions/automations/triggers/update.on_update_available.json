@@ -1,0 +1,1 @@
+{"id":"update.on_update_available","name":"Update → On Update Available","description":"An automation to perform when an update is available.","docs_url":"https://esphome.io/components/update#configuration-variables","applies_to":["update"],"is_device_level":false,"config_entries":[]}

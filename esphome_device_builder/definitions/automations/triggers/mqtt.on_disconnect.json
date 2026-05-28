@@ -1,0 +1,1 @@
+{"id":"mqtt.on_disconnect","name":"Mqtt → On Disconnect","description":"An action to be performed when the connection to the broker is dropped.","docs_url":"https://esphome.io/components/mqtt#configuration-variables","applies_to":["mqtt"],"is_device_level":false,"config_entries":[]}

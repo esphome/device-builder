@@ -1,0 +1,1 @@
+{"id":"ezo.sensor.on_led","name":"Sensor.Ezo → On Led","description":"Triggered when the result of `get_led_state()` is ready. The LED state is provided as a boolean variable named `x`.","docs_url":"https://esphome.io/components/sensor/ezo#configuration-variables","applies_to":["sensor.ezo"],"is_device_level":false,"config_entries":[]}

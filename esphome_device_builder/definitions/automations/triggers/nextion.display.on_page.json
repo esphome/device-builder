@@ -1,0 +1,1 @@
+{"id":"nextion.display.on_page","name":"Display.Nextion → On Page","description":"An action to be performed after a page change. See [Nextion Automation](https://esphome.io/components/display/nextion#nextion-on_page).","docs_url":"https://esphome.io/components/display/nextion#configuration-variables","applies_to":["display.nextion"],"is_device_level":false,"config_entries":[]}

@@ -1,0 +1,1 @@
+{"id":"senseair.abc_disable","name":"Senseair → Abc Disable","description":"This [action](https://esphome.io/automations/actions#all-actions) disables Automatic Baseline Calibration on the sensor with the given ID.","docs_url":"https://esphome.io/automations/actions","domain":"senseair","config_entries":[],"is_control_flow":false,"has_else_branch":false,"accepts_action_list":[]}

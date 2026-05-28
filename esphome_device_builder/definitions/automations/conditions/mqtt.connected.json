@@ -1,0 +1,1 @@
+{"id":"mqtt.connected","name":"Mqtt → Connected","description":"This [Condition](https://esphome.io/automations/actions#all-conditions) checks if the MQTT client is currently connected to the MQTT broker.","docs_url":"https://esphome.io/automations/actions","domain":"mqtt","config_entries":[{"key":"id","type":"id","label":"ID","advanced":true}],"accepts_condition_list":false}

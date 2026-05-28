@@ -1,0 +1,1 @@
+{"id":"throttle_with_priority","name":"Sensor → Throttle With Priority","config_entries":[{"key":"timeout","type":"time_period","label":"Timeout","required":true,"display_format":null},{"key":"value","type":"string","label":"Value","default_value":"nan","display_format":null,"templatable":true,"advanced":true}],"applies_to":["sensor"],"value_type":null}

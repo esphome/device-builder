@@ -1,0 +1,1 @@
+{"id":"ezo.sensor.on_t","name":"Sensor.Ezo → On T","description":"Triggered when the result of `get_t()` is ready. The result is provided as a `std::string` variable named `x`.","docs_url":"https://esphome.io/components/sensor/ezo#configuration-variables","applies_to":["sensor.ezo"],"is_device_level":false,"config_entries":[]}

@@ -1,0 +1,1 @@
+{"id":"rtttl.on_finished_playback","name":"Rtttl → On Finished Playback","description":"An action to be performed when playback is finished.","docs_url":"https://esphome.io/components/rtttl#configuration-variables","applies_to":["rtttl"],"is_device_level":false,"config_entries":[]}

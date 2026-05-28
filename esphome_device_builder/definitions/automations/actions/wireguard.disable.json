@@ -1,0 +1,1 @@
+{"id":"wireguard.disable","name":"Wireguard → Disable","description":"This action drops down the active VPN link (if any) and disables the component.","docs_url":"https://esphome.io/automations/actions","domain":"wireguard","config_entries":[{"key":"id","type":"id","label":"ID","advanced":true}],"is_control_flow":false,"has_else_branch":false,"accepts_action_list":[]}

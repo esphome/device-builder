@@ -1,0 +1,1 @@
+{"id":"sps30.start_fan_autoclean","name":"Sps30 → Start Fan Autoclean","description":"This [action](https://esphome.io/automations/actions#all-actions) manually starts fan-cleaning.","docs_url":"https://esphome.io/automations/actions","domain":"sps30","config_entries":[],"is_control_flow":false,"has_else_branch":false,"accepts_action_list":[]}

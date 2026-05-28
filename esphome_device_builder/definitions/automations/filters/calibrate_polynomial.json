@@ -1,0 +1,1 @@
+{"id":"calibrate_polynomial","name":"Sensor → Calibrate Polynomial","config_entries":[{"key":"datapoints","type":"string","label":"Datapoints","required":true,"display_format":null,"multi_value":true},{"key":"degree","type":"integer","label":"Degree","required":true,"display_format":null}],"applies_to":["sensor"],"value_type":null}

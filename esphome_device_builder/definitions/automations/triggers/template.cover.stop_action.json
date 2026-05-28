@@ -1,0 +1,1 @@
+{"id":"template.cover.stop_action","name":"Cover.Template → Stop Action","description":"The action that should be performed when the remote requests the cover to be stopped.","docs_url":"https://esphome.io/components/cover/template#configuration-variables","applies_to":["cover.template"],"is_device_level":false,"config_entries":[]}

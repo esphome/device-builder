@@ -1,0 +1,1 @@
+{"id":"binary_sensor.is_off","name":"Binary Sensor → Is Off","description":"","docs_url":"https://esphome.io/automations/actions","domain":"binary_sensor","config_entries":[{"key":"id","type":"id","label":"ID","required":true,"display_format":null,"references_component":"binary_sensor"}],"accepts_condition_list":false}

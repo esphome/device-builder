@@ -1,0 +1,1 @@
+{"id":"voice_assistant.on_start","name":"Voice Assistant → On Start","description":"An automation to perform when the assist pipeline is started.","docs_url":"https://esphome.io/components/voice_assistant#configuration-variables","applies_to":["voice_assistant"],"is_device_level":false,"config_entries":[]}

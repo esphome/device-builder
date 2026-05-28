@@ -1,0 +1,1 @@
+{"id":"espnow.on_unknown_peer","name":"Espnow → On Unknown Peer","description":"An automation to perform when data is received from an unknown peer. See [`on_unknown_peer`](https://esphome.io/components/espnow#espnow-on_unknown_peer).","docs_url":"https://esphome.io/components/espnow#configuration-variables","applies_to":["espnow"],"is_device_level":false,"config_entries":[]}

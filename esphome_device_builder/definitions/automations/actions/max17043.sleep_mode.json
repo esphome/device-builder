@@ -1,0 +1,1 @@
+{"id":"max17043.sleep_mode","name":"Max17043 → Sleep Mode","description":"","docs_url":"https://esphome.io/automations/actions","domain":"max17043","config_entries":[{"key":"id","type":"id","label":"ID","required":true,"display_format":null,"references_component":"max17043"}],"is_control_flow":false,"has_else_branch":false,"accepts_action_list":[]}

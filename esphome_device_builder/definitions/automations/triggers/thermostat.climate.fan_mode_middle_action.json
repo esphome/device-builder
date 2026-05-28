@@ -1,0 +1,1 @@
+{"id":"thermostat.climate.fan_mode_middle_action","name":"Climate.Thermostat → Fan Mode Middle Action","description":"The action to call when the fan should direct its airflow at an intermediate area.","docs_url":"https://esphome.io/components/climate/thermostat#configuration-variables","applies_to":["climate.thermostat"],"is_device_level":false,"config_entries":[]}

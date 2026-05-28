@@ -1,0 +1,1 @@
+{"id":"lambda","name":"Lambda","description":"This action executes an arbitrary piece of C++ code (see [Lambda](https://esphome.io/automations/templates#config-lambda)).","docs_url":"https://esphome.io/automations/actions","domain":"core","config_entries":[],"is_control_flow":false,"has_else_branch":false,"accepts_action_list":[]}

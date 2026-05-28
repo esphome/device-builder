@@ -1,0 +1,1 @@
+{"id":"endstop.cover.close_action","name":"Cover.Endstop → Close Action","description":"The action that should be performed when the remote requests the cover to be closed.","docs_url":"https://esphome.io/components/cover/endstop#configuration-variables","applies_to":["cover.endstop"],"is_device_level":false,"config_entries":[]}

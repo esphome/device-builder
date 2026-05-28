@@ -1,0 +1,1 @@
+{"id":"mqtt.on_connect","name":"Mqtt → On Connect","description":"An action to be performed when a connection to the broker is established.","docs_url":"https://esphome.io/components/mqtt#configuration-variables","applies_to":["mqtt"],"is_device_level":false,"config_entries":[]}

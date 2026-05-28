@@ -1,0 +1,1 @@
+{"id":"current_based.cover.stop_action","name":"Cover.Current Based → Stop Action","description":"The action that should be performed to stop the cover.","docs_url":"https://esphome.io/components/cover/current_based#configuration-variables","applies_to":["cover.current_based"],"is_device_level":false,"config_entries":[]}

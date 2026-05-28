@@ -1,0 +1,1 @@
+{"id":"micro_wake_word.model_is_enabled","name":"Micro Wake Word → Model Is Enabled","description":"","docs_url":"https://esphome.io/automations/actions","domain":"micro_wake_word","config_entries":[{"key":"id","type":"id","label":"ID","required":true,"display_format":null,"references_component":"micro_wake_word"}],"accepts_condition_list":false}

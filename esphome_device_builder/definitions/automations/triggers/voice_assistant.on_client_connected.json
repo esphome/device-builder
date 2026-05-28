@@ -1,0 +1,1 @@
+{"id":"voice_assistant.on_client_connected","name":"Voice Assistant → On Client Connected","description":"An automation to perform when Home Assistant has connected and is waiting for Voice Assistant commands.","docs_url":"https://esphome.io/components/voice_assistant#configuration-variables","applies_to":["voice_assistant"],"is_device_level":false,"config_entries":[]}

@@ -1,0 +1,1 @@
+{"id":"thermostat.climate.cool_action","name":"Climate.Thermostat → Cool Action","description":"The action to call when the climate device should enter cooling mode to decrease the current temperature.","docs_url":"https://esphome.io/components/climate/thermostat#configuration-variables","applies_to":["climate.thermostat"],"is_device_level":false,"config_entries":[]}
