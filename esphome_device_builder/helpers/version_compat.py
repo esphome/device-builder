@@ -44,8 +44,10 @@ def version_satisfies_policy(local: str, peer: str, policy: VersionMatchPolicy) 
     # Fail loudly on a new policy member that hasn't been wired
     # in — silent fallthrough would have a fresh strict policy
     # behaving like EXACT and the regression wouldn't surface
-    # until an operator-reproduced bug report.
-    assert_never(policy)
+    # until an operator-reproduced bug report. Unreachable by
+    # construction (mypy / py-type would catch a missing branch);
+    # the call is a runtime safety net for ``# type: ignore`` slip.
+    assert_never(policy)  # pragma: no cover
 
 
 def major_versions_match(local: str, peer: str) -> bool:
