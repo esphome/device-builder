@@ -106,3 +106,49 @@ async def test_get_bodies_skips_loaded_none_bodies() -> None:
     with patch.object(catalog._TRIGGER_STORE, "load_one_sync", return_value=None):
         result = await _hydrate_bodies([{"type": "triggers", "id": "on_boot"}])
     assert result == {}
+
+
+def test_load_body_returns_none_when_resource_missing() -> None:
+    """A FileNotFoundError on the body resource collapses to None."""
+    loader = catalog._load_body_from_disk("triggers", catalog.AutomationTrigger)
+    with patch.object(catalog.resources, "files") as spy:
+        spy.return_value.joinpath.return_value.joinpath.return_value.read_bytes.side_effect = (
+            FileNotFoundError
+        )
+        assert loader("on_boot") is None
+
+
+def test_load_body_returns_none_when_module_missing() -> None:
+    """A ModuleNotFoundError on the bodies package collapses to None."""
+    loader = catalog._load_body_from_disk("triggers", catalog.AutomationTrigger)
+    with patch.object(catalog.resources, "files", side_effect=ModuleNotFoundError):
+        assert loader("on_boot") is None
+
+
+@pytest.mark.parametrize(
+    "bad_id", ["../escape", "subdir/escape", "back\\slash", "", "null\x00byte"]
+)
+def test_load_body_refuses_traversal_shaped_id(bad_id: str) -> None:
+    """Traversal-shaped ids are refused before touching the filesystem."""
+    loader = catalog._load_body_from_disk("triggers", catalog.AutomationTrigger)
+    with patch.object(catalog.resources, "files") as spy:
+        assert loader(bad_id) is None
+    spy.assert_not_called()
+
+
+def test_load_index_returns_empty_skeleton_when_missing() -> None:
+    """An absent index file falls back to the empty-lists skeleton."""
+    catalog._load_index.cache_clear()
+    try:
+        with patch.object(catalog.resources, "files", side_effect=FileNotFoundError):
+            result = catalog._load_index()
+        assert result == {
+            "triggers": [],
+            "actions": [],
+            "conditions": [],
+            "light_effects": [],
+            "filters": [],
+        }
+    finally:
+        catalog._load_index.cache_clear()
+        catalog._load_index()  # repopulate for the next test in this xdist worker

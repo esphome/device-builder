@@ -165,3 +165,30 @@ async def test_load_one_is_dispatched_through_executor() -> None:
 
     assert len(result) == 10
     assert to_thread_calls == 1
+
+
+async def test_get_many_skips_missing_on_disk_ids() -> None:
+    """A loader returning ``None`` for an id leaves it out of the result."""
+
+    def loader(cid: str) -> _Body | None:
+        return None if cid == "ghost" else _Body(id=cid)
+
+    store: LazyBodyStore[_Body] = LazyBodyStore(load_one=loader)
+    result = await store.get_many(["wifi", "ghost"])
+    assert "ghost" not in result
+    assert result["wifi"].id == "wifi"
+
+
+def test_get_sync_returns_none_when_loader_returns_none() -> None:
+    """A known id whose body file vanished resolves to ``None``."""
+    store: LazyBodyStore[_Body] = LazyBodyStore(load_one=lambda _: None)
+    assert store.get_sync("wifi") is None
+
+
+def test_cache_put_evicts_oldest_when_over_cap() -> None:
+    """``cache_put`` past ``cache_maxsize`` drops the LRU tail."""
+    store: LazyBodyStore[_Body] = LazyBodyStore(load_one=lambda cid: _Body(id=cid), cache_maxsize=2)
+    store.cache_put("a", _Body(id="a"))
+    store.cache_put("b", _Body(id="b"))
+    store.cache_put("c", _Body(id="c"))
+    assert list(store._cache) == ["b", "c"]

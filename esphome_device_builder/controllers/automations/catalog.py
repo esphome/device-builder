@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import Callable
 from functools import cache
 from importlib import resources
@@ -24,7 +25,7 @@ from typing import TYPE_CHECKING, Any, TypedDict
 
 from mashumaro.mixins.orjson import DataClassORJSONMixin
 
-from ...helpers.lazy_catalog import LazyBodyStore
+from ...helpers.lazy_catalog import LazyBodyStore, is_unsafe_catalog_id
 from ...models.automations import (
     AutomationAction,
     AutomationActionIndex,
@@ -41,6 +42,8 @@ from ...models.automations import (
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+
+_LOGGER = logging.getLogger(__name__)
 
 _DEFINITIONS_PACKAGE = "esphome_device_builder.definitions"
 _INDEX_FILE = "automations.index.json"
@@ -59,6 +62,9 @@ def _load_body_from_disk[BodyT: DataClassORJSONMixin](
     """Return a ``load_one(id) -> BodyT | None`` reader for one sub-catalog."""
 
     def _load(catalog_id: str) -> BodyT | None:
+        if is_unsafe_catalog_id(catalog_id):
+            _LOGGER.warning("Refusing %s body for traversal-shaped id: %r", type_key, catalog_id)
+            return None
         try:
             raw = (
                 resources.files(_BODIES_PACKAGE)
