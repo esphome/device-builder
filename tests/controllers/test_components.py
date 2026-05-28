@@ -723,6 +723,42 @@ async def test_get_component_bodies_bulk_loads_in_one_executor_hop(
 # ── get_component_bodies() ──────────────────────────────────────────
 
 
+async def test_load_bodies_dedupes_repeated_ids_before_disk_read(
+    tmp_path: Path,
+) -> None:
+    """Repeated ids in the input collapse to one disk read.
+
+    ``resolve_default_components`` may pass the same underlying id
+    twice when a board lists the same component under multiple
+    featured refs. The loader must not re-read the same body file
+    just because the caller's input list has duplicates.
+    """
+    cat = ComponentCatalog()
+    cat._by_id = {"wifi": _make_entry(entry_id="wifi")}
+    bodies_dir = tmp_path / "components"
+    bodies_dir.mkdir()
+    (bodies_dir / "wifi.json").write_text(
+        json.dumps({"id": "wifi", "name": "Wi-Fi", "category": "core", "config_entries": []})
+    )
+
+    call_count = 0
+    real_loader = components_module._load_body_from_disk
+
+    def _counting_loader(component_id: str):
+        nonlocal call_count
+        call_count += 1
+        return real_loader(component_id)
+
+    with (
+        patch.object(components_module, "_COMPONENT_BODIES_DIR", bodies_dir),
+        patch.object(components_module, "_load_body_from_disk", _counting_loader),
+    ):
+        result = await cat._load_bodies(["wifi", "wifi", "wifi"])
+
+    assert set(result) == {"wifi"}
+    assert call_count == 1
+
+
 async def test_get_component_bodies_skips_featured_with_missing_body(
     tmp_path: Path,
 ) -> None:

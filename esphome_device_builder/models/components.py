@@ -186,7 +186,7 @@ class PagedComponentsResponse(PagedResponse):
     Entries are the slim :class:`ComponentCatalogIndexEntry` shape —
     the per-field ``config_entries`` tree is omitted from list /
     search responses and fetched per-component via
-    ``components/get_component`` when the user opens a card.
+    ``components/get_component_bodies`` when the user opens a card.
     """
 
     components: list[ComponentCatalogIndexEntry] = field(default_factory=list)

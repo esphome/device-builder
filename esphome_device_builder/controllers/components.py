@@ -363,8 +363,8 @@ class ComponentCatalog:
 
         Response entries are the slim :class:`ComponentCatalogIndexEntry`
         shape; the per-field ``config_entries`` tree is fetched on
-        demand via ``components/get_component`` when the user opens a
-        card.
+        demand via ``components/get_component_bodies`` when the user
+        opens a card.
         """
         target_platform = self._resolve_platform(platform, board_id)
         include_set = _as_category_set(category) if category else None
@@ -482,9 +482,16 @@ class ComponentCatalog:
         async with self._body_load_lock:
             result: dict[str, ComponentCatalogEntry] = {}
             to_load: list[str] = []
+            seen: set[str] = set()
             for cid in component_ids:
-                if cid not in self._by_id:
+                # Dedupe inline so a caller passing the same id twice
+                # (``resolve_default_components`` on a board that lists
+                # the same underlying component under multiple
+                # featured refs) doesn't make the executor job read
+                # the same body file twice.
+                if cid in seen or cid not in self._by_id:
                     continue
+                seen.add(cid)
                 cached = self._body_cache.get(cid)
                 if cached is not None:
                     self._body_cache.move_to_end(cid)
