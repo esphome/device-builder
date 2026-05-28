@@ -1,8 +1,9 @@
 """Round-trip tests for ConfigEntry JSON load + materialise.
 
-The catalog ships ConfigEntry shapes as JSON in
-``definitions/components.json``. Two helpers convert them into the
-in-memory ``ConfigEntry`` model the API serves to the frontend:
+The catalog ships ConfigEntry shapes as JSON in the per-id body
+files under ``definitions/components/<id>.json``. Two helpers
+convert them into the in-memory ``ConfigEntry`` model the API
+serves to the frontend:
 
 - ``_load_config_entry`` reads the JSON dict
 - ``_materialise_entry`` resolves platform_defaults and produces the
@@ -213,10 +214,10 @@ def test_load_config_entry_propagates_supported_platforms() -> None:
     """``_load_config_entry`` round-trips ``supported_platforms`` from JSON.
 
     Without this the per-field platform-gating signal that the sync
-    script writes into ``components.json`` would be silently dropped
-    when the catalog is loaded into the runtime model — the frontend
-    would never see a gated field as gated. (Caught by Copilot review
-    on PR #423.)
+    script writes into each ``components/<id>.json`` body would be
+    silently dropped when the catalog is loaded into the runtime
+    model — the frontend would never see a gated field as gated.
+    (Caught by Copilot review on PR #423.)
     """
     entry = _load_config_entry(
         {

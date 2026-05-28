@@ -6,7 +6,7 @@ import asyncio
 import logging
 from collections import OrderedDict
 from dataclasses import dataclass
-from functools import cache
+from functools import cache, lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -50,6 +50,12 @@ _COMPONENT_BODIES_DIR = _DEFINITIONS_DIR / "components"
 # ~30-50 components) plus headroom for featured-card warmups and
 # yaml-completion lookups without thrashing.
 _BODY_CACHE_MAXSIZE = 128
+
+# LRU cap for ``is_unsafe_component_id`` (~5x the live catalog
+# size). Bounded rather than ``@cache`` because the predicate
+# sees external input (WS handler kwargs); unbounded growth on
+# attacker-controlled ids would be a denial-of-service surface.
+_UNSAFE_ID_CACHE_MAXSIZE = 4096
 
 # Catalog ids for components that ESPHome auto-loads as transport /
 # helper modules but that the dashboard's Add Configuration picker
@@ -1156,7 +1162,7 @@ def _load_body_from_disk(component_id: str) -> ComponentCatalogEntry | None:
     # check is purely on the id string (parent refs / separators /
     # null bytes) so the hot path stays out of the kernel ``lstat``
     # walk that ``Path.resolve`` does on every hydrate.
-    if _is_unsafe_component_id(component_id):
+    if is_unsafe_component_id(component_id):
         _LOGGER.warning("Refusing component body for traversal-shaped id: %r", component_id)
         return None
     body_path = _COMPONENT_BODIES_DIR / f"{component_id}.json"
@@ -1166,8 +1172,20 @@ def _load_body_from_disk(component_id: str) -> ComponentCatalogEntry | None:
     return _load_component(loads(body_path.read_bytes()))
 
 
-def _is_unsafe_component_id(component_id: str) -> bool:
-    """Return True when *component_id* contains traversal-shaped characters."""
+@lru_cache(maxsize=_UNSAFE_ID_CACHE_MAXSIZE)
+def is_unsafe_component_id(component_id: str) -> bool:
+    """
+    Return True when *component_id* contains traversal-shaped characters.
+
+    Shared by the runtime body loader (rejects + warns) and the
+    sync script's body emitter (raises before write); both ends
+    of the on-disk catalog stay narrow against the same predicate
+    so a future bug on either side can't silently produce a path
+    outside ``definitions/components/``. The result is cached
+    because the same ~900 catalog ids repeat across every batch
+    hydrate; the ``maxsize`` cap keeps an attacker-controlled
+    flood from growing the cache without bound.
+    """
     return (
         not component_id
         or ".." in component_id

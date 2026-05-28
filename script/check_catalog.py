@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-"""
-Smoke-test ``definitions/components.json`` for shape regressions.
+"""Smoke-test the split catalog for shape regressions.
+
+Reads ``definitions/components.index.json`` plus per-id bodies
+under ``definitions/components/``.
 
 Loads the catalog via ``ComponentCatalog`` (i.e. through the same
 JSON loader the API uses), then asserts that a curated list of

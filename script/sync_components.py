@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-"""
-Generate definitions/components.json from ESPHome's pre-built schema bundle.
+"""Generate the split component catalog from ESPHome's pre-built schema bundle.
+
+Emits ``definitions/components.index.json`` plus per-id body files
+under ``definitions/components/<id>.json``.
 
 The schema repo (https://github.com/esphome/esphome-schema) publishes a
 schema.zip per ESPHome release containing one JSON file per component.
@@ -91,6 +93,9 @@ _USER_AGENT = "esphome-device-builder-backend (https://github.com/esphome/device
 sys.path.insert(0, str(_REPO_ROOT))
 from esphome_device_builder.controllers.components import (  # noqa: E402
     INTERNAL_COMPONENT_IDS as _INTERNAL_COMPONENT_IDS,
+)
+from esphome_device_builder.controllers.components import (  # noqa: E402
+    is_unsafe_component_id,
 )
 from script._light_schemas import (  # noqa: E402
     resolve_light_effects_applies_to,
@@ -730,7 +735,10 @@ def main() -> int:
     logging.basicConfig(format="%(message)s", level=logging.INFO)
 
     parser = argparse.ArgumentParser(
-        description="Generate components.json from ESPHome's pre-built schema bundle.",
+        description=(
+            "Generate components.index.json + per-id body files under "
+            "definitions/components/ from ESPHome's pre-built schema bundle."
+        ),
     )
     parser.add_argument(
         "--version",
@@ -3299,8 +3307,20 @@ def _emit_split_catalog(catalog: list[dict], version: str) -> None:
     next_bodies.mkdir(parents=True)
 
     for component in catalog:
+        cid = component["id"]
+        # Mirror the runtime body loader's path-traversal guard on
+        # the write side; catalog ids come from a controlled schema
+        # bundle today, but a sync-time bug or an upstream schema
+        # change introducing a separator / parent ref in an id
+        # would silently escape ``next_bodies`` without this check.
+        # Fail the build rather than warn-and-skip so a regression
+        # surfaces in CI, not as a half-populated catalog at
+        # runtime.
+        if is_unsafe_component_id(cid):
+            msg = f"Refusing to emit body for traversal-shaped component id: {cid!r}"
+            raise ValueError(msg)
         stripped = _strip_defaults(component)
-        body_path = next_bodies / f"{component['id']}.json"
+        body_path = next_bodies / f"{cid}.json"
         body_path.write_bytes(orjson.dumps(stripped, option=orjson.OPT_APPEND_NEWLINE))
 
     # Serialize the new index to a sibling temp so a partial
