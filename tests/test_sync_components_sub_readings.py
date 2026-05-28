@@ -109,7 +109,7 @@ def test_no_extends_field_unaffected() -> None:
 
 def test_catalog_dht_sub_readings_not_advanced() -> None:
     """Real catalog: DHT temperature + humidity surface on the main form."""
-    catalog = json.loads(_CATALOG_PATH.read_text())
+    catalog = json.loads(_CATALOG_PATH.read_text(encoding="utf-8"))
     dht = next(c for c in catalog["components"] if c["id"] == "sensor.dht")
     by_key = {e["key"]: e for e in dht["config_entries"]}
     assert by_key["temperature"]["advanced"] is False
@@ -118,7 +118,7 @@ def test_catalog_dht_sub_readings_not_advanced() -> None:
 
 def test_catalog_debug_sub_readings_not_advanced_but_id_stays() -> None:
     """All 7 debug sub-readings surface; ``debug_id`` (an ID) stays advanced."""
-    catalog = json.loads(_CATALOG_PATH.read_text())
+    catalog = json.loads(_CATALOG_PATH.read_text(encoding="utf-8"))
     debug = next(c for c in catalog["components"] if c["id"] == "sensor.debug")
     by_key = {e["key"]: e for e in debug["config_entries"]}
     sub_readings = (
