@@ -214,6 +214,66 @@ the official ESPHome container and Home Assistant add-on.
   cross-platform CI commands on a single line, or use PowerShell-
   compatible backtick continuations.
 
+## Empirical browser testing
+
+When a change needs the live dashboard for verification (UI
+behaviour, WS round-trip shape, end-to-end flows), pair this
+backend with its companion frontend dev server. Tests verify
+correctness; the browser verifies what the user actually sees.
+
+**Two-process setup.**
+
+1. Backend on `:6052` in dev mode:
+
+   ```bash
+   .venv/bin/python -m esphome_device_builder --dev configs
+   ```
+
+   `--dev` serves `index.html` with `Cache-Control: no-cache`
+   so a rebuilt frontend bundle isn't masked by a stale SPA
+   shell.
+
+2. Frontend dev server in the **paired** frontend checkout
+   (`device-builder_2` pairs with `device-builder-frontend_2`,
+   etc.). The default port is 5173:
+
+   ```bash
+   cd ../device-builder-frontend_2
+   npm run dev
+   ```
+
+   The dev server proxies `/ws` to `http://localhost:6052`,
+   so the backend started above is what answers. HMR is on,
+   so a saved `.ts` source reloads in-place — no need to
+   restart between iterations.
+
+   If 5173 is already taken (a parallel session, or the user's
+   own browser is attached to an existing dev server), pass
+   `PORT=5174` (or another free port) to `npm run dev`.
+   Configure the *frontend dev server* port; the backend
+   stays on 6052 and the proxy still works.
+
+**Run both in the background** (Claude should use
+`run_in_background`) and `lsof -iTCP:6052 -sTCP:LISTEN` /
+`lsof -iTCP:5174 -sTCP:LISTEN` to wait for both to be listening
+before telling the user the dev URL. Then point the user at
+`http://localhost:<frontend-port>/`.
+
+**Cleanup.** When the user is done, kill both processes:
+
+```bash
+lsof -iTCP:6052 -iTCP:5174 -sTCP:LISTEN -t | xargs kill
+```
+
+**Alternative: production-shape testing.** When you want the
+backend to serve the actual built bundle (closer to what ships),
+build the frontend with `npm run build` in the paired checkout —
+the build output lands in the `esphome_device_builder_frontend`
+site-packages dir the backend reads from `_get_frontend_dir`. No
+proxy needed, just browse to `http://localhost:6052/`. Use the
+dev-server path for fast iteration; use the built path when you
+want to verify the bundle the user will actually receive.
+
 ## Comparison with the legacy esphome dashboard
 
 The legacy Tornado-based dashboard (`esphome/dashboard/` in the
