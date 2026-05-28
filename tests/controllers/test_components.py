@@ -620,7 +620,7 @@ async def test_get_body_refuses_path_traversal_id(
         result = await cat.get_body("../escape")
 
     assert result is None
-    assert any("outside bodies dir" in rec.message for rec in caplog.records)
+    assert any("traversal-shaped id" in rec.message for rec in caplog.records)
 
 
 async def test_get_body_returns_none_when_body_missing_on_disk(
