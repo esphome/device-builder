@@ -16,6 +16,7 @@ bodies (used by parsing / writing to access ``config_entries``).
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from functools import cache
 from importlib import resources
 from typing import TYPE_CHECKING
@@ -49,7 +50,9 @@ _BODIES_PACKAGE = "esphome_device_builder.definitions.automations"
 _BODY_CACHE_MAXSIZE = 128
 
 
-def _load_body_from_disk[BodyT](type_key: str, body_cls: type[BodyT]) -> callable:
+def _load_body_from_disk[BodyT](
+    type_key: str, body_cls: type[BodyT]
+) -> Callable[[str], BodyT | None]:
     """Return a ``load_one(id) -> BodyT | None`` reader for one sub-catalog."""
 
     def _load(catalog_id: str) -> BodyT | None:
@@ -83,8 +86,8 @@ def _load_index() -> dict:
     return json.loads(raw_bytes)
 
 
-def _build_slim(type_key: str, slim_cls: type) -> list:
-    return [slim_cls.from_dict(e) for e in _load_index().get(type_key, [])]
+def _build_slim[SlimT](type_key: str, slim_cls: type[SlimT]) -> list[SlimT]:
+    return [slim_cls.from_dict(e) for e in _load_index().get(type_key, [])]  # type: ignore[attr-defined]
 
 
 # Slim in-memory state (matches the wire shape the WS list
@@ -116,9 +119,9 @@ def _slim_filters() -> list[FilterIndex]:
 
 
 @cache
-def _slim_index_by_id(type_key: str) -> dict[str, str]:
-    """Set-of-known-ids by type, used as the LazyBodyStore ``is_known`` gate."""
-    return {e["id"]: e["id"] for e in _load_index().get(type_key, [])}
+def _slim_index_ids(type_key: str) -> frozenset[str]:
+    """Frozen set of known ids by type, the LazyBodyStore ``is_known`` gate."""
+    return frozenset(e["id"] for e in _load_index().get(type_key, []))
 
 
 # Per-type lazy body stores. Each store reads its bodies from
@@ -128,27 +131,27 @@ def _slim_index_by_id(type_key: str) -> dict[str, str]:
 _TRIGGER_STORE: LazyBodyStore[AutomationTrigger] = LazyBodyStore(
     load_one=_load_body_from_disk("triggers", AutomationTrigger),
     cache_maxsize=_BODY_CACHE_MAXSIZE,
-    is_known=lambda cid: cid in _slim_index_by_id("triggers"),
+    is_known=lambda cid: cid in _slim_index_ids("triggers"),
 )
 _ACTION_STORE: LazyBodyStore[AutomationAction] = LazyBodyStore(
     load_one=_load_body_from_disk("actions", AutomationAction),
     cache_maxsize=_BODY_CACHE_MAXSIZE,
-    is_known=lambda cid: cid in _slim_index_by_id("actions"),
+    is_known=lambda cid: cid in _slim_index_ids("actions"),
 )
 _CONDITION_STORE: LazyBodyStore[AutomationCondition] = LazyBodyStore(
     load_one=_load_body_from_disk("conditions", AutomationCondition),
     cache_maxsize=_BODY_CACHE_MAXSIZE,
-    is_known=lambda cid: cid in _slim_index_by_id("conditions"),
+    is_known=lambda cid: cid in _slim_index_ids("conditions"),
 )
 _LIGHT_EFFECT_STORE: LazyBodyStore[LightEffect] = LazyBodyStore(
     load_one=_load_body_from_disk("light_effects", LightEffect),
     cache_maxsize=_BODY_CACHE_MAXSIZE,
-    is_known=lambda cid: cid in _slim_index_by_id("light_effects"),
+    is_known=lambda cid: cid in _slim_index_ids("light_effects"),
 )
 _FILTER_STORE: LazyBodyStore[Filter] = LazyBodyStore(
     load_one=_load_body_from_disk("filters", Filter),
     cache_maxsize=_BODY_CACHE_MAXSIZE,
-    is_known=lambda cid: cid in _slim_index_by_id("filters"),
+    is_known=lambda cid: cid in _slim_index_ids("filters"),
 )
 
 
