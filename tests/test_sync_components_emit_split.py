@@ -15,6 +15,36 @@ import script.sync_components as sync_module
 from script.sync_components import _emit_split_catalog  # type: ignore[import-not-found]
 
 
+def test_emit_split_catalog_refuses_body_that_fails_mashumaro_roundtrip(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Mashumaro-strict roundtrip is required before a body lands on disk."""
+    monkeypatch.setattr(sync_module, "_OUTPUT_BODIES_DIR", tmp_path / "components")
+    monkeypatch.setattr(sync_module, "_OUTPUT_INDEX_FILE", tmp_path / "components.index.json")
+
+    catalog = [
+        {
+            "id": "stepper.bench",
+            "name": "Bench Stepper",
+            "category": "stepper",
+            "config_entries": [
+                {
+                    "key": "dir_pin",
+                    "type": "pin",
+                    "label": "Dir Pin",
+                    # ``output`` is a GPIO mode flag, not a hardware feature
+                    # (PinFeature enum); mashumaro rejects this.
+                    "pin_features": ["output"],
+                }
+            ],
+        }
+    ]
+
+    with pytest.raises(ValueError, match="fails roundtrip"):
+        _emit_split_catalog(catalog, "2026.5.1")
+
+
 @pytest.mark.parametrize(
     "bad_id",
     [

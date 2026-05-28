@@ -97,6 +97,7 @@ from esphome_device_builder.controllers.components import (  # noqa: E402
 from esphome_device_builder.controllers.components import (  # noqa: E402
     is_unsafe_component_id,
 )
+from esphome_device_builder.models import ComponentCatalogEntry  # noqa: E402
 from script._light_schemas import (  # noqa: E402
     resolve_light_effects_applies_to,
 )
@@ -3320,6 +3321,13 @@ def _emit_split_catalog(catalog: list[dict], version: str) -> None:
             msg = f"Refusing to emit body for traversal-shaped component id: {cid!r}"
             raise ValueError(msg)
         stripped = _strip_defaults(component)
+        # Fail-fast on shape drift so the runtime loader can be
+        # the strict mashumaro from_dict with no soft fallbacks.
+        try:
+            ComponentCatalogEntry.from_dict(stripped)
+        except Exception as exc:
+            msg = f"Component {cid!r} fails roundtrip: {exc}"
+            raise ValueError(msg) from exc
         body_path = next_bodies / f"{cid}.json"
         body_path.write_bytes(orjson.dumps(stripped, option=orjson.OPT_APPEND_NEWLINE))
 
