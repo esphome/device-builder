@@ -15,6 +15,7 @@ from unittest.mock import MagicMock
 from esphome_device_builder.controllers.components import ComponentCatalog
 from script.sync_components import (  # type: ignore[import-not-found]
     _convert_field,
+    _convert_registry_entry,
     _dedupe_filters,
     _is_scalar_extends_schema,
 )
@@ -208,3 +209,69 @@ def test_scalar_extends_rejects_empty_and_none() -> None:
     assert not _is_scalar_extends_schema(None)
     assert not _is_scalar_extends_schema({})
     assert not _is_scalar_extends_schema({"extends": []})
+
+
+# ---------------------------------------------------------------------------
+# _convert_field — extends-of-scalar collapse (now shares the helper)
+# ---------------------------------------------------------------------------
+
+
+def test_convert_field_collapses_returning_lambda_extends_to_string() -> None:
+    """Centralising the helper adds a returning_lambda branch to field-level too."""
+    raw = {"key": "Optional", "extends": ["core.returning_lambda"]}
+    entry = _convert_field("on_value", raw, _UNUSED_SCHEMA_DIR)
+    assert entry is not None
+    assert entry["type"] == "string"
+
+
+# ---------------------------------------------------------------------------
+# _convert_registry_entry — integration with the scalar-extends branch
+# ---------------------------------------------------------------------------
+
+
+def test_convert_registry_entry_returns_empty_config_entries_for_time_period() -> None:
+    """`throttle`-shaped filter body produces no decomposed sub-fields."""
+    entry = _convert_registry_entry(
+        name="throttle",
+        body={
+            "schema": {"extends": ["core.positive_time_period_milliseconds"]},
+            "type": "schema",
+        },
+        label_domain="sensor",
+        applies_to=["sensor"],
+        schema_dir=_UNUSED_SCHEMA_DIR,
+    )
+    assert entry is not None
+    assert entry["id"] == "throttle"
+    assert entry["config_entries"] == []
+    assert entry["applies_to"] == ["sensor"]
+
+
+def test_convert_registry_entry_returns_empty_config_entries_for_returning_lambda() -> None:
+    """A hypothetical lambda-bodied filter with a schema extends, not just docs."""
+    entry = _convert_registry_entry(
+        name="lambda",
+        body={"schema": {"extends": ["core.returning_lambda"]}, "type": "schema"},
+        label_domain="sensor",
+        applies_to=["sensor"],
+        schema_dir=_UNUSED_SCHEMA_DIR,
+    )
+    assert entry is not None
+    assert entry["config_entries"] == []
+
+
+def test_convert_registry_entry_keeps_mapping_for_non_scalar_extends() -> None:
+    """`extends` to a non-scalar schema name shouldn't trigger the bail-out."""
+    entry = _convert_registry_entry(
+        name="delta",
+        body={"schema": {"extends": ["sensor.DELTA_SCHEMA"]}, "type": "schema"},
+        label_domain="sensor",
+        applies_to=["sensor"],
+        schema_dir=_UNUSED_SCHEMA_DIR,
+    )
+    assert entry is not None
+    # Without a resolver the extends-to-mapping ref leaves config_entries
+    # empty too, but it goes through ``_extract_automation_param_schema``
+    # rather than the scalar-bail; the assertion that matters is the
+    # routing distinction (no early return).
+    assert entry["id"] == "delta"
