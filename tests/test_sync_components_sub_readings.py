@@ -84,8 +84,10 @@ def test_catalog_dht_sub_readings_not_advanced() -> None:
     catalog = json.loads(_CATALOG_PATH.read_text(encoding="utf-8"))
     dht = next(c for c in catalog["components"] if c["id"] == "sensor.dht")
     by_key = {e["key"]: e for e in dht["config_entries"]}
-    assert by_key["temperature"]["advanced"] is False
-    assert by_key["humidity"]["advanced"] is False
+    # ``advanced: False`` is the default and gets stripped by
+    # ``_strip_entry_defaults``; treat absent as False.
+    assert by_key["temperature"].get("advanced", False) is False
+    assert by_key["humidity"].get("advanced", False) is False
 
 
 def test_catalog_debug_sub_readings_not_advanced_but_id_stays() -> None:
@@ -103,8 +105,9 @@ def test_catalog_debug_sub_readings_not_advanced_but_id_stays() -> None:
         "psram",
     )
     for key in sub_readings:
-        assert by_key[key]["advanced"] is False, f"{key} should not be advanced"
+        assert by_key[key].get("advanced", False) is False, f"{key} should not be advanced"
     # ``debug_id`` is the platform's GeneratedID field, not a
     # sub-reading; the override doesn't reach it and the default
-    # classification still applies.
+    # classification still applies. ``True`` is non-default so the
+    # key is preserved on the catalog dict.
     assert by_key["debug_id"]["advanced"] is True

@@ -4769,14 +4769,17 @@ def _scalar_value_type_for_schema(name: str, schema: dict | None) -> str | None:
     """Return the scalar primitive *schema* collapses to, or None."""
     if name == _LAMBDA_REGISTRY_ID and not schema:
         return _LAMBDA_REGISTRY_ID
-    if not _is_scalar_extends_schema(schema):
+    if not schema or schema.get("config_vars"):
         return None
-    extends = (schema or {}).get("extends") or []
-    for ref in extends:
-        scalar = _scalar_type_for_extends_ref(ref)
-        if scalar is not None:
-            return scalar
-    return None
+    extends = schema.get("extends") or []
+    if not extends:
+        return None
+    types = [_scalar_type_for_extends_ref(ref) for ref in extends]
+    # All extends must resolve to a scalar primitive; a single
+    # mapping-shaped extends (sensor.DELTA_SCHEMA etc.) disqualifies.
+    if any(t is None for t in types):
+        return None
+    return types[0]
 
 
 def _convert_registry_entry(
