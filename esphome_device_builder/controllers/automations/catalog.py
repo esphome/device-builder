@@ -128,11 +128,14 @@ def _slim_filters() -> list[FilterIndex]:
     return _build_slim("filters", FilterIndex)
 
 
-@cache
-def _slim_index_ids(type_key: str) -> frozenset[str]:
-    """Frozen set of known ids by type, the LazyBodyStore ``is_known`` gate."""
-    return frozenset(e["id"] for e in _load_index().get(type_key, []))
-
+# Frozen id sets feed each store's ``is_known`` gate. Bound as
+# ``frozenset.__contains__`` so the hot path is one C-level
+# dispatch rather than a lambda + cached function call.
+_TRIGGER_IDS: frozenset[str] = frozenset(t.id for t in _slim_triggers())
+_ACTION_IDS: frozenset[str] = frozenset(a.id for a in _slim_actions())
+_CONDITION_IDS: frozenset[str] = frozenset(c.id for c in _slim_conditions())
+_LIGHT_EFFECT_IDS: frozenset[str] = frozenset(e.id for e in _slim_light_effects())
+_FILTER_IDS: frozenset[str] = frozenset(f.id for f in _slim_filters())
 
 # Per-type lazy body stores. Each store reads its bodies from
 # ``definitions/automations/<type>/<id>.json`` through the
@@ -141,27 +144,27 @@ def _slim_index_ids(type_key: str) -> frozenset[str]:
 _TRIGGER_STORE: LazyBodyStore[AutomationTrigger] = LazyBodyStore(
     load_one=_load_body_from_disk("triggers", AutomationTrigger),
     cache_maxsize=_BODY_CACHE_MAXSIZE,
-    is_known=lambda cid: cid in _slim_index_ids("triggers"),
+    is_known=_TRIGGER_IDS.__contains__,
 )
 _ACTION_STORE: LazyBodyStore[AutomationAction] = LazyBodyStore(
     load_one=_load_body_from_disk("actions", AutomationAction),
     cache_maxsize=_BODY_CACHE_MAXSIZE,
-    is_known=lambda cid: cid in _slim_index_ids("actions"),
+    is_known=_ACTION_IDS.__contains__,
 )
 _CONDITION_STORE: LazyBodyStore[AutomationCondition] = LazyBodyStore(
     load_one=_load_body_from_disk("conditions", AutomationCondition),
     cache_maxsize=_BODY_CACHE_MAXSIZE,
-    is_known=lambda cid: cid in _slim_index_ids("conditions"),
+    is_known=_CONDITION_IDS.__contains__,
 )
 _LIGHT_EFFECT_STORE: LazyBodyStore[LightEffect] = LazyBodyStore(
     load_one=_load_body_from_disk("light_effects", LightEffect),
     cache_maxsize=_BODY_CACHE_MAXSIZE,
-    is_known=lambda cid: cid in _slim_index_ids("light_effects"),
+    is_known=_LIGHT_EFFECT_IDS.__contains__,
 )
 _FILTER_STORE: LazyBodyStore[Filter] = LazyBodyStore(
     load_one=_load_body_from_disk("filters", Filter),
     cache_maxsize=_BODY_CACHE_MAXSIZE,
-    is_known=lambda cid: cid in _slim_index_ids("filters"),
+    is_known=_FILTER_IDS.__contains__,
 )
 
 # Wire ``type`` field on ``automations/get_bodies`` refs -> store.
@@ -339,13 +342,3 @@ def _filter_by_domain_slim[T: (AutomationActionIndex, AutomationConditionIndex)]
         elif item.domain in domain_set:
             component.append(item)
     return core + component
-
-
-# Pre-warm the slim index at module-import time so the first
-# request never trips blockbuster on the disk read.
-_load_index()
-_slim_triggers()
-_slim_actions()
-_slim_conditions()
-_slim_light_effects()
-_slim_filters()
