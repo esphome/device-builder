@@ -958,7 +958,10 @@ def _load_body_from_disk(component_id: str) -> ComponentCatalogEntry | None:
     # chain is bounded because ``get_body`` short-circuits on
     # ``component_id not in self._by_id`` and the index is shipped
     # with the wheel, but a local reject-by-syntax check keeps the
-    # safety property of the loader readable in isolation.
+    # safety property of the loader readable in isolation. The
+    # check is purely on the id string (parent refs / separators /
+    # null bytes) so the hot path stays out of the kernel ``lstat``
+    # walk that ``Path.resolve`` does on every hydrate.
     if is_unsafe_component_id(component_id):
         _LOGGER.warning("Refusing component body for traversal-shaped id: %r", component_id)
         return None
