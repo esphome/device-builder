@@ -7,7 +7,7 @@ mashumaro; ``ComponentCatalog.load()`` decodes the slim
 ``definitions/components.index.json`` and instantiates ~900
 ``ComponentCatalogIndexEntry`` objects. Component bodies load
 lazily on detail-view; this bench still measures the per-entry
-cost via ``_load_component`` against one body file.
+cost via ``ComponentCatalogEntry.from_dict`` against one body file.
 
 The per-board YAML parse benchmark covers ``script/sync_boards.py``
 rather than the runtime path — a regression in the libyaml loader
@@ -27,7 +27,6 @@ from pathlib import Path
 import yaml
 from pytest_codspeed import BenchmarkFixture
 
-from esphome_device_builder.controllers.components import _load_component
 from esphome_device_builder.definitions import (
     _load_esphome_config,
     _load_featured_component,
@@ -37,7 +36,7 @@ from esphome_device_builder.definitions import (
 )
 from esphome_device_builder.helpers.json import loads
 from esphome_device_builder.helpers.yaml import FastestSafeLoader
-from esphome_device_builder.models import BoardCatalogResponse
+from esphome_device_builder.models import BoardCatalogResponse, ComponentCatalogEntry
 
 _DEFINITIONS = Path(__file__).resolve().parents[2] / "esphome_device_builder" / "definitions"
 
@@ -125,17 +124,15 @@ def test_load_one_component_entry(benchmark: BenchmarkFixture) -> None:
     per-component cost.
     """
     # Validate the build path ONCE outside the loop so a refactor
-    # that stubs ``_load_config_entry`` to ``return None`` fails
-    # the test. Asserting inside @benchmark would be a 30%+
-    # overhead on a 500ns per-iteration cost — the loop body
-    # stays clean.
-    _smoke = _load_component(_SAMPLE_COMPONENT)
+    # that breaks the mashumaro builder fails this test. Asserting
+    # inside @benchmark would inflate per-iteration cost.
+    _smoke = ComponentCatalogEntry.from_dict(_SAMPLE_COMPONENT)
     assert _smoke.id == "sensor.dht"
     assert len(_smoke.config_entries) == 7
 
     @benchmark
     def run() -> None:
-        _load_component(_SAMPLE_COMPONENT)
+        ComponentCatalogEntry.from_dict(_SAMPLE_COMPONENT)
 
 
 def test_load_board_catalog_json(benchmark: BenchmarkFixture) -> None:
