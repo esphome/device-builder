@@ -16,7 +16,6 @@ bodies (used by parsing / writing to access ``config_entries``).
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from collections.abc import Callable
 from functools import cache
@@ -25,6 +24,7 @@ from typing import TYPE_CHECKING, Any, TypedDict
 
 from mashumaro.mixins.orjson import DataClassORJSONMixin
 
+from ...helpers.json import loads as json_loads
 from ...helpers.lazy_catalog import LazyBodyStore, is_unsafe_catalog_id
 from ...models.automations import (
     AutomationAction,
@@ -74,7 +74,7 @@ def _load_body_from_disk[BodyT: DataClassORJSONMixin](
             )
         except (FileNotFoundError, ModuleNotFoundError):
             return None
-        return body_cls.from_dict(json.loads(raw))
+        return body_cls.from_dict(json_loads(raw))
 
     return _load
 
@@ -92,7 +92,7 @@ def _load_index() -> dict[str, Any]:
             "light_effects": [],
             "filters": [],
         }
-    parsed: dict[str, Any] = json.loads(raw_bytes)
+    parsed: dict[str, Any] = json_loads(raw_bytes)
     return parsed
 
 
@@ -253,11 +253,21 @@ async def get_bodies(refs: list[AutomationBodyRef]) -> dict[str, dict]:
     disk bodies are absent from the response. Duplicate
     ``(type, id)`` pairs collapse to one entry. Response is keyed
     by ``"<type>/<id>"``.
+
+    Trades :class:`LazyBodyStore`'s same-id ``asyncio.Lock``
+    coalescing for the single-hop cross-store batch — two
+    concurrent calls with overlapping refs each pay their own
+    disk read. Acceptable because reads are idempotent and the
+    cache writes are GIL-atomic; do not re-introduce the lock
+    here without restoring per-store ``get_many`` (which
+    re-introduces the per-type executor hops).
     """
     result: dict[str, dict] = {}
     misses: list[tuple[str, str, LazyBodyStore[Any]]] = []
     seen: set[tuple[str, str]] = set()
     for ref in refs:
+        if not isinstance(ref, dict):
+            continue
         type_key = ref.get("type", "")
         cid = ref.get("id", "")
         if not type_key or not cid or (type_key, cid) in seen:

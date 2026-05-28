@@ -75,6 +75,13 @@ async def test_get_bodies_drops_refs_missing_type_or_id(ref: dict) -> None:
     assert result == {}
 
 
+@pytest.mark.parametrize("ref", [None, "triggers", 42, ["triggers", "on_boot"]])
+async def test_get_bodies_drops_non_dict_refs(ref: object) -> None:
+    """Non-dict refs from a malformed wire payload are dropped, not raised."""
+    result = await _hydrate_bodies([ref])  # type: ignore[list-item]
+    assert result == {}
+
+
 async def test_get_bodies_uses_single_executor_hop_across_types() -> None:
     """A mixed-type batch pays exactly one ``asyncio.to_thread`` hop."""
     catalog._TRIGGER_STORE._cache.clear()
