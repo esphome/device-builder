@@ -143,15 +143,17 @@ def test_convert_field_filter_branch_accepts_each_sensor_domain() -> None:
         assert entry["registry"] == "filter", f"unexpected dispatch for {registry}"
 
 
-def test_loaded_catalog_preserves_registry_field() -> None:
+async def test_loaded_catalog_preserves_registry_field() -> None:
     """The runtime catalog loader keeps ``ConfigEntry.registry`` populated."""
     cat = ComponentCatalog(MagicMock())
     cat.load()
-    light = cat._by_id["light.esp32_rmt_led_strip"]
+    light = await cat.get_body("light.esp32_rmt_led_strip")
+    assert light is not None
     effects = next(e for e in light.config_entries if e.key == "effects")
     assert effects.type.value == "registry_list"
     assert effects.registry == "light_effects"
-    sensor = cat._by_id["sensor.a01nyub"]
+    sensor = await cat.get_body("sensor.a01nyub")
+    assert sensor is not None
     filters = next(e for e in sensor.config_entries if e.key == "filters")
     assert filters.type.value == "registry_list"
     assert filters.registry == "filter"

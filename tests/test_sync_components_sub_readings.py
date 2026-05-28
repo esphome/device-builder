@@ -10,12 +10,14 @@ from script.sync_components import (  # type: ignore[import-not-found]
 )
 
 _UNUSED_SCHEMA_DIR = Path("/unused")
-_CATALOG_PATH = (
-    Path(__file__).resolve().parent.parent
-    / "esphome_device_builder"
-    / "definitions"
-    / "components.json"
+_BODIES_DIR = (
+    Path(__file__).resolve().parent.parent / "esphome_device_builder" / "definitions" / "components"
 )
+
+
+def _load_body(component_id: str) -> dict:
+    """Read one component's split body file off disk."""
+    return json.loads((_BODIES_DIR / f"{component_id}.json").read_text(encoding="utf-8"))
 
 
 def _convert(raw: dict) -> dict:
@@ -81,8 +83,7 @@ def test_no_extends_field_unaffected() -> None:
 
 def test_catalog_dht_sub_readings_not_advanced() -> None:
     """Real catalog: DHT temperature + humidity surface on the main form."""
-    catalog = json.loads(_CATALOG_PATH.read_text(encoding="utf-8"))
-    dht = next(c for c in catalog["components"] if c["id"] == "sensor.dht")
+    dht = _load_body("sensor.dht")
     by_key = {e["key"]: e for e in dht["config_entries"]}
     # ``advanced: False`` is the default and gets stripped by
     # ``_strip_entry_defaults``; treat absent as False.
@@ -92,8 +93,7 @@ def test_catalog_dht_sub_readings_not_advanced() -> None:
 
 def test_catalog_debug_sub_readings_not_advanced_but_id_stays() -> None:
     """All 7 debug sub-readings surface; ``debug_id`` (an ID) stays advanced."""
-    catalog = json.loads(_CATALOG_PATH.read_text(encoding="utf-8"))
-    debug = next(c for c in catalog["components"] if c["id"] == "sensor.debug")
+    debug = _load_body("sensor.debug")
     by_key = {e["key"]: e for e in debug["config_entries"]}
     sub_readings = (
         "block",
