@@ -384,6 +384,32 @@ def test_build_featured_registry_skips_and_warns_on_unknown_component_id(
 # ── _featured_components_for_board() ────────────────────────────────
 
 
+def test_featured_components_for_board_skips_underlying_missing_from_index() -> None:
+    """A featured record whose underlying id vanished from the slim index is skipped.
+
+    Defensive branch in ``_featured_components_for_board``: the
+    featured registry survives an entry being dropped from the
+    main index (sync regen mid-flight, hand-edited override).
+    The skim listing must drop the orphan rather than reach into
+    ``None``.
+    """
+    cat = ComponentCatalog()
+    cat._by_id = {}  # underlying "switch.gpio" deliberately not present
+    cat._featured_by_id = {
+        "featured.bench-board.relay": _FeaturedRecord(
+            full_id="featured.bench-board.relay",
+            board_id="bench-board",
+            featured=FeaturedComponent(id="relay", component_id="switch.gpio"),
+            underlying_id="switch.gpio",
+        )
+    }
+    cat._featured_by_board = {"bench-board": ["featured.bench-board.relay"]}
+
+    entries = cat._featured_components_for_board("bench-board", query=None)
+
+    assert entries == []
+
+
 def test_featured_components_for_board_skips_records_missing_from_index() -> None:
     """Skips when ``_featured_by_board`` and ``_featured_by_id`` diverge.
 
