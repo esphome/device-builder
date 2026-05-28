@@ -94,9 +94,7 @@ sys.path.insert(0, str(_REPO_ROOT))
 from esphome_device_builder.controllers.components import (  # noqa: E402
     INTERNAL_COMPONENT_IDS as _INTERNAL_COMPONENT_IDS,
 )
-from esphome_device_builder.controllers.components import (  # noqa: E402
-    is_unsafe_component_id,
-)
+from esphome_device_builder.helpers.lazy_catalog import is_unsafe_catalog_id  # noqa: E402
 from esphome_device_builder.models import ComponentCatalogEntry, PinFeature  # noqa: E402
 from script._light_schemas import (  # noqa: E402
     resolve_light_effects_applies_to,
@@ -3321,7 +3319,7 @@ def _emit_split_catalog(catalog: list[dict], version: str) -> None:
         # Fail the build rather than warn-and-skip so a regression
         # surfaces in CI, not as a half-populated catalog at
         # runtime.
-        if is_unsafe_component_id(cid):
+        if is_unsafe_catalog_id(cid):
             msg = f"Refusing to emit body for traversal-shaped component id: {cid!r}"
             raise ValueError(msg)
         stripped = _strip_defaults(component)
