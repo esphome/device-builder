@@ -13,8 +13,21 @@ API server that replaces the legacy `esphome dashboard`. Single
 multiplexed `/ws` endpoint, persistent firmware-job queue, mDNS +
 ping device discovery, schema-driven component catalog, curated
 board catalog. Frontend is a separate repo
-(`esphome/device-builder-dashboard-frontend`) and ships prebuilt
+(`esphome/device-builder-frontend`) and ships prebuilt
 inside our wheel.
+
+**Issues filed here are often frontend bugs.** Users file every
+dashboard bug against this backend repo — it's the project they
+installed — but the Visual Editor, component-catalog rendering, and
+YAML-form UI all live in the `esphome/device-builder-frontend` SPA.
+When triaging an issue, check whether the symptom is UI / editor
+behaviour before assuming a backend fix, and trace both sides: the
+backend can parse and emit correctly while the frontend's rendering
+or value-sync drops the data. A frontend fix is a PR against
+`esphome/device-builder-frontend` (base `main`) that links
+`fixes <this repo's issue URL>` cross-repo. Example: issue #1005
+(dotted `logger.logs` map keys lost in the Visual Editor) was a
+frontend `data-field-key` round-trip bug, not a backend one.
 
 Base functions are in late beta; remote / offload functions are in
 early beta. Expect undocumented breaking changes until the project
