@@ -275,7 +275,7 @@ def _check_no_field_bullet_descriptions(catalog: ComponentCatalog) -> list[str]:
 
     The pattern is imported from ``script/sync_components.py`` so a widening
     on the sync side automatically tightens the check side — they cannot
-    drift apart. Triggered when the upstream esphome-docs schema_doc bug
+    drift apart. Triggered when the upstream esphome.io schema_doc bug
     leaks past ``_repair_field_bullet_descriptions``.
     """
     failures: list[str] = []

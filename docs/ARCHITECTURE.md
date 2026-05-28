@@ -209,7 +209,7 @@ narrow live `esphome` introspection cover most fields; `multi_conf`,
 `platform_defaults`, `supported_platforms`, type refinement (boolean / float
 recovery), and `unit_of_measurement` autocomplete options come from the live
 package. Component-level descriptions and titles fall back to the docs MDX
-(`esphome-docs` shallow clone) when the schema's index is sparse.
+(`esphome.io` shallow clone) when the schema's index is sparse.
 
 The same script runs nightly via
 [`.github/workflows/sync-component-catalog.yml`](../.github/workflows/sync-component-catalog.yml)

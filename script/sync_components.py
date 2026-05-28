@@ -67,12 +67,12 @@ _CACHE_ROOT = _REPO_ROOT / ".cache"
 _RELEASES_API = "https://api.github.com/repos/esphome/esphome-schema/releases"
 _SCHEMA_URL_TEMPLATE = "https://schema.esphome.io/{version}/schema.zip"
 _DOCS_INDEX_URL = (
-    "https://raw.githubusercontent.com/esphome/esphome-docs/current/"
+    "https://raw.githubusercontent.com/esphome/esphome.io/current/"
     "src/content/docs/components/index.mdx"
 )
-_DOCS_REPO_URL = "https://github.com/esphome/esphome-docs.git"
+_DOCS_REPO_URL = "https://github.com/esphome/esphome.io.git"
 _DOCS_REPO_BRANCH = "current"
-_DOCS_CLONE_DIR = "esphome-docs"
+_DOCS_CLONE_DIR = "esphome.io"
 _IMAGE_BASE_URL = "https://esphome.io/images/"
 
 # CDN at schema.esphome.io rejects requests without a recognisable
@@ -982,7 +982,7 @@ def build_catalog(
                 continue
             out.append(entry)
 
-    # Workaround for an upstream esphome-docs bug: see
+    # Workaround for an upstream esphome.io bug: see
     # ``_repair_field_bullet_descriptions``.
     _repair_field_bullet_descriptions(out)
 
@@ -1023,7 +1023,7 @@ def _repair_field_bullet_descriptions(entries: list[dict]) -> None:
     """
     Repair descriptions baked from a stray first bullet of an MDX list.
 
-    Workaround for an upstream bug in ``esphome-docs``'s
+    Workaround for an upstream bug in ``esphome.io``'s
     ``script/schema_doc.py``: when an MDX page documents a platform
     component with ``## <Platform>`` -> ``### Configuration variables``
     (no prose intro between the two headings -- ``debug.mdx`` is the
@@ -1073,7 +1073,7 @@ def _repair_field_bullet_descriptions(entries: list[dict]) -> None:
     if repaired or cleared:
         _LOGGER.info(
             "Repaired %d field-bullet description(s) from umbrella, cleared %d "
-            "(upstream esphome-docs bug)",
+            "(upstream esphome.io bug)",
             repaired,
             cleared,
         )
@@ -1286,7 +1286,7 @@ def _load_mdx_descriptions() -> dict[str, str]:
     Falls back to the first prose paragraph when the frontmatter
     description is missing.
 
-    Caches the cloned docs repo in ``.cache/esphome-docs/`` so re-runs
+    Caches the cloned docs repo in ``.cache/esphome.io/`` so re-runs
     don't refetch.
     """
     docs_dir = _ensure_docs_repo()
@@ -1482,7 +1482,7 @@ def _extract_mdx_field_descriptions(text: str) -> dict[str, str]:  # noqa: C901
 
 
 def _ensure_docs_repo() -> Path | None:
-    """Clone or update the esphome-docs repo (shallow). Returns its path."""
+    """Clone or update the esphome.io repo (shallow). Returns its path."""
     import subprocess
 
     target = _CACHE_ROOT / _DOCS_CLONE_DIR
@@ -1501,7 +1501,7 @@ def _ensure_docs_repo() -> Path | None:
         return target
 
     target.parent.mkdir(parents=True, exist_ok=True)
-    _LOGGER.info("Cloning esphome-docs (shallow) to %s", target)
+    _LOGGER.info("Cloning esphome.io (shallow) to %s", target)
     try:
         subprocess.run(
             [
@@ -1518,7 +1518,7 @@ def _ensure_docs_repo() -> Path | None:
             timeout=120,
         )
     except Exception:
-        _LOGGER.warning("Could not clone esphome-docs — descriptions stay empty")
+        _LOGGER.warning("Could not clone esphome.io — descriptions stay empty")
         return None
     return target
 
@@ -1617,7 +1617,7 @@ def load_image_map() -> dict[str, str]:
     No ImagesMap if the docs file can't be fetched — image_url stays
     empty for every component.
     """
-    cache_file = _CACHE_ROOT / "esphome-docs-index.mdx"
+    cache_file = _CACHE_ROOT / "esphome.io-index.mdx"
     cache_file.parent.mkdir(parents=True, exist_ok=True)
     if not cache_file.exists():
         try:
