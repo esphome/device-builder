@@ -13,14 +13,7 @@ from .common import FieldPreset, PagedResponse, PinFeature  # PinFeature re-expo
 
 
 class _CatalogConfig(BaseConfig):
-    """Shared mashumaro config for board-catalog dataclasses.
-
-    ``omit_default`` and ``omit_none`` together drop ~36% of the
-    bytes (and most of the post-parse JS allocations) from the
-    repetitive catalog payload. ``from_dict`` re-defaults missing
-    fields from each dataclass's declared default, so the strip
-    is lossless across the wire and the on-disk sidecar.
-    """
+    """Omit fields whose runtime value equals the declared default or ``None``."""
 
     omit_default = True
     omit_none = True

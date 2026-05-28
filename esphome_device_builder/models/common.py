@@ -854,14 +854,7 @@ class FieldPreset(DataClassORJSONMixin):
     suggestions: list[ConfigPrimitive] | None = None
 
     class Config(BaseConfig):
-        """Skip empty defaults on serialise.
-
-        ``locked=False`` and ``suggestions=None`` together account
-        for ~40k empty-default occurrences across the board catalog;
-        omitting them at serialisation time is the bulk of the
-        boards.json shrink. ``from_dict`` re-defaults missing fields,
-        so the round-trip is lossless.
-        """
+        """Omit ``locked=False`` and ``suggestions=None`` on serialise."""
 
         omit_default = True
         omit_none = True

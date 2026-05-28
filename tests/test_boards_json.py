@@ -30,16 +30,7 @@ def test_boards_json_matches_manifests() -> None:
 
 
 def test_boards_json_omits_default_fields() -> None:
-    """Empty-default fields are stripped on serialisation, not on the wire.
-
-    Pins the omit_default config on the board-catalog dataclasses:
-    a regression that drops the config would have boards.json grow
-    back by ~36% and every WS ``boards/get_boards`` response carry
-    the empty fields. The two values pinned here are the highest-
-    occurrence ones (``suggestions=None`` is 100% empty across the
-    catalog; ``locked=False`` is 81%); their presence in raw bytes
-    is sufficient evidence the strip stopped working.
-    """
+    """Empty ``suggestions`` / ``locked`` default rows are stripped from ``boards.json``."""
     raw = _BOARDS_JSON.read_text()
     assert '"suggestions":null' not in raw
     assert '"suggestions": null' not in raw
