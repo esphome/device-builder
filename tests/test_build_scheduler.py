@@ -660,3 +660,24 @@ def test_major_version_gate_matrix(
     else:
         assert decision.path is BuildPath.LOCAL
         assert decision.pin_sha256 is None
+
+
+def test_strict_gate_local_fallback_logs_info(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Strict-mode LOCAL fallback emits one INFO summary, not per-peer noise."""
+    pin = "a" * 64
+    pairing = _stub_pairing(pin_sha256=pin, esphome_version="2026.5.0")
+    inputs = _inputs(
+        pairings={pin: pairing},
+        open_peer_links={pin},
+        peer_queue_status={pin: _stub_queue_status(pin_sha256=pin)},
+        offloader_esphome_version="2026.6.0",
+        allow_major_version_mismatch=False,
+    )
+    with caplog.at_level("INFO", logger="esphome_device_builder.helpers.build_scheduler"):
+        decision = pick_build_path(inputs)
+    assert decision.path is BuildPath.LOCAL
+    info_lines = [r for r in caplog.records if r.levelname == "INFO"]
+    assert len(info_lines) == 1
+    assert "strict version gate filtered 1 peer" in info_lines[0].getMessage()

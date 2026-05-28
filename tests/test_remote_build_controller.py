@@ -3741,6 +3741,7 @@ def test_decode_pairings_back_compat_missing_enabled_defaults_true() -> None:
     ).encode()
     decoded = decode_pairings(legacy_payload)
     assert decoded.remote_builds_enabled is True
+    assert decoded.allow_major_version_mismatch is True
     assert len(decoded.pairings) == 1
     assert decoded.pairings[0].enabled is True
 

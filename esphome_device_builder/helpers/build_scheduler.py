@@ -127,6 +127,7 @@ def pick_build_path(inputs: BuildSchedulerInputs) -> BuildPathDecision:
         key=lambda item: (item[1].paired_at, item[0]),
     )
     eligible: list[tuple[str, StoredPairing]] = []
+    version_filtered: list[str] = []
     for pin_sha256, pairing in ordered:
         if (
             pairing.status is not PeerStatus.APPROVED
@@ -143,6 +144,7 @@ def pick_build_path(inputs: BuildSchedulerInputs) -> BuildPathDecision:
                 pairing.esphome_version,
                 inputs.offloader_esphome_version,
             )
+            version_filtered.append(pin_sha256)
             continue
         eligible.append((pin_sha256, pairing))
     for pin_sha256, _pairing in eligible:
@@ -152,4 +154,9 @@ def pick_build_path(inputs: BuildSchedulerInputs) -> BuildPathDecision:
     if eligible:
         pin_sha256, _pairing = eligible[0]
         return BuildPathDecision.remote(pin_sha256)
+    if version_filtered:
+        _LOGGER.info(
+            "pick_build_path: strict version gate filtered %d peer(s); falling back to LOCAL",
+            len(version_filtered),
+        )
     return BuildPathDecision.local()
