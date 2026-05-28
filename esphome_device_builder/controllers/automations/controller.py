@@ -11,8 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any
 
 from ruamel.yaml import YAMLError
 
@@ -20,89 +19,26 @@ from ...helpers.api import CommandError, api_command
 from ...models.api import ErrorCode
 from ...models.automations import (
     ApiActionLocation,
-    AutomationAction,
-    AutomationCondition,
     AutomationLocation,
     AutomationTree,
-    AutomationTrigger,
     AvailableAutomations,
     AvailableComponentInstance,
     AvailableScript,
     AvailableScriptParameter,
     ComponentOnLocation,
     DeviceOnLocation,
-    Filter,
     IntervalLocation,
-    LightEffect,
     LightEffectLocation,
     ScriptLocation,
     UpsertResponse,
 )
 from . import catalog, parsing, writing
-
-
-class AutomationBodyRef(TypedDict):
-    """Wire-shape entry in the ``automations/get_bodies`` ``refs`` list."""
-
-    type: str
-    id: str
-
-
-# Discriminated union of every full-body type the ``get_bodies``
-# endpoint can return. Each accessor in ``_BODY_ACCESSORS`` is
-# typed against the matching member; ``_hydrate_bodies`` widens
-# to this union so the caller-side ``to_dict()`` is well-typed.
-AutomationBody = AutomationTrigger | AutomationAction | AutomationCondition | LightEffect | Filter
+from .catalog import AutomationBodyRef
 
 if TYPE_CHECKING:
     from ...device_builder import DeviceBuilder
 
 _LOGGER = logging.getLogger(__name__)
-
-# Maps the wire ``type`` field on a get_bodies ref to the matching
-# async accessor on the catalog. Anything outside this set is just
-# dropped (the caller's ref doesn't exist on the wire surface).
-_BODY_ACCESSORS: dict[str, Callable[[str], Awaitable[AutomationBody | None]]] = {
-    "triggers": catalog.get_trigger_body,
-    "actions": catalog.get_action_body,
-    "conditions": catalog.get_condition_body,
-    "light_effects": catalog.get_light_effect_body,
-    "filters": catalog.get_filter_body,
-}
-
-
-async def _hydrate_bodies(refs: list[AutomationBodyRef]) -> dict[str, dict]:
-    """Resolve a list of ``{type, id}`` refs to a ``"<type>/<id>" -> dict`` map.
-
-    Unknown types and missing ids are absent from the response.
-    Duplicate ``(type, id)`` pairs collapse to one entry. Each
-    fetch goes through the catalog's per-type LazyBodyStore so
-    the LRU + cache + lock contract from
-    :class:`LazyBodyStore` applies; the gather here hands the
-    store a batch of N concurrent calls, of which same-id ones
-    coalesce through the store's lock and distinct ids parallelise
-    through ``asyncio.to_thread``.
-    """
-    seen: set[tuple[str, str]] = set()
-    jobs: list[tuple[str, str, str]] = []  # (key, type_key, id_)
-    for ref in refs:
-        type_key = ref.get("type", "")
-        cid = ref.get("id", "")
-        if not type_key or not cid:
-            continue
-        if (type_key, cid) in seen:
-            continue
-        if type_key not in _BODY_ACCESSORS:
-            continue
-        seen.add((type_key, cid))
-        jobs.append((f"{type_key}/{cid}", type_key, cid))
-
-    async def _fetch(key: str, type_key: str, cid: str) -> tuple[str, dict | None]:
-        body = await _BODY_ACCESSORS[type_key](cid)
-        return key, body.to_dict() if body is not None else None
-
-    results = await asyncio.gather(*(_fetch(k, t, i) for k, t, i in jobs))
-    return {key: body for key, body in results if body is not None}
 
 
 class AutomationsController:
@@ -193,7 +129,7 @@ class AutomationsController:
         missing ids are absent. Mirrors
         ``components/get_component_bodies`` from #424.
         """
-        return await _hydrate_bodies(refs)
+        return await catalog.get_bodies(refs)
 
     # ------------------------------------------------------------------
     # Device-scoped helpers

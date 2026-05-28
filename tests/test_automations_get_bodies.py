@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 
-from esphome_device_builder.controllers.automations.controller import _hydrate_bodies
+from esphome_device_builder.controllers.automations import catalog
+from esphome_device_builder.controllers.automations.catalog import get_bodies as _hydrate_bodies
+
+pytestmark = pytest.mark.xdist_group("automations")
 
 
 async def test_get_bodies_returns_full_body_for_known_ref() -> None:
@@ -67,4 +72,37 @@ async def test_get_bodies_handles_mixed_types_in_one_call() -> None:
 async def test_get_bodies_drops_refs_missing_type_or_id(ref: dict) -> None:
     """Malformed refs are silently dropped."""
     result = await _hydrate_bodies([ref])
+    assert result == {}
+
+
+async def test_get_bodies_uses_single_executor_hop_across_types() -> None:
+    """A mixed-type batch pays exactly one ``asyncio.to_thread`` hop."""
+    catalog._TRIGGER_STORE._cache.clear()
+    catalog._ACTION_STORE._cache.clear()
+    catalog._CONDITION_STORE._cache.clear()
+    with patch.object(catalog.asyncio, "to_thread", wraps=catalog.asyncio.to_thread) as spy:
+        await _hydrate_bodies(
+            [
+                {"type": "triggers", "id": "on_boot"},
+                {"type": "actions", "id": "delay"},
+                {"type": "conditions", "id": "lambda"},
+            ]
+        )
+    assert spy.call_count == 1
+
+
+async def test_get_bodies_cache_hits_skip_executor_hop() -> None:
+    """When every ref is already cached, no executor hop fires."""
+    await _hydrate_bodies([{"type": "triggers", "id": "on_boot"}])
+    with patch.object(catalog.asyncio, "to_thread", wraps=catalog.asyncio.to_thread) as spy:
+        result = await _hydrate_bodies([{"type": "triggers", "id": "on_boot"}])
+    assert "triggers/on_boot" in result
+    assert spy.call_count == 0
+
+
+async def test_get_bodies_skips_loaded_none_bodies() -> None:
+    """A loader returning ``None`` (e.g. body file vanished) is dropped."""
+    catalog._TRIGGER_STORE._cache.clear()
+    with patch.object(catalog._TRIGGER_STORE, "load_one_sync", return_value=None):
+        result = await _hydrate_bodies([{"type": "triggers", "id": "on_boot"}])
     assert result == {}

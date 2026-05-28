@@ -399,9 +399,9 @@ class AvailableAutomations(DataClassORJSONMixin):
     feed the action-parameter dropdowns.
     """
 
-    triggers: list[AutomationTrigger] = field(default_factory=list)
-    actions: list[AutomationAction] = field(default_factory=list)
-    conditions: list[AutomationCondition] = field(default_factory=list)
+    triggers: list[AutomationTriggerIndex] = field(default_factory=list)
+    actions: list[AutomationActionIndex] = field(default_factory=list)
+    conditions: list[AutomationConditionIndex] = field(default_factory=list)
     scripts: list[AvailableScript] = field(default_factory=list)
     devices: list[AvailableComponentInstance] = field(default_factory=list)
 

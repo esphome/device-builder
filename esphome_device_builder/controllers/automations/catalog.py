@@ -15,11 +15,14 @@ bodies (used by parsing / writing to access ``config_entries``).
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Callable
 from functools import cache
 from importlib import resources
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, TypedDict
+
+from mashumaro.mixins.orjson import DataClassORJSONMixin
 
 from ...helpers.lazy_catalog import LazyBodyStore
 from ...models.automations import (
@@ -50,7 +53,7 @@ _BODIES_PACKAGE = "esphome_device_builder.definitions.automations"
 _BODY_CACHE_MAXSIZE = 128
 
 
-def _load_body_from_disk[BodyT](
+def _load_body_from_disk[BodyT: DataClassORJSONMixin](
     type_key: str, body_cls: type[BodyT]
 ) -> Callable[[str], BodyT | None]:
     """Return a ``load_one(id) -> BodyT | None`` reader for one sub-catalog."""
@@ -65,13 +68,13 @@ def _load_body_from_disk[BodyT](
             )
         except (FileNotFoundError, ModuleNotFoundError):
             return None
-        return body_cls.from_dict(json.loads(raw))  # type: ignore[attr-defined]
+        return body_cls.from_dict(json.loads(raw))
 
     return _load
 
 
 @cache
-def _load_index() -> dict:
+def _load_index() -> dict[str, Any]:
     """Read the slim ``automations.index.json`` once at first access."""
     try:
         raw_bytes = resources.files(_DEFINITIONS_PACKAGE).joinpath(_INDEX_FILE).read_bytes()
@@ -83,11 +86,12 @@ def _load_index() -> dict:
             "light_effects": [],
             "filters": [],
         }
-    return json.loads(raw_bytes)
+    parsed: dict[str, Any] = json.loads(raw_bytes)
+    return parsed
 
 
-def _build_slim[SlimT](type_key: str, slim_cls: type[SlimT]) -> list[SlimT]:
-    return [slim_cls.from_dict(e) for e in _load_index().get(type_key, [])]  # type: ignore[attr-defined]
+def _build_slim[SlimT: DataClassORJSONMixin](type_key: str, slim_cls: type[SlimT]) -> list[SlimT]:
+    return [slim_cls.from_dict(e) for e in _load_index().get(type_key, [])]
 
 
 # Slim in-memory state (matches the wire shape the WS list
@@ -154,6 +158,18 @@ _FILTER_STORE: LazyBodyStore[Filter] = LazyBodyStore(
     is_known=lambda cid: cid in _slim_index_ids("filters"),
 )
 
+# Wire ``type`` field on ``automations/get_bodies`` refs -> store.
+# ``LazyBodyStore[Any]`` widens past the invariant per-type parameter;
+# the bulk fetch only needs ``to_dict()`` which every concrete body
+# type implements via ``DataClassORJSONMixin``.
+_STORES_BY_TYPE: dict[str, LazyBodyStore[Any]] = {
+    "triggers": _TRIGGER_STORE,
+    "actions": _ACTION_STORE,
+    "conditions": _CONDITION_STORE,
+    "light_effects": _LIGHT_EFFECT_STORE,
+    "filters": _FILTER_STORE,
+}
+
 
 # ---------------------------------------------------------------------------
 # Slim list accessors — picker fields only, wire shape for the WS list endpoints.
@@ -212,33 +228,57 @@ def light_effect_by_id(effect_id: str) -> LightEffect | None:
 
 
 # ---------------------------------------------------------------------------
-# Async full-body accessors — for WS handlers serving detail-view requests.
+# Async batched body fetch — single executor hop across all types.
 # ---------------------------------------------------------------------------
 
 
-async def get_trigger_body(trigger_id: str) -> AutomationTrigger | None:
-    """Async-load one trigger's full body via the body store."""
-    return await _TRIGGER_STORE.get(trigger_id)
+class AutomationBodyRef(TypedDict):
+    """Wire-shape entry in the ``automations/get_bodies`` ``refs`` list."""
+
+    type: str
+    id: str
 
 
-async def get_action_body(action_id: str) -> AutomationAction | None:
-    """Async-load one action's full body via the body store."""
-    return await _ACTION_STORE.get(action_id)
+async def get_bodies(refs: list[AutomationBodyRef]) -> dict[str, dict]:
+    """Resolve a batch of ``{type, id}`` refs to the wire response.
 
+    Single executor hop covers every cross-type miss. Cache hits
+    return without IO. Unknown types, unknown ids, and missing-on-
+    disk bodies are absent from the response. Duplicate
+    ``(type, id)`` pairs collapse to one entry. Response is keyed
+    by ``"<type>/<id>"``.
+    """
+    result: dict[str, dict] = {}
+    misses: list[tuple[str, str, LazyBodyStore[Any]]] = []
+    seen: set[tuple[str, str]] = set()
+    for ref in refs:
+        type_key = ref.get("type", "")
+        cid = ref.get("id", "")
+        if not type_key or not cid or (type_key, cid) in seen:
+            continue
+        seen.add((type_key, cid))
+        store = _STORES_BY_TYPE.get(type_key)
+        if store is None or not store.is_known(cid):
+            continue
+        cached = store.try_get_cached(cid)
+        if cached is not None:
+            result[f"{type_key}/{cid}"] = cached.to_dict()
+            continue
+        misses.append((type_key, cid, store))
 
-async def get_condition_body(condition_id: str) -> AutomationCondition | None:
-    """Async-load one condition's full body via the body store."""
-    return await _CONDITION_STORE.get(condition_id)
+    if not misses:
+        return result
 
+    def _load_all() -> list[tuple[str, str, Any]]:
+        return [(t, cid, store.load_one_sync(cid)) for t, cid, store in misses]
 
-async def get_light_effect_body(effect_id: str) -> LightEffect | None:
-    """Async-load one light-effect's full body via the body store."""
-    return await _LIGHT_EFFECT_STORE.get(effect_id)
-
-
-async def get_filter_body(filter_id: str) -> Filter | None:
-    """Async-load one filter's full body via the body store."""
-    return await _FILTER_STORE.get(filter_id)
+    loaded = await asyncio.to_thread(_load_all)
+    for type_key, cid, body in loaded:
+        if body is None:
+            continue
+        _STORES_BY_TYPE[type_key].cache_put(cid, body)
+        result[f"{type_key}/{cid}"] = body.to_dict()
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -293,19 +333,3 @@ _slim_actions()
 _slim_conditions()
 _slim_light_effects()
 _slim_filters()
-
-
-# Back-compat: the legacy ``load_catalog()`` shape the old controller
-# imported. The runtime no longer uses it but tests and external
-# callers might; returns the slim shapes (the old call site was
-# only used for ``all_triggers()`` etc. which themselves now return
-# slim).
-def load_catalog() -> dict[str, list]:
-    """Return the five slim catalog lists keyed by section."""
-    return {
-        "triggers": list(_slim_triggers()),
-        "actions": list(_slim_actions()),
-        "conditions": list(_slim_conditions()),
-        "light_effects": list(_slim_light_effects()),
-        "filters": list(_slim_filters()),
-    }

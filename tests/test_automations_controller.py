@@ -17,10 +17,9 @@ import pytest
 from esphome_device_builder.controllers.automations import AutomationsController, catalog
 from esphome_device_builder.helpers.api import CommandError
 
-# Co-locate every test that walks the automations catalog onto one
-# xdist worker so the ``@cache``-d :func:`catalog.load_catalog`
-# (~2.8s on CI) pays its first-call cost once instead of once per
-# worker that picks up an automations test.
+# Co-locate every automations-catalog test on one xdist worker so
+# the slim index (cached after first :func:`catalog._load_index`)
+# isn't repeatedly re-read across workers.
 pytestmark = pytest.mark.xdist_group("automations")
 
 
@@ -78,6 +77,20 @@ async def test_get_light_effects_returns_full_catalog() -> None:
     ids = {e["id"] for e in result}
     for required in ("flicker", "pulse"):
         assert required in ids, f"{required} missing from light effects catalog"
+
+
+async def test_get_bodies_endpoint_returns_full_bodies() -> None:
+    """``automations/get_bodies`` hydrates refs to keyed full bodies."""
+    controller = _make_controller(Path("/unused"))
+    result = await controller.get_bodies(
+        refs=[
+            {"type": "triggers", "id": "on_boot"},
+            {"type": "actions", "id": "delay"},
+        ]
+    )
+    assert "triggers/on_boot" in result
+    assert "actions/delay" in result
+    assert "config_entries" in result["actions/delay"]
 
 
 async def test_get_filters_returns_full_catalog() -> None:

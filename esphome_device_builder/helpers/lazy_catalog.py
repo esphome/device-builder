@@ -127,19 +127,42 @@ class LazyBodyStore[BodyT]:
         worst pay a duplicate idempotent disk read on a rare
         collision, no shared-state corruption.
         """
+        cached = self.try_get_cached(catalog_id)
+        if cached is not None:
+            return cached
+        if not self.is_known(catalog_id):
+            return None
+        body = self.load_one_sync(catalog_id)
+        if body is None:
+            return None
+        self.cache_put(catalog_id, body)
+        return body
+
+    def is_known(self, catalog_id: str) -> bool:
+        """Whether *catalog_id* is in the slim index (cheap predicate)."""
+        return self._is_known(catalog_id)
+
+    def try_get_cached(self, catalog_id: str) -> BodyT | None:
+        """Return the cached body for *catalog_id* (bumps LRU), or None."""
         cached = self._cache.get(catalog_id)
         if cached is not None:
             self._cache.move_to_end(catalog_id)
-            return cached
-        if not self._is_known(catalog_id):
-            return None
-        body = self._load_one(catalog_id)
-        if body is None:
-            return None
+        return cached
+
+    def cache_put(self, catalog_id: str, body: BodyT) -> None:
+        """Insert *body* into the cache and evict the LRU tail if over cap."""
         self._cache[catalog_id] = body
         while len(self._cache) > self._cache_maxsize:
             self._cache.popitem(last=False)
-        return body
+
+    def load_one_sync(self, catalog_id: str) -> BodyT | None:
+        """Read one body off disk synchronously, bypassing the cache.
+
+        For cross-store batched callers that compose several stores'
+        loads into a single ``asyncio.to_thread`` hop; they manage
+        ``is_known`` / cache-put themselves around the load.
+        """
+        return self._load_one(catalog_id)
 
 
 def _always_true(_: str) -> bool:
