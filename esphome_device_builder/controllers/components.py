@@ -892,10 +892,3 @@ def _load_body_from_disk(component_id: str) -> ComponentCatalogEntry | None:
         _LOGGER.warning("Component body missing on disk: %s", body_path)
         return None
     return ComponentCatalogEntry.from_dict(loads(body_path.read_bytes()))
-
-
-def _load_bodies_from_disk(
-    component_ids: list[str],
-) -> dict[str, ComponentCatalogEntry | None]:
-    """Read several component body files in one thread (one executor-hop helper)."""
-    return {cid: _load_body_from_disk(cid) for cid in component_ids}
