@@ -1,0 +1,1 @@
+{"id":"midea_ac.swing_step","name":"Midea Ac → Swing Step","description":"This action adjust the louver by one step. [Remote Transmitter](https://esphome.io/components/remote_transmitter/) required.","docs_url":"https://esphome.io/automations/actions","domain":"midea_ac","config_entries":[],"is_control_flow":false,"has_else_branch":false,"accepts_action_list":[]}

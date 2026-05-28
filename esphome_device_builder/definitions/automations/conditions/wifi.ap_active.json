@@ -1,0 +1,1 @@
+{"id":"wifi.ap_active","name":"Wifi → Ap Active","description":"This [Condition](https://esphome.io/automations/actions#all-conditions) checks if WiFi AP is currently active or not.","docs_url":"https://esphome.io/automations/actions","domain":"wifi","config_entries":[],"accepts_condition_list":false}

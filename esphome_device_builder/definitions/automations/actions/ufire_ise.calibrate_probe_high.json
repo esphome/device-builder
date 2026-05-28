@@ -1,0 +1,1 @@
+{"id":"ufire_ise.calibrate_probe_high","name":"Ufire Ise → Calibrate Probe High","description":"The pH probe have to be calibrated. For this you need to know the pH reference value of the calibration high solution.","docs_url":"https://esphome.io/automations/actions","domain":"ufire_ise","config_entries":[],"is_control_flow":false,"has_else_branch":false,"accepts_action_list":[]}

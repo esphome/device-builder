@@ -1,0 +1,1 @@
+{"id":"lock.is_unlocked","name":"Lock → Is Unlocked","description":"","docs_url":"https://esphome.io/automations/actions","domain":"lock","config_entries":[{"key":"id","type":"id","label":"ID","advanced":true}],"accepts_condition_list":false}

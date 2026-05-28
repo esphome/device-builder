@@ -1,0 +1,1 @@
+{"id":"lambda","name":"Lambda","description":"This condition performs an arbitrary piece of C++ code (see [Lambda](https://esphome.io/automations/templates#config-lambda)) and can be used to create conditional flow in actions.","docs_url":"https://esphome.io/automations/actions","domain":"core","config_entries":[],"accepts_condition_list":false}

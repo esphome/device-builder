@@ -1,0 +1,1 @@
+{"id":"sensor.on_value","name":"Sensor → On Value","description":"An automation to perform when a new value is published. See [`on_value`](https://esphome.io/components/sensor#sensor-on_value).","docs_url":"https://esphome.io/components/sensor#optional-variables","applies_to":["sensor"],"is_device_level":false,"config_entries":[]}

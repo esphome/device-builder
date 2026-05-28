@@ -1,0 +1,1 @@
+{"id":"ezo.sensor.on_device_information","name":"Sensor.Ezo → On Device Information","description":"Triggered when the result of `get_device_information()` is ready. The result is provided as a `std::string` variable named `x`.","docs_url":"https://esphome.io/components/sensor/ezo#configuration-variables","applies_to":["sensor.ezo"],"is_device_level":false,"config_entries":[]}

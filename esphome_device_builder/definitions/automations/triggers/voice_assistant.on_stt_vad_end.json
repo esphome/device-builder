@@ -1,0 +1,1 @@
+{"id":"voice_assistant.on_stt_vad_end","name":"Voice Assistant → On Stt Vad End","description":"An automation to perform when voice activity detection ends speech-to-text processing.","docs_url":"https://esphome.io/components/voice_assistant#configuration-variables","applies_to":["voice_assistant"],"is_device_level":false,"config_entries":[]}

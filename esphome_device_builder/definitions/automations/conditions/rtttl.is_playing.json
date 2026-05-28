@@ -1,0 +1,1 @@
+{"id":"rtttl.is_playing","name":"Rtttl → Is Playing","description":"This Condition returns true while playback is active.","docs_url":"https://esphome.io/automations/actions","domain":"rtttl","config_entries":[{"key":"id","type":"id","label":"ID","advanced":true}],"accepts_condition_list":false}

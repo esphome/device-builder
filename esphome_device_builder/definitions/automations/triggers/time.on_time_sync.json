@@ -1,0 +1,1 @@
+{"id":"time.on_time_sync","name":"Time → On Time Sync","description":"Automation to run when the time source could be (re-)synchronized.. See [`on_time_sync` Trigger](https://esphome.io/components/time#time-on_time_sync).","docs_url":"https://esphome.io/components/time#configuration-variables","applies_to":["time"],"is_device_level":false,"config_entries":[]}

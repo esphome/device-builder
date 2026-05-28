@@ -1,0 +1,1 @@
+{"id":"ble.enabled","name":"Ble → Enabled","description":"This [Condition](https://esphome.io/automations/actions#all-conditions) checks if BLE is currently enabled or not.","docs_url":"https://esphome.io/automations/actions","domain":"ble","config_entries":[],"accepts_condition_list":false}

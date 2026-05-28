@@ -1,0 +1,1 @@
+{"id":"dfplayer.pause","name":"Dfplayer → Pause","description":"Pauses playback, playback can be resumed from the same position with `dfplayer.start`.","docs_url":"https://esphome.io/automations/actions","domain":"dfplayer","config_entries":[{"key":"id","type":"id","label":"ID","advanced":true}],"is_control_flow":false,"has_else_branch":false,"accepts_action_list":[]}

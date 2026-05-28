@@ -1,0 +1,1 @@
+{"id":"time.has_time","name":"Time → Has Time","description":"This [Condition](https://esphome.io/automations/actions#all-conditions) checks if time has been set and is valid.","docs_url":"https://esphome.io/automations/actions","domain":"time","config_entries":[{"key":"id","type":"id","label":"ID","advanced":true}],"accepts_condition_list":false}

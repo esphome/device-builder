@@ -1,0 +1,1 @@
+{"id":"midea_ac.power_toggle","name":"Midea Ac → Power Toggle","description":"This action toggle the power state. Identical to pressing the power button on the remote control.","docs_url":"https://esphome.io/automations/actions","domain":"midea_ac","config_entries":[],"is_control_flow":false,"has_else_branch":false,"accepts_action_list":[]}

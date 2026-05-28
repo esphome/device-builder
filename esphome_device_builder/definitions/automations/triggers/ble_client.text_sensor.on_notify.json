@@ -1,0 +1,1 @@
+{"id":"ble_client.text_sensor.on_notify","name":"Text Sensor.Ble Client → On Notify","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["text_sensor.ble_client"],"is_device_level":false,"config_entries":[]}

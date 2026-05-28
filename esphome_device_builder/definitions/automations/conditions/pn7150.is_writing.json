@@ -1,0 +1,1 @@
+{"id":"pn7150.is_writing","name":"Pn7150 → Is Writing","description":"","docs_url":"https://esphome.io/automations/actions","domain":"pn7150","config_entries":[{"key":"id","type":"id","label":"ID","advanced":true}],"accepts_condition_list":false}

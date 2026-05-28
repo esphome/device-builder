@@ -4,11 +4,12 @@
 path: every device on the dashboard fans out one batch request
 covering every component its YAML uses, and the backend has to read
 each per-id file off disk + build the ``ComponentCatalogEntry``
-tree. The benchmark measures the full
-``_load_bodies_from_disk`` + ``_load_component`` pipeline against a
-curated batch of 100 commonly-used components so a regression in any
-layer (orjson decode, dataclass build, nested ``_load_config_entry``
-recursion, ``_strip_entry_defaults`` round-trip) is visible.
+tree. Measures the live :meth:`LazyBodyStore._load_bodies_sync`
+pipeline (the same code the WS handler dispatches into the
+executor) against a curated batch of 100 commonly-used components
+so a regression in any layer (orjson decode, dataclass build,
+nested ``_load_config_entry`` recursion, ``_strip_entry_defaults``
+round-trip) is visible.
 
 The id list is hand-picked rather than sliced from the index so the
 benchmark stays comparable across catalog re-syncs that reorder or
@@ -22,7 +23,8 @@ from pathlib import Path
 
 from pytest_codspeed import BenchmarkFixture
 
-from esphome_device_builder.controllers.components import _load_bodies_from_disk
+from esphome_device_builder.controllers.components import _load_body_from_disk
+from esphome_device_builder.helpers.lazy_catalog import LazyBodyStore
 
 _DEFINITIONS = Path(__file__).resolve().parents[2] / "esphome_device_builder" / "definitions"
 _BODIES_DIR = _DEFINITIONS / "components"
@@ -156,21 +158,20 @@ assert len(_COMMON_COMPONENT_IDS) == 100
 def test_load_100_common_component_bodies(benchmark: BenchmarkFixture) -> None:
     """Pin the batch hydrate cost — one navigator mount loads ~100 bodies.
 
-    Runs the same ``_load_bodies_from_disk`` helper the WS handler
-    dispatches into the executor: per-id file read + orjson decode +
-    ``_load_component`` dataclass build (which recursively builds
-    every ``ConfigEntry`` via ``_load_config_entry``). The single
-    executor hop the handler uses is omitted (it's a constant
-    overhead the bench doesn't need to re-measure); this is the
-    portion of the request that scales with batch size.
+    Routes through :meth:`LazyBodyStore._load_bodies_sync` — the
+    same worker-side helper the WS handler's batched ``get_many``
+    invokes inside its ``asyncio.to_thread`` hop. Skips the
+    executor hop itself (constant per call); this measures the
+    portion that scales with batch size.
     """
+    store: LazyBodyStore[object] = LazyBodyStore(load_one=_load_body_from_disk)
     # Smoke-validate ONCE outside the loop so a refactor that turned
     # ``_load_body_from_disk`` into a no-op surfaces here rather
     # than as a fast-but-empty CodSpeed "speedup".
-    smoke = _load_bodies_from_disk(_COMMON_COMPONENT_IDS)
+    smoke = store._load_bodies_sync(_COMMON_COMPONENT_IDS)
     assert len(smoke) == 100
     assert all(entry is not None for entry in smoke.values())
 
     @benchmark
     def run() -> None:
-        _load_bodies_from_disk(_COMMON_COMPONENT_IDS)
+        store._load_bodies_sync(_COMMON_COMPONENT_IDS)

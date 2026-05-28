@@ -1,0 +1,1 @@
+{"id":"max7219digit.turn_on","name":"Max7219Digit → Turn On","description":"The display can be switched on and off \"dynamically\" with the actions `max7219digit.turn_on` / `max7219digit.turn_off`.","docs_url":"https://esphome.io/automations/actions","domain":"max7219digit","config_entries":[],"is_control_flow":false,"has_else_branch":false,"accepts_action_list":[]}

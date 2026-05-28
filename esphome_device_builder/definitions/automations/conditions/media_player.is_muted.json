@@ -1,0 +1,1 @@
+{"id":"media_player.is_muted","name":"Media Player → Is Muted","description":"This condition checks if the media player is muted.","docs_url":"https://esphome.io/automations/actions","domain":"media_player","config_entries":[{"key":"id","type":"id","label":"ID","advanced":true}],"accepts_condition_list":false}

@@ -1,0 +1,1 @@
+{"id":"media_player.is_off","name":"Media Player → Is Off","description":"This condition checks if the media player is turned off.","docs_url":"https://esphome.io/automations/actions","domain":"media_player","config_entries":[{"key":"id","type":"id","label":"ID","advanced":true}],"accepts_condition_list":false}

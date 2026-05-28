@@ -1,0 +1,1 @@
+{"id":"touchscreen.on_touch","name":"Touchscreen → On Touch","description":"An automation to perform when the touchscreen is touched. See [`on_touch` Trigger](https://esphome.io/components/touchscreen#touchscreen-on_touch).","docs_url":"https://esphome.io/components/touchscreen#configuration-variables","applies_to":["touchscreen"],"is_device_level":false,"config_entries":[]}

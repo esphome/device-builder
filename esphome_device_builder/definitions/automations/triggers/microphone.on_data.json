@@ -1,0 +1,1 @@
+{"id":"microphone.on_data","name":"Microphone → On Data","description":"An automation to perform when new data is received.","docs_url":"https://esphome.io/components/microphone#base-microphone-configuration","applies_to":["microphone"],"is_device_level":false,"config_entries":[]}

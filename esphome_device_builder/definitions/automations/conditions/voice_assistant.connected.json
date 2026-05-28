@@ -1,0 +1,1 @@
+{"id":"voice_assistant.connected","name":"Voice Assistant → Connected","description":"Returns true if the voice assistant is currently connected to Home Assistant.","docs_url":"https://esphome.io/automations/actions","domain":"voice_assistant","config_entries":[{"key":"id","type":"id","label":"ID","advanced":true}],"accepts_condition_list":false}

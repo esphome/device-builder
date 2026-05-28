@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from collections import OrderedDict
 from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..helpers.api import api_command
 from ..helpers.json import loads
+from ..helpers.lazy_catalog import LazyBodyStore, is_unsafe_catalog_id
 from ..models import (
     ComponentCatalogEntry,
     ComponentCatalogIndexEntry,
@@ -44,12 +42,6 @@ _COMPONENT_BODIES_DIR = _DEFINITIONS_DIR / "components"
 # ~30-50 components) plus headroom for featured-card warmups and
 # yaml-completion lookups without thrashing.
 _BODY_CACHE_MAXSIZE = 128
-
-# LRU cap for ``is_unsafe_component_id`` (~5x the live catalog
-# size). Bounded rather than ``@cache`` because the predicate
-# sees external input (WS handler kwargs); unbounded growth on
-# attacker-controlled ids would be a denial-of-service surface.
-_UNSAFE_ID_CACHE_MAXSIZE = 4096
 
 # Catalog ids for components that ESPHome auto-loads as transport /
 # helper modules but that the dashboard's Add Configuration picker
@@ -91,7 +83,7 @@ class ComponentCatalog:
     def __init__(self, device_builder: DeviceBuilder | None = None) -> None:
         self._db = device_builder
         # Slim index — loaded eagerly. Bodies live in per-id files on
-        # disk and hydrate on demand through ``_body_cache``.
+        # disk and hydrate on demand through ``_body_store``.
         self._components: list[ComponentCatalogIndexEntry] = []
         self._by_id: dict[str, ComponentCatalogIndexEntry] = {}
         # Featured-component lookups, populated by ``_build_featured_registry``
@@ -100,16 +92,11 @@ class ComponentCatalog:
         # board's recommendations rather than the whole catalog.
         self._featured_by_id: dict[str, _FeaturedRecord] = {}
         self._featured_by_board: dict[str, list[str]] = {}
-        self._body_cache: OrderedDict[str, ComponentCatalogEntry] = OrderedDict()
-        # Single load lock + double-checked cache reads, mirroring
-        # Home Assistant's ``translation.py``. The whole point is that
-        # a batch of N ids runs as ONE executor job that reads every
-        # missing body sequentially in the same thread, instead of N
-        # ``asyncio.to_thread`` calls thrashing the thread pool for
-        # small (<1ms) I/O. A concurrent fetch waiting on the lock
-        # re-checks the cache after acquiring it, so same-id
-        # coalescing falls out for free without per-id futures.
-        self._body_load_lock = asyncio.Lock()
+        self._body_store: LazyBodyStore[ComponentCatalogEntry] = LazyBodyStore(
+            load_one=_load_body_from_disk,
+            cache_maxsize=_BODY_CACHE_MAXSIZE,
+            is_known=lambda cid: cid in self._by_id,
+        )
 
     def load(self) -> None:
         """
@@ -441,74 +428,12 @@ class ComponentCatalog:
         )
 
     async def get_body(self, component_id: str) -> ComponentCatalogEntry | None:
-        """
-        Return the hydrated body for *component_id*, or ``None`` if missing.
-
-        Reads ``definitions/components/<id>.json`` on first access
-        and caches up to ``_BODY_CACHE_MAXSIZE`` recent entries in
-        an LRU. Concurrent calls for the same id (or for any id
-        whose load is in flight) share one executor job thanks to
-        the single load lock; the post-lock cache re-check fast-
-        paths the second caller without a redundant disk read.
-        Returns ``None`` when the id is absent from the index or
-        its body file is missing on disk.
-        """
-        cached = self._body_cache.get(component_id)
-        if cached is not None:
-            self._body_cache.move_to_end(component_id)
-            return cached
-        if component_id not in self._by_id:
-            return None
-        bodies = await self._load_bodies([component_id])
-        return bodies.get(component_id)
+        """Return the hydrated body for *component_id*, or ``None`` if missing."""
+        return await self._body_store.get(component_id)
 
     async def _load_bodies(self, component_ids: list[str]) -> dict[str, ComponentCatalogEntry]:
-        """
-        Return hydrated bodies for *component_ids*; populates the cache as a side effect.
-
-        One ``asyncio.to_thread`` for the whole batch so a request
-        for N bodies pays one executor hop, not N. Held under
-        :attr:`_body_load_lock` with a post-acquire cache re-check
-        so an overlapping batch only loads the bodies the previous
-        batch didn't already cover.
-
-        Returns a dict of the entries that were loadable; unknown
-        ids and missing-on-disk ids are absent. Callers must use
-        the returned dict rather than re-reading the cache, because
-        a batch larger than ``_BODY_CACHE_MAXSIZE`` would
-        partially evict its own entries before returning. Cache is
-        a hot-read optimization, not the correctness path.
-        """
-        async with self._body_load_lock:
-            result: dict[str, ComponentCatalogEntry] = {}
-            to_load: list[str] = []
-            seen: set[str] = set()
-            for cid in component_ids:
-                # Dedupe inline so a caller passing the same id twice
-                # (``resolve_default_components`` on a board that lists
-                # the same underlying component under multiple
-                # featured refs) doesn't make the executor job read
-                # the same body file twice.
-                if cid in seen or cid not in self._by_id:
-                    continue
-                seen.add(cid)
-                cached = self._body_cache.get(cid)
-                if cached is not None:
-                    self._body_cache.move_to_end(cid)
-                    result[cid] = cached
-                else:
-                    to_load.append(cid)
-            if to_load:
-                bodies = await asyncio.to_thread(_load_bodies_from_disk, to_load)
-                for cid in to_load:
-                    body = bodies.get(cid)
-                    if body is None:
-                        continue
-                    self._body_cache[cid] = body
-                    while len(self._body_cache) > _BODY_CACHE_MAXSIZE:
-                        self._body_cache.popitem(last=False)
-                    result[cid] = body
-            return result
+        """Batched variant of :meth:`get_body`; one executor hop per call."""
+        return await self._body_store.get_many(component_ids)
 
     def get_featured_record(self, component_id: str) -> _FeaturedRecord | None:
         """Return the registry record for a ``featured.*`` id, or ``None``."""
@@ -952,17 +877,14 @@ def _materialise_entry(entry: ConfigEntry, target_platform: str | None) -> Confi
 
 
 def _load_body_from_disk(component_id: str) -> ComponentCatalogEntry | None:
-    """Read ``components/<component_id>.json`` and hydrate into a ComponentCatalogEntry."""
-    # Defense-in-depth path-traversal guard. ``component_id``
-    # ultimately flows in from a WS handler kwarg; today the trust
-    # chain is bounded because ``get_body`` short-circuits on
-    # ``component_id not in self._by_id`` and the index is shipped
-    # with the wheel, but a local reject-by-syntax check keeps the
-    # safety property of the loader readable in isolation. The
-    # check is purely on the id string (parent refs / separators /
-    # null bytes) so the hot path stays out of the kernel ``lstat``
-    # walk that ``Path.resolve`` does on every hydrate.
-    if is_unsafe_component_id(component_id):
+    """Read ``components/<component_id>.json`` and hydrate into a ComponentCatalogEntry.
+
+    Defense-in-depth traversal guard via
+    :func:`is_unsafe_catalog_id` — kept as a string check rather
+    than ``Path.resolve`` so the hot path stays out of the kernel
+    ``lstat`` walk that resolve does on every hydrate.
+    """
+    if is_unsafe_catalog_id(component_id):
         _LOGGER.warning("Refusing component body for traversal-shaped id: %r", component_id)
         return None
     body_path = _COMPONENT_BODIES_DIR / f"{component_id}.json"
@@ -970,40 +892,3 @@ def _load_body_from_disk(component_id: str) -> ComponentCatalogEntry | None:
         _LOGGER.warning("Component body missing on disk: %s", body_path)
         return None
     return ComponentCatalogEntry.from_dict(loads(body_path.read_bytes()))
-
-
-@lru_cache(maxsize=_UNSAFE_ID_CACHE_MAXSIZE)
-def is_unsafe_component_id(component_id: str) -> bool:
-    """
-    Return True when *component_id* contains traversal-shaped characters.
-
-    Shared by the runtime body loader (rejects + warns) and the
-    sync script's body emitter (raises before write); both ends
-    of the on-disk catalog stay narrow against the same predicate
-    so a future bug on either side can't silently produce a path
-    outside ``definitions/components/``. The result is cached
-    because the same ~900 catalog ids repeat across every batch
-    hydrate; the ``maxsize`` cap keeps an attacker-controlled
-    flood from growing the cache without bound.
-    """
-    return (
-        not component_id
-        or ".." in component_id
-        or "/" in component_id
-        or "\\" in component_id
-        or "\x00" in component_id
-    )
-
-
-def _load_bodies_from_disk(
-    component_ids: list[str],
-) -> dict[str, ComponentCatalogEntry | None]:
-    """
-    Read several component body files sequentially in one thread.
-
-    Designed to be called from a single ``asyncio.to_thread``
-    dispatch so a batch of N ids pays one executor hop instead of
-    N. Missing files map to ``None``; the caller decides whether
-    that's a cache miss or a hard error.
-    """
-    return {cid: _load_body_from_disk(cid) for cid in component_ids}

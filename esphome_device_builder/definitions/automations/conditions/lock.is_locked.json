@@ -1,0 +1,1 @@
+{"id":"lock.is_locked","name":"Lock → Is Locked","description":"This [Condition](https://esphome.io/automations/actions#all-conditions) checks if the given lock is LOCKED (or UNLOCKED).","docs_url":"https://esphome.io/automations/actions","domain":"lock","config_entries":[{"key":"id","type":"id","label":"ID","advanced":true}],"accepts_condition_list":false}

@@ -96,7 +96,8 @@ esphome_device_builder = [
   "definitions/boards.json",
   "definitions/components.index.json",
   "definitions/components/*.json",
-  "definitions/automations.json",
+  "definitions/automations.index.json",
+  "definitions/automations/*/*.json",
 ]
 
 [tool.ruff]

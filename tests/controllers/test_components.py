@@ -518,17 +518,15 @@ async def test_get_body_evicts_least_recently_used(tmp_path: Path) -> None:
                 }
             )
         )
-    with (
-        patch.object(components_module, "_COMPONENT_BODIES_DIR", bodies_dir),
-        patch.object(components_module, "_BODY_CACHE_MAXSIZE", 64),
-    ):
+    cat._body_store._cache_maxsize = 64
+    with patch.object(components_module, "_COMPONENT_BODIES_DIR", bodies_dir):
         for i in range(70):
             await cat.get_body(f"comp_{i}")
 
     # 70 reads with maxsize=64 ⇒ first ~6 entries evicted.
-    assert len(cat._body_cache) == 64
-    assert "comp_0" not in cat._body_cache
-    assert "comp_69" in cat._body_cache
+    assert len(cat._body_store._cache) == 64
+    assert "comp_0" not in cat._body_store._cache
+    assert "comp_69" in cat._body_store._cache
 
 
 async def test_get_component_bodies_returns_full_batch_larger_than_cache(
@@ -560,17 +558,15 @@ async def test_get_component_bodies_returns_full_batch_larger_than_cache(
                 }
             )
         )
-    with (
-        patch.object(components_module, "_COMPONENT_BODIES_DIR", bodies_dir),
-        patch.object(components_module, "_BODY_CACHE_MAXSIZE", 32),
-    ):
+    cat._body_store._cache_maxsize = 32
+    with patch.object(components_module, "_COMPONENT_BODIES_DIR", bodies_dir):
         result = await cat.get_component_bodies(
             component_ids=[f"comp_{i}" for i in range(200)],
         )
 
     assert len(result) == 200
     # Cache trimmed; older entries evicted by the time the batch returned.
-    assert len(cat._body_cache) == 32
+    assert len(cat._body_store._cache) == 32
     # But the result dict held the references, so the early ids are still present.
     assert result["comp_0"].id == "comp_0"
     assert result["comp_199"].id == "comp_199"
@@ -675,7 +671,7 @@ async def test_get_body_coalesces_concurrent_calls_into_one_disk_read(
 
     with (
         patch.object(components_module, "_COMPONENT_BODIES_DIR", bodies_dir),
-        patch.object(components_module, "_load_body_from_disk", _counting_loader),
+        patch.object(cat._body_store, "_load_one", _counting_loader),
     ):
         first, second = await asyncio.gather(cat.get_body("wifi"), cat.get_body("wifi"))
 
@@ -768,7 +764,7 @@ async def test_load_bodies_dedupes_repeated_ids_before_disk_read(
 
     with (
         patch.object(components_module, "_COMPONENT_BODIES_DIR", bodies_dir),
-        patch.object(components_module, "_load_body_from_disk", _counting_loader),
+        patch.object(cat._body_store, "_load_one", _counting_loader),
     ):
         result = await cat._load_bodies(["wifi", "wifi", "wifi"])
 

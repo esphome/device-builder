@@ -33,6 +33,7 @@ from ...models.automations import (
     UpsertResponse,
 )
 from . import catalog, parsing, writing
+from .catalog import AutomationBodyRef
 
 if TYPE_CHECKING:
     from ...device_builder import DeviceBuilder
@@ -110,6 +111,25 @@ class AutomationsController:
         """Return every sensor / binary_sensor / text_sensor filter."""
         del platform
         return [f.to_dict() for f in catalog.all_filters()]
+
+    @api_command("automations/get_bodies")
+    async def get_bodies(
+        self,
+        *,
+        refs: list[AutomationBodyRef],
+        **_kwargs: Any,
+    ) -> dict[str, dict]:
+        """Hydrate full automation bodies in one batched round trip.
+
+        ``refs`` is a list of ``{"type": str, "id": str}`` entries
+        where ``type`` is one of ``triggers`` / ``actions`` /
+        ``conditions`` / ``light_effects`` / ``filters``. The
+        response is keyed by ``"<type>/<id>"`` and carries the
+        full body (config_entries tree included). Unknown or
+        missing ids are absent. Mirrors
+        ``components/get_component_bodies`` from #424.
+        """
+        return await catalog.get_bodies(refs)
 
     # ------------------------------------------------------------------
     # Device-scoped helpers

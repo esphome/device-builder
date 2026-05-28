@@ -1,0 +1,1 @@
+{"id":"fan.on_preset_set","name":"Fan → On Preset Set","description":"An automation to perform when the fan preset mode is changed. See [`fan.on_preset_set` Trigger](https://esphome.io/components/fan#fan-on_preset_set_trigger).","docs_url":"https://esphome.io/components/fan#base-fan-configuration","applies_to":["fan"],"is_device_level":false,"config_entries":[]}

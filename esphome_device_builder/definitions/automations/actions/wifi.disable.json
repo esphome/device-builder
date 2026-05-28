@@ -1,0 +1,1 @@
+{"id":"wifi.disable","name":"Wifi → Disable","description":"This action turns off the WiFi interface on demand.","docs_url":"https://esphome.io/automations/actions","domain":"wifi","config_entries":[],"is_control_flow":false,"has_else_branch":false,"accepts_action_list":[]}

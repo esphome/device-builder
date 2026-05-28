@@ -141,6 +141,84 @@ class AutomationCatalog(DataClassORJSONMixin):
 
 
 # ---------------------------------------------------------------------------
+# Slim index variants (mirror ComponentCatalogIndexEntry / ComponentCatalogEntry).
+# The list endpoints (`automations/get_triggers` etc.) return these slim
+# shapes — only the picker fields, no deep config_entries tree. Full bodies
+# hydrate lazily on demand via the LazyBodyStore.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class AutomationTriggerIndex(DataClassORJSONMixin):
+    """Slim card-view of :class:`AutomationTrigger` (no config_entries)."""
+
+    id: str
+    name: str
+    description: str
+    docs_url: str
+    applies_to: list[str] = field(default_factory=list)
+    is_device_level: bool = False
+
+
+@dataclass
+class AutomationActionIndex(DataClassORJSONMixin):
+    """Slim card-view of :class:`AutomationAction` (no config_entries)."""
+
+    id: str
+    name: str
+    description: str
+    docs_url: str
+    domain: str
+    is_control_flow: bool = False
+    has_else_branch: bool = False
+    accepts_action_list: list[str] = field(default_factory=list)
+
+
+@dataclass
+class AutomationConditionIndex(DataClassORJSONMixin):
+    """Slim card-view of :class:`AutomationCondition` (no config_entries)."""
+
+    id: str
+    name: str
+    description: str
+    docs_url: str
+    domain: str
+    accepts_condition_list: bool = False
+
+
+@dataclass
+class LightEffectIndex(DataClassORJSONMixin):
+    """Slim card-view of :class:`LightEffect` (no config_entries)."""
+
+    id: str
+    name: str
+    applies_to: list[str] = field(default_factory=list)
+    value_type: str | None = None
+
+
+@dataclass
+class FilterIndex(DataClassORJSONMixin):
+    """Slim card-view of :class:`Filter` (no config_entries)."""
+
+    id: str
+    name: str
+    applies_to: list[str] = field(default_factory=list)
+    value_type: str | None = None
+
+
+@dataclass
+class AutomationCatalogIndex(DataClassORJSONMixin):
+    """Slim variant of :class:`AutomationCatalog` — the shape of automations.index.json."""
+
+    esphome_schema_version: str = ""
+    triggers: list[AutomationTriggerIndex] = field(default_factory=list)
+    actions: list[AutomationActionIndex] = field(default_factory=list)
+    conditions: list[AutomationConditionIndex] = field(default_factory=list)
+    light_effects: list[LightEffectIndex] = field(default_factory=list)
+    filters: list[FilterIndex] = field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
 # Location (discriminated union)
 # ---------------------------------------------------------------------------
 
@@ -321,9 +399,9 @@ class AvailableAutomations(DataClassORJSONMixin):
     feed the action-parameter dropdowns.
     """
 
-    triggers: list[AutomationTrigger] = field(default_factory=list)
-    actions: list[AutomationAction] = field(default_factory=list)
-    conditions: list[AutomationCondition] = field(default_factory=list)
+    triggers: list[AutomationTriggerIndex] = field(default_factory=list)
+    actions: list[AutomationActionIndex] = field(default_factory=list)
+    conditions: list[AutomationConditionIndex] = field(default_factory=list)
     scripts: list[AvailableScript] = field(default_factory=list)
     devices: list[AvailableComponentInstance] = field(default_factory=list)
 

@@ -1,0 +1,1 @@
+{"id":"wiegand.on_key","name":"Wiegand → On Key","description":"An automation to perform when a key has been pressed on the pad. The key is in a variable called `x`.","docs_url":"https://esphome.io/components/wiegand#configuration-variables","applies_to":["wiegand"],"is_device_level":false,"config_entries":[]}

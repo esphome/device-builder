@@ -67,7 +67,7 @@ def test_emit_split_catalog_refuses_traversal_shaped_id(
 ) -> None:
     """A catalog entry whose id has traversal-shaped chars hard-fails the build.
 
-    Mirror of the runtime ``is_unsafe_component_id`` guard on the
+    Mirror of the runtime ``is_unsafe_catalog_id`` guard on the
     write side. Both ends of the on-disk catalog stay narrow
     against the same predicate so a sync-time bug or upstream
     schema change introducing a separator in an id can't silently

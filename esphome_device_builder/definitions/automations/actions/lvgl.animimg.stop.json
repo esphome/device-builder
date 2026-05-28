@@ -1,0 +1,1 @@
+{"id":"lvgl.animimg.stop","name":"Lvgl → Animimg Stop","description":"","docs_url":"https://esphome.io/automations/actions","domain":"lvgl","config_entries":[{"key":"id","type":"id","label":"ID","required":true,"display_format":null}],"is_control_flow":false,"has_else_branch":false,"accepts_action_list":[]}
