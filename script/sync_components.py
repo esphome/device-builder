@@ -601,8 +601,16 @@ _DOC_PREFIX_TYPES: dict[str, str] = {
 }
 
 # Time-period default values are short strings like ``"60s"``,
-# ``"5min"``, ``"1h30s"``. This regex matches that shape.
-_TIME_PERIOD_DEFAULT = re.compile(r"^\d+(\.\d+)?\s*(ms|us|ns|s|min|h|d)(\d+\s*\w+)*$")
+# ``"5min"``, ``"1h30s"``. Each segment is a digit run + a fixed
+# unit; the repeating group sticks to the same closed unit
+# alternation rather than ``\w+`` so the engine can't backtrack
+# exponentially on inputs like ``"9s9" + "00" * N`` (CodeQL
+# ReDoS alert). The caller pre-strips whitespace so no ``\s*``
+# is needed here either.
+_TIME_PERIOD_DEFAULT = re.compile(
+    r"^\d+(?:\.\d+)?(?:ms|us|ns|min|s|h|d)"
+    r"(?:\d+(?:\.\d+)?(?:ms|us|ns|min|s|h|d))*$"
+)
 
 
 class Visibility(StrEnum):
