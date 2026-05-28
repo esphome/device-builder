@@ -31,7 +31,12 @@ def test_boards_json_matches_manifests() -> None:
 
 def test_boards_json_omits_default_fields() -> None:
     """Empty ``suggestions`` / ``locked`` default rows are stripped from ``boards.json``."""
-    raw = _BOARDS_JSON.read_text()
+    # ``encoding="utf-8"`` is load-bearing on Windows: the file
+    # carries em-dashes and other non-ASCII chars, and
+    # ``Path.read_text`` defaults to the platform encoding (cp1252
+    # on the windows-latest CI runner), which trips on the first
+    # 0x90 byte from a u'—'.
+    raw = _BOARDS_JSON.read_text(encoding="utf-8")
     assert '"suggestions":null' not in raw
     assert '"suggestions": null' not in raw
     assert '"locked":false' not in raw
