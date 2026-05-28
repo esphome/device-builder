@@ -1235,24 +1235,24 @@ async def test_resolve_default_components_skips_featured_with_missing_body(
 ) -> None:
     """A featured ref whose body file vanished mid-flight skips with a warning.
 
-    Bodies hydrate lazily through ``get_body``; if a per-id file is
-    deleted (or the catalog is mid-regen), the resolver should log
+    Bodies hydrate lazily through ``_load_bodies``; if a per-id file
+    is deleted (or the catalog is mid-regen), the resolver should log
     and skip rather than reach into ``None``. Synthesized by stubbing
-    ``get_body`` to return ``None`` for the featured underlying.
+    ``_load_bodies`` to drop the featured underlying from the result.
     """
     board = deepcopy(session_component_catalog._db.boards.get_by_id("apollo-esk-1"))
     assert board is not None
-    original_get_body = session_component_catalog.get_body
+    original_load = session_component_catalog._load_bodies
 
-    async def empty_body(component_id: str) -> Any:
+    async def partial_load(component_ids: Any) -> Any:
         # Drop the featured path's underlying; let the catalog-id
-        # fallback (web_server) still return its real body so the
-        # warning isn't swamped by the fallback's own warning.
-        if component_id == "switch.gpio":
-            return None
-        return await original_get_body(component_id)
+        # fallback (web_server) still resolve so the warning isn't
+        # swamped by the fallback's own warning.
+        bodies = await original_load(component_ids)
+        bodies.pop("switch.gpio", None)
+        return bodies
 
-    monkeypatch.setattr(session_component_catalog, "get_body", empty_body)
+    monkeypatch.setattr(session_component_catalog, "_load_bodies", partial_load)
     with caplog.at_level(logging.WARNING):
         pairs = await session_component_catalog.resolve_default_components(board)
     # Featured ref skipped; web_server (catalog fallback) still resolves.

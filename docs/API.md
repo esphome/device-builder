@@ -204,8 +204,7 @@ The subscription stays open for the connection's lifetime; closing the WebSocket
 |---------|------|----------|-------------|
 | `components/get_categories` | `{board_id?}` | `[{id, name, count}]` | List categories with counts |
 | `components/get_components` | `{query?, category?, exclude_category?, platform?, board_id?, offset?, limit?}` | `PagedComponentsResponse` | Search/list components |
-| `components/get_component` | `{component_id, platform?, board_id?}` | `ComponentCatalogEntry` | Get component with config entries |
-| `components/get_component_bodies` | `{component_ids, platform?, board_id?}` | `{component_id: ComponentCatalogEntry}` | Batch hydrate; missing ids omitted |
+| `components/get_component_bodies` | `{component_ids, platform?, board_id?}` | `{component_id: ComponentCatalogEntry}` | Hydrate one or many bodies; missing ids omitted |
 
 `platform` filters to components compatible with the given target platform; components with an empty `supported_platforms` list are platform-agnostic and always included. `board_id` is a convenience — the boards catalog resolves it to a platform; `platform` wins when both are passed. The platform is also used to materialise each entry's `platform_defaults` into `default_value`.
 

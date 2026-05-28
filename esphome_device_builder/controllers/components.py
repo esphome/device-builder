@@ -45,9 +45,10 @@ _COMPONENT_BODIES_DIR = _DEFINITIONS_DIR / "components"
 # Bounded LRU for hydrated component bodies. The catalog ships ~900
 # bodies totalling ~22MB on disk; pinning every loaded body would
 # bring back the eager-load memory cost the split was meant to drop.
-# Sized for "a few dozen open detail views per session" with room to
-# absorb featured-card warmups without thrashing.
-_BODY_CACHE_MAXSIZE = 64
+# Sized to absorb a navigator's full-device batch (typical
+# ~30-50 components) plus headroom for featured-card warmups and
+# yaml-completion lookups without thrashing.
+_BODY_CACHE_MAXSIZE = 128
 
 # Catalog ids for components that ESPHome auto-loads as transport /
 # helper modules but that the dashboard's Add Configuration picker
@@ -99,12 +100,15 @@ class ComponentCatalog:
         self._featured_by_id: dict[str, _FeaturedRecord] = {}
         self._featured_by_board: dict[str, list[str]] = {}
         self._body_cache: OrderedDict[str, ComponentCatalogEntry] = OrderedDict()
-        # Per-id in-flight futures so concurrent ``get_body`` calls for
-        # the same id share one disk read; mirrors the frontend's
-        # ``component-name-cache`` coalescing on the backend side so a
-        # batch call that overlaps with an in-flight singleton fetch
-        # piggybacks on the same load.
-        self._body_inflight: dict[str, asyncio.Future[ComponentCatalogEntry | None]] = {}
+        # Single load lock + double-checked cache reads, mirroring
+        # Home Assistant's ``translation.py``. The whole point is that
+        # a batch of N ids runs as ONE executor job that reads every
+        # missing body sequentially in the same thread, instead of N
+        # ``asyncio.to_thread`` calls thrashing the thread pool for
+        # small (<1ms) I/O. A concurrent fetch waiting on the lock
+        # re-checks the cache after acquiring it, so same-id
+        # coalescing falls out for free without per-id futures.
+        self._body_load_lock = asyncio.Lock()
 
     def load(self) -> None:
         """
@@ -250,35 +254,27 @@ class ComponentCatalog:
         result.update(top_level)
         return result
 
-    @api_command("components/get_component")
     async def get_component(
         self,
         *,
         component_id: str,
         platform: str | None = None,
         board_id: str | None = None,
-        **kwargs: Any,
     ) -> ComponentCatalogEntry | None:
         """
-        Get a single component by ID.
+        Resolve one component id; thin wrapper around the batch API.
 
-        When ``platform`` (or ``board_id``, which we resolve to a
-        platform) is provided, ``platform_defaults`` are resolved
-        into ``default_value`` for that target platform — frontend
-        gets the right default without having to know the
-        cv.SplitDefault details.
-
-        ``component_id`` may also be a featured-component id of the form
-        ``featured.<board>.<local>`` — the response then carries the
-        underlying component with the board's ``FieldPreset`` overrides
-        baked into ``default_value`` / ``locked`` / ``suggestions``.
+        Not a WS command — the frontend always batches through
+        ``components/get_component_bodies``. Kept as a sync-call
+        convenience for internal callers and tests so the
+        per-id-lookup story doesn't fork.
         """
-        return await self._resolve_one(
-            component_id,
+        bodies = await self.get_component_bodies(
+            component_ids=[component_id],
             platform=platform,
             board_id=board_id,
-            warn_on_featured_board_mismatch=True,
         )
+        return bodies.get(component_id)
 
     @api_command("components/get_component_bodies")
     async def get_component_bodies(
@@ -290,28 +286,40 @@ class ComponentCatalog:
         **kwargs: Any,
     ) -> dict[str, ComponentCatalogEntry]:
         """
-        Batch variant of :meth:`get_component`.
+        Hydrate a batch of component bodies in one round trip.
 
-        Loads every requested body in parallel through the same
-        in-flight-coalesced :meth:`get_body` the singleton uses, so a
-        navigator mounting N components pays one WS round trip
-        instead of N. Returns a dict keyed by the requested id;
-        missing / unknown ids are omitted (the singleton's ``None``
-        return doesn't translate to a dict). Duplicate ids in
-        ``component_ids`` collapse to one entry.
+        Returns a dict keyed by the requested id; missing / unknown
+        ids are omitted. Duplicate ids collapse to one entry.
+        ``component_ids`` may include ``featured.<board>.<local>``
+        synthetic ids; their underlying bodies are loaded
+        transparently.
 
-        ``platform`` / ``board_id`` resolve the same way as the
-        singleton call and apply uniformly to every returned entry.
-        ``featured.*`` ids are accepted and resolved against the
-        featured registry just like the singleton path; the
-        per-id board-mismatch warning is suppressed because a batch
-        legitimately spans boards.
+        ``platform`` / ``board_id`` resolve ``platform_defaults``
+        into ``default_value`` uniformly across every returned
+        entry. For featured ids, the explicit ``platform`` wins and
+        ``board_id`` falls back to the record's own board so the
+        right per-board defaults land.
         """
         unique_ids = list(dict.fromkeys(component_ids))
-        results = await asyncio.gather(
-            *(self._resolve_one(cid, platform=platform, board_id=board_id) for cid in unique_ids),
-        )
-        return {cid: entry for cid, entry in zip(unique_ids, results, strict=True) if entry}
+        # Collect every underlying body the batch touches and load
+        # them in one executor hop; the per-id materialise pass
+        # below reads from the returned dict, not the cache, so
+        # batches larger than ``_BODY_CACHE_MAXSIZE`` don't lose
+        # their own early entries to eviction.
+        underlying_ids = [
+            uid for cid in unique_ids if (uid := self._underlying_id(cid)) is not None
+        ]
+        bodies = await self._load_bodies(underlying_ids)
+        return {
+            cid: entry
+            for cid in unique_ids
+            if (
+                entry := self._resolve_one_from_bodies(
+                    cid, bodies, platform=platform, board_id=board_id
+                )
+            )
+            is not None
+        }
 
     @api_command("components/get_components")
     async def get_components(
@@ -435,12 +443,14 @@ class ComponentCatalog:
         """
         Return the hydrated body for *component_id*, or ``None`` if missing.
 
-        Reads ``definitions/components/<id>.json`` on first access via
-        a worker thread and caches up to ``_BODY_CACHE_MAXSIZE``
-        recent entries in an LRU. Concurrent calls for the same id
-        share one disk read via the in-flight future map. Returns
-        ``None`` when the id is absent from the index or its body
-        file is missing on disk.
+        Reads ``definitions/components/<id>.json`` on first access
+        and caches up to ``_BODY_CACHE_MAXSIZE`` recent entries in
+        an LRU. Concurrent calls for the same id (or for any id
+        whose load is in flight) share one executor job thanks to
+        the single load lock; the post-lock cache re-check fast-
+        paths the second caller without a redundant disk read.
+        Returns ``None`` when the id is absent from the index or
+        its body file is missing on disk.
         """
         cached = self._body_cache.get(component_id)
         if cached is not None:
@@ -448,74 +458,98 @@ class ComponentCatalog:
             return cached
         if component_id not in self._by_id:
             return None
-        inflight = self._body_inflight.get(component_id)
-        if inflight is not None:
-            return await inflight
-        loop = asyncio.get_running_loop()
-        future: asyncio.Future[ComponentCatalogEntry | None] = loop.create_future()
-        self._body_inflight[component_id] = future
-        try:
-            body = await asyncio.to_thread(_load_body_from_disk, component_id)
-        except BaseException as exc:
-            self._body_inflight.pop(component_id, None)
-            if not future.done():
-                future.set_exception(exc)
-            raise
-        self._body_inflight.pop(component_id, None)
-        if body is not None:
-            self._body_cache[component_id] = body
-            self._body_cache.move_to_end(component_id)
-            if len(self._body_cache) > _BODY_CACHE_MAXSIZE:
-                self._body_cache.popitem(last=False)
-        future.set_result(body)
-        return body
+        bodies = await self._load_bodies([component_id])
+        return bodies.get(component_id)
+
+    async def _load_bodies(self, component_ids: list[str]) -> dict[str, ComponentCatalogEntry]:
+        """
+        Return hydrated bodies for *component_ids*; populates the cache as a side effect.
+
+        One ``asyncio.to_thread`` for the whole batch so a request
+        for N bodies pays one executor hop, not N. Held under
+        :attr:`_body_load_lock` with a post-acquire cache re-check
+        so an overlapping batch only loads the bodies the previous
+        batch didn't already cover.
+
+        Returns a dict of the entries that were loadable; unknown
+        ids and missing-on-disk ids are absent. Callers must use
+        the returned dict rather than re-reading the cache, because
+        a batch larger than ``_BODY_CACHE_MAXSIZE`` would
+        partially evict its own entries before returning. Cache is
+        a hot-read optimization, not the correctness path.
+        """
+        async with self._body_load_lock:
+            result: dict[str, ComponentCatalogEntry] = {}
+            to_load: list[str] = []
+            for cid in component_ids:
+                if cid not in self._by_id:
+                    continue
+                cached = self._body_cache.get(cid)
+                if cached is not None:
+                    self._body_cache.move_to_end(cid)
+                    result[cid] = cached
+                else:
+                    to_load.append(cid)
+            if to_load:
+                bodies = await asyncio.to_thread(_load_bodies_from_disk, to_load)
+                for cid in to_load:
+                    body = bodies.get(cid)
+                    if body is None:
+                        continue
+                    self._body_cache[cid] = body
+                    while len(self._body_cache) > _BODY_CACHE_MAXSIZE:
+                        self._body_cache.popitem(last=False)
+                    result[cid] = body
+            return result
 
     def get_featured_record(self, component_id: str) -> _FeaturedRecord | None:
         """Return the registry record for a ``featured.*`` id, or ``None``."""
         return self._featured_by_id.get(component_id)
 
-    async def _resolve_one(
+    def _underlying_id(self, component_id: str) -> str | None:
+        """
+        Map a wire id to the catalog body it resolves to.
+
+        Regular ids return unchanged. ``featured.<board>.<local>``
+        ids return the underlying ``<domain>.<stem>`` id from the
+        featured registry. Returns ``None`` when the featured id
+        is unknown so callers can skip it cleanly.
+        """
+        if not component_id.startswith(_FEATURED_PREFIX):
+            return component_id
+        record = self._featured_by_id.get(component_id)
+        return record.underlying_id if record is not None else None
+
+    def _resolve_one_from_bodies(
         self,
         component_id: str,
+        bodies: dict[str, ComponentCatalogEntry],
         *,
         platform: str | None,
         board_id: str | None,
-        warn_on_featured_board_mismatch: bool = False,
     ) -> ComponentCatalogEntry | None:
         """
-        Resolve one id (featured or regular) into a materialised entry.
+        Materialise one id from a pre-loaded body map.
 
-        Shared core for :meth:`get_component` (singular,
-        warn-on-mismatch) and :meth:`get_component_bodies` (batch,
-        silent). For a featured id, the explicit ``platform`` still
-        wins; ``board_id`` falls back to the record's own board so
-        ``platform_defaults`` resolve against the right target.
+        Pure dict lookup + platform resolution; no I/O. Returns
+        ``None`` when the featured id is unknown or the underlying
+        body wasn't loaded. For a featured id, explicit ``platform``
+        wins and ``board_id`` falls back to the record's own board
+        so ``platform_defaults`` resolve against the right target.
         """
         if component_id.startswith(_FEATURED_PREFIX):
             record = self._featured_by_id.get(component_id)
             if record is None:
                 return None
-            if (
-                warn_on_featured_board_mismatch
-                and board_id is not None
-                and board_id != record.board_id
-            ):
-                _LOGGER.warning(
-                    "Featured component %s requested with mismatched board_id %s; "
-                    "resolving platform from %s",
-                    component_id,
-                    board_id,
-                    record.board_id,
-                )
-            target_platform = self._resolve_platform(platform, record.board_id)
-            body = await self.get_body(record.underlying_id)
+            body = bodies.get(record.underlying_id)
             if body is None:
                 return None
+            target_platform = self._resolve_platform(platform, record.board_id)
             return _materialise_featured(record, body, target_platform)
-        target_platform = self._resolve_platform(platform, board_id)
-        body = await self.get_body(component_id)
+        body = bodies.get(component_id)
         if body is None:
             return None
+        target_platform = self._resolve_platform(platform, board_id)
         return _materialise(body, target_platform)
 
     async def resolve_default_components(
@@ -534,32 +568,41 @@ class ComponentCatalog:
         warning — the manifest validator is the contract that
         keeps these from reaching runtime.
         """
-        out: list[tuple[ComponentCatalogEntry, dict[str, Any]]] = []
+        # Collect every underlying body the board's defaults touch
+        # so we can load them in one executor hop, mirroring
+        # ``get_component_bodies``. Pre-classifying each entry into
+        # (record, underlying_id) avoids a second pass through the
+        # featured registry below.
+        targets: list[tuple[Any, _FeaturedRecord | None, str]] = []
         for entry in board.default_components:
             full_id = f"{_FEATURED_PREFIX}{board.id}.{entry.id}"
             record = self._featured_by_id.get(full_id)
-            if record is not None:
-                underlying = await self.get_body(record.underlying_id)
-                if underlying is None:
+            underlying_id = record.underlying_id if record is not None else entry.id
+            targets.append((entry, record, underlying_id))
+        bodies = await self._load_bodies([t[2] for t in targets])
+        out: list[tuple[ComponentCatalogEntry, dict[str, Any]]] = []
+        for entry, record, underlying_id in targets:
+            body = bodies.get(underlying_id)
+            if body is None:
+                if record is not None:
                     _LOGGER.warning(
                         "Board %s default_components featured ref %s has no body — skipping",
                         board.id,
                         entry.id,
                     )
-                    continue
-                fields = _apply_featured_presets(record, {}, underlying)
+                else:
+                    _LOGGER.warning(
+                        "Board %s default_components references unknown id %s — skipping",
+                        board.id,
+                        entry.id,
+                    )
+                continue
+            if record is not None:
+                fields = _apply_featured_presets(record, {}, body)
                 fields.update(entry.fields)
-                out.append((underlying, fields))
-                continue
-            component = await self.get_body(entry.id)
-            if component is None:
-                _LOGGER.warning(
-                    "Board %s default_components references unknown id %s — skipping",
-                    board.id,
-                    entry.id,
-                )
-                continue
-            out.append((component, dict(entry.fields)))
+                out.append((body, fields))
+            else:
+                out.append((body, dict(entry.fields)))
         return out
 
     def _build_featured_registry(self) -> None:
@@ -1091,3 +1134,17 @@ def _load_body_from_disk(component_id: str) -> ComponentCatalogEntry | None:
         _LOGGER.warning("Component body missing on disk: %s", body_path)
         return None
     return _load_component(loads(body_path.read_bytes()))
+
+
+def _load_bodies_from_disk(
+    component_ids: list[str],
+) -> dict[str, ComponentCatalogEntry | None]:
+    """
+    Read several component body files sequentially in one thread.
+
+    Designed to be called from a single ``asyncio.to_thread``
+    dispatch so a batch of N ids pays one executor hop instead of
+    N. Missing files map to ``None``; the caller decides whether
+    that's a cache miss or a hard error.
+    """
+    return {cid: _load_body_from_disk(cid) for cid in component_ids}

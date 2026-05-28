@@ -7,7 +7,7 @@ suite doesn't reach:
 
 - ``load()`` empty-when-missing path.
 - ``get_integration_docs`` skip-when-no-id-or-docs.
-- ``get_component`` returns ``None`` for an unknown id.
+- ``get_component_bodies`` returns an empty dict for an unknown id.
 - ``get_components`` ``exclude_category`` + ``query`` filters.
 - ``_build_featured_registry`` empty-when-no-boards and
   warn-on-unknown-component-id branches.
@@ -185,15 +185,15 @@ async def test_get_integration_docs_skips_entries_with_no_id_or_no_docs() -> Non
     assert "no_docs" not in docs
 
 
-# ── get_component() ─────────────────────────────────────────────────
+# ── get_component_bodies() unknown-id branch ────────────────────────
 
 
-async def test_get_component_returns_none_for_unknown_id() -> None:
-    """Unknown ``component_id`` resolves to ``None`` rather than a crash."""
+async def test_get_component_bodies_omits_unknown_ids() -> None:
+    """Unknown ``component_id`` is silently dropped from the response."""
     cat = ComponentCatalog()
     cat._components = [_make_entry(entry_id="wifi")]
     cat._by_id = {"wifi": cat._components[0]}
-    assert await cat.get_component(component_id="does-not-exist") is None
+    assert await cat.get_component_bodies(component_ids=["does-not-exist"]) == {}
 
 
 # ── get_components() ────────────────────────────────────────────────
@@ -512,14 +512,8 @@ async def test_get_body_evicts_least_recently_used(tmp_path: Path) -> None:
             )
         )
     with (
-        patch(
-            "esphome_device_builder.controllers.components._COMPONENT_BODIES_DIR",
-            bodies_dir,
-        ),
-        patch(
-            "esphome_device_builder.controllers.components._BODY_CACHE_MAXSIZE",
-            64,
-        ),
+        patch.object(components_module, "_COMPONENT_BODIES_DIR", bodies_dir),
+        patch.object(components_module, "_BODY_CACHE_MAXSIZE", 64),
     ):
         for i in range(70):
             await cat.get_body(f"comp_{i}")
@@ -528,6 +522,45 @@ async def test_get_body_evicts_least_recently_used(tmp_path: Path) -> None:
     assert len(cat._body_cache) == 64
     assert "comp_0" not in cat._body_cache
     assert "comp_69" in cat._body_cache
+
+
+async def test_get_component_bodies_returns_full_batch_larger_than_cache(
+    tmp_path: Path,
+) -> None:
+    """A batch larger than the cache must still return every loaded body.
+
+    Pins the correctness contract that the cache is a hot-read
+    optimization, not a result store: an early entry can get
+    evicted by the LRU loop during the same batch, but the caller
+    must still see it in the returned dict. Regression guard for
+    the silent-drop bug that would otherwise hit a navigator
+    mounting >MAXSIZE components.
+    """
+    cat = ComponentCatalog()
+    cat._by_id = {f"comp_{i}": _make_entry(entry_id=f"comp_{i}") for i in range(200)}
+    cat._components = list(cat._by_id.values())
+    bodies_dir = tmp_path / "components"
+    bodies_dir.mkdir()
+    for i in range(200):
+        (bodies_dir / f"comp_{i}.json").write_text(
+            json.dumps(
+                {"id": f"comp_{i}", "name": f"comp_{i}", "category": "misc", "config_entries": []}
+            )
+        )
+    with (
+        patch.object(components_module, "_COMPONENT_BODIES_DIR", bodies_dir),
+        patch.object(components_module, "_BODY_CACHE_MAXSIZE", 32),
+    ):
+        result = await cat.get_component_bodies(
+            component_ids=[f"comp_{i}" for i in range(200)],
+        )
+
+    assert len(result) == 200
+    # Cache trimmed; older entries evicted by the time the batch returned.
+    assert len(cat._body_cache) == 32
+    # But the result dict held the references, so the early ids are still present.
+    assert result["comp_0"].id == "comp_0"
+    assert result["comp_199"].id == "comp_199"
 
 
 async def test_get_body_returns_none_when_body_missing_on_disk(
@@ -557,9 +590,9 @@ async def test_get_body_coalesces_concurrent_calls_into_one_disk_read(
 ) -> None:
     """Two ``get_body`` calls for the same id share one disk read.
 
-    Pins the in-flight coalescing contract: the batch endpoint and a
-    concurrent singleton fetch must not both schedule a thread-pool
-    read for the same component.
+    Pins the lock-plus-recheck coalescing contract: the batch
+    endpoint and a concurrent singleton fetch must not both
+    schedule a thread-pool read for the same component.
     """
     cat = ComponentCatalog()
     cat._by_id = {"wifi": _make_entry(entry_id="wifi")}
@@ -585,7 +618,46 @@ async def test_get_body_coalesces_concurrent_calls_into_one_disk_read(
 
     assert first is second
     assert call_count == 1
-    assert "wifi" not in cat._body_inflight
+
+
+async def test_get_component_bodies_bulk_loads_in_one_executor_hop(
+    tmp_path: Path,
+) -> None:
+    """A batch of N ids dispatches one ``asyncio.to_thread``, not N.
+
+    Regression guard against the per-id-future / asyncio.gather
+    shape this endpoint started with; #939 review pointed out that
+    N small executor jobs thrashes the thread pool. The fix is one
+    executor hop that reads every missing body sequentially.
+    """
+    cat = ComponentCatalog()
+    cat._by_id = {f"comp_{i}": _make_entry(entry_id=f"comp_{i}") for i in range(10)}
+    cat._components = list(cat._by_id.values())
+    bodies_dir = tmp_path / "components"
+    bodies_dir.mkdir()
+    for i in range(10):
+        (bodies_dir / f"comp_{i}.json").write_text(
+            json.dumps(
+                {"id": f"comp_{i}", "name": f"comp_{i}", "category": "misc", "config_entries": []}
+            )
+        )
+
+    to_thread_calls = 0
+    real_to_thread = asyncio.to_thread
+
+    async def _counting_to_thread(func, /, *args, **kwargs):
+        nonlocal to_thread_calls
+        to_thread_calls += 1
+        return await real_to_thread(func, *args, **kwargs)
+
+    with (
+        patch.object(components_module, "_COMPONENT_BODIES_DIR", bodies_dir),
+        patch.object(asyncio, "to_thread", _counting_to_thread),
+    ):
+        result = await cat.get_component_bodies(component_ids=[f"comp_{i}" for i in range(10)])
+
+    assert len(result) == 10
+    assert to_thread_calls == 1
 
 
 # ── get_component_bodies() ──────────────────────────────────────────
