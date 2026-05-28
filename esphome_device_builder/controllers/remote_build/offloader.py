@@ -481,9 +481,12 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         """Return the :class:`StoredPairing` for *pin_sha256*, or ``None``."""
         return self.state.pairings.get(pin_sha256)
 
-    def remote_builds_enabled_snapshot(self) -> bool:
-        """Return the master toggle for the ``subscribe_events`` initial-state seed."""
-        return self.state.remote_builds_enabled
+    def offloader_settings_snapshot(self) -> dict[str, bool]:
+        """Bundle the offloader-wide toggle scalars for the initial-state seed."""
+        return {
+            "remote_builds_enabled": self.state.remote_builds_enabled,
+            "allow_major_version_mismatch": self.state.allow_major_version_mismatch,
+        }
 
     def build_scheduler_snapshot(self) -> BuildSchedulerInputs:
         """Bundle the scheduler's input state into a shallow immutable snapshot.

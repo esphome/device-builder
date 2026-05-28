@@ -4290,7 +4290,10 @@ def test_remote_builds_enabled_default_is_true(tmp_path: Path) -> None:
     dashboards that haven't touched the new switch yet.
     """
     controller = _make_controller(config_dir=tmp_path)
-    assert controller.offloader.remote_builds_enabled_snapshot() is True
+    assert controller.offloader.offloader_settings_snapshot() == {
+        "remote_builds_enabled": True,
+        "allow_major_version_mismatch": True,
+    }
     assert controller.offloader.build_scheduler_snapshot().remote_builds_enabled is True
 
 
@@ -4313,7 +4316,7 @@ async def test_set_offloader_settings_toggles_master_and_fires_event(tmp_path: P
 
     view = await controller.offloader.set_offloader_settings(remote_builds_enabled=False)
 
-    assert controller.offloader.remote_builds_enabled_snapshot() is False
+    assert controller.offloader.state.remote_builds_enabled is False
     assert controller.offloader.build_scheduler_snapshot().remote_builds_enabled is False
     assert view.remote_builds_enabled is False
     assert captured == [{"remote_builds_enabled": False}]
@@ -4333,7 +4336,7 @@ async def test_set_offloader_settings_rejects_non_bool(tmp_path: Path) -> None:
         await controller.offloader.set_offloader_settings(remote_builds_enabled="false")  # type: ignore[arg-type]
     assert exc.value.code == ErrorCode.INVALID_ARGS
     # Untouched.
-    assert controller.offloader.remote_builds_enabled_snapshot() is True
+    assert controller.offloader.state.remote_builds_enabled is True
 
 
 @pytest.mark.asyncio

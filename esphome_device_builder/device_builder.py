@@ -597,8 +597,9 @@ class DeviceBuilder:
             if self.remote_build_offloader is not None:
                 # Offloader-side seeds: pairings, mDNS-discovered
                 # hosts, pair alerts, per-peer queue status,
-                # in-flight remote jobs, and the master
-                # remote_builds_enabled toggle. Each is a sync
+                # in-flight remote jobs, and the offloader-wide
+                # toggle scalars (remote_builds_enabled, the
+                # major-version-mismatch gate). Each is a sync
                 # read from the controller's in-RAM dict; live
                 # updates flow through subscribe_events.
                 initial["pairings"] = [
@@ -617,9 +618,7 @@ class DeviceBuilder:
                     dict(entry)
                     for entry in self.remote_build_offloader.offloader_remote_jobs_snapshot()
                 ]
-                initial["remote_builds_enabled"] = (
-                    self.remote_build_offloader.remote_builds_enabled_snapshot()
-                )
+                initial |= self.remote_build_offloader.offloader_settings_snapshot()
             if self.remote_build_receiver is not None:
                 # Receiver-side peers (PENDING + APPROVED) for the
                 # Pairing-requests inbox + paired list. Live
