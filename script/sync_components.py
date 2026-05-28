@@ -560,6 +560,20 @@ _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
 # automation editor is. Skip them.
 _AUTOMATION_KEY_PREFIXES: tuple[str, ...] = ("on_",)
 
+# Base-schema references that mark a field as a *sub-reading* of a
+# multi-sensor platform (DHT exposes ``temperature:`` / ``humidity:``;
+# debug exposes ``free:`` / ``block:`` / etc). Sub-readings are
+# optional by upstream schema, but they're the *reason* a multi-sensor
+# platform exists — keeping them on the main form (not hidden under
+# "Show advanced settings") is what users expect (#983).
+_SUB_READING_BASE_SCHEMAS: frozenset[str] = frozenset(
+    {
+        "sensor._SENSOR_SCHEMA",
+        "binary_sensor._BINARY_SENSOR_SCHEMA",
+        "text_sensor._TEXT_SENSOR_SCHEMA",
+    }
+)
+
 # Map from the ``**type**`` doc prefix marker to our ConfigEntryType.
 # The schema docs lead with bracketed type names (``**[Time](...)**:``)
 # or bold scalars (``**boolean**:``); we strip the markup and look up
@@ -2104,6 +2118,16 @@ def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noq
         key, required=required, is_structural=is_structural
     )
     yaml_only = schema_visibility == Visibility.YAML_ONLY
+    # Sub-sensor readings on multi-sensor platforms (DHT temperature /
+    # humidity, debug.sensor's free / block / loop_time / ..., ADS1115's
+    # named ADC reads) extend a base sensor schema; the bundle marks
+    # the reference in ``schema.extends``. They're optional, so
+    # ``_classify_advanced`` defaults them to advanced — but they're
+    # the whole reason a multi-sensor platform exists, so surface them
+    # on the main form rather than under "Show advanced settings"
+    # (#983).
+    if extends and _SUB_READING_BASE_SCHEMAS.intersection(extends):
+        advanced = False
 
     default_value, gated_component = _extract_default(raw, key=key)
     entry: dict[str, Any] = {

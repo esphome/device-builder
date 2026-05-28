@@ -1,0 +1,138 @@
+"""
+Pins the sub-sensor-reading discoverability path (#983).
+
+A platform sensor's sub-readings (e.g. ``dht.sensor.temperature``,
+``debug.sensor.free``) extend a base sensor schema; the upstream
+bundle marks the reference via ``schema.extends:
+["sensor._SENSOR_SCHEMA"]``. Those fields default to
+``advanced=True`` (every optional field does), which shoves them
+behind "Show advanced settings" and leaves the platform's form
+looking empty. The fix forces ``advanced=False`` for any field
+whose schema extends a sub-reading base schema; this test pins
+that behaviour both at ``_convert_field`` granularity and against
+the rendered catalog.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from script.sync_components import (  # type: ignore[import-not-found]
+    _SUB_READING_BASE_SCHEMAS,
+    _convert_field,
+)
+
+_UNUSED_SCHEMA_DIR = Path("/unused")
+_CATALOG_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "esphome_device_builder"
+    / "definitions"
+    / "components.json"
+)
+
+
+def _convert(raw: dict) -> dict:
+    entry = _convert_field("temperature", raw, _UNUSED_SCHEMA_DIR)
+    assert entry is not None
+    return entry
+
+
+def test_sub_reading_base_schemas_contract() -> None:
+    """The frozenset names the three multi-sensor base schemas we recognise."""
+    assert (
+        frozenset(
+            {
+                "sensor._SENSOR_SCHEMA",
+                "binary_sensor._BINARY_SENSOR_SCHEMA",
+                "text_sensor._TEXT_SENSOR_SCHEMA",
+            }
+        )
+        == _SUB_READING_BASE_SCHEMAS
+    )
+
+
+def test_sub_reading_extends_overrides_advanced_to_false() -> None:
+    """A field whose schema extends a sensor base lands not-advanced (#983)."""
+    raw = {
+        "key": "Optional",
+        "type": "schema",
+        "schema": {
+            "config_vars": {"name": {"key": "Required"}},
+            "extends": ["sensor._SENSOR_SCHEMA"],
+        },
+    }
+    assert _convert(raw)["advanced"] is False
+
+
+def test_binary_sensor_and_text_sensor_bases_also_override() -> None:
+    """The override applies to all three multi-sensor base schemas."""
+    for base in (
+        "binary_sensor._BINARY_SENSOR_SCHEMA",
+        "text_sensor._TEXT_SENSOR_SCHEMA",
+    ):
+        raw = {
+            "key": "Optional",
+            "type": "schema",
+            "schema": {"config_vars": {}, "extends": [base]},
+        }
+        assert _convert(raw)["advanced"] is False, f"failed for {base}"
+
+
+def test_non_sub_reading_nested_keeps_default_advanced() -> None:
+    """A nested field that does NOT extend a sensor base stays as classified."""
+    raw = {
+        "key": "Optional",
+        "type": "schema",
+        "schema": {
+            "config_vars": {"scan_window": {"key": "Optional"}},
+            # Different base — e.g. a plain config block.
+            "extends": ["esp32_ble_tracker._SCAN_PARAMETERS_SCHEMA"],
+        },
+    }
+    # ``_classify_advanced`` defaults optional fields to advanced —
+    # the override doesn't touch this case.
+    assert _convert(raw)["advanced"] is True
+
+
+def test_no_extends_field_unaffected() -> None:
+    """Fields with no ``extends`` reference are untouched by the override."""
+    raw = {
+        "key": "Optional",
+        "type": "string",
+    }
+    # No extends → no override → falls back to ``_classify_advanced``.
+    # ``temperature`` isn't in IMPORTANT_KEYS or ADVANCED_BASE_KEYS, so
+    # ``_classify_advanced`` returns the default ``True`` for optionals.
+    assert _convert(raw)["advanced"] is True
+
+
+def test_catalog_dht_sub_readings_not_advanced() -> None:
+    """Real catalog: DHT temperature + humidity surface on the main form."""
+    catalog = json.loads(_CATALOG_PATH.read_text())
+    dht = next(c for c in catalog["components"] if c["id"] == "sensor.dht")
+    by_key = {e["key"]: e for e in dht["config_entries"]}
+    assert by_key["temperature"]["advanced"] is False
+    assert by_key["humidity"]["advanced"] is False
+
+
+def test_catalog_debug_sub_readings_not_advanced_but_id_stays() -> None:
+    """All 7 debug sub-readings surface; ``debug_id`` (an ID) stays advanced."""
+    catalog = json.loads(_CATALOG_PATH.read_text())
+    debug = next(c for c in catalog["components"] if c["id"] == "sensor.debug")
+    by_key = {e["key"]: e for e in debug["config_entries"]}
+    sub_readings = (
+        "block",
+        "cpu_frequency",
+        "fragmentation",
+        "free",
+        "loop_time",
+        "min_free",
+        "psram",
+    )
+    for key in sub_readings:
+        assert by_key[key]["advanced"] is False, f"{key} should not be advanced"
+    # ``debug_id`` is the platform's GeneratedID field, not a
+    # sub-reading; the override doesn't reach it and the default
+    # classification still applies.
+    assert by_key["debug_id"]["advanced"] is True
