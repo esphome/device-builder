@@ -11,10 +11,15 @@ _DIGITS_PREFIX_RE = re.compile(r"^(\d+)")
 class VersionMatchPolicy(StrEnum):
     """How strictly the offloader filters peers by ESPHome version.
 
-    ``EXACT_REQUIRED`` shares the per-peer comparison with
-    ``EXACT``; they differ only at the scheduler — the former
-    hard-fails the install when no compatible peer survives,
-    the latter (and ``RELEASE``) fall through to a LOCAL build.
+    ``EXACT_REQUIRED`` tightens ``EXACT`` in two ways: the
+    scheduler hard-fails (``NO_COMPATIBLE_PEER``) instead of
+    falling back to LOCAL when no peer survives the filter, AND
+    a peer that hasn't broadcast its ``esphome_version`` yet is
+    treated as ineligible. Under the laxer policies an unknown
+    peer-version is allowed through (LOCAL fallback catches any
+    post-handshake surprise), but under ``EXACT_REQUIRED`` there
+    is no fallback — the policy's "no compatible peer ⇒ refuse"
+    promise would otherwise leak on a peer with no version yet.
     """
 
     ANY = "any"
@@ -29,6 +34,10 @@ def version_satisfies_policy(local: str, peer: str, policy: VersionMatchPolicy) 
         return True
     if policy is VersionMatchPolicy.RELEASE:
         return major_versions_match(local, peer)
+    if policy is VersionMatchPolicy.EXACT_REQUIRED:
+        # No LOCAL fallback — unknown peer version is a no-match;
+        # see :class:`VersionMatchPolicy` for the rationale.
+        return bool(local) and bool(peer) and local == peer
     return versions_match_exactly(local, peer)
 
 

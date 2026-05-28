@@ -84,19 +84,30 @@ async def set_offloader_settings(
         if version_match_policy is not None
         else None
     )
-    if clean_remote_builds_enabled is not None:
+    # Per-field equality guards so the event + save only fire on
+    # actual state changes — keeps the "event fired ⇒ value
+    # changed" invariant other controllers in this repo uphold
+    # and avoids debouncer churn on idempotent writes.
+    save_needed = False
+    if (
+        clean_remote_builds_enabled is not None
+        and clean_remote_builds_enabled != controller.state.remote_builds_enabled
+    ):
         controller.state.remote_builds_enabled = clean_remote_builds_enabled
         toggled: OffloaderRemoteBuildsToggledData = {
             "remote_builds_enabled": clean_remote_builds_enabled,
         }
         controller._db.bus.fire(EventType.OFFLOADER_REMOTE_BUILDS_TOGGLED, toggled)
-    if clean_policy is not None:
+        save_needed = True
+    if clean_policy is not None and clean_policy is not controller.state.version_match_policy:
         controller.state.version_match_policy = clean_policy
         changed: OffloaderVersionMatchPolicyChangedData = {
             "version_match_policy": clean_policy,
         }
         controller._db.bus.fire(EventType.OFFLOADER_VERSION_MATCH_POLICY_CHANGED, changed)
-    controller._schedule_pairings_save()
+        save_needed = True
+    if save_needed:
+        controller._schedule_pairings_save()
     return offloader_settings_view(controller)
 
 

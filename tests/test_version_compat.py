@@ -78,8 +78,8 @@ def test_versions_match_exactly(local: str, peer: str, expected: bool) -> None:
         pytest.param(
             VersionMatchPolicy.EXACT, "2026.5.0", "2026.5.1", False, id="exact_patch_filtered"
         ),
-        # EXACT_REQUIRED shares the per-peer filter with EXACT;
-        # the two only differ at the *scheduler* level.
+        # EXACT_REQUIRED matches EXACT on populated versions but
+        # tightens the empty-string slack (no LOCAL fallback).
         pytest.param(
             VersionMatchPolicy.EXACT_REQUIRED,
             "2026.5.0",
@@ -94,6 +94,16 @@ def test_versions_match_exactly(local: str, peer: str, expected: bool) -> None:
             False,
             id="exact_required_patch_filtered",
         ),
+        pytest.param(
+            VersionMatchPolicy.EXACT_REQUIRED, "2026.5.0", "", False, id="exact_required_empty_peer"
+        ),
+        pytest.param(
+            VersionMatchPolicy.EXACT_REQUIRED,
+            "",
+            "2026.5.0",
+            False,
+            id="exact_required_empty_local",
+        ),
     ],
 )
 def test_version_satisfies_policy(
@@ -103,8 +113,17 @@ def test_version_satisfies_policy(
     assert version_satisfies_policy(local, peer, policy) is expected
 
 
-def test_version_satisfies_policy_empty_strings_pass_every_policy() -> None:
-    """Empty-string forgiveness flows uniformly through every policy."""
-    for policy in VersionMatchPolicy:
+def test_version_satisfies_policy_empty_strings_pass_lax_policies() -> None:
+    """Lax policies forgive missing version strings; ``EXACT_REQUIRED`` does not.
+
+    The empty-string slack on ``major_versions_match`` /
+    ``versions_match_exactly`` exists so a fresh APPROVED pairing
+    isn't filtered before its first session-open populates
+    ``esphome_version``. ``EXACT_REQUIRED`` opts out: no LOCAL
+    safety net means an unknown peer can't be admitted.
+    """
+    for policy in (VersionMatchPolicy.ANY, VersionMatchPolicy.RELEASE, VersionMatchPolicy.EXACT):
         assert version_satisfies_policy("", "2026.5.0", policy) is True
         assert version_satisfies_policy("2026.5.0", "", policy) is True
+    assert version_satisfies_policy("", "2026.5.0", VersionMatchPolicy.EXACT_REQUIRED) is False
+    assert version_satisfies_policy("2026.5.0", "", VersionMatchPolicy.EXACT_REQUIRED) is False

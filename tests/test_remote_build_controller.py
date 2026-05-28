@@ -4462,6 +4462,30 @@ async def test_set_offloader_settings_rejects_non_string_policy(tmp_path: Path) 
 
 
 @pytest.mark.asyncio
+async def test_set_offloader_settings_no_op_when_value_unchanged(tmp_path: Path) -> None:
+    """Re-supplying the current value fires no event and schedules no save.
+
+    Pins the ``event fired ⇒ value changed`` invariant — phantom
+    cross-tab events on idempotent writes were the surface call
+    out in PR #997's review.
+    """
+    controller = _make_controller(config_dir=tmp_path, real_bus=True)
+    captured: list[Any] = []
+    controller.offloader._db.bus.add_listener(
+        EventType.OFFLOADER_VERSION_MATCH_POLICY_CHANGED,
+        lambda event: captured.append(event.data),
+    )
+    save = MagicMock(side_effect=controller.offloader._schedule_pairings_save)
+    controller.offloader._schedule_pairings_save = save  # type: ignore[method-assign]
+
+    # Current state is ANY by default; setting it to ANY is a no-op.
+    await controller.offloader.set_offloader_settings(version_match_policy="any")
+
+    assert captured == []
+    save.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_set_offloader_settings_rejects_atomically_on_bad_policy(tmp_path: Path) -> None:
     """A bad policy doesn't half-apply a paired valid ``remote_builds_enabled`` flip."""
     controller = _make_controller(config_dir=tmp_path, real_bus=True)
