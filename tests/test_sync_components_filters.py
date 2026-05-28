@@ -16,6 +16,7 @@ from esphome_device_builder.controllers.components import ComponentCatalog
 from script.sync_components import (  # type: ignore[import-not-found]
     _convert_field,
     _dedupe_filters,
+    _is_scalar_extends_schema,
 )
 
 _UNUSED_SCHEMA_DIR = Path("/unused")
@@ -162,3 +163,48 @@ def test_convert_field_unrelated_string_field_stays_string() -> None:
     assert entry is not None
     assert entry["type"] != "registry_list"
     assert entry["registry"] is None
+
+
+# ---------------------------------------------------------------------------
+# _is_scalar_extends_schema
+# ---------------------------------------------------------------------------
+
+
+def test_scalar_extends_detects_time_period() -> None:
+    """``throttle`` extends ``core.positive_time_period_milliseconds``."""
+    assert _is_scalar_extends_schema({"extends": ["core.positive_time_period_milliseconds"]})
+
+
+def test_scalar_extends_detects_returning_lambda() -> None:
+    """Lambda-shaped filters (``filter`` action's value is a lambda body)."""
+    assert _is_scalar_extends_schema({"extends": ["core.returning_lambda"]})
+
+
+def test_scalar_extends_detects_float_and_int() -> None:
+    """Scalar primitives via the ``.float_`` / ``.positive_int`` suffix."""
+    assert _is_scalar_extends_schema({"extends": ["core.float_"]})
+    assert _is_scalar_extends_schema({"extends": ["core.positive_float"]})
+    assert _is_scalar_extends_schema({"extends": ["core.int_"]})
+    assert _is_scalar_extends_schema({"extends": ["core.positive_int"]})
+
+
+def test_scalar_extends_rejects_mapping_extends() -> None:
+    """Mapping schemas like ``sensor.DELTA_SCHEMA`` aren't scalars."""
+    assert not _is_scalar_extends_schema({"extends": ["sensor.DELTA_SCHEMA"]})
+
+
+def test_scalar_extends_rejects_when_config_vars_present() -> None:
+    """A schema with ``config_vars`` carries its own mapping shape."""
+    assert not _is_scalar_extends_schema(
+        {
+            "extends": ["core.positive_time_period_milliseconds"],
+            "config_vars": {"some_field": {}},
+        }
+    )
+
+
+def test_scalar_extends_rejects_empty_and_none() -> None:
+    """Defensive: missing or empty schemas don't match."""
+    assert not _is_scalar_extends_schema(None)
+    assert not _is_scalar_extends_schema({})
+    assert not _is_scalar_extends_schema({"extends": []})

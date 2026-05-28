@@ -1767,6 +1767,27 @@ def build_component_entry(
 # ---------------------------------------------------------------------------
 
 
+def _scalar_type_for_extends_ref(ref: str) -> str | None:
+    """Return the scalar entry type *ref* names, or None for mapping refs.
+
+    Centralises the heuristic that decides whether a schema's
+    ``extends: ["core.X"]`` reference resolves to a scalar primitive
+    (time period, float, integer, lambda body) or to a sibling mapping
+    schema (``sensor.DELTA_SCHEMA`` etc.) — used both at field-level
+    (``_convert_field``) and at registry-entry-level
+    (``_is_scalar_extends_schema``).
+    """
+    if "time_period" in ref:
+        return "time_period"
+    if ref.endswith((".positive_float", ".float_")):
+        return "float"
+    if "positive_int" in ref or ref.endswith(".int_"):
+        return "integer"
+    if "returning_lambda" in ref:
+        return "string"
+    return None
+
+
 def _extract_config_entries(
     section: dict,
     *,
@@ -2019,14 +2040,9 @@ def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noq
     # _SENSOR_SCHEMA fields like ``expire_after`` come through that way).
     if extends and not (inner_schema or {}).get("config_vars"):
         for ref in extends:
-            if "time_period" in ref:
-                entry_type = "time_period"
-                break
-            if ref.endswith((".positive_float", ".float_")):
-                entry_type = "float"
-                break
-            if "positive_int" in ref or ref.endswith(".int_"):
-                entry_type = "integer"
+            scalar = _scalar_type_for_extends_ref(ref)
+            if scalar is not None:
+                entry_type = scalar
                 break
 
     # Docs-prefix hints — fields without explicit type lead with
@@ -4709,6 +4725,14 @@ def _convert_automation_condition(
     }
 
 
+def _is_scalar_extends_schema(schema: dict | None) -> bool:
+    """Return True when *schema* extends only scalar primitives (no config_vars)."""
+    if not schema or schema.get("config_vars"):
+        return False
+    extends = schema.get("extends") or []
+    return bool(extends) and all(_scalar_type_for_extends_ref(ref) is not None for ref in extends)
+
+
 def _convert_registry_entry(
     *,
     name: str,
@@ -4722,7 +4746,10 @@ def _convert_registry_entry(
         return None
     docs = clean_docs(body.get("docs"))
     schema = body.get("schema") if isinstance(body.get("schema"), dict) else None
-    config_entries, _alist, _hcg = _extract_automation_param_schema(schema, schema_dir)
+    if _is_scalar_extends_schema(schema):
+        config_entries: list[dict] = []
+    else:
+        config_entries, _alist, _hcg = _extract_automation_param_schema(schema, schema_dir)
     return {
         "id": name,
         "name": _automation_label(label_domain, name, docs.name),
