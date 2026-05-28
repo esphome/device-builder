@@ -216,12 +216,16 @@ def test_scalar_extends_rejects_empty_and_none() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_convert_field_collapses_returning_lambda_extends_to_string() -> None:
-    """Centralising the helper adds a returning_lambda branch to field-level too."""
-    raw = {"key": "Optional", "extends": ["core.returning_lambda"]}
+def test_convert_field_collapses_returning_lambda_extends_to_lambda() -> None:
+    """Fields whose schema extends ``core.returning_lambda`` get type ``lambda``."""
+    raw = {
+        "key": "Optional",
+        "type": "schema",
+        "schema": {"extends": ["core.returning_lambda"]},
+    }
     entry = _convert_field("on_value", raw, _UNUSED_SCHEMA_DIR)
     assert entry is not None
-    assert entry["type"] == "string"
+    assert entry["type"] == "lambda"
 
 
 # ---------------------------------------------------------------------------
@@ -245,6 +249,21 @@ def test_convert_registry_entry_returns_empty_config_entries_for_time_period() -
     assert entry["id"] == "throttle"
     assert entry["config_entries"] == []
     assert entry["applies_to"] == ["sensor"]
+    assert entry["value_type"] == "time_period"
+
+
+def test_convert_registry_entry_tags_lambda_filter_by_id() -> None:
+    """The lambda filter has no schema in the bundle; detect by id."""
+    entry = _convert_registry_entry(
+        name="lambda",
+        body={"docs": "..."},
+        label_domain="sensor",
+        applies_to=["sensor"],
+        schema_dir=_UNUSED_SCHEMA_DIR,
+    )
+    assert entry is not None
+    assert entry["config_entries"] == []
+    assert entry["value_type"] == "lambda"
 
 
 def test_convert_registry_entry_returns_empty_config_entries_for_returning_lambda() -> None:
@@ -258,6 +277,7 @@ def test_convert_registry_entry_returns_empty_config_entries_for_returning_lambd
     )
     assert entry is not None
     assert entry["config_entries"] == []
+    assert entry["value_type"] == "lambda"
 
 
 def test_convert_registry_entry_keeps_mapping_for_non_scalar_extends() -> None:

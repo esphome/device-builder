@@ -94,12 +94,18 @@ class AutomationCondition(DataClassORJSONMixin):
 
 @dataclass
 class LightEffect(DataClassORJSONMixin):
-    """A light effect (pulse, flicker, addressable_lambda, ...)."""
+    """A light effect (pulse, flicker, addressable_lambda, ...).
+
+    ``value_type`` is set when the entry takes a single scalar at the
+    polymorphic key position (e.g. ``- pulse: 50ms``) instead of a
+    nested mapping; the renderer mounts the matching inline input.
+    """
 
     id: str
     name: str
     config_entries: list[ConfigEntry] = field(default_factory=list)
     applies_to: list[str] = field(default_factory=list)
+    value_type: str | None = None
 
 
 @dataclass
@@ -110,12 +116,16 @@ class Filter(DataClassORJSONMixin):
     ``applies_to`` lists the component domains the filter is valid
     on (``["sensor"]`` / ``["binary_sensor"]`` / ``["text_sensor"]``);
     the REGISTRY_LIST renderer uses it to scope the per-row picker.
+    ``value_type`` flags scalar-valued entries (``throttle``,
+    ``delayed_on``) so the renderer mounts an inline scalar input
+    instead of an empty sub-form.
     """
 
     id: str
     name: str
     config_entries: list[ConfigEntry] = field(default_factory=list)
     applies_to: list[str] = field(default_factory=list)
+    value_type: str | None = None
 
 
 @dataclass
