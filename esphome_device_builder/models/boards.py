@@ -6,9 +6,25 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+from mashumaro.config import BaseConfig
 from mashumaro.mixins.orjson import DataClassORJSONMixin
 
 from .common import FieldPreset, PagedResponse, PinFeature  # PinFeature re-exported
+
+
+class _CatalogConfig(BaseConfig):
+    """Shared mashumaro config for board-catalog dataclasses.
+
+    ``omit_default`` and ``omit_none`` together drop ~36% of the
+    bytes (and most of the post-parse JS allocations) from the
+    repetitive catalog payload. ``from_dict`` re-defaults missing
+    fields from each dataclass's declared default, so the strip
+    is lossless across the wire and the on-disk sidecar.
+    """
+
+    omit_default = True
+    omit_none = True
+
 
 # `PinFeature` lives in .common (it's shared with config-entry pin
 # constraints), but is re-imported here for stability of existing
@@ -105,6 +121,9 @@ class BoardPin(DataClassORJSONMixin):
     occupied_by: str | None = None  # e.g. "Built-in LED", "SPI Flash"
     notes: str | None = None
 
+    class Config(_CatalogConfig):
+        """Skip empty defaults on serialise; see :class:`_CatalogConfig`."""
+
 
 @dataclass
 class BoardEsphomeConfig(DataClassORJSONMixin):
@@ -115,6 +134,9 @@ class BoardEsphomeConfig(DataClassORJSONMixin):
     variant: Esp32Variant | None = None
     framework: str | None = None  # "arduino" or "esp-idf"
 
+    class Config(_CatalogConfig):
+        """Skip empty defaults on serialise; see :class:`_CatalogConfig`."""
+
 
 @dataclass
 class BoardHardware(DataClassORJSONMixin):
@@ -124,6 +146,9 @@ class BoardHardware(DataClassORJSONMixin):
     ram_size: int | None = None
     cpu_frequency: str | None = None
     connectivity: list[Connectivity] = field(default_factory=list)
+
+    class Config(_CatalogConfig):
+        """Skip empty defaults on serialise; see :class:`_CatalogConfig`."""
 
 
 @dataclass
@@ -146,6 +171,9 @@ class FeaturedComponent(DataClassORJSONMixin):
     description: str | None = None
     fields: dict[str, FieldPreset] = field(default_factory=dict)
 
+    class Config(_CatalogConfig):
+        """Skip empty defaults on serialise; see :class:`_CatalogConfig`."""
+
 
 @dataclass
 class FeaturedBundle(DataClassORJSONMixin):
@@ -166,6 +194,9 @@ class FeaturedBundle(DataClassORJSONMixin):
     description: str = ""
     component_ids: list[str] = field(default_factory=list)
 
+    class Config(_CatalogConfig):
+        """Skip empty defaults on serialise; see :class:`_CatalogConfig`."""
+
 
 @dataclass
 class DefaultComponent(DataClassORJSONMixin):
@@ -182,6 +213,9 @@ class DefaultComponent(DataClassORJSONMixin):
 
     id: str
     fields: dict[str, Any] = field(default_factory=dict)
+
+    class Config(_CatalogConfig):
+        """Skip empty defaults on serialise; see :class:`_CatalogConfig`."""
 
 
 @dataclass
@@ -213,6 +247,9 @@ class BoardCatalogEntry(DataClassORJSONMixin):
     # presets) or a catalog ``component_id``; the entry's own
     # ``fields`` dict supplements or overrides those presets.
     default_components: list[DefaultComponent] = field(default_factory=list)
+
+    class Config(_CatalogConfig):
+        """Skip empty defaults on serialise; see :class:`_CatalogConfig`."""
 
 
 @dataclass

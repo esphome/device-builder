@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+from mashumaro.config import BaseConfig
 from mashumaro.mixins.orjson import DataClassORJSONMixin
 
 # ---------------------------------------------------------------------------
@@ -851,3 +852,16 @@ class FieldPreset(DataClassORJSONMixin):
     value: ConfigPrimitive | dict[str, Any] | list[Any] | None = None
     locked: bool = False
     suggestions: list[ConfigPrimitive] | None = None
+
+    class Config(BaseConfig):
+        """Skip empty defaults on serialise.
+
+        ``locked=False`` and ``suggestions=None`` together account
+        for ~40k empty-default occurrences across the board catalog;
+        omitting them at serialisation time is the bulk of the
+        boards.json shrink. ``from_dict`` re-defaults missing fields,
+        so the round-trip is lossless.
+        """
+
+        omit_default = True
+        omit_none = True
