@@ -761,6 +761,23 @@ def test_exact_required_falls_through_when_only_disabled_peers() -> None:
     assert decision.pin_sha256 is None
 
 
+def test_exact_required_yields_to_master_off() -> None:
+    """``remote_builds_enabled=False`` wins over ``EXACT_REQUIRED`` (master = "no remote")."""
+    pin = "a" * 64
+    pairing = _stub_pairing(pin_sha256=pin, esphome_version="2026.6.1")
+    inputs = _inputs(
+        remote_builds_enabled=False,
+        pairings={pin: pairing},
+        open_peer_links=set(),
+        peer_queue_status={},
+        offloader_esphome_version="2026.6.0",
+        version_match_policy=VersionMatchPolicy.EXACT_REQUIRED,
+    )
+    decision = pick_build_path(inputs)
+    assert decision.path is BuildPath.LOCAL
+    assert decision.pin_sha256 is None
+
+
 def test_exact_required_falls_through_when_only_pending_peers() -> None:
     """PENDING rows aren't operator intent yet — LOCAL is correct, not a hard-fail."""
     pin = "a" * 64

@@ -4462,6 +4462,27 @@ async def test_set_offloader_settings_rejects_non_string_policy(tmp_path: Path) 
 
 
 @pytest.mark.asyncio
+async def test_set_offloader_settings_rejects_atomically_on_bad_policy(tmp_path: Path) -> None:
+    """A bad policy doesn't half-apply a paired valid ``remote_builds_enabled`` flip."""
+    controller = _make_controller(config_dir=tmp_path, real_bus=True)
+    captured: list[Any] = []
+    controller.offloader._db.bus.add_listener(
+        EventType.OFFLOADER_REMOTE_BUILDS_TOGGLED,
+        lambda event: captured.append(event.data),
+    )
+    with pytest.raises(CommandError) as exc:
+        await controller.offloader.set_offloader_settings(
+            remote_builds_enabled=False,
+            version_match_policy="not_a_policy",
+        )
+    assert exc.value.code is ErrorCode.INVALID_ARGS
+    # Neither field mutated; no cross-tab event fired.
+    assert controller.offloader.state.remote_builds_enabled is True
+    assert controller.offloader.state.version_match_policy is VersionMatchPolicy.ANY
+    assert captured == []
+
+
+@pytest.mark.asyncio
 async def test_set_offloader_settings_rejects_all_none_args(tmp_path: Path) -> None:
     """Passing neither flag raises INVALID_ARGS rather than silently no-op'ing."""
     controller = _make_controller(config_dir=tmp_path)

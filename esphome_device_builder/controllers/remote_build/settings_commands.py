@@ -65,29 +65,38 @@ async def set_offloader_settings(
             "remote_builds_enabled or version_match_policy must be supplied"
         )
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    save_needed = False
-    if remote_builds_enabled is not None:
-        clean_remote_builds_enabled = validate_bool(
+    # Validate both args before mutating anything so a bad
+    # version_match_policy can't half-apply: an earlier shape
+    # mutated remote_builds_enabled then raised on the policy
+    # validator, leaving RAM / disk / cross-tab subscribers out
+    # of sync with each other.
+    clean_remote_builds_enabled = (
+        validate_bool(
             remote_builds_enabled,
             command="remote_build/set_offloader_settings",
             field="remote_builds_enabled",
         )
+        if remote_builds_enabled is not None
+        else None
+    )
+    clean_policy = (
+        _validate_version_match_policy(version_match_policy)
+        if version_match_policy is not None
+        else None
+    )
+    if clean_remote_builds_enabled is not None:
         controller.state.remote_builds_enabled = clean_remote_builds_enabled
         toggled: OffloaderRemoteBuildsToggledData = {
             "remote_builds_enabled": clean_remote_builds_enabled,
         }
         controller._db.bus.fire(EventType.OFFLOADER_REMOTE_BUILDS_TOGGLED, toggled)
-        save_needed = True
-    if version_match_policy is not None:
-        clean_policy = _validate_version_match_policy(version_match_policy)
+    if clean_policy is not None:
         controller.state.version_match_policy = clean_policy
         changed: OffloaderVersionMatchPolicyChangedData = {
             "version_match_policy": clean_policy,
         }
         controller._db.bus.fire(EventType.OFFLOADER_VERSION_MATCH_POLICY_CHANGED, changed)
-        save_needed = True
-    if save_needed:
-        controller._schedule_pairings_save()
+    controller._schedule_pairings_save()
     return offloader_settings_view(controller)
 
 

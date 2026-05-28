@@ -99,6 +99,10 @@ def pick_build_path(inputs: BuildSchedulerInputs) -> BuildPathDecision:
     filter, for any reason — issue #985 was about silent
     LOCAL-fallback, and gating the hard-fail on a single filter
     would leak the same shape through the others.
+    ``remote_builds_enabled=False`` wins over the policy (the
+    master toggle is "I don't want remote builds"; the policy is
+    "how to filter when I do") so EXACT_REQUIRED never raises in
+    that state.
     """
     if not inputs.remote_builds_enabled:
         return BuildPathDecision.local()
