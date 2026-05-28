@@ -713,6 +713,30 @@ def test_exact_required_raises_no_compatible_peer_when_filtered() -> None:
     with pytest.raises(CommandError) as exc:
         pick_build_path(inputs)
     assert exc.value.code is ErrorCode.NO_COMPATIBLE_PEER
+    # Per-reason breakdown is diagnostic-only (log analysis) but
+    # keeps the version-mismatch / disconnected distinction
+    # visible — a regression that loses it would surface as silent
+    # NO_COMPATIBLE_PEER errors that all read identical.
+    assert "1 on version mismatch" in exc.value.message
+    assert "0 on closed peer-link" in exc.value.message
+
+
+def test_exact_required_message_breakdown_when_peer_disconnected() -> None:
+    """Diagnostic carries the disconnect count, not just the version-filter count."""
+    pin = "a" * 64
+    pairing = _stub_pairing(pin_sha256=pin, esphome_version="2026.6.0")
+    inputs = _inputs(
+        pairings={pin: pairing},
+        open_peer_links=set(),
+        peer_queue_status={},
+        offloader_esphome_version="2026.6.0",
+        version_match_policy=VersionMatchPolicy.EXACT_REQUIRED,
+    )
+    with pytest.raises(CommandError) as exc:
+        pick_build_path(inputs)
+    assert exc.value.code is ErrorCode.NO_COMPATIBLE_PEER
+    assert "0 on version mismatch" in exc.value.message
+    assert "1 on closed peer-link" in exc.value.message
 
 
 def test_exact_required_falls_through_when_no_pairings_exist() -> None:

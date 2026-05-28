@@ -106,49 +106,67 @@ def pick_build_path(inputs: BuildSchedulerInputs) -> BuildPathDecision:
     """
     if not inputs.remote_builds_enabled:
         return BuildPathDecision.local()
-    eligible, intentional_peers = _eligible_pairings(inputs)
-    for pin_sha256, _pairing in eligible:
+    result = _eligible_pairings(inputs)
+    for pin_sha256, _pairing in result.eligible:
         snapshot = inputs.peer_queue_status.get(pin_sha256)
         if snapshot is not None and snapshot["idle"]:
             return BuildPathDecision.remote(pin_sha256)
-    if eligible:
-        pin_sha256, _pairing = eligible[0]
+    if result.eligible:
+        pin_sha256, _pairing = result.eligible[0]
         return BuildPathDecision.remote(pin_sha256)
-    if intentional_peers > 0 and inputs.version_match_policy is VersionMatchPolicy.EXACT_REQUIRED:
-        # English-only diagnostic for logs / e2e tests — the
+    if result.intentional > 0 and inputs.version_match_policy is VersionMatchPolicy.EXACT_REQUIRED:
+        # English-only diagnostic for logs / e2e tests; the
         # frontend keys its localised toast on
         # ``ErrorCode.NO_COMPATIBLE_PEER`` and ignores this string.
+        # The per-reason breakdown is here for log analysis when
+        # the operator's reproducing case isn't the version-skew
+        # one (e.g. a transient peer-link drop on Home Assistant
+        # Green that surfaces the same code).
         msg = (
-            f"version policy 'exact_required' with {intentional_peers} intended "
-            f"peer(s) but none eligible (offloader={inputs.offloader_esphome_version!r}); "
+            f"version policy 'exact_required' with {result.intentional} intended "
+            f"peer(s) but none eligible "
+            f"({result.version_filtered} on version mismatch, "
+            f"{result.disconnected} on closed peer-link; "
+            f"offloader={inputs.offloader_esphome_version!r}); "
             f"refusing to fall back to LOCAL"
         )
         raise CommandError(ErrorCode.NO_COMPATIBLE_PEER, msg)
     return BuildPathDecision.local()
 
 
-def _eligible_pairings(
-    inputs: BuildSchedulerInputs,
-) -> tuple[list[tuple[str, StoredPairing]], int]:
-    """Return ``(eligible, operator_intent_count)`` after the per-peer filter.
+@dataclass(frozen=True)
+class _FilterResult:
+    """Outcome of the per-peer eligibility filter.
 
-    ``operator_intent_count`` counts every APPROVED + enabled
-    pairing — including ineligible ones — since that's what
-    drives the ``EXACT_REQUIRED`` hard-fail in the caller.
+    ``intentional`` counts every APPROVED + enabled pairing — including
+    ineligible ones — since that's what drives the ``EXACT_REQUIRED``
+    hard-fail. The per-reason counts (``version_filtered``,
+    ``disconnected``) are diagnostic only.
     """
+
+    eligible: list[tuple[str, StoredPairing]]
+    intentional: int
+    version_filtered: int
+    disconnected: int
+
+
+def _eligible_pairings(inputs: BuildSchedulerInputs) -> _FilterResult:
+    """Walk the pairings dict applying the policy filter."""
     ordered = sorted(
         inputs.pairings.items(),
         key=lambda item: (item[1].paired_at, item[0]),
     )
     policy = inputs.version_match_policy
     eligible: list[tuple[str, StoredPairing]] = []
-    intentional_peers = 0
+    intentional = 0
     version_filtered = 0
+    disconnected = 0
     for pin_sha256, pairing in ordered:
         if pairing.status is not PeerStatus.APPROVED or not pairing.enabled:
             continue
-        intentional_peers += 1
+        intentional += 1
         if pin_sha256 not in inputs.open_peer_links:
+            disconnected += 1
             continue
         if not version_satisfies_policy(
             inputs.offloader_esphome_version, pairing.esphome_version, policy
@@ -169,4 +187,9 @@ def _eligible_pairings(
             policy.value,
             version_filtered,
         )
-    return eligible, intentional_peers
+    return _FilterResult(
+        eligible=eligible,
+        intentional=intentional,
+        version_filtered=version_filtered,
+        disconnected=disconnected,
+    )
