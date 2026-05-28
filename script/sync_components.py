@@ -63,7 +63,6 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 _DEFINITIONS_DIR = _REPO_ROOT / "esphome_device_builder" / "definitions"
 _OUTPUT_INDEX_FILE = _DEFINITIONS_DIR / "components.index.json"
 _OUTPUT_BODIES_DIR = _DEFINITIONS_DIR / "components"
-_AUTOMATIONS_OUTPUT_FILE = _DEFINITIONS_DIR / "automations.json"
 _AUTOMATIONS_INDEX_FILE = _DEFINITIONS_DIR / "automations.index.json"
 _AUTOMATIONS_BODIES_DIR = _DEFINITIONS_DIR / "automations"
 _CACHE_ROOT = _REPO_ROOT / ".cache"
@@ -824,16 +823,7 @@ def main() -> int:
         len(automations["conditions"]),
         len(automations["light_effects"]),
     )
-    # Emit both the split layout (consumed by the runtime starting
-    # in Step 4) and the monolithic file (still read by the
-    # current runtime + tests). The monolithic write goes away in
-    # the same commit that switches the runtime over.
     _emit_split_automations_catalog(automations, version)
-    automations_payload = {"esphome_schema_version": version, **automations}
-    _AUTOMATIONS_OUTPUT_FILE.write_bytes(
-        orjson.dumps(automations_payload, option=orjson.OPT_APPEND_NEWLINE),
-    )
-    _LOGGER.info("Wrote %s", _AUTOMATIONS_OUTPUT_FILE)
     return 0
 
 

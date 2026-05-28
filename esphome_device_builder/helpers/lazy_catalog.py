@@ -7,9 +7,12 @@ Used by the component catalog (per-id ``.json`` under
 The store owns the runtime caching invariants — bounded LRU,
 single ``asyncio.Lock`` + post-acquire cache re-check, one
 ``asyncio.to_thread`` per batch — and leaves the on-disk layout
-to the caller via a ``key_to_path`` mapper. Each catalog can
-enforce its own path-traversal predicate inside the mapper
-(``None`` return ⇒ reject + cache miss).
+to the caller via a ``load_one`` callable. The sync ``get_sync``
+accessor (used by parsing / writing on a worker thread) shares
+the same cache; cache mutations are simple ``OrderedDict``
+operations that the GIL serialises atomically, so concurrent
+worker-thread calls at worst incur a duplicate idempotent
+disk read on a rare collision.
 """
 
 from __future__ import annotations
@@ -114,6 +117,29 @@ class LazyBodyStore[BodyT]:
     def _load_bodies_sync(self, ids: list[str]) -> dict[str, BodyT | None]:
         """Read several bodies sequentially in one thread."""
         return {cid: self._load_one(cid) for cid in ids}
+
+    def get_sync(self, catalog_id: str) -> BodyT | None:
+        """Sync accessor for worker-thread callers (parsing / writing).
+
+        Blocks on cache miss with a blocking disk read.
+        Cache mutations are simple ``OrderedDict`` ops that the GIL
+        atomically serialises; concurrent worker-thread callers at
+        worst pay a duplicate idempotent disk read on a rare
+        collision, no shared-state corruption.
+        """
+        cached = self._cache.get(catalog_id)
+        if cached is not None:
+            self._cache.move_to_end(catalog_id)
+            return cached
+        if not self._is_known(catalog_id):
+            return None
+        body = self._load_one(catalog_id)
+        if body is None:
+            return None
+        self._cache[catalog_id] = body
+        while len(self._cache) > self._cache_maxsize:
+            self._cache.popitem(last=False)
+        return body
 
 
 def _always_true(_: str) -> bool:
