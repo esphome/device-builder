@@ -100,6 +100,20 @@ def test_read_missing_sidecar_returns_empty() -> None:
     assert read_job_output("never-written") == []
 
 
+def test_write_sidecar_cleans_up_temp_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A failed atomic replace unlinks the staged temp file and re-raises."""
+
+    def _boom(self: Path, target: Path) -> None:
+        raise OSError("replace failed")
+
+    monkeypatch.setattr(Path, "replace", _boom)
+    with pytest.raises(OSError, match="replace failed"):
+        _write_job_sidecar("fail1", ["x\n"])
+
+    log_dir = _job_log_path("fail1").parent
+    assert [p for p in log_dir.iterdir() if p.suffix == ".tmp"] == []
+
+
 @pytest.mark.asyncio
 async def test_legacy_inline_output_migrates_to_sidecar_on_load(
     tmp_path: Path,
