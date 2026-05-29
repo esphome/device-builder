@@ -10,6 +10,7 @@ import logging
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, ClassVar
+from unittest import mock
 
 import pytest
 
@@ -793,6 +794,70 @@ def test_detect_platform_reads_real_file(tmp_path: Path) -> None:
     path = tmp_path / "device.yaml"
     path.write_text("esp32:\n  variant: ESP32S3\n", encoding="utf-8")
     assert detect_platform_from_yaml(path) == "esp32"
+
+
+def test_detect_platform_uses_prefed_yaml_content_without_reading(tmp_path: Path) -> None:
+    """Pre-fed ``yaml_content`` skips ``read_text`` on the scan hot path.
+
+    The file deliberately doesn't exist — a successful detection
+    proves the detector parsed the passed-in text rather than
+    touching disk.
+    """
+    missing = tmp_path / "no-such-file.yaml"
+    assert (
+        detect_platform_from_yaml(missing, yaml_content="esp8266:\n  board: nodemcuv2\n")
+        == "esp8266"
+    )
+
+
+def test_detect_platform_uses_prefed_resolved_config_skips_reparse(
+    tmp_path: Path,
+) -> None:
+    """Pre-fed ``resolved_config`` for a packages config avoids a second parse.
+
+    ``load_device_yaml`` is the expensive op (it can git-clone
+    remote packages). When the caller already resolved the config,
+    the detector must reuse it and never call the loader again.
+    """
+    yaml_content = "esphome:\n  name: ble\npackages:\n  board: !include board.yaml\n"
+    resolved = {"esphome": {"name": "ble"}, "esp32": {"board": "esp32dev"}}
+    with mock.patch(
+        "esphome_device_builder.helpers.device_yaml.load_device_yaml",
+        wraps=device_yaml.load_device_yaml,
+    ) as spy:
+        result = detect_platform_from_yaml(
+            tmp_path / "ble.yaml",
+            yaml_content=yaml_content,
+            resolved_config=resolved,
+        )
+    assert result == "esp32"
+    spy.assert_not_called()
+
+
+def test_load_device_from_storage_does_not_reparse_for_platform(
+    tmp_path: Path,
+) -> None:
+    """The scan path resolves the config once, not twice, for packages devices.
+
+    ``load_device_from_storage`` already computes the merged
+    ``resolved_config``; the platform-key fallback must reuse it
+    rather than re-invoking ``load_device_yaml`` (the regression
+    this pins — a duplicate parse that can re-clone remote
+    packages, once per never-compiled / packages device per scan).
+    """
+    (tmp_path / "board.yaml").write_text("esp32:\n  board: esp32dev\n", encoding="utf-8")
+    yaml_file = tmp_path / "ble.yaml"
+    yaml_file.write_text(
+        "esphome:\n  name: ble\npackages:\n  board: !include board.yaml\n",
+        encoding="utf-8",
+    )
+    with mock.patch(
+        "esphome_device_builder.helpers.device_yaml.load_device_yaml",
+        wraps=device_yaml.load_device_yaml,
+    ) as spy:
+        device = load_device_from_storage(yaml_file)
+    assert device.target_platform == "esp32"
+    assert spy.call_count == 1
 
 
 # ----------------------------------------------------------------------
