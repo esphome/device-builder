@@ -169,6 +169,38 @@ async def test_legacy_inline_output_migrates_to_sidecar_on_load(
 
 
 @pytest.mark.asyncio
+async def test_failed_migration_keeps_output_in_ram_for_retry(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A migration write failure leaves the legacy output in RAM, not lost.
+
+    Write-then-clear: the inline output is dropped only after its
+    sidecar write succeeds, so a failing write leaves the lines in
+    ``job.output`` (where the next persist flush saves them) instead
+    of clearing them before the only on-disk copy exists.
+    """
+    job = _terminal_job(["legacy a\n", "legacy b\n"])
+    blob = {"_firmware_jobs": [job.to_dict()]}
+    (tmp_path / ".device-builder.json").write_text(json.dumps(blob), encoding="utf-8")
+
+    def _boom(job_id: str, lines: list[str]) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.firmware.persistence._write_job_sidecar", _boom
+    )
+
+    controller = firmware_controller_factory(with_real_persistence=True, with_queue=True)
+    with pytest.raises(OSError, match="disk full"):
+        await controller._load_jobs()
+
+    # Output retained in RAM — not cleared before the write confirmed.
+    assert controller.state.jobs["t1"].output == ["legacy a\n", "legacy b\n"]
+
+
+@pytest.mark.asyncio
 async def test_persist_reaps_orphaned_sidecar(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,

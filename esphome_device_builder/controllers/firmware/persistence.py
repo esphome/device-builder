@@ -104,7 +104,7 @@ async def load_jobs(controller: FirmwareController) -> None:
     """
     loop = asyncio.get_running_loop()
     data = await loop.run_in_executor(None, _load_metadata, controller._db.settings.config_dir)
-    to_migrate: list[tuple[str, list[str]]] = []
+    to_migrate: list[FirmwareJob] = []
     for job_data in data.get(_JOBS_KEY, []):
         try:
             job = FirmwareJob.from_dict(job_data)
@@ -116,12 +116,12 @@ async def load_jobs(controller: FirmwareController) -> None:
                 await controller.state.queue.put(job)
             elif job.output:
                 # Legacy blob with inline output on a terminal job:
-                # move it to a sidecar and drop it from RAM. The old
-                # blob still holds the lines until the next
-                # ``persist_jobs`` writes the slim form, so a crash
-                # before then just re-runs the migration.
-                to_migrate.append((job.job_id, list(job.output)))
-                job.output = []
+                # migrate it to a sidecar. Cleared from RAM only after
+                # the write lands (in ``_migrate``), so a failed write
+                # leaves the output in RAM — where the next
+                # ``persist_jobs`` flush saves it — and the inline blob
+                # intact, rather than dropping the only copy.
+                to_migrate.append(job)
         except Exception:
             # ``job_data`` is normally a dict, but a corrupt
             # persistence file could contain a primitive
@@ -140,8 +140,9 @@ async def load_jobs(controller: FirmwareController) -> None:
     if to_migrate:
 
         def _migrate() -> None:
-            for job_id, lines in to_migrate:
-                _write_job_sidecar(job_id, lines)
+            for job in to_migrate:
+                _write_job_sidecar(job.job_id, job.output)
+                job.output = []
 
         await loop.run_in_executor(None, _migrate)
 
