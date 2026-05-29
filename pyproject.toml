@@ -93,7 +93,9 @@ zip-safe = false
 esphome_device_builder = [
   "py.typed",
   "definitions/boards/*/images/*",
-  "definitions/boards.json",
+  "definitions/boards.index.json",
+  "definitions/board_bodies/*.json",
+  "definitions/featured_components.index.json",
   "definitions/components.index.json",
   "definitions/components/*.json",
   "definitions/automations.index.json",

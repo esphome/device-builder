@@ -120,13 +120,14 @@ async def create_device(  # noqa: PLR0912, PLR0915, C901
             if matched is None and parsed_platform:
                 matched = controller._db.boards.find_by_platform_variant(parsed_platform, variant)
             if matched:
-                # ``find_by_*`` returns slim index entries; fetch the
-                # full body so ``_yaml_content_for_create`` can read
-                # default_components / pins / featured_components.
-                body = await controller._db.boards.get_board(board_id=matched.id)
-                if body is not None:
-                    board = body
-                    board_id = matched.id
+                # Slim entry suffices on this branch — ``_init_storage``
+                # below only reads ``board.esphome.platform``, which is
+                # part of the slim shape. ``_yaml_content_for_create``
+                # already ran above with ``board=None`` (this branch is
+                # gated on ``not board_id``), so a body load here would
+                # be wasted work.
+                board = matched
+                board_id = matched.id
 
     loop = asyncio.get_running_loop()
 

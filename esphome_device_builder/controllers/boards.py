@@ -122,10 +122,6 @@ class BoardCatalog:
                 return board
         return None
 
-    def iter_boards(self) -> list[BoardCatalogIndex]:
-        """Return every slim board index entry (read-only view)."""
-        return self._boards
-
     def find_by_pio_board(self, pio_board: str, pio_variant: str = "") -> BoardCatalogIndex | None:
         """
         Find a board by its PlatformIO board id, preferring a matching variant.

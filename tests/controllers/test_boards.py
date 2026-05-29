@@ -12,8 +12,8 @@ The controller has two consumer surfaces:
 * WebSocket commands ``boards/get_board`` and ``boards/get_boards``
   (decorated with ``@api_command``).
 * In-process lookups ``get_by_id`` / ``find_by_pio_board`` /
-  ``find_by_platform_variant`` / ``iter_boards``, used by the
-  components controller and the device-import flow.
+  ``find_by_platform_variant``, used by the components controller
+  and the device-import flow.
 
 Both surfaces are covered here against the same fixture set so a
 filter regression hits both halves.
@@ -359,23 +359,6 @@ async def test_get_boards_offset_past_end_returns_empty_page(
 
     assert resp.total == 6
     assert resp.boards == []
-
-
-# ---------------------------------------------------------------------------
-# iter_boards
-# ---------------------------------------------------------------------------
-
-
-def test_iter_boards_returns_internal_list(catalog: BoardCatalog) -> None:
-    """``iter_boards`` returns the underlying list directly.
-
-    Documented contract: callers (the components controller's
-    featured-component registry build) treat it as read-only.
-    Pin so a refactor that wraps it in ``list(...)`` doesn't
-    silently change the identity guarantee.
-    """
-    assert catalog.iter_boards() is catalog._boards
-    assert len(catalog.iter_boards()) == 6
 
 
 # ---------------------------------------------------------------------------
