@@ -31,6 +31,7 @@ def test_cold_modules_absent_after_start() -> None:
     script = textwrap.dedent(
         """
         import asyncio
+        import socket
         import sys
         import tempfile
         from pathlib import Path
@@ -42,24 +43,32 @@ def test_cold_modules_absent_after_start() -> None:
         from esphome_device_builder.controllers.config import DashboardSettings
         from esphome_device_builder.device_builder import DeviceBuilder
 
-        settings = DashboardSettings(config_dir=tmp)
+        # Pin both listener ports to OS-allocated free slots so a
+        # parallel test run (or another local process) holding the
+        # defaults can't make ``start()`` short-circuit before it
+        # reaches the code paths the cold-module assertion is
+        # guarding.
+        def _free_port() -> int:
+            with socket.socket() as s:
+                s.bind(("127.0.0.1", 0))
+                return s.getsockname()[1]
+
+        settings = DashboardSettings(
+            config_dir=tmp,
+            port=_free_port(),
+            remote_build_port=_free_port(),
+        )
+
+        started = False
 
         async def go() -> None:
+            global started
             db = DeviceBuilder(settings)
-            try:
-                await db.start()
-            finally:
-                # ``DeviceBuilder.stop`` would do a cleaner teardown
-                # but is not the target of the assertion below.
-                pass
+            await db.start()
+            started = True
 
-        try:
-            asyncio.run(go())
-        except OSError:
-            # ``DeviceBuilder.start`` may fail to bind the
-            # peer-link receiver socket if the port is taken; the
-            # cold-modules assertion below is still meaningful.
-            pass
+        asyncio.run(go())
+        assert started, "DeviceBuilder.start did not finish — cold-module check would be vacuous"
 
         for name in %r:
             assert name not in sys.modules, name

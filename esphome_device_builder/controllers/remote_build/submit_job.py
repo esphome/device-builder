@@ -58,6 +58,7 @@ from __future__ import annotations
 import asyncio
 import binascii
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -585,8 +586,11 @@ class SubmitJobReceiver:
 
         # ``esphome.bundle`` is ~1 MB of upstream code; load it through
         # the shared lazy-import executor so the receiver's idle resident
-        # set stays lean until a peer-link offload actually lands.
+        # set stays lean until a peer-link offload actually lands. Pass
+        # the resolved callable into the executor so the worker doesn't
+        # rely on a preload-ordering invariant in this caller.
         bundle = await async_import_module("esphome.bundle")
+        prepare = bundle.prepare_bundle_for_compile
         loop = asyncio.get_running_loop()
         try:
             configuration = await loop.run_in_executor(
@@ -597,6 +601,7 @@ class SubmitJobReceiver:
                 target_dir,
                 remote_builds_root,
                 self._config_dir,
+                prepare,
             )
         except _PathEscapeError as exc:
             _LOGGER.warning(
@@ -750,6 +755,7 @@ def _validate_write_extract_bundle(
     target_dir: Path,
     remote_builds_root: Path,
     config_dir: Path,
+    prepare_bundle_for_compile: Callable[[Path, Path], Path],
 ) -> str:
     """Sync helper: validate path, write tarball, extract, return wire-shape ``configuration``.
 
@@ -793,11 +799,6 @@ def _validate_write_extract_bundle(
         raise _PathEscapeError(str(target_dir)) from exc
     bundle_path.parent.mkdir(parents=True, exist_ok=True)
     bundle_path.write_bytes(bundle_bytes)
-    # ``esphome.bundle`` was pre-loaded by the async caller through
-    # ``async_import_module`` (lazy-import executor), so this import is a
-    # ``sys.modules`` hit; no concurrent-import race on the worker pool.
-    from esphome.bundle import prepare_bundle_for_compile  # noqa: PLC0415
-
     extracted: Path = prepare_bundle_for_compile(bundle_path, target_dir)
     # ``as_posix`` keeps the wire-side ``configuration`` string
     # stable across receiver platforms — ``str(rel_yaml)`` would

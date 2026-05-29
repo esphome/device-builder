@@ -9,9 +9,8 @@ import is ever in flight, and dedupes concurrent callers through a
 per-module future.
 
 Used to keep heavy esphome subpackages (``dashboard_import``,
-``components.esp32``, ``components.libretiny``, ``bundle``) out of
-the dashboard's resident set when the corresponding feature isn't
-exercised in a session.
+``bundle``) out of the dashboard's resident set when the
+corresponding feature isn't exercised in a session.
 """
 
 from __future__ import annotations
@@ -55,7 +54,13 @@ async def async_import_module(name: str) -> ModuleType:
     try:
         module = await loop.run_in_executor(_import_executor, _get_module, name)
         future.set_result(module)
-    except BaseException as ex:
+    except Exception as ex:
+        # Only fan out real import failures (ModuleNotFoundError etc.) to
+        # concurrent waiters. ``CancelledError`` is intentionally not
+        # forwarded — cancelling the first caller's await on the executor
+        # would otherwise poison every waiter even though the underlying
+        # import may have completed on the worker thread; let waiters
+        # retry through ``_cache`` / ``sys.modules`` on the next loop.
         future.set_exception(ex)
         future.exception()  # mark retrieved so a sole consumer doesn't warn
         raise
