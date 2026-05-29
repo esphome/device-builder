@@ -56,18 +56,6 @@ class BoardCatalog:
         """Get a single board's full body by id, or ``None`` if unknown."""
         return await self._body_store.get(board_id)
 
-    @api_command("boards/get_board_bodies")
-    async def get_board_bodies(self, *, ids: list[str], **kwargs: Any) -> dict[str, dict[str, Any]]:
-        """Resolve a batch of board ids to their full bodies.
-
-        Single executor hop covers every cross-board miss. Cache hits
-        return without IO. Unknown ids and ids whose body files are
-        missing on disk are absent from the response. Duplicate ids
-        collapse to one entry.
-        """
-        bodies = await self._body_store.get_many(ids)
-        return {bid: body.to_dict() for bid, body in bodies.items()}
-
     @api_command("boards/get_boards")
     async def get_boards(
         self,

@@ -184,7 +184,6 @@ The subscription stays open for the connection's lifetime; closing the WebSocket
 |---------|------|----------|-------------|
 | `boards/get_boards` | `{query?, platform?, variant?, tag?, offset?, limit?}` | `PagedBoardsResponse` (slim) | Search/list slim board index entries |
 | `boards/get_board` | `{board_id}` | `BoardCatalogEntry` | Get one board's full body (hardware, pins, featured / default components) |
-| `boards/get_board_bodies` | `{ids: list[str]}` | `{board_id: BoardCatalogEntry}` | Batch-fetch full bodies; missing ids omitted |
 
 The board catalog is split into three artefacts under `definitions/`: the slim `boards.index.json` (`BoardCatalogIndex` per board — id, name, esphome, tags, images, urls, sort flags), per-board `board_bodies/<id>.json` (hardware, pins, featured_components, featured_bundles, default_components — lazy-loaded via the controller's `LazyBodyStore`), and the aggregated `featured_components.index.json` (read once at startup by the components controller so the featured-component registry build never touches per-board body files). `boards/get_boards` ships slim entries; the detail view fetches the full body on demand via `boards/get_board`.
 

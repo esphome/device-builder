@@ -187,17 +187,6 @@ async def test_get_board_returns_none_for_unknown_id(catalog: BoardCatalog) -> N
     assert await catalog.get_board(board_id="not-a-real-board") is None
 
 
-@pytest.mark.asyncio
-async def test_get_board_bodies_returns_dict_of_known_bodies(
-    catalog: BoardCatalog,
-) -> None:
-    """``boards/get_board_bodies`` batches body lookups; unknown ids drop silently."""
-    result = await catalog.get_board_bodies(ids=["m5stack-cores3", "d1-mini", "ghost"])
-    assert set(result) == {"m5stack-cores3", "d1-mini"}
-    assert result["m5stack-cores3"]["id"] == "m5stack-cores3"
-    assert result["d1-mini"]["id"] == "d1-mini"
-
-
 def test_get_by_id_is_synchronous_alias_for_get_board(catalog: BoardCatalog) -> None:
     """``get_by_id`` is the in-process counterpart used by other controllers.
 
