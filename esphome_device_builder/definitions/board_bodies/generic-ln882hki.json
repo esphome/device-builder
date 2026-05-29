@@ -1,0 +1,1 @@
+{"description":"Generic - LN882HKI (LN882X board).","docs_url":"https://esphome.io/components/libretiny.html","esphome":{"board":"generic-ln882hki","framework":"arduino","platform":"ln882x"},"hardware":{"connectivity":["wifi"]},"id":"generic-ln882hki","images":["/boards/images/_generic/ln882x.svg"],"manufacturer":"","name":"Generic - LN882HKI"}

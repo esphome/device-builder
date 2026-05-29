@@ -120,7 +120,9 @@ async def create_device(  # noqa: PLR0912, PLR0915, C901
             if matched is None and parsed_platform:
                 matched = controller._db.boards.find_by_platform_variant(parsed_platform, variant)
             if matched:
-                board = matched
+                # board stays None — _init_storage uses parsed_platform
+                # when board is unset, and only board_id needs to be
+                # persisted here for the device-metadata sidecar.
                 board_id = matched.id
 
     loop = asyncio.get_running_loop()

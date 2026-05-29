@@ -1,4 +1,20 @@
-"""Drift check: ``boards.json`` must match what the YAML manifests produce."""
+"""Drift + shape checks for the split board catalog artefacts.
+
+The board catalog ships as three coordinated files under
+``definitions/``: the slim ``boards.index.json`` (picker shape), the
+per-board bodies under ``board_bodies/<id>.json`` (lazy-loaded
+detail), and the aggregated ``featured_components.index.json`` (read
+once at startup by the components controller). These tests pin:
+
+* the three artefacts reassemble back to what the YAML manifests
+  produce — i.e. ``sync_boards.py`` is the only translator;
+* the slim index strips body-only fields so the picker doesn't pay
+  to read them;
+* each body file round-trips through ``BoardCatalogEntry.from_dict``
+  standalone (lazy-load is safe);
+* the featured-components index is consistent with the body files
+  it aggregates over.
+"""
 
 from __future__ import annotations
 
@@ -8,10 +24,14 @@ import orjson
 
 from esphome_device_builder.definitions import (
     build_board_catalog_from_manifests,
+    load_board_body_from_disk,
     load_board_catalog,
+    load_board_index,
+    load_featured_components_index,
 )
 from esphome_device_builder.models.boards import (
     BoardCatalogEntry,
+    BoardCatalogIndex,
     BoardEsphomeConfig,
     BoardHardware,
     BoardPin,
@@ -25,42 +45,86 @@ from esphome_device_builder.models.boards import (
 )
 from esphome_device_builder.models.common import FieldPreset, PinFeature
 
-_BOARDS_JSON = (
-    Path(__file__).parent.parent / "esphome_device_builder" / "definitions" / "boards.json"
+_DEFINITIONS_DIR = Path(__file__).parent.parent / "esphome_device_builder" / "definitions"
+_BOARDS_INDEX_JSON = _DEFINITIONS_DIR / "boards.index.json"
+_BOARDS_BODIES_DIR = _DEFINITIONS_DIR / "board_bodies"
+_FEATURED_INDEX_JSON = _DEFINITIONS_DIR / "featured_components.index.json"
+
+# Body-only fields — must be absent from every slim index entry.
+_BODY_ONLY_KEYS = frozenset(
+    {"hardware", "pins", "featured_components", "featured_bundles", "default_components"}
 )
 
 
-def test_boards_json_matches_manifests() -> None:
-    """``boards.json`` must be the faithful product of the YAML manifests."""
+def test_split_artefacts_match_manifests() -> None:
+    """The three split artefacts reassemble back to what the YAMLs produce."""
     from_yaml = build_board_catalog_from_manifests(strict=True)
-    from_json = load_board_catalog()
+    from_disk = load_board_catalog()
 
-    # Comparing ``to_dict`` rather than dataclass identity gives a
-    # readable key-path diff in the assertion message on failure.
-    assert from_yaml.to_dict() == from_json.to_dict(), (
-        "boards.json is out of sync with the YAML manifests. "
+    assert from_yaml.to_dict() == from_disk.to_dict(), (
+        "Split board catalog is out of sync with the YAML manifests. "
         "Run `python script/sync_boards.py` to regenerate."
     )
 
 
-def test_boards_json_omits_default_fields() -> None:
-    """Empty ``suggestions`` / ``locked`` default rows are stripped from ``boards.json``."""
-    # ``encoding="utf-8"`` is load-bearing on Windows: the file
-    # carries em-dashes and other non-ASCII chars, and
-    # ``Path.read_text`` defaults to the platform encoding (cp1252
-    # on the windows-latest CI runner), which trips on the first
-    # 0x90 byte from a u'—'.
-    raw = _BOARDS_JSON.read_text(encoding="utf-8")
+def test_boards_index_omits_body_fields() -> None:
+    """The slim index strips ``hardware`` / ``pins`` / featured_* fields."""
+    raw = _BOARDS_INDEX_JSON.read_text(encoding="utf-8")
+    payload = orjson.loads(raw)
+    for entry in payload["boards"]:
+        leaked = _BODY_ONLY_KEYS & entry.keys()
+        assert not leaked, f"{entry['id']} leaks body fields to the slim index: {leaked}"
+
+
+def test_boards_index_omits_default_fields() -> None:
+    """``omit_default`` strips empty ``tags`` / ``images`` / ``False`` flags."""
+    raw = _BOARDS_INDEX_JSON.read_text(encoding="utf-8")
     # orjson emits compact output (no spaces after ``:``) so the
     # with-space variants would never appear; the no-space checks
     # are the load-bearing ones.
-    assert '"suggestions":null' not in raw
-    assert '"locked":false' not in raw
-    # The ``id`` field is required (no default) so it survives the
-    # strip — sanity-check that the file still has board content
-    # rather than an accidentally-empty regeneration.
+    assert '"tags":[]' not in raw
+    assert '"images":[]' not in raw
+    assert '"featured":false' not in raw
+    assert '"is_generic":false' not in raw
+    # ``id`` is required (no default) so it survives the strip —
+    # sanity-check that the file still has board content rather
+    # than an accidentally-empty regeneration.
     payload = orjson.loads(raw)
     assert len(payload["boards"]) > 100
+
+
+def test_board_body_round_trips_standalone() -> None:
+    """A single body file decodes through ``BoardCatalogEntry.from_dict`` directly."""
+    # The bodies must be self-describing — the lazy loader reads one
+    # file at a time with no slim-entry context, so any required
+    # field carried only by the slim index would crash the load.
+    index = load_board_index()
+    assert index, "boards.index.json is empty — run script/sync_boards.py"
+    body = load_board_body_from_disk(index[0].id)
+    assert body is not None
+    assert body.id == index[0].id
+
+
+def test_featured_index_matches_per_board_bodies() -> None:
+    """Every (board, featured component) in the index matches the body file's list.
+
+    Invariant: ``sync_boards.py`` populates both the per-board
+    body's ``featured_components`` and the aggregated
+    ``featured_components.index.json`` from the same source, so a
+    body and the index for the same board must agree byte-for-byte
+    on every entry. A drift here means the registry build sees one
+    catalog while the body lazy-load returns another.
+    """
+    featured_idx = load_featured_components_index()
+    assert featured_idx, "featured_components.index.json is empty"
+
+    # Spot-check one board so the test stays fast on the full
+    # catalog. The dict iteration order is stable across runs given
+    # the sort by ``board_id`` in the sync script.
+    board_id, expected = next(iter(featured_idx.items()))
+    body = load_board_body_from_disk(board_id)
+    assert body is not None
+    assert body.featured_components == expected
 
 
 def test_omit_default_preserves_meaningful_falsy() -> None:
@@ -103,7 +167,6 @@ def test_round_trip_all_default_entry_strips_factory_fields() -> None:
         "manufacturer": "m",
         "esphome": {"platform": "esp32", "board": "esp32dev"},
     }
-    # ``from_dict`` re-materialises the factory defaults.
     rehydrated = BoardCatalogEntry.from_dict(payload)
     assert rehydrated == entry
     assert rehydrated.hardware == BoardHardware()
@@ -117,13 +180,6 @@ def test_round_trip_all_default_entry_strips_factory_fields() -> None:
 
 def test_round_trip_all_populated_entry_preserves_everything() -> None:
     """An all-populated entry round-trips with every field intact through ``to_dict``."""
-    # Mirror image of the all-default test: when every field carries
-    # a non-default value, nothing is stripped and the payload
-    # round-trips into an equal dataclass instance. This catches the
-    # "stripped but not rehydrated" version-skew regression Kōan
-    # flagged — if mashumaro ever silently drops a populated field
-    # because its serializer mis-identifies the default, we see it
-    # here.
     entry = BoardCatalogEntry(
         id="x",
         name="X",
@@ -156,7 +212,7 @@ def test_round_trip_all_populated_entry_preserves_everything() -> None:
         docs_url="https://example.com",
         product_url="https://shop.example.com",
         featured=True,
-        is_generic=False,  # default — should be stripped but rehydrates
+        is_generic=False,
         featured_components=[
             FeaturedComponent(
                 id="led",
@@ -178,3 +234,23 @@ def test_round_trip_all_populated_entry_preserves_everything() -> None:
     )
     rehydrated = BoardCatalogEntry.from_dict(entry.to_dict())
     assert rehydrated == entry
+
+
+def test_slim_index_round_trip_strips_factory_fields() -> None:
+    """An all-default ``BoardCatalogIndex`` strips factory-default lists / flags."""
+    entry = BoardCatalogIndex(
+        id="x",
+        name="X",
+        description="d",
+        manufacturer="m",
+        esphome=BoardEsphomeConfig(platform=Platform.ESP32, board="esp32dev"),
+    )
+    payload = entry.to_dict()
+    assert payload == {
+        "id": "x",
+        "name": "X",
+        "description": "d",
+        "manufacturer": "m",
+        "esphome": {"platform": "esp32", "board": "esp32dev"},
+    }
+    assert BoardCatalogIndex.from_dict(payload) == entry

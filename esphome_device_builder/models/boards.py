@@ -242,6 +242,32 @@ class BoardCatalogEntry(DataClassORJSONMixin):
 
 
 @dataclass
+class BoardCatalogIndex(DataClassORJSONMixin):
+    """Slim card-view of :class:`BoardCatalogEntry` (no body fields).
+
+    Picker / list endpoints (``boards/get_boards``) return this shape:
+    the picker needs identity + search-key + thumbnail + sort flags but
+    not pins / hardware / featured-component presets. Full bodies
+    hydrate on demand via the boards ``LazyBodyStore``.
+    """
+
+    id: str
+    name: str
+    description: str
+    manufacturer: str
+    esphome: BoardEsphomeConfig
+    tags: list[BoardTag] = field(default_factory=list)
+    images: list[str] = field(default_factory=list)
+    docs_url: str = ""
+    product_url: str = ""
+    featured: bool = False
+    is_generic: bool = False
+
+    class Config(_CatalogConfig):
+        """Skip empty defaults on serialise; see :class:`_CatalogConfig`."""
+
+
+@dataclass
 class BoardCatalogResponse(DataClassORJSONMixin):
     """Internal: raw board list from definitions loader."""
 
@@ -250,6 +276,6 @@ class BoardCatalogResponse(DataClassORJSONMixin):
 
 @dataclass
 class PagedBoardsResponse(PagedResponse):
-    """Paginated board catalog API response."""
+    """Paginated board catalog API response — slim entries only."""
 
-    boards: list[BoardCatalogEntry] = field(default_factory=list)
+    boards: list[BoardCatalogIndex] = field(default_factory=list)

@@ -332,13 +332,20 @@ async def test_get_categories_endpoint_unaffected_by_query_filter_change() -> No
 # ── _build_featured_registry() ──────────────────────────────────────
 
 
-def test_build_featured_registry_is_empty_when_no_boards() -> None:
-    """No boards → empty featured registry, no crash.
+def test_build_featured_registry_is_empty_when_index_is_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An empty ``featured_components.index.json`` builds an empty registry.
 
-    The featured registry depends on the boards catalog; a
-    catalog constructed without one (or whose ``boards`` is
-    ``None``) builds an empty registry rather than crashing.
+    Post-split, the registry reads from the precomputed index
+    rather than walking board bodies; the no-boards-loaded case
+    becomes "the index is empty," which still has to short-circuit
+    cleanly without crashing.
     """
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.components.load_featured_components_index",
+        dict,
+    )
     cat = ComponentCatalog(_Container(boards=None))
     cat._build_featured_registry()
     assert cat._featured_by_id == {}
@@ -346,36 +353,30 @@ def test_build_featured_registry_is_empty_when_no_boards() -> None:
 
 
 def test_build_featured_registry_skips_and_warns_on_unknown_component_id(
+    monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Unknown ``component_id`` in a featured ref logs and skips.
 
-    A board can declare a featured component whose
-    ``component_id`` doesn't resolve in the catalog (bad
-    reference, stale board JSON). The registry should log a
-    warning and skip rather than poison the index with a
-    half-built record.
+    A board can declare a featured component whose ``component_id``
+    doesn't resolve in the catalog (bad reference, stale board
+    JSON). The registry should log a warning and skip rather than
+    poison the index with a half-built record.
+
+    Post-split, featured components come from
+    ``featured_components.index.json`` rather than board bodies, so
+    monkeypatch the loader directly to inject the phantom.
     """
-    boards_cat = BoardCatalog()
-    boards_cat.load()
-    cat = ComponentCatalog(_Container(boards=boards_cat))
-    # Pick any real board and inject a featured-component referencing
-    # a deliberately-unknown component_id. The warning path runs
-    # purely against ``self._by_id`` so we don't need a fully-loaded
-    # component catalog — just one that doesn't have the bogus id.
-    target_board = boards_cat.iter_boards()[0]
-    target_board.featured_components.append(
-        FeaturedComponent(id="zzz_test_phantom", component_id="not.a.real.component")
+    cat = ComponentCatalog(_Container(boards=None))
+    phantom = FeaturedComponent(id="zzz_test_phantom", component_id="not.a.real.component")
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.components.load_featured_components_index",
+        lambda: {"some_board": [phantom]},
     )
-    try:
-        with caplog.at_level(logging.WARNING):
-            cat._build_featured_registry()
-        assert any("references unknown component" in rec.message for rec in caplog.records)
-        # The phantom id never lands in the index.
-        assert not any(full_id.endswith(".zzz_test_phantom") for full_id in cat._featured_by_id)
-    finally:
-        # Restore the shared board so other tests aren't polluted.
-        target_board.featured_components.pop()
+    with caplog.at_level(logging.WARNING):
+        cat._build_featured_registry()
+    assert any("references unknown component" in rec.message for rec in caplog.records)
+    assert not any(full_id.endswith(".zzz_test_phantom") for full_id in cat._featured_by_id)
 
 
 # ── _featured_components_for_board() ────────────────────────────────

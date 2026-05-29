@@ -26,9 +26,11 @@ from pathlib import Path
 import orjson
 import yaml
 
+from ..helpers.lazy_catalog import is_unsafe_catalog_id
 from ..helpers.yaml import FastestSafeLoader
 from ..models import (
     BoardCatalogEntry,
+    BoardCatalogIndex,
     BoardCatalogResponse,
     BoardEsphomeConfig,
     BoardHardware,
@@ -48,7 +50,9 @@ _LOGGER = logging.getLogger(__name__)
 
 _DEFINITIONS_DIR = Path(__file__).parent
 _BOARDS_DIR = _DEFINITIONS_DIR / "boards"
-_BOARDS_JSON = _DEFINITIONS_DIR / "boards.json"
+_BOARDS_INDEX_JSON = _DEFINITIONS_DIR / "boards.index.json"
+_BOARDS_BODIES_DIR = _DEFINITIONS_DIR / "board_bodies"
+_FEATURED_COMPONENTS_INDEX_JSON = _DEFINITIONS_DIR / "featured_components.index.json"
 
 _IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".svg", ".webp")
 _GENERIC_DIR = _BOARDS_DIR / "_generic"
@@ -309,25 +313,93 @@ def build_board_catalog_from_manifests(*, strict: bool = False) -> BoardCatalogR
     return BoardCatalogResponse(boards=boards)
 
 
-def load_board_catalog() -> BoardCatalogResponse:
-    """
-    Load the prebuilt board catalog from ``definitions/boards.json``.
+def load_board_index() -> list[BoardCatalogIndex]:
+    """Load the slim board index from ``definitions/boards.index.json``.
 
-    Returns an empty catalog (with a logged warning) when the file
-    is missing or fails to decode — never raises, so a malformed
+    Returns an empty list (with a logged warning) when the file is
+    missing or fails to decode — never raises, so a malformed
     artefact can't take dashboard startup down with it.
     """
-    if not _BOARDS_JSON.exists():
+    if not _BOARDS_INDEX_JSON.exists():
         _LOGGER.warning(
-            "boards.json missing — board catalog will be empty. "
+            "boards.index.json missing — board catalog will be empty. "
             "Run script/sync_boards.py to generate the artefact.",
         )
-        return BoardCatalogResponse(boards=[])
+        return []
     try:
-        return BoardCatalogResponse.from_dict(orjson.loads(_BOARDS_JSON.read_bytes()))
+        payload = orjson.loads(_BOARDS_INDEX_JSON.read_bytes())
+        return [BoardCatalogIndex.from_dict(entry) for entry in payload["boards"]]
     except Exception:
         _LOGGER.exception(
-            "Failed to load boards.json — board catalog will be empty. "
+            "Failed to load boards.index.json — board catalog will be empty. "
             "Run script/sync_boards.py to regenerate the artefact.",
         )
-        return BoardCatalogResponse(boards=[])
+        return []
+
+
+def load_board_body_from_disk(board_id: str) -> BoardCatalogEntry | None:
+    """Load one ``board_bodies/<id>.json`` body file by id, or ``None``.
+
+    Returns ``None`` for traversal-shaped ids, missing files, and
+    decode failures — the LazyBodyStore caller already short-circuits
+    via the slim index's ``is_known`` gate, so this is the rare
+    half-installed-wheel fallback.
+    """
+    if is_unsafe_catalog_id(board_id):
+        _LOGGER.warning("Refusing board body for traversal-shaped id: %r", board_id)
+        return None
+    path = _BOARDS_BODIES_DIR / f"{board_id}.json"
+    if not path.exists():
+        return None
+    try:
+        return BoardCatalogEntry.from_dict(orjson.loads(path.read_bytes()))
+    except Exception:
+        _LOGGER.exception("Failed to load board body %s", path)
+        return None
+
+
+def load_featured_components_index() -> dict[str, list[FeaturedComponent]]:
+    """Load the aggregated ``{board_id: list[FeaturedComponent]}`` index.
+
+    Read once at startup by the components controller to build its
+    cross-catalog featured-component registry without ever touching
+    per-board body files. Missing / malformed artefact yields an
+    empty map; the registry just has no featured components for any
+    board in that degenerate case.
+    """
+    if not _FEATURED_COMPONENTS_INDEX_JSON.exists():
+        _LOGGER.warning(
+            "featured_components.index.json missing — featured components will be empty. "
+            "Run script/sync_boards.py to generate the artefact.",
+        )
+        return {}
+    try:
+        payload = orjson.loads(_FEATURED_COMPONENTS_INDEX_JSON.read_bytes())
+    except Exception:
+        _LOGGER.exception(
+            "Failed to load featured_components.index.json — featured components will be empty."
+        )
+        return {}
+    return {
+        board_id: [FeaturedComponent.from_dict(fc) for fc in entries]
+        for board_id, entries in payload.items()
+    }
+
+
+def load_board_catalog() -> BoardCatalogResponse:
+    """Reassemble the full board catalog from the split artefacts.
+
+    Convenience for tests + the manifest-drift check; eager-loads
+    every body file. Runtime callers should prefer
+    :func:`load_board_index` + per-id :func:`load_board_body_from_disk`
+    (or the controller's ``LazyBodyStore``) so bodies don't all sit
+    resident at once.
+    """
+    boards: list[BoardCatalogEntry] = []
+    for slim in load_board_index():
+        body = load_board_body_from_disk(slim.id)
+        if body is None:
+            _LOGGER.warning("Board body missing for id %r — skipping", slim.id)
+            continue
+        boards.append(body)
+    return BoardCatalogResponse(boards=boards)

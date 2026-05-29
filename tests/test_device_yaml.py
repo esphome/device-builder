@@ -1149,7 +1149,7 @@ async def test_generate_device_yaml_for_apollo_esk_1_includes_default_blocks(
     rail latched on (so the AHT20 / battery monitor work) and
     the built-in web dashboard available without any clicks.
     """
-    board = session_component_catalog._db.boards.get_by_id("apollo-esk-1")
+    board = await session_component_catalog._db.boards.get_board(board_id="apollo-esk-1")
     assert board is not None
     defaults = await session_component_catalog.resolve_default_components(board)
     out = generate_device_yaml("starter", "Starter Kit", board, ssid="", psk="", defaults=defaults)
@@ -1175,7 +1175,7 @@ async def test_resolve_default_components_falls_through_to_catalog_id(
     a catalog ``component_id`` resolution. ``web_server`` on
     apollo-esk-1 is the live case driving this branch.
     """
-    board = session_component_catalog._db.boards.get_by_id("apollo-esk-1")
+    board = await session_component_catalog._db.boards.get_board(board_id="apollo-esk-1")
     assert board is not None
     pairs = await session_component_catalog.resolve_default_components(board)
     component_ids = [c.id for c, _ in pairs]
@@ -1197,7 +1197,7 @@ async def test_resolve_default_components_carries_inline_fields(
     the emitter writes ``version: '3'`` into the YAML body
     (catalog default is ``'2'``).
     """
-    board = session_component_catalog._db.boards.get_by_id("apollo-esk-1")
+    board = await session_component_catalog._db.boards.get_board(board_id="apollo-esk-1")
     assert board is not None
     pairs = await session_component_catalog.resolve_default_components(board)
     web = next((fields for component, fields in pairs if component.id == "web_server"), None)
@@ -1219,7 +1219,7 @@ async def test_resolve_default_components_skips_unknown_id_with_warning(
     keeps the wizard from blowing up on what's almost always a
     config drift between the manifest and the component catalog.
     """
-    board = deepcopy(session_component_catalog._db.boards.get_by_id("apollo-esk-1"))
+    board = deepcopy(await session_component_catalog._db.boards.get_board(board_id="apollo-esk-1"))
     assert board is not None
     board.default_components = [DefaultComponent(id="not_a_real_component")]
     with caplog.at_level(logging.WARNING):
@@ -1240,7 +1240,7 @@ async def test_resolve_default_components_skips_featured_with_missing_body(
     and skip rather than reach into ``None``. Synthesized by stubbing
     ``_load_bodies`` to drop the featured underlying from the result.
     """
-    board = deepcopy(session_component_catalog._db.boards.get_by_id("apollo-esk-1"))
+    board = deepcopy(await session_component_catalog._db.boards.get_board(board_id="apollo-esk-1"))
     assert board is not None
     original_load = session_component_catalog._load_bodies
 

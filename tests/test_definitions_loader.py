@@ -22,11 +22,13 @@ from esphome_device_builder.definitions import (
     _parse_pin_features,
     _parse_tags,
     build_board_catalog_from_manifests,
+    load_board_body_from_disk,
     load_board_catalog,
+    load_board_index,
+    load_featured_components_index,
 )
 from esphome_device_builder.models import (
-    BoardCatalogEntry,
-    BoardCatalogResponse,
+    BoardCatalogIndex,
     BoardEsphomeConfig,
     BoardTag,
     Connectivity,
@@ -178,57 +180,146 @@ def test_build_from_manifests_strict_raises_on_broken(
         build_board_catalog_from_manifests(strict=True)
 
 
-def test_load_board_catalog_warns_when_json_missing(
+def test_load_board_index_warns_when_json_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Missing ``boards.json`` returns an empty catalog and logs a warning."""
-    monkeypatch.setattr(defs, "_BOARDS_JSON", tmp_path / "missing-boards.json")
+    """Missing ``boards.index.json`` returns an empty index and logs a warning."""
+    monkeypatch.setattr(defs, "_BOARDS_INDEX_JSON", tmp_path / "missing-boards.index.json")
 
     with caplog.at_level(logging.WARNING):
-        result = load_board_catalog()
+        result = load_board_index()
 
-    assert result.boards == []
-    assert any("boards.json" in rec.getMessage() for rec in caplog.records)
-
-
-def test_load_board_catalog_reads_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """``load_board_catalog`` deserializes the prebuilt JSON via mashumaro."""
-    fixture = BoardCatalogResponse(
-        boards=[
-            BoardCatalogEntry(
-                id="round-trip",
-                name="Round Trip",
-                description="JSON load test",
-                manufacturer="",
-                esphome=BoardEsphomeConfig(platform=Platform.ESP32, board="esp32dev"),
-            ),
-        ],
-    )
-    json_path = tmp_path / "boards.json"
-    json_path.write_bytes(orjson.dumps(fixture.to_dict()))
-    monkeypatch.setattr(defs, "_BOARDS_JSON", json_path)
-
-    result = load_board_catalog()
-
-    assert [b.id for b in result.boards] == ["round-trip"]
-    assert result.boards[0].esphome.platform is Platform.ESP32
+    assert result == []
+    assert any("boards.index.json" in rec.getMessage() for rec in caplog.records)
 
 
-def test_load_board_catalog_handles_corrupt_json(
+def test_load_board_index_reads_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``load_board_index`` deserialises the slim index via mashumaro."""
+    entries = [
+        BoardCatalogIndex(
+            id="round-trip",
+            name="Round Trip",
+            description="JSON load test",
+            manufacturer="",
+            esphome=BoardEsphomeConfig(platform=Platform.ESP32, board="esp32dev"),
+        ),
+    ]
+    payload = {"boards": [e.to_dict() for e in entries]}
+    json_path = tmp_path / "boards.index.json"
+    json_path.write_bytes(orjson.dumps(payload))
+    monkeypatch.setattr(defs, "_BOARDS_INDEX_JSON", json_path)
+
+    result = load_board_index()
+
+    assert [b.id for b in result] == ["round-trip"]
+    assert result[0].esphome.platform is Platform.ESP32
+
+
+def test_load_board_index_handles_corrupt_json(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Malformed ``boards.json`` returns an empty catalog instead of crashing startup."""
-    json_path = tmp_path / "boards.json"
+    """Malformed ``boards.index.json`` returns an empty index instead of crashing startup."""
+    json_path = tmp_path / "boards.index.json"
     json_path.write_bytes(b"{not valid json")
-    monkeypatch.setattr(defs, "_BOARDS_JSON", json_path)
+    monkeypatch.setattr(defs, "_BOARDS_INDEX_JSON", json_path)
 
     with caplog.at_level(logging.ERROR):
-        result = load_board_catalog()
+        result = load_board_index()
 
-    assert result.boards == []
+    assert result == []
     assert any(
-        "boards.json" in rec.getMessage() for rec in caplog.records if rec.levelname == "ERROR"
+        "boards.index.json" in rec.getMessage()
+        for rec in caplog.records
+        if rec.levelname == "ERROR"
     )
+
+
+def test_load_board_body_refuses_traversal_id(caplog: pytest.LogCaptureFixture) -> None:
+    """A traversal-shaped id is refused with a warning and ``None`` return."""
+    with caplog.at_level(logging.WARNING):
+        assert load_board_body_from_disk("../etc/passwd") is None
+    assert any("traversal-shaped" in rec.getMessage() for rec in caplog.records)
+
+
+def test_load_board_body_missing_returns_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-existent body file returns ``None`` silently (LazyBodyStore handles it)."""
+    monkeypatch.setattr(defs, "_BOARDS_BODIES_DIR", tmp_path)
+    assert load_board_body_from_disk("nonexistent") is None
+
+
+def test_load_board_body_corrupt_returns_none_logs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A malformed body file logs at ERROR and returns ``None``."""
+    monkeypatch.setattr(defs, "_BOARDS_BODIES_DIR", tmp_path)
+    (tmp_path / "broken.json").write_bytes(b"{not valid json")
+    with caplog.at_level(logging.ERROR):
+        assert load_board_body_from_disk("broken") is None
+    assert any(
+        "Failed to load board body" in rec.getMessage()
+        for rec in caplog.records
+        if rec.levelname == "ERROR"
+    )
+
+
+def test_load_featured_components_index_warns_when_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Missing ``featured_components.index.json`` returns empty + warns."""
+    monkeypatch.setattr(defs, "_FEATURED_COMPONENTS_INDEX_JSON", tmp_path / "missing.json")
+    with caplog.at_level(logging.WARNING):
+        assert load_featured_components_index() == {}
+    assert any("featured_components.index.json" in rec.getMessage() for rec in caplog.records)
+
+
+def test_load_featured_components_index_handles_corrupt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Malformed ``featured_components.index.json`` returns empty instead of crashing."""
+    json_path = tmp_path / "featured.json"
+    json_path.write_bytes(b"{not valid json")
+    monkeypatch.setattr(defs, "_FEATURED_COMPONENTS_INDEX_JSON", json_path)
+    with caplog.at_level(logging.ERROR):
+        assert load_featured_components_index() == {}
+    assert any(
+        "Failed to load featured_components.index.json" in rec.getMessage()
+        for rec in caplog.records
+        if rec.levelname == "ERROR"
+    )
+
+
+def test_load_board_catalog_skips_when_body_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """When the slim index lists an id but its body file is gone, log + skip."""
+    index_path = tmp_path / "boards.index.json"
+    bodies_dir = tmp_path / "bodies"
+    bodies_dir.mkdir()
+    index_path.write_bytes(
+        orjson.dumps(
+            {
+                "boards": [
+                    BoardCatalogIndex(
+                        id="missing-body",
+                        name="No Body",
+                        description="",
+                        manufacturer="",
+                        esphome=BoardEsphomeConfig(platform=Platform.ESP32, board="esp32dev"),
+                    ).to_dict()
+                ]
+            }
+        )
+    )
+    monkeypatch.setattr(defs, "_BOARDS_INDEX_JSON", index_path)
+    monkeypatch.setattr(defs, "_BOARDS_BODIES_DIR", bodies_dir)
+    with caplog.at_level(logging.WARNING):
+        result = load_board_catalog()
+    assert result.boards == []
+    assert any("Board body missing" in rec.getMessage() for rec in caplog.records)
 
 
 def test_load_default_component_rejects_non_string_non_dict_entry() -> None:
