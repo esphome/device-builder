@@ -235,14 +235,7 @@ def test_load_board_index_handles_corrupt_json(
 
 
 def test_load_board_body_refuses_traversal_id(caplog: pytest.LogCaptureFixture) -> None:
-    """A traversal-shaped id is refused with a warning and ``None`` return.
-
-    Defense in depth: the LazyBodyStore caller already gates on the
-    slim index's ``is_known``, so a traversal id can't reach here
-    from production. But the same loader is reachable through
-    ``load_board_catalog`` / direct callers, so the guard is part
-    of the loader contract.
-    """
+    """A traversal-shaped id is refused with a warning and ``None`` return."""
     with caplog.at_level(logging.WARNING):
         assert load_board_body_from_disk("../etc/passwd") is None
     assert any("traversal-shaped" in rec.getMessage() for rec in caplog.records)
@@ -302,13 +295,7 @@ def test_load_featured_components_index_handles_corrupt(
 def test_load_board_catalog_skips_when_body_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """When the slim index lists an id but its body file is gone, log + skip.
-
-    Pins the half-installed-wheel fallback in the reassembly
-    helper — a sync regen mid-flight could expose the window
-    where the slim index has a new id but the body file isn't on
-    disk yet. The catalog skips that entry rather than crashing.
-    """
+    """When the slim index lists an id but its body file is gone, log + skip."""
     index_path = tmp_path / "boards.index.json"
     bodies_dir = tmp_path / "bodies"
     bodies_dir.mkdir()
