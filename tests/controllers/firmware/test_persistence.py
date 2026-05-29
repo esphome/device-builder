@@ -316,7 +316,7 @@ async def test_resumed_running_job_completes_on_next_run(
     # added the marker on load). A terminal job's output now lives
     # in its sidecar — RAM is cleared on the terminal flush.
     assert final[queued.job_id].output == []
-    recovered = read_job_output(queued.job_id)
+    recovered = await asyncio.to_thread(read_job_output, queued.job_id)
     assert any("dashboard restarted mid-build" in line for line in recovered)
 
 

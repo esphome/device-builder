@@ -8,6 +8,7 @@ sidecars are reaped.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -51,9 +52,11 @@ async def test_terminal_output_flushed_to_sidecar_and_stripped_from_blob(
 
     await controller._persist_jobs()
 
-    # RAM cleared, log on disk.
+    # RAM cleared, log on disk. The sidecar read resolves
+    # ``CORE.data_dir`` (which stats), so run it off the loop as
+    # production does via ``run_in_executor``.
     assert job.output == []
-    assert read_job_output("t1") == ["line a\n", "line b\n"]
+    assert await asyncio.to_thread(read_job_output, "t1") == ["line a\n", "line b\n"]
     # Metadata blob carries no output for the terminal job.
     entries = _blob_jobs(tmp_path)
     assert len(entries) == 1
@@ -78,7 +81,7 @@ async def test_active_output_kept_in_ram_and_inline_in_blob(
     await controller._persist_jobs()
 
     assert job.output == ["building…\n"]
-    assert read_job_output("r1") == []
+    assert await asyncio.to_thread(read_job_output, "r1") == []
     entries = _blob_jobs(tmp_path)
     assert entries[0]["output"] == ["building…\n"]
 
@@ -110,7 +113,7 @@ async def test_legacy_inline_output_migrates_to_sidecar_on_load(
 
     loaded = controller.state.jobs["t1"]
     assert loaded.output == []
-    assert read_job_output("t1") == ["legacy a\n", "legacy b\n"]
+    assert await asyncio.to_thread(read_job_output, "t1") == ["legacy a\n", "legacy b\n"]
 
 
 @pytest.mark.asyncio
@@ -119,13 +122,15 @@ async def test_persist_reaps_orphaned_sidecar(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
     """A sidecar with no matching job is deleted on the next persist."""
-    _write_job_sidecar("ghost", ["stale\n"])
-    assert _job_log_path("ghost").exists()
+    # ``_write_job_sidecar`` / ``_job_log_path().exists()`` resolve
+    # ``CORE.data_dir`` (which stats), so drive them off the loop.
+    await asyncio.to_thread(_write_job_sidecar, "ghost", ["stale\n"])
+    assert await asyncio.to_thread(lambda: _job_log_path("ghost").exists())
 
     job = _terminal_job(["live\n"])
     controller = firmware_controller_factory(job, with_real_persistence=True, with_queue=True)
 
     await controller._persist_jobs()
 
-    assert not _job_log_path("ghost").exists()
-    assert _job_log_path("t1").exists()
+    assert not await asyncio.to_thread(lambda: _job_log_path("ghost").exists())
+    assert await asyncio.to_thread(lambda: _job_log_path("t1").exists())

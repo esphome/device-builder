@@ -185,16 +185,21 @@ async def follow_jobs(
 
 
 async def _initial_snapshot(job: Any, job_id: str) -> list[str]:
-    """Output lines to replay before tailing live: sidecar for terminal, RAM for live.
+    """Output lines to replay before tailing live: RAM while present, else the sidecar.
 
-    A terminal job's output lives in its on-disk sidecar (dropped
-    from RAM at the terminal transition); it fires no more
-    ``JOB_OUTPUT`` so the async read can't race a live append. A
-    live job freezes its RAM buffer synchronously so the listener
+    A live job's RAM buffer is frozen synchronously so the listener
     ``follow_job`` attaches next can't slip lines between freeze and
-    subscribe.
+    subscribe. A terminal job's output is flushed to its sidecar and
+    dropped from RAM by the post-completion persist, but the terminal
+    event fires *before* that flush — so prefer RAM while it's still
+    populated and fall back to the sidecar once cleared. The persist
+    writes the sidecar then clears RAM in one executor pass, so RAM
+    is non-empty xor the sidecar exists, never neither: no window
+    where a just-finished job reads back an empty log.
     """
+    if job.output:
+        return list(job.output)
     if job.status in TERMINAL_JOB_STATUSES:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, read_job_output, job_id)
-    return list(job.output)
+    return []

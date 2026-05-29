@@ -12,7 +12,6 @@ from aiohttp import web
 from pytest_aiohttp.plugin import AiohttpClient
 
 from esphome_device_builder.api import ws as ws_module
-from esphome_device_builder.controllers.firmware.persistence import read_job_output
 from esphome_device_builder.device_builder import DeviceBuilder
 from esphome_device_builder.models import JobStatus
 
@@ -114,9 +113,22 @@ async def test_local_compile_round_trip_over_ws(
         assert completed["data"]["job"]["job_id"] == job_id
         assert completed["data"]["job"]["status"] == JobStatus.COMPLETED.value
 
+        # Read the finished job's log back over the wire the way the
+        # dashboard does: follow_job replays the stored output then
+        # ends. Deterministic regardless of whether the post-completion
+        # flush to the sidecar has landed yet (it replays RAM until the
+        # flush clears it, the sidecar after).
+        await _send_command(ws, "firmware/follow_job", "follow-1", job_id=job_id)
+        output_lines: list[str] = []
+        while True:
+            frame = await _recv_until(ws, predicate=lambda f: f.get("message_id") == "follow-1")
+            if frame.get("event") == "output":
+                output_lines.append(frame["data"])
+            elif frame.get("event") == "result":
+                assert frame["data"]["status"] == JobStatus.COMPLETED.value
+                break
+
     job = db.firmware.state.jobs[job_id]
     assert job.status is JobStatus.COMPLETED
     assert job.exit_code == 0
-    # Terminal output is flushed to the sidecar and dropped from RAM.
-    assert job.output == []
-    assert any("Compile finished" in line for line in read_job_output(job_id))
+    assert any("Compile finished" in line for line in output_lines)

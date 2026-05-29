@@ -43,7 +43,8 @@ async def test_terminal_job_replays_full_history_and_returns(
     )
     # Terminal output lives on disk (flushed + dropped from RAM at the
     # terminal transition); seed the sidecar as ``persist_jobs`` would.
-    _write_job_sidecar("abc", ["line a\n", "line b\n", "line c\n"])
+    # Off the loop — the writer resolves ``CORE.data_dir`` (stats).
+    await asyncio.to_thread(_write_job_sidecar, "abc", ["line a\n", "line b\n", "line c\n"])
     controller = make_follow_race_controller(firmware_controller_factory, job)
     client = FakeWebSocketClient(yield_per_event=True)
 
