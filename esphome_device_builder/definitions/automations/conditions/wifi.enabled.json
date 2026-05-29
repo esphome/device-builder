@@ -1,0 +1,1 @@
+{"id":"wifi.enabled","name":"Wifi → Enabled","description":"This [Condition](https://esphome.io/automations/actions#all-conditions) checks if WiFi is currently enabled or not.","docs_url":"https://esphome.io/automations/actions","domain":"wifi","config_entries":[],"accepts_condition_list":false}

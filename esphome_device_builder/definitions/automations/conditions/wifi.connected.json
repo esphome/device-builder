@@ -1,0 +1,1 @@
+{"id":"wifi.connected","name":"Wifi → Connected","description":"This [Condition](https://esphome.io/automations/actions#all-conditions) checks if the WiFi client is currently connected to a station.","docs_url":"https://esphome.io/automations/actions","domain":"wifi","config_entries":[],"accepts_condition_list":false}

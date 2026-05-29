@@ -399,7 +399,7 @@ def test_local_addresses_deduplicates_repeated_ips(monkeypatch: pytest.MonkeyPat
 
 def test_local_addresses_returns_empty_when_no_adapters(monkeypatch: pytest.MonkeyPatch) -> None:
     """No adapters at all — return an empty list, not a crash."""
-    monkeypatch.setattr(dashboard_advertise.ifaddr, "get_adapters", lambda: [])
+    monkeypatch.setattr(dashboard_advertise.ifaddr, "get_adapters", list)
     assert _local_addresses() == []
 
 

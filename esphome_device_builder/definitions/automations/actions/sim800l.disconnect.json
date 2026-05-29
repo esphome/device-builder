@@ -1,0 +1,1 @@
+{"id":"sim800l.disconnect","name":"Sim800L → Disconnect","description":"Disconnects a call, either dialed in or received.","docs_url":"https://esphome.io/automations/actions","domain":"sim800l","config_entries":[{"key":"id","type":"id","label":"ID","advanced":true}],"is_control_flow":false,"has_else_branch":false,"accepts_action_list":[]}

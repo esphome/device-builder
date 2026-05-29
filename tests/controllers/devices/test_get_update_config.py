@@ -31,6 +31,8 @@ from pathlib import Path
 import pytest
 
 from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.models import ErrorCode
 
 from .conftest import MakeControllerFactory
 
@@ -262,6 +264,46 @@ async def test_update_config_writes_before_requesting_reload(
 
     assert order == ["write", "request:kitchen.yaml"]
     assert yaml_path.read_text(encoding="utf-8") == new_content
+
+
+@pytest.mark.asyncio
+async def test_update_config_refuses_empty_content(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """Empty content raises ``INVALID_ARGS``; file and side effects untouched."""
+    controller = make_controller(tmp_path)
+    regenerated = _stub_regenerate(controller)
+    target = tmp_path / "secrets.yaml"
+    original = "wifi_password: hunter2\n"
+    target.write_text(original, encoding="utf-8")
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.update_config(configuration="secrets.yaml", content="")
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert target.read_text(encoding="utf-8") == original
+    assert regenerated == []
+    assert controller._scanner.calls == []
+
+
+@pytest.mark.asyncio
+async def test_update_config_refuses_whitespace_only_content(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """Whitespace-only content raises ``INVALID_ARGS``; file and side effects untouched."""
+    controller = make_controller(tmp_path)
+    regenerated = _stub_regenerate(controller)
+    target = tmp_path / "secrets.yaml"
+    original = "wifi_password: hunter2\n"
+    target.write_text(original, encoding="utf-8")
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.update_config(configuration="secrets.yaml", content="  \n\t\n")
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert target.read_text(encoding="utf-8") == original
+    assert regenerated == []
+    assert controller._scanner.calls == []
 
 
 @pytest.mark.asyncio

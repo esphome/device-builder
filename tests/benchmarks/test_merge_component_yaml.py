@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 from pytest_codspeed import BenchmarkFixture
 
-from esphome_device_builder.controllers.components import _load_component
 from esphome_device_builder.helpers.json import loads
 from esphome_device_builder.helpers.yaml import merge_component_yaml
+from esphome_device_builder.models import ComponentCatalogEntry
 
 _DEFINITIONS = Path(__file__).resolve().parents[2] / "esphome_device_builder" / "definitions"
 
@@ -17,9 +17,8 @@ _DEFINITIONS = Path(__file__).resolve().parents[2] / "esphome_device_builder" / 
 # pattern as ``test_startup.py``. ``sensor.dht`` is a platform-style
 # component with nested config entries so the bench exercises both
 # the recursive generate and the splice-under-domain path.
-_COMPONENTS_JSON_BYTES = (_DEFINITIONS / "components.json").read_bytes()
-_SENSOR_DHT = _load_component(
-    next(c for c in loads(_COMPONENTS_JSON_BYTES)["components"] if c.get("id") == "sensor.dht")
+_SENSOR_DHT = ComponentCatalogEntry.from_dict(
+    loads((_DEFINITIONS / "components" / "sensor.dht.json").read_bytes())
 )
 
 _FIELDS = {

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-"""
-Generate definitions/components.json from ESPHome's pre-built schema bundle.
+"""Generate the split component catalog from ESPHome's pre-built schema bundle.
+
+Emits ``definitions/components.index.json`` plus per-id body files
+under ``definitions/components/<id>.json``.
 
 The schema repo (https://github.com/esphome/esphome-schema) publishes a
 schema.zip per ESPHome release containing one JSON file per component.
@@ -48,7 +50,6 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, NamedTuple
 
-import orjson
 import voluptuous as vol
 
 # ---------------------------------------------------------------------------
@@ -58,21 +59,27 @@ import voluptuous as vol
 _LOGGER = logging.getLogger("sync_components")
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-_OUTPUT_FILE = _REPO_ROOT / "esphome_device_builder" / "definitions" / "components.json"
-_AUTOMATIONS_OUTPUT_FILE = (
-    _REPO_ROOT / "esphome_device_builder" / "definitions" / "automations.json"
-)
+_DEFINITIONS_DIR = _REPO_ROOT / "esphome_device_builder" / "definitions"
+_OUTPUT_INDEX_FILE = _DEFINITIONS_DIR / "components.index.json"
+_OUTPUT_BODIES_DIR = _DEFINITIONS_DIR / "components"
+_AUTOMATIONS_INDEX_FILE = _DEFINITIONS_DIR / "automations.index.json"
+_AUTOMATIONS_BODIES_DIR = _DEFINITIONS_DIR / "automations"
 _CACHE_ROOT = _REPO_ROOT / ".cache"
+
+# Fields stripped from index entries — they belong on the per-id body
+# files only. Slim-index keeps the catalog UI's list / search /
+# filter paths off the per-field tree.
+_INDEX_DROP_FIELDS: frozenset[str] = frozenset({"config_entries", "required_groups"})
 
 _RELEASES_API = "https://api.github.com/repos/esphome/esphome-schema/releases"
 _SCHEMA_URL_TEMPLATE = "https://schema.esphome.io/{version}/schema.zip"
 _DOCS_INDEX_URL = (
-    "https://raw.githubusercontent.com/esphome/esphome-docs/current/"
+    "https://raw.githubusercontent.com/esphome/esphome.io/current/"
     "src/content/docs/components/index.mdx"
 )
-_DOCS_REPO_URL = "https://github.com/esphome/esphome-docs.git"
+_DOCS_REPO_URL = "https://github.com/esphome/esphome.io.git"
 _DOCS_REPO_BRANCH = "current"
-_DOCS_CLONE_DIR = "esphome-docs"
+_DOCS_CLONE_DIR = "esphome.io"
 _IMAGE_BASE_URL = "https://esphome.io/images/"
 
 # CDN at schema.esphome.io rejects requests without a recognisable
@@ -84,8 +91,32 @@ _USER_AGENT = "esphome-device-builder-backend (https://github.com/esphome/device
 # generator and the runtime loader share one source of truth — see
 # ``controllers/components.py`` for the rationale (issue #325).
 sys.path.insert(0, str(_REPO_ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _catalog_split import (  # noqa: E402
+    emit_body_with_roundtrip,
+    prepare_next_bodies_dir,
+    swap_split_catalog_in,
+)
+
 from esphome_device_builder.controllers.components import (  # noqa: E402
     INTERNAL_COMPONENT_IDS as _INTERNAL_COMPONENT_IDS,
+)
+from esphome_device_builder.models import (  # noqa: E402
+    AutomationAction,
+    AutomationActionIndex,
+    AutomationCondition,
+    AutomationConditionIndex,
+    AutomationTrigger,
+    AutomationTriggerIndex,
+    ComponentCatalogEntry,
+    Filter,
+    FilterIndex,
+    LightEffect,
+    LightEffectIndex,
+    PinFeature,
+)
+from script._light_schemas import (  # noqa: E402
+    resolve_light_effects_applies_to,
 )
 
 # Top-level platform domains in the schema (also keys in our category enum).
@@ -557,6 +588,20 @@ _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
 # automation editor is. Skip them.
 _AUTOMATION_KEY_PREFIXES: tuple[str, ...] = ("on_",)
 
+# Base-schema references that mark a field as a *sub-reading* of a
+# multi-sensor platform (DHT exposes ``temperature:`` / ``humidity:``;
+# debug exposes ``free:`` / ``block:`` / etc). Sub-readings are
+# optional by upstream schema, but they're the *reason* a multi-sensor
+# platform exists — keeping them on the main form (not hidden under
+# "Show advanced settings") is what users expect (#983).
+_SUB_READING_BASE_SCHEMAS: frozenset[str] = frozenset(
+    {
+        "sensor._SENSOR_SCHEMA",
+        "binary_sensor._BINARY_SENSOR_SCHEMA",
+        "text_sensor._TEXT_SENSOR_SCHEMA",
+    }
+)
+
 # Map from the ``**type**`` doc prefix marker to our ConfigEntryType.
 # The schema docs lead with bracketed type names (``**[Time](...)**:``)
 # or bold scalars (``**boolean**:``); we strip the markup and look up
@@ -579,8 +624,16 @@ _DOC_PREFIX_TYPES: dict[str, str] = {
 }
 
 # Time-period default values are short strings like ``"60s"``,
-# ``"5min"``, ``"1h30s"``. This regex matches that shape.
-_TIME_PERIOD_DEFAULT = re.compile(r"^\d+(\.\d+)?\s*(ms|us|ns|s|min|h|d)(\d+\s*\w+)*$")
+# ``"5min"``, ``"1h30s"``. Each segment is a digit run + a fixed
+# unit; the repeating group sticks to the same closed unit
+# alternation rather than ``\w+`` so the engine can't backtrack
+# exponentially on inputs like ``"9s9" + "00" * N`` (CodeQL
+# ReDoS alert). The caller pre-strips whitespace so no ``\s*``
+# is needed here either.
+_TIME_PERIOD_DEFAULT = re.compile(
+    r"^\d+(?:\.\d+)?(?:ms|us|ns|min|s|h|d)"
+    r"(?:\d+(?:\.\d+)?(?:ms|us|ns|min|s|h|d))*$"
+)
 
 
 class Visibility(StrEnum):
@@ -700,7 +753,10 @@ def main() -> int:
     logging.basicConfig(format="%(message)s", level=logging.INFO)
 
     parser = argparse.ArgumentParser(
-        description="Generate components.json from ESPHome's pre-built schema bundle.",
+        description=(
+            "Generate components.index.json + per-id body files under "
+            "definitions/components/ from ESPHome's pre-built schema bundle."
+        ),
     )
     parser.add_argument(
         "--version",
@@ -750,17 +806,7 @@ def main() -> int:
 
     _audit_catalog_for_unit_mismatches(catalog)
 
-    payload = {
-        "esphome_schema_version": version,
-        "components": [_strip_defaults(c) for c in catalog],
-    }
-    # Use orjson (already a runtime dep) for a compact UTF-8 dump —
-    # the file is consumed only by the loader (not hand-edited or
-    # diffed), so indentation was pure overhead. Indented stdlib json
-    # was ~39 MB on disk vs ~19 MB here, ~600 KB off the wheel after
-    # deflate.
-    _OUTPUT_FILE.write_bytes(orjson.dumps(payload, option=orjson.OPT_APPEND_NEWLINE))
-    _LOGGER.info("Wrote %s", _OUTPUT_FILE)
+    _emit_split_catalog(catalog, version)
 
     # Second pass: walk the same schema bundle for action / condition /
     # trigger / effect registries and emit the automation catalog. Runs
@@ -782,11 +828,7 @@ def main() -> int:
         len(automations["conditions"]),
         len(automations["light_effects"]),
     )
-    automations_payload = {"esphome_schema_version": version, **automations}
-    _AUTOMATIONS_OUTPUT_FILE.write_bytes(
-        orjson.dumps(automations_payload, option=orjson.OPT_APPEND_NEWLINE),
-    )
-    _LOGGER.info("Wrote %s", _AUTOMATIONS_OUTPUT_FILE)
+    _emit_split_automations_catalog(automations, version)
     return 0
 
 
@@ -979,6 +1021,10 @@ def build_catalog(
                 continue
             out.append(entry)
 
+    # Workaround for an upstream esphome.io bug: see
+    # ``_repair_field_bullet_descriptions``.
+    _repair_field_bullet_descriptions(out)
+
     # Layer MDX-frontmatter descriptions onto components whose
     # schema-supplied description is empty. This patches the upstream
     # gap where the prebuilt schema's component index lists per-platform
@@ -1002,6 +1048,74 @@ def build_catalog(
         _inject_umbrella_entries(out)
 
     return out
+
+
+# Matches a description that is actually the first bullet of an MDX
+# ``### Configuration variables`` list — ``- **<key>** (*Optional*):`` or
+# the ``*Required*`` variant. Used by ``_repair_field_bullet_descriptions``.
+_FIELD_BULLET_PATTERN = re.compile(
+    r"^-?\s*\*\*[A-Za-z_][\w]*\*\*\s*\(\s*\*(?:Optional|Required)\*\s*\)\s*[:\-]",
+)
+
+
+def _repair_field_bullet_descriptions(entries: list[dict]) -> None:
+    """
+    Repair descriptions baked from a stray first bullet of an MDX list.
+
+    Workaround for an upstream bug in ``esphome.io``'s
+    ``script/schema_doc.py``: when an MDX page documents a platform
+    component with ``## <Platform>`` -> ``### Configuration variables``
+    (no prose intro between the two headings -- ``debug.mdx`` is the
+    canonical example), the generator's ``md_get_paragraph`` skips the
+    headings but then accepts the first ``- **field** (*Optional*):``
+    bullet as the paragraph, baking that bullet into the platform
+    component's ``docs`` field. Affects ``sensor.debug`` /
+    ``text_sensor.debug`` at the time of writing.
+
+    For each affected ``<domain>.<stem>`` entry, swap the bullet for the
+    catalog's own bare-stem entry's description -- that's the umbrella
+    component the user is actually enabling when picking the entry from
+    the wizard, and its description is the rich prose intro from the
+    same MDX file. Skipped when ``<domain>`` is one of the synthetic-
+    umbrella domains (``_UMBRELLA_ENTRIES`` -- currently ``ota``,
+    ``time``), because in those cases ``<stem>`` is a platform name
+    rather than a sub-component (``ota.esphome``'s stem ``esphome``
+    would resolve to the unrelated core ``esphome`` component).
+    Entries with no usable umbrella are left cleared so the downstream
+    MDX backfill gets a turn.
+
+    Remove this whole function (and the regex above) when the upstream
+    fix lands and the schema bundle stops emitting these descriptions.
+    """
+    umbrella_domains = {spec["id"] for spec in _UMBRELLA_ENTRIES}
+    by_id: dict[str, dict] = {e["id"]: e for e in entries}
+    repaired = 0
+    cleared = 0
+    for entry in entries:
+        desc = (entry.get("description") or "").strip()
+        if not desc or not _FIELD_BULLET_PATTERN.match(desc):
+            continue
+        cid = entry["id"]
+        umbrella_desc = ""
+        if "." in cid:
+            domain, stem = cid.split(".", 1)
+            if domain not in umbrella_domains:
+                umbrella = by_id.get(stem)
+                if umbrella is not None:
+                    umbrella_desc = (umbrella.get("description") or "").strip()
+        if umbrella_desc:
+            entry["description"] = umbrella_desc
+            repaired += 1
+        else:
+            entry["description"] = ""
+            cleared += 1
+    if repaired or cleared:
+        _LOGGER.info(
+            "Repaired %d field-bullet description(s) from umbrella, cleared %d "
+            "(upstream esphome.io bug)",
+            repaired,
+            cleared,
+        )
 
 
 def _backfill_descriptions_from_mdx(entries: list[dict]) -> None:
@@ -1211,7 +1325,7 @@ def _load_mdx_descriptions() -> dict[str, str]:
     Falls back to the first prose paragraph when the frontmatter
     description is missing.
 
-    Caches the cloned docs repo in ``.cache/esphome-docs/`` so re-runs
+    Caches the cloned docs repo in ``.cache/esphome.io/`` so re-runs
     don't refetch.
     """
     docs_dir = _ensure_docs_repo()
@@ -1345,7 +1459,7 @@ _CONFIG_VAR_LINE = re.compile(
 )
 
 
-def _extract_mdx_field_descriptions(text: str) -> dict[str, str]:
+def _extract_mdx_field_descriptions(text: str) -> dict[str, str]:  # noqa: C901
     """Parse the ``## Configuration variables`` section into a field map.
 
     Captures one description per top-level bullet — including
@@ -1407,7 +1521,7 @@ def _extract_mdx_field_descriptions(text: str) -> dict[str, str]:
 
 
 def _ensure_docs_repo() -> Path | None:
-    """Clone or update the esphome-docs repo (shallow). Returns its path."""
+    """Clone or update the esphome.io repo (shallow). Returns its path."""
     import subprocess
 
     target = _CACHE_ROOT / _DOCS_CLONE_DIR
@@ -1426,7 +1540,7 @@ def _ensure_docs_repo() -> Path | None:
         return target
 
     target.parent.mkdir(parents=True, exist_ok=True)
-    _LOGGER.info("Cloning esphome-docs (shallow) to %s", target)
+    _LOGGER.info("Cloning esphome.io (shallow) to %s", target)
     try:
         subprocess.run(
             [
@@ -1443,7 +1557,7 @@ def _ensure_docs_repo() -> Path | None:
             timeout=120,
         )
     except Exception:
-        _LOGGER.warning("Could not clone esphome-docs — descriptions stay empty")
+        _LOGGER.warning("Could not clone esphome.io — descriptions stay empty")
         return None
     return target
 
@@ -1457,7 +1571,7 @@ _FRONTMATTER_DESCRIPTION = re.compile(
 )
 
 
-def _extract_mdx_description(text: str) -> str:
+def _extract_mdx_description(text: str) -> str:  # noqa: C901
     """Return the curated description for a component MDX file.
 
     Tries the frontmatter ``description:`` field first; falls back to
@@ -1542,7 +1656,7 @@ def load_image_map() -> dict[str, str]:
     No ImagesMap if the docs file can't be fetched — image_url stays
     empty for every component.
     """
-    cache_file = _CACHE_ROOT / "esphome-docs-index.mdx"
+    cache_file = _CACHE_ROOT / "esphome.io-index.mdx"
     cache_file.parent.mkdir(parents=True, exist_ok=True)
     if not cache_file.exists():
         try:
@@ -1583,7 +1697,7 @@ def build_entries_from_file(
     image_map: dict[str, str],
 ) -> list[dict]:
     """Build one or more catalog entries from a single schema JSON file."""
-    raw = json.loads(path.read_text())
+    raw = json.loads(path.read_text(encoding="utf-8"))
     out: list[dict] = []
     for top_key, section in raw.items():
         if top_key in _HIDDEN_TOP_LEVEL:
@@ -1692,6 +1806,27 @@ def build_component_entry(
 # ---------------------------------------------------------------------------
 
 
+def _scalar_type_for_extends_ref(ref: str) -> str | None:
+    """Return the scalar entry type *ref* names, or None for mapping refs.
+
+    Centralises the heuristic that decides whether a schema's
+    ``extends: ["core.X"]`` reference resolves to a scalar primitive
+    (time period, float, integer, lambda body) or to a sibling mapping
+    schema (``sensor.DELTA_SCHEMA`` etc.) — used both at field-level
+    (``_convert_field``) and at registry-entry-level
+    (``_is_scalar_extends_schema``).
+    """
+    if "time_period" in ref:
+        return "time_period"
+    if ref.endswith((".positive_float", ".float_")):
+        return "float"
+    if "positive_int" in ref or ref.endswith(".int_"):
+        return "integer"
+    if "returning_lambda" in ref:
+        return "lambda"
+    return None
+
+
 def _extract_config_entries(
     section: dict,
     *,
@@ -1767,7 +1902,7 @@ def _apply_visibility_cascade(
             )
 
 
-def _convert_config_vars(
+def _convert_config_vars(  # noqa: C901
     schema_node: dict,
     schema_dir: Path,
     *,
@@ -1828,7 +1963,7 @@ def _convert_config_vars(
     return _sort_entries(out)
 
 
-def _resolve_extends(ref: str, schema_dir: Path) -> dict[str, dict]:
+def _resolve_extends(ref: str, schema_dir: Path) -> dict[str, dict]:  # noqa: C901
     """Look up an ``extends`` reference and return its config_vars.
 
     *ref* is shaped ``<file>.<schema_name>`` — e.g.
@@ -1855,7 +1990,7 @@ def _resolve_extends(ref: str, schema_dir: Path) -> dict[str, dict]:
     for path in (schema_dir / f"{file_name}.json", schema_dir / "esphome.json"):
         if not path.exists():
             continue
-        raw = json.loads(path.read_text())
+        raw = json.loads(path.read_text(encoding="utf-8"))
         for top_value in raw.values():
             if not isinstance(top_value, dict):
                 continue
@@ -1877,7 +2012,7 @@ def _resolve_extends(ref: str, schema_dir: Path) -> dict[str, dict]:
     return inner
 
 
-def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noqa: PLR0912, PLR0915
+def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noqa: PLR0912, PLR0915, C901
     """Build a single ConfigEntry dict from a schema's config_var entry."""
     if not isinstance(raw, dict):
         # Some schemas use bare ``{}``-shaped placeholders for fields
@@ -1909,6 +2044,29 @@ def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noq
     if entry_type is None and data_type in _DATA_TYPE_PRIMITIVE:
         entry_type = _DATA_TYPE_PRIMITIVE[data_type]
 
+    # Polymorphic registry list (#941). Two upstream shapes:
+    #   1. Lights' ``effects:`` carries ``{filter: [<ids>], key:
+    #      Optional}`` with no ``type`` — collapse to the
+    #      ``light_effects`` catalog.
+    #   2. Sensors' / binary_sensors' / text_sensors' ``filters:``
+    #      carries ``{type: registry, registry: <domain>.filter,
+    #      is_list: true}`` — collapse to the shared ``filter``
+    #      catalog (dedupe across domains).
+    # The frontend's REGISTRY_LIST renderer pulls the matching
+    # catalog and renders one row per item with a type picker.
+    registry_name: str | None = None
+    if key == "effects" and isinstance(raw.get("filter"), list) and raw["filter"]:
+        entry_type = "registry_list"
+        registry_name = "light_effects"
+    elif (
+        schema_type == "registry"
+        and raw.get("is_list")
+        and isinstance(raw.get("registry"), str)
+        and raw["registry"].endswith(".filter")
+    ):
+        entry_type = "registry_list"
+        registry_name = "filter"
+
     # An ``enum`` whose values are ``true`` and ``false`` is really a
     # boolean — the schema uses cv.boolean which produces this shape.
     if (entry_type == "string" or entry_type is None) and _looks_like_boolean_enum(raw):
@@ -1921,14 +2079,9 @@ def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noq
     # _SENSOR_SCHEMA fields like ``expire_after`` come through that way).
     if extends and not (inner_schema or {}).get("config_vars"):
         for ref in extends:
-            if "time_period" in ref:
-                entry_type = "time_period"
-                break
-            if ref.endswith(".positive_float") or ref.endswith(".float_"):
-                entry_type = "float"
-                break
-            if "positive_int" in ref or ref.endswith(".int_"):
-                entry_type = "integer"
+            scalar = _scalar_type_for_extends_ref(ref)
+            if scalar is not None:
+                entry_type = scalar
                 break
 
     # Docs-prefix hints — fields without explicit type lead with
@@ -1951,9 +2104,15 @@ def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noq
     if entry_type is None:
         entry_type = "string"
 
-    # Type promotion: schema-given ``string`` whose key/name implies a
-    # secret -> secure_string.
-    if entry_type == "string" and any(frag in key.lower() for frag in _SECRET_KEY_FRAGMENTS):
+    # Type promotion: prefer the explicit ``"sensitive"`` flag the upstream
+    # esphome dumper emits for fields wrapped in ``cv.sensitive(...)`` (added
+    # in esphome/esphome#16673; explicit migrations in #16677 cover api/wifi/
+    # ota/mqtt/web_server passwords plus SSIDs); fall back to the local
+    # key-name heuristic for older esphome versions that don't carry the
+    # flag, or for unmigrated/third-party schemas.
+    if entry_type == "string" and (
+        raw.get("sensitive") or any(frag in key.lower() for frag in _SECRET_KEY_FRAGMENTS)
+    ):
         entry_type = "secure_string"
 
     # Cleaned docs ⇒ description + help_link/docs_url candidate.
@@ -1984,6 +2143,16 @@ def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noq
         key, required=required, is_structural=is_structural
     )
     yaml_only = schema_visibility == Visibility.YAML_ONLY
+    # Sub-sensor readings on multi-sensor platforms (DHT temperature /
+    # humidity, debug.sensor's free / block / loop_time / ..., ADS1115's
+    # named ADC reads) extend a base sensor schema; the bundle marks
+    # the reference in ``schema.extends``. They're optional, so
+    # ``_classify_advanced`` defaults them to advanced — but they're
+    # the whole reason a multi-sensor platform exists, so surface them
+    # on the main form rather than under "Show advanced settings"
+    # (#983).
+    if extends and _SUB_READING_BASE_SCHEMAS.intersection(extends):
+        advanced = False
 
     default_value, gated_component = _extract_default(raw, key=key)
     entry: dict[str, Any] = {
@@ -1997,7 +2166,13 @@ def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noq
         "allow_custom_value": False,
         "range": list(_DATA_TYPE_RANGE[data_type]) if data_type in _DATA_TYPE_RANGE else None,
         "display_format": "hex" if data_type in _DATA_TYPE_HEX else None,
-        "multi_value": bool(raw.get("is_list")),
+        "registry": registry_name,
+        # REGISTRY_LIST fields are inherently list-shaped — the
+        # upstream ``filter: [...]`` schema doesn't carry an explicit
+        # ``is_list`` flag, so the bool conversion of ``None`` would
+        # otherwise emit ``multi_value: false`` and the parser /
+        # serializer round-trip would miss the array contract.
+        "multi_value": (True if entry_type == "registry_list" else bool(raw.get("is_list"))),
         "templatable": bool(raw.get("templatable")),
         "depends_on": None,
         "depends_on_value": None,
@@ -2378,15 +2553,19 @@ def _is_own_id_field(raw: dict) -> bool:
     return bool(isinstance(raw.get("id_type"), dict) and "use_id_type" not in raw)
 
 
+_PIN_FEATURE_VALUES = frozenset(f.value for f in PinFeature)
+
+
 def _resolve_pin_features(raw: dict) -> list[str]:
-    """Translate the schema's ``modes`` list into our PinFeature enum keys."""
+    """Translate the schema's ``modes`` list into PinFeature enum keys.
+
+    Drops GPIO mode flags (input / output / pullup / pulldown /
+    open_drain) that the schema mixes in; only hardware-capability
+    tags (adc, dac, i2c_*, spi_*, ...) belong on
+    ``ConfigEntry.pin_features``.
+    """
     modes = raw.get("modes") or []
-    # Schema uses ``input``/``output``/``pullup``/``pulldown`` etc.
-    # Our PinFeature enum tracks more capability tags (i2c_sda,
-    # spi_clk, ...) but those don't appear here — only directional
-    # / pull modes do. Pass them through; downstream code can drop
-    # unknown values via _safe_enum.
-    return [m for m in modes if isinstance(m, str)]
+    return [m for m in modes if isinstance(m, str) and m in _PIN_FEATURE_VALUES]
 
 
 def _detect_platform_type(inner_schema: dict) -> str | None:
@@ -3092,6 +3271,7 @@ _ENTRY_DEFAULTS: dict[str, Any] = {
     "platform_type": None,
     "group": None,
     "required_groups": [],
+    "registry": None,
 }
 
 _COMPONENT_DEFAULTS: dict[str, Any] = {
@@ -3118,6 +3298,139 @@ def _strip_defaults(component: dict) -> dict:
     return out
 
 
+def _emit_split_catalog(catalog: list[dict], version: str) -> None:
+    """
+    Write the catalog as ``components.index.json`` + per-id body files.
+
+    The index carries every field the catalog UI's list / search /
+    filter paths reference; the per-id bodies under
+    ``definitions/components/<id>.json`` carry the full
+    ``config_entries`` tree the detail-view fetches on demand.
+
+    Crash-safety is best-effort; this is a build-time tool. Both
+    outputs land at sibling temp paths first so a Ctrl-C
+    mid-serialize never overwrites the live catalog. The bodies
+    dir swap (rmtree old + rename next) has a sub-millisecond
+    window where the dir is absent; the index is written via
+    ``os.replace`` so its swap is atomic. Between the bodies swap
+    and the index swap, the live index briefly points at the old
+    id set against the new bodies; the runtime loader handles
+    that gracefully (missing body files log a warning, new ids
+    aren't yet listed), so a reader landing in that window
+    degrades rather than crashes.
+    """
+    next_bodies = _OUTPUT_BODIES_DIR.parent / "components.next"
+    prepare_next_bodies_dir(next_bodies)
+
+    for component in catalog:
+        cid = component["id"]
+        stripped = _strip_defaults(component)
+        emit_body_with_roundtrip(
+            stripped, cid, next_bodies, ComponentCatalogEntry, log_label="Component"
+        )
+
+    # Serialize the new index to a sibling temp so a partial
+    # write can't leave the live file truncated. orjson keeps the
+    # wheel size in check; indented stdlib json was ~39 MB on the
+    # monolithic file vs ~19 MB packed here, ~600 KB off the
+    # wheel after deflate.
+    index_payload = {
+        "esphome_schema_version": version,
+        "components": [_strip_index_defaults(c) for c in catalog],
+    }
+    swap_split_catalog_in(
+        next_bodies=next_bodies,
+        live_bodies=_OUTPUT_BODIES_DIR,
+        index_payload=index_payload,
+        live_index=_OUTPUT_INDEX_FILE,
+    )
+    _LOGGER.info("Wrote %d body files to %s", len(catalog), _OUTPUT_BODIES_DIR)
+    _LOGGER.info("Wrote %s", _OUTPUT_INDEX_FILE)
+
+
+# Each automations sub-catalog: (json_key, full_model, slim_model).
+# Ordered so the per-type subdir creation runs the same way every run.
+_AUTOMATIONS_SUBCATALOGS: list[tuple[str, type, type]] = [
+    ("triggers", AutomationTrigger, AutomationTriggerIndex),
+    ("actions", AutomationAction, AutomationActionIndex),
+    ("conditions", AutomationCondition, AutomationConditionIndex),
+    ("light_effects", LightEffect, LightEffectIndex),
+    ("filters", Filter, FilterIndex),
+]
+
+
+def _emit_split_automations_catalog(automations: dict[str, Any], version: str) -> None:
+    """Write the split automations catalog: index + per-type bodies.
+
+    Layout:
+
+    - ``definitions/automations.index.json`` carrying the slim
+      ``AutomationCatalogIndex`` shape (picker fields only).
+    - ``definitions/automations/<type>/<id>.json`` for each entry,
+      one file per (trigger / action / condition / light_effect /
+      filter, id) pair. The per-type subdir avoids id collisions
+      across types — the same id can legitimately exist as both
+      an action and a trigger in ESPHome.
+
+    Crash-safety + roundtrip-validation + traversal guard all
+    mirror ``_emit_split_catalog`` via the shared
+    ``emit_body_with_roundtrip`` /
+    ``swap_split_catalog_in`` helpers.
+    """
+    next_bodies = _AUTOMATIONS_BODIES_DIR.parent / "automations.next"
+    prepare_next_bodies_dir(next_bodies)
+
+    index_payload: dict[str, Any] = {"esphome_schema_version": version}
+    for type_key, full_cls, slim_cls in _AUTOMATIONS_SUBCATALOGS:
+        type_subdir = next_bodies / type_key
+        type_subdir.mkdir()
+        slim_entries: list[dict[str, Any]] = []
+        for entry in automations.get(type_key, []):
+            emit_body_with_roundtrip(
+                entry,
+                entry["id"],
+                type_subdir,
+                full_cls,
+                log_label=f"Automation {type_key}",
+            )
+            # Build the slim index dict by round-tripping through
+            # the slim model — drops fields that aren't in the
+            # slim picker shape and validates the slim contract
+            # against the same source dict.
+            slim_entries.append(slim_cls.from_dict(entry).to_dict())
+        index_payload[type_key] = slim_entries
+
+    swap_split_catalog_in(
+        next_bodies=next_bodies,
+        live_bodies=_AUTOMATIONS_BODIES_DIR,
+        index_payload=index_payload,
+        live_index=_AUTOMATIONS_INDEX_FILE,
+    )
+    _LOGGER.info(
+        "Wrote %d automation body files to %s",
+        sum(len(automations.get(k, [])) for k, *_ in _AUTOMATIONS_SUBCATALOGS),
+        _AUTOMATIONS_BODIES_DIR,
+    )
+    _LOGGER.info("Wrote %s", _AUTOMATIONS_INDEX_FILE)
+
+
+def _strip_index_defaults(component: dict) -> dict:
+    """Slim form of ``_strip_defaults`` for the index file.
+
+    Drops the per-field ``config_entries`` and ``required_groups``
+    trees (they live in the body files) and the same default-equal
+    fields ``_strip_defaults`` would have dropped.
+    """
+    out: dict[str, Any] = {}
+    for k, v in component.items():
+        if k in _INDEX_DROP_FIELDS:
+            continue
+        if k in _COMPONENT_DEFAULTS and v == _COMPONENT_DEFAULTS[k]:
+            continue
+        out[k] = v
+    return out
+
+
 def _strip_entry_defaults(entry: dict) -> dict:
     """Recursive variant of ``_strip_defaults`` for ConfigEntry dicts."""
     out: dict[str, Any] = {}
@@ -3131,7 +3444,7 @@ def _strip_entry_defaults(entry: dict) -> dict:
     return out
 
 
-def _walk_schema_keys(
+def _walk_schema_keys(  # noqa: C901
     schema: Any,
     visit: Callable[[Any, str, Any, tuple[str, ...]], None],
 ) -> None:
@@ -3332,7 +3645,7 @@ _UNIT_FALLBACKS: dict[str, list[str]] = {
 }
 
 
-def _extract_validator_units(validator: Any) -> list[str] | None:  # noqa: PLR0911
+def _extract_validator_units(validator: Any) -> list[str] | None:  # noqa: PLR0911, C901
     """Pull the unit option list out of a ``cv.float_with_unit`` validator.
 
     Inspects the closure cells produced by ``float_with_unit``: a
@@ -3405,7 +3718,7 @@ def _extract_validator_units(validator: Any) -> list[str] | None:  # noqa: PLR09
     return None
 
 
-def _collect_refined_types(
+def _collect_refined_types(  # noqa: C901
     manifest: Any,
 ) -> dict[tuple[str, ...], RefinedType]:
     """Walk the live ``CONFIG_SCHEMA`` to recover types the schema lost.
@@ -3889,7 +4202,7 @@ def _collect_inclusive_groups(
     return out
 
 
-def _collect_required_groups(
+def _collect_required_groups(  # noqa: C901
     manifest: Any,
 ) -> dict[tuple[str, ...], list[dict[str, Any]]]:
     """
@@ -4116,7 +4429,7 @@ def _annotate_constraint_descriptions(component: dict) -> None:
     )
 
 
-def _annotate_scope(entries: list[dict], required_groups: list[dict[str, Any]]) -> None:
+def _annotate_scope(entries: list[dict], required_groups: list[dict[str, Any]]) -> None:  # noqa: C901
     """Annotate one sibling list with its in-scope required + inclusive hints."""
     if not entries:
         return
@@ -4392,7 +4705,7 @@ _CORE_AUTOMATION_LABELS: dict[str, str] = {
 _CORE_AUTOMATION_DOCS = "https://esphome.io/automations/actions"
 
 
-def build_automations(
+def build_automations(  # noqa: C901
     *,
     schema_dir: Path,
     component_ids: set[str],
@@ -4401,9 +4714,9 @@ def build_automations(
     Walk every schema file and emit the automation catalog.
 
     Returns a dict with ``triggers`` / ``actions`` / ``conditions`` /
-    ``light_effects`` lists. Parameter schemas come out in the same
-    ``ConfigEntry[]`` shape the component catalog uses, so the
-    frontend renders both through one form pipeline.
+    ``light_effects`` / ``filters`` lists. Parameter schemas come
+    out in the same ``ConfigEntry[]`` shape the component catalog
+    uses, so the frontend renders both through one form pipeline.
 
     *component_ids* is the set of ids in the just-built component
     catalog (``switch.template``, ``display.ssd1306_i2c``, …).
@@ -4417,10 +4730,11 @@ def build_automations(
     actions: list[dict] = []
     conditions: list[dict] = []
     effects: list[dict] = []
+    filters: list[dict] = []
 
     for path in iter_schema_files(schema_dir):
         try:
-            raw = json.loads(path.read_text())
+            raw = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             _LOGGER.exception("Failed to read %s", path.name)
             continue
@@ -4465,6 +4779,21 @@ def build_automations(
                 )
                 if entry is not None:
                     effects.append(entry)
+            # Filter registry — sensor / binary_sensor / text_sensor
+            # each carry their own filter registry under a ``filter:``
+            # subsection (sensor has 27, binary_sensor 8, text_sensor
+            # 7). ``applies_to`` tracks the originating domain so the
+            # frontend renderer scopes the per-row picker against the
+            # parent component's domain. #941.
+            for name, body in (section.get("filter") or {}).items():
+                entry = _convert_filter(
+                    name=name,
+                    body=body,
+                    domain=top_key,
+                    schema_dir=schema_dir,
+                )
+                if entry is not None:
+                    filters.append(entry)
             # Triggers — surfaced through CONFIG_SCHEMA's config_vars
             # (and any other ``_SCHEMA`` the file declares).
             triggers.extend(
@@ -4481,6 +4810,7 @@ def build_automations(
         "actions": _dedupe_by_id(actions),
         "conditions": _dedupe_by_id(conditions),
         "light_effects": _dedupe_by_id(effects),
+        "filters": _dedupe_filters(filters),
     }
 
 
@@ -4581,6 +4911,162 @@ def _convert_automation_condition(
     }
 
 
+def _is_scalar_extends_schema(schema: dict | None) -> bool:
+    """Return True when *schema* extends only scalar primitives (no config_vars)."""
+    if not schema or schema.get("config_vars"):
+        return False
+    extends = schema.get("extends") or []
+    return bool(extends) and all(_scalar_type_for_extends_ref(ref) is not None for ref in extends)
+
+
+# Registry id for the ``lambda`` filter / effect. The schema bundle
+# carries no schema for it (just docs), so we recognise it by id and
+# tag the catalog entry with ``value_type="lambda"`` so the frontend
+# can route to its lambda editor through the same dispatch table as
+# the other scalar types.
+_LAMBDA_REGISTRY_ID = "lambda"
+
+
+def _scalar_value_type_for_schema(name: str, schema: dict | None) -> str | None:
+    """
+    Return the scalar primitive the schema accepts, or None.
+
+    Covers two shapes: a pure scalar (``delayed_on: 50ms``) where the
+    schema has only ``extends`` to a scalar primitive, and the
+    polymorphic ``cv.Any(scalar, Schema({...}))`` form
+    (``delayed_on_off: 50ms`` OR ``delayed_on_off: {time_on, time_off}``)
+    where the schema carries both ``extends`` to a scalar primitive
+    AND a mapping in ``config_vars``. Both cases signal "the frontend
+    should accept the scalar shorthand"; the polymorphic case still
+    has ``config_entries`` extracted from the ``config_vars`` (see
+    ``_convert_registry_entry``).
+    """
+    if name == _LAMBDA_REGISTRY_ID and not schema:
+        return _LAMBDA_REGISTRY_ID
+    if not schema:
+        return None
+    extends = schema.get("extends") or []
+    if not extends:
+        return None
+    types = [_scalar_type_for_extends_ref(ref) for ref in extends]
+    # All extends must resolve to a scalar primitive; a single
+    # mapping-shaped extends (sensor.DELTA_SCHEMA etc.) disqualifies.
+    if any(t is None for t in types):
+        return None
+    return types[0]
+
+
+# Per-filter field overrides for shapes the upstream schema bundle
+# can't surface because the validator is a custom callable (e.g.
+# ``ntc_process_calibration``) instead of a structural cv.*
+# combinator the bundle dumper can introspect. Each entry promotes
+# the field to ``multi_value: True`` so the frontend renders an
+# add/remove list editor rather than a single text input that loses
+# the YAML list on save. Add new entries here as they surface; the
+# fix lives upstream when the bundle dumper grows support for the
+# custom validators.
+_REGISTRY_FIELD_OVERRIDES: dict[tuple[str, str], dict] = {
+    ("to_ntc_resistance", "calibration"): {"multi_value": True},
+    ("to_ntc_temperature", "calibration"): {"multi_value": True},
+}
+
+
+def _apply_field_overrides(entry_id: str, config_entries: list[dict]) -> list[dict]:
+    """Apply ``_REGISTRY_FIELD_OVERRIDES`` to entries keyed by id."""
+    return [
+        {**e, **_REGISTRY_FIELD_OVERRIDES[(entry_id, e["key"])]}
+        if (entry_id, e["key"]) in _REGISTRY_FIELD_OVERRIDES
+        else e
+        for e in config_entries
+    ]
+
+
+def _convert_registry_entry(
+    *,
+    name: str,
+    body: dict,
+    label_domain: str,
+    applies_to: list[str],
+    schema_dir: Path,
+) -> dict | None:
+    """Build a registry catalog dict (id, name, config_entries, applies_to, value_type)."""
+    if not isinstance(body, dict):
+        return None
+    docs = clean_docs(body.get("docs"))
+    schema = body.get("schema") if isinstance(body.get("schema"), dict) else None
+    value_type = _scalar_value_type_for_schema(name, schema)
+    has_config_vars = bool(schema and schema.get("config_vars"))
+    if value_type is not None and not has_config_vars:
+        # Pure scalar shorthand (``delayed_on: 50ms``).
+        config_entries: list[dict] = []
+    else:
+        # Pure mapping OR polymorphic mapping+scalar
+        # (``cv.Any(time_period, Schema({...}))`` for delayed_on_off).
+        # In the polymorphic case strip ``extends`` before extraction
+        # so the scalar primitive's unit-parts
+        # (days/hours/minutes/...) don't leak in alongside the
+        # ``config_vars`` mapping fields.
+        extract_schema: dict | None = schema
+        if value_type is not None and has_config_vars and schema is not None:
+            extract_schema = {k: v for k, v in schema.items() if k != "extends"}
+        config_entries, _alist, _hcg = _extract_automation_param_schema(extract_schema, schema_dir)
+        config_entries = _apply_field_overrides(name, config_entries)
+    return {
+        "id": name,
+        "name": _automation_label(label_domain, name, docs.name),
+        "config_entries": [_strip_entry_defaults(e) for e in config_entries],
+        "applies_to": applies_to,
+        "value_type": value_type,
+    }
+
+
+# Shared by `_automation_label` (producer) and `_dedupe_filters`
+# (multi-domain prefix stripper).
+_AUTOMATION_LABEL_SEPARATOR = " → "
+
+
+def _convert_filter(
+    *,
+    name: str,
+    body: dict,
+    domain: str,
+    schema_dir: Path,
+) -> dict | None:
+    """Build one ``Filter`` dict from a ``<domain>.filter`` registry entry."""
+    return _convert_registry_entry(
+        name=name,
+        body=body,
+        label_domain=domain,
+        applies_to=[domain],
+        schema_dir=schema_dir,
+    )
+
+
+def _dedupe_filters(filters: list[dict]) -> list[dict]:
+    """
+    Merge filters sharing an ``id`` across domains; union ``applies_to``.
+
+    Multi-domain merges strip the ``"<Domain> → "`` prefix from the
+    display name since it would otherwise read wrong in whichever
+    domain the user is editing (``lambda`` under ``sensor:`` would
+    show "Binary Sensor → Lambda" otherwise).
+    """
+    by_id: dict[str, dict] = {}
+    for f in filters:
+        existing = by_id.get(f["id"])
+        if existing is None:
+            by_id[f["id"]] = f
+            continue
+        merged_applies_to = sorted({*existing.get("applies_to", []), *f.get("applies_to", [])})
+        existing["applies_to"] = merged_applies_to
+        # Multi-domain entry: strip the "<Domain> → " prefix so the
+        # bare name reads correctly regardless of editing context.
+        name = existing.get("name") or ""
+        if len(merged_applies_to) > 1 and _AUTOMATION_LABEL_SEPARATOR in name:
+            existing["name"] = name.split(_AUTOMATION_LABEL_SEPARATOR, 1)[1]
+    return list(by_id.values())
+
+
 def _convert_light_effect(
     *,
     name: str,
@@ -4588,30 +5074,13 @@ def _convert_light_effect(
     schema_dir: Path,
 ) -> dict | None:
     """Build one ``LightEffect`` dict from a light.effects registry entry."""
-    if not isinstance(body, dict):
-        return None
-    docs = clean_docs(body.get("docs"))
-    schema = body.get("schema") if isinstance(body.get("schema"), dict) else None
-    config_entries, _alist, _hcg = _extract_automation_param_schema(schema, schema_dir)
-    # The schema doesn't carry a clean "this effect applies to which
-    # light platforms" map. Heuristic: effects whose id starts with
-    # ``addressable_`` need an addressable platform; everything else
-    # is valid on any light platform.
-    applies_to: list[str] = []
-    if name.startswith("addressable_"):
-        applies_to = [
-            "light.addressable_rgb",
-            "light.fastled_clockless",
-            "light.fastled_spi",
-            "light.neopixelbus",
-            "light.rgb",
-        ]
-    return {
-        "id": name,
-        "name": _automation_label("light", name, docs.name),
-        "config_entries": [_strip_entry_defaults(e) for e in config_entries],
-        "applies_to": applies_to,
-    }
+    return _convert_registry_entry(
+        name=name,
+        body=body,
+        label_domain="light",
+        applies_to=resolve_light_effects_applies_to(name, schema_dir),
+        schema_dir=schema_dir,
+    )
 
 
 def _extract_triggers_from_section(
@@ -4735,7 +5204,7 @@ def _automation_label(domain: str, name: str, docs_name: str | None) -> str:
     if domain in ("core", "esphome") or not domain:
         return pretty_name
     domain_label = domain.replace("_", " ").title()
-    return f"{domain_label} → {pretty_name}"
+    return f"{domain_label}{_AUTOMATION_LABEL_SEPARATOR}{pretty_name}"
 
 
 def _dedupe_by_id(entries: list[dict]) -> list[dict]:

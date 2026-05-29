@@ -2,7 +2,8 @@ include README.md
 include LICENSE
 graft esphome_device_builder
 # Manifest YAMLs are sync-time sources only — the runtime reads
-# definitions/boards.json. Excluding keeps the wheel/sdist free of
-# the duplicate.
+# the split artefacts (boards.index.json + board_bodies/<id>.json +
+# featured_components.index.json). Excluding keeps the wheel/sdist
+# free of the duplicate source.
 recursive-exclude esphome_device_builder/definitions/boards *.yaml
 recursive-exclude * *.py[co]

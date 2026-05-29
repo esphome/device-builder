@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Literal, TypedDict
 
+from ...helpers.version_compat import VersionMatchPolicy
+
 
 class OffloaderPairStatusChangedData(TypedDict):
     """
@@ -328,6 +330,19 @@ class OffloaderPairingEnabledChangedData(TypedDict):
 
     pin_sha256: str
     enabled: bool
+
+
+class OffloaderVersionMatchPolicyChangedData(TypedDict):
+    """Payload for ``EventType.OFFLOADER_VERSION_MATCH_POLICY_CHANGED``."""
+
+    version_match_policy: VersionMatchPolicy
+
+
+class OffloaderSettingsSnapshot(TypedDict):
+    """Offloader-wide scalars merged into the ``subscribe_events`` seed."""
+
+    remote_builds_enabled: bool
+    version_match_policy: VersionMatchPolicy
 
 
 class OffloaderRemoteJobSnapshotEntry(TypedDict):

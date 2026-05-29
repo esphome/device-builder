@@ -1,0 +1,1 @@
+{"id":"datetime.template","name":"Template Datetime","description":"The `template` datetime platform allows you to create a datetime with templated values using [lambdas](https://esphome.io/automations/templates#config-lambda).","category":"datetime","docs_url":"https://esphome.io/components/datetime/template","image_url":"https://esphome.io/images/description.svg"}

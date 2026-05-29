@@ -251,9 +251,21 @@ def main() -> None:
 
     _warn_deprecated_credential_flags(args)
 
-    # Deferred so ``--version`` / ``--help`` keep working in installs
-    # that omit the optional ``[esphome]`` extra — both modules below
-    # transitively import ``esphome`` at module load time.
+    # ``--version`` / ``--help`` exit above before reaching this
+    # point, so the lazy imports below are reachable only when the
+    # user actually meant to run the dashboard. Gate on
+    # ``_esphome_version`` (the same probe ``_format_version`` uses)
+    # so the missing-extra detection has a single source of truth;
+    # surface an actionable hint in place of the raw
+    # ``ModuleNotFoundError`` traceback (#919).
+    if _esphome_version() is None:
+        logging.getLogger(_LOGGER_NAME).error(
+            "Running esphome-device-builder needs the 'esphome' "
+            "package; reinstall with the [esphome] extra: "
+            "pip install 'esphome-device-builder[esphome]'"
+        )
+        sys.exit(1)
+
     from esphome.core import CORE  # noqa: PLC0415
 
     from .controllers.config import DashboardSettings  # noqa: PLC0415
@@ -307,11 +319,20 @@ def _log_uncaught_thread_exception(args: threading.ExceptHookArgs) -> None:
 
 
 def _esphome_version() -> str | None:
-    """Return the bundled ESPHome version, or ``None`` if the optional extra is missing."""
+    """
+    Return the bundled ESPHome version, or ``None`` if the extra is missing.
+
+    Narrows to ``ModuleNotFoundError`` rooted at ``esphome``; an
+    ``ImportError`` raised from *inside* ``esphome.const`` (a
+    broken install, not a missing one) propagates so callers like
+    the ``main()`` gate don't misclassify it as "not installed".
+    """
     try:
         from esphome.const import __version__ as version  # noqa: PLC0415
-    except ImportError:
-        return None
+    except ModuleNotFoundError as exc:
+        if exc.name and exc.name.split(".", 1)[0] == "esphome":
+            return None
+        raise
     # ``esphome`` ships no type stubs, so ``__version__`` arrives as
     # ``Any`` and the raw return trips ``no-any-return``. Cast at the
     # boundary — runtime contract is the documented version string.

@@ -56,6 +56,21 @@ def test_atomic_write_overwrites_existing(tmp_path: Path) -> None:
     assert target.read_bytes() == b"new"
 
 
+def test_atomic_write_make_parents_creates_missing_dirs(tmp_path: Path) -> None:
+    """``make_parents=True`` creates the target's missing ancestor dirs first."""
+    target = tmp_path / "a" / "b" / "demo.bin"
+    atomic_write(target, b"payload", make_parents=True)
+    assert target.read_bytes() == b"payload"
+
+
+def test_atomic_write_without_make_parents_raises_on_missing_dir(tmp_path: Path) -> None:
+    """Without ``make_parents`` a missing target directory surfaces as an error."""
+    target = tmp_path / "missing" / "demo.bin"
+    with pytest.raises(OSError):
+        atomic_write(target, b"payload")
+    assert not target.exists()
+
+
 def test_atomic_write_closes_fd_when_fdopen_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -41,7 +41,11 @@ async def add_component(
             msg = f"Unknown featured component: {component_id}"
             raise ValueError(msg)
         underlying_component_id = record.underlying_id
-        fields = _apply_featured_presets(record, fields)
+        underlying_body = await controller._db.components.get_body(underlying_component_id)
+        if underlying_body is None:
+            msg = f"Unknown component body for featured ref: {underlying_component_id}"
+            raise ValueError(msg)
+        fields = _apply_featured_presets(record, fields, underlying_body)
         # The frontend's featured-id suggestion contains the board's
         # dashes (e.g. ``featured_athom-smart-plug-v3_power_monitor_1``),
         # which ESPHome rejects. Reset to empty so generate_component_yaml

@@ -25,12 +25,13 @@ from ...models import JobStatus, JobType
 # ``.device-builder.json``.
 _JOBS_KEY = "_firmware_jobs"
 
-# Output patterns that indicate failure even when the subprocess exit
-# code is 0 (Python tracebacks routed through ``print()``, etc.).
+# Output patterns that indicate failure even when the subprocess
+# exit code is 0. Bare ``No module named`` is intentionally absent:
+# PlatformIO's ``[nanopb]`` extra-script emits it harmlessly (#918);
+# real tracebacks still match via ``ModuleNotFoundError``.
 _ERROR_PATTERNS = [
     "ModuleNotFoundError",
     "ImportError",
-    "No module named",
     "FileNotFoundError",
     "command not found",
 ]

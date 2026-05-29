@@ -247,6 +247,49 @@ async def test_subscribe_events_includes_peers_snapshot_in_initial_state() -> No
     await asyncio.gather(handler_task, return_exceptions=True)
 
 
+async def test_subscribe_events_includes_offloader_settings_in_initial_state() -> None:
+    """``_send_initial`` merges the offloader-wide settings into the seed.
+
+    Without this the frontend's version-match policy picker (and
+    the remote-builds toggle) have no value to render against on
+    first connect — both gate on a non-null context, so absent the
+    seed they don't appear until the operator flips the setting
+    (or in the picker's case never, since there's nothing to flip).
+    """
+    db = DeviceBuilder.__new__(DeviceBuilder)
+    db.bus = EventBus()
+    db.subscriber_presence = SubscriberPresence()
+    db.devices = None
+    remote_build = MagicMock()
+    remote_build.pairings_snapshot = MagicMock(return_value=[])
+    remote_build.peers_snapshot = MagicMock(return_value=[])
+    remote_build.offloader_settings_snapshot = MagicMock(
+        return_value={
+            "remote_builds_enabled": False,
+            "version_match_policy": "exact_required",
+        }
+    )
+    db.remote_build_offloader = remote_build
+    db.remote_build_receiver = remote_build
+
+    client = FakeWebSocketClient()
+    handler_task = asyncio.create_task(db._cmd_subscribe_events(client=client, message_id="m1"))
+    for _ in range(50):
+        await asyncio.sleep(0)
+        if client.events:
+            break
+
+    initial_events = [e for e in client.events if e[1] == "initial_state"]
+    assert len(initial_events) == 1
+    _, _, payload = initial_events[0]
+    assert payload["remote_builds_enabled"] is False
+    assert payload["version_match_policy"] == "exact_required"
+    remote_build.offloader_settings_snapshot.assert_called_once()
+
+    handler_task.cancel()
+    await asyncio.gather(handler_task, return_exceptions=True)
+
+
 async def test_subscribe_events_includes_hosts_snapshot_in_initial_state() -> None:
     """``_send_initial`` includes the mDNS-discovered hosts snapshot.
 

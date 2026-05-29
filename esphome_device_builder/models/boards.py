@@ -8,7 +8,12 @@ from typing import Any
 
 from mashumaro.mixins.orjson import DataClassORJSONMixin
 
-from .common import FieldPreset, PagedResponse, PinFeature  # PinFeature re-exported
+from .common import (
+    FieldPreset,
+    PagedResponse,
+    PinFeature,
+    _CatalogConfig,
+)
 
 # `PinFeature` lives in .common (it's shared with config-entry pin
 # constraints), but is re-imported here for stability of existing
@@ -105,6 +110,9 @@ class BoardPin(DataClassORJSONMixin):
     occupied_by: str | None = None  # e.g. "Built-in LED", "SPI Flash"
     notes: str | None = None
 
+    class Config(_CatalogConfig):
+        """Skip empty defaults on serialise; see :class:`_CatalogConfig`."""
+
 
 @dataclass
 class BoardEsphomeConfig(DataClassORJSONMixin):
@@ -115,6 +123,9 @@ class BoardEsphomeConfig(DataClassORJSONMixin):
     variant: Esp32Variant | None = None
     framework: str | None = None  # "arduino" or "esp-idf"
 
+    class Config(_CatalogConfig):
+        """Skip empty defaults on serialise; see :class:`_CatalogConfig`."""
+
 
 @dataclass
 class BoardHardware(DataClassORJSONMixin):
@@ -124,6 +135,9 @@ class BoardHardware(DataClassORJSONMixin):
     ram_size: int | None = None
     cpu_frequency: str | None = None
     connectivity: list[Connectivity] = field(default_factory=list)
+
+    class Config(_CatalogConfig):
+        """Skip empty defaults on serialise; see :class:`_CatalogConfig`."""
 
 
 @dataclass
@@ -146,6 +160,9 @@ class FeaturedComponent(DataClassORJSONMixin):
     description: str | None = None
     fields: dict[str, FieldPreset] = field(default_factory=dict)
 
+    class Config(_CatalogConfig):
+        """Skip empty defaults on serialise; see :class:`_CatalogConfig`."""
+
 
 @dataclass
 class FeaturedBundle(DataClassORJSONMixin):
@@ -166,6 +183,9 @@ class FeaturedBundle(DataClassORJSONMixin):
     description: str = ""
     component_ids: list[str] = field(default_factory=list)
 
+    class Config(_CatalogConfig):
+        """Skip empty defaults on serialise; see :class:`_CatalogConfig`."""
+
 
 @dataclass
 class DefaultComponent(DataClassORJSONMixin):
@@ -182,6 +202,9 @@ class DefaultComponent(DataClassORJSONMixin):
 
     id: str
     fields: dict[str, Any] = field(default_factory=dict)
+
+    class Config(_CatalogConfig):
+        """Skip empty defaults on serialise; see :class:`_CatalogConfig`."""
 
 
 @dataclass
@@ -214,6 +237,35 @@ class BoardCatalogEntry(DataClassORJSONMixin):
     # ``fields`` dict supplements or overrides those presets.
     default_components: list[DefaultComponent] = field(default_factory=list)
 
+    class Config(_CatalogConfig):
+        """Skip empty defaults on serialise; see :class:`_CatalogConfig`."""
+
+
+@dataclass
+class BoardCatalogIndex(DataClassORJSONMixin):
+    """Slim card-view of :class:`BoardCatalogEntry` (no body fields).
+
+    Picker / list endpoints (``boards/get_boards``) return this shape:
+    the picker needs identity + search-key + thumbnail + sort flags but
+    not pins / hardware / featured-component presets. Full bodies
+    hydrate on demand via the boards ``LazyBodyStore``.
+    """
+
+    id: str
+    name: str
+    description: str
+    manufacturer: str
+    esphome: BoardEsphomeConfig
+    tags: list[BoardTag] = field(default_factory=list)
+    images: list[str] = field(default_factory=list)
+    docs_url: str = ""
+    product_url: str = ""
+    featured: bool = False
+    is_generic: bool = False
+
+    class Config(_CatalogConfig):
+        """Skip empty defaults on serialise; see :class:`_CatalogConfig`."""
+
 
 @dataclass
 class BoardCatalogResponse(DataClassORJSONMixin):
@@ -224,6 +276,6 @@ class BoardCatalogResponse(DataClassORJSONMixin):
 
 @dataclass
 class PagedBoardsResponse(PagedResponse):
-    """Paginated board catalog API response."""
+    """Paginated board catalog API response — slim entries only."""
 
-    boards: list[BoardCatalogEntry] = field(default_factory=list)
+    boards: list[BoardCatalogIndex] = field(default_factory=list)

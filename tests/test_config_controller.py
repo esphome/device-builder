@@ -1548,7 +1548,7 @@ async def test_get_serial_ports_returns_empty_when_no_ports(
     """
     monkeypatch.setattr(
         "esphome_device_builder.controllers.config.get_serial_ports",
-        lambda: [],
+        list,
     )
     controller = _make_controller(tmp_path)
 

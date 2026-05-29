@@ -178,12 +178,16 @@ def _normalize_pin_value(value: Any) -> Any:
 def _apply_featured_presets(
     record: _FeaturedRecord,
     user_fields: dict[str, Any],
+    underlying: ComponentCatalogEntry,
 ) -> dict[str, Any]:
     """
     Merge a featured component's presets onto *user_fields*.
 
     Returns a new field map; raises ``ValueError`` when
-    *user_fields* violates a preset constraint.
+    *user_fields* violates a preset constraint. *underlying* is
+    the hydrated body the record's ``underlying_id`` resolves to —
+    callers fetch it via :meth:`ComponentCatalog.get_body` before
+    invoking this helper.
 
     Per-field semantics:
 
@@ -201,7 +205,7 @@ def _apply_featured_presets(
     accepts either the bare or the mapping shape the frontend
     might submit.
     """
-    entries_by_key = {ce.key: ce for ce in record.underlying.config_entries}
+    entries_by_key = {ce.key: ce for ce in underlying.config_entries}
     merged: dict[str, Any] = dict(user_fields)
     for key, preset in record.featured.fields.items():
         user_value = merged.get(key)
@@ -245,7 +249,7 @@ def _apply_featured_presets(
         if not user_supplied and preset.value is not None:
             merged[key] = preset.value
     keep_unconditional = set(record.featured.fields)
-    keep_unconditional.update(ce.key for ce in record.underlying.config_entries if ce.required)
+    keep_unconditional.update(ce.key for ce in underlying.config_entries if ce.required)
     return _strip_default_echoes(merged, entries_by_key, keep_unconditional)
 
 

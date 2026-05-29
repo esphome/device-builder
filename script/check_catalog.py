@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-"""
-Smoke-test ``definitions/components.json`` for shape regressions.
+"""Smoke-test the split catalog for shape regressions.
+
+Reads ``definitions/components.index.json`` plus per-id bodies
+under ``definitions/components/``.
 
 Loads the catalog via ``ComponentCatalog`` (i.e. through the same
 JSON loader the API uses), then asserts that a curated list of
@@ -33,7 +35,11 @@ from typing import Any
 # installing the package.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from esphome_device_builder.controllers.components import ComponentCatalog
+from esphome_device_builder.controllers.components import (
+    ComponentCatalog,
+    _load_body_from_disk,
+)
+from script.sync_components import _FIELD_BULLET_PATTERN
 
 # Per-component shape assertions. Each entry is a tuple of
 # ``(component_id, [(field_key, type, required, refs)])``. A field
@@ -146,7 +152,7 @@ _EXPECTATIONS: list[tuple[str, list[tuple[str, str, bool | None, str | None]]]] 
 ]
 
 
-def main() -> int:
+def main() -> int:  # noqa: C901
     catalog = ComponentCatalog()
     catalog.load()
     if not catalog._components:
@@ -155,9 +161,12 @@ def main() -> int:
 
     failures: list[str] = []
     for component_id, fields in _EXPECTATIONS:
-        component = catalog._by_id.get(component_id)
-        if component is None:
+        if component_id not in catalog._by_id:
             failures.append(f"missing component: {component_id}")
+            continue
+        component = _load_body_from_disk(component_id)
+        if component is None:
+            failures.append(f"missing component body on disk: {component_id}")
             continue
         for key, expected_type, expected_required, expected_refs in fields:
             entry = next((e for e in component.config_entries if e.key == key), None)
@@ -182,6 +191,7 @@ def main() -> int:
 
     failures.extend(_check_option_lists(catalog))
     failures.extend(_check_component_gating(catalog))
+    failures.extend(_check_no_field_bullet_descriptions(catalog))
 
     if failures:
         print(f"FAIL: {len(failures)} catalog regression(s):")
@@ -251,9 +261,12 @@ def _check_option_lists(catalog: ComponentCatalog) -> list[str]:
     """Return a failure message per field whose option list is too small."""
     failures: list[str] = []
     for cid, path, minimum in _OPTION_EXPECTATIONS:
-        component = catalog._by_id.get(cid)
-        if component is None:
+        if cid not in catalog._by_id:
             failures.append(f"options check: missing component {cid}")
+            continue
+        component = _load_body_from_disk(cid)
+        if component is None:
+            failures.append(f"options check: missing body for {cid}")
             continue
         entry = _resolve_field(component, path)
         if entry is None:
@@ -268,13 +281,35 @@ def _check_option_lists(catalog: ComponentCatalog) -> list[str]:
     return failures
 
 
+def _check_no_field_bullet_descriptions(catalog: ComponentCatalog) -> list[str]:
+    """Fail when any component's description matches the field-bullet pattern.
+
+    The pattern is imported from ``script/sync_components.py`` so a widening
+    on the sync side automatically tightens the check side — they cannot
+    drift apart. Triggered when the upstream esphome.io schema_doc bug
+    leaks past ``_repair_field_bullet_descriptions``.
+    """
+    failures: list[str] = []
+    for component in catalog._by_id.values():
+        desc = (component.description or "").strip()
+        if desc and _FIELD_BULLET_PATTERN.match(desc):
+            failures.append(
+                f"{component.id}: description is a config-variables bullet "
+                f"({desc[:80]!r}) — sync workaround missed it"
+            )
+    return failures
+
+
 def _check_component_gating(catalog: ComponentCatalog) -> list[str]:
     """Return a failure message per field missing its ``depends_on_component``."""
     failures: list[str] = []
     for cid, path, gate in _GATING_EXPECTATIONS:
-        component = catalog._by_id.get(cid)
-        if component is None:
+        if cid not in catalog._by_id:
             failures.append(f"gating check: missing component {cid}")
+            continue
+        component = _load_body_from_disk(cid)
+        if component is None:
+            failures.append(f"gating check: missing body for {cid}")
             continue
         entry = _resolve_field(component, path)
         if entry is None:

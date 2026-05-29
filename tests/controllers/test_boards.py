@@ -12,8 +12,8 @@ The controller has two consumer surfaces:
 * WebSocket commands ``boards/get_board`` and ``boards/get_boards``
   (decorated with ``@api_command``).
 * In-process lookups ``get_by_id`` / ``find_by_pio_board`` /
-  ``find_by_platform_variant`` / ``iter_boards``, used by the
-  components controller and the device-import flow.
+  ``find_by_platform_variant``, used by the components controller
+  and the device-import flow.
 
 Both surfaces are covered here against the same fixture set so a
 filter regression hits both halves.
@@ -26,6 +26,7 @@ import pytest
 from esphome_device_builder.controllers.boards import BoardCatalog
 from esphome_device_builder.models import (
     BoardCatalogEntry,
+    BoardCatalogIndex,
     BoardTag,
     Esp32Variant,
     Platform,
@@ -45,9 +46,9 @@ def _board(
     tags: list[BoardTag] | None = None,
     featured: bool = False,
     is_generic: bool = False,
-) -> BoardCatalogEntry:
-    """Compact factory for catalog entries — defaults to a plausible ESP32 board."""
-    return BoardCatalogEntry(
+) -> BoardCatalogIndex:
+    """Compact factory for slim catalog entries — defaults to a plausible ESP32 board."""
+    return BoardCatalogIndex(
         id=board_id,
         name=name or board_id,
         description=description,
@@ -57,6 +58,33 @@ def _board(
         featured=featured,
         is_generic=is_generic,
     )
+
+
+def _seed_catalog(cat: BoardCatalog, boards: list[BoardCatalogIndex]) -> None:
+    """Wire *boards* in as the slim index + seed the body cache.
+
+    Bodies are derived from the slim entries (empty hardware / pins /
+    featured_components / featured_bundles / default_components) and
+    pre-populated into the LazyBodyStore's cache so ``await
+    get_board`` round-trips without disk access.
+    """
+    cat._boards = boards
+    cat._known_ids = frozenset(b.id for b in boards)
+    for slim in boards:
+        body = BoardCatalogEntry(
+            id=slim.id,
+            name=slim.name,
+            description=slim.description,
+            manufacturer=slim.manufacturer,
+            esphome=slim.esphome,
+            tags=list(slim.tags),
+            images=list(slim.images),
+            docs_url=slim.docs_url,
+            product_url=slim.product_url,
+            featured=slim.featured,
+            is_generic=slim.is_generic,
+        )
+        cat._body_store.cache_put(slim.id, body)
 
 
 @pytest.fixture
@@ -69,65 +97,68 @@ def catalog() -> BoardCatalog:
     platform is featured.
     """
     cat = BoardCatalog()
-    cat._boards = [
-        _board(
-            board_id="seeed-xiao-esp32c3",
-            name="Seeed XIAO ESP32-C3",
-            description="Compact dev board",
-            manufacturer="Seeed",
-            platform=Platform.ESP32,
-            variant=Esp32Variant.ESP32C3,
-            pio_board="esp32-c3-devkitm-1",
-            tags=[BoardTag.COMPACT, BoardTag.USB_C],
-            featured=True,
-        ),
-        _board(
-            board_id="m5stack-cores3",
-            name="M5Stack CoreS3",
-            description="Display-equipped ESP32-S3",
-            manufacturer="M5Stack",
-            platform=Platform.ESP32,
-            variant=Esp32Variant.ESP32S3,
-            pio_board="m5stack-cores3",
-            tags=[BoardTag.DISPLAY],
-        ),
-        _board(
-            board_id="generic-esp32c3",
-            name="Generic ESP32-C3",
-            manufacturer="Generic",
-            platform=Platform.ESP32,
-            variant=Esp32Variant.ESP32C3,
-            pio_board="esp32-c3-devkitm-1",
-            is_generic=True,
-        ),
-        _board(
-            board_id="generic-esp32s3",
-            name="Generic ESP32-S3",
-            manufacturer="Generic",
-            platform=Platform.ESP32,
-            variant=Esp32Variant.ESP32S3,
-            pio_board="esp32-s3-devkitc-1",
-            is_generic=True,
-        ),
-        _board(
-            board_id="d1-mini",
-            name="Wemos D1 Mini",
-            description="Classic ESP8266 dev board",
-            manufacturer="Wemos",
-            platform=Platform.ESP8266,
-            pio_board="d1_mini",
-            tags=[BoardTag.COMPACT],
-            featured=True,
-        ),
-        _board(
-            board_id="generic-esp8266",
-            name="Generic ESP8266",
-            manufacturer="Generic",
-            platform=Platform.ESP8266,
-            pio_board="nodemcuv2",
-            is_generic=True,
-        ),
-    ]
+    _seed_catalog(
+        cat,
+        [
+            _board(
+                board_id="seeed-xiao-esp32c3",
+                name="Seeed XIAO ESP32-C3",
+                description="Compact dev board",
+                manufacturer="Seeed",
+                platform=Platform.ESP32,
+                variant=Esp32Variant.ESP32C3,
+                pio_board="esp32-c3-devkitm-1",
+                tags=[BoardTag.COMPACT, BoardTag.USB_C],
+                featured=True,
+            ),
+            _board(
+                board_id="m5stack-cores3",
+                name="M5Stack CoreS3",
+                description="Display-equipped ESP32-S3",
+                manufacturer="M5Stack",
+                platform=Platform.ESP32,
+                variant=Esp32Variant.ESP32S3,
+                pio_board="m5stack-cores3",
+                tags=[BoardTag.DISPLAY],
+            ),
+            _board(
+                board_id="generic-esp32c3",
+                name="Generic ESP32-C3",
+                manufacturer="Generic",
+                platform=Platform.ESP32,
+                variant=Esp32Variant.ESP32C3,
+                pio_board="esp32-c3-devkitm-1",
+                is_generic=True,
+            ),
+            _board(
+                board_id="generic-esp32s3",
+                name="Generic ESP32-S3",
+                manufacturer="Generic",
+                platform=Platform.ESP32,
+                variant=Esp32Variant.ESP32S3,
+                pio_board="esp32-s3-devkitc-1",
+                is_generic=True,
+            ),
+            _board(
+                board_id="d1-mini",
+                name="Wemos D1 Mini",
+                description="Classic ESP8266 dev board",
+                manufacturer="Wemos",
+                platform=Platform.ESP8266,
+                pio_board="d1_mini",
+                tags=[BoardTag.COMPACT],
+                featured=True,
+            ),
+            _board(
+                board_id="generic-esp8266",
+                name="Generic ESP8266",
+                manufacturer="Generic",
+                platform=Platform.ESP8266,
+                pio_board="nodemcuv2",
+                is_generic=True,
+            ),
+        ],
+    )
     return cat
 
 
@@ -328,23 +359,6 @@ async def test_get_boards_offset_past_end_returns_empty_page(
 
     assert resp.total == 6
     assert resp.boards == []
-
-
-# ---------------------------------------------------------------------------
-# iter_boards
-# ---------------------------------------------------------------------------
-
-
-def test_iter_boards_returns_internal_list(catalog: BoardCatalog) -> None:
-    """``iter_boards`` returns the underlying list directly.
-
-    Documented contract: callers (the components controller's
-    featured-component registry build) treat it as read-only.
-    Pin so a refactor that wraps it in ``list(...)`` doesn't
-    silently change the identity guarantee.
-    """
-    assert catalog.iter_boards() is catalog._boards
-    assert len(catalog.iter_boards()) == 6
 
 
 # ---------------------------------------------------------------------------
@@ -589,31 +603,25 @@ def test_find_by_platform_variant_empty_platform_returns_none(
 # ---------------------------------------------------------------------------
 
 
-def test_load_replaces_internal_list_from_catalog_loader(
+def test_load_replaces_internal_list_from_index_loader(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``load()`` swaps the internal list for what ``load_board_catalog`` returns.
+    """``load()`` swaps the internal list for what ``load_board_index`` returns.
 
     Patches the loader so the test doesn't depend on the on-disk
-    YAML (covered separately by
-    ``script/validate_definitions.py``). Pins the controller-loader
-    contract: ``BoardCatalog._boards`` becomes ``list(catalog.boards)``
-    after ``load()``.
+    artefacts. Pins the controller-loader contract: ``_boards``
+    becomes the slim list and ``_known_ids`` is rebuilt to match
+    so the lazy body store's ``is_known`` gate stays accurate.
     """
     fake_boards = [_board(board_id="from-loader", platform=Platform.ESP32)]
 
-    class _FakeResponse:
-        boards = fake_boards
-
-    def _fake_load() -> _FakeResponse:
-        return _FakeResponse()
-
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.boards.load_board_catalog",
-        _fake_load,
+        "esphome_device_builder.controllers.boards.load_board_index",
+        lambda: fake_boards,
     )
 
     cat = BoardCatalog()
     assert cat._boards == []
     cat.load()
     assert cat._boards == fake_boards
+    assert cat._known_ids == frozenset({"from-loader"})

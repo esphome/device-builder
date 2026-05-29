@@ -58,6 +58,10 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         self._db = device_builder
         self.state = FirmwareState()
         self._runner_task: asyncio.Task | None = None
+        # Serializes ``persist_jobs`` so a slow executor write can't be
+        # overtaken by a newer one (which would let a stale snapshot
+        # overwrite fresher state on disk).
+        self._persist_lock = asyncio.Lock()
 
     @property
     def bus(self) -> EventBus:

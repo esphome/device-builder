@@ -263,6 +263,39 @@ async def test_compile_exit_zero_with_error_pattern_marks_failed(
 
 
 @pytest.mark.asyncio
+async def test_compile_platformio_no_module_named_pip_shrug_is_not_failure(
+    firmware_controller_factory: FirmwareControllerFactory, tmp_path: Path
+) -> None:
+    """PlatformIO ``python: No module named pip`` lines on an exit-0 build stay COMPLETED."""
+    controller = firmware_controller_factory(with_queue=True)
+    _wire_real_queue(controller)
+    _fake_esphome(
+        controller,
+        "import sys\n"
+        "print('[nanopb] Installing Protocol Buffers dependencies')\n"
+        "print('/root/.platformio/penv/bin/python: No module named pip')\n"
+        "print('[nanopb] Installing gRPC dependencies')\n"
+        "print('/root/.platformio/penv/bin/python: No module named pip')\n"
+        "print('[nanopb] No generation needed.')\n"
+        "print('=========== [SUCCESS] Took 260.63 seconds ===========')\n"
+        "print('INFO Successfully compiled program.')\n"
+        "print('INFO OTA successful')\n"
+        "print('INFO Successfully uploaded program.')\n"
+        "sys.exit(0)\n",
+    )
+    _seed_yaml(tmp_path)
+
+    job = await controller.compile(configuration="kitchen.yaml")
+    captured = await _run_until_terminal(controller)
+
+    assert job.status == JobStatus.COMPLETED
+    assert job.exit_code == 0
+    assert job.error is None
+    assert captured["job_completed"]
+    assert captured["job_failed"] == []
+
+
+@pytest.mark.asyncio
 async def test_compile_no_module_named_esphome_renders_actionable_hint(
     firmware_controller_factory: FirmwareControllerFactory, tmp_path: Path
 ) -> None:

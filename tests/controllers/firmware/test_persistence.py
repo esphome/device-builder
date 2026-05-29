@@ -58,6 +58,7 @@ from typing import Any
 import pytest
 
 from esphome_device_builder.controllers.firmware import FirmwareController
+from esphome_device_builder.controllers.firmware.persistence import read_job_output
 from esphome_device_builder.models import FirmwareJob, JobStatus
 from tests.controllers.firmware.conftest import FirmwareControllerFactory
 
@@ -312,8 +313,11 @@ async def test_resumed_running_job_completes_on_next_run(
     assert final[queued.job_id].exit_code == 0
     # The pre-crash log + recovery marker survived the rebuild
     # (the fake ``_execute_job`` doesn't append, but ``reset``
-    # added the marker on load).
-    assert any("dashboard restarted mid-build" in line for line in final[queued.job_id].output)
+    # added the marker on load). A terminal job's output now lives
+    # in its sidecar — RAM is cleared on the terminal flush.
+    assert final[queued.job_id].output == []
+    recovered = await asyncio.to_thread(read_job_output, queued.job_id)
+    assert any("dashboard restarted mid-build" in line for line in recovered)
 
 
 @pytest.mark.asyncio

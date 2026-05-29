@@ -31,8 +31,10 @@ import pytest
 
 from esphome_device_builder.helpers.yaml import (
     YamlUpsertNotSupportedError,
+    _mapping_body_to_list_item,
     _safe_yaml_scalar,
     _splice_into_domain_block,
+    _splice_into_multi_conf_block,
     _strip_yaml_quotes,
     generate_api_encryption_key,
     generate_component_yaml,
@@ -56,6 +58,7 @@ def _component(
     component_id: str,
     category: ComponentCategory,
     name: str = "test",
+    multi_conf: bool = False,
 ) -> ComponentCatalogEntry:
     """Minimal ComponentCatalogEntry — fields needed by yaml helpers only.
 
@@ -69,6 +72,7 @@ def _component(
         name=name,
         description="",
         category=category,
+        multi_conf=multi_conf,
     )
 
 
@@ -965,6 +969,129 @@ def test_merge_component_yaml_splices_other_platform_categories(
     assert "- platform: gpio" in result
 
 
+_RTTTL_MAPPING = "rtttl:\n  id: rtttl_1\n  output: buzz\n"
+_RTTTL_LIST = "rtttl:\n  - id: rtttl_1\n    output: buzz\n  - id: rtttl_2\n    output: buzz\n"
+
+
+@pytest.mark.parametrize(
+    ("existing", "new_id", "expected_ids", "expected_suffix"),
+    [
+        pytest.param(
+            "esphome:\n  name: kitchen\n",
+            "rtttl_1",
+            ["rtttl_1"],
+            "rtttl:\n  id: rtttl_1\n  output: buzz\n",
+            id="first_add_emits_mapping",
+        ),
+        pytest.param(
+            f"esphome:\n  name: kitchen\n\n{_RTTTL_MAPPING}",
+            "rtttl_2",
+            ["rtttl_1", "rtttl_2"],
+            None,
+            id="second_add_converts_mapping_to_list",
+        ),
+        pytest.param(
+            f"esphome:\n  name: kitchen\n\n{_RTTTL_LIST}",
+            "rtttl_3",
+            ["rtttl_1", "rtttl_2", "rtttl_3"],
+            None,
+            id="third_add_splices_into_list",
+        ),
+        pytest.param(
+            f"esphome:\n  name: kitchen\n\n{_RTTTL_MAPPING}\nlogger:\n  level: DEBUG\n",
+            "rtttl_2",
+            ["rtttl_1", "rtttl_2"],
+            "logger:\n  level: DEBUG\n",
+            id="trailing_block_survives_conversion",
+        ),
+    ],
+)
+def test_merge_component_yaml_multi_conf(
+    existing: str,
+    new_id: str,
+    expected_ids: list[str],
+    expected_suffix: str | None,
+) -> None:
+    """Repeated adds of a ``multi_conf`` component splice under one block."""
+    component = _component(component_id="rtttl", category=ComponentCategory.MISC, multi_conf=True)
+    result = merge_component_yaml(existing, component, {"id": new_id, "output": "buzz"})
+
+    assert result.count("rtttl:\n") == 1
+    positions = [result.index(stem) for stem in expected_ids]
+    assert positions == sorted(positions)
+    if len(expected_ids) > 1:
+        for stem in expected_ids:
+            assert f"- id: {stem}\n" in result
+    if expected_suffix is not None:
+        assert expected_suffix in result
+
+
+def test_merge_component_yaml_singleton_without_multi_conf_falls_through() -> None:
+    """A ``multi_conf=False`` non-platform component skips the splice."""
+    component = _component(component_id="wifi", category=ComponentCategory.MISC, multi_conf=False)
+    result = merge_component_yaml(
+        "esphome:\n  name: kitchen\n\nwifi:\n  ssid: other\n",
+        component,
+        {"ssid": "home"},
+    )
+
+    assert result.count("wifi:\n") == 2
+
+
+def test_splice_into_multi_conf_block_rejects_mismatched_header() -> None:
+    """A *block* whose header doesn't match ``comp_id`` returns ``None``."""
+    existing = "rtttl:\n  id: rtttl_1\n  output: buzz\n"
+    block = "wifi:\n  ssid: home\n"
+    assert _splice_into_multi_conf_block(existing, "rtttl", block) is None
+
+
+def test_normalize_multi_conf_block_skips_comments_above_list_form() -> None:
+    """A leading ``#`` comment above an existing ``- `` item doesn't trigger a rewrite."""
+    component = _component(component_id="rtttl", category=ComponentCategory.MISC, multi_conf=True)
+    existing = "rtttl:\n  # buzzers for the kitchen\n  - id: rtttl_1\n    output: buzz\n"
+    result = merge_component_yaml(existing, component, {"id": "rtttl_2", "output": "buzz"})
+    assert "  # buzzers for the kitchen" in result
+    assert result.count("rtttl:\n") == 1
+    assert "  - id: rtttl_1" in result
+    assert "  - id: rtttl_2" in result
+
+
+def test_normalize_multi_conf_block_treats_bare_dash_as_list_form() -> None:
+    """A body whose head line is a bare ``-`` is already list-form."""
+    component = _component(component_id="rtttl", category=ComponentCategory.MISC, multi_conf=True)
+    existing = "rtttl:\n  -\n    id: rtttl_1\n    output: buzz\n"
+    result = merge_component_yaml(existing, component, {"id": "rtttl_2", "output": "buzz"})
+    assert result.count("rtttl:\n") == 1
+    assert "  -\n    id: rtttl_1" in result
+    assert "  - id: rtttl_2\n" in result
+
+
+def test_merge_component_yaml_multi_conf_preserves_leading_comment() -> None:
+    """A leading ``#`` comment in the mapping body keeps its key as the list head."""
+    component = _component(component_id="rtttl", category=ComponentCategory.MISC, multi_conf=True)
+    existing = "rtttl:\n  # buzzer notes\n  id: rtttl_1\n  output: buzz\n"
+    result = merge_component_yaml(existing, component, {"id": "rtttl_2", "output": "buzz"})
+
+    assert "# buzzer notes" in result
+    assert "  - # " not in result
+    assert "  - id: rtttl_1\n" in result
+    assert "  - id: rtttl_2\n" in result
+
+
+def test_mapping_body_to_list_item_preserves_blank_lines() -> None:
+    """Blank lines inside the mapping body survive the list conversion.
+
+    Vertical spacing the user put between fields shouldn't collapse
+    when the block flips to list form.
+    """
+    body = ["  id: rtttl_1", "", "  output: buzz"]
+    assert _mapping_body_to_list_item(body) == [
+        "  - id: rtttl_1",
+        "",
+        "    output: buzz",
+    ]
+
+
 # ---------------------------------------------------------------------------
 # generate_component_yaml — value formatting
 # ---------------------------------------------------------------------------
@@ -1056,7 +1183,7 @@ def test_generate_component_yaml_emits_plain_string_unquoted() -> None:
 
 
 @pytest.mark.parametrize("value", [42, 3.14])
-def test_generate_component_yaml_emits_numeric_value_via_str(value: int | float) -> None:
+def test_generate_component_yaml_emits_numeric_value_via_str(value: float) -> None:
     """Numbers render via ``str()`` — ints stay ints, floats keep the dot.
 
     A regression that quoted numbers (``priority: "0"``) changes the

@@ -1,0 +1,1 @@
+{"id":"dfplayer.play_previous","name":"Dfplayer → Play Previous","description":"Plays the previously played track.","docs_url":"https://esphome.io/automations/actions","domain":"dfplayer","config_entries":[{"key":"id","type":"id","label":"ID","advanced":true}],"is_control_flow":false,"has_else_branch":false,"accepts_action_list":[]}

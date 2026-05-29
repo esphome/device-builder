@@ -1,0 +1,1 @@
+{"id":"sensor.sendspin","name":"Sendspin Sensor","description":"Sendspin metadata sensors in ESPHome.","category":"sensor","docs_url":"https://esphome.io/components/sensor/sendspin","image_url":"https://esphome.io/images/music.svg","dependencies":["sendspin"]}

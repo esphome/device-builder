@@ -1,0 +1,1 @@
+{"id":"sensor.vbus","name":"VBus Component","description":"None","category":"sensor","docs_url":"https://esphome.io/components/vbus","image_url":"https://esphome.io/images/resol_deltasol_bs_plus.jpg","multi_conf":true}

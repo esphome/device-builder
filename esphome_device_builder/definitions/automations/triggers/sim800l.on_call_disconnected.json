@@ -1,0 +1,1 @@
+{"id":"sim800l.on_call_disconnected","name":"Sim800L → On Call Disconnected","description":"An action to be performed when a call is disconnected.","docs_url":"https://esphome.io/components/sim800l#configuration-variables","applies_to":["sim800l"],"is_device_level":false,"config_entries":[]}

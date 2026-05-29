@@ -426,7 +426,7 @@ class DeviceBuilder:
             len(self.command_handlers),
         )
 
-    async def stop(self) -> None:
+    async def stop(self) -> None:  # noqa: C901
         """Shut down the application."""
         if self._bg_task:
             self._bg_task.cancel()
@@ -597,8 +597,9 @@ class DeviceBuilder:
             if self.remote_build_offloader is not None:
                 # Offloader-side seeds: pairings, mDNS-discovered
                 # hosts, pair alerts, per-peer queue status,
-                # in-flight remote jobs, and the master
-                # remote_builds_enabled toggle. Each is a sync
+                # in-flight remote jobs, and the offloader-wide
+                # toggle scalars (remote_builds_enabled, the
+                # major-version-mismatch gate). Each is a sync
                 # read from the controller's in-RAM dict; live
                 # updates flow through subscribe_events.
                 initial["pairings"] = [
@@ -617,9 +618,7 @@ class DeviceBuilder:
                     dict(entry)
                     for entry in self.remote_build_offloader.offloader_remote_jobs_snapshot()
                 ]
-                initial["remote_builds_enabled"] = (
-                    self.remote_build_offloader.remote_builds_enabled_snapshot()
-                )
+                initial |= self.remote_build_offloader.offloader_settings_snapshot()
             if self.remote_build_receiver is not None:
                 # Receiver-side peers (PENDING + APPROVED) for the
                 # Pairing-requests inbox + paired list. Live
@@ -1193,21 +1192,24 @@ class DeviceBuilder:
                 # add-on log so the operator sees exactly what to
                 # change.
                 msg = (
-                    "Refusing to start: --ha-addon is set, "
-                    "DISABLE_HA_AUTHENTICATION forces public-port auth, "
-                    "and USERNAME/PASSWORD is not configured. Set "
-                    "USERNAME and PASSWORD via the add-on options, or "
-                    "unset DISABLE_HA_AUTHENTICATION to use ingress-only "
-                    "mode."
+                    "Refusing to start: DISABLE_HA_AUTHENTICATION "
+                    "forces public-port auth, but the HA add-on is "
+                    "ingress-only by design and doesn't expose "
+                    "USERNAME/PASSWORD options. Turn "
+                    '"Disable external authentication" off to use '
+                    "ingress-only mode, or run the standalone PyPI "
+                    "install for password-gated LAN access. See "
+                    'README "Home Assistant add-on".'
                 )
                 raise RuntimeError(msg)
             _LOGGER.warning(
-                "Public port %d NOT bound: --ha-addon is set but "
-                "USERNAME/PASSWORD is not configured. Running "
-                "ingress-only — the dashboard works through the Home "
-                "Assistant UI. To enable LAN access on port %d, set "
-                "USERNAME and PASSWORD via the add-on options.",
-                settings.port,
+                "Public port %d NOT bound: the HA add-on is "
+                "ingress-only by design and doesn't expose "
+                "USERNAME/PASSWORD options. The dashboard is "
+                "reachable through the Home Assistant UI. For "
+                "password-gated LAN access, run the standalone PyPI "
+                'install on the same network. See README "Home '
+                'Assistant add-on".',
                 settings.port,
             )
             app = self.create_app(trusted=True, with_ingress_site=False)
@@ -1244,7 +1246,7 @@ class DeviceBuilder:
             return None
 
     @staticmethod
-    def _register_frontend(
+    def _register_frontend(  # noqa: C901
         app: web.Application, frontend_dir: Path, *, dev_mode: bool = False
     ) -> None:
         """Register routes for the built frontend.
@@ -1355,7 +1357,7 @@ class DeviceBuilder:
             # CSS / etc. on a hard-reload of a deep URL — see
             # ``_ASSET_EXTENSIONS`` for the rationale.
             if tail and Path(tail).suffix.lower() in _ASSET_EXTENSIONS:
-                raise web.HTTPNotFound()
+                raise web.HTTPNotFound
             return _render_shell(request, tail=tail)
 
         app.router.add_static("/assets", assets_dir)

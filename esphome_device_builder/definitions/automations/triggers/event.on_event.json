@@ -1,0 +1,1 @@
+{"id":"event.on_event","name":"Event → On Event","description":"An automation to perform when an event is triggered.","docs_url":"https://esphome.io/components/event#example-event-configuration","applies_to":["event"],"is_device_level":false,"config_entries":[]}

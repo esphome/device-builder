@@ -17,6 +17,11 @@ import pytest
 from esphome_device_builder.controllers.automations import AutomationsController, catalog
 from esphome_device_builder.helpers.api import CommandError
 
+# Co-locate every automations-catalog test on one xdist worker so
+# the slim index (cached after first :func:`catalog._load_index`)
+# isn't repeatedly re-read across workers.
+pytestmark = pytest.mark.xdist_group("automations")
+
 
 def _make_controller(config_dir: Path) -> AutomationsController:
     """Build a controller wired to a tmp config dir.
@@ -72,6 +77,43 @@ async def test_get_light_effects_returns_full_catalog() -> None:
     ids = {e["id"] for e in result}
     for required in ("flicker", "pulse"):
         assert required in ids, f"{required} missing from light effects catalog"
+
+
+async def test_get_bodies_endpoint_returns_full_bodies() -> None:
+    """``automations/get_bodies`` hydrates refs to keyed full bodies."""
+    controller = _make_controller(Path("/unused"))
+    result = await controller.get_bodies(
+        refs=[
+            {"type": "triggers", "id": "on_boot"},
+            {"type": "actions", "id": "delay"},
+        ]
+    )
+    assert "triggers/on_boot" in result
+    assert "actions/delay" in result
+    assert "config_entries" in result["actions/delay"]
+
+
+async def test_get_filters_returns_full_catalog() -> None:
+    """``automations/get_filters`` returns every sensor / binary_sensor / text_sensor filter."""
+    controller = _make_controller(Path("/unused"))
+    result = await controller.get_filters()
+    by_id = {f["id"]: f for f in result}
+    # Domain-specific filters land with applies_to from their origin.
+    assert by_id["delta"]["applies_to"] == ["sensor"], (
+        "delta is sensor-only; applies_to should not bleed across domains"
+    )
+    assert by_id["delayed_on"]["applies_to"] == ["binary_sensor"]
+    assert by_id["to_upper"]["applies_to"] == ["text_sensor"]
+    # Multi-domain filter ``lambda`` lives in all three registries; the
+    # dedup pass should union ``applies_to`` and strip the
+    # ``"<Domain> → "`` prefix from the name so the picker reads the
+    # bare id regardless of editing context.
+    assert sorted(by_id["lambda"]["applies_to"]) == [
+        "binary_sensor",
+        "sensor",
+        "text_sensor",
+    ]
+    assert "→" not in by_id["lambda"]["name"], "multi-domain filters must drop the Domain → prefix"
 
 
 # ---------------------------------------------------------------------------

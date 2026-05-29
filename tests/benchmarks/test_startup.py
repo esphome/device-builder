@@ -2,14 +2,14 @@
 
 ``DeviceBuilder.start()`` blocks on two synchronous catalog loads
 before the first WS frame can be served: ``BoardCatalog.load()``
-deserializes ``definitions/boards.json`` via ``orjson`` +
-mashumaro; ``ComponentCatalog.load()`` decodes the ~20 MB
-``definitions/components.json`` and instantiates ~900
-``ComponentCatalogEntry`` objects. Together they account for the
-bulk of the wall-time gap a user feels comparing the new
-dashboard's startup against the legacy Tornado one — and on
-constrained hardware (HA Green) the absolute number runs into
-tens of seconds.
+decodes the slim ``definitions/boards.index.json`` and instantiates
+~490 ``BoardCatalogIndex`` objects (board bodies load lazily on
+detail-view via ``LazyBodyStore``); ``ComponentCatalog.load()``
+decodes ``definitions/components.index.json`` and instantiates
+~900 ``ComponentCatalogIndexEntry`` objects. Component / board
+bodies load lazily; this bench still measures the per-entry cost
+via ``ComponentCatalogEntry.from_dict`` /
+``BoardCatalogEntry.from_dict`` against one body file each.
 
 The per-board YAML parse benchmark covers ``script/sync_boards.py``
 rather than the runtime path — a regression in the libyaml loader
@@ -29,7 +29,6 @@ from pathlib import Path
 import yaml
 from pytest_codspeed import BenchmarkFixture
 
-from esphome_device_builder.controllers.components import _load_component
 from esphome_device_builder.definitions import (
     _load_esphome_config,
     _load_featured_component,
@@ -39,15 +38,25 @@ from esphome_device_builder.definitions import (
 )
 from esphome_device_builder.helpers.json import loads
 from esphome_device_builder.helpers.yaml import FastestSafeLoader
-from esphome_device_builder.models import BoardCatalogResponse
+from esphome_device_builder.models import (
+    BoardCatalogEntry,
+    BoardCatalogIndex,
+    ComponentCatalogEntry,
+)
 
 _DEFINITIONS = Path(__file__).resolve().parents[2] / "esphome_device_builder" / "definitions"
 
-# Pre-decoded JSON dict for the boards-load benchmark. Reading the
+# Pre-decoded JSON dicts for the boards-load benchmarks. Reading the
 # bytes once at collection time keeps disk I/O out of the
 # per-iteration sample, matching the pattern used for the manifest
 # bytes below.
-_BOARDS_JSON_DICT = loads((_DEFINITIONS / "boards.json").read_bytes())
+_BOARDS_INDEX_DICT = loads((_DEFINITIONS / "boards.index.json").read_bytes())
+# One representative board body — picked for its non-trivial pin
+# table + featured components so the per-body cost the lazy loader
+# repeats on every detail-view open is exercised.
+_BOARD_BODY_DICT = loads(
+    (_DEFINITIONS / "board_bodies" / "unexpectedmaker_feathers3d.json").read_bytes()
+)
 
 # A real board manifest picked to exercise *every* ``_load_*``
 # helper the per-board path runs in production: hardware,
@@ -61,16 +70,11 @@ _BOARD_MANIFEST_BYTES = (
 # A representative component dict from the live catalog. Picked
 # for its non-trivial nesting — ``sensor.dht`` carries a handful
 # of nested ``config_entries`` plus units / options, so the
-# ``_load_config_entry`` recursion fires. Pre-extracting one
-# entry from the full catalog at collection time means the
-# benchmark measures the per-entry dataclass-build cost the
-# production load multiplies ~900x — not the one-shot orjson
-# decode of the 20 MB blob, which doesn't realistically regress
-# on its own and would dominate the callgrind sample.
-_COMPONENTS_JSON_BYTES = (_DEFINITIONS / "components.json").read_bytes()
-_SAMPLE_COMPONENT = next(
-    c for c in loads(_COMPONENTS_JSON_BYTES)["components"] if c.get("id") == "sensor.dht"
-)
+# ``_load_config_entry`` recursion fires. Read directly from the
+# per-id body file so the benchmark measures the per-entry
+# dataclass-build cost the lazy-body path repeats on every
+# detail-view open.
+_SAMPLE_COMPONENT = loads((_DEFINITIONS / "components" / "sensor.dht.json").read_bytes())
 
 
 def test_parse_one_board_manifest(benchmark: BenchmarkFixture) -> None:
@@ -118,47 +122,54 @@ def test_parse_one_board_manifest(benchmark: BenchmarkFixture) -> None:
 
 
 def test_load_one_component_entry(benchmark: BenchmarkFixture) -> None:
-    """Pin the per-component dataclass-build cost — repeated ~900x by ``ComponentCatalog.load()``.
+    """Pin the per-component dataclass-build cost — paid on every detail-view open.
 
-    The 20 MB ``components.json`` decode is a single ``orjson``
-    call that doesn't realistically regress on its own; the
-    per-entry walk that builds a ``ComponentCatalogEntry`` (and
-    recursively builds its ``ConfigEntry`` children) is the work
-    that compounds across the catalog. ``sensor.dht`` is picked
-    as a representative entry — non-trivial nested
-    ``config_entries`` exercise the ``_load_config_entry``
-    recursion that's the bulk of the per-component cost.
+    The catalog ships ~900 per-id body files behind a slim
+    ``components.index.json``; the body files hydrate lazily on
+    detail view through ``ComponentCatalog.get_body``. This bench
+    measures the per-entry walk that builds a
+    ``ComponentCatalogEntry`` (and recursively builds its
+    ``ConfigEntry`` children) — the work that runs on every cache
+    miss. ``sensor.dht`` is picked as a representative entry —
+    non-trivial nested ``config_entries`` exercise the
+    ``_load_config_entry`` recursion that's the bulk of the
+    per-component cost.
     """
     # Validate the build path ONCE outside the loop so a refactor
-    # that stubs ``_load_config_entry`` to ``return None`` fails
-    # the test. Asserting inside @benchmark would be a 30%+
-    # overhead on a 500ns per-iteration cost — the loop body
-    # stays clean.
-    _smoke = _load_component(_SAMPLE_COMPONENT)
+    # that breaks the mashumaro builder fails this test. Asserting
+    # inside @benchmark would inflate per-iteration cost.
+    _smoke = ComponentCatalogEntry.from_dict(_SAMPLE_COMPONENT)
     assert _smoke.id == "sensor.dht"
     assert len(_smoke.config_entries) == 7
 
     @benchmark
     def run() -> None:
-        _load_component(_SAMPLE_COMPONENT)
+        ComponentCatalogEntry.from_dict(_SAMPLE_COMPONENT)
 
 
-def test_load_board_catalog_json(benchmark: BenchmarkFixture) -> None:
-    """Pin ``BoardCatalog.load()`` cost — one mashumaro ``from_dict`` walk.
-
-    Measures the ``BoardCatalogResponse.from_dict`` recursion that
-    instantiates every ``BoardCatalogEntry`` and its nested
-    dataclasses (pins, hardware, featured components, presets) —
-    the bulk of dashboard startup catalog work. The ``orjson.loads``
-    decode is paid once at module-collection time and excluded from
-    the sample.
-    """
-    # Deserialize once outside the loop so a refactor that broke
-    # ``from_dict`` surfaces here rather than as a fast-but-empty
-    # catalog reading as a CodSpeed "speedup".
-    smoke = BoardCatalogResponse.from_dict(_BOARDS_JSON_DICT)
-    assert len(smoke.boards) > 100  # actual count is 492; floor lets test survive growth
+def test_load_board_index_json(benchmark: BenchmarkFixture) -> None:
+    """Pin ``BoardCatalog.load()`` cost — only the slim index hydrates eagerly."""
+    # The slim index is what dashboard startup actually pays for now;
+    # the per-board bodies are lazy. A refactor that re-inlined the
+    # body fields into the index would show up here as a large
+    # regression rather than a silent disk + RAM bloat.
+    smoke = [BoardCatalogIndex.from_dict(b) for b in _BOARDS_INDEX_DICT["boards"]]
+    assert len(smoke) > 100
 
     @benchmark
     def run() -> None:
-        BoardCatalogResponse.from_dict(_BOARDS_JSON_DICT)
+        [BoardCatalogIndex.from_dict(b) for b in _BOARDS_INDEX_DICT["boards"]]
+
+
+def test_load_one_board_body_json(benchmark: BenchmarkFixture) -> None:
+    """Pin per-body cost — what the LazyBodyStore pays on a detail-view open."""
+    # One ``from_dict`` call covers the full BoardCatalogEntry tree
+    # (hardware + pins + featured_components + featured_bundles +
+    # default_components). Pins the cost the dashboard pays on every
+    # cold board detail fetch.
+    smoke = BoardCatalogEntry.from_dict(_BOARD_BODY_DICT)
+    assert smoke.id == "unexpectedmaker_feathers3d"
+
+    @benchmark
+    def run() -> None:
+        BoardCatalogEntry.from_dict(_BOARD_BODY_DICT)

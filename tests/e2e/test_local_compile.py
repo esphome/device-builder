@@ -113,7 +113,22 @@ async def test_local_compile_round_trip_over_ws(
         assert completed["data"]["job"]["job_id"] == job_id
         assert completed["data"]["job"]["status"] == JobStatus.COMPLETED.value
 
+        # Read the finished job's log back over the wire the way the
+        # dashboard does: follow_job replays the stored output then
+        # ends. Deterministic regardless of whether the post-completion
+        # flush to the sidecar has landed yet (it replays RAM until the
+        # flush clears it, the sidecar after).
+        await _send_command(ws, "firmware/follow_job", "follow-1", job_id=job_id)
+        output_lines: list[str] = []
+        while True:
+            frame = await _recv_until(ws, predicate=lambda f: f.get("message_id") == "follow-1")
+            if frame.get("event") == "output":
+                output_lines.append(frame["data"])
+            elif frame.get("event") == "result":
+                assert frame["data"]["status"] == JobStatus.COMPLETED.value
+                break
+
     job = db.firmware.state.jobs[job_id]
     assert job.status is JobStatus.COMPLETED
     assert job.exit_code == 0
-    assert any("Compile finished" in line for line in job.output)
+    assert any("Compile finished" in line for line in output_lines)

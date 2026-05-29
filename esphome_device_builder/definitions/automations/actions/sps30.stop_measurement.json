@@ -1,0 +1,1 @@
+{"id":"sps30.stop_measurement","name":"Sps30 → Stop Measurement","description":"This [action](https://esphome.io/automations/actions#all-actions) manually puts the sensor into idle mode.","docs_url":"https://esphome.io/automations/actions","domain":"sps30","config_entries":[],"is_control_flow":false,"has_else_branch":false,"accepts_action_list":[]}

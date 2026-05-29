@@ -13,15 +13,21 @@ filter + two-tier idle / busy pick.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
+from ..models.api import ErrorCode
 from ..models.remote_build import (
     PeerQueueStatusSnapshotEntry,
     PeerStatus,
     StoredPairing,
 )
+from .api import CommandError
+from .version_compat import VersionMatchPolicy, version_satisfies_policy
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class BuildPath(StrEnum):
@@ -53,6 +59,10 @@ class BuildSchedulerInputs:
     pairings: Mapping[str, StoredPairing]
     open_peer_links: frozenset[str]
     peer_queue_status: Mapping[str, PeerQueueStatusSnapshotEntry]
+    # Passed in rather than imported so the helper stays pure;
+    # empty string disables the gate.
+    offloader_esphome_version: str = ""
+    version_match_policy: VersionMatchPolicy = VersionMatchPolicy.ANY
 
 
 @dataclass(frozen=True)
@@ -82,50 +92,106 @@ class BuildPathDecision:
 
 
 def pick_build_path(inputs: BuildSchedulerInputs) -> BuildPathDecision:
-    """Decide whether a firmware job runs locally or on a paired receiver.
+    """Decide whether a firmware job runs LOCAL or on a paired receiver.
 
-    Eligible pairings are APPROVED + per-pairing-enabled +
-    have an open peer-link session. The pick is two-tier:
-
-    1. First pass picks the oldest idle eligible pairing so
-       concurrent installs fan out across idle remotes.
-    2. Second pass picks the oldest eligible pairing
-       regardless of idle state — the receiver queues the
-       dispatch behind its current build rather than the
-       scheduler silently falling back to LOCAL (which would
-       split the install across two compile contexts and
-       confuse the user).
-
-    Sort is on ``(paired_at, pin_sha256)`` so the chosen
-    receiver is deterministic regardless of how the caller's
-    :class:`Mapping` orders keys.
-
-    Falls back to LOCAL only when no candidate qualifies, or
-    when ``remote_builds_enabled`` is ``False`` (the master
-    Settings toggle short-circuits before the walk).
-
-    The status gate is ``is PeerStatus.APPROVED`` — any future
-    enum member is silent-fallback-LOCAL until the scheduler
-    is explicitly taught about it.
+    ``EXACT_REQUIRED`` raises ``NO_COMPATIBLE_PEER`` whenever any
+    APPROVED + enabled pairing exists and none make it past the
+    filter, for any reason — issue #985 was about silent
+    LOCAL-fallback, and gating the hard-fail on a single filter
+    would leak the same shape through the others.
+    ``remote_builds_enabled=False`` wins over the policy (the
+    master toggle is "I don't want remote builds"; the policy is
+    "how to filter when I do") so EXACT_REQUIRED never raises in
+    that state.
     """
     if not inputs.remote_builds_enabled:
         return BuildPathDecision.local()
+    result = _eligible_pairings(inputs)
+    for pin_sha256, _pairing in result.eligible:
+        snapshot = inputs.peer_queue_status.get(pin_sha256)
+        if snapshot is not None and snapshot["idle"]:
+            return BuildPathDecision.remote(pin_sha256)
+    if result.eligible:
+        pin_sha256, _pairing = result.eligible[0]
+        return BuildPathDecision.remote(pin_sha256)
+    if result.intentional > 0 and inputs.version_match_policy is VersionMatchPolicy.EXACT_REQUIRED:
+        # English-only diagnostic for logs / e2e tests; the
+        # frontend keys its localised toast on
+        # ``ErrorCode.NO_COMPATIBLE_PEER`` and ignores this string.
+        # The per-reason breakdown is here for log analysis when
+        # the operator's reproducing case isn't the version-skew
+        # one (e.g. a transient peer-link drop on Home Assistant
+        # Green that surfaces the same code).
+        msg = (
+            f"version policy 'exact_required' with {result.intentional} intended "
+            f"peer(s) but none eligible "
+            f"({result.version_filtered} on version mismatch, "
+            f"{result.disconnected} on closed peer-link; "
+            f"offloader={inputs.offloader_esphome_version!r}); "
+            f"refusing to fall back to LOCAL"
+        )
+        raise CommandError(ErrorCode.NO_COMPATIBLE_PEER, msg)
+    return BuildPathDecision.local()
+
+
+@dataclass(frozen=True)
+class _FilterResult:
+    """Outcome of the per-peer eligibility filter.
+
+    ``intentional`` counts every APPROVED + enabled pairing — including
+    ineligible ones — since that's what drives the ``EXACT_REQUIRED``
+    hard-fail. The per-reason counts (``version_filtered``,
+    ``disconnected``) are diagnostic only. ``eligible`` is a
+    ``tuple`` rather than ``list`` so ``frozen=True`` actually
+    freezes the held membership.
+    """
+
+    eligible: tuple[tuple[str, StoredPairing], ...]
+    intentional: int
+    version_filtered: int
+    disconnected: int
+
+
+def _eligible_pairings(inputs: BuildSchedulerInputs) -> _FilterResult:
+    """Walk the pairings dict applying the policy filter."""
     ordered = sorted(
         inputs.pairings.items(),
         key=lambda item: (item[1].paired_at, item[0]),
     )
-    eligible: list[tuple[str, StoredPairing]] = [
-        (pin_sha256, pairing)
-        for pin_sha256, pairing in ordered
-        if pairing.status is PeerStatus.APPROVED
-        and pairing.enabled
-        and pin_sha256 in inputs.open_peer_links
-    ]
-    for pin_sha256, _pairing in eligible:
-        snapshot = inputs.peer_queue_status.get(pin_sha256)
-        if snapshot is not None and snapshot["idle"]:
-            return BuildPathDecision.remote(pin_sha256)
-    if eligible:
-        pin_sha256, _pairing = eligible[0]
-        return BuildPathDecision.remote(pin_sha256)
-    return BuildPathDecision.local()
+    policy = inputs.version_match_policy
+    eligible: list[tuple[str, StoredPairing]] = []
+    intentional = 0
+    version_filtered = 0
+    disconnected = 0
+    for pin_sha256, pairing in ordered:
+        if pairing.status is not PeerStatus.APPROVED or not pairing.enabled:
+            continue
+        intentional += 1
+        if pin_sha256 not in inputs.open_peer_links:
+            disconnected += 1
+            continue
+        if not version_satisfies_policy(
+            inputs.offloader_esphome_version, pairing.esphome_version, policy
+        ):
+            _LOGGER.debug(
+                "pick_build_path: filtered %s on version policy %s (peer=%s, offloader=%s)",
+                pin_sha256,
+                policy.value,
+                pairing.esphome_version,
+                inputs.offloader_esphome_version,
+            )
+            version_filtered += 1
+            continue
+        eligible.append((pin_sha256, pairing))
+    if not eligible and version_filtered and policy is not VersionMatchPolicy.EXACT_REQUIRED:
+        _LOGGER.info(
+            "pick_build_path: version policy %s filtered %d peer(s); falling back to LOCAL",
+            policy.value,
+            version_filtered,
+        )
+    return _FilterResult(
+        eligible=tuple(eligible),
+        intentional=intentional,
+        version_filtered=version_filtered,
+        disconnected=disconnected,
+    )

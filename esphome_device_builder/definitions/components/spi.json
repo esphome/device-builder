@@ -1,0 +1,1 @@
+{"id":"spi","name":"SPI Bus","description":"SPI is a very common high-speed protocol for a lot of devices. The ESPHome SPI component implements only the host controller role, where it controls the bus, and writes or reads data from peripherals attached to the bus.","category":"bus","docs_url":"https://esphome.io/components/spi","image_url":"https://esphome.io/images/spi.svg"}

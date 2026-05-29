@@ -1,0 +1,1 @@
+{"id":"sim800l.on_ussd_received","name":"Sim800L → On Ussd Received","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["sim800l"],"is_device_level":false,"config_entries":[]}

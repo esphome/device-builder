@@ -303,11 +303,20 @@ async def test_get_components_response_categories_filter_featured_by_query(
 # ---------------------------------------------------------------------------
 
 
+async def _apply(
+    catalog: ComponentCatalog, record: Any, user_fields: dict[str, Any]
+) -> dict[str, Any]:
+    """Fetch the record's underlying body and apply presets — test shorthand."""
+    body = await catalog.get_body(record.underlying_id)
+    assert body is not None
+    return _apply_featured_presets(record, user_fields, body)
+
+
 async def test_apply_presets_locked_fills_in(catalog: ComponentCatalog) -> None:
     """Empty user input picks up the locked + default values from the preset."""
     record = catalog.get_featured_record("featured.sonoff-basic.relay")
     assert record is not None
-    out = _apply_featured_presets(record, {})
+    out = await _apply(catalog, record, {})
     assert out["pin"] == 12
     assert out["name"] == "Relay"
 
@@ -319,7 +328,7 @@ async def test_apply_presets_locked_rejects_override(
     record = catalog.get_featured_record("featured.sonoff-basic.relay")
     assert record is not None
     with pytest.raises(ValueError, match="locked"):
-        _apply_featured_presets(record, {"pin": 5})
+        await _apply(catalog, record, {"pin": 5})
 
 
 async def test_apply_presets_locked_accepts_matching_value(
@@ -328,7 +337,7 @@ async def test_apply_presets_locked_accepts_matching_value(
     """Submitting the exact locked value is allowed (idempotent)."""
     record = catalog.get_featured_record("featured.sonoff-basic.relay")
     assert record is not None
-    out = _apply_featured_presets(record, {"pin": 12, "name": "MyRelay"})
+    out = await _apply(catalog, record, {"pin": 12, "name": "MyRelay"})
     assert out["pin"] == 12
     assert out["name"] == "MyRelay"  # plain default is overridable
 
@@ -341,7 +350,7 @@ async def test_apply_presets_suggestion_in_set(catalog: ComponentCatalog) -> Non
     record = deepcopy(catalog.get_featured_record("featured.apollo-esk-1.motion_module"))
     assert record is not None
     record.featured.fields["pin"] = FieldPreset(value=4, suggestions=[4, 5])
-    out = _apply_featured_presets(record, {"pin": 5})
+    out = await _apply(catalog, record, {"pin": 5})
     assert out["pin"] == 5
     assert out["device_class"] == "motion"
 
@@ -353,7 +362,7 @@ async def test_apply_presets_suggestion_rejects_off_list(
     assert record is not None
     record.featured.fields["pin"] = FieldPreset(value=4, suggestions=[4, 5])
     with pytest.raises(ValueError, match="must be one of"):
-        _apply_featured_presets(record, {"pin": 99})
+        await _apply(catalog, record, {"pin": 99})
 
 
 async def test_apply_presets_suggestion_accepts_rich_pin_form(
@@ -371,7 +380,7 @@ async def test_apply_presets_suggestion_accepts_rich_pin_form(
     assert record is not None
     record.featured.fields["pin"] = FieldPreset(value=4, suggestions=[4, 5])
     rich_pin = {"number": 5, "mode": {"input": True}}
-    out = _apply_featured_presets(record, {"pin": rich_pin})
+    out = await _apply(catalog, record, {"pin": rich_pin})
     assert out["pin"] == rich_pin
 
 
@@ -383,7 +392,7 @@ async def test_apply_presets_suggestion_rejects_rich_pin_off_list(
     assert record is not None
     record.featured.fields["pin"] = FieldPreset(value=4, suggestions=[4, 5])
     with pytest.raises(ValueError, match="must be one of"):
-        _apply_featured_presets(record, {"pin": {"number": 99, "mode": {"input": True}}})
+        await _apply(catalog, record, {"pin": {"number": 99, "mode": {"input": True}}})
 
 
 async def test_apply_presets_locked_accepts_rich_pin_form(
@@ -393,7 +402,7 @@ async def test_apply_presets_locked_accepts_rich_pin_form(
     record = catalog.get_featured_record("featured.sonoff-basic.relay")
     assert record is not None
     rich_pin = {"number": 12, "mode": {"output": True}}
-    out = _apply_featured_presets(record, {"pin": rich_pin})
+    out = await _apply(catalog, record, {"pin": rich_pin})
     # Locked wins — the merged value is the manifest's bare GPIO, not the
     # frontend's rich echo (the locked branch always replaces the value).
     assert out["pin"] == 12
@@ -406,7 +415,7 @@ async def test_apply_presets_suggestion_falls_back_to_value(
     record = deepcopy(catalog.get_featured_record("featured.apollo-esk-1.motion_module"))
     assert record is not None
     record.featured.fields["pin"] = FieldPreset(value=4, suggestions=[4, 5])
-    out = _apply_featured_presets(record, {})
+    out = await _apply(catalog, record, {})
     assert out["pin"] == 4
 
 
@@ -414,7 +423,7 @@ async def test_apply_presets_default_overridable(catalog: ComponentCatalog) -> N
     """Plain defaults (no locked/suggestions) are overridable by user input."""
     record = catalog.get_featured_record("featured.apollo-esk-1.aht20")
     assert record is not None
-    out: dict[str, Any] = _apply_featured_presets(record, {"variant": "AHT10"})
+    out: dict[str, Any] = await _apply(catalog, record, {"variant": "AHT10"})
     assert out["variant"] == "AHT10"
 
 
@@ -426,7 +435,7 @@ async def test_apply_presets_locked_without_value_fails_fast(
     assert record is not None
     record.featured.fields["pin"] = FieldPreset(value=None, locked=True)
     with pytest.raises(ValueError, match="locked=true without a value"):
-        _apply_featured_presets(record, {})
+        await _apply(catalog, record, {})
 
 
 async def test_apply_presets_drops_non_manifest_fields(
@@ -443,7 +452,8 @@ async def test_apply_presets_drops_non_manifest_fields(
     """
     record = catalog.get_featured_record("featured.apollo-esk-1.rgb_leds")
     assert record is not None
-    out = _apply_featured_presets(
+    out = await _apply(
+        catalog,
         record,
         {
             # Manifest keys — these stay.
@@ -486,7 +496,8 @@ async def test_apply_presets_keeps_user_overridden_optional_field(
     """
     record = catalog.get_featured_record("featured.apollo-esk-1.rgb_leds")
     assert record is not None
-    out = _apply_featured_presets(
+    out = await _apply(
+        catalog,
         record,
         {
             # Catalog default for ``gamma_correct`` is ``"2.8"`` —
@@ -511,14 +522,14 @@ async def test_apply_presets_strips_numeric_default_echo_across_types(
     """
     Catalog stores numeric defaults as strings; a parsed-scalar echo still matches.
 
-    ``gamma_correct`` is stored in ``components.json`` as the string
+    ``gamma_correct`` is stored in the component catalog as the string
     ``"2.8"``. The frontend submits the parsed float ``2.8`` — the
     stringified compare bridges the two so the unmodified default is
     still recognised as noise.
     """
     record = catalog.get_featured_record("featured.apollo-esk-1.rgb_leds")
     assert record is not None
-    out = _apply_featured_presets(record, {"gamma_correct": 2.8})
+    out = await _apply(catalog, record, {"gamma_correct": 2.8})
     assert "gamma_correct" not in out
 
 
@@ -533,7 +544,7 @@ async def test_apply_presets_keeps_required_field_outside_manifest(
     record = deepcopy(catalog.get_featured_record("featured.apollo-esk-1.rgb_leds"))
     assert record is not None
     record.featured.fields = {"id": FieldPreset(value="rgb_leds")}
-    out = _apply_featured_presets(record, {"pin": 14, "num_leds": 10, "rgb_order": "GRB"})
+    out = await _apply(catalog, record, {"pin": 14, "num_leds": 10, "rgb_order": "GRB"})
     # ``pin``, ``num_leds`` and ``rgb_order`` are schema-required — kept
     # despite being absent from the manifest.
     assert out["pin"] == 14
@@ -710,6 +721,26 @@ async def test_add_component_featured_unknown_id_raises(
         await ctrl.add_component(
             configuration="plug.yaml",
             component_id="featured.no-such-board.x",
+            fields={},
+        )
+
+
+async def test_add_component_featured_missing_body_raises(
+    catalog: ComponentCatalog, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Featured ref whose body file vanished mid-flight surfaces as a clear error.
+
+    Bodies hydrate lazily; if the per-id file is missing on disk while
+    the index still carries the id, ``get_body`` returns ``None``.
+    The add-path raises a typed error instead of crashing on the
+    ``None`` shape.
+    """
+    ctrl = _make_controller(catalog, tmp_path)
+    monkeypatch.setattr(catalog, "get_body", AsyncMock(return_value=None))
+    with pytest.raises(ValueError, match="Unknown component body for featured ref"):
+        await ctrl.add_component(
+            configuration="plug.yaml",
+            component_id="featured.sonoff-basic.relay",
             fields={},
         )
 

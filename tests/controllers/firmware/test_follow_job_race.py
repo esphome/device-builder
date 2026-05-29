@@ -22,6 +22,7 @@ import asyncio
 from typing import Any
 
 from esphome_device_builder.controllers.firmware.constants import _MAX_OUTPUT_LINES_INFLIGHT
+from esphome_device_builder.controllers.firmware.persistence import _write_job_sidecar
 from esphome_device_builder.models import EventType, FirmwareJob, JobStatus, JobType, StreamEvent
 
 from ...conftest import FakeWebSocketClient
@@ -31,15 +32,19 @@ from .conftest import FirmwareControllerFactory, make_follow_race_controller
 async def test_terminal_job_replays_full_history_and_returns(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
-    """A finished job's history is sent verbatim, followed by ``result``."""
+    """A finished job's history is replayed from its sidecar, followed by ``result``."""
     job = FirmwareJob(
         job_id="abc",
         configuration="kitchen.yaml",
         job_type=JobType.COMPILE,
         status=JobStatus.COMPLETED,
-        output=["line a\n", "line b\n", "line c\n"],
+        output=[],
         exit_code=0,
     )
+    # Terminal output lives on disk (flushed + dropped from RAM at the
+    # terminal transition); seed the sidecar as ``persist_jobs`` would.
+    # Off the loop — the writer resolves ``CORE.data_dir`` (stats).
+    await asyncio.to_thread(_write_job_sidecar, "abc", ["line a\n", "line b\n", "line c\n"])
     controller = make_follow_race_controller(firmware_controller_factory, job)
     client = FakeWebSocketClient(yield_per_event=True)
 

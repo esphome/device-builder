@@ -2,8 +2,9 @@ name: Sync component catalog
 
 # Re-runs ``script/sync_components.py`` against the schema version
 # matching the dashboard's installed ``esphome`` (or a specific
-# version on manual dispatch) and opens a pull request when
-# ``definitions/components.json`` changes.
+# version on manual dispatch) and opens a pull request when the
+# generated ``definitions/components.index.json`` or per-id body
+# files under ``definitions/components/`` change.
 #
 # Triggers
 # --------
@@ -107,7 +108,10 @@ jobs:
         id: diff
         run: |
           set -euo pipefail
-          if git diff --quiet -- esphome_device_builder/definitions/components.json; then
+          if git diff --quiet -- \
+              esphome_device_builder/definitions/components.index.json \
+              esphome_device_builder/definitions/components/ \
+            && [ -z "$(git ls-files --others --exclude-standard esphome_device_builder/definitions/components/)" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -124,16 +128,43 @@ jobs:
           from collections import Counter
           from pathlib import Path
 
-          NEW = Path("esphome_device_builder/definitions/components.json")
-          new_data = json.loads(NEW.read_text())
+          NEW_INDEX = Path("esphome_device_builder/definitions/components.index.json")
+          BODIES_DIR = Path("esphome_device_builder/definitions/components")
+
+          def load_bodies(index_blob: str, head_ref: str | None) -> tuple[dict, list[dict]]:
+              meta = json.loads(index_blob) if index_blob else {"components": []}
+              bodies: list[dict] = []
+              for entry in meta.get("components", []):
+                  cid = entry.get("id")
+                  if not cid:
+                      continue
+                  rel = BODIES_DIR / f"{cid}.json"
+                  if head_ref is None:
+                      if rel.is_file():
+                          bodies.append({**entry, **json.loads(rel.read_text())})
+                      else:
+                          bodies.append(entry)
+                  else:
+                      try:
+                          body_blob = subprocess.check_output(
+                              ["git", "show", f"{head_ref}:{rel}"],
+                              text=True,
+                          )
+                          bodies.append({**entry, **json.loads(body_blob)})
+                      except subprocess.CalledProcessError:
+                          bodies.append(entry)
+              return meta, bodies
+
+          new_meta, new_components = load_bodies(NEW_INDEX.read_text(), None)
           try:
-              old_blob = subprocess.check_output(
-                  ["git", "show", f"HEAD:{NEW}"],
+              old_index_blob = subprocess.check_output(
+                  ["git", "show", f"HEAD:{NEW_INDEX}"],
                   text=True,
               )
-              old_data = json.loads(old_blob)
+              _, old_components = load_bodies(old_index_blob, "HEAD")
           except subprocess.CalledProcessError:
-              old_data = {"components": []}
+              old_components = []
+          new_data = new_meta
 
           def count_types(components: list[dict]) -> Counter:
               counts: Counter[str] = Counter()
@@ -145,8 +176,6 @@ jobs:
                   walk(component.get("config_entries") or [])
               return counts
 
-          old_components = old_data.get("components") or []
-          new_components = new_data.get("components") or []
           old_ids = {c["id"] for c in old_components}
           new_ids = {c["id"] for c in new_components}
           added = sorted(new_ids - old_ids)

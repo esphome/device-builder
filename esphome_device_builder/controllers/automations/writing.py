@@ -716,7 +716,7 @@ def _indent_for_top_list(rendered_item: str) -> str:
     return rendered_item
 
 
-def _locate_top_list_item(
+def _locate_top_list_item(  # noqa: C901
     lines: list[str],
     domain: str,
     index: int,

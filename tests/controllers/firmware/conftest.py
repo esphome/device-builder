@@ -147,6 +147,9 @@ def firmware_controller_factory(
         controller = FirmwareController.__new__(FirmwareController)
         controller.state = FirmwareState()
         controller.state.jobs = {j.job_id: j for j in jobs}
+        # ``__new__`` bypasses ``__init__`` where the real controller
+        # creates this; ``persist_jobs`` acquires it to serialize writes.
+        controller._persist_lock = asyncio.Lock()
         if not with_real_persistence:
             controller._persist_jobs = AsyncMock()
 

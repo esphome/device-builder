@@ -1,0 +1,1 @@
+{"id":"esp32_improv.on_state","name":"Esp32 Improv → On State","description":"An action to be performed when an Improv state change happens. See [`on_state`](https://esphome.io/components/esp32_improv#improv-on_state).","docs_url":"https://esphome.io/components/esp32_improv#configuration-variables","applies_to":["esp32_improv"],"is_device_level":false,"config_entries":[]}

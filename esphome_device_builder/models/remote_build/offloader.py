@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass, field
 import voluptuous as vol
 from mashumaro.mixins.orjson import DataClassORJSONMixin
 
+from ...helpers.version_compat import VersionMatchPolicy
 from ...helpers.voluptuous_validators import lowercase_hex, not_bool
 from .enums import PeerStatus, RemoteBuildPeerSource
 
@@ -198,10 +199,15 @@ class OffloaderRemoteBuildSettings(DataClassORJSONMixin):
     Send-builds power-user dialog still works); only the
     implicit "Install → maybe route to a receiver" path is
     gated off.
+
+    ``version_match_policy`` selects how strictly
+    :func:`pick_build_path` filters peers whose ``esphome_version``
+    differs from the offloader's own.
     """
 
     pairings: list[StoredPairing] = field(default_factory=list)
     remote_builds_enabled: bool = True
+    version_match_policy: VersionMatchPolicy = VersionMatchPolicy.ANY
 
 
 @dataclass
@@ -215,6 +221,7 @@ class OffloaderRemoteBuildSettingsView(DataClassORJSONMixin):
 
     pairings: list[PairingSummary] = field(default_factory=list)
     remote_builds_enabled: bool = True
+    version_match_policy: VersionMatchPolicy = VersionMatchPolicy.ANY
 
 
 @dataclass

@@ -264,7 +264,7 @@ def _safe_yaml_scalar(value: str) -> str:
         return f'"{value}"'
     if value[0] in _PLAIN_SCALAR_INDICATOR_LEAD:
         return _quote(value)
-    if value.endswith(":") or value.endswith(" "):
+    if value.endswith((":", " ")):
         return _quote(value)
     if any(s in value for s in _PLAIN_SCALAR_FORBIDDEN_SUBSTR):
         return _quote(value)

@@ -7,7 +7,7 @@ import re
 from typing import TYPE_CHECKING, NamedTuple
 
 from ...helpers.api import CommandError
-from ...models import FirmwareJob, JobType
+from ...models import ErrorCode, FirmwareJob, JobType
 from .helpers import _validate_port
 
 if TYPE_CHECKING:
@@ -111,6 +111,11 @@ async def compile_bulk(
             )
             await controller._enqueue(job)
         except CommandError as exc:
+            if exc.code is ErrorCode.NO_COMPATIBLE_PEER:
+                # Fleet-wide policy refusal — re-raise so the
+                # operator gets one toast instead of N silent
+                # per-config skips. See bulk.py docstring + issue #985.
+                raise
             _LOGGER.info("Skipping %s in compile_bulk: %s", config, exc.message)
             continue
         jobs.append(job)
@@ -124,7 +129,10 @@ async def install_bulk(
 
     ``port`` is shared across every queued job — pass an explicit IP
     only when every device should install against the same target.
-    Per-device errors skip that device and keep going.
+    Per-device errors skip that device and keep going; a fleet-wide
+    ``NO_COMPATIBLE_PEER`` (``EXACT_REQUIRED`` with no eligible
+    peer) re-raises so the operator gets one consolidated error
+    rather than N silent skips.
     """
     _validate_port(port)
     await controller._validate_configurations_boundary(configurations)
@@ -140,6 +148,8 @@ async def install_bulk(
             )
             await controller._enqueue(job)
         except CommandError as exc:
+            if exc.code is ErrorCode.NO_COMPATIBLE_PEER:
+                raise
             _LOGGER.info("Skipping %s in install_bulk: %s", config, exc.message)
             continue
         jobs.append(job)

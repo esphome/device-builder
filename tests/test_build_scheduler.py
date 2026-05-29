@@ -11,12 +11,15 @@ from __future__ import annotations
 
 import pytest
 
+from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.build_scheduler import (
     BuildPath,
     BuildPathDecision,
     BuildSchedulerInputs,
     pick_build_path,
 )
+from esphome_device_builder.helpers.version_compat import VersionMatchPolicy
+from esphome_device_builder.models.api import ErrorCode
 from esphome_device_builder.models.remote_build import (
     PeerQueueStatusSnapshotEntry,
     PeerStatus,
@@ -33,6 +36,7 @@ def _stub_pairing(
     paired_at: float = 1.0,
     status: PeerStatus = PeerStatus.APPROVED,
     enabled: bool = True,
+    esphome_version: str = "",
 ) -> StoredPairing:
     """Build a :class:`StoredPairing` with defaults aimed at the scheduler tests.
 
@@ -51,6 +55,7 @@ def _stub_pairing(
         paired_at=paired_at,
         status=status,
         enabled=enabled,
+        esphome_version=esphome_version,
     )
 
 
@@ -80,21 +85,25 @@ def _inputs(
     pairings: dict[str, StoredPairing] | None = None,
     open_peer_links: set[str] | None = None,
     peer_queue_status: dict[str, PeerQueueStatusSnapshotEntry] | None = None,
+    offloader_esphome_version: str = "",
+    version_match_policy: VersionMatchPolicy = VersionMatchPolicy.ANY,
 ) -> BuildSchedulerInputs:
     """Build :class:`BuildSchedulerInputs` with the test's slices.
 
-    Wraps the four-field construction so each test reads as
-    "set up some state, call pick_build_path, assert the
-    decision" rather than re-typing the snapshot-view dance.
-    Converts ``set`` to ``frozenset`` and ``dict`` to a
-    read-through ``Mapping`` at the boundary so tests don't
-    have to think about the immutability discipline.
+    Wraps the construction so each test reads as "set up some
+    state, call pick_build_path, assert the decision" rather
+    than re-typing the snapshot-view dance. Converts ``set``
+    to ``frozenset`` and ``dict`` to a read-through ``Mapping``
+    at the boundary so tests don't have to think about the
+    immutability discipline.
     """
     return BuildSchedulerInputs(
         remote_builds_enabled=remote_builds_enabled,
         pairings=pairings or {},
         open_peer_links=frozenset(open_peer_links or set()),
         peer_queue_status=peer_queue_status or {},
+        offloader_esphome_version=offloader_esphome_version,
+        version_match_policy=version_match_policy,
     )
 
 
@@ -607,3 +616,203 @@ def test_decision_is_frozen() -> None:
     decision = BuildPathDecision.remote("a" * 64)
     with pytest.raises(Exception, match="cannot assign to field"):
         decision.pin_sha256 = "b" * 64  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------
+# Version-match policy.
+# ---------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("offloader_version", "peer_version", "policy", "expected_remote"),
+    [
+        # ANY — peer always survives regardless of version diff.
+        pytest.param("2026.6.0", "2026.5.0", VersionMatchPolicy.ANY, True, id="any_release_drift"),
+        pytest.param("2026.6.0", "2026.6.1", VersionMatchPolicy.ANY, True, id="any_patch_drift"),
+        pytest.param("2026.6.0", "2026.6.0", VersionMatchPolicy.ANY, True, id="any_match"),
+        # RELEASE — year+month must match; patch diff OK.
+        pytest.param("2026.6.0", "2026.6.0", VersionMatchPolicy.RELEASE, True, id="release_match"),
+        pytest.param(
+            "2026.6.0", "2026.6.1", VersionMatchPolicy.RELEASE, True, id="release_patch_ok"
+        ),
+        pytest.param("2026.6.0", "2026.5.0", VersionMatchPolicy.RELEASE, False, id="release_drift"),
+        # EXACT — full string must match.
+        pytest.param("2026.6.0", "2026.6.0", VersionMatchPolicy.EXACT, True, id="exact_match"),
+        pytest.param(
+            "2026.6.0", "2026.6.1", VersionMatchPolicy.EXACT, False, id="exact_patch_filtered"
+        ),
+        pytest.param(
+            "2026.6.0", "2026.5.0", VersionMatchPolicy.EXACT, False, id="exact_release_filtered"
+        ),
+        # Empty peer / offloader version always bypasses every policy
+        # so a fresh APPROVED pairing isn't filtered before its first
+        # session-open populates the field.
+        pytest.param("2026.6.0", "", VersionMatchPolicy.EXACT, True, id="empty_peer_passes_exact"),
+        pytest.param(
+            "", "2026.5.0", VersionMatchPolicy.EXACT, True, id="empty_offloader_passes_exact"
+        ),
+    ],
+)
+def test_version_match_policy_filter(
+    offloader_version: str,
+    peer_version: str,
+    policy: VersionMatchPolicy,
+    expected_remote: bool,
+) -> None:
+    """Per-peer filter matrix across the three non-fail policies."""
+    pin = "a" * 64
+    pairing = _stub_pairing(pin_sha256=pin, esphome_version=peer_version)
+    inputs = _inputs(
+        pairings={pin: pairing},
+        open_peer_links={pin},
+        peer_queue_status={pin: _stub_queue_status(pin_sha256=pin)},
+        offloader_esphome_version=offloader_version,
+        version_match_policy=policy,
+    )
+    decision = pick_build_path(inputs)
+    if expected_remote:
+        assert decision.path is BuildPath.REMOTE
+        assert decision.pin_sha256 == pin
+    else:
+        assert decision.path is BuildPath.LOCAL
+        assert decision.pin_sha256 is None
+
+
+def test_release_policy_local_fallback_logs_info(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """RELEASE-policy LOCAL fallback emits one INFO summary, not per-peer noise."""
+    pin = "a" * 64
+    pairing = _stub_pairing(pin_sha256=pin, esphome_version="2026.5.0")
+    inputs = _inputs(
+        pairings={pin: pairing},
+        open_peer_links={pin},
+        peer_queue_status={pin: _stub_queue_status(pin_sha256=pin)},
+        offloader_esphome_version="2026.6.0",
+        version_match_policy=VersionMatchPolicy.RELEASE,
+    )
+    with caplog.at_level("INFO", logger="esphome_device_builder.helpers.build_scheduler"):
+        decision = pick_build_path(inputs)
+    assert decision.path is BuildPath.LOCAL
+    info_lines = [r for r in caplog.records if r.levelname == "INFO"]
+    assert len(info_lines) == 1
+    assert "version policy release filtered 1 peer" in info_lines[0].getMessage()
+
+
+def test_exact_required_raises_no_compatible_peer_when_filtered() -> None:
+    """``EXACT_REQUIRED`` hard-fails instead of falling back to LOCAL."""
+    pin = "a" * 64
+    pairing = _stub_pairing(pin_sha256=pin, esphome_version="2026.6.1")
+    inputs = _inputs(
+        pairings={pin: pairing},
+        open_peer_links={pin},
+        peer_queue_status={pin: _stub_queue_status(pin_sha256=pin)},
+        offloader_esphome_version="2026.6.0",
+        version_match_policy=VersionMatchPolicy.EXACT_REQUIRED,
+    )
+    with pytest.raises(CommandError) as exc:
+        pick_build_path(inputs)
+    assert exc.value.code is ErrorCode.NO_COMPATIBLE_PEER
+    # Per-reason breakdown is diagnostic-only (log analysis) but
+    # keeps the version-mismatch / disconnected distinction
+    # visible — a regression that loses it would surface as silent
+    # NO_COMPATIBLE_PEER errors that all read identical.
+    assert "1 on version mismatch" in exc.value.message
+    assert "0 on closed peer-link" in exc.value.message
+
+
+def test_exact_required_message_breakdown_when_peer_disconnected() -> None:
+    """Diagnostic carries the disconnect count, not just the version-filter count."""
+    pin = "a" * 64
+    pairing = _stub_pairing(pin_sha256=pin, esphome_version="2026.6.0")
+    inputs = _inputs(
+        pairings={pin: pairing},
+        open_peer_links=set(),
+        peer_queue_status={},
+        offloader_esphome_version="2026.6.0",
+        version_match_policy=VersionMatchPolicy.EXACT_REQUIRED,
+    )
+    with pytest.raises(CommandError) as exc:
+        pick_build_path(inputs)
+    assert exc.value.code is ErrorCode.NO_COMPATIBLE_PEER
+    assert "0 on version mismatch" in exc.value.message
+    assert "1 on closed peer-link" in exc.value.message
+
+
+def test_exact_required_falls_through_when_no_pairings_exist() -> None:
+    """``EXACT_REQUIRED`` with no pairings stays LOCAL — no intent to honour."""
+    inputs = _inputs(
+        pairings={},
+        open_peer_links=set(),
+        peer_queue_status={},
+        offloader_esphome_version="2026.6.0",
+        version_match_policy=VersionMatchPolicy.EXACT_REQUIRED,
+    )
+    decision = pick_build_path(inputs)
+    assert decision.path is BuildPath.LOCAL
+    assert decision.pin_sha256 is None
+
+
+def test_exact_required_raises_when_peer_disconnected() -> None:
+    """``EXACT_REQUIRED`` hard-fails when APPROVED+enabled peer has a closed session."""
+    pin = "a" * 64
+    pairing = _stub_pairing(pin_sha256=pin, esphome_version="2026.6.0")
+    inputs = _inputs(
+        pairings={pin: pairing},
+        open_peer_links=set(),  # Session closed.
+        peer_queue_status={},
+        offloader_esphome_version="2026.6.0",
+        version_match_policy=VersionMatchPolicy.EXACT_REQUIRED,
+    )
+    with pytest.raises(CommandError) as exc:
+        pick_build_path(inputs)
+    assert exc.value.code is ErrorCode.NO_COMPATIBLE_PEER
+
+
+def test_exact_required_falls_through_when_only_disabled_peers() -> None:
+    """``enabled=False`` is a deliberate opt-out — not counted as intent."""
+    pin = "a" * 64
+    pairing = _stub_pairing(pin_sha256=pin, esphome_version="2026.6.0", enabled=False)
+    inputs = _inputs(
+        pairings={pin: pairing},
+        open_peer_links={pin},
+        peer_queue_status={pin: _stub_queue_status(pin_sha256=pin)},
+        offloader_esphome_version="2026.6.0",
+        version_match_policy=VersionMatchPolicy.EXACT_REQUIRED,
+    )
+    decision = pick_build_path(inputs)
+    assert decision.path is BuildPath.LOCAL
+    assert decision.pin_sha256 is None
+
+
+def test_exact_required_yields_to_master_off() -> None:
+    """``remote_builds_enabled=False`` wins over ``EXACT_REQUIRED`` (master = "no remote")."""
+    pin = "a" * 64
+    pairing = _stub_pairing(pin_sha256=pin, esphome_version="2026.6.1")
+    inputs = _inputs(
+        remote_builds_enabled=False,
+        pairings={pin: pairing},
+        open_peer_links=set(),
+        peer_queue_status={},
+        offloader_esphome_version="2026.6.0",
+        version_match_policy=VersionMatchPolicy.EXACT_REQUIRED,
+    )
+    decision = pick_build_path(inputs)
+    assert decision.path is BuildPath.LOCAL
+    assert decision.pin_sha256 is None
+
+
+def test_exact_required_falls_through_when_only_pending_peers() -> None:
+    """PENDING rows aren't operator intent yet — LOCAL is correct, not a hard-fail."""
+    pin = "a" * 64
+    pairing = _stub_pairing(pin_sha256=pin, esphome_version="2026.6.0", status=PeerStatus.PENDING)
+    inputs = _inputs(
+        pairings={pin: pairing},
+        open_peer_links=set(),
+        peer_queue_status={},
+        offloader_esphome_version="2026.6.0",
+        version_match_policy=VersionMatchPolicy.EXACT_REQUIRED,
+    )
+    decision = pick_build_path(inputs)
+    assert decision.path is BuildPath.LOCAL
+    assert decision.pin_sha256 is None

@@ -1,0 +1,1 @@
+{"id":"ethernet","name":"Ethernet Component","description":"This ESPHome component enables *wired* Ethernet connections for ESP32 and RP2040 boards.","category":"core","docs_url":"https://esphome.io/components/ethernet","image_url":"https://esphome.io/images/ethernet.svg"}

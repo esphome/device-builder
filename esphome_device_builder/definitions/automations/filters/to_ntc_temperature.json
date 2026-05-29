@@ -1,0 +1,1 @@
+{"id":"to_ntc_temperature","name":"Sensor → To Ntc Temperature","config_entries":[{"key":"calibration","type":"string","label":"Calibration","description":"calibration data.","required":true,"display_format":null,"multi_value":true,"help_link":"https://esphome.io/components/sensor/filter/to_ntc_temperature#to-ntc-temperature-filter"}],"applies_to":["sensor"],"value_type":null}

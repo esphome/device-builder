@@ -17,16 +17,16 @@ from script.validate_definitions import (  # type: ignore[import-not-found]
 )
 
 # Co-locate with the rest of the catalog-heavy suite so we don't burn a
-# second xdist worker re-reading ``components.json``.
+# second xdist worker re-reading ``components.index.json``.
 pytestmark = pytest.mark.xdist_group("catalog")
 
 
 @pytest.fixture(scope="module")
 def _index() -> dict | None:
-    """Parse ``components.json`` once per module — every test wants the same index.
+    """Parse ``components.index.json`` once per module — every test wants the same index.
 
-    ``_build_components_index`` re-reads and JSON-decodes a ~40 MB file
-    on each call; sharing one snapshot across the file's tests turns
+    ``_build_components_index`` re-reads and JSON-decodes the index on
+    each call; sharing one snapshot across the file's tests turns
     ten loads into one without changing the validator's contract.
     """
     return _build_components_index()
@@ -75,7 +75,7 @@ def test_unknown_component_id(_index: dict | None) -> None:
         {},
         _index,
     )
-    assert any("not found in components.json" in e for e in errors)
+    assert any("not found in components.index.json" in e for e in errors)
 
 
 def test_unknown_field_key(_index: dict | None) -> None:

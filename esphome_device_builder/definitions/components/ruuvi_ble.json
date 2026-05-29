@@ -1,0 +1,1 @@
+{"id":"ruuvi_ble","name":"Ruuvi BLE","description":"","category":"misc","docs_url":"https://esphome.io/components/ruuvi_ble","dependencies":["esp32_ble_tracker"],"config_entries":[{"key":"id","type":"id","label":"ID","advanced":true},{"key":"esp32_ble_id","type":"id","label":"Esp32 BLE ID","advanced":true}]}

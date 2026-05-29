@@ -8,11 +8,25 @@ sibling models to keep the dependency graph acyclic.
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+from mashumaro.config import BaseConfig
 from mashumaro.mixins.orjson import DataClassORJSONMixin
+
+# ---------------------------------------------------------------------------
+# Catalog-shared mashumaro Config
+# ---------------------------------------------------------------------------
+
+
+class _CatalogConfig(BaseConfig):
+    """Omit fields whose runtime value equals the declared default or ``None``."""
+
+    omit_default = True
+    omit_none = True
+
 
 # ---------------------------------------------------------------------------
 # Paged response base
@@ -369,6 +383,9 @@ class EventType(StrEnum):
     # ``_pairings`` dict via the snapshot.
     OFFLOADER_PAIRING_ENABLED_CHANGED = "offloader_pairing_enabled_changed"
 
+    # Cross-tab sync for the master version-match policy.
+    OFFLOADER_VERSION_MATCH_POLICY_CHANGED = "offloader_version_match_policy_changed"
+
 
 class StreamEvent(StrEnum):
     """Per-stream frame names sent via ``WebSocketClient.send_event``.
@@ -522,6 +539,16 @@ class ConfigEntryType(StrEnum):
     # component log levels), ``substitutions:``, ``globals:`` etc.
     MAP = "map"
 
+    # Polymorphic list of single-key items drawn from a named
+    # registry. Each item is ``{<registry_id>: <params> | null}``.
+    # The frontend's REGISTRY_LIST renderer fetches the catalog
+    # named by ``ConfigEntry.registry`` (``"light_effects"`` and
+    # ``"filter"`` are populated; per-row parameter editing is V2)
+    # and renders one row per item with a per-row type picker.
+    # Used by light ``effects:`` and sensor / binary_sensor /
+    # text_sensor ``filters:`` (#941).
+    REGISTRY_LIST = "registry_list"
+
     # Layout / decoration entries (no value, used to structure the form)
     LABEL = "label"
     DIVIDER = "divider"
@@ -673,6 +700,13 @@ class ConfigEntry(DataClassORJSONMixin):
     # (the default for plain ``cv.int_range`` integers).
     display_format: str | None = None
 
+    # Catalog name for ``REGISTRY_LIST`` entries. Currently
+    # ``"light_effects"`` (light.effects) and ``"filter"``
+    # (sensor / binary_sensor / text_sensor filters) are populated;
+    # new registries plug into the frontend's REGISTRY_OPS table.
+    # Null on every other entry type. #941.
+    registry: str | None = None
+
     # Unit choices for ``FLOAT_WITH_UNIT`` entries. The frontend
     # renders a unit picker populated from this list; each option's
     # string is what the YAML serialization appends after the
@@ -802,6 +836,14 @@ class ConfigEntry(DataClassORJSONMixin):
     # means a plain structured group.
     platform_type: str | None = None
 
+    @classmethod
+    def __post_deserialize__(cls, obj: ConfigEntry) -> ConfigEntry:
+        """Intern closed-vocabulary strings; runs on nested entries too."""
+        obj.platform_type = _intern_optional(obj.platform_type)
+        obj.references_component = _intern_optional(obj.references_component)
+        _intern_in_place(obj.supported_platforms)
+        return obj
+
 
 # ---------------------------------------------------------------------------
 # Featured-component presets (board-side)
@@ -831,3 +873,29 @@ class FieldPreset(DataClassORJSONMixin):
     value: ConfigPrimitive | dict[str, Any] | list[Any] | None = None
     locked: bool = False
     suggestions: list[ConfigPrimitive] | None = None
+
+    class Config(_CatalogConfig):
+        """Omit ``locked=False`` / ``suggestions=None``; see :class:`_CatalogConfig`."""
+
+
+# ---------------------------------------------------------------------------
+# Closed-vocabulary string interning
+# ---------------------------------------------------------------------------
+
+# ``platform_type``, ``references_component``, and ``supported_platforms``
+# members draw from a few dozen unique values shared across the ~13k
+# ConfigEntry instances parsed at startup. orjson hands back a fresh
+# ``str`` per occurrence (runtime-decoded strings are never auto-interned),
+# so ``sys.intern`` collapses every duplicate onto a single PyUnicode
+# object, trimming several MB off the loaded catalog for free.
+
+
+def _intern_optional(value: str | None) -> str | None:
+    """Intern a non-empty string; pass ``None`` / ``""`` through unchanged."""
+    return sys.intern(value) if value else value
+
+
+def _intern_in_place(values: list[str]) -> None:
+    """Intern each member of *values* in place."""
+    for index, value in enumerate(values):
+        values[index] = sys.intern(value)

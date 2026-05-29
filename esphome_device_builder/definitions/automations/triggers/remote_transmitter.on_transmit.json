@@ -1,0 +1,1 @@
+{"id":"remote_transmitter.on_transmit","name":"Remote Transmitter → On Transmit","description":"An automation to perform before data is sent. Useful if the radio / IR hardware needs to change state or power on.","docs_url":"https://esphome.io/components/remote_transmitter#configuration-variables","applies_to":["remote_transmitter"],"is_device_level":false,"config_entries":[]}

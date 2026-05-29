@@ -1,0 +1,1 @@
+{"id":"media_player.is_paused","name":"Media Player → Is Paused","description":"This condition checks if the media player is paused.","docs_url":"https://esphome.io/automations/actions","domain":"media_player","config_entries":[{"key":"id","type":"id","label":"ID","advanced":true}],"accepts_condition_list":false}

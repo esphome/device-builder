@@ -1,0 +1,1 @@
+{"id":"json","name":"json Component","description":"The `json` component enables ESPHome to work with JSON data in automations, sensors, and HTTP requests. This is particularly useful for:","category":"misc","docs_url":"https://esphome.io/components/json","image_url":"https://esphome.io/images/json.svg"}

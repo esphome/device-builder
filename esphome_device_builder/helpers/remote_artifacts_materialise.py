@@ -23,7 +23,7 @@ import tarfile
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Any, NamedTuple
 
 from esphome.helpers import rmtree
@@ -36,6 +36,7 @@ from ..controllers.remote_build.artifacts_tarball import (
     STORAGE_MEMBER_NAME,
     VALIDATED_YAML_MEMBER_NAME,
 )
+from .cross_os_path import receiver_pure_path_cls
 from .json import dumps_indent
 from .json import loads as json_loads
 from .peer_link_bundle import FIRMWARE_MAX_TOTAL_BYTES
@@ -64,7 +65,9 @@ class MaterialiseError(RuntimeError):
 class _ExtractedTarball(NamedTuple):
     storage_bytes: bytes
     idedata_bytes: bytes
-    receiver_build_path: Path
+    # ``PurePath``-flavoured per the receiver's OS so the path
+    # remap works when receiver and offloader differ.
+    receiver_build_path: PurePath
     build_path: Path
     # Optional: present when receiver-side esphome wrote a
     # validated-config cache (>= 2026.6.0).
@@ -188,12 +191,12 @@ def _device_name_from_storage(receiver_storage: dict[str, Any]) -> str:
     return device_name
 
 
-def _receiver_build_path_from_storage(receiver_storage: dict[str, Any]) -> Path:
-    """Pull the receiver-absolute build_path from the shipped storage.json."""
+def _receiver_build_path_from_storage(receiver_storage: dict[str, Any]) -> PurePath:
+    """Pull build_path from the shipped storage.json as a receiver-flavoured PurePath."""
     receiver_build_path_str = receiver_storage.get("build_path")
     if not isinstance(receiver_build_path_str, str):
         raise MaterialiseError("tarball storage.json missing required build_path field")
-    return Path(receiver_build_path_str)
+    return receiver_pure_path_cls(receiver_build_path_str)(receiver_build_path_str)
 
 
 def _read_member_optional(
@@ -304,7 +307,7 @@ def _stage_offloader_storage(
     *,
     configuration: str,
     receiver_storage_bytes: bytes,
-    receiver_build_path: Path,
+    receiver_build_path: PurePath,
     offloader_build_path: Path,
 ) -> StorageJSON:
     """Stage and return the offloader-form storage sidecar."""
@@ -317,8 +320,11 @@ def _stage_offloader_storage(
             f"StorageJSON.load returned None for the staged sidecar at {storage_path}"
         )
     if storage.firmware_bin_path is not None:
+        # ``str()`` round-trips the receiver-flavour string back out
+        # of the (possibly broken-on-this-OS) ``Path`` so
+        # ``_remap_to_offloader`` re-parses it with the right flavour.
         storage.firmware_bin_path = _remap_to_offloader(
-            Path(storage.firmware_bin_path),
+            str(storage.firmware_bin_path),
             receiver_build_path,
             offloader_build_path,
         )
@@ -332,7 +338,7 @@ def _stage_offloader_idedata(
     configuration: str,
     idedata_bytes: bytes,
     device_name: str,
-    receiver_build_path: Path,
+    receiver_build_path: PurePath,
     offloader_build_path: Path,
 ) -> Path:
     """Rewrite the receiver's idedata and save at the offloader's cache path."""
@@ -359,7 +365,7 @@ def _parse_idedata_dict(payload: bytes) -> dict[str, Any]:
 
 def _remap_idedata_build_paths(
     data: dict[str, Any],
-    receiver_build_path: Path,
+    receiver_build_path: PurePath,
     offloader_build_path: Path,
 ) -> None:
     """Rewrite prog_path + extra.flash_images[*].path to the offloader's tree."""
@@ -367,7 +373,7 @@ def _remap_idedata_build_paths(
     def _remap(value: Any) -> str | None:
         if not isinstance(value, str):
             return None
-        return str(_remap_to_offloader(Path(value), receiver_build_path, offloader_build_path))
+        return str(_remap_to_offloader(value, receiver_build_path, offloader_build_path))
 
     if (prog := _remap(data.get("prog_path"))) is not None:
         data["prog_path"] = prog
@@ -461,21 +467,32 @@ def _force_idedata_cache_hit(*, platformio_ini: Path, cached_idedata: Path) -> N
 
 
 def _remap_to_offloader(
-    receiver_abs: Path,
-    receiver_build_path: Path,
+    receiver_abs: str,
+    receiver_build_path: PurePath,
     offloader_build_path: Path,
 ) -> Path:
     """Translate *receiver_abs* under *receiver_build_path* to the offloader's tree.
 
-    Returns *receiver_abs* unchanged when it isn't actually under
-    *receiver_build_path* (cc_path-style absolute paths get
-    remapped via :func:`_remap_pio_toolchain_path` instead).
+    *receiver_abs* is parsed with the same ``PurePath`` flavour as
+    *receiver_build_path* so cross-OS receiver/offloader pairs
+    join correctly. Returns the receiver string as the offloader's
+    native ``Path`` when it isn't under *receiver_build_path*.
+    Raises :class:`MaterialiseError` on a ``..`` segment in the
+    computed relative; ``PurePath.relative_to`` doesn't normalise,
+    so a malicious ``firmware_bin_path`` like ``<build>/../evil``
+    would otherwise escape the offloader's build tree.
     """
+    receiver_cls = type(receiver_build_path)
     try:
-        relative = receiver_abs.relative_to(receiver_build_path)
+        relative = receiver_cls(receiver_abs).relative_to(receiver_build_path)
     except ValueError:
-        return receiver_abs
-    return offloader_build_path / relative
+        return Path(receiver_abs)
+    if ".." in relative.parts:
+        raise MaterialiseError(
+            f"receiver path {receiver_abs!r} contains '..' segments relative to "
+            f"build_path {str(receiver_build_path)!r}"
+        )
+    return offloader_build_path.joinpath(*relative.parts)
 
 
 def _remap_pio_toolchain_path(cc_path: str) -> str | None:

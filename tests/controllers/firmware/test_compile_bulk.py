@@ -26,6 +26,7 @@ specifically.
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -158,6 +159,53 @@ async def test_compile_bulk_skips_entries_with_enqueue_command_error(
     # Pin it so a future refactor that swaps the order surfaces
     # here.
     assert "locked.yaml" in {j.configuration for j in await controller.get_jobs()}
+
+
+@pytest.mark.asyncio
+async def test_compile_bulk_reraises_no_compatible_peer(
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """``NO_COMPATIBLE_PEER`` re-raises out of the bulk loop, not per-config skip.
+
+    The fleet-wide policy refusal (every operator-intentional
+    peer filtered by ``EXACT_REQUIRED``) is identical for every
+    configuration in the loop. The pre-rework loop would emit one
+    skip per config + an empty ``jobs`` list with no consolidated
+    error; the operator's frontend toast would never fire. Re-
+    raising on the first hit collapses the N silent skips into
+    one ``NO_COMPATIBLE_PEER`` WS error.
+    """
+    for name in ("kitchen.yaml", "office.yaml"):
+        (tmp_path / name).write_text("")
+    controller = firmware_controller_factory(with_queue=True)
+    controller._resolve_install_source = MagicMock(  # type: ignore[method-assign]
+        side_effect=CommandError(ErrorCode.NO_COMPATIBLE_PEER, "policy refused fleet")
+    )
+
+    with pytest.raises(CommandError) as exc:
+        await controller.compile_bulk(configurations=["kitchen.yaml", "office.yaml"])
+    assert exc.value.code is ErrorCode.NO_COMPATIBLE_PEER
+    # Operator gets one consolidated signal; no partial fleet of
+    # queued jobs sneaks through.
+    assert await controller.get_jobs() == []
+
+
+@pytest.mark.asyncio
+async def test_install_bulk_reraises_no_compatible_peer(
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """Paired contract for ``install_bulk`` — see compile_bulk variant above."""
+    for name in ("kitchen.yaml", "office.yaml"):
+        (tmp_path / name).write_text("")
+    controller = firmware_controller_factory(with_queue=True)
+    controller._resolve_install_source = MagicMock(  # type: ignore[method-assign]
+        side_effect=CommandError(ErrorCode.NO_COMPATIBLE_PEER, "policy refused fleet")
+    )
+
+    with pytest.raises(CommandError) as exc:
+        await controller.install_bulk(configurations=["kitchen.yaml", "office.yaml"])
+    assert exc.value.code is ErrorCode.NO_COMPATIBLE_PEER
+    assert await controller.get_jobs() == []
 
 
 @pytest.mark.asyncio

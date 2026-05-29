@@ -1,0 +1,1 @@
+{"id":"thermostat.climate.fan_mode_high_action","name":"Climate.Thermostat → Fan Mode High Action","description":"The action to call when the fan should run at its maximum speed.","docs_url":"https://esphome.io/components/climate/thermostat#configuration-variables","applies_to":["climate.thermostat"],"is_device_level":false,"config_entries":[]}

@@ -1,0 +1,1 @@
+{"id":"ethernet.on_connect","name":"Ethernet → On Connect","description":"An action to be performed when a connection is established.","docs_url":"https://esphome.io/components/ethernet#configuration-variables","applies_to":["ethernet"],"is_device_level":false,"config_entries":[]}

@@ -51,7 +51,10 @@ on the offloader side."
 from __future__ import annotations
 
 import asyncio
+import io
 import json
+import tarfile
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -62,7 +65,10 @@ from esphome.storage_json import StorageJSON
 
 from esphome_device_builder.controllers.remote_build.artifacts_tarball import (
     BUILD_INFO_MEMBER_NAME,
+    IDEDATA_MEMBER_NAME,
+    STORAGE_MEMBER_NAME,
 )
+from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.build_scheduler import (
     BuildPath,
     pick_build_path,
@@ -75,6 +81,7 @@ from esphome_device_builder.helpers.remote_build_layout import (
     parse_from_configuration as parse_remote_build_path,
 )
 from esphome_device_builder.helpers.storage_path import resolve_storage_path
+from esphome_device_builder.helpers.version_compat import VersionMatchPolicy
 from esphome_device_builder.models import (
     EventType,
     FirmwareJob,
@@ -83,6 +90,7 @@ from esphome_device_builder.models import (
     JobType,
     QueueStatus,
 )
+from esphome_device_builder.models.api import ErrorCode
 
 from .._storage_fixtures import write_storage_json
 from ..conftest import capture_events, wire_firmware_remote_peer_api_mocks
@@ -282,6 +290,84 @@ async def test_cold_connect_offloader_observes_initial_queue_status_then_picks_r
     decision = pick_build_path(snapshot)
     assert decision.path is BuildPath.REMOTE
     assert decision.pin_sha256 == paired_instances.pin_sha256
+
+
+@pytest.mark.asyncio
+async def test_version_match_policy_filters_mismatched_peer_end_to_end(
+    paired_instances: PairedInstances,
+) -> None:
+    """End-to-end policy matrix on a live paired session (ANY / RELEASE / EXACT)."""
+    await paired_instances.wait_until_session_opened()
+    pin = paired_instances.pin_sha256
+    pairing = paired_instances.offloader.state.pairings[pin]
+
+    # Pin both ends explicitly so the gate sees the mismatch
+    # regardless of the bundled ``esphome.const.__version__``.
+    pairing.esphome_version = "2026.6.1"
+    snapshot = paired_instances.offloader.build_scheduler_snapshot()
+    base = replace(snapshot, offloader_esphome_version="2026.6.0")
+
+    # ANY (default) — peer survives any drift.
+    decision = pick_build_path(replace(base, version_match_policy=VersionMatchPolicy.ANY))
+    assert decision.path is BuildPath.REMOTE
+    assert decision.pin_sha256 == pin
+
+    # RELEASE — patch diff OK.
+    decision = pick_build_path(replace(base, version_match_policy=VersionMatchPolicy.RELEASE))
+    assert decision.path is BuildPath.REMOTE
+    assert decision.pin_sha256 == pin
+
+    # EXACT — patch diff filtered, falls back to LOCAL.
+    decision = pick_build_path(replace(base, version_match_policy=VersionMatchPolicy.EXACT))
+    assert decision.path is BuildPath.LOCAL
+    assert decision.pin_sha256 is None
+
+    # Peer flips to matching version — EXACT picks it up.
+    pairing.esphome_version = "2026.6.0"
+    matched = paired_instances.offloader.build_scheduler_snapshot()
+    decision = pick_build_path(
+        replace(
+            matched,
+            offloader_esphome_version="2026.6.0",
+            version_match_policy=VersionMatchPolicy.EXACT,
+        )
+    )
+    assert decision.path is BuildPath.REMOTE
+    assert decision.pin_sha256 == pin
+
+
+@pytest.mark.asyncio
+async def test_exact_required_raises_no_compatible_peer_end_to_end(
+    paired_instances: PairedInstances,
+) -> None:
+    """``EXACT_REQUIRED`` over a live session raises instead of LOCAL-fallback."""
+    await paired_instances.wait_until_session_opened()
+    pin = paired_instances.pin_sha256
+    pairing = paired_instances.offloader.state.pairings[pin]
+    pairing.esphome_version = "2026.6.1"
+    snapshot = paired_instances.offloader.build_scheduler_snapshot()
+    snapshot = replace(
+        snapshot,
+        offloader_esphome_version="2026.6.0",
+        version_match_policy=VersionMatchPolicy.EXACT_REQUIRED,
+    )
+    with pytest.raises(CommandError) as exc:
+        pick_build_path(snapshot)
+    assert exc.value.code is ErrorCode.NO_COMPATIBLE_PEER
+
+    # And the same policy lets the install through when the
+    # peer's version comes back into line — confirming the
+    # filter is "no eligible peer" not "policy turned on".
+    pairing.esphome_version = "2026.6.0"
+    matched = paired_instances.offloader.build_scheduler_snapshot()
+    matched = replace(
+        matched,
+        offloader_esphome_version="2026.6.0",
+        version_match_policy=VersionMatchPolicy.EXACT_REQUIRED,
+    )
+    decision = pick_build_path(matched)
+    assert decision.path is BuildPath.REMOTE
+    assert decision.pin_sha256 == pin
 
 
 @pytest.mark.asyncio
@@ -515,6 +601,124 @@ async def test_remote_compile_materialises_for_local_firmware_download(
     yaml_path = Path(CORE.config_path).parent / "kitchen.yaml"
     hex_hash = await asyncio.to_thread(read_build_info_hash, yaml_path)
     assert hex_hash == "5a94a12d"
+
+
+_WIN_BUILD_PATH = (
+    r"C:\Users\receiver\esphome\.esphome\.remote_builds"
+    r"\_pin\.esphome\build\kitchen"
+)
+
+
+def _rewrite_tarball_to_windows_receiver(tarball: bytes, *, posix_build: str) -> bytes:
+    """Repack *tarball* with metadata paths rewritten under :data:`_WIN_BUILD_PATH`.
+
+    Lets a POSIX test host stand in for a Windows receiver: the
+    real ``pack_build_artifacts`` ran on Linux (so build-tree
+    files exist), then we munge ``storage.json`` /
+    ``idedata.json`` to look like a Windows receiver's wire
+    shape. Build-tree arcnames stay POSIX, which is what
+    production ships regardless of receiver OS.
+    """
+    buf_in = io.BytesIO(tarball)
+    buf_out = io.BytesIO()
+    with (
+        tarfile.open(fileobj=buf_in, mode="r:gz") as tar_in,
+        tarfile.open(fileobj=buf_out, mode="w:gz") as tar_out,
+    ):
+        for member in tar_in.getmembers():
+            payload = tar_in.extractfile(member).read()  # type: ignore[union-attr]
+            if member.name in (STORAGE_MEMBER_NAME, IDEDATA_MEMBER_NAME):
+                payload = _swap_metadata_paths_to_windows(payload, posix_build=posix_build)
+            info = tarfile.TarInfo(name=member.name)
+            info.size = len(payload)
+            tar_out.addfile(info, io.BytesIO(payload))
+    return buf_out.getvalue()
+
+
+def _swap_metadata_paths_to_windows(payload: bytes, *, posix_build: str) -> bytes:
+    """Rewrite every absolute path field under *posix_build* into :data:`_WIN_BUILD_PATH`."""
+    data = json.loads(payload)
+    for field in ("build_path", "firmware_bin_path", "prog_path"):
+        value = data.get(field)
+        if isinstance(value, str) and value.startswith(posix_build):
+            data[field] = _swap_prefix(value, posix_build, _WIN_BUILD_PATH)
+    for image in data.get("extra", {}).get("flash_images", []):
+        path = image.get("path")
+        if isinstance(path, str) and path.startswith(posix_build):
+            image["path"] = _swap_prefix(path, posix_build, _WIN_BUILD_PATH)
+    return json.dumps(data).encode("utf-8")
+
+
+def _swap_prefix(absolute_posix: str, posix_prefix: str, win_prefix: str) -> str:
+    """Replace *posix_prefix* with *win_prefix*, converting trailing separators to backslashes."""
+    suffix = absolute_posix[len(posix_prefix) :].lstrip("/").replace("/", "\\")
+    return win_prefix + ("\\" + suffix if suffix else "")
+
+
+@pytest.mark.asyncio
+async def test_windows_receiver_tarball_materialises_for_local_firmware_download(
+    paired_instances: PairedInstances,
+    tmp_path: Path,
+) -> None:
+    """Windows-receiver tarball over a real Noise session lands a readable factory binary."""
+    await paired_instances.wait_until_session_opened()
+    created_jobs = _wire_receiver_firmware_recorder(paired_instances)
+    state_changes = capture_events(
+        paired_instances.offloader_bus, EventType.OFFLOADER_JOB_STATE_CHANGED
+    )
+
+    handle = paired_instances.offloader.state.peer_link_clients[paired_instances.pin_sha256]
+    ack = await handle.client.submit_job(
+        job_id="off-windows-1",
+        configuration_filename="kitchen.yaml",
+        target="compile",
+        bundle_bytes=make_real_bundle(),
+    )
+    assert ack["accepted"] is True
+    receiver_job = created_jobs[0]
+    images = _write_build_artifacts_on_disk(tmp_path, configuration=receiver_job.configuration)
+
+    def _seed_factory_binary() -> str:
+        # resolve_storage_path + StorageJSON.load + write_bytes all
+        # block, so bundle them into one thread hop.
+        receiver_storage = StorageJSON.load(resolve_storage_path(receiver_job.configuration))
+        assert receiver_storage is not None
+        factory_path = Path(receiver_storage.firmware_bin_path).parent / "firmware.factory.bin"
+        factory_path.write_bytes(b"FACTORY-BIN-BYTES")
+        return str(receiver_storage.build_path)
+
+    receiver_build = await asyncio.to_thread(_seed_factory_binary)
+    images["firmware.factory.bin"] = b"FACTORY-BIN-BYTES"
+
+    paired_instances.receiver_bus.fire(EventType.JOB_QUEUED, JobLifecycleData(job=receiver_job))
+    paired_instances.receiver_bus.fire(EventType.JOB_STARTED, JobLifecycleData(job=receiver_job))
+    await state_changes.wait_for_status("running")
+    paired_instances.receiver_bus.fire(EventType.JOB_COMPLETED, JobLifecycleData(job=receiver_job))
+    await state_changes.wait_for_status("completed")
+    receiver_job.status = JobStatus.COMPLETED
+
+    packed = await handle.client.download_artifacts(job_id="off-windows-1")
+    munged = await asyncio.to_thread(
+        _rewrite_tarball_to_windows_receiver, packed.tarball, posix_build=receiver_build
+    )
+
+    build_path = await asyncio.to_thread(materialise_remote_artifacts, munged, "kitchen.yaml")
+
+    def _load_staged() -> StorageJSON | None:
+        return StorageJSON.load(resolve_storage_path("kitchen.yaml"))
+
+    staged_storage = await asyncio.to_thread(_load_staged)
+    assert staged_storage is not None
+    assert staged_storage.firmware_bin_path is not None
+    # firmware_bin_path was a Windows absolute on the wire; the
+    # offloader's staged copy must point into its own build tree.
+    assert str(staged_storage.firmware_bin_path).startswith(str(build_path))
+    download_dir = Path(staged_storage.firmware_bin_path).parent
+    # The #945 bug: this lookup raised "Binary not found" because
+    # firmware_bin_path stayed a Windows string and .parent
+    # collapsed to the dashboard cwd.
+    assert (download_dir / "firmware.factory.bin").read_bytes() == images["firmware.factory.bin"]
+    assert (download_dir / "firmware.bin").read_bytes() == images["firmware.bin"]
 
 
 def _drive_receiver_lifecycle(

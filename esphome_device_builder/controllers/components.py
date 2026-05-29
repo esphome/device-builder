@@ -3,26 +3,22 @@
 from __future__ import annotations
 
 import logging
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ..definitions import load_featured_components_index
 from ..helpers.api import api_command
 from ..helpers.json import loads
+from ..helpers.lazy_catalog import LazyBodyStore, is_unsafe_catalog_id
 from ..models import (
     ComponentCatalogEntry,
+    ComponentCatalogIndexEntry,
     ComponentCategory,
     ConfigEntry,
-    ConfigEntryType,
-    ConfigValueOption,
     FeaturedComponent,
     FieldPreset,
     PagedComponentsResponse,
-    PinFeature,
-    PinMode,
-    RequiredGroup,
-    RequiredGroupKind,
 )
 from .devices.helpers import _apply_featured_presets
 
@@ -36,7 +32,17 @@ _FEATURED_PREFIX = "featured."
 
 _LOGGER = logging.getLogger(__name__)
 
-_COMPONENTS_JSON = Path(__file__).resolve().parent.parent / "definitions" / "components.json"
+_DEFINITIONS_DIR = Path(__file__).resolve().parent.parent / "definitions"
+_COMPONENTS_INDEX_JSON = _DEFINITIONS_DIR / "components.index.json"
+_COMPONENT_BODIES_DIR = _DEFINITIONS_DIR / "components"
+
+# Bounded LRU for hydrated component bodies. The catalog ships ~900
+# bodies totalling ~22MB on disk; pinning every loaded body would
+# bring back the eager-load memory cost the split was meant to drop.
+# Sized to absorb a navigator's full-device batch (typical
+# ~30-50 components) plus headroom for featured-card warmups and
+# yaml-completion lookups without thrashing.
+_BODY_CACHE_MAXSIZE = 128
 
 # Catalog ids for components that ESPHome auto-loads as transport /
 # helper modules but that the dashboard's Add Configuration picker
@@ -77,45 +83,53 @@ class ComponentCatalog:
 
     def __init__(self, device_builder: DeviceBuilder | None = None) -> None:
         self._db = device_builder
-        self._components: list[ComponentCatalogEntry] = []
-        self._by_id: dict[str, ComponentCatalogEntry] = {}
+        # Slim index — loaded eagerly. Bodies live in per-id files on
+        # disk and hydrate on demand through ``_body_store``.
+        self._components: list[ComponentCatalogIndexEntry] = []
+        self._by_id: dict[str, ComponentCatalogIndexEntry] = {}
         # Featured-component lookups, populated by ``_build_featured_registry``
         # after both catalogs have loaded. The ``_by_board`` index is what
         # lets ``get_components`` scope a ``category=featured`` query to one
         # board's recommendations rather than the whole catalog.
         self._featured_by_id: dict[str, _FeaturedRecord] = {}
         self._featured_by_board: dict[str, list[str]] = {}
+        self._body_store: LazyBodyStore[ComponentCatalogEntry] = LazyBodyStore(
+            load_one=_load_body_from_disk,
+            cache_maxsize=_BODY_CACHE_MAXSIZE,
+            is_known=lambda cid: cid in self._by_id,
+        )
 
     def load(self) -> None:
         """
-        Load components from the pre-generated JSON file.
+        Load the slim component index from disk.
 
-        Logs a warning and leaves the catalog empty when the file is
-        missing — run ``script/sync_components.py`` to (re)generate it.
+        Logs a warning and leaves the catalog empty when the index is
+        missing — run ``script/sync_components.py`` to (re)generate
+        it. Bodies (``definitions/components/<id>.json``) load on
+        demand through :meth:`get_body`.
         """
-        if not _COMPONENTS_JSON.exists():
+        if not _COMPONENTS_INDEX_JSON.exists():
             _LOGGER.warning(
-                "Component catalog not found at %s — run script/sync_components.py",
-                _COMPONENTS_JSON,
+                "Component index not found at %s — run script/sync_components.py",
+                _COMPONENTS_INDEX_JSON,
             )
             return
 
         # ``loads`` (orjson) decodes UTF-8 bytes directly — faster than
-        # stdlib json on the ~896-component catalog and dodges the
-        # platform-locale-encoding trap that bit Windows on read_text
-        # without an explicit encoding.
-        data = loads(_COMPONENTS_JSON.read_bytes())
+        # stdlib json and dodges the platform-locale-encoding trap that
+        # bit Windows on read_text without an explicit encoding.
+        data = loads(_COMPONENTS_INDEX_JSON.read_bytes())
         # Drop ESPHome internal-helper / auto-load-target components
         # — see ``INTERNAL_COMPONENT_IDS`` for the why.
         self._components = [
-            _load_component(c)
+            ComponentCatalogIndexEntry.from_dict(c)
             for c in data.get("components", [])
             if c.get("id") not in INTERNAL_COMPONENT_IDS
         ]
         self._by_id = {c.id: c for c in self._components}
         self._build_featured_registry()
         _LOGGER.info(
-            "Component catalog loaded: %d components, %d featured",
+            "Component catalog loaded: %d components (slim index), %d featured",
             len(self._components),
             len(self._featured_by_id),
         )
@@ -229,53 +243,72 @@ class ComponentCatalog:
         result.update(top_level)
         return result
 
-    @api_command("components/get_component")
     async def get_component(
         self,
         *,
         component_id: str,
         platform: str | None = None,
         board_id: str | None = None,
-        **kwargs: Any,
     ) -> ComponentCatalogEntry | None:
         """
-        Get a single component by ID.
+        Resolve one component id; thin wrapper around the batch API.
 
-        When ``platform`` (or ``board_id``, which we resolve to a
-        platform) is provided, ``platform_defaults`` are resolved
-        into ``default_value`` for that target platform — frontend
-        gets the right default without having to know the
-        cv.SplitDefault details.
-
-        ``component_id`` may also be a featured-component id of the form
-        ``featured.<board>.<local>`` — the response then carries the
-        underlying component with the board's ``FieldPreset`` overrides
-        baked into ``default_value`` / ``locked`` / ``suggestions``.
+        Not a WS command — the frontend always batches through
+        ``components/get_component_bodies``. Kept as a sync-call
+        convenience for internal callers and tests so the
+        per-id-lookup story doesn't fork.
         """
-        if component_id.startswith(_FEATURED_PREFIX):
-            record = self._featured_by_id.get(component_id)
-            if record is None:
-                return None
-            # The featured id already encodes the board, so we pin platform
-            # resolution to ``record.board_id``. A caller-supplied ``board_id``
-            # that disagrees is almost certainly a bug — log it but don't
-            # honour it (it'd resolve platform_defaults from the wrong board).
-            if board_id is not None and board_id != record.board_id:
-                _LOGGER.warning(
-                    "Featured component %s requested with mismatched board_id %s; "
-                    "resolving platform from %s",
-                    component_id,
-                    board_id,
-                    record.board_id,
-                )
-            target_platform = self._resolve_platform(platform, record.board_id)
-            return _materialise_featured(record, target_platform)
+        bodies = await self.get_component_bodies(
+            component_ids=[component_id],
+            platform=platform,
+            board_id=board_id,
+        )
+        return bodies.get(component_id)
 
-        target_platform = self._resolve_platform(platform, board_id)
-        component = self._by_id.get(component_id)
-        if component is None:
-            return None
-        return _materialise(component, target_platform)
+    @api_command("components/get_component_bodies")
+    async def get_component_bodies(
+        self,
+        *,
+        component_ids: list[str],
+        platform: str | None = None,
+        board_id: str | None = None,
+        **kwargs: Any,
+    ) -> dict[str, ComponentCatalogEntry]:
+        """
+        Hydrate a batch of component bodies in one round trip.
+
+        Returns a dict keyed by the requested id; missing / unknown
+        ids are omitted. Duplicate ids collapse to one entry.
+        ``component_ids`` may include ``featured.<board>.<local>``
+        synthetic ids; their underlying bodies are loaded
+        transparently.
+
+        ``platform`` / ``board_id`` resolve ``platform_defaults``
+        into ``default_value`` uniformly across every returned
+        entry. For featured ids, the explicit ``platform`` wins and
+        ``board_id`` falls back to the record's own board so the
+        right per-board defaults land.
+        """
+        unique_ids = list(dict.fromkeys(component_ids))
+        # Collect every underlying body the batch touches and load
+        # them in one executor hop; the per-id materialise pass
+        # below reads from the returned dict, not the cache, so
+        # batches larger than ``_BODY_CACHE_MAXSIZE`` don't lose
+        # their own early entries to eviction.
+        underlying_ids = [
+            uid for cid in unique_ids if (uid := self._underlying_id(cid)) is not None
+        ]
+        bodies = await self._load_bodies(underlying_ids)
+        return {
+            cid: entry
+            for cid in unique_ids
+            if (
+                entry := self._resolve_one_from_bodies(
+                    cid, bodies, platform=platform, board_id=board_id
+                )
+            )
+            is not None
+        }
 
     @api_command("components/get_components")
     async def get_components(
@@ -296,9 +329,7 @@ class ComponentCatalog:
         ``query`` matches against the component id, name, and description.
         ``platform`` filters to components compatible with the given
         target platform — components with an empty ``supported_platforms``
-        list are considered platform-agnostic and always included. When
-        ``platform`` is set, each entry's ``platform_defaults`` map is
-        also resolved into its ``default_value`` for that platform.
+        list are considered platform-agnostic and always included.
 
         ``board_id`` is a convenience: the boards catalog is consulted
         to derive the matching platform, so the frontend can pass
@@ -317,6 +348,11 @@ class ComponentCatalog:
         regular catalog listing never returns them. Mixed queries
         (e.g. ``category=["featured", "sensor"]``) return featured
         entries first followed by the matching regular entries.
+
+        Response entries are the slim :class:`ComponentCatalogIndexEntry`
+        shape; the per-field ``config_entries`` tree is fetched on
+        demand via ``components/get_component_bodies`` when the user
+        opens a card.
         """
         target_platform = self._resolve_platform(platform, board_id)
         include_set = _as_category_set(category) if category else None
@@ -328,7 +364,7 @@ class ComponentCatalog:
             and board_id is not None
         )
         featured_entries = (
-            self._featured_components_for_board(board_id, target_platform, query)
+            self._featured_components_for_board(board_id, query)
             if include_featured and board_id is not None
             else []
         )
@@ -341,7 +377,7 @@ class ComponentCatalog:
         )
 
         if include_set is not None and not regular_include:
-            results: list[ComponentCatalogEntry] = []
+            results: list[ComponentCatalogIndexEntry] = []
         else:
             results = self._components
             if regular_include:
@@ -364,21 +400,16 @@ class ComponentCatalog:
                     or query_lower in c.id.lower()
                 ]
 
-        # Compose the page across both lists. Featured entries (already
-        # materialised) come first; the regular slice is materialised lazily
-        # so a wide query doesn't pay for entries the caller never reads.
         total_featured = len(featured_entries)
         total = total_featured + len(results)
         end = offset + limit
-        page: list[ComponentCatalogEntry] = []
+        page: list[ComponentCatalogIndexEntry] = []
         if offset < total_featured:
             page.extend(featured_entries[offset : min(end, total_featured)])
         regular_start = max(0, offset - total_featured)
         regular_end = max(0, end - total_featured)
         if regular_end > regular_start:
-            page.extend(
-                _materialise(c, target_platform) for c in results[regular_start:regular_end]
-            )
+            page.extend(results[regular_start:regular_end])
 
         return PagedComponentsResponse(
             components=page,
@@ -397,11 +428,65 @@ class ComponentCatalog:
             ),
         )
 
+    async def get_body(self, component_id: str) -> ComponentCatalogEntry | None:
+        """Return the hydrated body for *component_id*, or ``None`` if missing."""
+        return await self._body_store.get(component_id)
+
+    async def _load_bodies(self, component_ids: list[str]) -> dict[str, ComponentCatalogEntry]:
+        """Batched variant of :meth:`get_body`; one executor hop per call."""
+        return await self._body_store.get_many(component_ids)
+
     def get_featured_record(self, component_id: str) -> _FeaturedRecord | None:
         """Return the registry record for a ``featured.*`` id, or ``None``."""
         return self._featured_by_id.get(component_id)
 
-    def resolve_default_components(
+    def _underlying_id(self, component_id: str) -> str | None:
+        """
+        Map a wire id to the catalog body it resolves to.
+
+        Regular ids return unchanged. ``featured.<board>.<local>``
+        ids return the underlying ``<domain>.<stem>`` id from the
+        featured registry. Returns ``None`` when the featured id
+        is unknown so callers can skip it cleanly.
+        """
+        if not component_id.startswith(_FEATURED_PREFIX):
+            return component_id
+        record = self._featured_by_id.get(component_id)
+        return record.underlying_id if record is not None else None
+
+    def _resolve_one_from_bodies(
+        self,
+        component_id: str,
+        bodies: dict[str, ComponentCatalogEntry],
+        *,
+        platform: str | None,
+        board_id: str | None,
+    ) -> ComponentCatalogEntry | None:
+        """
+        Materialise one id from a pre-loaded body map.
+
+        Pure dict lookup + platform resolution; no I/O. Returns
+        ``None`` when the featured id is unknown or the underlying
+        body wasn't loaded. For a featured id, explicit ``platform``
+        wins and ``board_id`` falls back to the record's own board
+        so ``platform_defaults`` resolve against the right target.
+        """
+        if component_id.startswith(_FEATURED_PREFIX):
+            record = self._featured_by_id.get(component_id)
+            if record is None:
+                return None
+            body = bodies.get(record.underlying_id)
+            if body is None:
+                return None
+            target_platform = self._resolve_platform(platform, record.board_id)
+            return _materialise_featured(record, body, target_platform)
+        body = bodies.get(component_id)
+        if body is None:
+            return None
+        target_platform = self._resolve_platform(platform, board_id)
+        return _materialise(body, target_platform)
+
+    async def resolve_default_components(
         self,
         board: BoardCatalogEntry,
     ) -> list[tuple[ComponentCatalogEntry, dict[str, Any]]]:
@@ -417,54 +502,75 @@ class ComponentCatalog:
         warning — the manifest validator is the contract that
         keeps these from reaching runtime.
         """
-        out: list[tuple[ComponentCatalogEntry, dict[str, Any]]] = []
+        # Collect every underlying body the board's defaults touch
+        # so we can load them in one executor hop, mirroring
+        # ``get_component_bodies``. Pre-classifying each entry into
+        # (record, underlying_id) avoids a second pass through the
+        # featured registry below.
+        targets: list[tuple[Any, _FeaturedRecord | None, str]] = []
         for entry in board.default_components:
             full_id = f"{_FEATURED_PREFIX}{board.id}.{entry.id}"
             record = self._featured_by_id.get(full_id)
+            underlying_id = record.underlying_id if record is not None else entry.id
+            targets.append((entry, record, underlying_id))
+        bodies = await self._load_bodies([t[2] for t in targets])
+        out: list[tuple[ComponentCatalogEntry, dict[str, Any]]] = []
+        for entry, record, underlying_id in targets:
+            body = bodies.get(underlying_id)
+            if body is None:
+                if record is not None:
+                    _LOGGER.warning(
+                        "Board %s default_components featured ref %s has no body — skipping",
+                        board.id,
+                        entry.id,
+                    )
+                else:
+                    _LOGGER.warning(
+                        "Board %s default_components references unknown id %s — skipping",
+                        board.id,
+                        entry.id,
+                    )
+                continue
             if record is not None:
-                fields = _apply_featured_presets(record, {})
+                fields = _apply_featured_presets(record, {}, body)
                 fields.update(entry.fields)
-                out.append((record.underlying, fields))
-                continue
-            component = self._by_id.get(entry.id)
-            if component is None:
-                _LOGGER.warning(
-                    "Board %s default_components references unknown id %s — skipping",
-                    board.id,
-                    entry.id,
-                )
-                continue
-            out.append((component, dict(entry.fields)))
+                out.append((body, fields))
+            else:
+                out.append((body, dict(entry.fields)))
         return out
 
     def _build_featured_registry(self) -> None:
-        """Walk the board catalog and index every featured component."""
+        """Index every featured component from the precomputed map.
+
+        Reads ``definitions/featured_components.index.json`` directly
+        rather than walking per-board bodies — the index carries
+        every ``FeaturedComponent`` aggregated by board id, so the
+        registry build pays zero board-body loads at startup.
+        """
         self._featured_by_id = {}
         self._featured_by_board = {}
-        if self._db is None or self._db.boards is None:
-            return
-        for board in self._db.boards.iter_boards():
+        for board_id, featured in load_featured_components_index().items():
             ids: list[str] = []
-            for fc in board.featured_components:
-                full_id = f"{_FEATURED_PREFIX}{board.id}.{fc.id}"
+            for fc in featured:
+                full_id = f"{_FEATURED_PREFIX}{board_id}.{fc.id}"
                 underlying = self._by_id.get(fc.component_id)
                 if underlying is None:
                     _LOGGER.warning(
                         "Board %s featured.%s references unknown component %s — skipping",
-                        board.id,
+                        board_id,
                         fc.id,
                         fc.component_id,
                     )
                     continue
                 self._featured_by_id[full_id] = _FeaturedRecord(
                     full_id=full_id,
-                    board_id=board.id,
+                    board_id=board_id,
                     featured=fc,
-                    underlying=underlying,
+                    underlying_id=underlying.id,
                 )
                 ids.append(full_id)
             if ids:
-                self._featured_by_board[board.id] = ids
+                self._featured_by_board[board_id] = ids
 
     def _categories_for_board(
         self,
@@ -507,9 +613,7 @@ class ComponentCatalog:
             # Featured rides on the same query so the badge drops to
             # the matches (or vanishes) while the user is searching.
             if query_lower is not None:
-                featured_count = len(
-                    self._featured_components_for_board(board_id, target_platform, query)
-                )
+                featured_count = len(self._featured_components_for_board(board_id, query))
             else:
                 featured_count = len(self._featured_by_board.get(board_id, []))
             if featured_count:
@@ -525,17 +629,19 @@ class ComponentCatalog:
     def _featured_components_for_board(
         self,
         board_id: str,
-        target_platform: str | None,
         query: str | None,
-    ) -> list[ComponentCatalogEntry]:
-        """Materialise every featured component on *board_id*, optionally filtered by *query*."""
+    ) -> list[ComponentCatalogIndexEntry]:
+        """Slim featured-card list for *board_id*, optionally filtered by *query*."""
         ids = self._featured_by_board.get(board_id, [])
-        entries: list[ComponentCatalogEntry] = []
+        entries: list[ComponentCatalogIndexEntry] = []
         for full_id in ids:
             record = self._featured_by_id.get(full_id)
             if record is None:
                 continue
-            entries.append(_materialise_featured(record, target_platform))
+            underlying = self._by_id.get(record.underlying_id)
+            if underlying is None:
+                continue
+            entries.append(_materialise_featured_index(record, underlying))
         if query:
             query_lower = query.lower()
             entries = [
@@ -577,36 +683,60 @@ class ComponentCatalog:
 @dataclass
 class _FeaturedRecord:
     """
-    A featured component resolved against the underlying catalog entry.
+    A featured-component manifest entry resolved against the catalog index.
 
-    ``underlying`` is the regular catalog entry the user is actually
+    ``underlying_id`` is the regular catalog id the user is actually
     adding (``switch.gpio``, ...); ``featured`` carries the manifest's
     name/description overrides and per-field presets to layer on top.
+    The body (config_entries tree) is fetched on demand via
+    :meth:`ComponentCatalog.get_body`.
     """
 
     full_id: str
     board_id: str
     featured: FeaturedComponent
-    underlying: ComponentCatalogEntry
+    underlying_id: str
 
-    @property
-    def underlying_id(self) -> str:
-        return self.underlying.id
+
+def _materialise_featured_index(
+    record: _FeaturedRecord,
+    underlying: ComponentCatalogIndexEntry,
+) -> ComponentCatalogIndexEntry:
+    """
+    Return the slim card-view representation of *record*.
+
+    Builds a :class:`ComponentCatalogIndexEntry` with the synthetic
+    ``featured.<board>.<local>`` id and category ``featured``,
+    overlaying the manifest's name/description (and keeping the
+    underlying component's image / dependencies / supported_platforms).
+    """
+    fc = record.featured
+    return ComponentCatalogIndexEntry(
+        id=record.full_id,
+        name=fc.name or underlying.name,
+        description=fc.description if fc.description is not None else underlying.description,
+        category=ComponentCategory.FEATURED,
+        docs_url=underlying.docs_url,
+        image_url=underlying.image_url,
+        dependencies=list(underlying.dependencies),
+        multi_conf=underlying.multi_conf,
+        supported_platforms=list(underlying.supported_platforms),
+    )
 
 
 def _materialise_featured(
     record: _FeaturedRecord,
+    underlying: ComponentCatalogEntry,
     target_platform: str | None,
 ) -> ComponentCatalogEntry:
     """
-    Return *record* as a ``ComponentCatalogEntry`` ready for the catalog API.
+    Return *record* as a full ``ComponentCatalogEntry`` ready for the detail API.
 
     The result carries the synthetic ``featured.<board>.<local>`` id and
     category ``featured``, the manifest's name/description overrides, and
     each ``FieldPreset`` baked into the corresponding ``ConfigEntry`` as
     ``default_value`` / ``locked`` / ``suggestions``.
     """
-    underlying = record.underlying
     fc = record.featured
     presets = fc.fields
     return ComponentCatalogEntry(
@@ -722,6 +852,7 @@ def _materialise_entry(entry: ConfigEntry, target_platform: str | None) -> Confi
         allow_custom_value=entry.allow_custom_value,
         range=entry.range,
         display_format=entry.display_format,
+        registry=entry.registry,
         unit_options=entry.unit_options,
         multi_value=entry.multi_value,
         templatable=entry.templatable,
@@ -750,189 +881,19 @@ def _materialise_entry(entry: ConfigEntry, target_platform: str | None) -> Confi
 # ---------------------------------------------------------------------------
 
 
-def _safe_enum(enum_cls: type, value: Any, default: Any | None = None) -> Any:
-    """Coerce *value* to an enum member, returning *default* on failure."""
-    if value is None or value == "":
-        return default
-    try:
-        return enum_cls(value)
-    except (ValueError, KeyError):
-        return default
+def _load_body_from_disk(component_id: str) -> ComponentCatalogEntry | None:
+    """Read ``components/<component_id>.json`` and hydrate into a ComponentCatalogEntry.
 
-
-# Closed-vocabulary string fields on ConfigEntry / ComponentCatalogEntry
-# (``platform_type``, ``references_component``, ``supported_platforms``
-# members) draw from a few dozen unique values shared across ~13k
-# ConfigEntry instances. ``sys.intern`` collapses every occurrence onto
-# a single PyUnicode object, trimming several MB off the loaded
-# catalog's resident size for free — no wire-shape change.
-def _intern_optional(value: Any) -> str | None:
-    """Intern *value* when it's a non-empty string; return ``None`` otherwise."""
-    if isinstance(value, str) and value:
-        return sys.intern(value)
-    return None
-
-
-def _intern_str_list(values: Any) -> list[str]:
-    """Build a list of interned strings; empty list for missing or malformed input."""
-    if not isinstance(values, list):
-        return []
-    return [sys.intern(v) for v in values if isinstance(v, str)]
-
-
-def _load_pin_features(raw: Any) -> list[PinFeature]:
-    """Parse a list of pin-feature strings, dropping unknown values."""
-    if not isinstance(raw, list):
-        return []
-    out: list[PinFeature] = []
-    for item in raw:
-        feat = _safe_enum(PinFeature, item)
-        if feat is not None:
-            out.append(feat)
-    return out
-
-
-def _load_unit_options(raw: Any) -> list[str] | None:
-    """Normalise the JSON ``unit_options`` field into a list of strings.
-
-    ``None`` for non-FLOAT_WITH_UNIT entries (the catalog omits the
-    field entirely on those). Non-list / empty values fold back to
-    ``None`` so a malformed catalog entry doesn't reach the frontend
-    as a half-populated picker — same shape as ``_load_options``.
+    Defense-in-depth traversal guard via
+    :func:`is_unsafe_catalog_id` — kept as a string check rather
+    than ``Path.resolve`` so the hot path stays out of the kernel
+    ``lstat`` walk that resolve does on every hydrate.
     """
-    if not isinstance(raw, list) or not raw:
+    if is_unsafe_catalog_id(component_id):
+        _LOGGER.warning("Refusing component body for traversal-shaped id: %r", component_id)
         return None
-    out = [str(item) for item in raw if isinstance(item, str)]
-    return out or None
-
-
-def _load_options(raw: Any) -> list[ConfigValueOption] | None:
-    """
-    Normalise the JSON ``options`` field into ConfigValueOption objects.
-
-    Accepts either a list of plain strings (each used as both label and
-    value) or a list of ``{label, value}`` dicts.
-    """
-    if not isinstance(raw, list) or not raw:
+    body_path = _COMPONENT_BODIES_DIR / f"{component_id}.json"
+    if not body_path.is_file():
+        _LOGGER.warning("Component body missing on disk: %s", body_path)
         return None
-    out: list[ConfigValueOption] = []
-    for item in raw:
-        if isinstance(item, str):
-            out.append(ConfigValueOption(label=item, value=item))
-        elif isinstance(item, dict):
-            value = str(item.get("value", ""))
-            label = str(item.get("label", value))
-            out.append(ConfigValueOption(label=label, value=value))
-    return out or None
-
-
-def _load_display_format(raw: Any) -> str | None:
-    """
-    Normalise the JSON ``display_format`` field.
-
-    Currently only ``"hex"`` is recognised; anything else (an unknown
-    future variant a stale frontend wouldn't understand, garbage in
-    the catalog, the common ``None`` for non-hex fields) folds back
-    to ``None`` so the frontend's renderer falls through to the
-    decimal-number default. Mirrors the ``_safe_enum`` policy used
-    for ``pin_mode`` etc. — the catalog can introduce new variants
-    without breaking dashboards still on an older release.
-    """
-    if raw == "hex":
-        return "hex"
-    return None
-
-
-def _load_required_groups(raw: Any) -> list[RequiredGroup]:
-    """
-    Normalise the JSON ``required_groups`` field into ``RequiredGroup`` objects.
-
-    Returns an empty list for missing / malformed input so callers
-    can store the field unconditionally. Unknown ``kind`` values
-    (a future cardinality validator a stale dashboard wouldn't
-    understand) drop the offending entry — same fail-soft policy
-    as ``_load_display_format`` / ``_safe_enum``.
-    """
-    if not isinstance(raw, list) or not raw:
-        return []
-    out: list[RequiredGroup] = []
-    for item in raw:
-        if not isinstance(item, dict):
-            continue
-        kind = _safe_enum(RequiredGroupKind, item.get("kind"))
-        if kind is None:
-            continue
-        keys_raw = item.get("keys")
-        if not isinstance(keys_raw, list):
-            continue
-        keys = [str(k) for k in keys_raw if isinstance(k, str)]
-        if not keys:
-            continue
-        out.append(RequiredGroup(kind=kind, keys=keys))
-    return out
-
-
-def _load_config_entry(data: dict) -> ConfigEntry:
-    """Load a ConfigEntry from its JSON representation."""
-    range_val: tuple[int | float, int | float] | None = None
-    raw_range = data.get("range")
-    if isinstance(raw_range, (list, tuple)) and len(raw_range) == 2:
-        range_val = (raw_range[0], raw_range[1])
-
-    nested_raw = data.get("config_entries")
-    nested = (
-        [_load_config_entry(e) for e in nested_raw]
-        if isinstance(nested_raw, list) and nested_raw
-        else None
-    )
-
-    return ConfigEntry(
-        key=data["key"],
-        type=_safe_enum(ConfigEntryType, data.get("type"), ConfigEntryType.UNKNOWN),
-        label=data.get("label") or data["key"],
-        description=data.get("description"),
-        required=bool(data.get("required", False)),
-        default_value=data.get("default_value"),
-        platform_defaults=data.get("platform_defaults"),
-        options=_load_options(data.get("options")),
-        allow_custom_value=bool(data.get("allow_custom_value", False)),
-        range=range_val,
-        display_format=_load_display_format(data.get("display_format")),
-        unit_options=_load_unit_options(data.get("unit_options")),
-        multi_value=bool(data.get("multi_value", False)),
-        templatable=bool(data.get("templatable", False)),
-        depends_on=data.get("depends_on"),
-        depends_on_value=data.get("depends_on_value"),
-        depends_on_value_not=data.get("depends_on_value_not"),
-        depends_on_component=data.get("depends_on_component"),
-        references_component=_intern_optional(data.get("references_component")),
-        pin_features=_load_pin_features(data.get("pin_features")),
-        pin_mode=_safe_enum(PinMode, data.get("pin_mode")),
-        advanced=bool(data.get("advanced", False)),
-        hidden=bool(data.get("hidden", False)),
-        help_link=data.get("help_link"),
-        translation_key=data.get("translation_key"),
-        translation_params=data.get("translation_params"),
-        config_entries=nested,
-        platform_type=_intern_optional(data.get("platform_type")),
-        supported_platforms=_intern_str_list(data.get("supported_platforms")),
-        group=data.get("group") or None,
-        required_groups=_load_required_groups(data.get("required_groups")),
-    )
-
-
-def _load_component(data: dict) -> ComponentCatalogEntry:
-    """Load a ComponentCatalogEntry from its JSON representation."""
-    return ComponentCatalogEntry(
-        id=data["id"],
-        name=data.get("name", data["id"]),
-        description=data.get("description", ""),
-        category=_safe_enum(ComponentCategory, data.get("category"), ComponentCategory.MISC),
-        docs_url=data.get("docs_url", ""),
-        image_url=data.get("image_url", ""),
-        dependencies=list(data.get("dependencies", [])),
-        multi_conf=bool(data.get("multi_conf", False)),
-        supported_platforms=_intern_str_list(data.get("supported_platforms")),
-        config_entries=[_load_config_entry(e) for e in data.get("config_entries", [])],
-        required_groups=_load_required_groups(data.get("required_groups")),
-    )
+    return ComponentCatalogEntry.from_dict(loads(body_path.read_bytes()))

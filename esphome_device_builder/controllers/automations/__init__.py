@@ -3,8 +3,10 @@ Automations controller package — public surface.
 
 Submodules:
 
-- ``catalog`` — loads ``definitions/automations.json`` and exposes
-  the four catalog lists.
+- ``catalog`` — loads the slim ``definitions/automations.index.json``
+  and exposes the five catalog lists (triggers / actions /
+  conditions / light_effects / filters); full bodies hydrate
+  lazily through per-type :class:`LazyBodyStore` caches.
 - ``parsing`` — ruamel YAML → :class:`ParsedAutomation` list.
 - ``emitter`` — :class:`AutomationTree` → ruamel structures.
 - ``writing`` — splice the emitted YAML into the device YAML,

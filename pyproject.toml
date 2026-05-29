@@ -12,7 +12,7 @@ classifiers = [
   "Topic :: Home Automation",
 ]
 dependencies = [
-  "esphome-device-builder-frontend==0.1.87",
+  "esphome-device-builder-frontend==0.1.98",
   "aiohttp>=3.9.0",
   # Provides an ``aiohttp.AsyncResolver`` that resolves ``.local``
   # hostnames through an injected ``AsyncZeroconf`` (the same
@@ -24,7 +24,7 @@ dependencies = [
   "cryptography>=42.0.2",
   # Cheap non-cryptographic hash for the editor's
   # validate-result cache (content → cached subprocess result).
-  "fnv-hash-fast>=1.0.0",
+  "fnv-hash-fast>=2.0.0",
   "ifaddr>=0.2.0",
   "mashumaro>=3.13",
   "orjson>=3.9.0",
@@ -65,11 +65,11 @@ test = [
   "pre-commit-hooks==6.0.0",
   "pytest==9.0.3",
   "pytest-aiohttp==1.1.0",
-  "pytest-codspeed==5.0.2",
+  "pytest-codspeed==5.0.3",
   "pytest-cov==7.1.0",
   "pytest-timeout==2.4.0",
   "pytest-xdist==3.8.0",
-  "ruff==0.15.13",
+  "ruff==0.15.15",
   "types-PyYAML",
 ]
 
@@ -93,9 +93,13 @@ zip-safe = false
 esphome_device_builder = [
   "py.typed",
   "definitions/boards/*/images/*",
-  "definitions/boards.json",
-  "definitions/components.json",
-  "definitions/automations.json",
+  "definitions/boards.index.json",
+  "definitions/board_bodies/*.json",
+  "definitions/featured_components.index.json",
+  "definitions/components.index.json",
+  "definitions/components/*.json",
+  "definitions/automations.index.json",
+  "definitions/automations/*/*.json",
 ]
 
 [tool.ruff]
@@ -164,9 +168,14 @@ select = [
   "B", # flake8-bugbear
   "BLE", # flake8-blind-except — flag ``except Exception:`` so the catch scope is deliberate
   "C4", # flake8-comprehensions
+  "C90", # mccabe complexity — flag new functions whose cyclomatic complexity
+  # exceeds the default 10 branches. 31 pre-existing offenders are
+  # grandfathered with inline ``# noqa: C901`` so this rule catches *new*
+  # accidental complexity without forcing a refactor on existing code.
   "D", # pydocstyle
   "DTZ", # flake8-datetimez — flag naive datetime construction; force explicit tz
   "E", # pycodestyle errors
+  "EXE", # flake8-executable — keep shebangs and the executable bit in sync
   "F", # pyflakes
   "FBT", # flake8-boolean-trap — flag positional ``bool`` params / calls
   "FLY", # flynt: convert string formatting to f-strings
@@ -179,20 +188,29 @@ select = [
   "LOG", # flake8-logging — catch ``logging.warn`` / wrong exception handling on the logger
   "N", # pep8-naming
   "PERF", # performance
+  "PGH", # pygrep-hooks — flag blanket ``# type: ignore`` / ``# noqa`` without a code
+  "PIE", # flake8-pie — misc lints (collapse duplicate startswith/endswith, prefer ``list`` over ``lambda: []``)
   "PL", # pylint
   "PTH", # flake8-use-pathlib — prefer pathlib over os.path/os primitives
   "PLR0904", # too-many-public-methods (preview) — cap new god-classes at 20
+  "PLW1514", # unspecified-encoding (preview) — force explicit encoding= on open/read_text/write_text so non-ASCII doesn't mangle under Windows cp1252
+  "PYI", # flake8-pyi — type-stub correctness (collapses ``int | float`` to ``float``, etc.)
+  "Q", # flake8-quotes — pin quote style; ruff format already enforces double, this catches escape-only deviations
   "RET", # flake8-return
+  "RSE", # flake8-raise — flag unnecessary parens on raised exception classes (``raise X()`` → ``raise X``)
   "RUF", # ruff-specific
   "S", # flake8-bandit
   "SIM", # flake8-simplify
+  "SLOT", # flake8-slots — require ``__slots__`` on ``str`` / ``tuple`` / ``namedtuple`` subclasses
   "SLF", # flake8-self — flag cross-class private member access so the State
   # dataclass boundary stays load-bearing; sibling-module access within a
   # controller package is exempted via per-file-ignores below.
+  "T10", # flake8-debugger — flag stray ``breakpoint()`` / ``pdb.set_trace()`` calls
   "T20", # flake8-print
   "TRY", # tryceratops — exception-handling antipatterns (TRY003 globally ignored above)
   "UP", # pyupgrade
   "W", # pycodestyle warnings
+  "YTT", # flake8-2020 — flag ``sys.version`` / ``sys.version_info`` slicing bugs
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -203,7 +221,7 @@ select = [
 # BLE001 is waived because sync scripts iterate over hundreds of catalog
 # entries and want "log + continue" for any failure shape; per-entry noqa
 # would be noise.
-"script/*" = ["T20", "S108", "S310", "S110", "S603", "S607", "E501", "PLC0415", "SLF001", "BLE001", "FBT001", "FBT002", "TRY400"]
+"script/*" = ["T20", "S108", "S310", "S110", "S603", "S607", "E501", "PLC0415", "SLF001", "BLE001", "FBT001", "FBT002", "TRY400", "INP001"]
 # Discovery CLI: prints are the entire UX (mirrors aioesphomeapi-discover).
 "esphome_device_builder/discover.py" = ["T20"]
 # Tests need free access to controller privates for setup / assertion;

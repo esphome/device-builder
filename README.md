@@ -53,14 +53,21 @@ add-on / Desktop shapes:
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install esphome-device-builder
+pip install 'esphome-device-builder[esphome]'
 
 esphome-device-builder ~/esphome-configs
 ```
 
+The `[esphome]` extra pulls in the upstream `esphome` package the
+dashboard needs to compile, flash, and discover devices. The HA
+add-on / Desktop builds ship `esphome` separately, so the bare
+`pip install esphome-device-builder` (no extra) is for those
+contexts only.
+
 For the beta channel, pass `--pre` to opt the resolver into
-prereleases — e.g. `pip install --pre esphome-device-builder` for a
-fresh install, or `pip install --upgrade --pre esphome-device-builder`
+prereleases — e.g. `pip install --pre 'esphome-device-builder[esphome]'`
+for a fresh install, or
+`pip install --upgrade --pre 'esphome-device-builder[esphome]'`
 to pull the newest beta on top of an existing install. `--pre` only
 opts the *current* command into prereleases; rerun the upgrade
 command to refresh.
@@ -80,7 +87,9 @@ handy as a fallback if PyPI is unreachable.
 python -m venv .venv && source .venv/bin/activate
 
 # Replace <version> with a release tag (X.Y.Z stable, X.Y.ZbN beta).
-pip install "https://github.com/esphome/device-builder/releases/download/<version>/esphome_device_builder-<version>-py3-none-any.whl"
+# ``[esphome] @ <url>`` carries the optional extra through the
+# direct-URL install so the dashboard finds esphome at startup.
+pip install "esphome-device-builder[esphome] @ https://github.com/esphome/device-builder/releases/download/<version>/esphome_device_builder-<version>-py3-none-any.whl"
 
 esphome-device-builder ~/esphome-configs
 ```

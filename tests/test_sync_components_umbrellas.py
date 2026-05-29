@@ -1,7 +1,7 @@
 """Unit tests for ``_inject_umbrella_entries`` in ``script/sync_components.py``.
 
 The integration test in ``test_components_integration_docs.py`` exercises the
-shipped ``components.json`` — useful, but a regression in the sync logic
+shipped component catalog — useful, but a regression in the sync logic
 itself wouldn't fail CI as long as the file isn't regenerated. These tests
 poke the function directly with synthetic catalog fragments so the contract
 holds independent of whatever happens to be checked in.

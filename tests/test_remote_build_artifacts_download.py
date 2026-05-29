@@ -899,6 +899,45 @@ def test_unpack_artifacts_response_directory_entry_raises() -> None:
         )
 
 
+def test_unpack_artifacts_response_rewrites_windows_paths_to_basenames() -> None:
+    r"""Windows-receiver flash-image paths still rewrite to basenames on a POSIX offloader.
+
+    ``Path(entry["path"]).name`` on Linux treats backslashes as
+    literal characters, so a Windows path like
+    ``C:\...\bootloader.bin`` would round-trip the entire
+    string into the ``path`` field and the offloader's lookup
+    would miss. The cross-OS basename helper must return just
+    the trailing component.
+    """
+    win_path = r"C:\Users\receiver\.esphome\build\dev\.pioenvs\dev\bootloader.bin"
+    idedata_bytes = json.dumps(
+        {"extra": {"flash_images": [{"path": win_path, "offset": "0x1000"}]}}
+    ).encode("utf-8")
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        idedata_info = tarfile.TarInfo(name="idedata.json")
+        idedata_info.size = len(idedata_bytes)
+        tar.addfile(idedata_info, io.BytesIO(idedata_bytes))
+        firmware_info = tarfile.TarInfo(name="firmware.bin")
+        firmware_info.size = 4
+        tar.addfile(firmware_info, io.BytesIO(b"FIRM"))
+        # The receiver-side packer stores flash images flat at
+        # the basename; mirror that here.
+        bootloader_info = tarfile.TarInfo(name="bootloader.bin")
+        bootloader_info.size = 4
+        tar.addfile(bootloader_info, io.BytesIO(b"BOOT"))
+
+    response = unpack_artifacts_response(
+        DownloadArtifactsResult(tarball=buf.getvalue(), firmware_offset="0x10000"),
+        job_id="j",
+    )
+
+    image_names = [image["name"] for image in response["images"]]
+    assert image_names == ["firmware.bin", "bootloader.bin"]
+    rewritten_paths = [entry["path"] for entry in response["idedata"]["extra"]["flash_images"]]
+    assert rewritten_paths == ["bootloader.bin"]
+
+
 def test_unpack_artifacts_response_missing_flash_image_from_extras_raises() -> None:
     """An extra-flash-image entry whose tarball member is missing raises."""
     idedata_bytes = json.dumps(

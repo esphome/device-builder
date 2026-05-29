@@ -10,7 +10,7 @@ component preset. Catches:
 - A breaking change in the upstream front-matter contract
 - A SoC family or variant rename
 - Featured-component extraction regressions
-- A change in the components.json catalog that quietly drops a
+- A change in the components catalog that quietly drops a
   ``component_id`` we depend on
 
 Designed to run in CI right after ``script/sync_esphome_devices.py``,

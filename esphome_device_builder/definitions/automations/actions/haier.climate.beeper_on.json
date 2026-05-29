@@ -1,0 +1,1 @@
+{"id":"haier.climate.beeper_on","name":"Climate.Haier → Beeper On","description":"(supported only by hOn) This action enables beep feedback on every command sent to AC.","docs_url":"https://esphome.io/automations/actions","domain":"climate.haier","config_entries":[],"is_control_flow":false,"has_else_branch":false,"accepts_action_list":[]}

@@ -1,0 +1,1 @@
+{"id":"esp32_camera.on_stream_start","name":"Esp32 Camera → On Stream Start","description":"An automation to perform when a stream starts.","docs_url":"https://esphome.io/components/esp32_camera#configuration-variables","applies_to":["esp32_camera"],"is_device_level":false,"config_entries":[]}

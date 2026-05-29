@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from .controller import DevicesController
 
 
-async def create_device(  # noqa: PLR0912, PLR0915
+async def create_device(  # noqa: PLR0912, PLR0915, C901
     controller: DevicesController,
     *,
     name: str,
@@ -85,7 +85,7 @@ async def create_device(  # noqa: PLR0912, PLR0915
             msg = f"Unknown board: {board_id}"
             raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
-    yaml_content, source = controller._yaml_content_for_create(
+    yaml_content, source = await controller._yaml_content_for_create(
         name, friendly, board, file_content, ssid, psk
     )
 
@@ -120,7 +120,9 @@ async def create_device(  # noqa: PLR0912, PLR0915
             if matched is None and parsed_platform:
                 matched = controller._db.boards.find_by_platform_variant(parsed_platform, variant)
             if matched:
-                board = matched
+                # board stays None — _init_storage uses parsed_platform
+                # when board is unset, and only board_id needs to be
+                # persisted here for the device-metadata sidecar.
                 board_id = matched.id
 
     loop = asyncio.get_running_loop()

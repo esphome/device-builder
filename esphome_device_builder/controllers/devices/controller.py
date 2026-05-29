@@ -403,6 +403,13 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             self, configuration=configuration, label_ids=label_ids
         )
 
+    @api_command("devices/set_labels_bulk")
+    async def set_labels_bulk(
+        self, *, updates: list[dict[str, Any]], **kwargs: Any
+    ) -> list[dict[str, Any]]:
+        """Assign labels across multiple devices."""
+        return await mutations_simple.set_labels_bulk(self, updates=updates)
+
     @api_command("devices/rename")
     async def rename_device(
         self,
@@ -448,7 +455,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             new_friendly_name=new_friendly_name,
         )
 
-    def _yaml_content_for_create(
+    async def _yaml_content_for_create(
         self,
         name: str,
         friendly: str,
@@ -457,7 +464,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         ssid: str,
         psk: str,
     ) -> tuple[str, mutations_yaml.CreateYamlSource]:
-        return mutations_yaml.yaml_content_for_create(
+        return await mutations_yaml.yaml_content_for_create(
             name, friendly, board, file_content, ssid, psk, catalog=self._db.components
         )
 
@@ -603,6 +610,12 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     @api_command("devices/update_config")
     async def update_config(self, *, configuration: str, content: str, **kwargs: Any) -> None:
         """Write device config YAML."""
+        if not content.strip():
+            raise CommandError(
+                ErrorCode.INVALID_ARGS,
+                f"refusing to write empty content to {configuration!r} to prevent "
+                "accidental data loss; use the delete action to remove a file",
+            )
         await self._persist_yaml_mutation(configuration, content)
 
     def _schedule_storage_regenerate(self, configuration: str) -> None:

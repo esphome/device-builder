@@ -1,0 +1,1 @@
+{"id":"voice_assistant.on_idle","name":"Voice Assistant → On Idle","description":"An automation to perform when the voice assistant is idle (no other actions/states are in progress).","docs_url":"https://esphome.io/components/voice_assistant#configuration-variables","applies_to":["voice_assistant"],"is_device_level":false,"config_entries":[]}

@@ -126,7 +126,7 @@ def remove_inline_handler(
     return None
 
 
-def _locate_component_instance(
+def _locate_component_instance(  # noqa: C901
     lines: list[str],
     domain: str,
     component_id: str,

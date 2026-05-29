@@ -1,0 +1,1 @@
+{"id":"micro_wake_word.on_wake_word_detected","name":"Micro Wake Word → On Wake Word Detected","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["micro_wake_word"],"is_device_level":false,"config_entries":[]}

@@ -93,26 +93,17 @@ async def test_follow_jobs_replays_snapshot_then_live_events_in_order(
 async def test_follow_jobs_snapshot_does_not_duplicate_with_concurrent_mutation(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
-    """A running job mutating mid-snapshot doesn't appear twice.
+    """A running job mutating mid-snapshot delivers its line once, via the live event.
 
-    The earlier shape captured ``FirmwareJob`` objects synchronously
-    and called ``to_dict()`` later inside ``send_initial``. With
-    multiple jobs that's racy: between iterations of the snapshot
-    loop, each ``await send_event(...)`` yields the loop, the
-    runner runs and can mutate the *next* job's ``output``, then
-    the next iteration's ``to_dict()`` captures the mutated state.
-    The matching live ``JOB_OUTPUT`` is also delivered by the
-    listener — so the client sees the same line twice (once in
-    snapshot, once in the drain).
-
-    The fix is to dict-freeze the snapshot synchronously before
-    ``stream_events`` attaches listeners (no awaits between
-    freeze and attach). This test pins it with the
-    multi-job shape: snapshot[0] parks the helper in
-    ``send_event``, the test mutates ``job_b.output`` and fires
-    the matching ``JOB_OUTPUT``, then unblocks the helper and
-    checks that snapshot[1] has *only* the pre-mutation output
-    while the live event is delivered exactly once.
+    Snapshots carry no ``output`` (terminal logs come from the
+    sidecar via ``follow_job``; a running job's lines arrive as
+    live ``JOB_OUTPUT`` events), so a mid-snapshot mutation can't
+    leak into the snapshot path. This pins that the line lands
+    exactly once — through the live event, never duplicated into
+    the snapshot — with the multi-job shape: snapshot[0] parks the
+    helper, the test mutates ``job_b.output`` and fires the
+    matching ``JOB_OUTPUT``, then unblocks and checks the snapshot
+    omits output while the live event is delivered once.
     """
     job_a = FirmwareJob(
         job_id="a",
@@ -172,9 +163,9 @@ async def test_follow_jobs_snapshot_does_not_duplicate_with_concurrent_mutation(
     snapshots = {d["job_id"]: d for (e, d) in received if e == StreamEvent.SNAPSHOT}
     job_outputs = [d for (e, d) in received if e == EventType.JOB_OUTPUT]
 
-    # snapshot[b] was frozen synchronously up front (before any
-    # await), so the mid-snapshot mutation isn't reflected.
-    assert snapshots["b"]["output"] == ["b-pre-snapshot\n"]
+    # Snapshots omit output entirely, so the mid-snapshot mutation
+    # can't leak into snapshot[b].
+    assert "output" not in snapshots["b"]
     # The mid-snapshot line lands exactly once via the live
     # event — not duplicated through the snapshot path.
     assert job_outputs == [{"job_id": "b", "line": "b-mid-snapshot\n"}]

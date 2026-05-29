@@ -1,0 +1,1 @@
+{"id":"round","name":"Sensor → Round","config_entries":[{"key":"accuracy_decimals","type":"integer","label":"Accuracy Decimals","required":true,"range":[0,255],"display_format":null}],"applies_to":["sensor"],"value_type":null}

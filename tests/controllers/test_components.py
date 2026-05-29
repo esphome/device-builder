@@ -7,18 +7,18 @@ suite doesn't reach:
 
 - ``load()`` empty-when-missing path.
 - ``get_integration_docs`` skip-when-no-id-or-docs.
-- ``get_component`` returns ``None`` for an unknown id.
+- ``get_component_bodies`` returns an empty dict for an unknown id.
 - ``get_components`` ``exclude_category`` + ``query`` filters.
 - ``_build_featured_registry`` empty-when-no-boards and
   warn-on-unknown-component-id branches.
 - ``_featured_components_for_board`` skips when the index
   diverges from ``_featured_by_id``.
 - ``_resolve_platform`` lower-casing + unknown-board-id branches.
-- ``_load_pin_features`` / ``_load_options`` rejection paths.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -26,19 +26,17 @@ from unittest.mock import patch
 
 import pytest
 
+from esphome_device_builder.controllers import components as components_module
 from esphome_device_builder.controllers.boards import BoardCatalog
 from esphome_device_builder.controllers.components import (
     INTERNAL_COMPONENT_IDS,
     ComponentCatalog,
     _FeaturedRecord,
-    _load_options,
-    _load_pin_features,
 )
 from esphome_device_builder.models import (
-    ComponentCatalogEntry,
+    ComponentCatalogIndexEntry,
     ComponentCategory,
     FeaturedComponent,
-    PinFeature,
 )
 
 
@@ -58,13 +56,14 @@ def _make_entry(
     category: ComponentCategory = ComponentCategory.MISC,
     docs_url: str = "",
     supported_platforms: list[str] | None = None,
-) -> ComponentCatalogEntry:
-    """Build a minimal ``ComponentCatalogEntry`` for catalog-state tests.
+) -> ComponentCatalogIndexEntry:
+    """Build a minimal ``ComponentCatalogIndexEntry`` for catalog-state tests.
 
-    Real catalog entries have ~20 fields; the dataclass defaults
-    cover the ones we don't care about for these branch tests.
+    The catalog now holds slim index entries in memory; bodies
+    hydrate lazily through ``get_body``. Tests that just need an
+    entry to live in ``_components`` / ``_by_id`` use this helper.
     """
-    return ComponentCatalogEntry(
+    return ComponentCatalogIndexEntry(
         id=entry_id,
         name=name or entry_id,
         description=description,
@@ -74,28 +73,27 @@ def _make_entry(
         dependencies=[],
         multi_conf=False,
         supported_platforms=supported_platforms or [],
-        config_entries=[],
     )
 
 
 # ── load() ──────────────────────────────────────────────────────────
 
 
-def test_load_warns_and_leaves_catalog_empty_when_components_json_missing(
+def test_load_warns_and_leaves_catalog_empty_when_index_missing(
     caplog: pytest.LogCaptureFixture,
     tmp_path: Path,
 ) -> None:
-    """Missing ``components.json`` warns and leaves the catalog empty.
+    """Missing ``components.index.json`` warns and leaves the catalog empty.
 
-    The catalog should not crash when the JSON is absent — it
+    The catalog should not crash when the index is absent — it
     logs a warning and stays empty so the rest of the controller
     can run (with empty results) until the file is regenerated.
     """
-    missing = tmp_path / "no-such-components.json"
+    missing = tmp_path / "no-such-components.index.json"
     cat = ComponentCatalog()
     with (
         patch(
-            "esphome_device_builder.controllers.components._COMPONENTS_JSON",
+            "esphome_device_builder.controllers.components._COMPONENTS_INDEX_JSON",
             missing,
         ),
         caplog.at_level(logging.WARNING),
@@ -103,7 +101,7 @@ def test_load_warns_and_leaves_catalog_empty_when_components_json_missing(
         cat.load()
     assert cat._components == []
     assert cat._by_id == {}
-    assert any("Component catalog not found" in rec.message for rec in caplog.records)
+    assert any("Component index not found" in rec.message for rec in caplog.records)
 
 
 def test_load_filters_out_internal_helper_components(tmp_path: Path) -> None:
@@ -118,23 +116,18 @@ def test_load_filters_out_internal_helper_components(tmp_path: Path) -> None:
     when the denylist is extended (and catches a regression that
     drops the filter against the same set of inputs).
     """
-    user_facing = {
-        "id": "web_server",
-        "name": "Web Server",
-        "category": "core",
-        "config_entries": [],
-    }
+    user_facing = {"id": "web_server", "name": "Web Server", "category": "core", "description": ""}
     components = [user_facing] + [
-        {"id": cid, "name": cid, "category": "core", "config_entries": []}
+        {"id": cid, "name": cid, "category": "core", "description": ""}
         for cid in INTERNAL_COMPONENT_IDS
     ]
-    components_json = tmp_path / "components.json"
-    components_json.write_text(json.dumps({"components": components}))
+    index_path = tmp_path / "components.index.json"
+    index_path.write_text(json.dumps({"components": components}))
 
     cat = ComponentCatalog()
     with patch(
-        "esphome_device_builder.controllers.components._COMPONENTS_JSON",
-        components_json,
+        "esphome_device_builder.controllers.components._COMPONENTS_INDEX_JSON",
+        index_path,
     ):
         cat.load()
 
@@ -189,15 +182,15 @@ async def test_get_integration_docs_skips_entries_with_no_id_or_no_docs() -> Non
     assert "no_docs" not in docs
 
 
-# ── get_component() ─────────────────────────────────────────────────
+# ── get_component_bodies() unknown-id branch ────────────────────────
 
 
-async def test_get_component_returns_none_for_unknown_id() -> None:
-    """Unknown ``component_id`` resolves to ``None`` rather than a crash."""
+async def test_get_component_bodies_omits_unknown_ids() -> None:
+    """Unknown ``component_id`` is silently dropped from the response."""
     cat = ComponentCatalog()
     cat._components = [_make_entry(entry_id="wifi")]
     cat._by_id = {"wifi": cat._components[0]}
-    assert await cat.get_component(component_id="does-not-exist") is None
+    assert await cat.get_component_bodies(component_ids=["does-not-exist"]) == {}
 
 
 # ── get_components() ────────────────────────────────────────────────
@@ -339,13 +332,20 @@ async def test_get_categories_endpoint_unaffected_by_query_filter_change() -> No
 # ── _build_featured_registry() ──────────────────────────────────────
 
 
-def test_build_featured_registry_is_empty_when_no_boards() -> None:
-    """No boards → empty featured registry, no crash.
+def test_build_featured_registry_is_empty_when_index_is_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An empty ``featured_components.index.json`` builds an empty registry.
 
-    The featured registry depends on the boards catalog; a
-    catalog constructed without one (or whose ``boards`` is
-    ``None``) builds an empty registry rather than crashing.
+    Post-split, the registry reads from the precomputed index
+    rather than walking board bodies; the no-boards-loaded case
+    becomes "the index is empty," which still has to short-circuit
+    cleanly without crashing.
     """
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.components.load_featured_components_index",
+        dict,
+    )
     cat = ComponentCatalog(_Container(boards=None))
     cat._build_featured_registry()
     assert cat._featured_by_id == {}
@@ -353,39 +353,59 @@ def test_build_featured_registry_is_empty_when_no_boards() -> None:
 
 
 def test_build_featured_registry_skips_and_warns_on_unknown_component_id(
+    monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Unknown ``component_id`` in a featured ref logs and skips.
 
-    A board can declare a featured component whose
-    ``component_id`` doesn't resolve in the catalog (bad
-    reference, stale board JSON). The registry should log a
-    warning and skip rather than poison the index with a
-    half-built record.
+    A board can declare a featured component whose ``component_id``
+    doesn't resolve in the catalog (bad reference, stale board
+    JSON). The registry should log a warning and skip rather than
+    poison the index with a half-built record.
+
+    Post-split, featured components come from
+    ``featured_components.index.json`` rather than board bodies, so
+    monkeypatch the loader directly to inject the phantom.
     """
-    boards_cat = BoardCatalog()
-    boards_cat.load()
-    cat = ComponentCatalog(_Container(boards=boards_cat))
-    # Pick any real board and inject a featured-component referencing
-    # a deliberately-unknown component_id. The warning path runs
-    # purely against ``self._by_id`` so we don't need a fully-loaded
-    # component catalog — just one that doesn't have the bogus id.
-    target_board = boards_cat.iter_boards()[0]
-    target_board.featured_components.append(
-        FeaturedComponent(id="zzz_test_phantom", component_id="not.a.real.component")
+    cat = ComponentCatalog(_Container(boards=None))
+    phantom = FeaturedComponent(id="zzz_test_phantom", component_id="not.a.real.component")
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.components.load_featured_components_index",
+        lambda: {"some_board": [phantom]},
     )
-    try:
-        with caplog.at_level(logging.WARNING):
-            cat._build_featured_registry()
-        assert any("references unknown component" in rec.message for rec in caplog.records)
-        # The phantom id never lands in the index.
-        assert not any(full_id.endswith(".zzz_test_phantom") for full_id in cat._featured_by_id)
-    finally:
-        # Restore the shared board so other tests aren't polluted.
-        target_board.featured_components.pop()
+    with caplog.at_level(logging.WARNING):
+        cat._build_featured_registry()
+    assert any("references unknown component" in rec.message for rec in caplog.records)
+    assert not any(full_id.endswith(".zzz_test_phantom") for full_id in cat._featured_by_id)
 
 
 # ── _featured_components_for_board() ────────────────────────────────
+
+
+def test_featured_components_for_board_skips_underlying_missing_from_index() -> None:
+    """A featured record whose underlying id vanished from the slim index is skipped.
+
+    Defensive branch in ``_featured_components_for_board``: the
+    featured registry survives an entry being dropped from the
+    main index (sync regen mid-flight, hand-edited override).
+    The skim listing must drop the orphan rather than reach into
+    ``None``.
+    """
+    cat = ComponentCatalog()
+    cat._by_id = {}  # underlying "switch.gpio" deliberately not present
+    cat._featured_by_id = {
+        "featured.bench-board.relay": _FeaturedRecord(
+            full_id="featured.bench-board.relay",
+            board_id="bench-board",
+            featured=FeaturedComponent(id="relay", component_id="switch.gpio"),
+            underlying_id="switch.gpio",
+        )
+    }
+    cat._featured_by_board = {"bench-board": ["featured.bench-board.relay"]}
+
+    entries = cat._featured_components_for_board("bench-board", query=None)
+
+    assert entries == []
 
 
 def test_featured_components_for_board_skips_records_missing_from_index() -> None:
@@ -398,7 +418,7 @@ def test_featured_components_for_board_skips_records_missing_from_index() -> Non
     cat = ComponentCatalog()
     cat._featured_by_board = {"phantom-board": ["featured.phantom-board.ghost"]}
     cat._featured_by_id = {}  # diverged: id missing
-    out = cat._featured_components_for_board("phantom-board", target_platform=None, query=None)
+    out = cat._featured_components_for_board("phantom-board", query=None)
     assert out == []
 
 
@@ -429,42 +449,394 @@ def test_resolve_platform_returns_none_for_unknown_board_id() -> None:
     assert cat._resolve_platform(None, board_id="no-such-board-zzz") is None
 
 
-# ── _load_pin_features() / _load_options() ──────────────────────────
-
-
-def test_load_pin_features_drops_unknown_values() -> None:
-    """Unknown pin-feature strings are silently dropped.
-
-    Known features pass through. The catalog's ``pin_features``
-    is expected to be a list of valid enum values, but a
-    sync-script bug or schema drift shouldn't crash the load.
-    """
-    out = _load_pin_features([PinFeature.ADC.value, "definitely-not-a-feature"])
-    assert PinFeature.ADC in out
-    assert len(out) == 1
-
-
-def test_load_options_accepts_plain_string_list() -> None:
-    """Plain-string options list round-trips into ConfigValueOption pairs.
-
-    Each string is used as both label and value. The dict-shaped
-    form is handled by the next branch.
-    """
-    out = _load_options(["yes", "no"])
-    assert out is not None
-    assert len(out) == 2
-    assert out[0].label == "yes"
-    assert out[0].value == "yes"
-    assert out[1].label == "no"
-    assert out[1].value == "no"
-
-
-def test_featured_record_underlying_id_returns_full_underlying_id() -> None:
-    """``_FeaturedRecord.underlying_id`` delegates to the catalog entry's id."""
+def test_featured_record_carries_underlying_id() -> None:
+    """``_FeaturedRecord.underlying_id`` is the catalog id the body lookups go through."""
     record = _FeaturedRecord(
         full_id="featured.example.relay",
         board_id="example",
         featured=FeaturedComponent(id="relay", component_id="switch.gpio"),
-        underlying=_make_entry(entry_id="switch.gpio", category=ComponentCategory.SWITCH),
+        underlying_id="switch.gpio",
     )
     assert record.underlying_id == "switch.gpio"
+
+
+# ── get_body() ──────────────────────────────────────────────────────
+
+
+async def test_get_body_returns_none_for_id_absent_from_index(tmp_path: Path) -> None:
+    """Unknown ids short-circuit before touching disk."""
+    cat = ComponentCatalog()
+    cat._by_id = {"wifi": _make_entry(entry_id="wifi")}
+    assert await cat.get_body("does-not-exist") is None
+
+
+async def test_get_body_reads_from_disk_and_caches(tmp_path: Path) -> None:
+    """First call hydrates from disk; second call hits the LRU."""
+    cat = ComponentCatalog()
+    cat._by_id = {"wifi": _make_entry(entry_id="wifi")}
+    bodies_dir = tmp_path / "components"
+    bodies_dir.mkdir()
+    (bodies_dir / "wifi.json").write_text(
+        json.dumps(
+            {
+                "id": "wifi",
+                "name": "Wi-Fi",
+                "category": "core",
+                "description": "",
+                "config_entries": [],
+            }
+        )
+    )
+    with patch(
+        "esphome_device_builder.controllers.components._COMPONENT_BODIES_DIR",
+        bodies_dir,
+    ):
+        first = await cat.get_body("wifi")
+        second = await cat.get_body("wifi")
+
+    assert first is not None
+    assert first.id == "wifi"
+    # The second call must hit the cache — exposing the identity here pins
+    # the LRU contract; if hydrate-on-every-call regresses, this fails.
+    assert second is first
+
+
+async def test_get_body_evicts_least_recently_used(tmp_path: Path) -> None:
+    """LRU stays bounded under repeated detail-view opens."""
+    cat = ComponentCatalog()
+    cat._by_id = {f"comp_{i}": _make_entry(entry_id=f"comp_{i}") for i in range(70)}
+    bodies_dir = tmp_path / "components"
+    bodies_dir.mkdir()
+    for i in range(70):
+        (bodies_dir / f"comp_{i}.json").write_text(
+            json.dumps(
+                {
+                    "id": f"comp_{i}",
+                    "name": f"comp_{i}",
+                    "category": "misc",
+                    "description": "",
+                    "config_entries": [],
+                }
+            )
+        )
+    cat._body_store._cache_maxsize = 64
+    with patch.object(components_module, "_COMPONENT_BODIES_DIR", bodies_dir):
+        for i in range(70):
+            await cat.get_body(f"comp_{i}")
+
+    # 70 reads with maxsize=64 ⇒ first ~6 entries evicted.
+    assert len(cat._body_store._cache) == 64
+    assert "comp_0" not in cat._body_store._cache
+    assert "comp_69" in cat._body_store._cache
+
+
+async def test_get_component_bodies_returns_full_batch_larger_than_cache(
+    tmp_path: Path,
+) -> None:
+    """A batch larger than the cache must still return every loaded body.
+
+    Pins the correctness contract that the cache is a hot-read
+    optimization, not a result store: an early entry can get
+    evicted by the LRU loop during the same batch, but the caller
+    must still see it in the returned dict. Regression guard for
+    the silent-drop bug that would otherwise hit a navigator
+    mounting >MAXSIZE components.
+    """
+    cat = ComponentCatalog()
+    cat._by_id = {f"comp_{i}": _make_entry(entry_id=f"comp_{i}") for i in range(200)}
+    cat._components = list(cat._by_id.values())
+    bodies_dir = tmp_path / "components"
+    bodies_dir.mkdir()
+    for i in range(200):
+        (bodies_dir / f"comp_{i}.json").write_text(
+            json.dumps(
+                {
+                    "id": f"comp_{i}",
+                    "name": f"comp_{i}",
+                    "category": "misc",
+                    "description": "",
+                    "config_entries": [],
+                }
+            )
+        )
+    cat._body_store._cache_maxsize = 32
+    with patch.object(components_module, "_COMPONENT_BODIES_DIR", bodies_dir):
+        result = await cat.get_component_bodies(
+            component_ids=[f"comp_{i}" for i in range(200)],
+        )
+
+    assert len(result) == 200
+    # Cache trimmed; older entries evicted by the time the batch returned.
+    assert len(cat._body_store._cache) == 32
+    # But the result dict held the references, so the early ids are still present.
+    assert result["comp_0"].id == "comp_0"
+    assert result["comp_199"].id == "comp_199"
+
+
+async def test_get_body_refuses_path_traversal_id(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A traversal-shaped id is rejected by the loader even if it slips past the index check.
+
+    Pins the defense-in-depth path-traversal guard in
+    ``_load_body_from_disk``. The id check in ``get_body`` (``not in
+    self._by_id``) is the first line of defence; the loader's
+    ``is_relative_to`` guard makes the safety property local so it
+    survives any future change that leaks an attacker-controllable
+    id into ``_by_id``.
+    """
+    cat = ComponentCatalog()
+    # Plant the traversal id directly in the index so get_body
+    # proceeds past its own guard and reaches the loader.
+    cat._by_id = {"../escape": _make_entry(entry_id="../escape")}
+    bodies_dir = tmp_path / "components"
+    bodies_dir.mkdir()
+    # Drop a file at the would-be-escape target so the test would
+    # incorrectly succeed if the guard were missing.
+    (tmp_path / "escape.json").write_text(
+        json.dumps(
+            {
+                "id": "escape",
+                "name": "escape",
+                "category": "misc",
+                "description": "",
+                "config_entries": [],
+            }
+        )
+    )
+    with (
+        patch.object(components_module, "_COMPONENT_BODIES_DIR", bodies_dir),
+        caplog.at_level(logging.WARNING),
+    ):
+        result = await cat.get_body("../escape")
+
+    assert result is None
+    assert any("traversal-shaped id" in rec.message for rec in caplog.records)
+
+
+async def test_get_body_returns_none_when_body_missing_on_disk(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Index says yes, disk says no — return ``None`` with a warning."""
+    cat = ComponentCatalog()
+    cat._by_id = {"phantom": _make_entry(entry_id="phantom")}
+    bodies_dir = tmp_path / "components"
+    bodies_dir.mkdir()
+    with (
+        patch(
+            "esphome_device_builder.controllers.components._COMPONENT_BODIES_DIR",
+            bodies_dir,
+        ),
+        caplog.at_level(logging.WARNING),
+    ):
+        result = await cat.get_body("phantom")
+
+    assert result is None
+    assert any("body missing on disk" in rec.message for rec in caplog.records)
+
+
+async def test_get_body_coalesces_concurrent_calls_into_one_disk_read(
+    tmp_path: Path,
+) -> None:
+    """Two ``get_body`` calls for the same id share one disk read.
+
+    Pins the lock-plus-recheck coalescing contract: the batch
+    endpoint and a concurrent singleton fetch must not both
+    schedule a thread-pool read for the same component.
+    """
+    cat = ComponentCatalog()
+    cat._by_id = {"wifi": _make_entry(entry_id="wifi")}
+    bodies_dir = tmp_path / "components"
+    bodies_dir.mkdir()
+    (bodies_dir / "wifi.json").write_text(
+        json.dumps(
+            {
+                "id": "wifi",
+                "name": "Wi-Fi",
+                "category": "core",
+                "description": "",
+                "config_entries": [],
+            }
+        )
+    )
+
+    call_count = 0
+    real_loader = components_module._load_body_from_disk
+
+    def _counting_loader(component_id: str):
+        nonlocal call_count
+        call_count += 1
+        return real_loader(component_id)
+
+    with (
+        patch.object(components_module, "_COMPONENT_BODIES_DIR", bodies_dir),
+        patch.object(cat._body_store, "_load_one", _counting_loader),
+    ):
+        first, second = await asyncio.gather(cat.get_body("wifi"), cat.get_body("wifi"))
+
+    assert first is second
+    assert call_count == 1
+
+
+async def test_get_component_bodies_bulk_loads_in_one_executor_hop(
+    tmp_path: Path,
+) -> None:
+    """A batch of N ids dispatches one ``asyncio.to_thread``, not N.
+
+    Regression guard against the per-id-future / asyncio.gather
+    shape this endpoint started with; #939 review pointed out that
+    N small executor jobs thrashes the thread pool. The fix is one
+    executor hop that reads every missing body sequentially.
+    """
+    cat = ComponentCatalog()
+    cat._by_id = {f"comp_{i}": _make_entry(entry_id=f"comp_{i}") for i in range(10)}
+    cat._components = list(cat._by_id.values())
+    bodies_dir = tmp_path / "components"
+    bodies_dir.mkdir()
+    for i in range(10):
+        (bodies_dir / f"comp_{i}.json").write_text(
+            json.dumps(
+                {
+                    "id": f"comp_{i}",
+                    "name": f"comp_{i}",
+                    "category": "misc",
+                    "description": "",
+                    "config_entries": [],
+                }
+            )
+        )
+
+    to_thread_calls = 0
+    real_to_thread = asyncio.to_thread
+
+    async def _counting_to_thread(func, /, *args, **kwargs):
+        nonlocal to_thread_calls
+        to_thread_calls += 1
+        return await real_to_thread(func, *args, **kwargs)
+
+    with (
+        patch.object(components_module, "_COMPONENT_BODIES_DIR", bodies_dir),
+        patch.object(asyncio, "to_thread", _counting_to_thread),
+    ):
+        result = await cat.get_component_bodies(component_ids=[f"comp_{i}" for i in range(10)])
+
+    assert len(result) == 10
+    assert to_thread_calls == 1
+
+
+# ── get_component_bodies() ──────────────────────────────────────────
+
+
+async def test_load_bodies_dedupes_repeated_ids_before_disk_read(
+    tmp_path: Path,
+) -> None:
+    """Repeated ids in the input collapse to one disk read.
+
+    ``resolve_default_components`` may pass the same underlying id
+    twice when a board lists the same component under multiple
+    featured refs. The loader must not re-read the same body file
+    just because the caller's input list has duplicates.
+    """
+    cat = ComponentCatalog()
+    cat._by_id = {"wifi": _make_entry(entry_id="wifi")}
+    bodies_dir = tmp_path / "components"
+    bodies_dir.mkdir()
+    (bodies_dir / "wifi.json").write_text(
+        json.dumps(
+            {
+                "id": "wifi",
+                "name": "Wi-Fi",
+                "category": "core",
+                "description": "",
+                "config_entries": [],
+            }
+        )
+    )
+
+    call_count = 0
+    real_loader = components_module._load_body_from_disk
+
+    def _counting_loader(component_id: str):
+        nonlocal call_count
+        call_count += 1
+        return real_loader(component_id)
+
+    with (
+        patch.object(components_module, "_COMPONENT_BODIES_DIR", bodies_dir),
+        patch.object(cat._body_store, "_load_one", _counting_loader),
+    ):
+        result = await cat._load_bodies(["wifi", "wifi", "wifi"])
+
+    assert set(result) == {"wifi"}
+    assert call_count == 1
+
+
+async def test_get_component_bodies_skips_featured_with_missing_body(
+    tmp_path: Path,
+) -> None:
+    """A featured ref whose underlying body wasn't loaded drops out silently.
+
+    Pins the ``_resolve_one_from_bodies`` defensive branch: when the
+    featured registry has a record but its underlying body never
+    made it into the load batch (e.g. the body file was deleted
+    mid-sync), the entry is simply absent from the result rather
+    than throwing.
+    """
+    cat = ComponentCatalog()
+    cat._by_id = {"switch.gpio": _make_entry(entry_id="switch.gpio")}
+    cat._components = list(cat._by_id.values())
+    cat._featured_by_id = {
+        "featured.test-board.relay": _FeaturedRecord(
+            full_id="featured.test-board.relay",
+            board_id="test-board",
+            featured=FeaturedComponent(id="relay", component_id="switch.gpio"),
+            underlying_id="switch.gpio",
+        )
+    }
+    bodies_dir = tmp_path / "components"
+    bodies_dir.mkdir()
+    # NOTE: deliberately don't write switch.gpio.json — the body
+    # load returns nothing, so the featured resolve should bail.
+    with patch.object(components_module, "_COMPONENT_BODIES_DIR", bodies_dir):
+        result = await cat.get_component_bodies(
+            component_ids=["featured.test-board.relay"],
+        )
+
+    assert result == {}
+
+
+async def test_get_component_bodies_returns_dict_keyed_by_id(tmp_path: Path) -> None:
+    """Batch hydrate returns one entry per known id; unknown ids drop out."""
+    cat = ComponentCatalog()
+    cat._by_id = {
+        "wifi": _make_entry(entry_id="wifi"),
+        "api": _make_entry(entry_id="api"),
+    }
+    cat._components = list(cat._by_id.values())
+    bodies_dir = tmp_path / "components"
+    bodies_dir.mkdir()
+    for cid in ("wifi", "api"):
+        (bodies_dir / f"{cid}.json").write_text(
+            json.dumps(
+                {
+                    "id": cid,
+                    "name": cid,
+                    "category": "core",
+                    "description": "",
+                    "config_entries": [],
+                }
+            )
+        )
+    with patch(
+        "esphome_device_builder.controllers.components._COMPONENT_BODIES_DIR",
+        bodies_dir,
+    ):
+        result = await cat.get_component_bodies(
+            component_ids=["wifi", "api", "does-not-exist", "wifi"],
+        )
+
+    assert set(result) == {"wifi", "api"}
+    assert result["wifi"].id == "wifi"
+    assert result["api"].id == "api"

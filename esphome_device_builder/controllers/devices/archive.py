@@ -19,7 +19,7 @@ from .helpers import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Sequence
 
     from .controller import DevicesController
 
@@ -190,12 +190,30 @@ async def run_bulk_per_device(
     action: Callable[[str], Awaitable[None]],
 ) -> list[dict[str, Any]]:
     """Run *action* per configuration; one ``{configuration, success, error?}`` dict each."""
+    return await run_bulk_per_row(controller, configurations, action, lambda c: c)
+
+
+async def run_bulk_per_row[T](
+    controller: DevicesController,
+    rows: Sequence[T],
+    action: Callable[[T], Awaitable[None]],
+    get_configuration: Callable[[T], str],
+) -> list[dict[str, Any]]:
+    """Run *action* per row; one result row per input row in input order.
+
+    Use when each row carries payload beyond a bare configuration
+    string. Duplicate configurations produce duplicate result rows;
+    last-write-wins on disk. ``get_configuration`` is called on
+    failures too, so it must tolerate malformed rows — return
+    ``""`` for "couldn't extract".
+    """
     results: list[dict[str, Any]] = []
-    for configuration in configurations:
+    for row in rows:
+        configuration = get_configuration(row)
         try:
-            await action(configuration)
+            await action(row)
             results.append({"configuration": configuration, "success": True})
-        except Exception as exc:  # noqa: BLE001 — batch op: per-configuration error captured into the result row
+        except Exception as exc:  # noqa: BLE001 — batch op: per-row error captured into the result row
             results.append(
                 {
                     "configuration": configuration,

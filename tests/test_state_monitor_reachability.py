@@ -29,6 +29,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from icmplib.exceptions import SocketPermissionError
 from zeroconf import (
     DNSAddress,
     DNSPointer,
@@ -47,7 +48,10 @@ from esphome_device_builder.controllers._device_state_monitor import helpers as 
 from esphome_device_builder.controllers._device_state_monitor._state import MonitorState
 from esphome_device_builder.controllers._device_state_monitor.importable import ImportableDiscovery
 from esphome_device_builder.controllers._device_state_monitor.mdns import MdnsSource
-from esphome_device_builder.controllers._device_state_monitor.ping import PingSource
+from esphome_device_builder.controllers._device_state_monitor.ping import (
+    PingSource,
+    _can_use_icmp_lib_with_privilege,
+)
 from esphome_device_builder.controllers._reachability_tracker import (
     MdnsCacheInfo,
     ReachabilityTracker,
@@ -344,6 +348,90 @@ async def test_ping_retry_absorbs_transient_miss_when_unknown() -> None:
     assert fake_ping.await_count == 2
     assert fake_ping.await_args_list[1].kwargs.get("count", 1) > 1
     assert devices[0].state == DeviceState.ONLINE
+
+
+@pytest.mark.asyncio
+async def test_can_use_icmp_lib_with_privilege_picks_raw_when_available() -> None:
+    """``SOCK_RAW`` probe succeeds; the loop runs in privileged mode."""
+    fake_ping = AsyncMock(return_value=MagicMock())
+    with patch(
+        "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
+        fake_ping,
+    ):
+        assert await _can_use_icmp_lib_with_privilege() is True
+
+    assert fake_ping.await_count == 1
+    assert fake_ping.await_args_list[0].kwargs.get("privileged") is True
+
+
+@pytest.mark.asyncio
+async def test_can_use_icmp_lib_with_privilege_falls_back_to_dgram() -> None:
+    """Raw socket denied; the probe falls back to unprivileged ``SOCK_DGRAM``."""
+    fake_ping = AsyncMock(side_effect=[SocketPermissionError(True), MagicMock()])
+    with patch(
+        "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
+        fake_ping,
+    ):
+        assert await _can_use_icmp_lib_with_privilege() is False
+
+    assert fake_ping.await_count == 2
+    assert fake_ping.await_args_list[1].kwargs.get("privileged") is False
+
+
+@pytest.mark.asyncio
+async def test_can_use_icmp_lib_with_privilege_returns_none_when_both_denied() -> None:
+    """Both modes denied; probe returns ``None`` so ``run`` disables the sweep."""
+    fake_ping = AsyncMock(side_effect=[SocketPermissionError(True), SocketPermissionError(False)])
+    with patch(
+        "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
+        fake_ping,
+    ):
+        assert await _can_use_icmp_lib_with_privilege() is None
+
+    assert fake_ping.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_can_use_icmp_lib_with_privilege_returns_none_when_icmplib_missing() -> None:
+    """``icmp_ping`` is ``None`` (icmplib not installed) → probe returns ``None``."""
+    with patch(
+        "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
+        None,
+    ):
+        assert await _can_use_icmp_lib_with_privilege() is None
+
+
+@pytest.mark.asyncio
+async def test_can_use_icmp_lib_with_privilege_returns_none_on_unexpected_oserror() -> None:
+    """Non-permission ``OSError`` also degrades gracefully; the task doesn't die."""
+    fake_ping = AsyncMock(side_effect=[OSError("EAFNOSUPPORT"), OSError("EAFNOSUPPORT")])
+    with patch(
+        "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
+        fake_ping,
+    ):
+        assert await _can_use_icmp_lib_with_privilege() is None
+
+    assert fake_ping.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_ping_device_uses_privileged_flag_from_probe() -> None:
+    """``_ping_device`` forwards ``self._privileged`` to every ``icmp_ping`` call."""
+    devices = [_make_device(state=DeviceState.UNKNOWN)]
+    monitor = _make_monitor(devices, ReachabilityTracker())
+    monitor._ping._privileged = False
+
+    miss = MagicMock(is_alive=False, min_rtt=0.0)
+    hit = MagicMock(is_alive=True, min_rtt=2.0)
+    fake_ping = AsyncMock(side_effect=[miss, hit])
+    with patch(
+        "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
+        fake_ping,
+    ):
+        await monitor._ping._ping_device(devices[0], "10.0.0.42")
+
+    assert fake_ping.await_args_list[0].kwargs.get("privileged") is False
+    assert fake_ping.await_args_list[1].kwargs.get("privileged") is False
 
 
 @pytest.mark.asyncio

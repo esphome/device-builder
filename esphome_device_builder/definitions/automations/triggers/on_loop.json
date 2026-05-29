@@ -1,0 +1,1 @@
+{"id":"on_loop","name":"On Loop","description":"An automation to perform on each `loop()` iteration. See [`on_loop`](https://esphome.io/components/esphome#esphome-on_loop).","docs_url":"https://esphome.io/components/esphome#configuration-variables","applies_to":[],"is_device_level":true,"config_entries":[]}

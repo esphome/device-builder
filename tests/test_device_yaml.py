@@ -564,6 +564,166 @@ esphome:
     assert area == "Living Room"
 
 
+@pytest.mark.parametrize(
+    ("yaml_content", "expected_area"),
+    [
+        pytest.param(
+            """
+esphome:
+  name: lamp
+  area:
+    id: kitchen
+    name: "Kitchen"
+""",
+            "Kitchen",
+            id="block_form",
+        ),
+        pytest.param(
+            """
+esphome:
+  name: lamp
+  area:
+    name: "Kitchen"
+    id: kitchen
+""",
+            "Kitchen",
+            id="block_form_name_first",
+        ),
+        pytest.param(
+            """
+esphome:
+  name: lamp
+  area:
+    id: bedroom_master
+    name: "Bedroom, Master"
+""",
+            "Bedroom, Master",
+            id="block_form_quoted_name_with_comma",
+        ),
+        pytest.param(
+            """
+substitutions:
+  device_area: "Living Room"
+esphome:
+  name: lamp
+  area:
+    id: ${device_area}
+    name: "${device_area}"
+""",
+            "Living Room",
+            id="block_form_with_substitution",
+        ),
+        pytest.param(
+            """
+esphome:
+  name: lamp
+  area: {id: kitchen, name: "Kitchen"}
+""",
+            "Kitchen",
+            id="flow_form",
+        ),
+        pytest.param(
+            """
+esphome:
+  name: lamp
+  area: {name: "Kitchen", id: kitchen}
+""",
+            "Kitchen",
+            id="flow_form_name_first",
+        ),
+        pytest.param(
+            """
+esphome:
+  name: lamp
+  area:
+    id: kitchen
+""",
+            None,
+            id="block_form_no_name",
+        ),
+        pytest.param(
+            """
+esphome:
+  name: lamp
+  area: {id: kitchen}
+""",
+            None,
+            id="flow_form_no_name",
+        ),
+        pytest.param(
+            """
+esphome:
+  name: lamp
+  area: {id: kitchen, name: "Bedroom, Master"}
+""",
+            "Bedroom, Master",
+            id="flow_form_quoted_name_with_comma",
+        ),
+        pytest.param(
+            """
+esphome:
+  name: lamp
+  area: ""
+""",
+            "",
+            id="explicit_empty_string",
+        ),
+    ],
+)
+def test_parse_meta_area_object_shapes(yaml_content: str, expected_area: str | None) -> None:
+    """``esphome.area`` resolves across every shape the schema accepts."""
+    *_, area = parse_esphome_meta(yaml_content)
+    assert area == expected_area
+
+
+def test_parse_meta_area_block_form_isolates_nested_keys() -> None:
+    """Nested ``name:`` / ``id:`` under ``area:`` don't leak to siblings."""
+    yaml_content = """
+esphome:
+  name: lamp
+  area:
+    id: kitchen
+    name: "Kitchen"
+  comment: "real comment"
+"""
+    name, _, comment, area = parse_esphome_meta(yaml_content)
+    assert name == "lamp"
+    assert area == "Kitchen"
+    assert comment == "real comment"
+
+
+def test_parse_meta_top_level_comment_does_not_close_esphome_block() -> None:
+    """A column-0 ``# Comment: ...`` line doesn't terminate the esphome block."""
+    yaml_content = """
+esphome:
+  name: lamp
+# Board: ESP32 dev kit
+  friendly_name: Kitchen Lamp
+  area: Kitchen
+"""
+    name, friendly_name, _, area = parse_esphome_meta(yaml_content)
+    assert name == "lamp"
+    assert friendly_name == "Kitchen Lamp"
+    assert area == "Kitchen"
+
+
+def test_parse_meta_ignores_unknown_esphome_keys_and_their_children() -> None:
+    """Unknown sub-blocks under ``esphome:`` don't leak into meta fields."""
+    yaml_content = """
+esphome:
+  name: lamp
+  platformio_options:
+    board_build.f_cpu: 240000000L
+    build_flags:
+      - -DSOMETHING
+  comment: after-block comment
+"""
+    name, _, comment, area = parse_esphome_meta(yaml_content)
+    assert name == "lamp"
+    assert comment == "after-block comment"
+    assert area is None
+
+
 # ----------------------------------------------------------------------
 # parse_platform_from_yaml — pure-text scanner
 # ----------------------------------------------------------------------
@@ -976,7 +1136,8 @@ def test_generate_device_yaml_with_no_defaults_arg_unchanged() -> None:
     assert "switch:" not in out
 
 
-def test_generate_device_yaml_for_apollo_esk_1_includes_default_blocks(
+@pytest.mark.xdist_group("catalog")
+async def test_generate_device_yaml_for_apollo_esk_1_includes_default_blocks(
     session_component_catalog: Any,
 ) -> None:
     """The apollo-esk-1 board's ``default_components`` land in fresh YAML.
@@ -988,9 +1149,9 @@ def test_generate_device_yaml_for_apollo_esk_1_includes_default_blocks(
     rail latched on (so the AHT20 / battery monitor work) and
     the built-in web dashboard available without any clicks.
     """
-    board = session_component_catalog._db.boards.get_by_id("apollo-esk-1")
+    board = await session_component_catalog._db.boards.get_board(board_id="apollo-esk-1")
     assert board is not None
-    defaults = session_component_catalog.resolve_default_components(board)
+    defaults = await session_component_catalog.resolve_default_components(board)
     out = generate_device_yaml("starter", "Starter Kit", board, ssid="", psk="", defaults=defaults)
     # accessory_power → switch.gpio with the locked pin / ALWAYS_ON
     # restore_mode / setup_priority preset from featured_components.
@@ -1003,7 +1164,8 @@ def test_generate_device_yaml_for_apollo_esk_1_includes_default_blocks(
     assert "web_server:" in out
 
 
-def test_resolve_default_components_falls_through_to_catalog_id(
+@pytest.mark.xdist_group("catalog")
+async def test_resolve_default_components_falls_through_to_catalog_id(
     session_component_catalog: Any,
 ) -> None:
     """Bare catalog ids resolve when no featured-component matches.
@@ -1013,9 +1175,9 @@ def test_resolve_default_components_falls_through_to_catalog_id(
     a catalog ``component_id`` resolution. ``web_server`` on
     apollo-esk-1 is the live case driving this branch.
     """
-    board = session_component_catalog._db.boards.get_by_id("apollo-esk-1")
+    board = await session_component_catalog._db.boards.get_board(board_id="apollo-esk-1")
     assert board is not None
-    pairs = session_component_catalog.resolve_default_components(board)
+    pairs = await session_component_catalog.resolve_default_components(board)
     component_ids = [c.id for c, _ in pairs]
     assert "web_server" in component_ids
     # accessory_power resolves through the featured path, so the
@@ -1023,7 +1185,8 @@ def test_resolve_default_components_falls_through_to_catalog_id(
     assert "switch.gpio" in component_ids
 
 
-def test_resolve_default_components_carries_inline_fields(
+@pytest.mark.xdist_group("catalog")
+async def test_resolve_default_components_carries_inline_fields(
     session_component_catalog: Any,
 ) -> None:
     """The object-form's ``fields:`` overrides flow into the resolved pair.
@@ -1034,15 +1197,16 @@ def test_resolve_default_components_carries_inline_fields(
     the emitter writes ``version: '3'`` into the YAML body
     (catalog default is ``'2'``).
     """
-    board = session_component_catalog._db.boards.get_by_id("apollo-esk-1")
+    board = await session_component_catalog._db.boards.get_board(board_id="apollo-esk-1")
     assert board is not None
-    pairs = session_component_catalog.resolve_default_components(board)
+    pairs = await session_component_catalog.resolve_default_components(board)
     web = next((fields for component, fields in pairs if component.id == "web_server"), None)
     assert web is not None
     assert web.get("version") == "3"
 
 
-def test_resolve_default_components_skips_unknown_id_with_warning(
+@pytest.mark.xdist_group("catalog")
+async def test_resolve_default_components_skips_unknown_id_with_warning(
     session_component_catalog: Any,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -1053,15 +1217,48 @@ def test_resolve_default_components_skips_unknown_id_with_warning(
     but a synthetic / hand-mutated ``BoardCatalogEntry`` could
     still feed an unknown id to the resolver. Skip-with-warning
     keeps the wizard from blowing up on what's almost always a
-    config drift between the manifest and ``components.json``.
+    config drift between the manifest and the component catalog.
     """
-    board = deepcopy(session_component_catalog._db.boards.get_by_id("apollo-esk-1"))
+    board = deepcopy(await session_component_catalog._db.boards.get_board(board_id="apollo-esk-1"))
     assert board is not None
     board.default_components = [DefaultComponent(id="not_a_real_component")]
     with caplog.at_level(logging.WARNING):
-        pairs = session_component_catalog.resolve_default_components(board)
+        pairs = await session_component_catalog.resolve_default_components(board)
     assert pairs == []
     assert any("not_a_real_component" in rec.getMessage() for rec in caplog.records)
+
+
+async def test_resolve_default_components_skips_featured_with_missing_body(
+    session_component_catalog: Any,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A featured ref whose body file vanished mid-flight skips with a warning.
+
+    Bodies hydrate lazily through ``_load_bodies``; if a per-id file
+    is deleted (or the catalog is mid-regen), the resolver should log
+    and skip rather than reach into ``None``. Synthesized by stubbing
+    ``_load_bodies`` to drop the featured underlying from the result.
+    """
+    board = deepcopy(await session_component_catalog._db.boards.get_board(board_id="apollo-esk-1"))
+    assert board is not None
+    original_load = session_component_catalog._load_bodies
+
+    async def partial_load(component_ids: Any) -> Any:
+        # Drop the featured path's underlying; let the catalog-id
+        # fallback (web_server) still resolve so the warning isn't
+        # swamped by the fallback's own warning.
+        bodies = await original_load(component_ids)
+        bodies.pop("switch.gpio", None)
+        return bodies
+
+    monkeypatch.setattr(session_component_catalog, "_load_bodies", partial_load)
+    with caplog.at_level(logging.WARNING):
+        pairs = await session_component_catalog.resolve_default_components(board)
+    # Featured ref skipped; web_server (catalog fallback) still resolves.
+    assert any(c.id == "web_server" for c, _ in pairs)
+    assert not any(c.id == "switch.gpio" for c, _ in pairs)
+    assert any("has no body" in rec.getMessage() for rec in caplog.records)
 
 
 # ---------------------------------------------------------------------------
@@ -1351,6 +1548,124 @@ def test_load_device_local_substitution_wins_over_package(tmp_path: Path) -> Non
     device = load_device_from_storage(yaml_path)
 
     assert device.friendly_name == "Local Override"
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_unresolved_comment_defers_to_storage(tmp_path: Path) -> None:
+    """An unresolved ``${...}`` comment uses the compiled StorageJSON value."""
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text(
+        "substitutions:\n"
+        "  device:\n"
+        '    comment: "Front Room"\n'
+        "esphome:\n"
+        "  name: lamp\n"
+        "  comment: ${device.comment}\n",
+        encoding="utf-8",
+    )
+    write_storage_json(tmp_path, "lamp.yaml", overrides={"comment": "Front Room"})
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.comment == "Front Room"
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_unresolved_friendly_name_defers_to_storage(tmp_path: Path) -> None:
+    """An unresolved ``${...}`` friendly_name uses the compiled StorageJSON value."""
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text(
+        "substitutions:\n"
+        "  device:\n"
+        '    friendly_name: "Front Room"\n'
+        "esphome:\n"
+        "  name: lamp\n"
+        "  friendly_name: ${device.friendly_name}\n",
+        encoding="utf-8",
+    )
+    write_storage_json(tmp_path, "lamp.yaml", overrides={"friendly_name": "Front Room"})
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.friendly_name == "Front Room"
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_area_from_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``area`` comes from StorageJSON when the YAML value is unresolved."""
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text(
+        "substitutions:\n"
+        "  device:\n"
+        '    area: "Living Room"\n'
+        "esphome:\n"
+        "  name: lamp\n"
+        "  area: ${device.area}\n",
+        encoding="utf-8",
+    )
+    write_storage_json(tmp_path, "lamp.yaml")
+
+    # The pinned esphome's ``_load_impl`` doesn't read ``area`` yet, so
+    # simulate the future build output (esphome/esphome#16710) by setting
+    # it on the loaded StorageJSON.
+    real_load = device_yaml.StorageJSON.load
+
+    def _load_with_area(path: Path) -> Any:
+        storage = real_load(path)
+        if storage is not None:
+            storage.area = "Living Room"
+        return storage
+
+    monkeypatch.setattr(device_yaml.StorageJSON, "load", staticmethod(_load_with_area))
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.area == "Living Room"
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_resolved_yaml_meta_wins_over_storage(tmp_path: Path) -> None:
+    """A fully resolved YAML value still beats StorageJSON (immediate edits)."""
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text(
+        "esphome:\n  name: lamp\n  comment: Edited In Editor\n",
+        encoding="utf-8",
+    )
+    write_storage_json(tmp_path, "lamp.yaml", overrides={"comment": "Old Compiled"})
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.comment == "Edited In Editor"
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_cleared_comment_not_replaced_by_storage(tmp_path: Path) -> None:
+    """An explicitly cleared ``comment: ""`` stays empty, not refilled from storage."""
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text(
+        'esphome:\n  name: lamp\n  comment: ""\n',
+        encoding="utf-8",
+    )
+    write_storage_json(tmp_path, "lamp.yaml", overrides={"comment": "Old Compiled"})
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.comment == ""
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_literal_dollar_comment_is_not_unresolved(tmp_path: Path) -> None:
+    """A literal ``$`` that isn't substitution-shaped still wins over storage."""
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text(
+        'esphome:\n  name: lamp\n  comment: "Replaces a $40 sensor"\n',
+        encoding="utf-8",
+    )
+    write_storage_json(tmp_path, "lamp.yaml", overrides={"comment": "Old Compiled"})
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.comment == "Replaces a $40 sensor"
 
 
 @pytest.mark.usefixtures("_redirect_ext_storage")

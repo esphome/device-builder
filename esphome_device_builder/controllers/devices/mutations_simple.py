@@ -10,6 +10,7 @@ from ...helpers.device_yaml import configuration_stem, parse_esphome_meta
 from ...helpers.yaml import YamlUpsertNotSupportedError, upsert_yaml_leaf_under_top_block
 from ...models import Device, ErrorCode, UpdateDeviceResponse
 from ..config import set_device_labels
+from . import archive
 
 if TYPE_CHECKING:
     from .controller import DevicesController
@@ -96,6 +97,56 @@ async def set_labels(
     if refreshed is None:
         raise CommandError(ErrorCode.NOT_FOUND, f"Device {configuration!r} not found")
     return refreshed
+
+
+def _row_configuration(row: Any) -> str | None:
+    """Extract ``row["configuration"]`` as a string, else ``None``.
+
+    Single source for the malformed-row tolerance used by both the
+    bulk runner's ``get_configuration`` extractor (which needs a
+    string fallback for the result row) and the action's pre-call
+    validation (which needs to raise ``INVALID_ARGS``).
+    """
+    if not isinstance(row, dict):
+        return None
+    cfg = row.get("configuration")
+    return cfg if isinstance(cfg, str) else None
+
+
+async def set_labels_bulk(
+    controller: DevicesController,
+    *,
+    updates: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    Assign labels across multiple devices.
+
+    Each entry in ``updates`` is ``{configuration: str, label_ids:
+    list[str]}``. Returns one ``{configuration, success, error?}``
+    per entry in input order; duplicates produce duplicate rows
+    (last-write-wins on disk); malformed rows fail per-row without
+    blocking the rest. Malformed rows whose configuration can't be
+    extracted at all return ``{configuration: "", ...}``.
+    """
+
+    async def _apply(row: Any) -> None:
+        # ``row`` is typed ``Any`` because the bulk runner calls
+        # this for every input entry — including the non-dict
+        # rows that ``test_set_labels_bulk_malformed_row_isolates_failure``
+        # exercises. ``_row_configuration`` is the validation
+        # boundary; it returns None for both non-dict rows and
+        # dicts whose ``configuration`` isn't a string.
+        configuration = _row_configuration(row)
+        if configuration is None:
+            raise CommandError(ErrorCode.INVALID_ARGS, "configuration must be a string")
+        label_ids = row.get("label_ids")
+        if not isinstance(label_ids, list):
+            raise CommandError(ErrorCode.INVALID_ARGS, "label_ids must be a list")
+        await set_labels(controller, configuration=configuration, label_ids=label_ids)
+
+    return await archive.run_bulk_per_row(
+        controller, updates, _apply, lambda r: _row_configuration(r) or ""
+    )
 
 
 async def rename_device(

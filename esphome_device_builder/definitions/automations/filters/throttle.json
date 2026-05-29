@@ -1,0 +1,1 @@
+{"id":"throttle","name":"Sensor → Throttle","config_entries":[],"applies_to":["sensor"],"value_type":"time_period"}

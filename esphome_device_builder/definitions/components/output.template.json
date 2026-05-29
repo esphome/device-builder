@@ -1,0 +1,1 @@
+{"id":"output.template","name":"Template Output","description":"The `template` output component can be used to create templated binary and float outputs in ESPHome.","category":"output","docs_url":"https://esphome.io/components/output/template","image_url":"https://esphome.io/images/description.svg"}

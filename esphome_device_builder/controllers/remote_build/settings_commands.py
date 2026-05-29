@@ -12,10 +12,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ...helpers.api import CommandError
+from ...helpers.version_compat import VersionMatchPolicy
 from ...models import (
+    ErrorCode,
     EventType,
     OffloaderRemoteBuildSettingsView,
     OffloaderRemoteBuildsToggledData,
+    OffloaderVersionMatchPolicyChangedData,
 )
 from ._validators import validate_bool
 
@@ -26,49 +30,97 @@ if TYPE_CHECKING:
 def offloader_settings_view(
     controller: OffloaderController,
 ) -> OffloaderRemoteBuildSettingsView:
-    """Project the in-RAM offloader-side state to its wire view.
-
-    Pure sync RAM read off :attr:`_pairings` +
-    :attr:`_remote_builds_enabled`, which are canonical
-    after :meth:`OffloaderController.start` seeds them from
-    disk.
-    """
+    """Project the in-RAM offloader-side state to its wire view."""
     return OffloaderRemoteBuildSettingsView(
         pairings=controller.pairings_snapshot(),
         remote_builds_enabled=controller.state.remote_builds_enabled,
+        version_match_policy=controller.state.version_match_policy,
     )
 
 
 async def get_offloader_settings(
     controller: OffloaderController,
 ) -> OffloaderRemoteBuildSettingsView:
-    """Return the offloader-side settings view (master toggle + pairings list)."""
+    """Return the offloader-side settings view (master toggles + pairings list)."""
     return offloader_settings_view(controller)
 
 
 async def set_offloader_settings(
-    controller: OffloaderController, *, remote_builds_enabled: bool
+    controller: OffloaderController,
+    *,
+    remote_builds_enabled: bool | None = None,
+    version_match_policy: str | None = None,
 ) -> OffloaderRemoteBuildSettingsView:
     """
-    Flip the offloader-side master toggle for transparent install.
+    Flip one or both offloader-side master settings.
 
-    ``False`` short-circuits :func:`pick_build_path` to
-    LOCAL; peer-link sessions stay open and the manual
-    Send-builds dialog still works. The intent is "keep the
-    pairings but stop auto-routing for now."
-
-    Fires ``OFFLOADER_REMOTE_BUILDS_TOGGLED`` for cross-tab
-    sync; debounce-saves through ``_pairings_store`` (same
-    on-disk shape).
+    Passing ``None`` (or omitting) leaves that field untouched;
+    each changed field fires its own event. Refusing the
+    all-``None`` call keeps a frontend bug from silently
+    no-op'ing.
     """
-    controller.state.remote_builds_enabled = validate_bool(
-        remote_builds_enabled,
-        command="remote_build/set_offloader_settings",
-        field="remote_builds_enabled",
+    if remote_builds_enabled is None and version_match_policy is None:
+        msg = (
+            "remote_build/set_offloader_settings: at least one of "
+            "remote_builds_enabled or version_match_policy must be supplied"
+        )
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    # Validate both args before mutating anything so a bad
+    # version_match_policy can't half-apply: an earlier shape
+    # mutated remote_builds_enabled then raised on the policy
+    # validator, leaving RAM / disk / cross-tab subscribers out
+    # of sync with each other.
+    clean_remote_builds_enabled = (
+        validate_bool(
+            remote_builds_enabled,
+            command="remote_build/set_offloader_settings",
+            field="remote_builds_enabled",
+        )
+        if remote_builds_enabled is not None
+        else None
     )
-    toggled: OffloaderRemoteBuildsToggledData = {
-        "remote_builds_enabled": remote_builds_enabled,
-    }
-    controller._db.bus.fire(EventType.OFFLOADER_REMOTE_BUILDS_TOGGLED, toggled)
-    controller._schedule_pairings_save()
+    clean_policy = (
+        _validate_version_match_policy(version_match_policy)
+        if version_match_policy is not None
+        else None
+    )
+    # Per-field equality guards so the event + save only fire on
+    # actual state changes — keeps the "event fired ⇒ value
+    # changed" invariant other controllers in this repo uphold
+    # and avoids debouncer churn on idempotent writes.
+    save_needed = False
+    if (
+        clean_remote_builds_enabled is not None
+        and clean_remote_builds_enabled != controller.state.remote_builds_enabled
+    ):
+        controller.state.remote_builds_enabled = clean_remote_builds_enabled
+        toggled: OffloaderRemoteBuildsToggledData = {
+            "remote_builds_enabled": clean_remote_builds_enabled,
+        }
+        controller._db.bus.fire(EventType.OFFLOADER_REMOTE_BUILDS_TOGGLED, toggled)
+        save_needed = True
+    if clean_policy is not None and clean_policy is not controller.state.version_match_policy:
+        controller.state.version_match_policy = clean_policy
+        changed: OffloaderVersionMatchPolicyChangedData = {
+            "version_match_policy": clean_policy,
+        }
+        controller._db.bus.fire(EventType.OFFLOADER_VERSION_MATCH_POLICY_CHANGED, changed)
+        save_needed = True
+    if save_needed:
+        controller._schedule_pairings_save()
     return offloader_settings_view(controller)
+
+
+def _validate_version_match_policy(raw: object) -> VersionMatchPolicy:
+    """Coerce a wire ``version_match_policy`` value to its enum member."""
+    if not isinstance(raw, str):
+        msg = "remote_build/set_offloader_settings: 'version_match_policy' must be a string"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    try:
+        return VersionMatchPolicy(raw)
+    except ValueError as exc:
+        msg = (
+            "remote_build/set_offloader_settings: 'version_match_policy' must be one of "
+            f"{sorted(v.value for v in VersionMatchPolicy)}; got {raw!r}"
+        )
+        raise CommandError(ErrorCode.INVALID_ARGS, msg) from exc

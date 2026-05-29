@@ -1,0 +1,1 @@
+{"id":"fan.is_off","name":"Fan → Is Off","description":"","docs_url":"https://esphome.io/automations/actions","domain":"fan","config_entries":[{"key":"id","type":"id","label":"ID","required":true,"display_format":null,"references_component":"fan"}],"accepts_condition_list":false}

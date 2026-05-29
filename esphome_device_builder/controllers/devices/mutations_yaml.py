@@ -32,7 +32,7 @@ _LOGGER = logging.getLogger(__name__)
 CreateYamlSource = Literal["user", "template", "stub"]
 
 
-def yaml_content_for_create(
+async def yaml_content_for_create(
     name: str,
     friendly: str,
     board: BoardCatalogEntry | None,
@@ -47,7 +47,7 @@ def yaml_content_for_create(
         return file_content, "user"
     if board:
         defaults = (
-            catalog.resolve_default_components(board)
+            await catalog.resolve_default_components(board)
             if catalog and board.default_components
             else None
         )

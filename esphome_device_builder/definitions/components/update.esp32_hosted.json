@@ -1,0 +1,1 @@
+{"id":"update.esp32_hosted","name":"ESP32 Hosted Co-processor Update","description":"ESP32 Hosted update platform to manage co-processor firmware updates.","category":"update","docs_url":"https://esphome.io/components/update/esp32_hosted","image_url":"https://esphome.io/images/network-wifi.svg","dependencies":["esp32_hosted"]}

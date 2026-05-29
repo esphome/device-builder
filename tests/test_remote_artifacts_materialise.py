@@ -20,7 +20,7 @@ import os
 import sys
 import tarfile
 import time
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 from unittest.mock import patch
 
@@ -708,9 +708,115 @@ def test_remap_to_offloader_returns_input_when_not_under_build_path(tmp_path: Pa
     """An absolute path that isn't under receiver_build_path passes through unchanged."""
     receiver_build = tmp_path / "receiver_build"
     offloader_build = tmp_path / "offloader_build"
-    outside = Path("/totally/unrelated/path.bin")
+    outside = "/totally/unrelated/path.bin"
     result = _remap_to_offloader(outside, receiver_build, offloader_build)
-    assert result == outside
+    assert result == Path(outside)
+
+
+_WIN_BUILD_PATH = r"C:\Users\receiver\esphome\.esphome\.remote_builds\_pin\.esphome\build\dev"
+
+
+def _windows_storage_dict(*, build_path: str, firmware_bin_path: str) -> dict[str, Any]:
+    """Receiver-side ``storage.json`` shape carrying Windows-absolute paths."""
+    return {
+        "storage_version": 1,
+        "name": "dev",
+        "esp_platform": "ESP32",
+        "build_path": build_path,
+        "firmware_bin_path": firmware_bin_path,
+        "loaded_integrations": [],
+        "loaded_platforms": [],
+        "no_mdns": False,
+        "framework": "arduino",
+        "core_platform": "esp32",
+    }
+
+
+@pytest.mark.parametrize(
+    ("receiver_build", "receiver_firmware"),
+    [
+        pytest.param(
+            PureWindowsPath(_WIN_BUILD_PATH),
+            _WIN_BUILD_PATH + r"\.pioenvs\dev\firmware.bin",
+            id="windows_receiver",
+        ),
+        pytest.param(
+            PurePosixPath("/home/builder/.esphome/.remote_builds/pin/build/dev"),
+            "/home/builder/.esphome/.remote_builds/pin/build/dev/.pioenvs/dev/firmware.bin",
+            id="posix_receiver",
+        ),
+    ],
+)
+def test_remap_to_offloader_translates_receiver_path_across_os(
+    tmp_path: Path, receiver_build: Any, receiver_firmware: str
+) -> None:
+    """Receiver path under receiver build remaps under offloader build for either flavour."""
+    offloader_build = tmp_path / "build" / "dev"
+    result = _remap_to_offloader(receiver_firmware, receiver_build, offloader_build)
+    assert result == offloader_build / ".pioenvs" / "dev" / "firmware.bin"
+
+
+def test_remap_to_offloader_rejects_dotdot_traversal_in_receiver_path(tmp_path: Path) -> None:
+    """A ``..`` segment in the computed relative raises MaterialiseError."""
+    receiver_build = PureWindowsPath(_WIN_BUILD_PATH)
+    offloader_build = tmp_path / "build" / "dev"
+    malicious = _WIN_BUILD_PATH + r"\..\..\..\Windows\System32\evil.bin"
+    with pytest.raises(MaterialiseError, match=r"contains '\.\.'"):
+        _remap_to_offloader(malicious, receiver_build, offloader_build)
+
+
+def test_materialise_windows_receiver_storage_remaps_firmware_bin_path(tmp_path: Path) -> None:
+    """Windows-flavoured tarball metadata materialises to offloader-local paths on disk."""
+    win_firmware_bin = _WIN_BUILD_PATH + r"\.pioenvs\dev\firmware.bin"
+    storage = _windows_storage_dict(build_path=_WIN_BUILD_PATH, firmware_bin_path=win_firmware_bin)
+    idedata = {
+        "prog_path": _WIN_BUILD_PATH + r"\.pioenvs\dev\firmware.elf",
+        "extra": {
+            "flash_images": [
+                {
+                    "path": _WIN_BUILD_PATH + r"\.pioenvs\dev\bootloader.bin",
+                    "offset": "0x1000",
+                }
+            ]
+        },
+    }
+    tarball = _synthetic_tarball(
+        storage=storage,
+        idedata=idedata,
+        extra_members=[
+            (".pioenvs/dev/firmware.bin", b"FIRMWARE"),
+            (".pioenvs/dev/firmware.factory.bin", b"FACTORY"),
+            (".pioenvs/dev/bootloader.bin", b"BOOT"),
+        ],
+    )
+    build_path = _materialise_in_tmp(tarball, tmp_path, configuration="dev.yaml")
+
+    staged_storage = json.loads(resolve_storage_path("dev.yaml").read_bytes())
+    assert staged_storage["build_path"] == str(build_path)
+    expected_firmware_bin = build_path / ".pioenvs" / "dev" / "firmware.bin"
+    assert staged_storage["firmware_bin_path"] == str(expected_firmware_bin)
+
+    # firmware/download path: base_dir = firmware_bin_path.parent.
+    factory_bin = Path(staged_storage["firmware_bin_path"]).parent / "firmware.factory.bin"
+    assert factory_bin.is_file()
+    assert factory_bin.read_bytes() == b"FACTORY"
+
+    staged_idedata = json.loads(resolve_idedata_path("dev.yaml", name="dev").read_bytes())
+    assert staged_idedata["prog_path"] == str(build_path / ".pioenvs" / "dev" / "firmware.elf")
+    assert staged_idedata["extra"]["flash_images"][0]["path"] == str(
+        build_path / ".pioenvs" / "dev" / "bootloader.bin"
+    )
+
+
+def test_materialise_rejects_dotdot_in_receiver_storage(tmp_path: Path) -> None:
+    """A malicious receiver shipping ``..`` in ``firmware_bin_path`` is rejected."""
+    storage = _windows_storage_dict(
+        build_path=_WIN_BUILD_PATH,
+        firmware_bin_path=_WIN_BUILD_PATH + r"\..\..\..\Windows\System32\evil.bin",
+    )
+    tarball = _synthetic_tarball(storage=storage)
+    with pytest.raises(MaterialiseError, match=r"contains '\.\.'"):
+        _materialise_in_tmp(tarball, tmp_path, configuration="dev.yaml")
 
 
 def test_materialise_rejects_cumulative_member_size(

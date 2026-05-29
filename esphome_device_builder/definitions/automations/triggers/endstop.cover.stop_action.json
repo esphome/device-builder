@@ -1,0 +1,1 @@
+{"id":"endstop.cover.stop_action","name":"Cover.Endstop → Stop Action","description":"The action that should be performed when the remote requests the cover to stop or an endstop is reached.","docs_url":"https://esphome.io/components/cover/endstop#configuration-variables","applies_to":["cover.endstop"],"is_device_level":false,"config_entries":[]}

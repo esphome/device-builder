@@ -23,6 +23,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+from esphome import const as _esphome_const
 from zeroconf import ServiceStateChange
 from zeroconf.asyncio import AsyncServiceInfo
 
@@ -44,6 +45,7 @@ from ...models import (
     OffloaderRemoteBuildSettings,
     OffloaderRemoteBuildSettingsView,
     OffloaderRemoteJobSnapshotEntry,
+    OffloaderSettingsSnapshot,
     PairingSummary,
     PeerQueueStatusSnapshotEntry,
     PeerStatus,
@@ -106,6 +108,7 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
             for pairing in settings.pairings:
                 state.pairings[pairing.pin_sha256] = pairing
             state.remote_builds_enabled = settings.remote_builds_enabled
+            state.version_match_policy = settings.version_match_policy
         peer_link_identity, dashboard_identity = await self._load_offloader_identities_async()
         state.offloader_peer_link_priv = peer_link_identity.private_bytes
         state.offloader_dashboard_id = dashboard_identity.dashboard_id
@@ -353,12 +356,15 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
     async def set_offloader_settings(
         self,
         *,
-        remote_builds_enabled: bool,
+        remote_builds_enabled: bool | None = None,
+        version_match_policy: str | None = None,
         **kwargs: Any,
     ) -> OffloaderRemoteBuildSettingsView:
-        """Flip the offloader-side master toggle for transparent install."""
+        """Flip the offloader-side master settings for transparent install."""
         return await settings_commands.set_offloader_settings(
-            self, remote_builds_enabled=remote_builds_enabled
+            self,
+            remote_builds_enabled=remote_builds_enabled,
+            version_match_policy=version_match_policy,
         )
 
     @api_command("remote_build/set_pairing_enabled")
@@ -476,9 +482,12 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         """Return the :class:`StoredPairing` for *pin_sha256*, or ``None``."""
         return self.state.pairings.get(pin_sha256)
 
-    def remote_builds_enabled_snapshot(self) -> bool:
-        """Return the master toggle for the ``subscribe_events`` initial-state seed."""
-        return self.state.remote_builds_enabled
+    def offloader_settings_snapshot(self) -> OffloaderSettingsSnapshot:
+        """Bundle the offloader-wide settings for the initial-state seed."""
+        return {
+            "remote_builds_enabled": self.state.remote_builds_enabled,
+            "version_match_policy": self.state.version_match_policy,
+        }
 
     def build_scheduler_snapshot(self) -> BuildSchedulerInputs:
         """Bundle the scheduler's input state into a shallow immutable snapshot.
@@ -492,6 +501,8 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
             pairings=dict(self.state.pairings),
             open_peer_links=frozenset(self.state.open_peer_links),
             peer_queue_status=dict(self.state.peer_queue_status),
+            offloader_esphome_version=_esphome_const.__version__,
+            version_match_policy=self.state.version_match_policy,
         )
 
     def pairings_snapshot(self) -> list[PairingSummary]:
@@ -547,6 +558,7 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         return OffloaderRemoteBuildSettings(
             pairings=[p for p in self.state.pairings.values() if p.status is PeerStatus.APPROVED],
             remote_builds_enabled=self.state.remote_builds_enabled,
+            version_match_policy=self.state.version_match_policy,
         )
 
     # ------------------------------------------------------------------

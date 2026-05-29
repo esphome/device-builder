@@ -68,7 +68,7 @@ def load_config(path: str = _CONFIG_PATH) -> dict[str, Any]:
     p = Path(path)
     if not p.exists():
         sys.exit(f"Error: {path} not found")
-    with p.open() as f:
+    with p.open(encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
 
 

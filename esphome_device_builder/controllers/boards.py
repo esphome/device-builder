@@ -1,36 +1,60 @@
-"""Board catalog controller."""
+"""Board catalog controller — slim index + lazy bodies."""
 
 from __future__ import annotations
 
 import logging
 from typing import Any
 
-from ..definitions import load_board_catalog
+from ..definitions import (
+    load_board_body_from_disk,
+    load_board_index,
+)
 from ..helpers.api import api_command
-from ..models import BoardCatalogEntry, BoardTag, Esp32Variant, PagedBoardsResponse, Platform
+from ..helpers.lazy_catalog import LazyBodyStore
+from ..models import (
+    BoardCatalogEntry,
+    BoardCatalogIndex,
+    BoardTag,
+    Esp32Variant,
+    PagedBoardsResponse,
+    Platform,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
+# Bounded LRU for board bodies. Mirrors the components / automations
+# catalogs (128). A typical session opens one board detail at a time;
+# the wizard pre-fetch can blow past 128 but the cap exists so a
+# misuse can't grow the heap unbounded.
+_BODY_CACHE_MAXSIZE = 128
+
 
 class BoardCatalog:
-    """In-memory board catalog with search and pagination."""
+    """In-memory slim board index + lazy-loaded full bodies."""
 
     def __init__(self) -> None:
-        self._boards: list[BoardCatalogEntry] = []
+        self._boards: list[BoardCatalogIndex] = []
+        self._known_ids: frozenset[str] = frozenset()
+        self._body_store: LazyBodyStore[BoardCatalogEntry] = LazyBodyStore(
+            load_one=load_board_body_from_disk,
+            cache_maxsize=_BODY_CACHE_MAXSIZE,
+            is_known=self._is_known,
+        )
 
     def load(self) -> None:
-        """Load boards from YAML definitions on disk."""
-        catalog = load_board_catalog()
-        self._boards = list(catalog.boards)
-        _LOGGER.info("Board catalog loaded: %d boards", len(self._boards))
+        """Load the slim board index. Bodies hydrate on demand."""
+        self._boards = load_board_index()
+        self._known_ids = frozenset(b.id for b in self._boards)
+        _LOGGER.info("Board catalog loaded: %d boards (slim index)", len(self._boards))
+
+    def _is_known(self, board_id: str) -> bool:
+        """Whether *board_id* exists in the slim index."""
+        return board_id in self._known_ids
 
     @api_command("boards/get_board")
     async def get_board(self, *, board_id: str, **kwargs: Any) -> BoardCatalogEntry | None:
-        """Get a single board by ID."""
-        for board in self._boards:
-            if board.id == board_id:
-                return board
-        return None
+        """Get a single board's full body by id, or ``None`` if unknown."""
+        return await self._body_store.get(board_id)
 
     @api_command("boards/get_boards")
     async def get_boards(
@@ -49,9 +73,11 @@ class BoardCatalog:
 
         ``query`` matches the board id, name, manufacturer, description
         and tags. Featured boards are sorted first; generic fallback
-        boards last; the rest alphabetically.
+        boards last; the rest alphabetically. Returns slim
+        :class:`BoardCatalogIndex` entries — the frontend's board
+        detail view fetches full bodies via ``boards/get_board``.
         """
-        results = self._boards
+        results: list[BoardCatalogIndex] = self._boards
 
         if platform:
             results = [b for b in results if b.esphome.platform == platform]
@@ -89,29 +115,20 @@ class BoardCatalog:
         page = results[offset : offset + limit]
         return PagedBoardsResponse(boards=page, total=total, offset=offset, limit=limit)
 
-    def get_by_id(self, board_id: str) -> BoardCatalogEntry | None:
-        """Look up a board by id synchronously. Returns ``None`` when not found."""
+    def get_by_id(self, board_id: str) -> BoardCatalogIndex | None:
+        """Look up a slim board index entry by id, or ``None``."""
         for board in self._boards:
             if board.id == board_id:
                 return board
         return None
 
-    def iter_boards(self) -> list[BoardCatalogEntry]:
-        """
-        Return every loaded board.
-
-        Returns the internal list directly — callers must treat it as
-        read-only. Used by the components controller to build the
-        featured-component registry at startup.
-        """
-        return self._boards
-
-    def find_by_pio_board(self, pio_board: str, pio_variant: str = "") -> BoardCatalogEntry | None:
+    def find_by_pio_board(self, pio_board: str, pio_variant: str = "") -> BoardCatalogIndex | None:
         """
         Find a board by its PlatformIO board id, preferring a matching variant.
 
-        Used to derive a board_id from a user-provided YAML config.
-        Returns None if no entry has a matching ``esphome.board`` value.
+        Returns the slim index entry; the caller fetches the full
+        body via :meth:`get_board` when it needs pins /
+        featured_components / default_components.
 
         When multiple catalog entries share the same PlatformIO board
         id (e.g. several products are physically built on the same
@@ -129,12 +146,6 @@ class BoardCatalog:
            wins (the bug behind issue #395 — AquaPing showing up as
            the board for plain ``d1_mini`` YAMLs).
         3. Fall back to the first match in iteration order.
-
-        Mirrors the generic-preference policy in
-        ``find_by_platform_variant``. The id-match tiebreaker is
-        specific to ``find_by_pio_board`` because that function's
-        input is itself a board id; the platform-only variant lookup
-        has nothing comparable to match against.
         """
         matches = [b for b in self._boards if b.esphome.board == pio_board]
         if not matches:
@@ -148,11 +159,6 @@ class BoardCatalog:
         for b in matches:
             if b.is_generic:
                 return b
-        # Tiebreaker: prefer the entry whose id equals the pio_board
-        # id under ``_`` ↔ ``-`` normalization. Catalog ids tend to
-        # use ``-`` while PlatformIO ids tend to use ``_``, and the
-        # canonical entry for a given pio_board is the one named
-        # after it.
         normalized_pio = pio_board.replace("_", "-")
         for b in matches:
             if b.id.replace("_", "-") == normalized_pio:
@@ -163,16 +169,13 @@ class BoardCatalog:
         self,
         platform: str,
         variant: str = "",
-    ) -> BoardCatalogEntry | None:
+    ) -> BoardCatalogIndex | None:
         """
-        Find a board by ``platform`` (and optional ``variant``).
+        Find a board by ``platform`` (and optional ``variant``), prefer generic.
 
-        Used as a final fallback when a YAML config names only the
-        platform — common for users configuring a generic ``esp32:``
-        block without a specific PlatformIO ``board:`` field. Generic
-        catalog entries (``is_generic=true``) are preferred so the
-        dashboard surfaces the right "Generic ESP32-C3" rather than a
-        random vendor board that happens to share the same variant.
+        Returns the slim index entry — see :meth:`find_by_pio_board`
+        for the body-fetch contract. Used as a final fallback when a
+        YAML config names only the platform.
         """
         if not platform:
             return None
@@ -187,8 +190,6 @@ class BoardCatalog:
             ]
             if variant_matches:
                 matches = variant_matches
-        # Prefer the generic fallback so the dashboard tags untracked
-        # YAML configs with a stable, well-known board.
         for b in matches:
             if b.is_generic:
                 return b

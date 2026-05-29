@@ -53,6 +53,16 @@ class ErrorCode(StrEnum):
     # decision); this is "receiver reachable but not currently
     # listening."
     NO_PAIRING_WINDOW = "no_pairing_window"
+    # The offloader's strictest version-match policy
+    # (``exact_required``) filtered out every paired peer and
+    # there's no remote target to compile against. Distinct from
+    # the other three policies, which silently fall back to a
+    # LOCAL build when filtering empties the peer set — this
+    # code is the operator-visible signal that "use my remote
+    # build server" is incompatible with the current peer fleet,
+    # so the install refuses rather than masking the policy
+    # violation with a slow LOCAL compile.
+    NO_COMPATIBLE_PEER = "no_compatible_peer"
 
 
 @dataclass
