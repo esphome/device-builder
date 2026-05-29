@@ -159,23 +159,39 @@ async def persist_jobs(controller: FirmwareController) -> None:
     await loop.run_in_executor(None, _save)
 
 
+def job_dict_without_output(job: FirmwareJob) -> dict:
+    """Serialise *job* dropping ``output`` (it's persisted in / served from the sidecar)."""
+    data = job.to_dict()
+    data.pop("output", None)
+    return data
+
+
 def read_job_output(job_id: str) -> list[str]:
-    """Return a job's persisted output lines (terminators preserved), or ``[]``."""
-    return _read_job_sidecar(job_id)
+    r"""Return a job's persisted output lines (terminators preserved), or ``[]``.
+
+    ``newline=""`` mirrors the write side so universal-newline
+    translation doesn't rewrite a bare ``\r`` terminator to ``\n``;
+    ``splitlines`` then re-splits on the same ``\n`` / ``\r``
+    boundaries the ingest path produced.
+    """
+    try:
+        with _job_log_path(job_id).open(encoding="utf-8", newline="") as fh:
+            text = fh.read()
+    except OSError:
+        return []
+    return text.splitlines(keepends=True)
 
 
 def _metadata_dict(job: FirmwareJob) -> dict:
-    """Serialise *job*, dropping ``output`` for terminal jobs.
+    """Serialise *job* for the metadata blob, dropping ``output`` for terminal jobs.
 
-    Terminal output lives in the sidecar. Active (queued / running)
-    jobs keep their output inline so a mid-build restart still
-    recovers the pre-crash log (``FirmwareJob.reset``); there are no
-    active jobs at idle, so this doesn't affect the resting blob.
+    Active (queued / running) jobs keep their output inline so a
+    mid-build restart recovers the pre-crash log; there are no active
+    jobs at idle, so this doesn't bloat the resting blob.
     """
-    data = job.to_dict()
     if job.status in TERMINAL_JOB_STATUSES:
-        data.pop("output", None)
-    return data
+        return job_dict_without_output(job)
+    return job.to_dict()
 
 
 def _job_log_path(job_id: str) -> Path:
@@ -198,22 +214,6 @@ def _write_job_sidecar(job_id: str, lines: list[str]) -> None:
         with contextlib.suppress(OSError):
             Path(tmp).unlink()
         raise
-
-
-def _read_job_sidecar(job_id: str) -> list[str]:
-    r"""Read the sidecar back into the line list, or ``[]`` when absent.
-
-    ``newline=""`` mirrors the write side so universal-newline
-    translation doesn't rewrite a bare ``\r`` terminator to ``\n``;
-    ``splitlines`` then re-splits on the same ``\n`` / ``\r``
-    boundaries the ingest path produced.
-    """
-    try:
-        with _job_log_path(job_id).open(encoding="utf-8", newline="") as fh:
-            text = fh.read()
-    except OSError:
-        return []
-    return text.splitlines(keepends=True)
 
 
 def _reconcile_sidecars(valid_ids: set[str]) -> None:

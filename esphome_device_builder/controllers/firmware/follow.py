@@ -13,7 +13,7 @@ from ...models import (
     EventType,
     StreamEvent,
 )
-from .persistence import read_job_output
+from .persistence import job_dict_without_output, read_job_output
 
 if TYPE_CHECKING:
     from ...helpers.event_bus import Event
@@ -135,9 +135,12 @@ async def follow_jobs(
     # job between freeze and serialise — that mutation lands in
     # both the snapshot AND the listener, so the client sees the
     # same line twice.
+    # Snapshots omit ``output``: the panel reads only metadata, and
+    # log text is fetched per-job via ``follow_job``. Dropping it also
+    # keeps a running job's live buffer off the snapshot wire.
     snapshot_payloads = (
         [
-            _job_wire_dict(job)
+            job_dict_without_output(job)
             for job in sorted(controller.state.jobs.values(), key=attrgetter("created_at"))
         ]
         if snapshot
@@ -162,7 +165,7 @@ async def follow_jobs(
             job = event.data.get("job")
             if job is None:
                 return
-            payload = _job_wire_dict(job) if hasattr(job, "to_dict") else job
+            payload = job_dict_without_output(job) if hasattr(job, "to_dict") else job
             controls.push_priority(event.event_type.value, payload)
 
     await stream_events(
@@ -195,16 +198,3 @@ async def _initial_snapshot(job: Any, job_id: str) -> list[str]:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, read_job_output, job_id)
     return list(job.output)
-
-
-def _job_wire_dict(job: Any) -> dict[str, Any]:
-    """Serialise *job* for the job-list stream without its ``output``.
-
-    The firmware-tasks panel reads only metadata off these payloads;
-    log text is fetched per-job via :func:`follow_job`. Dropping
-    ``output`` keeps a running job's live buffer off the snapshot /
-    lifecycle wire.
-    """
-    data = job.to_dict()
-    data.pop("output", None)
-    return data
