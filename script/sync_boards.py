@@ -32,7 +32,6 @@ Usage
 from __future__ import annotations
 
 import logging
-import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -41,11 +40,17 @@ import orjson
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _catalog_split import (  # noqa: E402
+    emit_body_with_roundtrip,
+    prepare_next_bodies_dir,
+    swap_split_catalog_in,
+)
 
 from esphome_device_builder.definitions import (  # noqa: E402
     build_board_catalog_from_manifests,
 )
-from esphome_device_builder.helpers.lazy_catalog import is_unsafe_catalog_id  # noqa: E402
 from esphome_device_builder.models import BoardCatalogEntry, BoardCatalogIndex  # noqa: E402
 
 _LOGGER = logging.getLogger("sync_boards")
@@ -90,14 +95,21 @@ def _emit_split_catalog(
 ) -> None:
     """Write ``boards.index.json`` + ``board_bodies/<id>.json`` via atomic swap."""
     next_bodies = _BODIES_DIR.parent / "board_bodies.next"
-    _prepare_next_bodies_dir(next_bodies)
+    prepare_next_bodies_dir(next_bodies)
 
     for board, payload in zip(boards, full_payloads, strict=True):
         # Body files carry the full BoardCatalogEntry payload — they
         # round-trip through ``BoardCatalogEntry.from_dict`` standalone,
         # mirroring the automations / components split where each
         # body file is self-describing.
-        _emit_body_with_roundtrip(payload, board.id, next_bodies)
+        emit_body_with_roundtrip(
+            payload,
+            board.id,
+            next_bodies,
+            BoardCatalogEntry,
+            log_label="Board",
+            sort_keys=True,
+        )
 
     index_payload = {
         "boards": sorted(
@@ -105,11 +117,14 @@ def _emit_split_catalog(
             key=lambda p: p["id"],
         ),
     }
-    _swap_split_catalog_in(
+    swap_split_catalog_in(
         next_bodies=next_bodies,
         live_bodies=_BODIES_DIR,
         index_payload=index_payload,
         live_index=_INDEX_FILE,
+        index_cls=BoardCatalogIndex,
+        index_entries_key="boards",
+        sort_keys=True,
     )
 
 
@@ -136,57 +151,6 @@ def _emit_featured_components_index(boards: list[BoardCatalogEntry]) -> None:
 def _strip_body_fields(payload: dict[str, Any]) -> dict[str, Any]:
     """Return *payload* with body-only keys removed (slim shape)."""
     return {k: v for k, v in payload.items() if k not in _INDEX_DROP_FIELDS}
-
-
-# ---------------------------------------------------------------------------
-# Atomic-swap helpers — duplicated from script/sync_components.py for now;
-# both copies write the same on-disk shape and must stay in lockstep.
-# ---------------------------------------------------------------------------
-
-
-def _prepare_next_bodies_dir(next_bodies: Path) -> None:
-    """Wipe and recreate the sibling tempdir bodies land in before the swap."""
-    if next_bodies.exists():
-        shutil.rmtree(next_bodies)
-    next_bodies.mkdir(parents=True)
-
-
-def _emit_body_with_roundtrip(body: dict[str, Any], cid: str, body_dir: Path) -> None:
-    """Write one body file after traversal + mashumaro roundtrip validation."""
-    if is_unsafe_catalog_id(cid):
-        msg = f"Refusing to emit Board body for traversal-shaped id: {cid!r}"
-        raise ValueError(msg)
-    try:
-        BoardCatalogEntry.from_dict(body)
-    except Exception as exc:
-        msg = f"Board {cid!r} fails roundtrip: {exc}"
-        raise ValueError(msg) from exc
-    body_path = body_dir / f"{cid}.json"
-    body_path.write_bytes(
-        orjson.dumps(body, option=orjson.OPT_SORT_KEYS | orjson.OPT_APPEND_NEWLINE)
-    )
-
-
-def _swap_split_catalog_in(
-    *,
-    next_bodies: Path,
-    live_bodies: Path,
-    index_payload: dict[str, Any],
-    live_index: Path,
-) -> None:
-    """Swap a freshly-written next-bodies dir + index into place atomically."""
-    # Roundtrip-validate the slim index so a sync-time omit_default
-    # bug can't ship a wire shape the runtime loader will reject.
-    for entry in index_payload["boards"]:
-        BoardCatalogIndex.from_dict(entry)
-    next_index = live_index.with_suffix(".json.next")
-    next_index.write_bytes(
-        orjson.dumps(index_payload, option=orjson.OPT_SORT_KEYS | orjson.OPT_APPEND_NEWLINE)
-    )
-    if live_bodies.exists():
-        shutil.rmtree(live_bodies)
-    next_bodies.rename(live_bodies)
-    next_index.replace(live_index)
 
 
 if __name__ == "__main__":

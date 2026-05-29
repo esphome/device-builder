@@ -50,7 +50,6 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, NamedTuple
 
-import orjson
 import voluptuous as vol
 
 # ---------------------------------------------------------------------------
@@ -92,10 +91,16 @@ _USER_AGENT = "esphome-device-builder-backend (https://github.com/esphome/device
 # generator and the runtime loader share one source of truth — see
 # ``controllers/components.py`` for the rationale (issue #325).
 sys.path.insert(0, str(_REPO_ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _catalog_split import (  # noqa: E402
+    emit_body_with_roundtrip,
+    prepare_next_bodies_dir,
+    swap_split_catalog_in,
+)
+
 from esphome_device_builder.controllers.components import (  # noqa: E402
     INTERNAL_COMPONENT_IDS as _INTERNAL_COMPONENT_IDS,
 )
-from esphome_device_builder.helpers.lazy_catalog import is_unsafe_catalog_id  # noqa: E402
 from esphome_device_builder.models import (  # noqa: E402
     AutomationAction,
     AutomationActionIndex,
@@ -3315,12 +3320,12 @@ def _emit_split_catalog(catalog: list[dict], version: str) -> None:
     degrades rather than crashes.
     """
     next_bodies = _OUTPUT_BODIES_DIR.parent / "components.next"
-    _prepare_next_bodies_dir(next_bodies)
+    prepare_next_bodies_dir(next_bodies)
 
     for component in catalog:
         cid = component["id"]
         stripped = _strip_defaults(component)
-        _emit_body_with_roundtrip(
+        emit_body_with_roundtrip(
             stripped, cid, next_bodies, ComponentCatalogEntry, log_label="Component"
         )
 
@@ -3333,7 +3338,7 @@ def _emit_split_catalog(catalog: list[dict], version: str) -> None:
         "esphome_schema_version": version,
         "components": [_strip_index_defaults(c) for c in catalog],
     }
-    _swap_split_catalog_in(
+    swap_split_catalog_in(
         next_bodies=next_bodies,
         live_bodies=_OUTPUT_BODIES_DIR,
         index_payload=index_payload,
@@ -3341,71 +3346,6 @@ def _emit_split_catalog(catalog: list[dict], version: str) -> None:
     )
     _LOGGER.info("Wrote %d body files to %s", len(catalog), _OUTPUT_BODIES_DIR)
     _LOGGER.info("Wrote %s", _OUTPUT_INDEX_FILE)
-
-
-def _prepare_next_bodies_dir(next_bodies: Path) -> None:
-    """Wipe and recreate the sibling tempdir bodies land in before the swap."""
-    if next_bodies.exists():
-        shutil.rmtree(next_bodies)
-    next_bodies.mkdir(parents=True)
-
-
-def _emit_body_with_roundtrip(
-    body: dict[str, Any],
-    cid: str,
-    body_dir: Path,
-    body_cls: type,
-    *,
-    log_label: str,
-) -> None:
-    """Write one body file after traversal + mashumaro roundtrip validation.
-
-    Mirrors the runtime body loader's path-traversal guard on the
-    write side; catalog ids come from a controlled schema bundle
-    today, but a sync-time bug or an upstream schema change
-    introducing a separator / parent ref in an id would silently
-    escape ``body_dir`` without this check. Fail the build rather
-    than warn-and-skip so a regression surfaces in CI, not as a
-    half-populated catalog at runtime. The roundtrip guard is the
-    same shape — fail-fast on shape drift so the runtime loader
-    can be the strict mashumaro from_dict with no soft fallbacks.
-    """
-    if is_unsafe_catalog_id(cid):
-        msg = f"Refusing to emit {log_label} body for traversal-shaped id: {cid!r}"
-        raise ValueError(msg)
-    try:
-        body_cls.from_dict(body)
-    except Exception as exc:
-        msg = f"{log_label} {cid!r} fails roundtrip: {exc}"
-        raise ValueError(msg) from exc
-    body_path = body_dir / f"{cid}.json"
-    body_path.write_bytes(orjson.dumps(body, option=orjson.OPT_APPEND_NEWLINE))
-
-
-def _swap_split_catalog_in(
-    *,
-    next_bodies: Path,
-    live_bodies: Path,
-    index_payload: dict[str, Any],
-    live_index: Path,
-) -> None:
-    """Swap a freshly-written next-bodies dir + index into place.
-
-    Index lands at a sibling ``.json.next`` first so a partial
-    write can't leave the live file truncated; the bodies-dir swap
-    is rmtree + rename (sub-millisecond window); the index swap is
-    ``Path.replace`` which is atomic. Between the two swaps the
-    live index briefly points at the old id set against the new
-    bodies; the runtime loader degrades gracefully across that
-    window (missing body files log a warning, new ids aren't yet
-    listed).
-    """
-    next_index = live_index.with_suffix(".json.next")
-    next_index.write_bytes(orjson.dumps(index_payload, option=orjson.OPT_APPEND_NEWLINE))
-    if live_bodies.exists():
-        shutil.rmtree(live_bodies)
-    next_bodies.rename(live_bodies)
-    Path(next_index).replace(live_index)
 
 
 # Each automations sub-catalog: (json_key, full_model, slim_model).
@@ -3434,11 +3374,11 @@ def _emit_split_automations_catalog(automations: dict[str, Any], version: str) -
 
     Crash-safety + roundtrip-validation + traversal guard all
     mirror ``_emit_split_catalog`` via the shared
-    ``_emit_body_with_roundtrip`` /
-    ``_swap_split_catalog_in`` helpers.
+    ``emit_body_with_roundtrip`` /
+    ``swap_split_catalog_in`` helpers.
     """
     next_bodies = _AUTOMATIONS_BODIES_DIR.parent / "automations.next"
-    _prepare_next_bodies_dir(next_bodies)
+    prepare_next_bodies_dir(next_bodies)
 
     index_payload: dict[str, Any] = {"esphome_schema_version": version}
     for type_key, full_cls, slim_cls in _AUTOMATIONS_SUBCATALOGS:
@@ -3446,7 +3386,7 @@ def _emit_split_automations_catalog(automations: dict[str, Any], version: str) -
         type_subdir.mkdir()
         slim_entries: list[dict[str, Any]] = []
         for entry in automations.get(type_key, []):
-            _emit_body_with_roundtrip(
+            emit_body_with_roundtrip(
                 entry,
                 entry["id"],
                 type_subdir,
@@ -3460,7 +3400,7 @@ def _emit_split_automations_catalog(automations: dict[str, Any], version: str) -
             slim_entries.append(slim_cls.from_dict(entry).to_dict())
         index_payload[type_key] = slim_entries
 
-    _swap_split_catalog_in(
+    swap_split_catalog_in(
         next_bodies=next_bodies,
         live_bodies=_AUTOMATIONS_BODIES_DIR,
         index_payload=index_payload,
