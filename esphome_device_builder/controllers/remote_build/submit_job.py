@@ -58,7 +58,6 @@ from __future__ import annotations
 import asyncio
 import binascii
 import logging
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -80,6 +79,8 @@ from ...models import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from ..firmware import FirmwareController
     from .peer_link import PeerLinkSession
 

@@ -1,11 +1,4 @@
-"""Coverage for ``helpers.lazy_module.async_import_module``.
-
-Three branches: cache hit (steady-state), executor first-import
-success, and import failure propagation. The simpler dedup-free
-design has no shared-future state, so cancellation behaviour is
-governed by the underlying ``loop.run_in_executor`` semantics and
-doesn't need its own test.
-"""
+"""Coverage for ``helpers.lazy_module.async_import_module``."""
 
 from __future__ import annotations
 
