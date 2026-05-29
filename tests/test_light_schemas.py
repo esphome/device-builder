@@ -25,7 +25,7 @@ from script._light_schemas import (
 
 def _write(path: Path, body: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(body)
+    path.write_text(body, encoding="utf-8")
 
 
 def test_resolve_schema_ref_direct(tmp_path: Path) -> None:

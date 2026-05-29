@@ -87,7 +87,8 @@ def test_load_device_yaml_parses_valid_config(yaml_file: Path) -> None:
         "esphome:\n"
         "  name: kitchen\n"
         "api:\n"
-        '  encryption:\n    key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="\n'
+        '  encryption:\n    key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="\n',
+        encoding="utf-8",
     )
     config = load_device_yaml(yaml_file)
     assert config is not None
@@ -96,7 +97,7 @@ def test_load_device_yaml_parses_valid_config(yaml_file: Path) -> None:
 
 def test_load_device_yaml_returns_none_on_parse_failure(yaml_file: Path) -> None:
     """An invalid draft mid-edit returns ``None`` instead of raising."""
-    yaml_file.write_text("api: !\n  bad: [unterminated\n")
+    yaml_file.write_text("api: !\n  bad: [unterminated\n", encoding="utf-8")
     assert load_device_yaml(yaml_file) is None
 
 
@@ -434,7 +435,7 @@ def isolated_storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
 
 def _scan(yaml_path: Path, content: str) -> Device:
     """Write *content* to *yaml_path* and run it through the scanner helper."""
-    yaml_path.write_text(content)
+    yaml_path.write_text(content, encoding="utf-8")
     return device_yaml.load_device_from_storage(yaml_path)
 
 

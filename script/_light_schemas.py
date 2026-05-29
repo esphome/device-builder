@@ -42,7 +42,7 @@ def resolve_schema_ref(
         return None
     visited.add(path)
     try:
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
     except OSError as err:
         # A flaky read silently dropping a platform from the resolved
         # set would surface as an applies_to regression on the next
@@ -128,7 +128,7 @@ def resolve_light_effects_applies_to(
     """Return the canonical light-platform ids that accept *effect_name*."""
     light_json = Path(schema_dir / "light.json")
     try:
-        with light_json.open() as f:
+        with light_json.open(encoding="utf-8") as f:
             light_schema = json.load(f)
     except FileNotFoundError:
         # No light schema → no platforms to scope against. The catalog
