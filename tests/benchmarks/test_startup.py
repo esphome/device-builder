@@ -2,12 +2,14 @@
 
 ``DeviceBuilder.start()`` blocks on two synchronous catalog loads
 before the first WS frame can be served: ``BoardCatalog.load()``
-deserializes ``definitions/boards.json`` via ``orjson`` +
-mashumaro; ``ComponentCatalog.load()`` decodes the slim
-``definitions/components.index.json`` and instantiates ~900
-``ComponentCatalogIndexEntry`` objects. Component bodies load
-lazily on detail-view; this bench still measures the per-entry
-cost via ``ComponentCatalogEntry.from_dict`` against one body file.
+decodes the slim ``definitions/boards.index.json`` and instantiates
+~490 ``BoardCatalogIndex`` objects (board bodies load lazily on
+detail-view via ``LazyBodyStore``); ``ComponentCatalog.load()``
+decodes ``definitions/components.index.json`` and instantiates
+~900 ``ComponentCatalogIndexEntry`` objects. Component / board
+bodies load lazily; this bench still measures the per-entry cost
+via ``ComponentCatalogEntry.from_dict`` /
+``BoardCatalogEntry.from_dict`` against one body file each.
 
 The per-board YAML parse benchmark covers ``script/sync_boards.py``
 rather than the runtime path — a regression in the libyaml loader
@@ -49,7 +51,6 @@ _DEFINITIONS = Path(__file__).resolve().parents[2] / "esphome_device_builder" / 
 # per-iteration sample, matching the pattern used for the manifest
 # bytes below.
 _BOARDS_INDEX_DICT = loads((_DEFINITIONS / "boards.index.json").read_bytes())
-_BOARDS_FEATURED_DICT = loads((_DEFINITIONS / "featured_components.index.json").read_bytes())
 # One representative board body — picked for its non-trivial pin
 # table + featured components so the per-body cost the lazy loader
 # repeats on every detail-view open is exercised.
