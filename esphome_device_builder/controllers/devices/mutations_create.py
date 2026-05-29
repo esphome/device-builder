@@ -120,13 +120,14 @@ async def create_device(  # noqa: PLR0912, PLR0915, C901
             if matched is None and parsed_platform:
                 matched = controller._db.boards.find_by_platform_variant(parsed_platform, variant)
             if matched:
-                # Slim entry suffices on this branch — ``_init_storage``
-                # below only reads ``board.esphome.platform``, which is
-                # part of the slim shape. ``_yaml_content_for_create``
-                # already ran above with ``board=None`` (this branch is
-                # gated on ``not board_id``), so a body load here would
-                # be wasted work.
-                board = matched
+                # ``board`` stays ``None`` — ``_yaml_content_for_create``
+                # already ran above (this branch is gated on ``not
+                # board_id``), and ``_init_storage`` below falls back to
+                # ``parsed_platform`` from the YAML parse, which equals
+                # ``matched.esphome.platform.value``. The body load that
+                # was here before was wasted work + a quiet behaviour
+                # change (board_id only persisted when the body file
+                # happened to be on disk).
                 board_id = matched.id
 
     loop = asyncio.get_running_loop()
