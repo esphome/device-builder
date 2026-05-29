@@ -38,7 +38,7 @@ async def get_jobs(
 
 
 async def get_job(controller: FirmwareController, *, job_id: str) -> FirmwareJob | None:
-    """Get a specific job with full output."""
+    """Get a specific job. Terminal-job ``output`` is empty here; stream it via follow_job."""
     return controller.state.jobs.get(job_id)
 
 

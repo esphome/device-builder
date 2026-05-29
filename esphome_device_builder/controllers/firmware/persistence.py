@@ -1,11 +1,26 @@
-"""Firmware-job persistence: load on startup, prune history, save on transition."""
+"""Firmware-job persistence: load on startup, prune history, save on transition.
+
+Job *metadata* lives in the ``.device-builder.json`` blob; job
+*output* lives in per-job sidecar logs under
+``CORE.data_dir/dashboard-jobs/<job_id>.log`` so the ~2000-line build
+log of every retained terminal job isn't held in RAM (or reloaded
+into RAM at startup). Output stays in RAM only while a job is live;
+on the terminal transition it's flushed to its sidecar and dropped
+from RAM. ``follow_job`` replays a terminal job's log from disk.
+"""
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
+import os
+import tempfile
 from operator import attrgetter
+from pathlib import Path
 from typing import TYPE_CHECKING
+
+from esphome.core import CORE
 
 from ...models import TERMINAL_JOB_STATUSES, FirmwareJob, JobStatus
 from ..config import _load_metadata, metadata_transaction
@@ -22,6 +37,8 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+_JOB_LOG_DIRNAME = "dashboard-jobs"
+
 
 def prune_history(controller: FirmwareController) -> None:
     """
@@ -32,7 +49,8 @@ def prune_history(controller: FirmwareController) -> None:
     configuration (newest wins) and cap at
     :data:`_MAX_PRIMARY_TERMINAL_JOBS`. Terminal clean / reset
     jobs are kept in a separate pool capped at
-    :data:`_MAX_AUX_TERMINAL_JOBS`. Caller persists the result.
+    :data:`_MAX_AUX_TERMINAL_JOBS`. Caller persists the result;
+    sidecars of dropped jobs are reaped by ``persist_jobs``.
     """
     terminal_states = TERMINAL_JOB_STATUSES
 
@@ -68,15 +86,17 @@ def prune_history(controller: FirmwareController) -> None:
 
 async def load_jobs(controller: FirmwareController) -> None:
     """
-    Load persisted jobs and re-queue any incomplete ones.
+    Load persisted job metadata and re-queue any incomplete ones.
 
-    QUEUED and RUNNING re-queue; RUNNING goes through
-    :meth:`FirmwareJob.reset` first to clear per-run state while
-    preserving the pre-crash ``output`` log as history. Terminal
-    jobs load into the in-memory map but don't touch ``_queue``.
+    Output is not loaded into RAM: terminal jobs deserialise with an
+    empty ``output`` (their log lives in the sidecar). QUEUED and
+    RUNNING re-queue; RUNNING goes through :meth:`FirmwareJob.reset`
+    first to clear per-run state. A legacy blob that still carries
+    inline ``output`` on terminal jobs is migrated to sidecars here.
     """
     loop = asyncio.get_running_loop()
     data = await loop.run_in_executor(None, _load_metadata, controller._db.settings.config_dir)
+    to_migrate: list[tuple[str, list[str]]] = []
     for job_data in data.get(_JOBS_KEY, []):
         try:
             job = FirmwareJob.from_dict(job_data)
@@ -86,6 +106,14 @@ async def load_jobs(controller: FirmwareController) -> None:
                     job.reset()
                 job.status = JobStatus.QUEUED
                 await controller.state.queue.put(job)
+            elif job.output:
+                # Legacy blob with inline output on a terminal job:
+                # move it to a sidecar and drop it from RAM. The old
+                # blob still holds the lines until the next
+                # ``persist_jobs`` writes the slim form, so a crash
+                # before then just re-runs the migration.
+                to_migrate.append((job.job_id, list(job.output)))
+                job.output = []
         except Exception:
             # ``job_data`` is normally a dict, but a corrupt
             # persistence file could contain a primitive
@@ -101,14 +129,101 @@ async def load_jobs(controller: FirmwareController) -> None:
             )
             _LOGGER.warning("Failed to restore job: %s", identity, exc_info=True)
 
+    if to_migrate:
+
+        def _migrate() -> None:
+            for job_id, lines in to_migrate:
+                _write_job_sidecar(job_id, lines)
+
+        await loop.run_in_executor(None, _migrate)
+
 
 async def persist_jobs(controller: FirmwareController) -> None:
-    """Save all jobs to disk."""
+    """Flush terminal-job output to sidecars, then save job metadata."""
     loop = asyncio.get_running_loop()
     config_dir = controller._db.settings.config_dir
+    jobs = list(controller.state.jobs.values())
 
     def _save() -> None:
+        # Flush each terminal job's RAM buffer to its sidecar, then
+        # drop it from RAM so idle memory holds metadata only. Runs
+        # before ``to_dict`` so the persisted blob carries no output.
+        for job in jobs:
+            if job.status in TERMINAL_JOB_STATUSES and job.output:
+                _write_job_sidecar(job.job_id, job.output)
+                job.output = []
+        _reconcile_sidecars({job.job_id for job in jobs})
         with metadata_transaction(config_dir) as data:
-            data[_JOBS_KEY] = [j.to_dict() for j in controller.state.jobs.values()]
+            data[_JOBS_KEY] = [_metadata_dict(job) for job in jobs]
 
     await loop.run_in_executor(None, _save)
+
+
+def read_job_output(job_id: str) -> list[str]:
+    """Return a job's persisted output lines (terminators preserved), or ``[]``."""
+    return _read_job_sidecar(job_id)
+
+
+def _metadata_dict(job: FirmwareJob) -> dict:
+    """Serialise *job*, dropping ``output`` for terminal jobs.
+
+    Terminal output lives in the sidecar. Active (queued / running)
+    jobs keep their output inline so a mid-build restart still
+    recovers the pre-crash log (``FirmwareJob.reset``); there are no
+    active jobs at idle, so this doesn't affect the resting blob.
+    """
+    data = job.to_dict()
+    if job.status in TERMINAL_JOB_STATUSES:
+        data.pop("output", None)
+    return data
+
+
+def _job_log_path(job_id: str) -> Path:
+    """Sidecar log path for *job_id* under ``CORE.data_dir``."""
+    return Path(CORE.data_dir) / _JOB_LOG_DIRNAME / f"{job_id}.log"
+
+
+def _write_job_sidecar(job_id: str, lines: list[str]) -> None:
+    """Atomically write *lines* (each carrying its own terminator) to the sidecar."""
+    path = _job_log_path(job_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f"{job_id}.", suffix=".tmp")
+    try:
+        # ``newline=""`` disables universal-newline translation so a
+        # bare ``\r`` progress terminator survives the write verbatim.
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
+            fh.write("".join(lines))
+        Path(tmp).replace(path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            Path(tmp).unlink()
+        raise
+
+
+def _read_job_sidecar(job_id: str) -> list[str]:
+    r"""Read the sidecar back into the line list, or ``[]`` when absent.
+
+    ``newline=""`` mirrors the write side so universal-newline
+    translation doesn't rewrite a bare ``\r`` terminator to ``\n``;
+    ``splitlines`` then re-splits on the same ``\n`` / ``\r``
+    boundaries the ingest path produced.
+    """
+    try:
+        with _job_log_path(job_id).open(encoding="utf-8", newline="") as fh:
+            text = fh.read()
+    except OSError:
+        return []
+    return text.splitlines(keepends=True)
+
+
+def _reconcile_sidecars(valid_ids: set[str]) -> None:
+    """Delete sidecar logs whose job is no longer retained (pruned / cleared / orphaned)."""
+    log_dir = Path(CORE.data_dir) / _JOB_LOG_DIRNAME
+    try:
+        entries = list(log_dir.iterdir())
+    except OSError:
+        return
+    for entry in entries:
+        if entry.suffix == ".log" and entry.stem not in valid_ids:
+            with contextlib.suppress(OSError):
+                entry.unlink()

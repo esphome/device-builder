@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from operator import attrgetter
 from typing import TYPE_CHECKING, Any
 
@@ -12,6 +13,7 @@ from ...models import (
     EventType,
     StreamEvent,
 )
+from .persistence import read_job_output
 
 if TYPE_CHECKING:
     from ...helpers.event_bus import Event
@@ -43,10 +45,8 @@ async def follow_job(
         raise ValueError(msg)
 
     # Capture snapshot before ``stream_events`` attaches listeners.
-    # Both happen in synchronous-adjacent statements so nothing
-    # fires between freeze and subscribe.
-    snapshot = list(job.output)
     is_terminal = job.status in TERMINAL_JOB_STATUSES
+    snapshot = await _initial_snapshot(job, job_id)
     terminal_status = job.status.value if is_terminal else ""
     terminal_exit_code = job.exit_code
     terminal_error = job.error if is_terminal else None
@@ -137,7 +137,7 @@ async def follow_jobs(
     # same line twice.
     snapshot_payloads = (
         [
-            job.to_dict()
+            _job_wire_dict(job)
             for job in sorted(controller.state.jobs.values(), key=attrgetter("created_at"))
         ]
         if snapshot
@@ -162,7 +162,7 @@ async def follow_jobs(
             job = event.data.get("job")
             if job is None:
                 return
-            payload = job.to_dict() if hasattr(job, "to_dict") else job
+            payload = _job_wire_dict(job) if hasattr(job, "to_dict") else job
             controls.push_priority(event.event_type.value, payload)
 
     await stream_events(
@@ -179,3 +179,32 @@ async def follow_jobs(
         handle_event=_handle_event,
         send_initial=_send_initial,
     )
+
+
+async def _initial_snapshot(job: Any, job_id: str) -> list[str]:
+    """Output lines to replay before tailing live: sidecar for terminal, RAM for live.
+
+    A terminal job's output lives in its on-disk sidecar (dropped
+    from RAM at the terminal transition); it fires no more
+    ``JOB_OUTPUT`` so the async read can't race a live append. A
+    live job freezes its RAM buffer synchronously so the listener
+    ``follow_job`` attaches next can't slip lines between freeze and
+    subscribe.
+    """
+    if job.status in TERMINAL_JOB_STATUSES:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, read_job_output, job_id)
+    return list(job.output)
+
+
+def _job_wire_dict(job: Any) -> dict[str, Any]:
+    """Serialise *job* for the job-list stream without its ``output``.
+
+    The firmware-tasks panel reads only metadata off these payloads;
+    log text is fetched per-job via :func:`follow_job`. Dropping
+    ``output`` keeps a running job's live buffer off the snapshot /
+    lifecycle wire.
+    """
+    data = job.to_dict()
+    data.pop("output", None)
+    return data

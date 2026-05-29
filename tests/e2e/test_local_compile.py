@@ -12,6 +12,7 @@ from aiohttp import web
 from pytest_aiohttp.plugin import AiohttpClient
 
 from esphome_device_builder.api import ws as ws_module
+from esphome_device_builder.controllers.firmware.persistence import read_job_output
 from esphome_device_builder.device_builder import DeviceBuilder
 from esphome_device_builder.models import JobStatus
 
@@ -116,4 +117,6 @@ async def test_local_compile_round_trip_over_ws(
     job = db.firmware.state.jobs[job_id]
     assert job.status is JobStatus.COMPLETED
     assert job.exit_code == 0
-    assert any("Compile finished" in line for line in job.output)
+    # Terminal output is flushed to the sidecar and dropped from RAM.
+    assert job.output == []
+    assert any("Compile finished" in line for line in read_job_output(job_id))
