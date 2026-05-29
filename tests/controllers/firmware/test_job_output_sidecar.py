@@ -18,6 +18,7 @@ import pytest
 
 from esphome_device_builder.controllers.firmware.persistence import (
     _job_log_path,
+    _reconcile_sidecars,
     _write_job_sidecar,
     read_job_output,
 )
@@ -121,6 +122,21 @@ def test_read_missing_sidecar_returns_empty() -> None:
     assert read_job_output("never-written") == []
 
 
+def test_reconcile_logs_when_dir_unreadable(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An unreadable job-log dir is logged, not silently swallowed (orphans would leak)."""
+
+    def _boom(self: Path) -> None:
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(Path, "iterdir", _boom)
+    with caplog.at_level(logging.WARNING):
+        _reconcile_sidecars(set())
+    assert any("Failed to scan job-log dir" in r.message for r in caplog.records)
+
+
 def test_read_unreadable_sidecar_logs_and_returns_empty(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -169,35 +185,56 @@ async def test_legacy_inline_output_migrates_to_sidecar_on_load(
 
 
 @pytest.mark.asyncio
-async def test_failed_migration_keeps_output_in_ram_for_retry(
+async def test_migration_isolates_per_job_write_failure(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A migration write failure leaves the legacy output in RAM, not lost.
+    """One job's sidecar write failure is logged and skipped; the rest still migrate.
 
-    Write-then-clear: the inline output is dropped only after its
-    sidecar write succeeds, so a failing write leaves the lines in
-    ``job.output`` (where the next persist flush saves them) instead
-    of clearing them before the only on-disk copy exists.
+    Write-then-clear with per-job isolation: a failing write leaves
+    that job's lines in ``job.output`` (saved by the next persist
+    flush) without aborting the batch or blocking startup, and other
+    jobs migrate normally.
     """
-    job = _terminal_job(["legacy a\n", "legacy b\n"])
-    blob = {"_firmware_jobs": [job.to_dict()]}
+    bad = FirmwareJob(
+        job_id="bad1",
+        configuration="a.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.COMPLETED,
+        output=["bad a\n"],
+        exit_code=0,
+    )
+    good = FirmwareJob(
+        job_id="ok2",
+        configuration="b.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.COMPLETED,
+        output=["good b\n"],
+        exit_code=0,
+    )
+    blob = {"_firmware_jobs": [bad.to_dict(), good.to_dict()]}
     (tmp_path / ".device-builder.json").write_text(json.dumps(blob), encoding="utf-8")
 
-    def _boom(job_id: str, lines: list[str]) -> None:
-        raise OSError("disk full")
+    def _selective(job_id: str, lines: list[str]) -> None:
+        if job_id == "bad1":
+            raise OSError("disk full")
+        _write_job_sidecar(job_id, lines)
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.firmware.persistence._write_job_sidecar", _boom
+        "esphome_device_builder.controllers.firmware.persistence._write_job_sidecar", _selective
     )
 
     controller = firmware_controller_factory(with_real_persistence=True, with_queue=True)
-    with pytest.raises(OSError, match="disk full"):
-        await controller._load_jobs()
+    with caplog.at_level(logging.WARNING):
+        await controller._load_jobs()  # does not raise
 
-    # Output retained in RAM — not cleared before the write confirmed.
-    assert controller.state.jobs["t1"].output == ["legacy a\n", "legacy b\n"]
+    # Failed job keeps its output in RAM; the good one migrated to disk.
+    assert controller.state.jobs["bad1"].output == ["bad a\n"]
+    assert controller.state.jobs["ok2"].output == []
+    assert await asyncio.to_thread(read_job_output, "ok2") == ["good b\n"]
+    assert any("Failed to migrate job bad1" in r.message for r in caplog.records)
 
 
 @pytest.mark.asyncio

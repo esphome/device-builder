@@ -140,9 +140,18 @@ async def load_jobs(controller: FirmwareController) -> None:
     if to_migrate:
 
         def _migrate() -> None:
+            # Isolate per job: one failed write (disk full, EACCES)
+            # logs and skips that job — its output stays in RAM for the
+            # next persist flush — without aborting the batch or
+            # blocking startup.
             for job in to_migrate:
-                _write_job_sidecar(job.job_id, job.output)
-                job.output = []
+                try:
+                    _write_job_sidecar(job.job_id, job.output)
+                    job.output = []
+                except OSError:
+                    _LOGGER.warning(
+                        "Failed to migrate job %s output to sidecar", job.job_id, exc_info=True
+                    )
 
         await loop.run_in_executor(None, _migrate)
 
@@ -258,7 +267,10 @@ def _reconcile_sidecars(valid_ids: set[str]) -> None:
     log_dir = Path(CORE.data_dir) / _JOB_LOG_DIRNAME
     try:
         entries = list(log_dir.iterdir())
+    except FileNotFoundError:
+        return  # no jobs persisted yet — nothing to reap
     except OSError:
+        _LOGGER.warning("Failed to scan job-log dir %s for reaping", log_dir, exc_info=True)
         return
     for entry in entries:
         stale_log = entry.suffix == ".log" and entry.stem not in valid_ids

@@ -196,9 +196,17 @@ async def _initial_snapshot(job: Any, job_id: str) -> list[str]:
     writes the sidecar then clears RAM in one executor pass, so RAM
     is non-empty xor the sidecar exists, never neither: no window
     where a just-finished job reads back an empty log.
+
+    ``job.output`` is captured into a local first: the concurrent
+    flush *rebinds* the attribute to a fresh ``[]``, so reading it
+    twice (truthiness then ``list()``) could see the populated list,
+    miss the sidecar branch, then capture the emptied one. The local
+    keeps the pre-flush list reference regardless of when the rebind
+    lands.
     """
-    if job.output:
-        return list(job.output)
+    output = job.output
+    if output:
+        return list(output)
     if job.status in TERMINAL_JOB_STATUSES:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, read_job_output, job_id)
