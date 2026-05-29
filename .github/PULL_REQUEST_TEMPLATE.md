@@ -28,14 +28,14 @@ same label to slot this change into the next release notes.
 
 <!--
 The frontend ships prebuilt inside our wheel
-(esphome/device-builder-dashboard-frontend). Flag anything that
+(esphome/device-builder-frontend). Flag anything that
 needs a coordinated change there — new ConfigEntryType values,
 new WS commands or events, model shape changes, etc. Link the
 companion frontend PR if there is one.
 -->
 
 - [ ] No frontend change needed
-- [ ] Companion frontend PR: esphome/device-builder-dashboard-frontend#<number>
+- [ ] Companion frontend PR: esphome/device-builder-frontend#<number>
 
 ## Checklist
 

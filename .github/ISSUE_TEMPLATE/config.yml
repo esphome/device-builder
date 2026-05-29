@@ -25,7 +25,7 @@ contact_links:
       concrete plan, it'll move to a tracked issue.
 
   - name: 🗺️ Device Builder backlog (planned / in-progress work)
-    url: https://github.com/orgs/esphome/projects/7/views/1?filterQuery=project%3A%22device-builder-dashboard%22
+    url: https://github.com/orgs/esphome/projects/7/views/1?filterQuery=project%3A%22device-builder%22
     about: |
       The dashboard is still in active development. Before filing,
       please check the project board — your idea or issue may
