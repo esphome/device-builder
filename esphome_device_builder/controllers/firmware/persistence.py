@@ -16,6 +16,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import re
 import tempfile
 from operator import attrgetter
 from pathlib import Path
@@ -39,6 +40,12 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 _JOB_LOG_DIRNAME = "dashboard-jobs"
+
+# One output line = run of non-terminator chars plus a single ``\n`` or
+# ``\r`` terminator, or a trailing run with none. Matches the ingest
+# split (``\n`` / ``\r`` only) so write→read round-trips exactly, unlike
+# ``str.splitlines`` which also breaks on form-feed / Unicode separators.
+_LINE_RE = re.compile(r"[^\r\n]*[\r\n]|[^\r\n]+")
 
 
 def prune_history(controller: FirmwareController) -> None:
@@ -184,15 +191,23 @@ def read_job_output(job_id: str) -> list[str]:
 
     ``newline=""`` mirrors the write side so universal-newline
     translation doesn't rewrite a bare ``\r`` terminator to ``\n``;
-    ``splitlines`` then re-splits on the same ``\n`` / ``\r``
-    boundaries the ingest path produced.
+    :data:`_LINE_RE` then re-splits on exactly the ``\n`` / ``\r``
+    boundaries the ingest path produced (``str.splitlines`` would also
+    break on form-feed and other Unicode line boundaries, splitting a
+    line the writer kept whole). A missing sidecar is the normal absent-output case
+    and maps to ``[]``; any other read error is logged (and also
+    yields ``[]``) so a genuinely unreadable log surfaces in the logs
+    instead of masquerading as a job with no output.
     """
     try:
         with _job_log_path(job_id).open(encoding="utf-8", newline="") as fh:
             text = fh.read()
-    except OSError:
+    except FileNotFoundError:
         return []
-    return text.splitlines(keepends=True)
+    except OSError:
+        _LOGGER.warning("Failed to read job output sidecar for %s", job_id, exc_info=True)
+        return []
+    return _LINE_RE.findall(text)
 
 
 def _metadata_dict(job: FirmwareJob) -> dict:
@@ -231,13 +246,21 @@ def _write_job_sidecar(job_id: str, lines: list[str]) -> None:
 
 
 def _reconcile_sidecars(valid_ids: set[str]) -> None:
-    """Delete sidecar logs whose job is no longer retained (pruned / cleared / orphaned)."""
+    """Delete sidecar logs whose job is no longer retained, plus stale temp files.
+
+    Reaps ``.log`` files for pruned / cleared jobs and any leftover
+    ``.tmp`` staging files (a hard kill between ``mkstemp`` and
+    ``replace`` orphans one; the normal failure path unlinks its own).
+    Runs inside the persist lock after this persist's writes have all
+    landed, so no live ``.tmp`` of ours is in flight here.
+    """
     log_dir = Path(CORE.data_dir) / _JOB_LOG_DIRNAME
     try:
         entries = list(log_dir.iterdir())
     except OSError:
         return
     for entry in entries:
-        if entry.suffix == ".log" and entry.stem not in valid_ids:
+        stale_log = entry.suffix == ".log" and entry.stem not in valid_ids
+        if stale_log or entry.suffix == ".tmp":
             with contextlib.suppress(OSError):
                 entry.unlink()

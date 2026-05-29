@@ -202,6 +202,22 @@ firmware/install {configuration} → QUEUED → RUNNING → output... → COMPLE
 - Error detection scans output for failure patterns (not just exit code)
 - Jobs persist across server restarts
 
+**Output is lazy-loaded from per-job sidecars, not held in RAM.** Job
+*metadata* lives in the `.device-builder.json` blob; a terminal job's
+*output* lives in its own sidecar log at
+`<CORE.data_dir>/dashboard-jobs/<job_id>.log` (so `/data/dashboard-jobs/`
+on the HA addon). While a job is live its output stays in
+`FirmwareJob.output` for live followers; on the terminal transition
+`persist_jobs` writes the buffer to the sidecar and clears it from RAM,
+so an idle dashboard holds metadata only (~15 MB saved with a full
+history). `load_jobs` restores metadata without reading any log into
+RAM — a legacy blob with inline output is migrated to sidecars on
+first load — and `follow_job` replays a finished job's log from disk
+(falling back to the still-populated RAM buffer during the brief window
+before the post-completion flush lands). `persist_jobs` is serialized
+through a per-controller lock with the job snapshot taken under it, and
+reaps sidecars for pruned/cleared jobs plus orphaned temp files.
+
 ## Component Catalog
 
 `definitions/components.index.json` (slim) plus per-id bodies at

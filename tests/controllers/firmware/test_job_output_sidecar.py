@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -95,9 +96,44 @@ def test_sidecar_round_trip_preserves_terminators() -> None:
     assert read_job_output("rt1") == lines
 
 
+def test_sidecar_round_trip_does_not_oversplit_on_unicode_separators() -> None:
+    r"""Embedded form-feed / Unicode line separators stay within one line.
+
+    The ingest path splits only on ``\n`` / ``\r``, so a line that
+    happens to contain a form-feed, vertical-tab, NEL, or line/para
+    separator must round-trip as a single line; ``str.splitlines``
+    would re-split these and inflate the replayed line count.
+    """
+    lines = [
+        "form\x0cfeed\n",
+        "vtab\x0bhere\n",
+        "nel\x85char\n",
+        "line sep\n",
+        "para sep\n",
+        "bare-final",
+    ]
+    _write_job_sidecar("rt2", lines)
+    assert read_job_output("rt2") == lines
+
+
 def test_read_missing_sidecar_returns_empty() -> None:
     """Reading a job with no sidecar yields an empty list, not an error."""
     assert read_job_output("never-written") == []
+
+
+def test_read_unreadable_sidecar_logs_and_returns_empty(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A present-but-unreadable sidecar logs a warning instead of silently looking empty."""
+
+    def _boom(self: Path, *args: object, **kwargs: object) -> None:
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(Path, "open", _boom)
+    with caplog.at_level(logging.WARNING):
+        assert read_job_output("unreadable") == []
+    assert any("Failed to read job output sidecar" in r.message for r in caplog.records)
 
 
 def test_write_sidecar_cleans_up_temp_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -149,6 +185,30 @@ async def test_persist_reaps_orphaned_sidecar(
     await controller._persist_jobs()
 
     assert not await asyncio.to_thread(lambda: _job_log_path("ghost").exists())
+    assert await asyncio.to_thread(lambda: _job_log_path("t1").exists())
+
+
+@pytest.mark.asyncio
+async def test_persist_reaps_orphaned_tmp_file(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A leftover ``.tmp`` staging file (hard kill mid-write) is reaped on the next persist."""
+
+    def _make_orphan_tmp() -> Path:
+        log_dir = _job_log_path("x").parent
+        log_dir.mkdir(parents=True, exist_ok=True)
+        orphan = log_dir / "crashed.abc123.tmp"
+        orphan.write_text("partial", encoding="utf-8")
+        return orphan
+
+    orphan = await asyncio.to_thread(_make_orphan_tmp)
+    assert await asyncio.to_thread(orphan.exists)
+
+    job = _terminal_job(["live\n"])
+    controller = firmware_controller_factory(job, with_real_persistence=True, with_queue=True)
+    await controller._persist_jobs()
+
+    assert not await asyncio.to_thread(orphan.exists)
     assert await asyncio.to_thread(lambda: _job_log_path("t1").exists())
 
 
