@@ -1692,7 +1692,7 @@ def build_entries_from_file(
     image_map: dict[str, str],
 ) -> list[dict]:
     """Build one or more catalog entries from a single schema JSON file."""
-    raw = json.loads(path.read_text())
+    raw = json.loads(path.read_text(encoding="utf-8"))
     out: list[dict] = []
     for top_key, section in raw.items():
         if top_key in _HIDDEN_TOP_LEVEL:
@@ -1985,7 +1985,7 @@ def _resolve_extends(ref: str, schema_dir: Path) -> dict[str, dict]:  # noqa: C9
     for path in (schema_dir / f"{file_name}.json", schema_dir / "esphome.json"):
         if not path.exists():
             continue
-        raw = json.loads(path.read_text())
+        raw = json.loads(path.read_text(encoding="utf-8"))
         for top_value in raw.values():
             if not isinstance(top_value, dict):
                 continue
@@ -4794,7 +4794,7 @@ def build_automations(  # noqa: C901
 
     for path in iter_schema_files(schema_dir):
         try:
-            raw = json.loads(path.read_text())
+            raw = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             _LOGGER.exception("Failed to read %s", path.name)
             continue
