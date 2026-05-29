@@ -134,7 +134,7 @@ def validate_board(manifest: Path, components_index: dict | None = None) -> list
     board_id = manifest.parent.name
 
     try:
-        data = yaml.safe_load(manifest.read_text())
+        data = yaml.safe_load(manifest.read_text(encoding="utf-8"))
     except yaml.YAMLError as exc:
         return [f"{board_id}: invalid YAML: {exc}"]
 
@@ -483,7 +483,7 @@ def validate_component(manifest: Path) -> list[str]:
     comp_id = manifest.parent.name
 
     try:
-        data = yaml.safe_load(manifest.read_text())
+        data = yaml.safe_load(manifest.read_text(encoding="utf-8"))
     except yaml.YAMLError as exc:
         return [f"{comp_id}: invalid YAML: {exc}"]
 
