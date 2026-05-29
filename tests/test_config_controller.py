@@ -795,6 +795,44 @@ async def test_set_prefs_merges_partial_update(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_set_prefs_concurrent_updates_do_not_lose_writes(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """Two concurrent partial updates both survive — no lost update.
+
+    A ``threading.Barrier`` holds each writer at the save step
+    until both have read the same baseline, forcing the
+    read-modify-write interleave. A non-atomic load-then-save lets
+    the second writer clobber the first's field; an atomic RMW
+    under one ``metadata_transaction`` keeps both.
+    """
+    controller = _make_controller(tmp_path)
+
+    barrier = threading.Barrier(2, timeout=5)
+    real_save = config_module.save_preferences
+
+    def _synced_save(config_dir: Path, prefs: UserPreferences) -> None:
+        # Only the legacy two-transaction path reaches here; gate
+        # both writers until each has loaded the shared baseline.
+        try:
+            barrier.wait()
+        except threading.BrokenBarrierError:
+            pass
+        real_save(config_dir, prefs)
+
+    monkeypatch.setattr(config_module, "save_preferences", _synced_save)
+
+    await asyncio.gather(
+        controller.set_prefs(theme=Theme.DARK),
+        controller.set_prefs(dashboard_view=DashboardView.TABLE),
+    )
+
+    persisted = await asyncio.to_thread(load_preferences, tmp_path)
+    assert persisted.theme == Theme.DARK
+    assert persisted.dashboard_view == DashboardView.TABLE
+
+
+@pytest.mark.asyncio
 async def test_get_secrets_returns_empty_when_missing(tmp_path: Path) -> None:
     """No secrets.yaml → empty list, not a raise.
 
