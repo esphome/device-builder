@@ -27,7 +27,7 @@ from tests.controllers.firmware.conftest import FirmwareControllerFactory
 
 def _blob_jobs(config_dir: Path) -> list[dict]:
     """Return the persisted firmware-job entries from ``.device-builder.json``."""
-    raw = json.loads((config_dir / ".device-builder.json").read_text())
+    raw = json.loads((config_dir / ".device-builder.json").read_text(encoding="utf-8"))
     jobs_key = next(k for k in raw if k.endswith("firmware_jobs"))
     return raw[jobs_key]
 
@@ -108,7 +108,7 @@ async def test_legacy_inline_output_migrates_to_sidecar_on_load(
     """A pre-existing blob with inline terminal output loads with empty RAM + a sidecar."""
     job = _terminal_job(["legacy a\n", "legacy b\n"])
     blob = {"_firmware_jobs": [job.to_dict()]}
-    (tmp_path / ".device-builder.json").write_text(json.dumps(blob))
+    (tmp_path / ".device-builder.json").write_text(json.dumps(blob), encoding="utf-8")
 
     controller = firmware_controller_factory(with_real_persistence=True, with_queue=True)
     await controller._load_jobs()
