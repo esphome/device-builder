@@ -15,15 +15,14 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import os
 import re
-import tempfile
 from operator import attrgetter
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from esphome.core import CORE
 
+from ...helpers.atomic_io import atomic_write
 from ...models import TERMINAL_JOB_STATUSES, FirmwareJob, JobStatus
 from ..config import _load_metadata, metadata_transaction
 from .constants import (
@@ -239,20 +238,12 @@ def _job_log_path(job_id: str) -> Path:
 
 
 def _write_job_sidecar(job_id: str, lines: list[str]) -> None:
-    """Atomically write *lines* (each carrying its own terminator) to the sidecar."""
-    path = _job_log_path(job_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f"{job_id}.", suffix=".tmp")
-    try:
-        # ``newline=""`` disables universal-newline translation so a
-        # bare ``\r`` progress terminator survives the write verbatim.
-        with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
-            fh.write("".join(lines))
-        Path(tmp).replace(path)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            Path(tmp).unlink()
-        raise
+    r"""Atomically write *lines* (each carrying its own terminator) to the sidecar.
+
+    Encodes to UTF-8 bytes and writes binary so no newline translation
+    can rewrite a bare ``\r`` progress terminator.
+    """
+    atomic_write(_job_log_path(job_id), "".join(lines).encode("utf-8"), make_parents=True)
 
 
 def _reconcile_sidecars(valid_ids: set[str]) -> None:

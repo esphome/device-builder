@@ -33,6 +33,7 @@ from esphome.util import get_serial_ports
 from ..constants import DEFAULT_INGRESS_PORT, DEFAULT_REMOTE_BUILD_PORT
 from ..constants import __version__ as server_version
 from ..helpers.api import CommandError, api_command
+from ..helpers.atomic_io import atomic_write
 from ..helpers.auth import hash_password
 from ..helpers.json import JSONDecodeError, dumps_indent, loads
 from ..helpers.secrets_state import (
@@ -391,20 +392,9 @@ def _load_metadata(config_dir: Path) -> dict[str, Any]:
 
 
 def _save_metadata(config_dir: Path, data: dict[str, Any]) -> None:
-    path = config_dir / _METADATA_FILE
-    # tempfile + Path.replace so lock-free readers never observe a partial write.
-    fd, tmp_name = tempfile.mkstemp(prefix=f"{_METADATA_FILE}.", suffix=".tmp", dir=str(config_dir))
-    tmp_path = Path(tmp_name)
-    try:
-        # ``dumps_indent`` yields bytes, so open the temp file in
-        # binary mode. The on-disk file stays readable / diffable.
-        with os.fdopen(fd, "wb") as fh:
-            fh.write(dumps_indent(data))
-        tmp_path.replace(path)
-    except Exception:
-        with suppress(OSError):
-            tmp_path.unlink()
-        raise
+    # Atomic so lock-free readers never observe a partial write.
+    # ``dumps_indent`` yields bytes; the on-disk file stays readable / diffable.
+    atomic_write(config_dir / _METADATA_FILE, dumps_indent(data))
 
 
 def get_board_id(config_dir: Path, filename: str) -> str:

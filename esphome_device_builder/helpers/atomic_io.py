@@ -19,7 +19,9 @@ import tempfile
 from pathlib import Path
 
 
-def atomic_write(path: Path, data: bytes, *, mode: int | None = None) -> None:
+def atomic_write(
+    path: Path, data: bytes, *, mode: int | None = None, make_parents: bool = False
+) -> None:
     """
     Write *data* to *path* atomically.
 
@@ -27,7 +29,12 @@ def atomic_write(path: Path, data: bytes, *, mode: int | None = None) -> None:
     place. Readers see either the old or new bytes, never a
     truncated file. ``mode`` is applied to the staging file before
     the rename; ``Path.replace`` carries that mode to the destination.
+    ``make_parents`` creates ``path.parent`` (and any missing
+    ancestors) first, for callers whose target directory may not
+    exist yet.
     """
+    if make_parents:
+        path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_str = tempfile.mkstemp(
         prefix=path.name + ".",
         suffix=".tmp",
