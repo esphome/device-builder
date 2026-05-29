@@ -32,13 +32,20 @@ class CommandError(Exception):
         self.message = message
 
 
-def api_command(command: str) -> Callable[[_F], _F]:
+def api_command(command: str, *, streaming: bool = False) -> Callable[[_F], _F]:
     """Decorate a controller method to register it as a WebSocket API command.
 
     Usage:
         @api_command("boards/get_boards")
         async def get_boards(self, *, query=None, limit=50, ...) -> PagedBoardsResponse:
             ...
+
+    Set ``streaming=True`` for handlers that park for the connection
+    lifetime (``stream_events``-backed subscriptions / log follows).
+    The WS dispatcher awaits ordinary commands inline — sequentially,
+    so same-connection mutations can't interleave — and spawns a
+    bounded task only for streaming handlers; the flag is what tells
+    the two apart.
 
     The decorated method is discoverable via `_api_command` attribute.
     DeviceBuilder scans controllers for these and builds its command registry.
@@ -58,6 +65,7 @@ def api_command(command: str) -> Callable[[_F], _F]:
         # leading underscore is the "not for callers" convention,
         # not class-private state, so SLF001 doesn't apply.
         func._api_command = command  # type: ignore[attr-defined]  # noqa: SLF001
+        func._api_streaming = streaming  # type: ignore[attr-defined]  # noqa: SLF001
         return func
 
     return decorator
@@ -76,3 +84,15 @@ def collect_api_commands(obj: object) -> dict[str, CommandHandler]:
         if callable(method) and hasattr(method, "_api_command"):
             handlers[method._api_command] = method  # noqa: SLF001 — see ``api_command``
     return handlers
+
+
+def collect_streaming_commands(obj: object) -> set[str]:
+    """Return the command names on *obj* decorated ``streaming=True``."""
+    streaming: set[str] = set()
+    for name in dir(obj):
+        if name.startswith("_"):
+            continue
+        method = getattr(obj, name, None)
+        if callable(method) and getattr(method, "_api_streaming", False):
+            streaming.add(method._api_command)  # noqa: SLF001 — see ``api_command``
+    return streaming

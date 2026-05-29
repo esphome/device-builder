@@ -95,6 +95,10 @@ esphome_device_builder/
 
 `ping` and `subscribe_events` are dispatched directly in `api/ws.py` and don't live on a controller.
 
+### Command dispatch concurrency
+
+The `/ws` message loop **awaits ordinary commands inline**, so commands on a single connection execute in submission order — two dependent mutations (e.g. back-to-back `set_preferences`, or `auth` before a privileged command) can't interleave, and ordinary commands spawn no background task. Only **streaming** handlers — the long-lived subscriptions that park for the connection lifetime (`subscribe_events`, `firmware/follow_job(s)`, `devices/logs`, `devices/subscribe_reachability`) — are run as spawned tasks, marked with `@api_command(..., streaming=True)` and collected into `DeviceBuilder.streaming_commands`. The per-connection streaming task set is bounded by `_MAX_CONCURRENT_STREAMS` (32); a stream-open frame past the cap is refused with `RATE_LIMITED` rather than fanning out unbounded server-side tasks. This mirrors the bounded outbound side (the 4000-slot `stream_events` queue) on the inbound command path (advisory GHSA-mg7m-j658-c6r9).
+
 ## Event bus
 
 In-process pub/sub, owned by `DeviceBuilder.bus` (an `EventBus` from `helpers/event_bus`). Controllers fire events on state transitions; WS commands subscribe via `subscribe_events` and stream them to connected clients. Event types are declared in `models/common.py` as `EventType(StrEnum)` members.

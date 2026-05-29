@@ -707,7 +707,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             message_id=message_id,
         )
 
-    @api_command("devices/logs")
+    @api_command("devices/logs", streaming=True)
     async def stream_logs(
         self,
         *,
@@ -739,7 +739,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         """Cancel a streaming command on this connection."""
         return logs.stop_stream(client, stream_id)
 
-    @api_command("devices/subscribe_reachability")
+    @api_command("devices/subscribe_reachability", streaming=True)
     async def subscribe_reachability(
         self,
         *,

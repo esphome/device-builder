@@ -38,6 +38,15 @@ _LOGGER = logging.getLogger(__name__)
 # Commands a client may send before the authenticated flag is set.
 _PRE_AUTH_COMMANDS = frozenset({"auth", "auth/login"})
 
+# Per-connection ceiling on concurrently-running streaming handlers
+# (``subscribe_events``, ``follow_job(s)``, ``devices/logs``,
+# ``subscribe_reachability``). Ordinary commands run inline in the
+# dispatch loop and never count toward this; only long-lived streams
+# spawn a task. A well-behaved frontend opens a small handful, so 32
+# is generous headroom while still bounding a client that spams
+# stream-open frames into unbounded server-side task fan-out.
+_MAX_CONCURRENT_STREAMS = 32
+
 # Server-side WebSocket ping interval. aiohttp's default is ``None``
 # (no heartbeat) — without one, idle clients behind NAT / Cloudflare
 # / nginx (whose default ``proxy_read_timeout`` is 60s) silently drop
@@ -227,6 +236,26 @@ class WebSocketClient:
             )
             return
 
+        if cmd.command in self.device_builder.streaming_commands:
+            # Long-running subscription: it parks for the connection
+            # lifetime, so awaiting it inline would wedge the dispatch
+            # loop. Spawn a tracked task instead, but bound the count
+            # so a client spamming stream-open frames can't fan out
+            # unbounded server-side tasks.
+            if len(self._tasks) >= _MAX_CONCURRENT_STREAMS:
+                await self.send_error(
+                    cmd.message_id,
+                    ErrorCode.RATE_LIMITED,
+                    "Too many active streams on this connection",
+                )
+                return
+            self.create_task(self._run_handler(handler, cmd))
+            return
+
+        await self._run_handler(handler, cmd)
+
+    async def _run_handler(self, handler: Any, cmd: Any) -> None:
+        """Invoke a resolved handler and forward its result/error to the client."""
         try:
             result = await handler(client=self, message_id=cmd.message_id, **cmd.args)
             await self.send_result(cmd.message_id, result)
@@ -347,10 +376,15 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
                 except JSONDecodeError:
                     await client.send_error("", ErrorCode.INVALID_MESSAGE, "Invalid JSON")
                     continue
+                # Await inline so commands on one connection run in
+                # submission order — ``_handle_command`` itself spawns
+                # a bounded task only for long-running streaming
+                # handlers, keeping ordinary commands sequential and
+                # the per-connection task set bounded.
                 # Same-module call: the WS dispatch loop lives next to
                 # ``WebSocketClient`` and reaches its command handler
                 # directly. SLF001 can't see the module boundary.
-                client.create_task(client._handle_command(raw))  # noqa: SLF001
+                await client._handle_command(raw)  # noqa: SLF001
     finally:
         await client.cleanup()
         _LOGGER.debug("WebSocket client disconnected")

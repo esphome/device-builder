@@ -284,13 +284,13 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         """Return the ``remote_job_id`` of every job submitted by *remote_peer*."""
         return jobs.remote_peer_job_ids(self, remote_peer=remote_peer)
 
-    @api_command("firmware/follow_job")
+    @api_command("firmware/follow_job", streaming=True)
     async def follow_job(
         self, *, job_id: str, client: Any = None, message_id: str = "", **kwargs: Any
     ) -> None:
         await follow.follow_job(self, job_id=job_id, client=client, message_id=message_id)
 
-    @api_command("firmware/follow_jobs")
+    @api_command("firmware/follow_jobs", streaming=True)
     async def follow_jobs(
         self,
         *,

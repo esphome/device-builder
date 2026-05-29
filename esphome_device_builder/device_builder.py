@@ -44,7 +44,7 @@ from .controllers.labels import LabelsController
 from .controllers.onboarding import OnboardingController
 from .controllers.remote_build import OffloaderController, ReceiverController
 from .controllers.remote_build.peer_link import PEER_LINK_PATH, make_peer_link_handler
-from .helpers.api import CommandHandler, collect_api_commands
+from .helpers.api import CommandHandler, collect_api_commands, collect_streaming_commands
 from .helpers.auth import auth_middleware
 from .helpers.dashboard_advertise import DashboardAdvertiser
 from .helpers.dashboard_identity import get_or_create_identity as get_or_create_dashboard_identity
@@ -266,6 +266,9 @@ class DeviceBuilder:
 
         # Command registry — populated from controllers
         self.command_handlers: dict[str, CommandHandler] = {}
+        # Commands the WS dispatcher runs as a spawned task instead of
+        # awaiting inline (long-running stream/follow subscriptions).
+        self.streaming_commands: set[str] = set()
 
         # Background tasks
         self._background_tasks: set[asyncio.Task] = set()
@@ -409,10 +412,14 @@ class DeviceBuilder:
             self.remote_build_receiver,
         ):
             self.command_handlers.update(collect_api_commands(controller))
+            self.streaming_commands.update(collect_streaming_commands(controller))
 
         # Register built-in commands
         self.command_handlers["ping"] = self._cmd_ping
         self.command_handlers["subscribe_events"] = self._cmd_subscribe_events
+        # ``subscribe_events`` is registered directly (no decorator), so
+        # mark it streaming explicitly — it parks for the connection life.
+        self.streaming_commands.add("subscribe_events")
         # `auth` is an alias for `auth/login` so both forms work on the wire.
         if "auth/login" in self.command_handlers:
             self.command_handlers["auth"] = self.command_handlers["auth/login"]
