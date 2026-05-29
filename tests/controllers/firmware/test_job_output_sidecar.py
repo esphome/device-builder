@@ -1,4 +1,5 @@
-"""Per-job output sidecar: terminal flush, lazy load, migration, reaping.
+"""
+Per-job output sidecar: terminal flush, lazy load, migration, reaping.
 
 Pins that terminal-job output lives on disk (not RAM / not the
 metadata blob), active-job output stays inline so a restart still
@@ -19,7 +20,8 @@ from esphome_device_builder.controllers.firmware.persistence import (
     _write_job_sidecar,
     read_job_output,
 )
-from esphome_device_builder.models import FirmwareJob, JobStatus, JobType
+from esphome_device_builder.models import FirmwareJob, JobStatus, JobType, StreamEvent
+from tests.conftest import FakeWebSocketClient
 from tests.controllers.firmware.conftest import FirmwareControllerFactory
 
 
@@ -134,3 +136,76 @@ async def test_persist_reaps_orphaned_sidecar(
 
     assert not await asyncio.to_thread(lambda: _job_log_path("ghost").exists())
     assert await asyncio.to_thread(lambda: _job_log_path("t1").exists())
+
+
+@pytest.mark.asyncio
+async def test_concurrent_persist_snapshots_under_lock_and_keeps_all_jobs(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A persist that waited on the lock snapshots the latest jobs, not a stale set.
+
+    Holds the persist lock so the call below parks before it
+    snapshots, adds a second job, then releases. With the snapshot
+    taken under the lock the persisted blob has both jobs; a
+    regression that snapshots before acquiring would drop the
+    job added during the wait.
+    """
+    job_a = _terminal_job(["a\n"])  # job_id "t1"
+    controller = firmware_controller_factory(job_a, with_real_persistence=True, with_queue=True)
+
+    await controller._persist_lock.acquire()
+    persist_task = asyncio.create_task(controller._persist_jobs())
+    # Let the task run up to (and park on) the held lock — and, under a
+    # regression, run a pre-lock snapshot before "t2" exists.
+    await asyncio.sleep(0)
+
+    job_b = FirmwareJob(
+        job_id="t2",
+        configuration="b.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.COMPLETED,
+        output=["b\n"],
+        exit_code=0,
+    )
+    controller.state.jobs["t2"] = job_b
+
+    controller._persist_lock.release()
+    await persist_task
+
+    assert {e["job_id"] for e in _blob_jobs(tmp_path)} == {"t1", "t2"}
+
+
+@pytest.mark.asyncio
+async def test_old_job_log_viewable_via_follow_job_after_restart(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A finished job's log replays over follow_job after a restart loads only metadata."""
+    # Controller A finishes a job and persists; its output flushes to
+    # the sidecar and drops from RAM.
+    job = _terminal_job(["INFO Reading config\n", "INFO Compile finished.\n"])
+    writer = firmware_controller_factory(job, with_real_persistence=True, with_queue=True)
+    await writer._persist_jobs()
+    assert job.output == []
+
+    # Controller B is a fresh process over the same dirs: load restores
+    # metadata only, with no output in RAM.
+    reader = firmware_controller_factory(
+        with_real_persistence=True, with_queue=True, with_real_bus=True
+    )
+    await reader._load_jobs()
+    loaded = reader.state.jobs["t1"]
+    assert loaded.status == JobStatus.COMPLETED
+    assert loaded.output == []
+
+    # follow_job replays the log from the on-disk sidecar.
+    client = FakeWebSocketClient(yield_per_event=True)
+    await reader.follow_job(job_id="t1", client=client, message_id="m1")
+
+    assert client.events_for(StreamEvent.OUTPUT) == [
+        "INFO Reading config\n",
+        "INFO Compile finished.\n",
+    ]
+    result = client.events_for(StreamEvent.RESULT)
+    assert len(result) == 1
+    assert result[0]["status"] == "completed"

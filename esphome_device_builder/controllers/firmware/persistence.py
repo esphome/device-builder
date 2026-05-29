@@ -1,4 +1,5 @@
-"""Firmware-job persistence: load on startup, prune history, save on transition.
+"""
+Firmware-job persistence: load on startup, prune history, save on transition.
 
 Job *metadata* lives in the ``.device-builder.json`` blob; job
 *output* lives in per-job sidecar logs under
@@ -139,7 +140,18 @@ async def load_jobs(controller: FirmwareController) -> None:
 
 
 async def persist_jobs(controller: FirmwareController) -> None:
-    """Flush terminal-job output to sidecars, then save job metadata."""
+    """Flush terminal-job output to sidecars, then save job metadata.
+
+    Serialized through ``controller._persist_lock`` and the job
+    snapshot is taken under it, so concurrent callers can't let an
+    older snapshot's executor write land after a newer one's and drop
+    jobs from the blob (or reap a sidecar a newer job just wrote).
+    """
+    async with controller._persist_lock:
+        await _persist_jobs_locked(controller)
+
+
+async def _persist_jobs_locked(controller: FirmwareController) -> None:
     loop = asyncio.get_running_loop()
     config_dir = controller._db.settings.config_dir
     jobs = list(controller.state.jobs.values())
@@ -167,7 +179,8 @@ def job_dict_without_output(job: FirmwareJob) -> dict:
 
 
 def read_job_output(job_id: str) -> list[str]:
-    r"""Return a job's persisted output lines (terminators preserved), or ``[]``.
+    r"""
+    Return a job's persisted output lines (terminators preserved), or ``[]``.
 
     ``newline=""`` mirrors the write side so universal-newline
     translation doesn't rewrite a bare ``\r`` terminator to ``\n``;
@@ -183,7 +196,8 @@ def read_job_output(job_id: str) -> list[str]:
 
 
 def _metadata_dict(job: FirmwareJob) -> dict:
-    """Serialise *job* for the metadata blob, dropping ``output`` for terminal jobs.
+    """
+    Serialise *job* for the metadata blob, dropping ``output`` for terminal jobs.
 
     Active (queued / running) jobs keep their output inline so a
     mid-build restart recovers the pre-crash log; there are no active
