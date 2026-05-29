@@ -22,7 +22,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from esphome_device_builder.controllers.devices import DevicesController
-from esphome_device_builder.controllers.devices import importable as devices_module
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import AdoptableDevice, DeviceState, ErrorCode, EventType
 
@@ -69,17 +68,17 @@ def _import_config_stub(
 
 
 def test_import_config_resolves_at_import_time() -> None:
-    """Regression guard for the import path move.
+    """Regression guard for the upstream import path.
 
-    ``import_config`` used to be imported via ``esphome.config_helpers``
-    behind a try/except, so a wrong path silently became ``None`` and
-    every adoption attempt raised. The current call site imports
-    directly from ``esphome.components.dashboard_import``; if that
-    module ever moves we want the test suite to fail loudly here, not
-    a user's first adoption attempt.
+    ``import_config`` lives at ``esphome.components.dashboard_import``;
+    if upstream moves it we want CI to fail loudly here, not at a
+    user's first adoption attempt. The dashboard lazy-loads the
+    module through ``async_import_module``, so this test imports
+    it synchronously to verify the contract.
     """
-    assert devices_module.import_config is not None
-    assert callable(devices_module.import_config)
+    from esphome.components import dashboard_import  # noqa: PLC0415
+
+    assert callable(dashboard_import.import_config)
 
 
 async def test_import_device_invokes_import_config_and_returns_path(
@@ -89,7 +88,9 @@ async def test_import_device_invokes_import_config_and_returns_path(
 ) -> None:
     """Happy path: write the YAML, run a scan, return the configuration name."""
     captured: dict[str, Any] = {}
-    monkeypatch.setattr(devices_module, "import_config", _import_config_stub(captured))
+    monkeypatch.setattr(
+        "esphome.components.dashboard_import.import_config", _import_config_stub(captured)
+    )
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
 
@@ -134,7 +135,9 @@ async def test_import_device_passes_ethernet_network_through_to_import_config(
     ``network`` field to ``import_config``.
     """
     captured: dict[str, Any] = {}
-    monkeypatch.setattr(devices_module, "import_config", _import_config_stub(captured))
+    monkeypatch.setattr(
+        "esphome.components.dashboard_import.import_config", _import_config_stub(captured)
+    )
 
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
@@ -180,7 +183,9 @@ async def test_import_device_uses_direct_name_lookup_with_duplicate_products(
     the imported YAML got.
     """
     captured: dict[str, Any] = {}
-    monkeypatch.setattr(devices_module, "import_config", _import_config_stub(captured))
+    monkeypatch.setattr(
+        "esphome.components.dashboard_import.import_config", _import_config_stub(captured)
+    )
 
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
@@ -231,7 +236,9 @@ async def test_import_device_falls_back_to_wifi_for_old_factory_firmware(
     dashboard wrote.
     """
     captured: dict[str, Any] = {}
-    monkeypatch.setattr(devices_module, "import_config", _import_config_stub(captured))
+    monkeypatch.setattr(
+        "esphome.components.dashboard_import.import_config", _import_config_stub(captured)
+    )
 
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
@@ -271,7 +278,7 @@ async def test_import_device_translates_file_exists_to_command_error(
     def raises_file_exists(*_args: Any, **_kwargs: Any) -> None:
         raise FileExistsError
 
-    monkeypatch.setattr(devices_module, "import_config", raises_file_exists)
+    monkeypatch.setattr("esphome.components.dashboard_import.import_config", raises_file_exists)
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
 
@@ -306,7 +313,7 @@ async def test_import_device_rejects_when_imported_yaml_does_not_validate(
     project (or pick a different one) and retry without a
     leftover ``FileExistsError`` blocking them.
     """
-    monkeypatch.setattr(devices_module, "import_config", _import_config_stub())
+    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _import_config_stub())
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     ctrl._db.editor.validate_yaml = AsyncMock(
@@ -352,7 +359,7 @@ async def test_import_device_rolls_back_on_unicode_decode_error_from_read(
         # ``read_text(encoding='utf-8')`` chokes on it.
         args[0].write_bytes(b"\xff garbage")
 
-    monkeypatch.setattr(devices_module, "import_config", write_garbage)
+    monkeypatch.setattr("esphome.components.dashboard_import.import_config", write_garbage)
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
 
@@ -381,7 +388,7 @@ async def test_import_device_preserves_original_error_when_cleanup_fails(
     cleanup hook's exception is swallowed and logged; the
     original ``CommandError`` propagates.
     """
-    monkeypatch.setattr(devices_module, "import_config", _import_config_stub())
+    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _import_config_stub())
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     ctrl._db.editor.validate_yaml = AsyncMock(
@@ -431,7 +438,7 @@ async def test_import_device_rolls_back_on_validator_subprocess_error(
     tripping ``FileExistsError`` on every retry — exactly the
     foot-gun this PR is meant to prevent.
     """
-    monkeypatch.setattr(devices_module, "import_config", _import_config_stub())
+    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _import_config_stub())
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     ctrl._db.editor.validate_yaml = AsyncMock(side_effect=TimeoutError("subprocess wedged"))
@@ -461,7 +468,7 @@ async def test_import_device_skips_validation_when_editor_unavailable(
     lifetime of the process would be worse than landing the
     YAML and letting the next compile surface any schema issues.
     """
-    monkeypatch.setattr(devices_module, "import_config", _import_config_stub())
+    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _import_config_stub())
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     ctrl._db.editor = None
@@ -488,7 +495,7 @@ async def test_import_device_returns_even_when_post_scan_fails(
     nothing being wrong. Best-effort scan; the periodic poll picks up
     whatever this attempt missed.
     """
-    monkeypatch.setattr(devices_module, "import_config", _import_config_stub())
+    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _import_config_stub())
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     ctrl._scanner.scan = AsyncMock(side_effect=RuntimeError("transient"))
@@ -516,7 +523,7 @@ async def test_import_device_seeds_online_state_from_zeroconf_cache(
     can't clobber it) and pulls the cached IP out of zeroconf so the
     new card has an address right away.
     """
-    monkeypatch.setattr(devices_module, "import_config", _import_config_stub())
+    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _import_config_stub())
     ctrl = make_controller(tmp_path)
     _seed_import_state(ctrl)
     ctrl._state_monitor = RecordingStateMonitor(
@@ -545,7 +552,7 @@ async def test_import_device_skips_apply_ip_when_zeroconf_cache_misses(
     make_controller: MakeControllerFactory,
 ) -> None:
     """No cached IP → state still flips ONLINE, just no apply_ip call."""
-    monkeypatch.setattr(devices_module, "import_config", _import_config_stub())
+    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _import_config_stub())
     ctrl = make_controller(tmp_path)
     _seed_import_state(ctrl)
     ctrl._state_monitor = RecordingStateMonitor()  # no cached addresses
@@ -577,7 +584,7 @@ async def test_import_device_drops_matching_import_result_entry(
     so we drop the right entry even when the user typed a different
     YAML name in the dialog.
     """
-    monkeypatch.setattr(devices_module, "import_config", _import_config_stub())
+    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _import_config_stub())
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     captured = capture_devices_events(ctrl, EventType.IMPORTABLE_DEVICE_REMOVED)

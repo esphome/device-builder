@@ -8,11 +8,11 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from esphome import const
-from esphome.components.dashboard_import import import_config
 from esphome.storage_json import ignored_devices_storage_path
 
 from ...helpers.api import CommandError
 from ...helpers.json import JSONDecodeError, dumps_indent, loads
+from ...helpers.lazy_module import async_import_module
 from ...models import (
     AdoptableDevice,
     DeviceState,
@@ -58,10 +58,17 @@ async def import_device(
     )
     network = adoptable.network if adoptable and adoptable.network else const.CONF_WIFI
     loop = asyncio.get_running_loop()
+    # ``esphome.components.dashboard_import`` pulls in ~14 MB of
+    # upstream code; load it through ``async_import_module`` so
+    # the first adoption pays the cost on the dedicated import
+    # thread (no event loop block, no concurrent-import race) and
+    # sessions that never adopt a device skip the load entirely.
+    dashboard_import = await async_import_module("esphome.components.dashboard_import")
+
     try:
         await loop.run_in_executor(
             None,
-            import_config,
+            dashboard_import.import_config,
             path,
             name,
             friendly_name,

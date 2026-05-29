@@ -536,7 +536,7 @@ async def test_submit_job_happy_path_extracts_and_queues(
         return expected_yaml
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.submit_job.prepare_bundle_for_compile",
+        "esphome.bundle.prepare_bundle_for_compile",
         _stub_prepare,
     )
 
@@ -597,7 +597,7 @@ async def test_submit_job_happy_path_with_relative_config_dir(
         return expected_yaml
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.submit_job.prepare_bundle_for_compile",
+        "esphome.bundle.prepare_bundle_for_compile",
         _stub_prepare,
     )
 
@@ -651,7 +651,7 @@ async def test_submit_job_clean_target_creates_clean_job(
         return expected_yaml
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.submit_job.prepare_bundle_for_compile",
+        "esphome.bundle.prepare_bundle_for_compile",
         _stub_prepare,
     )
 
@@ -715,7 +715,7 @@ async def test_submit_job_carries_display_fields_through_to_firmware_job(
         return expected_yaml
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.submit_job.prepare_bundle_for_compile",
+        "esphome.bundle.prepare_bundle_for_compile",
         _stub_prepare,
     )
 
@@ -772,7 +772,7 @@ async def test_submit_job_malformed_display_fields_coerce_to_empty(
         return expected_yaml
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.submit_job.prepare_bundle_for_compile",
+        "esphome.bundle.prepare_bundle_for_compile",
         _stub_prepare,
     )
 
@@ -828,7 +828,7 @@ async def test_submit_job_missing_display_fields_falls_through_to_empty_strings(
         return expected_yaml
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.submit_job.prepare_bundle_for_compile",
+        "esphome.bundle.prepare_bundle_for_compile",
         _stub_prepare,
     )
 
@@ -924,7 +924,7 @@ async def test_submit_job_bundle_path_survives_prepare_bundle_wipe(
         return expected_yaml
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.submit_job.prepare_bundle_for_compile",
+        "esphome.bundle.prepare_bundle_for_compile",
         _wipe_then_extract,
     )
 
@@ -984,7 +984,7 @@ async def test_submit_job_path_traversal_dashboard_id_caught_at_extract(
     session = _make_session(dashboard_id="../../escape")
     bundle = b"hello"
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.submit_job.prepare_bundle_for_compile",
+        "esphome.bundle.prepare_bundle_for_compile",
         lambda _bundle, _target: tmp_path / "kitchen.yaml",
     )
 
@@ -1010,7 +1010,7 @@ async def test_submit_job_enqueue_failure_rejects(
     bundle = b"hello"
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.submit_job.prepare_bundle_for_compile",
+        "esphome.bundle.prepare_bundle_for_compile",
         lambda _bundle, target: target / "kitchen.yaml",
     )
 
@@ -1038,7 +1038,7 @@ async def test_submit_job_extract_failure_rejects_without_terminate(
         raise EsphomeError("bundle invalid: missing manifest")
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.submit_job.prepare_bundle_for_compile",
+        "esphome.bundle.prepare_bundle_for_compile",
         _failing_prepare,
     )
 

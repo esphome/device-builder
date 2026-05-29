@@ -1428,7 +1428,7 @@ async def test_e2e_submit_job_dispatches_to_receiver(
         return extracted_path
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.submit_job.prepare_bundle_for_compile",
+        "esphome.bundle.prepare_bundle_for_compile",
         _stub_prepare,
     )
     bundle = make_tar_bundle("kitchen.yaml", b"esphome:\n  name: kitchen\n")
