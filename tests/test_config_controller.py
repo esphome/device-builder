@@ -65,6 +65,7 @@ from esphome_device_builder.controllers.config import (
     load_preferences,
     load_remote_build_settings,
     metadata_transaction,
+    preferences_transaction,
     remote_build_settings_transaction,
     remove_device_metadata,
     save_labels,
@@ -724,6 +725,36 @@ def test_remote_build_settings_transaction_discards_on_exception(
 
     # Original pre-block state survives untouched.
     assert load_remote_build_settings(tmp_path) == RemoteBuildSettings(enabled=False)
+
+
+def test_preferences_transaction_yields_defaults_on_corrupt(tmp_path: Path) -> None:
+    """A malformed ``_preferences`` blob yields defaults, then persists clean.
+
+    Mutating the yielded object inside the block replaces the
+    corrupt blob with canonical state on commit.
+    """
+    metadata_path = tmp_path / ".device-builder.json"
+    metadata_path.write_bytes(b'{"_preferences": [1, 2, 3]}')
+
+    with preferences_transaction(tmp_path) as prefs:
+        assert prefs == UserPreferences()
+        prefs.theme = Theme.DARK
+
+    assert load_preferences(tmp_path) == UserPreferences(theme=Theme.DARK)
+
+
+def test_preferences_transaction_discards_on_exception(tmp_path: Path) -> None:
+    """A raise inside the block drops the pending mutation."""
+    save_preferences(tmp_path, UserPreferences(theme=Theme.LIGHT))
+
+    with (
+        pytest.raises(RuntimeError, match="boom"),
+        preferences_transaction(tmp_path) as prefs,
+    ):
+        prefs.theme = Theme.DARK
+        raise RuntimeError("boom")
+
+    assert load_preferences(tmp_path) == UserPreferences(theme=Theme.LIGHT)
 
 
 def test_save_preferences_round_trip(tmp_path: Path) -> None:

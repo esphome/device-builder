@@ -610,6 +610,26 @@ def save_preferences(config_dir: Path, prefs: UserPreferences) -> None:
         data[_PREFS_KEY] = prefs.to_dict()
 
 
+@contextmanager
+def preferences_transaction(config_dir: Path) -> Iterator[UserPreferences]:
+    """
+    Atomic read-modify-write context for user preferences.
+
+    Yields the current :class:`UserPreferences` (defaults if
+    missing or corrupt). Mutate it in place; on a clean exit the
+    blob is persisted under the same ``metadata_transaction`` lock,
+    so a partial update can't lose a concurrent writer's field.
+    Exceptions raised inside the block discard the pending mutation.
+    """
+    with metadata_transaction(config_dir) as data:
+        try:
+            prefs = UserPreferences.from_dict(data.get(_PREFS_KEY, {}))
+        except (ValueError, TypeError, LookupError):
+            prefs = UserPreferences()
+        yield prefs
+        data[_PREFS_KEY] = prefs.to_dict()
+
+
 _REMOTE_BUILD_FAIL_SAFE = RemoteBuildSettings(enabled=False)
 
 
@@ -1370,18 +1390,20 @@ class ConfigController:
         """
         loop = asyncio.get_running_loop()
         config_dir = self._db.settings.config_dir
-
-        # Load current, merge with provided fields, validate, save
-        current = await loop.run_in_executor(None, load_preferences, config_dir)
         update_fields = {k: v for k, v in kwargs.items() if k not in ("client", "message_id")}
 
-        # Merge into current preferences
-        current_dict = current.to_dict()
-        current_dict.update(update_fields)
-        updated = UserPreferences.from_dict(current_dict)
+        def _merge() -> UserPreferences:
+            # Load + merge + validate + save under a single lock so a
+            # concurrent partial update can't read the same baseline
+            # and clobber this writer's field.
+            with preferences_transaction(config_dir) as prefs:
+                merged = prefs.to_dict()
+                merged.update(update_fields)
+                validated = UserPreferences.from_dict(merged)
+                prefs.__dict__.update(validated.__dict__)
+                return validated
 
-        await loop.run_in_executor(None, save_preferences, config_dir, updated)
-        return updated
+        return await loop.run_in_executor(None, _merge)
 
     @api_command("config/get_secrets")
     async def get_secrets(self, **kwargs: Any) -> list[str]:
