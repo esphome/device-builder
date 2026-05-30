@@ -165,11 +165,8 @@ class OnboardingController:
         config_dir = self._db.settings.config_dir
 
         def _bump(prefs: UserPreferences) -> None:
-            # Monotonic via max(): never downgrade a stored higher
-            # version. A user who briefly ran a future build (with
-            # `ONBOARDING_VERSION = 2`) and then rolled back to this
-            # build (`= 1`) shouldn't lose the v2 acknowledgement and
-            # get re-prompted on the next upgrade.
+            # max(), not assign: a rollback from a future build must
+            # not downgrade a higher stored acknowledgement.
             prefs.onboarding_completed_version = max(
                 prefs.onboarding_completed_version, ONBOARDING_VERSION
             )
