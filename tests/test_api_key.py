@@ -150,105 +150,42 @@ def test_load_device_yaml_merges_packages(tmp_path: Path) -> None:
     assert get_api_encryption_key(config) == "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 
 
-def test_detect_platform_from_yaml_falls_back_to_resolved_config(
-    tmp_path: Path,
-) -> None:
-    """Platform detection falls through to the resolved config on raw-scan miss.
-
-    The fast path (raw-text scan) survives mid-edit drafts but
-    can't see ``esp32:`` blocks pulled in via ``packages:``. The
-    slow path (full ``load_device_yaml`` with package merge) is
-    only invoked when the raw scan returned empty, so the typical
-    no-packages config still pays only the cheap regex.
-    """
-    (tmp_path / "board.yaml").write_text(
-        "esp32:\n  board: esp32dev\n  framework:\n    type: esp-idf\n"
-    )
-    yaml_file = tmp_path / "ble.yaml"
-    yaml_file.write_text("esphome:\n  name: ble\npackages:\n  board: !include board.yaml\n")
-    # Raw scan: no top-level ``esp32:`` line, so it returns "".
-    # Fallback: load + package-merge → ``esp32`` becomes top-level.
-    assert detect_platform_from_yaml(yaml_file) == "esp32"
+def test_detect_platform_from_yaml_falls_back_to_resolved_config() -> None:
+    """Raw-scan miss on a ``packages:`` config falls through to the merged config."""
+    yaml_content = "esphome:\n  name: ble\npackages:\n  board: !include board.yaml\n"
+    resolved = {"esphome": {"name": "ble"}, "esp32": {"board": "esp32dev"}}
+    assert detect_platform_from_yaml(yaml_content, resolved) == "esp32"
 
 
-def test_detect_platform_from_yaml_keeps_raw_scan_for_inline_platform(
-    tmp_path: Path,
-) -> None:
-    """Top-level inline platform key resolves via the raw-scan fast path.
-
-    Pinning this avoids regressing the fast path: a future
-    refactor that always loaded the resolved config would parse
-    every YAML on every dashboard scan, which is what the cheap
-    regex was put in place to avoid.
-    """
-    yaml_file = tmp_path / "kitchen.yaml"
-    yaml_file.write_text("esphome:\n  name: kitchen\nesp8266:\n  board: nodemcuv2\n")
-    assert detect_platform_from_yaml(yaml_file) == "esp8266"
+def test_detect_platform_from_yaml_keeps_raw_scan_for_inline_platform() -> None:
+    """A top-level inline platform key resolves via the raw-scan fast path."""
+    yaml_content = "esphome:\n  name: kitchen\nesp8266:\n  board: nodemcuv2\n"
+    assert detect_platform_from_yaml(yaml_content, None) == "esp8266"
 
 
-def test_detect_platform_from_yaml_skips_load_when_no_packages_block(
-    tmp_path: Path,
-) -> None:
-    """Config without ``packages:`` doesn't pay the load+merge cost.
-
-    Mid-edit drafts and post-compile-only configs frequently omit
-    a top-level platform key (the user gets it from
-    ``StorageJSON``). Without the ``packages:`` gate, every such
-    YAML would trigger a full ESPHome YAML parse on every
-    dashboard scan — pure waste because the merge has nothing to
-    surface. Spy on ``load_device_yaml`` to confirm we don't call
-    it when the raw text has no ``packages:`` block.
-    """
-    yaml_file = tmp_path / "kitchen.yaml"
-    yaml_file.write_text("esphome:\n  name: kitchen\n# platform comes from storage\n")
-    with mock.patch(
-        "esphome_device_builder.helpers.device_yaml.load_device_yaml",
-        wraps=device_yaml.load_device_yaml,
-    ) as spy:
-        assert detect_platform_from_yaml(yaml_file) == ""
-    spy.assert_not_called()
+def test_detect_platform_from_yaml_ignores_resolved_config_without_packages_block() -> None:
+    """No ``packages:`` block returns '' without consulting the merged config."""
+    yaml_content = "esphome:\n  name: kitchen\n# platform comes from storage\n"
+    assert detect_platform_from_yaml(yaml_content, {"esp32": {}}) == ""
 
 
 def test_detect_platform_from_yaml_swallows_parser_exceptions(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Mid-edit drafts can't crash the platform detector.
-
-    ``parse_platform_from_yaml`` is regex-based and fairly
-    forgiving, but a future tightening that started raising on
-    weird input shouldn't blank the dashboard's platform flag.
-    Stub the parser to raise and confirm the caller catches and
-    falls through to the empty-string return rather than
-    propagating.
-    """
-    yaml_file = tmp_path / "broken.yaml"
-    yaml_file.write_text("esphome:\n  name: x\n")
+    """A raising ``parse_platform_from_yaml`` falls through to '' rather than propagating."""
     monkeypatch.setattr(
         device_yaml,
         "parse_platform_from_yaml",
         mock.MagicMock(side_effect=ValueError("simulated parser failure")),
     )
-    assert detect_platform_from_yaml(yaml_file) == ""
+    assert detect_platform_from_yaml("esphome:\n  name: x\n", None) == ""
 
 
-def test_detect_platform_from_yaml_returns_empty_when_resolved_config_has_no_platform(
-    tmp_path: Path,
-) -> None:
-    """``packages:`` present but the merged config has no platform key.
-
-    Pins the final ``return ""`` after the resolved-config walk —
-    the load fired (raw scan missed AND ``packages:`` was in the
-    raw text), the merge succeeded, but no platform key landed at
-    the top level. Realistic shape: a `packages:` reference that
-    contributes only api / wifi / sensor blocks, with the
-    platform expected to come from ``StorageJSON`` post-compile.
-    """
-    (tmp_path / "common.yaml").write_text(
-        "wifi:\n  ssid: x\n  password: y\n"  # no platform key here
-    )
-    yaml_file = tmp_path / "ble.yaml"
-    yaml_file.write_text("esphome:\n  name: ble\npackages:\n  common: !include common.yaml\n")
-    assert detect_platform_from_yaml(yaml_file) == ""
+def test_detect_platform_from_yaml_returns_empty_when_resolved_config_has_no_platform() -> None:
+    """``packages:`` present but the merged config carries no platform key → ''."""
+    yaml_content = "esphome:\n  name: ble\npackages:\n  common: !include common.yaml\n"
+    resolved = {"esphome": {"name": "ble"}, "wifi": {"ssid": "x"}}
+    assert detect_platform_from_yaml(yaml_content, resolved) == ""
 
 
 def test_load_device_yaml_uses_two_step_when_resolve_packages_missing(

@@ -21,7 +21,6 @@ from esphome_device_builder.helpers.device_yaml import (
     _select_wifi_helper,
     compute_has_pending_changes,
     configuration_stem,
-    detect_platform_from_yaml,
     generate_device_yaml,
     generate_minimal_stub_yaml,
     load_device_from_storage,
@@ -774,50 +773,8 @@ esp8266:
 
 
 # ----------------------------------------------------------------------
-# detect_platform_from_yaml — file I/O wrapper
+# detect_platform_from_yaml — scan platform-detection
 # ----------------------------------------------------------------------
-
-
-def test_detect_platform_returns_empty_on_missing_file(tmp_path: Path) -> None:
-    """Unreadable file (``OSError``) falls into the ``except`` branch.
-
-    Pin the silent-fallback contract — callers (the device-loader
-    address fallback) rely on the empty-string sentinel rather
-    than having to wrap every call in their own try/except.
-    """
-    missing = tmp_path / "no-such-file.yaml"
-    assert detect_platform_from_yaml(missing) == ""
-
-
-def test_detect_platform_reads_real_file(tmp_path: Path) -> None:
-    """Round-trip through the file reader picks up the platform key."""
-    path = tmp_path / "device.yaml"
-    path.write_text("esp32:\n  variant: ESP32S3\n", encoding="utf-8")
-    assert detect_platform_from_yaml(path) == "esp32"
-
-
-def test_detect_platform_uses_prefed_yaml_content_without_reading(tmp_path: Path) -> None:
-    """Pre-fed ``yaml_content`` detects without touching disk (file doesn't exist)."""
-    missing = tmp_path / "no-such-file.yaml"
-    assert (
-        detect_platform_from_yaml(missing, yaml_content="esp8266:\n  board: nodemcuv2\n")
-        == "esp8266"
-    )
-
-
-def test_detect_platform_uses_prefed_resolved_config_skips_reparse(tmp_path: Path) -> None:
-    """Pre-fed ``resolved_config`` for a packages config never re-loads the YAML."""
-    yaml_content = "esphome:\n  name: ble\npackages:\n  board: !include board.yaml\n"
-    resolved = {"esphome": {"name": "ble"}, "esp32": {"board": "esp32dev"}}
-    with mock.patch(
-        "esphome_device_builder.helpers.device_yaml.load_device_yaml",
-        wraps=device_yaml.load_device_yaml,
-    ) as spy:
-        result = detect_platform_from_yaml(
-            tmp_path / "ble.yaml", yaml_content=yaml_content, resolved_config=resolved
-        )
-    assert result == "esp32"
-    spy.assert_not_called()
 
 
 def test_load_device_from_storage_resolves_config_once_for_packages(tmp_path: Path) -> None:
