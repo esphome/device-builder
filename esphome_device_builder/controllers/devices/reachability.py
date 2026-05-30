@@ -7,7 +7,7 @@ import contextlib
 import logging
 from typing import TYPE_CHECKING, Any
 
-from ...helpers.api import CommandError
+from ...helpers.api import CommandError, registered_stream
 from ...helpers.event_bus import Event, StreamControls, stream_events
 from ...models import (
     DeviceReachabilityData,
@@ -50,44 +50,40 @@ async def subscribe(
 
     # Register so a peer ``devices/stop_stream`` (or this client's
     # cleanup on disconnect) cancels the running task.
-    task = asyncio.current_task()
-    assert task is not None
-    client.register_stream(message_id, task)
+    with registered_stream(client, message_id):
+        refresh_task: asyncio.Task | None = None
 
-    refresh_task: asyncio.Task | None = None
+        async def _send_initial(controls: StreamControls) -> None:
+            snapshot = controller.get_reachability_snapshot(device_name)
+            if snapshot is not None:
+                await client.send_event(message_id, "reachability_state", snapshot)
+            await client.send_result(message_id, {"subscribed": True})
 
-    async def _send_initial(controls: StreamControls) -> None:
-        snapshot = controller.get_reachability_snapshot(device_name)
-        if snapshot is not None:
-            await client.send_event(message_id, "reachability_state", snapshot)
-        await client.send_result(message_id, {"subscribed": True})
+        def _handle_event(event: Event[DeviceReachabilityData], controls: StreamControls) -> None:
+            data = event.data
+            if data["device"] != device_name:
+                # Bus event is broadcast to all subscribers; filter
+                # so each only forwards its own device's events.
+                return
+            controls.push("reachability_state", data)
 
-    def _handle_event(event: Event[DeviceReachabilityData], controls: StreamControls) -> None:
-        data = event.data
-        if data["device"] != device_name:
-            # Bus event is broadcast to all subscribers; filter
-            # so each only forwards its own device's events.
-            return
-        controls.push("reachability_state", data)
-
-    try:
-        # Routed through the controller's bound delegate so tests
-        # patching the loop on the instance still intercept.
-        refresh_task = asyncio.create_task(controller._reachability_refresh_loop(device_name))
-        await stream_events(
-            client=client,
-            message_id=message_id,
-            bus=controller._db.bus,
-            event_types=[EventType.DEVICE_REACHABILITY],
-            handle_event=_handle_event,
-            send_initial=_send_initial,
-        )
-    finally:
-        if refresh_task is not None:
-            refresh_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await refresh_task
-        client.unregister_stream(message_id)
+        try:
+            # Routed through the controller's bound delegate so tests
+            # patching the loop on the instance still intercept.
+            refresh_task = asyncio.create_task(controller._reachability_refresh_loop(device_name))
+            await stream_events(
+                client=client,
+                message_id=message_id,
+                bus=controller._db.bus,
+                event_types=[EventType.DEVICE_REACHABILITY],
+                handle_event=_handle_event,
+                send_initial=_send_initial,
+            )
+        finally:
+            if refresh_task is not None:
+                refresh_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await refresh_task
 
 
 async def refresh_loop(controller: DevicesController, device_name: str) -> None:
