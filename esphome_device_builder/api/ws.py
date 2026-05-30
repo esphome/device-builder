@@ -40,12 +40,23 @@ _PRE_AUTH_COMMANDS = frozenset({"auth", "auth/login"})
 
 # Per-connection ceiling on concurrently-running streaming handlers
 # (``subscribe_events``, ``follow_job(s)``, ``devices/logs``,
-# ``subscribe_reachability``). Ordinary commands run inline in the
-# dispatch loop and never count toward this; only long-lived streams
-# spawn a task. A well-behaved frontend opens a small handful, so 32
-# is generous headroom while still bounding a client that spams
+# ``subscribe_reachability``). Streams hold their slot for the
+# connection lifetime, so they get a tighter cap than ordinary
+# commands. A well-behaved frontend opens a small handful, so 32 is
+# generous headroom while still bounding a client that spams
 # stream-open frames into unbounded server-side task fan-out.
 _MAX_CONCURRENT_STREAMS = 32
+
+# Per-connection ceiling on concurrently-running *ordinary* (non-
+# streaming) command handlers. Each inbound command is dispatched as
+# its own tracked task so a slow handler (e.g. an executor-bound
+# ``validate_config``) doesn't head-of-line-block a fast ``ping`` /
+# ``devices/list`` behind it; the set is cancelled on disconnect in
+# ``cleanup`` (the Home Assistant ``websocket_api`` pattern). The cap
+# bounds server-side fan-out so a client spamming frames can't grow
+# unbounded tasks/memory (advisory GHSA-mg7m-j658-c6r9); overflow
+# frames are refused with ``RATE_LIMITED``.
+_MAX_CONCURRENT_COMMANDS = 64
 
 # Server-side WebSocket ping interval. aiohttp's default is ``None``
 # (no heartbeat) — without one, idle clients behind NAT / Cloudflare
@@ -133,6 +144,11 @@ class WebSocketClient:
         # ``_tasks``. Keying the cap on ``len(self._tasks)`` would make
         # the limit drift the moment any non-stream task is tracked.
         self._streaming_tasks: set[asyncio.Task] = set()
+        # Subset of ``_tasks`` holding spawned *ordinary* command
+        # handlers, tracked separately so ``_MAX_CONCURRENT_COMMANDS``
+        # is enforced against ordinary commands only — independent of
+        # the streaming cap.
+        self._command_tasks: set[asyncio.Task] = set()
         self._stream_tasks: dict[str, asyncio.Task] = {}
         self._close_after_send: bool = False
 
@@ -189,6 +205,13 @@ class WebSocketClient:
         task = self.create_task(coro)
         self._streaming_tasks.add(task)
         task.add_done_callback(self._streaming_tasks.discard)
+        return task
+
+    def create_command_task(self, coro: Any) -> asyncio.Task:
+        """Create a tracked task counted against ``_MAX_CONCURRENT_COMMANDS``."""
+        task = self.create_task(coro)
+        self._command_tasks.add(task)
+        task.add_done_callback(self._command_tasks.discard)
         return task
 
     def register_stream(self, message_id: str, task: asyncio.Task) -> None:
@@ -265,7 +288,18 @@ class WebSocketClient:
             self.create_streaming_task(self._run_handler(handler, cmd))
             return
 
-        await self._run_handler(handler, cmd)
+        # Ordinary command: spawn a tracked task so a slow handler
+        # doesn't head-of-line-block faster commands on the same
+        # connection. The task is cancelled on disconnect in
+        # ``cleanup``; the cap bounds server-side fan-out.
+        if len(self._command_tasks) >= _MAX_CONCURRENT_COMMANDS:
+            await self.send_error(
+                cmd.message_id,
+                ErrorCode.RATE_LIMITED,
+                "Too many in-flight commands on this connection",
+            )
+            return
+        self.create_command_task(self._run_handler(handler, cmd))
 
     async def _run_handler(self, handler: Any, cmd: Any) -> None:
         """Invoke a resolved handler and forward its result/error to the client."""
@@ -389,11 +423,13 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
                 except JSONDecodeError:
                     await client.send_error("", ErrorCode.INVALID_MESSAGE, "Invalid JSON")
                     continue
-                # Await inline so commands on one connection run in
-                # submission order — ``_handle_command`` itself spawns
-                # a bounded task only for long-running streaming
-                # handlers, keeping ordinary commands sequential and
-                # the per-connection task set bounded.
+                # Await the dispatch step inline so per-frame parsing,
+                # auth-flag checks, and the streaming-vs-ordinary
+                # decision happen in receipt order; ``_handle_command``
+                # then spawns a bounded, tracked task for the handler
+                # body so a slow command doesn't block later frames,
+                # and ``cleanup`` cancels the set on disconnect
+                # (GHSA-mg7m-j658-c6r9).
                 # Same-module call: the WS dispatch loop lives next to
                 # ``WebSocketClient`` and reaches its command handler
                 # directly. SLF001 can't see the module boundary.

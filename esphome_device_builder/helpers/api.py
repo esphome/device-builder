@@ -42,10 +42,10 @@ def api_command(command: str, *, streaming: bool = False) -> Callable[[_F], _F]:
 
     Set ``streaming=True`` for handlers that park for the connection
     lifetime (``stream_events``-backed subscriptions / log follows).
-    The WS dispatcher awaits ordinary commands inline — sequentially,
-    so same-connection mutations can't interleave — and spawns a
-    bounded task only for streaming handlers; the flag is what tells
-    the two apart.
+    The WS dispatcher spawns every handler as a tracked, per-connection
+    task cancelled on disconnect; streaming handlers get a separate,
+    tighter concurrency cap because they hold their slot for the
+    connection's life. The flag is what tells the two apart.
 
     The decorated method is discoverable via `_api_command` attribute.
     DeviceBuilder scans controllers for these and builds its command registry.
