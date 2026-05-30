@@ -144,6 +144,42 @@ def test_upsert_inline_on_press_leaves_sibling_components_untouched() -> None:
     assert a_idx < on_press_idx < b_idx, "on_press landed under the wrong instance"
 
 
+def test_upsert_valid_automation_leaves_unparseable_sibling_verbatim() -> None:
+    """Editing a valid automation never rewrites a broken sibling block (#1050)."""
+    text = (
+        "esphome:\n  name: x\n"
+        "time:\n"
+        "  - platform: sntp\n"
+        "    id: time_bm8563_1\n"
+        "    on_time:\n"
+        "      - hours: 2,3,4,5\n"
+        "        then:\n"
+        "          - logger.log:\n"
+        "              format: Test 2\n"
+        "switch:\n"
+        "  - platform: gpio\n"
+        "    id: switch_gpio_1\n"
+        "    on_turn_on:\n"
+        "      then:\n"
+        "        - logger.log:\n"
+        "            format: Test 3\n"
+    )
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id="switch.on_turn_on",
+            actions=[ActionNode(action_id="logger.log", params={"format": "Edited"})],
+        ),
+        location=ComponentOnLocation(component_id="switch_gpio_1", trigger="on_turn_on"),
+    )
+    # The broken on_time block (which the parser can't decompose) is
+    # spliced around, not through — its lines survive byte-for-byte.
+    assert "    on_time:\n      - hours: 2,3,4,5\n" in new_text
+    assert "          - logger.log:\n              format: Test 2\n" in new_text
+    # The edit did land on the switch automation.
+    assert "format: Edited" in new_text
+
+
 def test_round_trip_on_click_preserves_trigger_params() -> None:
     """``on_click.min_length`` / ``max_length`` survive parse → write → parse."""
     text = _load("on_click_with_params.yaml")

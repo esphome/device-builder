@@ -344,6 +344,9 @@ class ParsedAutomation(DataClassORJSONMixin):
     ``from_line`` / ``to_line`` are 1-indexed line numbers for the
     navigator. ``raw_yaml`` is the verbatim slice — kept as the
     read-only fallback when the structured form is unrecoverable.
+    ``error`` is set when this one automation failed to decompose
+    (unknown action/condition id); siblings still parse, and the
+    frontend renders it read-only rather than editing an empty tree.
     """
 
     location: AutomationLocation
@@ -352,6 +355,7 @@ class ParsedAutomation(DataClassORJSONMixin):
     from_line: int
     to_line: int
     raw_yaml: str
+    error: str | None = None
 
 
 # ---------------------------------------------------------------------------

@@ -12,13 +12,17 @@ walks five shapes:
 - Configured component instances with inline ``on_*:`` handlers.
 - Light ``effects:`` lists.
 
-Unknown action / condition ids raise
-``CommandError(INVALID_ARGS, ...)`` rather than best-effort
-rebuilding — the frontend renders that as "edit raw YAML".
+An unknown action / condition id fails only the automation that
+carries it: that entry comes back with ``error`` set and an empty
+tree (the frontend renders it read-only as "edit raw YAML"), while
+every sibling parses normally. A YAML that won't load at all is the
+one whole-document failure that still raises.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from functools import partial
 from io import StringIO
 from typing import Any
 
@@ -94,6 +98,34 @@ def parse_device_yaml(yaml_text: str) -> list[ParsedAutomation]:
 # ---------------------------------------------------------------------------
 
 
+def _safe_tree(
+    build: Callable[[], AutomationTree], *, trigger_id: str | None
+) -> tuple[AutomationTree, str | None]:
+    """
+    Run *build*, isolating a per-automation decompose failure.
+
+    The decompose helpers normalise every per-automation fault to
+    ``CommandError`` (unknown action / condition id), so catching it
+    here contains the fault to this one entry — it comes back with an
+    empty tree plus the message while its siblings parse. A document
+    that won't load at all is the separate whole-file failure raised by
+    :func:`parse_device_yaml` upstream.
+    """
+    try:
+        return build(), None
+    except CommandError as err:
+        return AutomationTree(trigger_id=trigger_id, trigger_params={}, actions=[]), err.message
+
+
+def _block_tree(trigger_params: dict[str, Any], then_body: Any) -> AutomationTree:
+    """Build the trigger-less tree for a ``script:`` / ``interval:`` / ``api.actions:`` item."""
+    return AutomationTree(
+        trigger_id=None,
+        trigger_params=trigger_params,
+        actions=_decompose_action_list(then_body),
+    )
+
+
 # Cache of component domains that host inline ``on_*:`` triggers,
 # derived from the catalog on first use.
 _COMPONENT_TRIGGER_DOMAINS: set[str] | None = None
@@ -124,7 +156,10 @@ def _parse_device_level(root: Any) -> list[ParsedAutomation]:
             continue
         body = esphome[trigger_key]
         from_line, to_line = _key_range(esphome, trigger_key)
-        tree = _decompose_trigger_body(body, trigger_id=trigger_key)
+        tree, error = _safe_tree(
+            partial(_decompose_trigger_body, body, trigger_id=trigger_key),
+            trigger_id=trigger_key,
+        )
         out.append(
             ParsedAutomation(
                 location=DeviceOnLocation(trigger=trigger_key),
@@ -133,6 +168,7 @@ def _parse_device_level(root: Any) -> list[ParsedAutomation]:
                 from_line=from_line,
                 to_line=to_line,
                 raw_yaml=_dump_slice({trigger_key: body}),
+                error=error,
             )
         )
     return out
@@ -151,10 +187,13 @@ def _parse_top_level_scripts(root: Any) -> list[ParsedAutomation]:
             continue
         script_id = item.get("id") or f"script_{idx}"
         from_line, to_line = _item_range(scripts, idx)
-        tree = AutomationTree(
+        tree, error = _safe_tree(
+            partial(
+                _block_tree,
+                _collect_block_params(item, action_list_keys={"then"}),
+                item.get("then"),
+            ),
             trigger_id=None,
-            trigger_params=_collect_block_params(item, action_list_keys={"then"}),
-            actions=_decompose_action_list(item.get("then")),
         )
         out.append(
             ParsedAutomation(
@@ -164,6 +203,7 @@ def _parse_top_level_scripts(root: Any) -> list[ParsedAutomation]:
                 from_line=from_line,
                 to_line=to_line,
                 raw_yaml=_dump_slice([item]),
+                error=error,
             )
         )
     return out
@@ -183,10 +223,13 @@ def _parse_top_level_intervals(root: Any) -> list[ParsedAutomation]:
         from_line, to_line = _item_range(intervals, idx)
         every = item.get("interval")
         label = f"Interval: every {every}" if every else f"Interval #{idx + 1}"
-        tree = AutomationTree(
+        tree, error = _safe_tree(
+            partial(
+                _block_tree,
+                _collect_block_params(item, action_list_keys={"then"}),
+                item.get("then"),
+            ),
             trigger_id=None,
-            trigger_params=_collect_block_params(item, action_list_keys={"then"}),
-            actions=_decompose_action_list(item.get("then")),
         )
         out.append(
             ParsedAutomation(
@@ -196,6 +239,7 @@ def _parse_top_level_intervals(root: Any) -> list[ParsedAutomation]:
                 from_line=from_line,
                 to_line=to_line,
                 raw_yaml=_dump_slice([item]),
+                error=error,
             )
         )
     return out
@@ -227,10 +271,9 @@ def _parse_api_actions(root: Any) -> list[ParsedAutomation]:
         if not action_name:
             continue
         from_line, to_line = _item_range(actions, idx)
-        tree = AutomationTree(
+        tree, error = _safe_tree(
+            partial(_block_tree, _collect_api_action_params(item), item.get("then")),
             trigger_id=None,
-            trigger_params=_collect_api_action_params(item),
-            actions=_decompose_action_list(item.get("then")),
         )
         out.append(
             ParsedAutomation(
@@ -240,6 +283,7 @@ def _parse_api_actions(root: Any) -> list[ParsedAutomation]:
                 from_line=from_line,
                 to_line=to_line,
                 raw_yaml=_dump_slice([item]),
+                error=error,
             )
         )
     return out
@@ -273,7 +317,10 @@ def _parse_inline_component_triggers(root: Any) -> list[ParsedAutomation]:
                     # source of truth.
                     continue
                 from_line, to_line = _key_range(instance, key)
-                tree = _decompose_trigger_body(body, trigger_id=trigger_id)
+                tree, error = _safe_tree(
+                    partial(_decompose_trigger_body, body, trigger_id=trigger_id),
+                    trigger_id=trigger_id,
+                )
                 out.append(
                     ParsedAutomation(
                         location=ComponentOnLocation(
@@ -285,6 +332,7 @@ def _parse_inline_component_triggers(root: Any) -> list[ParsedAutomation]:
                         from_line=from_line,
                         to_line=to_line,
                         raw_yaml=_dump_slice({key: body}),
+                        error=error,
                     )
                 )
     return out

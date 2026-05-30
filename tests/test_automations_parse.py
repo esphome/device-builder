@@ -5,8 +5,8 @@ pins the structural-decomposition behaviour of the round-trip
 parser: device-level vs inline component triggers, both YAML
 shortcut forms, top-level script + interval blocks, recursive
 ``then`` / ``else`` decomposition, the condition gate, lambdas as
-the ``{"_lambda": ...}`` sentinel, light effects, and the
-``Unknown action id`` failure mode.
+the ``{"_lambda": ...}`` sentinel, light effects, and per-automation
+error isolation (one unknown id flags its own entry, not the parse).
 """
 
 from __future__ import annotations
@@ -349,11 +349,39 @@ def test_parse_light_effects_emits_one_entry_per_list_item() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_parse_raises_on_unknown_action_id() -> None:
-    """Unknown action ids surface as ``CommandError(INVALID_ARGS, ...)``."""
-    bad_yaml = "esphome:\n  name: x\n  on_boot:\n    then:\n      - this_is_not_an_action: 5\n"
+def test_parse_isolates_unknown_action_id() -> None:
+    """An unknown action id flags only its own automation; siblings parse (#1050)."""
+    # A clearly-unknown action id (not a real trigger that decompose
+    # might learn to handle later) pins the isolation behaviour itself.
+    yaml = (
+        "esphome:\n  name: x\n"
+        "switch:\n"
+        "  - platform: gpio\n"
+        "    id: sw\n"
+        "    on_turn_on:\n"
+        "      then:\n"
+        "        - logger.log:\n"
+        "            format: ok\n"
+        "    on_turn_off:\n"
+        "      then:\n"
+        "        - not_a_real_action: 5\n"
+    )
+    parsed = parse_device_yaml(yaml)
+    good = next(p for p in parsed if p.location.trigger == "on_turn_on")
+    bad = next(p for p in parsed if p.location.trigger == "on_turn_off")
+    # The broken entry carries its error and an empty tree...
+    assert bad.error is not None
+    assert "not_a_real_action" in bad.error
+    assert bad.automation.actions == []
+    # ...while the sibling automation parses normally.
+    assert good.error is None
+    assert [a.action_id for a in good.automation.actions] == ["logger.log"]
+
+
+def test_parse_raises_on_unloadable_yaml() -> None:
+    """A YAML that won't load at all is the one whole-document failure that raises."""
     with pytest.raises(CommandError):
-        parse_device_yaml(bad_yaml)
+        parse_device_yaml("switch:\n  - name: [unterminated\n")
 
 
 def test_parse_returns_empty_for_minimal_yaml() -> None:

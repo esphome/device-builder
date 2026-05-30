@@ -588,8 +588,8 @@ async def test_parse_surfaces_api_actions(tmp_path: Path) -> None:
     assert api_entries[1]["automation"]["trigger_params"]["variables"] == {"name": "string"}
 
 
-async def test_parse_raises_on_unknown_action_id(tmp_path: Path) -> None:
-    """Unknown action ids surface as ``CommandError(INVALID_ARGS)``."""
+async def test_parse_isolates_unknown_action_id(tmp_path: Path) -> None:
+    """An unknown action id flags its own automation; parse still returns it (#1050)."""
     config = tmp_path / "x.yaml"
     config.write_text(
         "esphome:\n  name: x\n  on_boot:\n    then:\n      - made_up_action: foo\n",
@@ -597,5 +597,8 @@ async def test_parse_raises_on_unknown_action_id(tmp_path: Path) -> None:
     )
     controller = _make_controller(tmp_path)
 
-    with pytest.raises(CommandError):
-        await controller.parse(configuration="x.yaml")
+    result = await controller.parse(configuration="x.yaml")
+    assert len(result) == 1
+    assert result[0]["error"] is not None
+    assert "made_up_action" in result[0]["error"]
+    assert result[0]["automation"]["actions"] == []
