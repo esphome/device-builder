@@ -72,7 +72,7 @@ async def test_clone_device_writes_new_yaml_and_swaps_name_friendly_key(
     assert result == {"configuration": "bedroom-bulb.yaml"}
     new_yaml = (tmp_path / "bedroom-bulb.yaml").read_text("utf-8")
     assert "name: bedroom-bulb\n" in new_yaml
-    # Friendly name defaulted from ``friendly_name_slugify(new_name)``.
+    # Friendly name defaulted from the raw ``new_name``.
     assert re.search(r"friendly_name: \S", new_yaml)
     assert "friendly_name: Kitchen Lamp" not in new_yaml
     # Encryption key is fresh — different from the source's literal.
@@ -197,6 +197,43 @@ async def test_clone_device_rejects_collision_with_existing_filename(
     assert "bedroom-bulb.yaml already exists" in excinfo.value.message
     # Pre-flight failure: nothing written, scanner not nudged.
     assert ctrl._scanner.calls == []
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_slugifies_display_style_new_name(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A display-style ``new_name`` yields a slug hostname + raw friendly_name.
+
+    Pins the generator-validity contract: clone must never emit an
+    invalid filename / ``esphome.name`` from spaces or uppercase.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    (tmp_path / "kitchen.yaml").write_text(SOURCE_YAML, "utf-8")
+
+    result = await ctrl.clone_device(configuration="kitchen.yaml", new_name="My Device")
+
+    assert result == {"configuration": "my-device.yaml"}
+    new_yaml = (tmp_path / "my-device.yaml").read_text("utf-8")
+    assert "name: my-device\n" in new_yaml
+    # Raw input is preserved as the display label, not the slug.
+    assert "friendly_name: My Device\n" in new_yaml
+
+
+async def test_clone_device_rejects_new_name_without_hostname_chars(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A ``new_name`` that slugifies to empty raises ``INVALID_ARGS``."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    (tmp_path / "kitchen.yaml").write_text(SOURCE_YAML, "utf-8")
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.clone_device(configuration="kitchen.yaml", new_name="---")
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "hostname-safe" in excinfo.value.message
 
 
 async def test_clone_device_rejects_empty_new_name(

@@ -43,13 +43,24 @@ async def clone_device(  # noqa: C901
     new_name = new_name.strip()
     if not new_name:
         raise CommandError(ErrorCode.INVALID_ARGS, "new_name is required")
-    new_filename = f"{new_name}.yaml"
+    # Slugify for the hostname (mDNS / filename / ``esphome.name:``
+    # schema all require the canonical lowercase-dashed form) and keep
+    # the raw input as the ``friendly_name`` display default — mirrors
+    # ``create_device`` so a display-style ``new_name`` ("My Device")
+    # can't emit an invalid filename / ``esphome.name``.
+    hostname = friendly_name_slugify(new_name)
+    if not hostname:
+        raise CommandError(
+            ErrorCode.INVALID_ARGS,
+            f"new_name {new_name!r} has no hostname-safe characters",
+        )
+    new_filename = f"{hostname}.yaml"
     # Compare on the *stem* so cloning ``kitchen.yml`` to
     # ``new_name=kitchen`` is rejected even though the filenames
     # differ; both files would still carry the same
     # ``esphome.name`` and collide on mDNS.
     source_stem = configuration_stem(configuration)
-    if new_name == source_stem:
+    if hostname == source_stem:
         raise CommandError(
             ErrorCode.INVALID_ARGS,
             "new_name must differ from the source device name",
@@ -59,7 +70,7 @@ async def clone_device(  # noqa: C901
     source_path = controller._db.settings.rel_path(configuration)
     new_path = controller._db.settings.rel_path(new_filename)
     if new_friendly_name is None:
-        new_friendly_name = friendly_name_slugify(new_name)
+        new_friendly_name = new_name
     # Generate the fresh key off-loop so the executor work below
     # is purely I/O.
     new_key = generate_api_encryption_key()
@@ -104,7 +115,7 @@ async def clone_device(  # noqa: C901
     # ``_rewrite_required_yaml_leaf`` rejects when the leaf is
     # missing entirely so a package-driven source can't silently
     # produce a duplicate hostname.
-    new_content = _rewrite_required_yaml_leaf(source_content, ("esphome", "name"), new_name)
+    new_content = _rewrite_required_yaml_leaf(source_content, ("esphome", "name"), hostname)
     # ``friendly_name`` is optional on the clone path; the
     # underlying helper is already a no-op when the leaf is
     # missing, so skip the required-leaf wrapper here.
