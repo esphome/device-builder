@@ -36,6 +36,8 @@ from esphome_device_builder.controllers.components import _resolve as components
 from esphome_device_builder.models import (
     ComponentCatalogIndexEntry,
     ComponentCategory,
+    ConfigEntry,
+    ConfigEntryType,
     FeaturedComponent,
 )
 
@@ -840,3 +842,35 @@ async def test_get_component_bodies_returns_dict_keyed_by_id(tmp_path: Path) -> 
     assert set(result) == {"wifi", "api"}
     assert result["wifi"].id == "wifi"
     assert result["api"].id == "api"
+
+
+def test_materialise_entry_resolves_platform_default() -> None:
+    """A matching ``target_platform`` swaps in its ``platform_defaults`` value and drops the map."""
+    entry = ConfigEntry(
+        key="baud_rate",
+        type=ConfigEntryType.INTEGER,
+        label="Baud rate",
+        default_value=9600,
+        platform_defaults={"esp32": 115200, "esp8266": 57600},
+    )
+
+    resolved = components_module._materialise_entry(entry, "esp32")
+
+    assert resolved.default_value == 115200
+    assert resolved.platform_defaults is None
+
+
+def test_materialise_entry_keeps_default_when_platform_absent() -> None:
+    """A ``target_platform`` absent from ``platform_defaults`` keeps ``default_value``."""
+    entry = ConfigEntry(
+        key="baud_rate",
+        type=ConfigEntryType.INTEGER,
+        label="Baud rate",
+        default_value=9600,
+        platform_defaults={"esp32": 115200},
+    )
+
+    resolved = components_module._materialise_entry(entry, "rp2040")
+
+    assert resolved.default_value == 9600
+    assert resolved.platform_defaults is None
