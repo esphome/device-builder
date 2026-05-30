@@ -17,6 +17,7 @@ from esphome.const import __version__ as esphome_version
 from ..constants import __version__
 from ..controllers.auth import AuthError
 from ..helpers.api import CommandError
+from ..helpers.async_ import create_eager_task
 from ..helpers.auth import extract_bearer_token
 from ..helpers.event_bus import StreamBackpressureError
 from ..helpers.json import JSONDecodeError, dumps_str, loads
@@ -164,7 +165,7 @@ class WebSocketClient:
 
     def create_task(self, coro: Any) -> asyncio.Task:
         """Create a tracked task."""
-        task = asyncio.create_task(coro)
+        task = create_eager_task(coro)
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         return task

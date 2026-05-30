@@ -45,6 +45,7 @@ from .controllers.onboarding import OnboardingController
 from .controllers.remote_build import OffloaderController, ReceiverController
 from .controllers.remote_build.peer_link import PEER_LINK_PATH, make_peer_link_handler
 from .helpers.api import CommandHandler, collect_api_commands
+from .helpers.async_ import create_eager_task
 from .helpers.auth import auth_middleware
 from .helpers.dashboard_advertise import DashboardAdvertiser
 from .helpers.dashboard_identity import get_or_create_identity as get_or_create_dashboard_identity
@@ -418,7 +419,7 @@ class DeviceBuilder:
             self.command_handlers["auth"] = self.command_handlers["auth/login"]
 
         # Start background polling
-        self._bg_task = asyncio.create_task(self._run_background())
+        self._bg_task = create_eager_task(self._run_background())
 
         _LOGGER.info(
             "Device Builder ready — config dir: %s, %d commands registered",
@@ -676,7 +677,7 @@ class DeviceBuilder:
     def create_background_task(self, coro: Any) -> asyncio.Task:
         """Create a tracked background task."""
         assert self.loop is not None  # type narrowing
-        task = self.loop.create_task(coro)
+        task = create_eager_task(coro, loop=self.loop)
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
         return task
