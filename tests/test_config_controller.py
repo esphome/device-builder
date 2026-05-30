@@ -31,7 +31,7 @@ import logging
 import os
 import sys
 import threading
-from contextlib import nullcontext
+from contextlib import nullcontext, suppress
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -845,10 +845,8 @@ async def test_set_prefs_concurrent_updates_do_not_lose_writes(
     def _synced_save(config_dir: Path, prefs: UserPreferences) -> None:
         # Only the legacy two-transaction path reaches here; gate
         # both writers until each has loaded the shared baseline.
-        try:
+        with suppress(threading.BrokenBarrierError):
             barrier.wait()
-        except threading.BrokenBarrierError:
-            pass
         real_save(config_dir, prefs)
 
     monkeypatch.setattr(config_module, "save_preferences", _synced_save)
