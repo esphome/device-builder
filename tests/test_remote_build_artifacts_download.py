@@ -121,7 +121,6 @@ def _all_app_frames(session: Any) -> list[dict[str, Any]]:
         {"type": "download_artifacts", "job_id": 12345},
     ],
 )
-@pytest.mark.asyncio
 async def test_download_artifacts_malformed_terminates(broken_frame: dict[str, Any]) -> None:
     """A malformed ``download_artifacts`` frame terminates the session, no end frame."""
     sender = _make_sender()
@@ -133,7 +132,6 @@ async def test_download_artifacts_malformed_terminates(broken_frame: dict[str, A
     session.send_app_frame.assert_not_awaited()
 
 
-@pytest.mark.asyncio
 async def test_download_artifacts_unknown_job_rejected(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -163,7 +161,6 @@ async def test_download_artifacts_unknown_job_rejected(
     assert "another" in log_text  # the receiver's known job_ids
 
 
-@pytest.mark.asyncio
 async def test_download_artifacts_job_not_completed_rejected(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -191,7 +188,6 @@ async def test_download_artifacts_job_not_completed_rejected(
     assert "running" in log_text.lower()
 
 
-@pytest.mark.asyncio
 async def test_download_artifacts_duplicate_rejected_without_terminate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -209,7 +205,6 @@ async def test_download_artifacts_duplicate_rejected_without_terminate(
     assert payload["reason"] == "duplicate_download"
 
 
-@pytest.mark.asyncio
 async def test_download_artifacts_build_dir_missing_rejected(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -249,7 +244,6 @@ async def test_download_artifacts_build_dir_missing_rejected(
     assert "StorageJSON sidecar missing" in log_text
 
 
-@pytest.mark.asyncio
 async def test_download_artifacts_pack_failed_rejected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -273,7 +267,6 @@ async def test_download_artifacts_pack_failed_rejected(
     assert payload["reason"] == "pack_failed"
 
 
-@pytest.mark.asyncio
 async def test_download_artifacts_happy_path_streams_start_chunk_end(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -308,7 +301,6 @@ async def test_download_artifacts_happy_path_streams_start_chunk_end(
     assert session.dashboard_id not in sender._inflight
 
 
-@pytest.mark.asyncio
 async def test_download_artifacts_clears_inflight_on_reject(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

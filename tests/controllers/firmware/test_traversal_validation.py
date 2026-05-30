@@ -56,7 +56,6 @@ def test_sync_validate_rejects_empty_string(
     assert "must not be empty" in excinfo.value.message
 
 
-@pytest.mark.asyncio
 async def test_validate_configuration_boundary_runs_in_executor(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -74,7 +73,6 @@ async def test_validate_configuration_boundary_runs_in_executor(
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
 
 
-@pytest.mark.asyncio
 async def test_validate_configurations_boundary_raises_on_bad_entry(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -96,7 +94,6 @@ async def test_validate_configurations_boundary_raises_on_bad_entry(
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
 
 
-@pytest.mark.asyncio
 async def test_validate_configurations_boundary_all_valid(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -106,7 +103,6 @@ async def test_validate_configurations_boundary_all_valid(
     await controller._validate_configurations_boundary(["kitchen.yaml", "garage.yaml"])
 
 
-@pytest.mark.asyncio
 async def test_get_binaries_rejects_traversal(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -123,7 +119,6 @@ async def test_get_binaries_rejects_traversal(
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
 
 
-@pytest.mark.asyncio
 async def test_download_rejects_traversal(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -135,7 +130,6 @@ async def test_download_rejects_traversal(
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
 
 
-@pytest.mark.asyncio
 async def test_rename_rejects_traversal_in_new_name(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -156,7 +150,6 @@ async def test_rename_rejects_traversal_in_new_name(
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
 
 
-@pytest.mark.asyncio
 async def test_rename_rejects_collision_with_existing_yaml(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -179,7 +172,6 @@ async def test_rename_rejects_collision_with_existing_yaml(
     assert "livingroom.yaml already exists" in excinfo.value.message
 
 
-@pytest.mark.asyncio
 async def test_rename_rejects_same_name(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:

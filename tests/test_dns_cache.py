@@ -597,7 +597,6 @@ def test_load_device_from_storage_address_uses_storage_when_set(  # type: ignore
     assert device.address == "kitchen.lan"
 
 
-@pytest.mark.asyncio
 async def test_on_ip_change_persists_non_empty_value() -> None:
     """``_on_ip_change`` writes the IP to the metadata store synchronously."""
     device = Device(name="kitchen", friendly_name="Kitchen", configuration="kitchen.yaml")

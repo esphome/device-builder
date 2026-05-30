@@ -54,7 +54,6 @@ def _make_device(filename: str = "kitchen.yaml", labels: list[str] | None = None
     return make_label_test_device(filename, labels)
 
 
-@pytest.mark.asyncio
 async def test_set_labels_persists_and_reloads(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -84,7 +83,6 @@ async def test_set_labels_persists_and_reloads(
     assert result.labels == ["lbl-a", "lbl-b"]
 
 
-@pytest.mark.asyncio
 async def test_set_labels_clear_drops_sidecar_key(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -103,7 +101,6 @@ async def test_set_labels_clear_drops_sidecar_key(
     assert result.labels == []
 
 
-@pytest.mark.asyncio
 async def test_set_labels_unknown_id_rejected_without_partial_write(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -135,7 +132,6 @@ async def test_set_labels_unknown_id_rejected_without_partial_write(
     assert ("reload", "kitchen.yaml") not in scanner.calls
 
 
-@pytest.mark.asyncio
 async def test_set_labels_rejects_path_traversal(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -168,7 +164,6 @@ async def test_set_labels_rejects_path_traversal(
     assert exc_info.value.code is ErrorCode.INVALID_ARGS
 
 
-@pytest.mark.asyncio
 async def test_set_labels_rejects_non_list_label_ids(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -187,7 +182,6 @@ async def test_set_labels_rejects_non_list_label_ids(
     assert exc_info.value.code is ErrorCode.INVALID_ARGS
 
 
-@pytest.mark.asyncio
 async def test_set_labels_rejects_non_string_label_id(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -216,7 +210,6 @@ async def test_set_labels_rejects_non_string_label_id(
     assert "labels" not in meta
 
 
-@pytest.mark.asyncio
 async def test_set_labels_rejects_unknown_configuration(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -247,7 +240,6 @@ async def test_set_labels_rejects_unknown_configuration(
     assert ("reload", "ghost.yaml") not in scanner.calls
 
 
-@pytest.mark.asyncio
 async def test_reload_configuration_delegates_to_scanner(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -269,7 +261,6 @@ async def test_reload_configuration_delegates_to_scanner(
     assert ("reload", "kitchen.yaml") in controller._scanner.calls
 
 
-@pytest.mark.asyncio
 async def test_set_labels_round_trips_through_metadata(
     tmp_path: Path,
     make_controller: MakeControllerFactory,

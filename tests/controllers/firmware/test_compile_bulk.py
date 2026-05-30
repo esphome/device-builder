@@ -38,7 +38,6 @@ from tests.controllers.firmware.conftest import (
 )
 
 
-@pytest.mark.asyncio
 async def test_compile_bulk_returns_queued_jobs_for_every_config(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -61,7 +60,6 @@ async def test_compile_bulk_returns_queued_jobs_for_every_config(
     assert all(j.status == JobStatus.QUEUED for j in jobs)
 
 
-@pytest.mark.asyncio
 async def test_compile_bulk_rejects_whole_batch_on_traversal_entry(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -91,7 +89,6 @@ async def test_compile_bulk_rejects_whole_batch_on_traversal_entry(
     assert await controller.get_jobs() == []
 
 
-@pytest.mark.asyncio
 async def test_compile_bulk_rejects_whole_batch_on_empty_entry(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -112,7 +109,6 @@ async def test_compile_bulk_rejects_whole_batch_on_empty_entry(
     assert await controller.get_jobs() == []
 
 
-@pytest.mark.asyncio
 async def test_compile_bulk_skips_entries_with_enqueue_command_error(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -161,7 +157,6 @@ async def test_compile_bulk_skips_entries_with_enqueue_command_error(
     assert "locked.yaml" in {j.configuration for j in await controller.get_jobs()}
 
 
-@pytest.mark.asyncio
 async def test_compile_bulk_reraises_no_compatible_peer(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -190,7 +185,6 @@ async def test_compile_bulk_reraises_no_compatible_peer(
     assert await controller.get_jobs() == []
 
 
-@pytest.mark.asyncio
 async def test_install_bulk_reraises_no_compatible_peer(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -208,7 +202,6 @@ async def test_install_bulk_reraises_no_compatible_peer(
     assert await controller.get_jobs() == []
 
 
-@pytest.mark.asyncio
 async def test_compile_bulk_empty_input_returns_empty_list(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -226,7 +219,6 @@ async def test_compile_bulk_empty_input_returns_empty_list(
     assert await controller.get_jobs() == []
 
 
-@pytest.mark.asyncio
 async def test_compile_bulk_fires_job_queued_per_successful_entry(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,

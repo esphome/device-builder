@@ -46,7 +46,6 @@ from tests.controllers.firmware.conftest import (
 )
 
 
-@pytest.mark.asyncio
 async def test_install_returns_queued_job_with_install_type(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -66,7 +65,6 @@ async def test_install_returns_queued_job_with_install_type(
     assert job.configuration == "kitchen.yaml"
 
 
-@pytest.mark.asyncio
 async def test_install_defaults_port_to_ota(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -91,7 +89,6 @@ async def test_install_defaults_port_to_ota(
     "port",
     ["/dev/ttyUSB0", "192.168.1.5", "kitchen.local", "fe80::1"],
 )
-@pytest.mark.asyncio
 async def test_install_forwards_custom_port_to_job(
     tmp_path: Path, port: str, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -110,7 +107,6 @@ async def test_install_forwards_custom_port_to_job(
     assert job.port == port
 
 
-@pytest.mark.asyncio
 async def test_install_validates_port_before_configuration(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -140,7 +136,6 @@ async def test_install_validates_port_before_configuration(
     assert "Invalid configuration filename" not in exc.value.message
 
 
-@pytest.mark.asyncio
 async def test_install_rejects_traversal_configuration(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -160,7 +155,6 @@ async def test_install_rejects_traversal_configuration(
     assert exc.value.code == ErrorCode.INVALID_ARGS
 
 
-@pytest.mark.asyncio
 async def test_install_enqueues_before_firing_job_queued(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -195,7 +189,6 @@ async def test_install_enqueues_before_firing_job_queued(
     assert log[1][1].data == {"job": job}
 
 
-@pytest.mark.asyncio
 async def test_install_registers_job_in_jobs_map(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -284,7 +277,6 @@ def _stub_remote_build(
     controller._db.remote_build_offloader = remote_build
 
 
-@pytest.mark.asyncio
 async def test_install_routes_to_local_when_no_paired_receivers(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -307,7 +299,6 @@ async def test_install_routes_to_local_when_no_paired_receivers(
     assert job.source_label == ""
 
 
-@pytest.mark.asyncio
 async def test_install_routes_to_remote_when_pairing_is_idle_and_connected(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -341,7 +332,6 @@ async def test_install_routes_to_remote_when_pairing_is_idle_and_connected(
     assert job.source_esphome_version == "2026.5.0"
 
 
-@pytest.mark.asyncio
 async def test_install_force_local_bypasses_scheduler(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -374,7 +364,6 @@ async def test_install_force_local_bypasses_scheduler(
     assert job.source_label == ""
 
 
-@pytest.mark.asyncio
 async def test_compile_force_local_bypasses_scheduler(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -395,7 +384,6 @@ async def test_compile_force_local_bypasses_scheduler(
     assert job.source_pin_sha256 == ""
 
 
-@pytest.mark.asyncio
 async def test_compile_bulk_force_local_bypasses_scheduler(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -418,7 +406,6 @@ async def test_compile_bulk_force_local_bypasses_scheduler(
     assert [j.source for j in jobs] == [JobSource.LOCAL, JobSource.LOCAL]
 
 
-@pytest.mark.asyncio
 async def test_install_force_local_default_false_keeps_scheduler_behaviour(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -444,7 +431,6 @@ async def test_install_force_local_default_false_keeps_scheduler_behaviour(
     assert job.source is JobSource.REMOTE
 
 
-@pytest.mark.asyncio
 async def test_install_still_routes_remote_when_receiver_is_busy(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -475,7 +461,6 @@ async def test_install_still_routes_remote_when_receiver_is_busy(
     assert job.source_pin_sha256 == _PIN
 
 
-@pytest.mark.asyncio
 async def test_install_serial_port_can_route_remote(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -503,7 +488,6 @@ async def test_install_serial_port_can_route_remote(
     assert job.source_pin_sha256 == _PIN
 
 
-@pytest.mark.asyncio
 async def test_install_falls_back_to_local_when_remote_build_controller_absent(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -524,7 +508,6 @@ async def test_install_falls_back_to_local_when_remote_build_controller_absent(
     assert job.source is JobSource.LOCAL
 
 
-@pytest.mark.asyncio
 async def test_install_falls_back_to_local_when_scheduler_picked_pin_disappeared(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -576,7 +559,6 @@ async def test_install_falls_back_to_local_when_scheduler_picked_pin_disappeared
     assert job.source_pin_sha256 == ""
 
 
-@pytest.mark.asyncio
 async def test_install_bulk_routes_each_config_through_the_scheduler(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -612,7 +594,6 @@ async def test_install_bulk_routes_each_config_through_the_scheduler(
     assert all(j.source_label == "desktop" for j in jobs)
 
 
-@pytest.mark.asyncio
 async def test_install_bulk_serial_port_routes_every_config_remote(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:

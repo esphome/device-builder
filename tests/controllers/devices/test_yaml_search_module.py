@@ -27,8 +27,6 @@ import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 
-import pytest
-
 from esphome_device_builder.controllers.devices._yaml_search import (
     MAX_LINES_PER_FILE,
     search_yaml_devices,
@@ -67,7 +65,6 @@ def _rel(tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_returns_results_and_live_configurations(tmp_path: Path) -> None:
     """Result tuple shape — pinned for the controller's cache prune.
 
@@ -113,7 +110,6 @@ async def test_returns_results_and_live_configurations(tmp_path: Path) -> None:
     assert live == {"kitchen.yaml", "bedroom.yaml"}
 
 
-@pytest.mark.asyncio
 async def test_friendly_name_falls_back_to_device_name(tmp_path: Path) -> None:
     """Empty ``friendly_name`` → result row uses ``device_name``.
 
@@ -144,7 +140,6 @@ async def test_friendly_name_falls_back_to_device_name(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_case_insensitive_caller_lowered_needle(tmp_path: Path) -> None:
     """``case_sensitive=False`` lowers each line; needle is pre-lowered.
 
@@ -170,7 +165,6 @@ async def test_case_insensitive_caller_lowered_needle(tmp_path: Path) -> None:
     assert len(results) == 1
 
 
-@pytest.mark.asyncio
 async def test_case_sensitive_distinguishes_case(tmp_path: Path) -> None:
     """``case_sensitive=True`` treats each line as-is."""
     cache = YamlSearchCache()
@@ -194,7 +188,6 @@ async def test_case_sensitive_distinguishes_case(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_max_lines_per_file_caps_pathological_files(tmp_path: Path) -> None:
     """Files past ``MAX_LINES_PER_FILE`` lines are scanned only up to the cap.
 
@@ -262,7 +255,6 @@ async def test_max_lines_per_file_caps_pathological_files(tmp_path: Path) -> Non
     assert results == []
 
 
-@pytest.mark.asyncio
 async def test_per_file_cap_truncates_matches(tmp_path: Path) -> None:
     """One device's match list caps at ``per_file_cap``."""
     cache = YamlSearchCache()
@@ -281,7 +273,6 @@ async def test_per_file_cap_truncates_matches(tmp_path: Path) -> None:
     assert len(results[0]["matches"]) == 3
 
 
-@pytest.mark.asyncio
 async def test_total_results_cap_short_circuits_walk(tmp_path: Path) -> None:
     """Walk stops once ``max_results`` is reached.
 
@@ -323,7 +314,6 @@ async def test_total_results_cap_short_circuits_walk(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_unmatched_device_omitted_from_results(tmp_path: Path) -> None:
     """A device with no matches is skipped from ``results``."""
     cache = YamlSearchCache()
@@ -349,7 +339,6 @@ async def test_unmatched_device_omitted_from_results(tmp_path: Path) -> None:
     assert live == {"kitchen.yaml", "bedroom.yaml"}
 
 
-@pytest.mark.asyncio
 async def test_unreadable_file_skipped_but_visited(tmp_path: Path) -> None:
     """Cache returns ``None`` → device skipped from results.
 
@@ -385,7 +374,6 @@ async def test_unreadable_file_skipped_but_visited(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_yields_to_event_loop_between_devices(tmp_path: Path) -> None:
     """``await asyncio.sleep(0)`` between devices keeps the loop responsive.
 
@@ -439,7 +427,6 @@ async def test_yields_to_event_loop_between_devices(tmp_path: Path) -> None:
     assert ticks >= len(devices)
 
 
-@pytest.mark.asyncio
 async def test_match_includes_full_context_window_when_not_at_edge(
     tmp_path: Path,
 ) -> None:

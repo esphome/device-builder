@@ -90,7 +90,6 @@ async def _drain(controller: DevicesController) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_regenerate_spawns_esphome_compile_only_generate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -210,7 +209,6 @@ def test_regenerate_skips_after_failed_marker(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_regenerate_marks_failed_on_nonzero_exit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -249,7 +247,6 @@ async def test_regenerate_marks_failed_on_nonzero_exit(
     assert controller.state.regenerate_pending == set()
 
 
-@pytest.mark.asyncio
 async def test_regenerate_marks_failed_on_spawn_oserror(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -293,7 +290,6 @@ async def test_regenerate_marks_failed_on_spawn_oserror(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_regenerate_dedupes_same_tick_calls(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -336,7 +332,6 @@ async def test_regenerate_dedupes_same_tick_calls(
     assert controller.state.regenerate_pending == set()
 
 
-@pytest.mark.asyncio
 async def test_regenerate_pending_blocks_in_flight_dupe(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -388,7 +383,6 @@ async def test_regenerate_pending_blocks_in_flight_dupe(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_regenerate_persists_mtime_and_wallclock_on_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -434,7 +428,6 @@ async def test_regenerate_persists_mtime_and_wallclock_on_failure(
     assert md.get("regen_failed_at") == 1700000000.0
 
 
-@pytest.mark.asyncio
 async def test_regenerate_persists_stamp_on_spawn_oserror(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -476,7 +469,6 @@ async def test_regenerate_persists_stamp_on_spawn_oserror(
     assert md.get("regen_failed_at") == 1700000050.0
 
 
-@pytest.mark.asyncio
 async def test_regenerate_clears_failure_stamp_on_success(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -522,7 +514,6 @@ async def test_regenerate_clears_failure_stamp_on_success(
     assert "regen_failed_at" not in md
 
 
-@pytest.mark.asyncio
 async def test_regenerate_skips_when_stamp_fresh_and_mtime_matches(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -573,7 +564,6 @@ async def test_regenerate_skips_when_stamp_fresh_and_mtime_matches(
     assert controller.state.regenerate_failed == {"kitchen.yaml"}
 
 
-@pytest.mark.asyncio
 async def test_regenerate_retries_when_stamp_older_than_ttl(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -624,7 +614,6 @@ async def test_regenerate_retries_when_stamp_older_than_ttl(
     assert len(spawn_calls) == 1
 
 
-@pytest.mark.asyncio
 async def test_regenerate_runs_when_yaml_mtime_moves_past_stamp(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -676,7 +665,6 @@ async def test_regenerate_runs_when_yaml_mtime_moves_past_stamp(
     assert len(spawn_calls) == 1
 
 
-@pytest.mark.asyncio
 async def test_regenerate_runs_when_yaml_missing_for_stamp_check(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -719,7 +707,6 @@ async def test_regenerate_runs_when_yaml_missing_for_stamp_check(
     assert len(spawn_calls) == 1
 
 
-@pytest.mark.asyncio
 async def test_regenerate_clamps_negative_stamp_age(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -767,7 +754,6 @@ async def test_regenerate_clamps_negative_stamp_age(
     assert spawn_calls == []
 
 
-@pytest.mark.asyncio
 async def test_regenerate_runs_when_only_one_stamp_half_present(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -813,7 +799,6 @@ async def test_regenerate_runs_when_only_one_stamp_half_present(
     assert len(spawn_calls) == 1
 
 
-@pytest.mark.asyncio
 async def test_regenerate_runs_when_stamp_has_corrupt_value(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -865,7 +850,6 @@ async def test_regenerate_runs_when_stamp_has_corrupt_value(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_regenerate_persists_hash_and_clears_stamp_in_one_transaction(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -933,7 +917,6 @@ async def test_regenerate_persists_hash_and_clears_stamp_in_one_transaction(
     assert "regen_failed_at" not in md
 
 
-@pytest.mark.asyncio
 async def test_regenerate_success_clears_stamp_when_build_info_missing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

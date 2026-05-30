@@ -36,7 +36,6 @@ from tests.controllers.firmware.conftest import (
 )
 
 
-@pytest.mark.asyncio
 async def test_upload_returns_queued_job_with_upload_type(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -57,7 +56,6 @@ async def test_upload_returns_queued_job_with_upload_type(
     assert job.configuration == "kitchen.yaml"
 
 
-@pytest.mark.asyncio
 async def test_upload_defaults_port_to_empty_string(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -85,7 +83,6 @@ async def test_upload_defaults_port_to_empty_string(
     "port",
     ["OTA", "/dev/ttyUSB0", "192.168.1.5", "kitchen.local", "fe80::1"],
 )
-@pytest.mark.asyncio
 async def test_upload_forwards_custom_port_to_job(
     tmp_path: Path, port: str, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -104,7 +101,6 @@ async def test_upload_forwards_custom_port_to_job(
     assert job.port == port
 
 
-@pytest.mark.asyncio
 async def test_upload_validates_port_before_configuration(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -134,7 +130,6 @@ async def test_upload_validates_port_before_configuration(
     assert "Invalid configuration filename" not in exc.value.message
 
 
-@pytest.mark.asyncio
 async def test_upload_rejects_traversal_configuration(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -155,7 +150,6 @@ async def test_upload_rejects_traversal_configuration(
     assert exc.value.code == ErrorCode.INVALID_ARGS
 
 
-@pytest.mark.asyncio
 async def test_upload_enqueues_before_firing_job_queued(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -181,7 +175,6 @@ async def test_upload_enqueues_before_firing_job_queued(
     assert log[1][1].data == {"job": job}
 
 
-@pytest.mark.asyncio
 async def test_upload_registers_job_in_jobs_map(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:

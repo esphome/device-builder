@@ -237,7 +237,6 @@ def _write_build_artifacts_on_disk(tmp_path: Path, *, configuration: str) -> dic
     return images
 
 
-@pytest.mark.asyncio
 async def test_cold_connect_offloader_observes_initial_queue_status_then_picks_remote(
     paired_instances: PairedInstances,
 ) -> None:
@@ -292,7 +291,6 @@ async def test_cold_connect_offloader_observes_initial_queue_status_then_picks_r
     assert decision.pin_sha256 == paired_instances.pin_sha256
 
 
-@pytest.mark.asyncio
 async def test_version_match_policy_filters_mismatched_peer_end_to_end(
     paired_instances: PairedInstances,
 ) -> None:
@@ -336,7 +334,6 @@ async def test_version_match_policy_filters_mismatched_peer_end_to_end(
     assert decision.pin_sha256 == pin
 
 
-@pytest.mark.asyncio
 async def test_exact_required_raises_no_compatible_peer_end_to_end(
     paired_instances: PairedInstances,
 ) -> None:
@@ -370,7 +367,6 @@ async def test_exact_required_raises_no_compatible_peer_end_to_end(
     assert decision.pin_sha256 == pin
 
 
-@pytest.mark.asyncio
 async def test_remote_install_submit_then_lifecycle_then_download_on_one_session(
     paired_instances: PairedInstances,
     tmp_path: Path,
@@ -534,7 +530,6 @@ async def test_remote_install_submit_then_lifecycle_then_download_on_one_session
     assert len(paired_instances.receiver_opened) == opened_at_start[1]
 
 
-@pytest.mark.asyncio
 async def test_remote_compile_materialises_for_local_firmware_download(
     paired_instances: PairedInstances,
     tmp_path: Path,
@@ -655,7 +650,6 @@ def _swap_prefix(absolute_posix: str, posix_prefix: str, win_prefix: str) -> str
     return win_prefix + ("\\" + suffix if suffix else "")
 
 
-@pytest.mark.asyncio
 async def test_windows_receiver_tarball_materialises_for_local_firmware_download(
     paired_instances: PairedInstances,
     tmp_path: Path,
@@ -814,7 +808,6 @@ async def _wait_for_offloader_idle(
         await asyncio.wait_for(queue_status_events.received.wait(), timeout=remaining)
 
 
-@pytest.mark.asyncio
 async def test_back_to_back_successful_jobs_keep_scheduler_routing_remote(
     paired_instances: PairedInstances,
 ) -> None:
@@ -885,7 +878,6 @@ async def test_back_to_back_successful_jobs_keep_scheduler_routing_remote(
         assert decision.pin_sha256 == paired_instances.pin_sha256
 
 
-@pytest.mark.asyncio
 async def test_failed_first_job_still_routes_remote_on_second_install(
     paired_instances: PairedInstances,
 ) -> None:
@@ -942,7 +934,6 @@ async def test_failed_first_job_still_routes_remote_on_second_install(
     assert decision.pin_sha256 == paired_instances.pin_sha256
 
 
-@pytest.mark.asyncio
 async def test_remote_clean_round_trip_lands_clean_job_and_fans_state_back(
     paired_instances: PairedInstances,
 ) -> None:

@@ -29,13 +29,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from esphome_device_builder.models import FirmwareJob, JobStatus, JobType
 from tests.controllers.firmware.conftest import FirmwareControllerFactory
 
 
-@pytest.mark.asyncio
 async def test_resubmit_cancels_previous_queued_job_for_same_configuration(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -57,7 +54,6 @@ async def test_resubmit_cancels_previous_queued_job_for_same_configuration(
     assert jobs[second.job_id].status == JobStatus.QUEUED
 
 
-@pytest.mark.asyncio
 async def test_resubmit_does_not_cancel_jobs_for_different_configuration(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -81,7 +77,6 @@ async def test_resubmit_does_not_cancel_jobs_for_different_configuration(
     assert jobs[garage.job_id].status == JobStatus.QUEUED
 
 
-@pytest.mark.asyncio
 async def test_resubmit_does_not_cancel_itself(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -106,7 +101,6 @@ async def test_resubmit_does_not_cancel_itself(
     assert jobs[first.job_id].status == JobStatus.QUEUED
 
 
-@pytest.mark.asyncio
 async def test_resubmit_cancels_running_predecessor(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -149,7 +143,6 @@ async def test_resubmit_cancels_running_predecessor(
     assert jobs[second.job_id].status == JobStatus.QUEUED
 
 
-@pytest.mark.asyncio
 async def test_resubmit_does_not_cancel_terminal_jobs_for_same_config(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -195,7 +188,6 @@ async def test_resubmit_does_not_cancel_terminal_jobs_for_same_config(
     assert jobs[fresh.job_id].status == JobStatus.QUEUED
 
 
-@pytest.mark.asyncio
 async def test_supersede_does_not_run_for_empty_configuration(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:

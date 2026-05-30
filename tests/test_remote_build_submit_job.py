@@ -211,7 +211,6 @@ def test_validate_configuration_filename_rejects_malicious_inputs(filename: str)
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_submit_job_duplicate_header_rejected(tmp_path: Path) -> None:
     """A second header on a session with one in-flight rejects ``duplicate_submit``."""
     receiver = _make_receiver(tmp_path)
@@ -228,7 +227,6 @@ async def test_submit_job_duplicate_header_rejected(tmp_path: Path) -> None:
     assert payload["job_id"] == "second"
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "broken_frame",
     [
@@ -268,7 +266,6 @@ async def test_submit_job_duplicate_header_rejected(tmp_path: Path) -> None:
         },
     ],
 )
-@pytest.mark.asyncio
 async def test_submit_job_malformed_header_terminates(
     tmp_path: Path, broken_frame: dict[str, Any]
 ) -> None:
@@ -319,7 +316,6 @@ async def test_submit_job_malformed_header_terminates(
         },
     ],
 )
-@pytest.mark.asyncio
 async def test_submit_job_chunk_malformed_terminates(
     tmp_path: Path, broken_chunk: dict[str, Any]
 ) -> None:
@@ -337,7 +333,6 @@ async def test_submit_job_chunk_malformed_terminates(
     session.terminate.assert_awaited_once()
 
 
-@pytest.mark.asyncio
 async def test_submit_job_invalid_target_rejected(tmp_path: Path) -> None:
     """A header with ``target`` outside compile/upload rejects ``invalid_header``."""
     receiver = _make_receiver(tmp_path)
@@ -350,7 +345,6 @@ async def test_submit_job_invalid_target_rejected(tmp_path: Path) -> None:
     assert payload["reason"] == "invalid_header"
 
 
-@pytest.mark.asyncio
 async def test_submit_job_path_traversal_filename_rejected(tmp_path: Path) -> None:
     """A ``configuration_filename`` with path traversal rejects ``invalid_header``."""
     receiver = _make_receiver(tmp_path)
@@ -363,7 +357,6 @@ async def test_submit_job_path_traversal_filename_rejected(tmp_path: Path) -> No
     assert payload["reason"] == "invalid_header"
 
 
-@pytest.mark.asyncio
 async def test_submit_job_oversized_bundle_rejected(tmp_path: Path) -> None:
     """A header announcing a bundle past ``BUNDLE_MAX_TOTAL_BYTES`` rejects via the assembler."""
     receiver = _make_receiver(tmp_path)
@@ -390,7 +383,6 @@ async def test_submit_job_oversized_bundle_rejected(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_submit_job_chunk_no_inflight_rejected(tmp_path: Path) -> None:
     """A chunk frame without a preceding header rejects ``no_inflight_submit``."""
     receiver = _make_receiver(tmp_path)
@@ -411,7 +403,6 @@ async def test_submit_job_chunk_no_inflight_rejected(tmp_path: Path) -> None:
     session.terminate.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_submit_job_chunk_job_id_mismatch_rejected(tmp_path: Path) -> None:
     """A chunk with the wrong ``job_id`` rejects ``job_id_mismatch``."""
     receiver = _make_receiver(tmp_path)
@@ -429,7 +420,6 @@ async def test_submit_job_chunk_job_id_mismatch_rejected(tmp_path: Path) -> None
     assert payload["reason"] == "job_id_mismatch"
 
 
-@pytest.mark.asyncio
 async def test_submit_job_chunk_decode_failure_terminates_session(tmp_path: Path) -> None:
     """Garbage base64 in a chunk rejects ``chunk_decode_failed`` AND terminates the session."""
     receiver = _make_receiver(tmp_path)
@@ -451,7 +441,6 @@ async def test_submit_job_chunk_decode_failure_terminates_session(tmp_path: Path
     session.terminate.assert_awaited_once()
 
 
-@pytest.mark.asyncio
 async def test_submit_job_chunk_out_of_order_terminates_session(tmp_path: Path) -> None:
     """An out-of-order chunk index rejects + terminates (wire-level misbehaviour)."""
     receiver = _make_receiver(tmp_path)
@@ -469,7 +458,6 @@ async def test_submit_job_chunk_out_of_order_terminates_session(tmp_path: Path) 
     session.terminate.assert_awaited_once()
 
 
-@pytest.mark.asyncio
 async def test_submit_job_chunk_hash_mismatch_recoverable(tmp_path: Path) -> None:
     """A bundle whose assembled hash mismatches rejects ``hash_mismatch`` *without* terminating."""
     receiver = _make_receiver(tmp_path)
@@ -505,7 +493,6 @@ async def test_submit_job_chunk_hash_mismatch_recoverable(tmp_path: Path) -> Non
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_submit_job_happy_path_extracts_and_queues(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -563,7 +550,6 @@ async def test_submit_job_happy_path_extracts_and_queues(
     firmware._enqueue.assert_awaited_once()
 
 
-@pytest.mark.asyncio
 async def test_submit_job_happy_path_with_relative_config_dir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -616,7 +602,6 @@ async def test_submit_job_happy_path_with_relative_config_dir(
     firmware._enqueue.assert_awaited_once()
 
 
-@pytest.mark.asyncio
 async def test_submit_job_clean_target_creates_clean_job(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -671,7 +656,6 @@ async def test_submit_job_clean_target_creates_clean_job(
     firmware._enqueue.assert_awaited_once()
 
 
-@pytest.mark.asyncio
 async def test_submit_job_carries_display_fields_through_to_firmware_job(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -739,7 +723,6 @@ async def test_submit_job_carries_display_fields_through_to_firmware_job(
     assert job.remote_peer_label == "MacBook Pro"
 
 
-@pytest.mark.asyncio
 async def test_submit_job_malformed_display_fields_coerce_to_empty(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -798,7 +781,6 @@ async def test_submit_job_malformed_display_fields_coerce_to_empty(
     assert job.device_friendly_name == ""
 
 
-@pytest.mark.asyncio
 async def test_submit_job_missing_display_fields_falls_through_to_empty_strings(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -867,7 +849,6 @@ async def test_submit_job_missing_display_fields_falls_through_to_empty_strings(
     assert job.remote_peer_label == ""
 
 
-@pytest.mark.asyncio
 async def test_submit_job_bundle_path_survives_prepare_bundle_wipe(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -938,7 +919,6 @@ async def test_submit_job_bundle_path_survives_prepare_bundle_wipe(
     assert "reason" not in payload
 
 
-@pytest.mark.asyncio
 async def test_submit_job_intermediate_chunk_no_ack(tmp_path: Path) -> None:
     """A non-final chunk feeds the assembler silently; no ack until ``is_last``.
 
@@ -963,7 +943,6 @@ async def test_submit_job_intermediate_chunk_no_ack(tmp_path: Path) -> None:
     session.terminate.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_submit_job_path_traversal_dashboard_id_caught_at_extract(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -998,7 +977,6 @@ async def test_submit_job_path_traversal_dashboard_id_caught_at_extract(
     firmware._enqueue.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_submit_job_enqueue_failure_rejects(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1024,7 +1002,6 @@ async def test_submit_job_enqueue_failure_rejects(
     session.terminate.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_submit_job_extract_failure_rejects_without_terminate(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1060,7 +1037,6 @@ async def test_submit_job_extract_failure_rejects_without_terminate(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_discard_session_drops_inflight(tmp_path: Path) -> None:
     """A discarded session forgets its in-flight upload."""
     receiver = _make_receiver(tmp_path)

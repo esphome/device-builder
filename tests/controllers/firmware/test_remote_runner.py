@@ -332,7 +332,6 @@ def _fire_session_closed(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_remote_compile_translates_output_and_completes(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -385,7 +384,6 @@ async def test_remote_compile_translates_output_and_completes(
     )
 
 
-@pytest.mark.asyncio
 async def test_remote_clean_dispatches_with_clean_target_and_finalises_on_completed(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -438,7 +436,6 @@ async def test_remote_clean_dispatches_with_clean_target_and_finalises_on_comple
     client.download_artifacts.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_remote_compile_plumbs_device_names_from_local_scanner(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -488,7 +485,6 @@ async def test_remote_compile_plumbs_device_names_from_local_scanner(
     )
 
 
-@pytest.mark.asyncio
 async def test_remote_compile_falls_through_when_no_device_matches(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -523,7 +519,6 @@ async def test_remote_compile_falls_through_when_no_device_matches(
     )
 
 
-@pytest.mark.asyncio
 async def test_remote_compile_progress_translates_to_local_progress_event(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -560,7 +555,6 @@ async def test_remote_compile_progress_translates_to_local_progress_event(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_remote_compile_ignores_events_for_other_jobs(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -601,7 +595,6 @@ async def test_remote_compile_ignores_events_for_other_jobs(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_remote_compile_failed_status_fires_job_failed(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -627,7 +620,6 @@ async def test_remote_compile_failed_status_fires_job_failed(
     assert len(captured[EventType.JOB_FAILED]) == 1
 
 
-@pytest.mark.asyncio
 async def test_remote_compile_rejected_ack_fires_job_failed(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -646,7 +638,6 @@ async def test_remote_compile_rejected_ack_fires_job_failed(
     assert len(captured[EventType.JOB_FAILED]) == 1
 
 
-@pytest.mark.asyncio
 async def test_remote_compile_receiver_unreachable_fires_job_failed(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -667,7 +658,6 @@ async def test_remote_compile_receiver_unreachable_fires_job_failed(
     assert len(captured[EventType.JOB_FAILED]) == 1
 
 
-@pytest.mark.asyncio
 async def test_remote_compile_unsupported_job_type_fails_locally(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -703,7 +693,6 @@ async def test_remote_compile_unsupported_job_type_fails_locally(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_remote_compile_local_cancel_translates_to_wire_cancel_job(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -739,7 +728,6 @@ async def test_remote_compile_local_cancel_translates_to_wire_cancel_job(
     assert len(captured[EventType.JOB_CANCELLED]) == 1
 
 
-@pytest.mark.asyncio
 async def test_remote_compile_cancel_beats_receiver_completed(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -779,7 +767,6 @@ async def test_remote_compile_cancel_beats_receiver_completed(
     assert len(captured[EventType.JOB_CANCELLED]) == 1
 
 
-@pytest.mark.asyncio
 async def test_remote_compile_receiver_initiated_cancel_finalises_as_cancelled(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -809,7 +796,6 @@ async def test_remote_compile_receiver_initiated_cancel_finalises_as_cancelled(
     assert len(captured[EventType.JOB_CANCELLED]) == 1
 
 
-@pytest.mark.asyncio
 async def test_remote_compile_cancel_during_bundle_build_finalises_as_cancelled(
     firmware_controller_factory: FirmwareControllerFactory,
     monkeypatch: pytest.MonkeyPatch,
@@ -850,7 +836,6 @@ async def test_remote_compile_cancel_during_bundle_build_finalises_as_cancelled(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_remote_compile_bundle_file_missing_fires_job_failed(
     firmware_controller_factory: FirmwareControllerFactory,
     monkeypatch: pytest.MonkeyPatch,
@@ -871,7 +856,6 @@ async def test_remote_compile_bundle_file_missing_fires_job_failed(
     assert len(captured[EventType.JOB_FAILED]) == 1
 
 
-@pytest.mark.asyncio
 async def test_remote_compile_bundle_build_error_fires_job_failed(
     firmware_controller_factory: FirmwareControllerFactory,
     monkeypatch: pytest.MonkeyPatch,
@@ -898,7 +882,6 @@ async def test_remote_compile_bundle_build_error_fires_job_failed(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_remote_compile_missing_source_pin_fires_job_failed(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -922,7 +905,6 @@ async def test_remote_compile_missing_source_pin_fires_job_failed(
     assert len(captured[EventType.JOB_FAILED]) == 1
 
 
-@pytest.mark.asyncio
 async def test_remote_compile_no_remote_build_controller_fires_job_failed(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -943,7 +925,6 @@ async def test_remote_compile_no_remote_build_controller_fires_job_failed(
     assert len(captured[EventType.JOB_FAILED]) == 1
 
 
-@pytest.mark.asyncio
 async def test_remote_compile_submit_no_session_fires_job_failed(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -967,7 +948,6 @@ async def test_remote_compile_submit_no_session_fires_job_failed(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_remote_compile_session_lost_mid_build_fires_job_failed(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -1024,7 +1004,6 @@ async def test_remote_compile_session_lost_mid_build_fires_job_failed(
     ), output_lines
 
 
-@pytest.mark.asyncio
 async def test_remote_compile_session_lost_synthetic_line_skips_leading_newline(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -1060,7 +1039,6 @@ async def test_remote_compile_session_lost_synthetic_line_skips_leading_newline(
     assert "server_shutting_down" in synthetic
 
 
-@pytest.mark.asyncio
 async def test_remote_compile_cancel_translation_handles_missing_session(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -1097,7 +1075,6 @@ async def test_remote_compile_cancel_translation_handles_missing_session(
     assert len(captured[EventType.JOB_CANCELLED]) == 1
 
 
-@pytest.mark.asyncio
 async def test_remote_compile_cancel_translation_handles_session_drop_on_send(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -1123,7 +1100,6 @@ async def test_remote_compile_cancel_translation_handles_session_drop_on_send(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_remote_compile_runner_task_cancelled_finalises_as_cancelled(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -1158,7 +1134,6 @@ async def test_remote_compile_runner_task_cancelled_finalises_as_cancelled(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_execute_job_routes_remote_source_through_remote_runner(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -1196,7 +1171,6 @@ async def test_execute_job_routes_remote_source_through_remote_runner(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_submit_job_ack_echoes_caller_job_id(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -1233,7 +1207,6 @@ async def test_submit_job_ack_echoes_caller_job_id(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_remote_compile_ignores_session_closed_for_other_pin(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -1271,7 +1244,6 @@ async def test_remote_compile_ignores_session_closed_for_other_pin(
     assert job.status == JobStatus.COMPLETED
 
 
-@pytest.mark.asyncio
 async def test_remote_compile_cancel_before_runner_registers_event_still_fires(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -1327,7 +1299,6 @@ async def test_remote_compile_cancel_before_runner_registers_event_still_fires(
     assert len(captured[EventType.JOB_CANCELLED]) == 1
 
 
-@pytest.mark.asyncio
 async def test_firmware_cancel_handler_wakes_remote_runner_via_event(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -1379,7 +1350,6 @@ async def test_firmware_cancel_handler_wakes_remote_runner_via_event(
     assert len(captured[EventType.JOB_CANCELLED]) == 1
 
 
-@pytest.mark.asyncio
 async def test_remote_compile_cancel_after_remote_build_torn_down_finalises_locally(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -1478,7 +1448,6 @@ def patch_materialise(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     return stub
 
 
-@pytest.mark.asyncio
 async def test_remote_install_resets_progress_between_compile_and_upload(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -1526,7 +1495,6 @@ async def test_remote_install_resets_progress_between_compile_and_upload(
     assert captured[EventType.JOB_PROGRESS][0]["job_id"] == job.job_id
 
 
-@pytest.mark.asyncio
 async def test_remote_install_completes_after_local_upload_succeeds(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -1565,7 +1533,6 @@ async def test_remote_install_completes_after_local_upload_succeeds(
     patch_materialise.assert_called_once()
 
 
-@pytest.mark.asyncio
 async def test_remote_install_local_upload_failure_fires_job_failed(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -1591,7 +1558,6 @@ async def test_remote_install_local_upload_failure_fires_job_failed(
     assert len(captured[EventType.JOB_FAILED]) == 1
 
 
-@pytest.mark.asyncio
 async def test_remote_install_download_artifacts_failure_fires_job_failed(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -1616,7 +1582,6 @@ async def test_remote_install_download_artifacts_failure_fires_job_failed(
     assert len(captured[EventType.JOB_FAILED]) == 1
 
 
-@pytest.mark.asyncio
 async def test_remote_install_materialise_failure_fires_job_failed(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -1645,7 +1610,6 @@ async def test_remote_install_materialise_failure_fires_job_failed(
     assert len(captured[EventType.JOB_FAILED]) == 1
 
 
-@pytest.mark.asyncio
 async def test_remote_install_materialise_oserror_fires_job_failed(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -1673,7 +1637,6 @@ async def test_remote_install_materialise_oserror_fires_job_failed(
     assert len(captured[EventType.JOB_FAILED]) == 1
 
 
-@pytest.mark.asyncio
 async def test_fetch_and_run_local_upload_pre_spawn_cancel_finalises_locally(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -1693,7 +1656,6 @@ async def test_fetch_and_run_local_upload_pre_spawn_cancel_finalises_locally(
     assert len(captured[EventType.JOB_CANCELLED]) == 1
 
 
-@pytest.mark.asyncio
 async def test_remote_install_cancel_during_local_upload_finalises_as_cancelled(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
@@ -1757,7 +1719,6 @@ async def test_remote_install_cancel_during_local_upload_finalises_as_cancelled(
     assert len(captured[EventType.JOB_CANCELLED]) == 1
 
 
-@pytest.mark.asyncio
 async def test_run_upload_subprocess_cancel_landing_between_pre_check_and_spawn_terminates(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_materialise: MagicMock,
@@ -1822,7 +1783,6 @@ async def test_run_upload_subprocess_cancel_landing_between_pre_check_and_spawn_
     assert len(captured[EventType.JOB_CANCELLED]) == 1
 
 
-@pytest.mark.asyncio
 async def test_fetch_and_materialise_cancel_post_staging_finalises_locally(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_materialise: MagicMock,
@@ -1851,7 +1811,6 @@ async def test_fetch_and_materialise_cancel_post_staging_finalises_locally(
     patch_materialise.assert_called_once()
 
 
-@pytest.mark.asyncio
 async def test_remote_upload_runs_the_same_local_flash_chain_as_install(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,

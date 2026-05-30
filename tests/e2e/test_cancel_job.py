@@ -98,7 +98,6 @@ def receiver_firmware_cancel(paired_instances: PairedInstances) -> _FirmwareCanc
     return _FirmwareCancelStub(mock=cancel, called=called)
 
 
-@pytest.mark.asyncio
 async def test_offloader_cancel_job_routes_to_receiver_firmware_cancel(
     paired_instances: PairedInstances,
     receiver_firmware_cancel: _FirmwareCancelStub,
@@ -135,7 +134,6 @@ async def test_offloader_cancel_job_routes_to_receiver_firmware_cancel(
     receiver_firmware_cancel.mock.assert_awaited_once_with(job_id=job.job_id)
 
 
-@pytest.mark.asyncio
 async def test_offloader_cancel_job_full_round_trip_to_state_changed(
     paired_instances: PairedInstances,
     receiver_firmware_cancel: _FirmwareCancelStub,
@@ -185,7 +183,6 @@ async def test_offloader_cancel_job_full_round_trip_to_state_changed(
     assert payload["pin_sha256"] == paired_instances.pin_sha256
 
 
-@pytest.mark.asyncio
 async def test_offloader_cancel_job_unknown_correlation_drops_silently(
     paired_instances: PairedInstances,
     receiver_firmware_cancel: _FirmwareCancelStub,

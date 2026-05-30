@@ -83,7 +83,6 @@ def _pairing(
     )
 
 
-@pytest.mark.asyncio
 async def test_clean_returns_queued_job_with_clean_type(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -106,7 +105,6 @@ async def test_clean_returns_queued_job_with_clean_type(
     assert job.configuration == "kitchen.yaml"
 
 
-@pytest.mark.asyncio
 async def test_clean_rejects_traversal_configuration(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -128,7 +126,6 @@ async def test_clean_rejects_traversal_configuration(
     assert exc.value.code == ErrorCode.INVALID_ARGS
 
 
-@pytest.mark.asyncio
 async def test_clean_enqueues_before_firing_job_queued(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -155,7 +152,6 @@ async def test_clean_enqueues_before_firing_job_queued(
     assert log[1][1].data == {"job": job}
 
 
-@pytest.mark.asyncio
 async def test_clean_registers_job_in_jobs_map(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -183,7 +179,6 @@ async def test_clean_registers_job_in_jobs_map(
     "active_status",
     [JobStatus.QUEUED, JobStatus.RUNNING],
 )
-@pytest.mark.asyncio
 async def test_clean_rejects_when_active_build_for_same_configuration(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -230,7 +225,6 @@ async def test_clean_rejects_when_active_build_for_same_configuration(
     assert active.status == active_status
 
 
-@pytest.mark.asyncio
 async def test_clean_succeeds_when_active_build_targets_different_configuration(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -253,7 +247,6 @@ async def test_clean_succeeds_when_active_build_targets_different_configuration(
     assert job.job_type == JobType.CLEAN
 
 
-@pytest.mark.asyncio
 async def test_clean_supersedes_other_active_clean_on_same_configuration(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -277,7 +270,6 @@ async def test_clean_supersedes_other_active_clean_on_same_configuration(
     assert second.job_id != first.job_id
 
 
-@pytest.mark.asyncio
 async def test_clean_succeeds_after_terminal_active_build(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -304,7 +296,6 @@ async def test_clean_succeeds_after_terminal_active_build(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_clean_fans_out_to_connected_approved_peers(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -364,7 +355,6 @@ async def test_clean_fans_out_to_connected_approved_peers(
     assert all(j.configuration == "kitchen.yaml" for j in clean_jobs)
 
 
-@pytest.mark.asyncio
 async def test_clean_fan_out_does_not_supersede_sibling_jobs(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -412,7 +402,6 @@ async def test_clean_fan_out_does_not_supersede_sibling_jobs(
     }
 
 
-@pytest.mark.asyncio
 async def test_repeat_clean_supersedes_entire_prior_fan_out_batch(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -477,7 +466,6 @@ async def test_repeat_clean_supersedes_entire_prior_fan_out_batch(
     assert len(active) == 3
 
 
-@pytest.mark.asyncio
 async def test_clean_skips_disconnected_or_pending_peers(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -516,7 +504,6 @@ async def test_clean_skips_disconnected_or_pending_peers(
     assert remote_pins == {"c".ljust(64, "0")}
 
 
-@pytest.mark.asyncio
 async def test_clean_with_no_remote_build_controller_skips_fan_out(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,

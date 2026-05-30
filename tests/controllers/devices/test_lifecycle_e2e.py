@@ -127,7 +127,6 @@ def _capture_inner_lifecycle(controller: DevicesController) -> Iterator[list[str
         yield log
 
 
-@pytest.mark.asyncio
 async def test_start_runs_full_initialisation_chain(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_db: MakeDbFactory
 ) -> None:
@@ -184,7 +183,6 @@ async def test_start_runs_full_initialisation_chain(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_stop_tears_down_monitors_and_unsubscribes(
     tmp_path: Path, make_db: MakeDbFactory
 ) -> None:
@@ -207,7 +205,6 @@ async def test_stop_tears_down_monitors_and_unsubscribes(
     assert log == ["mqtt.stop", "state_monitor.stop"]
 
 
-@pytest.mark.asyncio
 async def test_stop_is_idempotent_without_started_listener(
     tmp_path: Path, make_db: MakeDbFactory
 ) -> None:
@@ -233,7 +230,6 @@ async def test_stop_is_idempotent_without_started_listener(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_poll_rescans_and_reconciles_mqtt(tmp_path: Path, make_db: MakeDbFactory) -> None:
     """``poll()`` runs a fresh scan + MQTT reconcile.
 

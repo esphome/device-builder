@@ -13,8 +13,6 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
-
 from esphome_device_builder.helpers.api import api_command, collect_api_commands
 
 
@@ -139,7 +137,6 @@ def test_collect_api_commands_handles_duplicate_command_names_last_wins() -> Non
     assert handlers["ns/dup"].__name__ == "bbb"
 
 
-@pytest.mark.asyncio
 async def test_collect_api_commands_returns_callable_bound_methods() -> None:
     """Each entry is awaitable and bound to the original instance.
 

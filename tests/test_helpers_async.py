@@ -4,12 +4,9 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
-
 from esphome_device_builder.helpers.async_ import create_eager_task
 
 
-@pytest.mark.asyncio
 async def test_eager_task_runs_synchronously_until_first_await() -> None:
     ran: list[str] = []
 
@@ -25,7 +22,6 @@ async def test_eager_task_runs_synchronously_until_first_await() -> None:
     assert ran == ["before", "after"]
 
 
-@pytest.mark.asyncio
 async def test_eager_task_completes_without_loop_turn() -> None:
     async def coro() -> int:
         return 42
@@ -35,7 +31,6 @@ async def test_eager_task_completes_without_loop_turn() -> None:
     assert task.result() == 42
 
 
-@pytest.mark.asyncio
 async def test_eager_task_sets_name() -> None:
     async def coro() -> None:
         return None
@@ -45,7 +40,6 @@ async def test_eager_task_sets_name() -> None:
     await task
 
 
-@pytest.mark.asyncio
 async def test_eager_task_uses_explicit_loop() -> None:
     loop = asyncio.get_running_loop()
 

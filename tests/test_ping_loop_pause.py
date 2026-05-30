@@ -88,7 +88,6 @@ async def _drive_until(condition: Callable[[], object], *, timeout: float = 0.5)
     await asyncio.wait_for(_spin(), timeout=timeout)
 
 
-@pytest.mark.asyncio
 async def test_ping_loop_runs_unconditionally_without_presence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -114,7 +113,6 @@ async def test_ping_loop_runs_unconditionally_without_presence(
     assert counts["resolves"] >= 2
 
 
-@pytest.mark.asyncio
 async def test_ping_loop_parks_until_first_subscriber(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -149,7 +147,6 @@ async def test_ping_loop_parks_until_first_subscriber(
     assert counts["sweeps"] >= 1
 
 
-@pytest.mark.asyncio
 async def test_ping_loop_pauses_again_after_last_subscriber_leaves(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -188,7 +185,6 @@ async def test_ping_loop_pauses_again_after_last_subscriber_leaves(
     assert counts["sweeps"] <= sweeps_at_disconnect + 1
 
 
-@pytest.mark.asyncio
 async def test_subscribe_events_holds_presence_for_stream_lifetime(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -223,7 +219,6 @@ async def test_subscribe_events_holds_presence_for_stream_lifetime(
     assert counts["outside_after"] == 0, "presence count must drop back to 0 after stream exit"
 
 
-@pytest.mark.asyncio
 async def test_subscriber_arrival_mid_idle_bails_within_a_tick(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

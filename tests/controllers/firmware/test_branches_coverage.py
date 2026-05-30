@@ -69,7 +69,6 @@ def _job(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_rename_returns_queued_rename_job(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -91,7 +90,6 @@ async def test_rename_returns_queued_rename_job(
     assert job.new_name == "livingroom"
 
 
-@pytest.mark.asyncio
 async def test_rename_rejects_when_target_filename_already_exists(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -121,7 +119,6 @@ async def test_rename_rejects_when_target_filename_already_exists(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_follow_job_raises_value_error_for_unknown_job_id(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -138,7 +135,6 @@ async def test_follow_job_raises_value_error_for_unknown_job_id(
         await controller.follow_job(job_id="ghost-id", client=MagicMock())
 
 
-@pytest.mark.asyncio
 async def test_follow_jobs_returns_immediately_when_client_is_none(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -166,7 +162,6 @@ async def test_follow_jobs_returns_immediately_when_client_is_none(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_run_queue_skips_cancelled_jobs_without_spawning(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -205,7 +200,6 @@ async def test_run_queue_skips_cancelled_jobs_without_spawning(
     assert spawned is False
 
 
-@pytest.mark.asyncio
 async def test_terminate_current_process_no_op_when_no_process(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:

@@ -122,7 +122,6 @@ async def _restart(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_queued_job_survives_dashboard_restart(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -154,7 +153,6 @@ async def test_queued_job_survives_dashboard_restart(
     assert queued_arg.job_id == queued.job_id
 
 
-@pytest.mark.asyncio
 async def test_running_job_re_queues_with_clean_state_after_restart(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -231,7 +229,6 @@ async def test_running_job_re_queues_with_clean_state_after_restart(
     assert queued.job_id in queued_ids
 
 
-@pytest.mark.asyncio
 async def test_resumed_running_job_completes_on_next_run(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -320,7 +317,6 @@ async def test_resumed_running_job_completes_on_next_run(
     assert any("dashboard restarted mid-build" in line for line in recovered)
 
 
-@pytest.mark.asyncio
 async def test_cancelled_job_survives_restart_without_being_requeued(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -355,7 +351,6 @@ async def test_cancelled_job_survives_restart_without_being_requeued(
     reader.state.queue.put.assert_not_awaited()
 
 
-@pytest.mark.asyncio
 async def test_cold_start_with_no_metadata_file_is_empty(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_runtime: None,
@@ -381,7 +376,6 @@ async def test_cold_start_with_no_metadata_file_is_empty(
 # dashboard recovers and surfaces the rest of the queue.
 
 
-@pytest.mark.asyncio
 async def test_corrupt_entry_in_metadata_does_not_block_startup(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -421,7 +415,6 @@ async def test_corrupt_entry_in_metadata_does_not_block_startup(
     "garbage",
     ["not-a-dict", 42, None, ["nested", "list"]],
 )
-@pytest.mark.asyncio
 async def test_non_dict_entry_in_metadata_does_not_crash_warning_path(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -467,7 +460,6 @@ async def test_non_dict_entry_in_metadata_does_not_crash_warning_path(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_start_logs_error_when_esphome_cli_sanity_check_fails(
     firmware_controller_factory: FirmwareControllerFactory,
     monkeypatch: pytest.MonkeyPatch,

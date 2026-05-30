@@ -27,8 +27,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from esphome_device_builder.models import (
     AdoptableDevice,
     Device,
@@ -82,7 +80,6 @@ def test_get_devices_returns_scanner_snapshot(
     assert [d.name for d in snapshot] == ["kitchen", "bedroom"]
 
 
-@pytest.mark.asyncio
 async def test_get_device_states_returns_configuration_keyed_map(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -106,7 +103,6 @@ async def test_get_device_states_returns_configuration_keyed_map(
     assert states == {"kitchen.yaml": "online", "bedroom.yaml": "offline"}
 
 
-@pytest.mark.asyncio
 async def test_list_devices_scans_then_returns_configured_and_importable(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -130,7 +126,6 @@ async def test_list_devices_scans_then_returns_configured_and_importable(
     assert ("scan",) in controller._scanner.calls
 
 
-@pytest.mark.asyncio
 async def test_list_devices_filters_importable_already_configured(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:

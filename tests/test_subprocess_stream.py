@@ -17,8 +17,6 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
-
 from esphome_device_builder.helpers.subprocess import iter_lines_with_progress
 
 
@@ -34,7 +32,6 @@ async def _collect(stream: asyncio.StreamReader) -> list[str]:
     return [chunk async for chunk in iter_lines_with_progress(stream)]
 
 
-@pytest.mark.asyncio
 async def test_splits_on_newline() -> None:
     r"""The traditional `\n`-delimited case still works.
 
@@ -46,7 +43,6 @@ async def test_splits_on_newline() -> None:
     assert chunks == ["alpha\n", "beta\n", "gamma\n"]
 
 
-@pytest.mark.asyncio
 async def test_splits_on_carriage_return() -> None:
     r"""`\\r` flushes too — esptool's progress lines surface live.
 
@@ -59,7 +55,6 @@ async def test_splits_on_carriage_return() -> None:
     assert chunks == ["5%\r", "25%\r", "50%\r"]
 
 
-@pytest.mark.asyncio
 async def test_crlf_coalesces_to_single_chunk() -> None:
     r"""`\r\n` is one logical line ending, not two events.
 
@@ -75,7 +70,6 @@ async def test_crlf_coalesces_to_single_chunk() -> None:
     assert chunks == ["foo\r\n", "bar\n"]
 
 
-@pytest.mark.asyncio
 async def test_bare_cr_followed_by_data_is_overwrite() -> None:
     r"""A bare ``\r`` (no ``\n``) is the esptool-style overwrite case.
 
@@ -88,7 +82,6 @@ async def test_bare_cr_followed_by_data_is_overwrite() -> None:
     assert chunks == ["5%\r", "10%\r"]
 
 
-@pytest.mark.asyncio
 async def test_cr_at_end_of_read_defers_until_next_chunk() -> None:
     r"""A ``\r`` at the read boundary waits for the next byte.
 
@@ -108,7 +101,6 @@ async def test_cr_at_end_of_read_defers_until_next_chunk() -> None:
     assert chunks == ["foo\r\n", "bar\n"]
 
 
-@pytest.mark.asyncio
 async def test_eof_flushes_trailing_buffer() -> None:
     """A final chunk without a terminator still surfaces.
 
@@ -120,7 +112,6 @@ async def test_eof_flushes_trailing_buffer() -> None:
     assert chunks == ["clean\n", "incomplete"]
 
 
-@pytest.mark.asyncio
 async def test_handles_invalid_utf8_with_replace() -> None:
     """Bad bytes don't kill the stream — decode with `errors='replace'`.
 
@@ -136,14 +127,12 @@ async def test_handles_invalid_utf8_with_replace() -> None:
     assert "�" in chunks[1]  # replacement marker present
 
 
-@pytest.mark.asyncio
 async def test_empty_stream_yields_nothing() -> None:
     """Closing without writing anything is a no-op (no spurious empty chunk)."""
     chunks = await _collect(_stream(b""))
     assert chunks == []
 
 
-@pytest.mark.asyncio
 async def test_chunks_split_across_multiple_reads() -> None:
     """A line straddling two reads still emits as a single chunk.
 
@@ -162,7 +151,6 @@ async def test_chunks_split_across_multiple_reads() -> None:
     assert chunks == ["long line that arrives in two pieces\n"]
 
 
-@pytest.mark.asyncio
 async def test_realistic_esptool_progress_output() -> None:
     r"""End-to-end shape of an esptool progress stream.
 

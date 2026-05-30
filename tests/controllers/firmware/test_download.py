@@ -66,7 +66,6 @@ def _make_firmware(build_dir: Path, name: str, payload: bytes) -> Path:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_download_raises_when_storage_missing(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -83,7 +82,6 @@ async def test_download_raises_when_storage_missing(
         await controller.download(configuration="kitchen.yaml", file="firmware.bin")
 
 
-@pytest.mark.asyncio
 async def test_download_raises_when_firmware_bin_path_unset(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -102,7 +100,6 @@ async def test_download_raises_when_firmware_bin_path_unset(
         await controller.download(configuration="kitchen.yaml", file="firmware.bin")
 
 
-@pytest.mark.asyncio
 async def test_download_raises_on_traversal_in_file(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -127,7 +124,6 @@ async def test_download_raises_on_traversal_in_file(
         await controller.download(configuration="kitchen.yaml", file="../../../secret.txt")
 
 
-@pytest.mark.asyncio
 async def test_download_raises_when_binary_missing(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -152,7 +148,6 @@ async def test_download_raises_when_binary_missing(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_download_returns_base64_payload_uncompressed(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -176,7 +171,6 @@ async def test_download_returns_base64_payload_uncompressed(
     assert base64.b64decode(result["data"]) == payload
 
 
-@pytest.mark.asyncio
 async def test_download_validator_runs_before_ext_storage_path(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -217,7 +211,6 @@ async def test_download_validator_runs_before_ext_storage_path(
     assert invocations == []
 
 
-@pytest.mark.asyncio
 async def test_download_returns_gzipped_payload_when_compressed(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:

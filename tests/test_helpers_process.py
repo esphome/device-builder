@@ -123,7 +123,6 @@ def test_kill_quietly_calls_kill_when_alive(fake_proc: _FakeProc) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_terminate_subtree_with_grace_no_op_on_already_exited(
     fake_proc: _FakeProc,
 ) -> None:
@@ -134,7 +133,6 @@ async def test_terminate_subtree_with_grace_no_op_on_already_exited(
 
 
 @posix_only
-@pytest.mark.asyncio
 async def test_terminate_subtree_with_grace_sigterm_then_exit_no_kill(
     fake_proc: _FakeProc,
     fake_signal_group: _FakeSignalGroup,
@@ -153,7 +151,6 @@ async def test_terminate_subtree_with_grace_sigterm_then_exit_no_kill(
 
 
 @posix_only
-@pytest.mark.asyncio
 async def test_terminate_subtree_with_grace_escalates_to_sigkill_on_timeout(
     monkeypatch: pytest.MonkeyPatch,
     fake_proc: _FakeProc,
@@ -193,7 +190,6 @@ async def test_terminate_subtree_with_grace_escalates_to_sigkill_on_timeout(
 
 
 @posix_only
-@pytest.mark.asyncio
 async def test_terminate_subtree_with_grace_returns_when_sigterm_undelivered(
     monkeypatch: pytest.MonkeyPatch,
     fake_proc: _FakeProc,
@@ -222,7 +218,6 @@ async def test_terminate_subtree_with_grace_returns_when_sigterm_undelivered(
 
 
 @windows_only
-@pytest.mark.asyncio
 async def test_terminate_subtree_with_grace_falls_back_to_proc_kill_on_taskkill_failure(
     monkeypatch: pytest.MonkeyPatch,
     fake_proc: _FakeProc,

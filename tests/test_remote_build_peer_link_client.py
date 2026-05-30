@@ -159,7 +159,6 @@ async def receiver_server(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_preview_pair_returns_receivers_pin(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     tmp_path: Path,
@@ -177,7 +176,6 @@ async def test_preview_pair_returns_receivers_pin(
     assert pin == expected_pin
 
 
-@pytest.mark.asyncio
 async def test_preview_pair_does_not_persist_state_on_receiver(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
 ) -> None:
@@ -205,7 +203,6 @@ async def test_preview_pair_does_not_persist_state_on_receiver(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_preview_pair_connection_refused_raises_client_error(
     tmp_path: Path,
     bound_unused_tcp_port: int,
@@ -220,7 +217,6 @@ async def test_preview_pair_connection_refused_raises_client_error(
         )
 
 
-@pytest.mark.asyncio
 async def test_drive_initiator_round_trip_timeout_raises_client_error() -> None:
     """A hung TCP socket trips the WS handshake timeout, surfaced as PeerLinkClientError.
 
@@ -254,7 +250,6 @@ async def test_drive_initiator_round_trip_timeout_raises_client_error() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_preview_pair_rejects_garbage_post_handshake_frame(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -302,7 +297,6 @@ async def test_preview_pair_rejects_garbage_post_handshake_frame(
         await server.close()
 
 
-@pytest.mark.asyncio
 async def test_preview_pair_non_ok_intent_response_raises_client_error() -> None:
     """Receiver's preview returns a non-OK intent_response → PeerLinkClientError.
 
@@ -345,7 +339,6 @@ async def test_preview_pair_non_ok_intent_response_raises_client_error() -> None
         await server.close()
 
 
-@pytest.mark.asyncio
 async def test_drive_initiator_round_trip_non_object_response_raises_client_error() -> None:
     """Receiver's response decrypts to a JSON value that isn't a dict → PeerLinkClientError.
 
@@ -386,7 +379,6 @@ async def test_drive_initiator_round_trip_non_object_response_raises_client_erro
         await server.close()
 
 
-@pytest.mark.asyncio
 async def test_drive_initiator_round_trip_missing_intent_response_raises_client_error() -> None:
     """Response object without an ``intent_response`` string field → PeerLinkClientError.
 
@@ -425,7 +417,6 @@ async def test_drive_initiator_round_trip_missing_intent_response_raises_client_
         await server.close()
 
 
-@pytest.mark.asyncio
 async def test_drive_initiator_round_trip_handshake_not_complete_raises_client_error(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     monkeypatch: pytest.MonkeyPatch,
@@ -482,7 +473,6 @@ async def test_drive_initiator_round_trip_handshake_not_complete_raises_client_e
         )
 
 
-@pytest.mark.asyncio
 async def test_drive_initiator_round_trip_short_msg2_raises_noise_handshake_failed() -> None:
     """A msg2 too short to parse → ``NoiseValueError`` → PeerLinkClientError.
 
@@ -558,7 +548,6 @@ def test_build_ws_url_rejects_pathological_host() -> None:
         _build_ws_url("evil/path", 6055)
 
 
-@pytest.mark.asyncio
 async def test_drive_initiator_round_trip_maps_pathological_host_to_client_error() -> None:
     """A pathological host typed in the hostname field maps to PeerLinkClientError.
 
@@ -585,7 +574,6 @@ async def test_drive_initiator_round_trip_maps_pathological_host_to_client_error
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_request_pair_open_window_returns_pending(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
 ) -> None:
@@ -617,7 +605,6 @@ async def test_request_pair_open_window_returns_pending(
     assert peers[0].status is PeerStatus.PENDING
 
 
-@pytest.mark.asyncio
 async def test_request_pair_closed_window_returns_no_pairing_window(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
 ) -> None:
@@ -636,7 +623,6 @@ async def test_request_pair_closed_window_returns_no_pairing_window(
     assert result.status is IntentResponse.NO_PAIRING_WINDOW
 
 
-@pytest.mark.asyncio
 async def test_request_pair_unknown_intent_response_raises_client_error() -> None:
     """A wire ``intent_response`` outside the known enum surfaces as PeerLinkClientError.
 
@@ -721,7 +707,6 @@ async def _saved_pairings(offloader: OffloaderController) -> list[StoredPairing]
     return list(saved.pairings) if saved is not None else []
 
 
-@pytest.mark.asyncio
 async def test_controller_preview_pair_returns_receiver_pin(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     offloader_controller_dir: Path,
@@ -743,7 +728,6 @@ async def test_controller_preview_pair_returns_receiver_pin(
     assert await _saved_pairings(offloader) == []
 
 
-@pytest.mark.asyncio
 async def test_controller_preview_pair_unavailable_on_unreachable_receiver(
     offloader_controller_dir: Path,
     bound_unused_tcp_port: int,
@@ -760,7 +744,6 @@ async def test_controller_preview_pair_unavailable_on_unreachable_receiver(
     assert exc.value.code == ErrorCode.UNAVAILABLE
 
 
-@pytest.mark.asyncio
 async def test_controller_request_pair_persists_pending_row(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     offloader_controller_dir: Path,
@@ -792,7 +775,6 @@ async def test_controller_request_pair_persists_pending_row(
     assert expected_pin in offloader.state.pairings
 
 
-@pytest.mark.asyncio
 async def test_controller_request_pair_pin_mismatch_raises_precondition_failed(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     offloader_controller_dir: Path,
@@ -821,7 +803,6 @@ async def test_controller_request_pair_pin_mismatch_raises_precondition_failed(
     assert await _saved_pairings(offloader) == []
 
 
-@pytest.mark.asyncio
 async def test_controller_request_pair_closed_window_raises_no_pairing_window(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     offloader_controller_dir: Path,
@@ -844,7 +825,6 @@ async def test_controller_request_pair_closed_window_raises_no_pairing_window(
     assert exc.value.code == ErrorCode.NO_PAIRING_WINDOW
 
 
-@pytest.mark.asyncio
 async def test_controller_request_pair_unavailable_on_unreachable_receiver(
     offloader_controller_dir: Path,
     bound_unused_tcp_port: int,
@@ -864,7 +844,6 @@ async def test_controller_request_pair_unavailable_on_unreachable_receiver(
     assert exc.value.code == ErrorCode.UNAVAILABLE
 
 
-@pytest.mark.asyncio
 async def test_controller_request_pair_unexpected_status_raises_internal_error(
     offloader_controller_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -949,7 +928,6 @@ def _stub_pairing(
     )
 
 
-@pytest.mark.asyncio
 async def test_unpair_drops_pending_dict_entry_and_cancels_listener(
     offloader_controller_dir: Path,
 ) -> None:
@@ -987,7 +965,6 @@ async def test_unpair_drops_pending_dict_entry_and_cancels_listener(
     assert listener.cancelled()
 
 
-@pytest.mark.asyncio
 async def test_unpair_drops_persisted_row(
     offloader_controller_dir: Path,
 ) -> None:
@@ -1022,7 +999,6 @@ async def test_unpair_drops_persisted_row(
     assert saved.pairings == []
 
 
-@pytest.mark.asyncio
 async def test_unpair_unknown_returns_removed_false_idempotent(
     offloader_controller_dir: Path,
 ) -> None:
@@ -1035,7 +1011,6 @@ async def test_unpair_unknown_returns_removed_false_idempotent(
     assert result == {"removed": False}
 
 
-@pytest.mark.asyncio
 async def test_pairings_snapshot_returns_ram_dict(
     offloader_controller_dir: Path,
 ) -> None:
@@ -1072,7 +1047,6 @@ async def test_pairings_snapshot_returns_ram_dict(
     assert by_host["approved.local"].status is PeerStatus.APPROVED
 
 
-@pytest.mark.asyncio
 async def test_pairings_snapshot_marks_open_link_as_connected(
     offloader_controller_dir: Path,
 ) -> None:
@@ -1113,7 +1087,6 @@ async def test_pairings_snapshot_marks_open_link_as_connected(
     assert rows["b.local"].connected is False
 
 
-@pytest.mark.asyncio
 async def test_offloader_peer_link_event_listeners_update_open_set(
     offloader_controller_dir: Path,
 ) -> None:
@@ -1193,7 +1166,6 @@ def test_extract_receiver_esphome_version_branches(response: dict[str, Any], exp
     assert _extract_receiver_esphome_version(response) == expected
 
 
-@pytest.mark.asyncio
 async def test_peer_link_opened_refreshes_stored_pairing_version(
     offloader_controller_dir: Path,
 ) -> None:
@@ -1275,7 +1247,6 @@ async def test_peer_link_opened_refreshes_stored_pairing_version(
     assert len(save_calls) == 2
 
 
-@pytest.mark.asyncio
 async def test_peer_link_opened_for_unknown_pin_is_silent_no_op(
     offloader_controller_dir: Path,
 ) -> None:
@@ -1304,7 +1275,6 @@ async def test_peer_link_opened_for_unknown_pin_is_silent_no_op(
     assert len(save_calls) == 0
 
 
-@pytest.mark.asyncio
 async def test_start_seeds_pairings_dict_from_disk(
     offloader_controller_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1373,7 +1343,6 @@ async def test_start_seeds_pairings_dict_from_disk(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_apply_pair_status_result_approved_promotes_and_fires(
     offloader_controller_dir: Path,
 ) -> None:
@@ -1409,7 +1378,6 @@ async def test_apply_pair_status_result_approved_promotes_and_fires(
     assert payload["status"] == "approved"
 
 
-@pytest.mark.asyncio
 async def test_apply_pair_status_result_approved_pin_drift_drops_and_fires_removed(
     offloader_controller_dir: Path,
 ) -> None:
@@ -1458,7 +1426,6 @@ async def test_apply_pair_status_result_approved_pin_drift_drops_and_fires_remov
     assert second_payload["status"] == "removed"
 
 
-@pytest.mark.asyncio
 async def test_apply_pair_status_result_rejected_drops_and_fires_removed(
     offloader_controller_dir: Path,
 ) -> None:
@@ -1497,7 +1464,6 @@ async def test_apply_pair_status_result_rejected_drops_and_fires_removed(
     assert second_payload["status"] == "removed"
 
 
-@pytest.mark.asyncio
 async def test_apply_pair_status_result_pin_drift_seeds_offloader_alert(
     offloader_controller_dir: Path,
 ) -> None:
@@ -1537,7 +1503,6 @@ async def test_apply_pair_status_result_pin_drift_seeds_offloader_alert(
     assert alert["fired_at"] > 0
 
 
-@pytest.mark.asyncio
 async def test_apply_pair_status_result_rejected_seeds_offloader_alert(
     offloader_controller_dir: Path,
 ) -> None:
@@ -1572,7 +1537,6 @@ async def test_apply_pair_status_result_rejected_seeds_offloader_alert(
     assert alert["fired_at"] > 0
 
 
-@pytest.mark.asyncio
 async def test_unpair_clears_offloader_alert_and_fires_dismissed(
     offloader_controller_dir: Path,
 ) -> None:
@@ -1601,7 +1565,6 @@ async def test_unpair_clears_offloader_alert_and_fires_dismissed(
     assert EventType.OFFLOADER_PAIR_ALERT_DISMISSED in fire_event_types
 
 
-@pytest.mark.asyncio
 async def test_apply_pair_status_result_unexpected_status_logs_and_continues(
     offloader_controller_dir: Path,
 ) -> None:
@@ -1629,7 +1592,6 @@ async def test_apply_pair_status_result_unexpected_status_logs_and_continues(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_apply_pair_status_result_approved_after_unpair_does_not_resurrect_row(
     offloader_controller_dir: Path,
 ) -> None:
@@ -1666,7 +1628,6 @@ async def test_apply_pair_status_result_approved_after_unpair_does_not_resurrect
     offloader._db.bus.fire.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_unpair_cancels_listener_before_disk_transaction(
     offloader_controller_dir: Path,
 ) -> None:
@@ -1698,7 +1659,6 @@ async def test_unpair_cancels_listener_before_disk_transaction(
     assert key not in offloader.state.pair_status_listeners
 
 
-@pytest.mark.asyncio
 async def test_unpair_fires_offloader_pair_status_changed_removed(
     offloader_controller_dir: Path,
 ) -> None:
@@ -1729,7 +1689,6 @@ async def test_unpair_fires_offloader_pair_status_changed_removed(
     }
 
 
-@pytest.mark.asyncio
 async def test_request_pair_clears_offloader_alert_for_same_receiver(
     offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1820,7 +1779,6 @@ async def test_request_pair_clears_offloader_alert_for_same_receiver(
         await asyncio.gather(listener, return_exceptions=True)
 
 
-@pytest.mark.asyncio
 async def test_unpair_does_not_fire_event_when_nothing_to_remove(
     offloader_controller_dir: Path,
 ) -> None:
@@ -1837,7 +1795,6 @@ async def test_unpair_does_not_fire_event_when_nothing_to_remove(
     offloader._db.bus.fire.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_request_pair_repair_then_unpair_clean_state(
     offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1964,7 +1921,6 @@ async def test_request_pair_repair_then_unpair_clean_state(
     assert offloader.state.pair_status_listeners == {}
 
 
-@pytest.mark.asyncio
 async def test_spawn_pair_status_listener_is_idempotent_on_running_task(
     offloader_controller_dir: Path,
 ) -> None:
@@ -1991,7 +1947,6 @@ async def test_spawn_pair_status_listener_is_idempotent_on_running_task(
     await existing
 
 
-@pytest.mark.asyncio
 async def test_cancel_pair_status_listener_noop_when_absent(
     offloader_controller_dir: Path,
 ) -> None:
@@ -2003,7 +1958,6 @@ async def test_cancel_pair_status_listener_noop_when_absent(
     offloader._cancel_pair_status_listener("a" * 64)
 
 
-@pytest.mark.asyncio
 async def test_request_pair_repair_against_pending_cancels_old_listener(
     offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2076,7 +2030,6 @@ async def test_request_pair_repair_against_pending_cancels_old_listener(
     assert key_old not in offloader.state.pairings
 
 
-@pytest.mark.asyncio
 async def test_request_pair_already_approved_persists_to_disk(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     offloader_controller_dir: Path,
@@ -2133,7 +2086,6 @@ async def test_request_pair_already_approved_persists_to_disk(
     assert offloader.state.pairings[expected_pin].status is PeerStatus.APPROVED
 
 
-@pytest.mark.asyncio
 async def test_lookup_peer_for_status_pending_dict_pin_mismatch_returns_rejected(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
 ) -> None:
@@ -2168,7 +2120,6 @@ async def test_lookup_peer_for_status_pending_dict_pin_mismatch_returns_rejected
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_await_pair_status_returns_approved_when_receiver_approved(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     offloader_controller_dir: Path,
@@ -2212,7 +2163,6 @@ async def test_await_pair_status_returns_approved_when_receiver_approved(
     assert result.pin_sha256 == expected_pin
 
 
-@pytest.mark.asyncio
 async def test_await_pair_status_unknown_dashboard_id_returns_rejected(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
 ) -> None:
@@ -2246,7 +2196,6 @@ def _seed_approved_peer_sync(
     )
 
 
-@pytest.mark.asyncio
 async def test_await_pair_status_unknown_intent_response_raises_client_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2278,7 +2227,6 @@ async def test_await_pair_status_unknown_intent_response_raises_client_error(
         )
 
 
-@pytest.mark.asyncio
 async def test_stop_cancels_pair_status_listeners(
     offloader_controller_dir: Path,
 ) -> None:
@@ -2304,7 +2252,6 @@ async def test_stop_cancels_pair_status_listeners(
     assert offloader.state.pair_status_listeners == {}
 
 
-@pytest.mark.asyncio
 async def test_pair_status_listener_loop_backs_off_on_transport_error(
     offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2372,7 +2319,6 @@ async def test_pair_status_listener_loop_backs_off_on_transport_error(
     assert offloader.state.pairings[pin].status is PeerStatus.APPROVED
 
 
-@pytest.mark.asyncio
 async def test_pair_status_listener_loop_backs_off_on_unexpected_status(
     offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2607,7 +2553,6 @@ async def _seed_approved_peer_for_initiator(
     )
 
 
-@pytest.mark.asyncio
 async def test_peer_link_client_fires_opened_after_handshake(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
 ) -> None:
@@ -2641,7 +2586,6 @@ async def test_peer_link_client_fires_opened_after_handshake(
         await cancel_and_drain(task)
 
 
-@pytest.mark.asyncio
 async def test_peer_link_client_fires_closed_on_cancel(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
 ) -> None:
@@ -2679,7 +2623,6 @@ async def test_peer_link_client_fires_closed_on_cancel(
     assert closed[-1]["reason"] == "client_stopped"
 
 
-@pytest.mark.asyncio
 async def test_peer_link_client_orphans_on_superseded(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
 ) -> None:
@@ -2751,7 +2694,6 @@ async def test_peer_link_client_orphans_on_superseded(
             await cancel_and_drain(task1)
 
 
-@pytest.mark.asyncio
 async def test_peer_link_client_reconnects_on_transport_error(
     monkeypatch: pytest.MonkeyPatch,
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
@@ -2813,7 +2755,6 @@ async def test_peer_link_client_reconnects_on_transport_error(
         await cancel_and_drain(task)
 
 
-@pytest.mark.asyncio
 async def test_run_session_loops_send_ping_routes_through_channel(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2868,7 +2809,6 @@ async def test_run_session_loops_send_ping_routes_through_channel(
     await drive_task
 
 
-@pytest.mark.asyncio
 async def test_run_session_loops_returns_heartbeat_timeout_when_dead(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2919,7 +2859,6 @@ async def test_run_session_loops_returns_heartbeat_timeout_when_dead(
     assert close_reason == "heartbeat_timeout"
 
 
-@pytest.mark.asyncio
 async def test_peer_link_client_backoff_advances_when_session_never_opens(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3013,7 +2952,6 @@ def test_peer_link_client_exposes_receiver_coordinates() -> None:
     assert client.receiver_port == 6055
 
 
-@pytest.mark.asyncio
 async def test_peer_link_client_returns_transport_error_on_type_error(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     monkeypatch: pytest.MonkeyPatch,
@@ -3060,7 +2998,6 @@ async def test_peer_link_client_returns_transport_error_on_type_error(
         await cancel_and_drain(task)
 
 
-@pytest.mark.asyncio
 async def test_peer_link_client_returns_transport_error_on_noise_failure(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     monkeypatch: pytest.MonkeyPatch,
@@ -3105,7 +3042,6 @@ async def test_peer_link_client_returns_transport_error_on_noise_failure(
         await cancel_and_drain(task)
 
 
-@pytest.mark.asyncio
 async def test_peer_link_client_close_event_carries_error_detail_on_noise_failure(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     monkeypatch: pytest.MonkeyPatch,
@@ -3165,7 +3101,6 @@ async def test_peer_link_client_close_event_carries_error_detail_on_noise_failur
         await cancel_and_drain(task)
 
 
-@pytest.mark.asyncio
 async def test_peer_link_client_auth_rejected_when_dashboard_id_unknown(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
 ) -> None:
@@ -3199,7 +3134,6 @@ async def test_peer_link_client_auth_rejected_when_dashboard_id_unknown(
         await cancel_and_drain(task)
 
 
-@pytest.mark.asyncio
 async def test_peer_link_client_pin_mismatch_aborts_and_orphans(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     caplog: pytest.LogCaptureFixture,
@@ -3308,7 +3242,6 @@ async def test_peer_link_client_pin_mismatch_aborts_and_orphans(
             await cancel_and_drain(task)
 
 
-@pytest.mark.asyncio
 async def test_peer_link_client_self_loopback_logs_error_and_retries(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     caplog: pytest.LogCaptureFixture,
@@ -3365,7 +3298,6 @@ async def test_peer_link_client_self_loopback_logs_error_and_retries(
             await cancel_and_drain(task)
 
 
-@pytest.mark.asyncio
 async def test_skip_hosts_resolver_strips_skipped_entries_live() -> None:
     """``_SkipHostsResolver.resolve`` filters skipped entries, picking up live edits."""
     inner = MagicMock()
@@ -3386,7 +3318,6 @@ async def test_skip_hosts_resolver_strips_skipped_entries_live() -> None:
     assert await wrapper.resolve("x", 6055) == []
 
 
-@pytest.mark.asyncio
 async def test_run_session_loops_responds_to_peer_ping(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3448,7 +3379,6 @@ async def test_run_session_loops_responds_to_peer_ping(
     assert reason == "peer_hung_up"
 
 
-@pytest.mark.asyncio
 async def test_run_session_loops_bumps_last_pong_on_pong(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3511,7 +3441,6 @@ async def test_run_session_loops_bumps_last_pong_on_pong(
     # left ``last_pong_at`` at the initial value).
 
 
-@pytest.mark.asyncio
 async def test_run_session_loops_returns_transport_error_on_malformed_frame(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3556,7 +3485,6 @@ async def test_run_session_loops_returns_transport_error_on_malformed_frame(
     assert reason == "transport_error"
 
 
-@pytest.mark.asyncio
 async def test_run_session_loops_ignores_unknown_msg_type(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3610,7 +3538,6 @@ async def test_run_session_loops_ignores_unknown_msg_type(
     assert reason == "peer_hung_up"
 
 
-@pytest.mark.asyncio
 async def test_run_session_loops_on_dead_swallows_aiohttp_close_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3684,7 +3611,6 @@ def _prime_offloader_identity_for_spawn(controller: OffloaderController) -> None
     controller.state.offloader_peer_link_priv = secrets.token_bytes(32)
 
 
-@pytest.mark.asyncio
 async def test_await_pair_status_flip_self_removes_listener_on_terminal_exit(
     offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3724,7 +3650,6 @@ async def test_await_pair_status_flip_self_removes_listener_on_terminal_exit(
     assert pin not in offloader.state.pair_status_listeners
 
 
-@pytest.mark.asyncio
 async def test_spawn_peer_link_client_idempotent_when_task_running(
     offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3762,7 +3687,6 @@ async def test_spawn_peer_link_client_idempotent_when_task_running(
     await cancel_and_drain(first_handle.task)
 
 
-@pytest.mark.asyncio
 async def test_cancel_peer_link_client_cancels_running_task(
     offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3798,7 +3722,6 @@ async def test_cancel_peer_link_client_cancels_running_task(
         await handle.task
 
 
-@pytest.mark.asyncio
 async def test_stop_drains_peer_link_clients(
     offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3851,7 +3774,6 @@ async def test_stop_drains_peer_link_clients(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_run_session_loops_fires_queue_status_event_on_inbound_frame(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3943,7 +3865,6 @@ async def test_run_session_loops_fires_queue_status_event_on_inbound_frame(
         "bool-queue-depth",
     ],
 )
-@pytest.mark.asyncio
 async def test_run_session_loops_drops_malformed_queue_status(
     monkeypatch: pytest.MonkeyPatch,
     frame_body: dict[str, Any],
@@ -4005,7 +3926,6 @@ async def test_run_session_loops_drops_malformed_queue_status(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_run_session_loops_fires_offloader_job_state_changed_on_inbound_frame(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -4055,7 +3975,6 @@ async def test_run_session_loops_fires_offloader_job_state_changed_on_inbound_fr
     ],
     ids=["invalid-status", "missing-error_message", "non-string-job_id"],
 )
-@pytest.mark.asyncio
 async def test_run_session_loops_drops_malformed_job_state_changed(
     monkeypatch: pytest.MonkeyPatch,
     frame_body: dict[str, Any],
@@ -4072,7 +3991,6 @@ async def test_run_session_loops_drops_malformed_job_state_changed(
     assert len(captured) == 0
 
 
-@pytest.mark.asyncio
 async def test_run_session_loops_fires_offloader_job_output_on_inbound_frame(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -4100,7 +4018,6 @@ async def test_run_session_loops_fires_offloader_job_output_on_inbound_frame(
     }
 
 
-@pytest.mark.asyncio
 async def test_run_session_loops_resolves_submit_job_ack_future(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -4125,7 +4042,6 @@ async def test_run_session_loops_resolves_submit_job_ack_future(
     assert ack == frame
 
 
-@pytest.mark.asyncio
 async def test_run_session_loops_finally_drains_pending_submit_acks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -4145,7 +4061,6 @@ async def test_run_session_loops_finally_drains_pending_submit_acks(
         await pending
 
 
-@pytest.mark.asyncio
 async def test_submit_job_raises_no_session_error_when_session_closed() -> None:
     """:meth:`submit_job` without a live session raises :class:`PeerLinkNoSessionError`."""
     client = _make_offloader_client(EventBus())
@@ -4159,7 +4074,6 @@ async def test_submit_job_raises_no_session_error_when_session_closed() -> None:
         )
 
 
-@pytest.mark.asyncio
 async def test_submit_job_sends_header_chunks_and_returns_ack(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -4242,7 +4156,6 @@ async def test_submit_job_sends_header_chunks_and_returns_ack(
     assert [c["is_last"] for c in chunks] == [False, False, True]
 
 
-@pytest.mark.asyncio
 async def test_submit_job_times_out_when_no_ack_arrives(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -4271,7 +4184,6 @@ async def test_submit_job_times_out_when_no_ack_arrives(
             )
 
 
-@pytest.mark.asyncio
 async def test_submit_job_rejects_duplicate_job_id() -> None:
     """A second :meth:`submit_job` with an in-flight ``job_id`` raises immediately."""
     client = _make_offloader_client(EventBus())
@@ -4339,7 +4251,6 @@ def _seed_open_peer_link_client(
     return client
 
 
-@pytest.mark.asyncio
 async def test_controller_submit_job_returns_ack_on_accept(
     offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -4401,7 +4312,6 @@ async def test_controller_submit_job_returns_ack_on_accept(
     assert captured_args["bundle_bytes"] == b"bundle-bytes"
 
 
-@pytest.mark.asyncio
 async def test_controller_submit_job_passes_through_reject_reason(
     offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -4453,7 +4363,6 @@ async def test_controller_submit_job_passes_through_reject_reason(
     assert result["reason"] == "queue_rejected"
 
 
-@pytest.mark.asyncio
 async def test_controller_submit_job_invalid_target_raises_invalid_args(
     offloader_controller_dir: Path,
 ) -> None:
@@ -4469,7 +4378,6 @@ async def test_controller_submit_job_invalid_target_raises_invalid_args(
     assert exc_info.value.code == ErrorCode.INVALID_ARGS
 
 
-@pytest.mark.asyncio
 async def test_controller_submit_job_unknown_pairing_raises_not_found(
     offloader_controller_dir: Path,
 ) -> None:
@@ -4488,7 +4396,6 @@ async def test_controller_submit_job_unknown_pairing_raises_not_found(
     assert exc_info.value.code == ErrorCode.NOT_FOUND
 
 
-@pytest.mark.asyncio
 async def test_controller_submit_job_pending_pairing_raises_precondition_failed(
     offloader_controller_dir: Path,
 ) -> None:
@@ -4509,7 +4416,6 @@ async def test_controller_submit_job_pending_pairing_raises_precondition_failed(
     assert exc_info.value.code == ErrorCode.PRECONDITION_FAILED
 
 
-@pytest.mark.asyncio
 async def test_controller_submit_job_no_session_raises_precondition_failed(
     offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -4534,7 +4440,6 @@ async def test_controller_submit_job_no_session_raises_precondition_failed(
     assert exc_info.value.code == ErrorCode.PRECONDITION_FAILED
 
 
-@pytest.mark.asyncio
 async def test_controller_submit_job_timeout_maps_to_unavailable(
     offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -4579,7 +4484,6 @@ async def test_controller_submit_job_timeout_maps_to_unavailable(
     assert exc_info.value.code == ErrorCode.UNAVAILABLE
 
 
-@pytest.mark.asyncio
 async def test_controller_submit_job_empty_configuration_raises_invalid_args(
     offloader_controller_dir: Path,
 ) -> None:
@@ -4595,7 +4499,6 @@ async def test_controller_submit_job_empty_configuration_raises_invalid_args(
     assert exc_info.value.code == ErrorCode.INVALID_ARGS
 
 
-@pytest.mark.asyncio
 async def test_controller_submit_job_rejects_path_traversal(
     make_settings: MakeSettingsFactory,
 ) -> None:
@@ -4640,7 +4543,6 @@ async def test_controller_submit_job_rejects_path_traversal(
     ],
     ids=["missing-accepted", "non-bool-accepted", "missing-job_id"],
 )
-@pytest.mark.asyncio
 async def test_dispatch_submit_job_ack_drops_malformed(
     monkeypatch: pytest.MonkeyPatch,
     frame_body: dict[str, Any],
@@ -4654,7 +4556,6 @@ async def test_dispatch_submit_job_ack_drops_malformed(
     assert not fut.done()
 
 
-@pytest.mark.asyncio
 async def test_dispatch_submit_job_ack_drops_with_no_pending_future() -> None:
     """An ack frame with no matching future is dropped silently."""
     bus = EventBus()
@@ -4666,7 +4567,6 @@ async def test_dispatch_submit_job_ack_drops_with_no_pending_future() -> None:
     # branch is exercised; absence of a raise is the assertion.
 
 
-@pytest.mark.asyncio
 async def test_dispatch_submit_job_ack_drops_already_done_future() -> None:
     """An ack frame for an already-resolved future is dropped silently."""
     bus = EventBus()
@@ -4681,7 +4581,6 @@ async def test_dispatch_submit_job_ack_drops_already_done_future() -> None:
     assert fut.result()["accepted"] is True
 
 
-@pytest.mark.asyncio
 async def test_dispatch_job_output_drops_malformed_frame() -> None:
     """Missing required field on job_output is dropped silently."""
     bus = EventBus()
@@ -4701,7 +4600,6 @@ async def test_dispatch_job_output_drops_malformed_frame() -> None:
     assert len(captured) == 0
 
 
-@pytest.mark.asyncio
 async def test_dispatch_job_output_drops_invalid_stream_literal() -> None:
     """A stream value outside ``{stdout, stderr}`` is dropped."""
     bus = EventBus()
@@ -4722,7 +4620,6 @@ async def test_dispatch_job_output_drops_invalid_stream_literal() -> None:
     assert len(captured) == 0
 
 
-@pytest.mark.asyncio
 async def test_controller_submit_job_yaml_invalid_maps_to_invalid_args(
     offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -4764,7 +4661,6 @@ async def test_controller_submit_job_yaml_invalid_maps_to_invalid_args(
     assert exc_info.value.code == ErrorCode.INVALID_ARGS
 
 
-@pytest.mark.asyncio
 async def test_controller_submit_job_missing_yaml_maps_to_not_found(
     offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -4802,7 +4698,6 @@ async def test_controller_submit_job_missing_yaml_maps_to_not_found(
     assert exc_info.value.code == ErrorCode.NOT_FOUND
 
 
-@pytest.mark.asyncio
 async def test_controller_submit_job_orphaned_client_raises_precondition_failed(
     offloader_controller_dir: Path,
 ) -> None:
@@ -4844,7 +4739,6 @@ async def test_controller_submit_job_orphaned_client_raises_precondition_failed(
     assert "orphaned" in exc_info.value.message
 
 
-@pytest.mark.asyncio
 async def test_controller_submit_job_session_closed_branch_in_lookup(
     offloader_controller_dir: Path,
 ) -> None:
@@ -4898,7 +4792,6 @@ async def test_controller_submit_job_session_closed_branch_in_lookup(
         await asyncio.gather(task, return_exceptions=True)
 
 
-@pytest.mark.asyncio
 async def test_controller_submit_job_no_session_during_send_maps_to_precondition_failed(
     offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -4985,7 +4878,6 @@ def _fire_offloader_job_state(
     offloader._on_offloader_job_state_changed(MagicMock(data=data))
 
 
-@pytest.mark.asyncio
 async def test_offloader_remote_jobs_cache_seeded_on_running_event(
     offloader_controller_dir: Path,
 ) -> None:
@@ -4999,7 +4891,6 @@ async def test_offloader_remote_jobs_cache_seeded_on_running_event(
 
 
 @pytest.mark.parametrize("status", ["completed", "failed", "cancelled"])
-@pytest.mark.asyncio
 async def test_offloader_remote_jobs_cache_drops_on_terminal_event(
     offloader_controller_dir: Path,
     status: str,
@@ -5012,7 +4903,6 @@ async def test_offloader_remote_jobs_cache_drops_on_terminal_event(
     assert offloader.offloader_remote_jobs_snapshot() == []
 
 
-@pytest.mark.asyncio
 async def test_offloader_remote_jobs_cache_cleared_on_unpair(
     offloader_controller_dir: Path,
 ) -> None:
@@ -5039,7 +4929,6 @@ async def test_offloader_remote_jobs_cache_cleared_on_unpair(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_peer_link_client_cancel_job_sends_frame_through_channel() -> None:
     """:meth:`PeerLinkClient.cancel_job` writes a ``cancel_job`` frame on the wire."""
     initiator, responder = _build_handshake_pair()
@@ -5060,7 +4949,6 @@ async def test_peer_link_client_cancel_job_sends_frame_through_channel() -> None
     assert captured == [{"type": "cancel_job", "job_id": "j-1"}]
 
 
-@pytest.mark.asyncio
 async def test_peer_link_client_cancel_job_raises_when_session_closed() -> None:
     """``cancel_job`` without a live session raises :class:`PeerLinkNoSessionError`."""
     client = _make_offloader_client(EventBus())
@@ -5069,7 +4957,6 @@ async def test_peer_link_client_cancel_job_raises_when_session_closed() -> None:
         await client.cancel_job(job_id="j-1")
 
 
-@pytest.mark.asyncio
 async def test_controller_cancel_job_dispatches_via_client(
     offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -5104,7 +4991,6 @@ async def test_controller_cancel_job_dispatches_via_client(
     assert captured_kwargs == {"job_id": "j-1"}
 
 
-@pytest.mark.asyncio
 async def test_controller_cancel_job_empty_job_id_raises_invalid_args(
     offloader_controller_dir: Path,
 ) -> None:
@@ -5116,7 +5002,6 @@ async def test_controller_cancel_job_empty_job_id_raises_invalid_args(
     assert exc_info.value.code == ErrorCode.INVALID_ARGS
 
 
-@pytest.mark.asyncio
 async def test_controller_cancel_job_unknown_pairing_raises_not_found(
     offloader_controller_dir: Path,
 ) -> None:
@@ -5128,7 +5013,6 @@ async def test_controller_cancel_job_unknown_pairing_raises_not_found(
     assert exc_info.value.code == ErrorCode.NOT_FOUND
 
 
-@pytest.mark.asyncio
 async def test_controller_cancel_job_no_session_raises_precondition_failed(
     offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -5161,7 +5045,6 @@ async def test_controller_cancel_job_no_session_raises_precondition_failed(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_download_artifacts_raises_no_session_error_when_session_closed() -> None:
     """:meth:`download_artifacts` without a live session raises :class:`PeerLinkNoSessionError`."""
     client = _make_offloader_client(EventBus())
@@ -5170,7 +5053,6 @@ async def test_download_artifacts_raises_no_session_error_when_session_closed() 
         await client.download_artifacts(job_id="j-1")
 
 
-@pytest.mark.asyncio
 async def test_download_artifacts_rejects_duplicate_job_id_on_same_session() -> None:
     """A second concurrent download on the same job_id raises :class:`PeerLinkNoSessionError`."""
     client = _make_offloader_client(EventBus())
@@ -5182,7 +5064,6 @@ async def test_download_artifacts_rejects_duplicate_job_id_on_same_session() -> 
         await client.download_artifacts(job_id="already-running")
 
 
-@pytest.mark.asyncio
 async def test_dispatch_artifacts_resolves_future_with_tarball_and_offset(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -5226,7 +5107,6 @@ async def test_dispatch_artifacts_resolves_future_with_tarball_and_offset(
     assert result.firmware_offset == "0x10000"
 
 
-@pytest.mark.asyncio
 async def test_dispatch_artifacts_end_rejected_resolves_future_with_reason(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -5249,7 +5129,6 @@ async def test_dispatch_artifacts_end_rejected_resolves_future_with_reason(
     assert exc_info.value.reason == "build_dir_missing"
 
 
-@pytest.mark.asyncio
 async def test_run_session_loops_drains_pending_artifacts_downloads(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -5283,7 +5162,6 @@ def _seed_artifacts_state(
     return fut, state
 
 
-@pytest.mark.asyncio
 async def test_dispatch_artifacts_start_drops_malformed_frame() -> None:
     """A frame missing ``firmware_offset`` is logged + dropped (state untouched)."""
     client = _make_offloader_client(EventBus())
@@ -5297,7 +5175,6 @@ async def test_dispatch_artifacts_start_drops_malformed_frame() -> None:
     assert not fut.done()
 
 
-@pytest.mark.asyncio
 async def test_dispatch_artifacts_start_unknown_job_id_dropped() -> None:
     """A start frame for a job nobody asked for is logged + dropped."""
     client = _make_offloader_client(EventBus())
@@ -5317,7 +5194,6 @@ async def test_dispatch_artifacts_start_unknown_job_id_dropped() -> None:
     assert "stranger" not in client._artifacts_downloads
 
 
-@pytest.mark.asyncio
 async def test_dispatch_artifacts_start_invalid_header_resolves_future_with_error() -> None:
     """A start header that ``BundleAssembler`` rejects resolves the future with an error."""
     client = _make_offloader_client(EventBus())
@@ -5341,7 +5217,6 @@ async def test_dispatch_artifacts_start_invalid_header_resolves_future_with_erro
     assert exc_info.value.reason == "invalid_start_header"
 
 
-@pytest.mark.asyncio
 async def test_dispatch_artifacts_chunk_drops_malformed_frame() -> None:
     """A chunk frame missing ``data_b64`` is logged + dropped without resolving."""
     client = _make_offloader_client(EventBus())
@@ -5354,7 +5229,6 @@ async def test_dispatch_artifacts_chunk_drops_malformed_frame() -> None:
     assert not fut.done()
 
 
-@pytest.mark.asyncio
 async def test_dispatch_artifacts_chunk_drops_when_no_assembler_yet() -> None:
     """A chunk frame arriving before ``artifacts_start`` is logged + dropped."""
     client = _make_offloader_client(EventBus())
@@ -5374,7 +5248,6 @@ async def test_dispatch_artifacts_chunk_drops_when_no_assembler_yet() -> None:
     assert not fut.done()
 
 
-@pytest.mark.asyncio
 async def test_dispatch_artifacts_chunk_assembler_error_resolves_future() -> None:
     """A chunk that drives the assembler past its bounds resolves the future with an error."""
     payload = b"hello"
@@ -5408,7 +5281,6 @@ async def test_dispatch_artifacts_chunk_assembler_error_resolves_future() -> Non
         await fut
 
 
-@pytest.mark.asyncio
 async def test_dispatch_artifacts_end_drops_malformed_frame() -> None:
     """An ``artifacts_end`` missing ``accepted`` is logged + dropped."""
     client = _make_offloader_client(EventBus())
@@ -5419,7 +5291,6 @@ async def test_dispatch_artifacts_end_drops_malformed_frame() -> None:
     assert not fut.done()
 
 
-@pytest.mark.asyncio
 async def test_dispatch_artifacts_end_skips_already_resolved_future() -> None:
     """A late ``artifacts_end`` for a future that's already done is a no-op."""
     client = _make_offloader_client(EventBus())
@@ -5432,7 +5303,6 @@ async def test_dispatch_artifacts_end_skips_already_resolved_future() -> None:
     )
 
 
-@pytest.mark.asyncio
 async def test_dispatch_artifacts_end_accept_without_start_resolves_with_missing_start() -> None:
     """``artifacts_end{accepted:true}`` with no prior start fires ``missing_start``."""
     client = _make_offloader_client(EventBus())
@@ -5448,7 +5318,6 @@ async def test_dispatch_artifacts_end_accept_without_start_resolves_with_missing
     assert exc_info.value.reason == "missing_start"
 
 
-@pytest.mark.asyncio
 async def test_download_artifacts_returns_result_on_full_round_trip() -> None:
     """End-to-end :meth:`download_artifacts` returns the assembled :class:`DownloadArtifactsResult`.
 
@@ -5504,7 +5373,6 @@ async def test_download_artifacts_returns_result_on_full_round_trip() -> None:
     assert "happy-path" not in client._artifacts_downloads
 
 
-@pytest.mark.asyncio
 async def test_download_artifacts_send_failure_raises_session_lost() -> None:
     """``send_frame`` returning ``False`` mid-request raises :class:`SubmitJobSessionLostError`."""
     client = _make_offloader_client(EventBus())
@@ -5522,7 +5390,6 @@ async def test_download_artifacts_send_failure_raises_session_lost() -> None:
     assert "lost-session" not in client._artifacts_downloads
 
 
-@pytest.mark.asyncio
 async def test_dispatch_artifacts_end_finalise_failure_resolves_with_error() -> None:
     """A SHA mismatch at finalise resolves the future with the assembler's error code."""
     payload = b"hello world"
@@ -5589,7 +5456,6 @@ def _make_test_tarball(*, idedata_extras: list[dict[str, str]] | None = None) ->
     return buf.getvalue()
 
 
-@pytest.mark.asyncio
 async def test_controller_download_artifacts_returns_unpacked_response(
     offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -5636,7 +5502,6 @@ async def test_controller_download_artifacts_returns_unpacked_response(
     assert result["idedata"]["extra"]["flash_images"][0]["path"] == "bootloader.bin"
 
 
-@pytest.mark.asyncio
 async def test_controller_download_artifacts_empty_job_id_raises_invalid_args(
     offloader_controller_dir: Path,
 ) -> None:
@@ -5648,7 +5513,6 @@ async def test_controller_download_artifacts_empty_job_id_raises_invalid_args(
     assert exc_info.value.code == ErrorCode.INVALID_ARGS
 
 
-@pytest.mark.asyncio
 async def test_controller_download_artifacts_unknown_pairing_raises_not_found(
     offloader_controller_dir: Path,
 ) -> None:
@@ -5660,7 +5524,6 @@ async def test_controller_download_artifacts_unknown_pairing_raises_not_found(
     assert exc_info.value.code == ErrorCode.NOT_FOUND
 
 
-@pytest.mark.asyncio
 async def test_controller_download_artifacts_no_session_raises_precondition_failed(
     offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -5688,7 +5551,6 @@ async def test_controller_download_artifacts_no_session_raises_precondition_fail
     assert exc_info.value.code == ErrorCode.PRECONDITION_FAILED
 
 
-@pytest.mark.asyncio
 async def test_controller_download_artifacts_session_lost_maps_to_unavailable(
     offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -5727,7 +5589,6 @@ async def test_controller_download_artifacts_session_lost_maps_to_unavailable(
         ("entirely_unknown_reason", ErrorCode.UNAVAILABLE),
     ],
 )
-@pytest.mark.asyncio
 async def test_controller_download_artifacts_maps_receiver_reasons(
     reason: str,
     expected_code: ErrorCode,
@@ -5758,7 +5619,6 @@ async def test_controller_download_artifacts_maps_receiver_reasons(
     assert exc_info.value.code == expected_code
 
 
-@pytest.mark.asyncio
 async def test_controller_download_artifacts_malformed_tarball_maps_to_invalid_args(
     offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -5791,7 +5651,6 @@ async def test_controller_download_artifacts_malformed_tarball_maps_to_invalid_a
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_receiver_logs_accept_and_handshake_ok_on_preview_session(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     caplog: pytest.LogCaptureFixture,
@@ -5821,7 +5680,6 @@ async def test_receiver_logs_accept_and_handshake_ok_on_preview_session(
     assert "intent=preview" in handshake[-1].getMessage()
 
 
-@pytest.mark.asyncio
 async def test_run_one_session_logs_connected_peer_after_tcp_connect(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     caplog: pytest.LogCaptureFixture,

@@ -135,7 +135,6 @@ async def _wait_until(condition: Callable[[], bool], *, timeout: float = 2.0) ->
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_dispatch_preview_returns_ok(tmp_path: Path) -> None:
     """``intent="preview"`` doesn't hit the controller; just returns OK."""
     controller = _make_controller(config_dir=tmp_path)
@@ -157,7 +156,6 @@ async def test_dispatch_preview_returns_ok(tmp_path: Path) -> None:
     controller.offloader._db.bus.fire.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_dispatch_pair_request_open_window_creates_pending(tmp_path: Path) -> None:
     """``intent="pair_request"`` while window open creates the row + fires event."""
     controller = _make_controller(config_dir=tmp_path)
@@ -188,7 +186,6 @@ async def test_dispatch_pair_request_open_window_creates_pending(tmp_path: Path)
     await controller.stop()
 
 
-@pytest.mark.asyncio
 async def test_dispatch_pair_request_closed_window_returns_no_pairing_window(
     tmp_path: Path,
 ) -> None:
@@ -216,7 +213,6 @@ async def test_dispatch_pair_request_closed_window_returns_no_pairing_window(
     assert controller.receiver.state.pending_peers == {}
 
 
-@pytest.mark.asyncio
 async def test_dispatch_peer_link_approved_returns_ok(tmp_path: Path) -> None:
     controller = _make_controller(config_dir=tmp_path)
     controller.offloader._db.bus = MagicMock()
@@ -248,7 +244,6 @@ async def test_dispatch_peer_link_approved_returns_ok(tmp_path: Path) -> None:
     assert response is IntentResponse.OK
 
 
-@pytest.mark.asyncio
 async def test_dispatch_pair_request_empty_dashboard_id_returns_rejected(tmp_path: Path) -> None:
     """
     pair_request with no dashboard_id is REJECTED before any controller mutation.
@@ -282,7 +277,6 @@ async def test_dispatch_pair_request_empty_dashboard_id_returns_rejected(tmp_pat
     await controller.stop()
 
 
-@pytest.mark.asyncio
 async def test_dispatch_pair_request_malformed_dashboard_id_returns_rejected(
     tmp_path: Path,
 ) -> None:
@@ -320,7 +314,6 @@ async def test_dispatch_pair_request_malformed_dashboard_id_returns_rejected(
     await controller.stop()
 
 
-@pytest.mark.asyncio
 async def test_dispatch_pair_status_unknown_after_window_close_returns_rejected(
     tmp_path: Path,
 ) -> None:
@@ -381,7 +374,6 @@ def _binary_msg(data: bytes) -> WSMessage:
     return WSMessage(type=WSMsgType.BINARY, data=data, extra=None)
 
 
-@pytest.mark.asyncio
 async def test_read_handshake_message_timeout_returns_none(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -403,7 +395,6 @@ async def test_read_handshake_message_timeout_returns_none(
     assert result is None
 
 
-@pytest.mark.asyncio
 async def test_read_handshake_message_non_binary_frame_returns_none() -> None:
     """A TEXT frame on the binary channel is rejected without crashing the session."""
     session = PeerLinkNoiseSession.responder(secrets.token_bytes(32))
@@ -414,7 +405,6 @@ async def test_read_handshake_message_non_binary_frame_returns_none() -> None:
     assert result is None
 
 
-@pytest.mark.asyncio
 async def test_read_handshake_message_noise_error_returns_none() -> None:
     """Garbage bytes that don't decode as a Noise frame log a warning and return None."""
     session = PeerLinkNoiseSession.responder(secrets.token_bytes(32))
@@ -428,7 +418,6 @@ async def test_read_handshake_message_noise_error_returns_none() -> None:
     assert result is None
 
 
-@pytest.mark.asyncio
 async def test_send_bytes_safely_connection_reset_returns_false() -> None:
     """``ConnectionResetError`` (peer hung up) returns False without escalating the log."""
     ws = _make_ws_stub()
@@ -438,7 +427,6 @@ async def test_send_bytes_safely_connection_reset_returns_false() -> None:
     assert result is False
 
 
-@pytest.mark.asyncio
 async def test_send_bytes_safely_other_exception_returns_false() -> None:
     """Other transport errors are debug-logged and the function returns False."""
     ws = _make_ws_stub()
@@ -448,7 +436,6 @@ async def test_send_bytes_safely_other_exception_returns_false() -> None:
     assert result is False
 
 
-@pytest.mark.asyncio
 async def test_send_handshake_message_noise_error_returns_false() -> None:
     """A noise-side write failure returns False without touching the WS."""
     ws = _make_ws_stub()
@@ -460,7 +447,6 @@ async def test_send_handshake_message_noise_error_returns_false() -> None:
     ws.send_bytes.assert_not_awaited()
 
 
-@pytest.mark.asyncio
 async def test_send_response_encrypt_error_skips_send() -> None:
     """``encrypt`` failing post-handshake logs a warning and skips ``send_bytes``."""
     ws = _make_ws_stub()
@@ -471,7 +457,6 @@ async def test_send_response_encrypt_error_skips_send() -> None:
     ws.send_bytes.assert_not_awaited()
 
 
-@pytest.mark.asyncio
 async def test_send_response_advertises_esphome_version() -> None:
     """The ``intent_response`` body carries the receiver's esphome version.
 
@@ -503,7 +488,6 @@ async def test_send_response_advertises_esphome_version() -> None:
     }
 
 
-@pytest.mark.asyncio
 async def test_drive_session_msg1_timeout_returns_quietly(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -525,7 +509,6 @@ async def test_drive_session_msg1_timeout_returns_quietly(
     ws.send_bytes.assert_not_awaited()
 
 
-@pytest.mark.asyncio
 async def test_handler_logs_unexpected_exception(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
@@ -608,7 +591,6 @@ def test_normalize_label_non_string_returns_empty() -> None:
     assert _normalize_label(None) == ""
 
 
-@pytest.mark.asyncio
 async def test_drive_session_msg2_send_failure_short_circuits(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -631,7 +613,6 @@ async def test_drive_session_msg2_send_failure_short_circuits(
     assert ws.receive.await_count == 1
 
 
-@pytest.mark.asyncio
 async def test_drive_session_unknown_intent_msg3_read_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -662,7 +643,6 @@ async def test_drive_session_unknown_intent_msg3_read_failure(
     assert ws.send_bytes.await_count == 1
 
 
-@pytest.mark.asyncio
 async def test_drive_session_unknown_intent_msg2_send_failure() -> None:
     """Unknown intent + msg2 send fails → driver bails before reading msg3."""
     controller = MagicMock(spec=ReceiverController)
@@ -680,7 +660,6 @@ async def test_drive_session_unknown_intent_msg2_send_failure() -> None:
     assert ws.receive.await_count == 1
 
 
-@pytest.mark.asyncio
 async def test_drive_session_happy_path_msg3_read_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -710,7 +689,6 @@ async def test_drive_session_happy_path_msg3_read_failure(
     assert ws.send_bytes.await_count == 1
 
 
-@pytest.mark.asyncio
 async def test_drive_session_handshake_not_complete_logs_and_returns(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -864,7 +842,6 @@ def _decode_intent_response(session: PeerLinkNoiseSession, encrypted: bytes) -> 
     return _json.loads(session.decrypt(encrypted))["intent_response"]
 
 
-@pytest.mark.asyncio
 async def test_e2e_preview_round_trip(
     peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
 ) -> None:
@@ -886,7 +863,6 @@ async def test_e2e_preview_round_trip(
     assert round_trip.session.remote_static_pub == receiver_static_pub
 
 
-@pytest.mark.asyncio
 async def test_e2e_pair_request_open_window_creates_row(
     peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
 ) -> None:
@@ -918,7 +894,6 @@ async def test_e2e_pair_request_open_window_creates_row(
     assert pending.pin_sha256 == pin_sha256_for_pubkey(round_trip.initiator_static_pub)
 
 
-@pytest.mark.asyncio
 async def test_e2e_pair_request_closed_window_returns_no_pairing_window(
     peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
 ) -> None:
@@ -941,7 +916,6 @@ async def test_e2e_pair_request_closed_window_returns_no_pairing_window(
     assert controller.receiver.state.pending_peers == {}
 
 
-@pytest.mark.asyncio
 async def test_e2e_peer_link_approved_returns_ok(
     peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
 ) -> None:
@@ -984,7 +958,6 @@ async def test_e2e_peer_link_approved_returns_ok(
     assert _decode_intent_response(session, encrypted) == IntentResponse.OK
 
 
-@pytest.mark.asyncio
 async def test_e2e_unknown_intent_completes_handshake_then_rejects(
     peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
 ) -> None:
@@ -1003,7 +976,6 @@ async def test_e2e_unknown_intent_completes_handshake_then_rejects(
     )
 
 
-@pytest.mark.asyncio
 async def test_e2e_non_dict_msg3_payload_treated_as_empty(
     peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
 ) -> None:
@@ -1030,7 +1002,6 @@ async def test_e2e_non_dict_msg3_payload_treated_as_empty(
     assert _decode_intent_response(session, encrypted) == IntentResponse.REJECTED
 
 
-@pytest.mark.asyncio
 async def test_e2e_garbage_msg1_payload_handled_gracefully(
     peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
 ) -> None:
@@ -1126,7 +1097,6 @@ def _decode_app_frame(session: PeerLinkNoiseSession, encrypted: bytes) -> dict[s
     return parsed
 
 
-@pytest.mark.asyncio
 async def test_e2e_peer_link_session_stays_open_after_intent_response(
     peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
 ) -> None:
@@ -1158,7 +1128,6 @@ async def test_e2e_peer_link_session_stays_open_after_intent_response(
         await ws.close()
 
 
-@pytest.mark.asyncio
 async def test_e2e_peer_link_session_responds_to_offloader_ping(
     peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
 ) -> None:
@@ -1191,7 +1160,6 @@ async def test_e2e_peer_link_session_responds_to_offloader_ping(
     assert pong["nonce"] == 42
 
 
-@pytest.mark.asyncio
 async def test_e2e_peer_link_session_kicks_old_on_duplicate_connect(
     peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
 ) -> None:
@@ -1239,7 +1207,6 @@ async def test_e2e_peer_link_session_kicks_old_on_duplicate_connect(
         await new_ws.close()
 
 
-@pytest.mark.asyncio
 async def test_e2e_peer_link_session_unregistered_on_peer_close(
     peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
 ) -> None:
@@ -1263,7 +1230,6 @@ async def test_e2e_peer_link_session_unregistered_on_peer_close(
     await _wait_until(lambda: "alpha" not in controller.receiver.state.peer_link_sessions)
 
 
-@pytest.mark.asyncio
 async def test_e2e_peer_link_session_drained_on_controller_stop(
     peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
 ) -> None:
@@ -1305,7 +1271,6 @@ async def test_e2e_peer_link_session_drained_on_controller_stop(
         await ws.close()
 
 
-@pytest.mark.asyncio
 async def test_e2e_peer_link_session_oversize_frame_terminates(
     peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
 ) -> None:
@@ -1388,7 +1353,6 @@ def _install_stub_submit_job_receiver(
     return firmware_stub, queued_jobs
 
 
-@pytest.mark.asyncio
 async def test_e2e_submit_job_dispatches_to_receiver(
     peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
     monkeypatch: pytest.MonkeyPatch,
@@ -1531,7 +1495,6 @@ def _make_unit_session(noise: PeerLinkNoiseSession) -> tuple[PeerLinkSession, _F
     ), ws
 
 
-@pytest.mark.asyncio
 async def test_peer_link_session_send_app_frame_is_serialised(tmp_path: Path) -> None:
     """The session's send lock keeps concurrent encrypts from interleaving.
 
@@ -1557,7 +1520,6 @@ async def test_peer_link_session_send_app_frame_is_serialised(tmp_path: Path) ->
     assert {entry["n"] for entry in decoded} == {1, 2}
 
 
-@pytest.mark.asyncio
 async def test_peer_link_session_terminate_idempotent(tmp_path: Path) -> None:
     """Calling ``terminate`` twice doesn't double-send the frame or double-close the WS."""
     _initiator, responder = _noise_pair()
@@ -1569,7 +1531,6 @@ async def test_peer_link_session_terminate_idempotent(tmp_path: Path) -> None:
     assert ws.closes == 1
 
 
-@pytest.mark.asyncio
 async def test_send_app_frame_short_circuits_after_terminate(tmp_path: Path) -> None:
     """A late ``send_app_frame`` after ``terminate`` returns False without a wire frame.
 
@@ -1593,7 +1554,6 @@ async def test_send_app_frame_short_circuits_after_terminate(tmp_path: Path) -> 
     assert len(ws.sends) == 1
 
 
-@pytest.mark.asyncio
 async def test_register_peer_link_session_kicks_existing(tmp_path: Path) -> None:
     """Registering a new session for the same dashboard_id terminates the existing one."""
     controller = _make_controller(config_dir=tmp_path)
@@ -1617,7 +1577,6 @@ async def test_register_peer_link_session_kicks_existing(tmp_path: Path) -> None
     new.terminate.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_register_peer_link_session_pushes_initial_queue_status(tmp_path: Path) -> None:
     """A freshly-registered session gets a one-shot ``queue_status`` frame.
 
@@ -1650,7 +1609,6 @@ async def test_register_peer_link_session_pushes_initial_queue_status(tmp_path: 
     )
 
 
-@pytest.mark.asyncio
 async def test_register_peer_link_session_skips_initial_queue_status_when_firmware_missing(
     tmp_path: Path,
 ) -> None:
@@ -1677,7 +1635,6 @@ async def test_register_peer_link_session_skips_initial_queue_status_when_firmwa
     session.send_app_frame.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_register_peer_link_session_swallows_snapshot_exception(tmp_path: Path) -> None:
     """A ``queue_status_snapshot`` raise mustn't poison session registration.
 
@@ -1708,7 +1665,6 @@ async def test_register_peer_link_session_swallows_snapshot_exception(tmp_path: 
     assert controller.receiver.state.peer_link_sessions["alpha"] is session
 
 
-@pytest.mark.asyncio
 async def test_register_peer_link_session_swallows_send_app_frame_exception(
     tmp_path: Path,
 ) -> None:
@@ -1773,7 +1729,6 @@ def test_unregister_peer_link_session_removes_when_current(tmp_path: Path) -> No
     assert controller.receiver.state.peer_link_sessions == {}
 
 
-@pytest.mark.asyncio
 async def test_send_app_frame_returns_false_on_unserialisable_payload(tmp_path: Path) -> None:
     """A payload with a non-JSON-encodable value short-circuits before encrypting."""
     _initiator, responder = _noise_pair()
@@ -1785,7 +1740,6 @@ async def test_send_app_frame_returns_false_on_unserialisable_payload(tmp_path: 
     assert ws.sends == []
 
 
-@pytest.mark.asyncio
 async def test_send_app_frame_returns_false_on_noise_encrypt_failure(tmp_path: Path) -> None:
     """A Noise-side failure surfaces as ``False``, not an unhandled exception.
 
@@ -1812,7 +1766,6 @@ async def test_send_app_frame_returns_false_on_noise_encrypt_failure(tmp_path: P
     assert ws.sends == []
 
 
-@pytest.mark.asyncio
 async def test_peer_link_channel_send_terminate_swallows_aiohttp_close_error(
     tmp_path: Path,
 ) -> None:
@@ -1871,7 +1824,6 @@ def _text_msg(data: str) -> WSMessage:
     return WSMessage(type=WSMsgType.TEXT, data=data, extra="")
 
 
-@pytest.mark.asyncio
 async def test_receive_loop_terminates_on_text_frame(tmp_path: Path) -> None:
     """A TEXT message (not BINARY) triggers ``terminate{malformed_frame}``."""
     initiator, responder = _noise_pair()
@@ -1889,7 +1841,6 @@ async def test_receive_loop_terminates_on_text_frame(tmp_path: Path) -> None:
     assert decoded["reason"] == TerminateReason.MALFORMED_FRAME.value
 
 
-@pytest.mark.asyncio
 async def test_receive_loop_terminates_on_undecryptable_frame(tmp_path: Path) -> None:
     """Random bytes that fail Noise decrypt trigger ``terminate{malformed_frame}``."""
     _initiator, responder = _noise_pair()
@@ -1907,7 +1858,6 @@ async def test_receive_loop_terminates_on_undecryptable_frame(tmp_path: Path) ->
     assert len(ws.sends) == 1
 
 
-@pytest.mark.asyncio
 async def test_receive_loop_terminates_on_non_object_json(tmp_path: Path) -> None:
     """Encrypted JSON that isn't an object (e.g. a list) triggers terminate."""
     initiator, responder = _noise_pair()
@@ -1922,7 +1872,6 @@ async def test_receive_loop_terminates_on_non_object_json(tmp_path: Path) -> Non
     assert len(ws.sends) == 1
 
 
-@pytest.mark.asyncio
 async def test_receive_loop_routes_cancel_job_to_controller(tmp_path: Path) -> None:
     """A ``cancel_job`` Noise frame routes through ``controller.receiver.handle_cancel_job``."""
     initiator, responder = _noise_pair()
@@ -1940,7 +1889,6 @@ async def test_receive_loop_routes_cancel_job_to_controller(tmp_path: Path) -> N
     assert call_frame == {"type": "cancel_job", "job_id": "j-1"}
 
 
-@pytest.mark.asyncio
 async def test_receive_loop_routes_download_artifacts_to_sender(tmp_path: Path) -> None:
     """A ``download_artifacts`` Noise frame routes through the artifacts-download sender."""
     initiator, responder = _noise_pair()
@@ -1962,7 +1910,6 @@ async def test_receive_loop_routes_download_artifacts_to_sender(tmp_path: Path) 
     assert call_frame == payload
 
 
-@pytest.mark.asyncio
 async def test_receive_loop_pong_updates_last_pong_at(tmp_path: Path) -> None:
     """A ``pong`` frame from the peer bumps ``session.last_pong_at``."""
     initiator, responder = _noise_pair()
@@ -1978,7 +1925,6 @@ async def test_receive_loop_pong_updates_last_pong_at(tmp_path: Path) -> None:
     assert ws.sends == []
 
 
-@pytest.mark.asyncio
 async def test_receive_loop_peer_terminate_exits_cleanly(tmp_path: Path) -> None:
     """A peer-side ``terminate`` exits the loop without sending our own."""
     initiator, responder = _noise_pair()
@@ -1995,7 +1941,6 @@ async def test_receive_loop_peer_terminate_exits_cleanly(tmp_path: Path) -> None
     assert session._closing is True
 
 
-@pytest.mark.asyncio
 async def test_receive_loop_unknown_app_frame_type_logged_and_ignored(tmp_path: Path) -> None:
     """An unknown ``type`` field in a well-formed encrypted frame is logged at debug, not fatal.
 
@@ -2024,7 +1969,6 @@ async def test_receive_loop_unknown_app_frame_type_logged_and_ignored(tmp_path: 
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_run_peer_link_heartbeat_terminates_on_pong_timeout(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -2062,7 +2006,6 @@ async def test_run_peer_link_heartbeat_terminates_on_pong_timeout(
     assert deaths == [True]
 
 
-@pytest.mark.asyncio
 async def test_run_peer_link_heartbeat_terminates_on_send_failure(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -2087,7 +2030,6 @@ async def test_run_peer_link_heartbeat_terminates_on_send_failure(
     assert deaths == [True]
 
 
-@pytest.mark.asyncio
 async def test_run_peer_link_session_heartbeat_closures_route_to_session(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2178,7 +2120,6 @@ async def test_run_peer_link_session_heartbeat_closures_route_to_session(
     await asyncio.gather(run_task, return_exceptions=True)
 
 
-@pytest.mark.asyncio
 async def test_run_peer_link_heartbeat_propagates_cancellation(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -2240,7 +2181,6 @@ def _cancel_session(dashboard_id: str = "alpha") -> Any:
     return session
 
 
-@pytest.mark.asyncio
 async def test_handle_cancel_job_routes_to_firmware_cancel(tmp_path: Path) -> None:
     """Happy path: resolve offloader job_id → firmware job_id → fire ``firmware.cancel``."""
     controller = _make_receiver_with_fanout(tmp_path)
@@ -2254,7 +2194,6 @@ async def test_handle_cancel_job_routes_to_firmware_cancel(tmp_path: Path) -> No
     controller.offloader._db.firmware.cancel.assert_awaited_once_with(job_id="fw-abc")
 
 
-@pytest.mark.asyncio
 async def test_handle_cancel_job_unknown_remote_job_drops_silently(tmp_path: Path) -> None:
     """No matching correlation entry: drop without raising or calling firmware.cancel."""
     controller = _make_receiver_with_fanout(tmp_path)
@@ -2265,7 +2204,6 @@ async def test_handle_cancel_job_unknown_remote_job_drops_silently(tmp_path: Pat
     controller.offloader._db.firmware.cancel.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_handle_cancel_job_pin_to_wrong_session_no_cancel(tmp_path: Path) -> None:
     """A cancel_job arriving on a different session than the submit-time peer is dropped.
 
@@ -2285,7 +2223,6 @@ async def test_handle_cancel_job_pin_to_wrong_session_no_cancel(tmp_path: Path) 
     controller.offloader._db.firmware.cancel.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_handle_cancel_job_malformed_frame_drops_silently(tmp_path: Path) -> None:
     """A cancel_job frame missing ``job_id`` is dropped without raising."""
     controller = _make_receiver_with_fanout(tmp_path)
@@ -2296,7 +2233,6 @@ async def test_handle_cancel_job_malformed_frame_drops_silently(tmp_path: Path) 
     controller.offloader._db.firmware.cancel.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_handle_cancel_job_before_controller_started_drops_silently(
     tmp_path: Path,
 ) -> None:
@@ -2319,7 +2255,6 @@ async def test_handle_cancel_job_before_controller_started_drops_silently(
     controller.offloader._db.firmware.cancel.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_handle_cancel_job_swallows_firmware_command_error(tmp_path: Path) -> None:
     """A ``CommandError`` from ``firmware.cancel`` (e.g. already-terminal) is swallowed."""
     controller = _make_receiver_with_fanout(tmp_path)

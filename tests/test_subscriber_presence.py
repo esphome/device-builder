@@ -64,7 +64,6 @@ def test_subscriber_context_decrements_on_exception() -> None:
     assert p.has_subscribers() is False
 
 
-@pytest.mark.asyncio
 async def test_wait_for_subscriber_returns_immediately_when_open() -> None:
     """A subscriber already present means awaiting completes without parking."""
     p = SubscriberPresence()
@@ -74,7 +73,6 @@ async def test_wait_for_subscriber_returns_immediately_when_open() -> None:
         await asyncio.wait_for(p.wait_for_subscriber(), timeout=0.5)
 
 
-@pytest.mark.asyncio
 async def test_wait_for_subscriber_parks_until_first_subscriber() -> None:
     """An awaiter blocks while count is 0 and resumes on the 0→1 transition."""
     p = SubscriberPresence()
@@ -91,7 +89,6 @@ async def test_wait_for_subscriber_parks_until_first_subscriber() -> None:
         await asyncio.wait_for(waiter_task, timeout=0.5)
 
 
-@pytest.mark.asyncio
 async def test_wait_for_subscriber_parks_again_after_drop_to_zero() -> None:
     """A second awaiter created after the gate closed parks again.
 
@@ -120,7 +117,6 @@ async def test_wait_for_subscriber_parks_again_after_drop_to_zero() -> None:
         await asyncio.wait_for(waiter_task, timeout=0.5)
 
 
-@pytest.mark.asyncio
 async def test_wait_for_subscriber_wakes_every_awaiter_on_open() -> None:
     """Multiple awaiters all resume when the count first goes 0→1.
 
@@ -142,7 +138,6 @@ async def test_wait_for_subscriber_wakes_every_awaiter_on_open() -> None:
         await asyncio.wait_for(asyncio.gather(*waiters), timeout=0.5)
 
 
-@pytest.mark.asyncio
 async def test_wait_for_no_subscribers_returns_immediately_when_count_is_zero() -> None:
     """The mirror gate is open at startup (count == 0).
 
@@ -158,7 +153,6 @@ async def test_wait_for_no_subscribers_returns_immediately_when_count_is_zero() 
     await asyncio.wait_for(p.wait_for_no_subscribers(), timeout=0.5)
 
 
-@pytest.mark.asyncio
 async def test_wait_for_no_subscribers_parks_while_subscribers_present() -> None:
     """A subscriber holding the gate open blocks the no-subscriber waiter."""
     p = SubscriberPresence()
@@ -175,7 +169,6 @@ async def test_wait_for_no_subscribers_parks_while_subscribers_present() -> None
     await asyncio.wait_for(waiter_task, timeout=0.5)
 
 
-@pytest.mark.asyncio
 async def test_wait_for_no_subscribers_wakes_on_drop_to_zero() -> None:
     """Subscriber-drop wakes a parked no-subscribers waiter within one tick.
 

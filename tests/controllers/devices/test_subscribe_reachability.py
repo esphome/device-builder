@@ -167,7 +167,6 @@ async def _subscribe_and_wait(
     return task
 
 
-@pytest.mark.asyncio
 async def test_subscribe_emits_initial_snapshot_then_confirmation(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -205,7 +204,6 @@ async def test_subscribe_emits_initial_snapshot_then_confirmation(
             await task
 
 
-@pytest.mark.asyncio
 async def test_live_event_for_subscribed_device_forwards(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -249,7 +247,6 @@ async def test_live_event_for_subscribed_device_forwards(
             await task
 
 
-@pytest.mark.asyncio
 async def test_live_event_for_other_device_is_filtered(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -290,7 +287,6 @@ async def test_live_event_for_other_device_is_filtered(
             await task
 
 
-@pytest.mark.asyncio
 async def test_subscribe_unknown_device_raises_not_found(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -308,7 +304,6 @@ async def test_subscribe_unknown_device_raises_not_found(
     assert exc.value.code == ErrorCode.NOT_FOUND
 
 
-@pytest.mark.asyncio
 async def test_subscribe_missing_device_name_raises(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -325,7 +320,6 @@ async def test_subscribe_missing_device_name_raises(
     assert exc.value.code == ErrorCode.INVALID_MESSAGE
 
 
-@pytest.mark.asyncio
 async def test_cancel_via_stop_stream_detaches_listener(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -370,7 +364,6 @@ async def test_cancel_via_stop_stream_detaches_listener(
     assert "m1" not in client._stream_tasks
 
 
-@pytest.mark.asyncio
 async def test_subscribe_without_client_returns_silently(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -479,7 +472,6 @@ def test_scan_change_removed_clears_tracker(
     assert snap["ping_last_seen_seconds_ago"] is None
 
 
-@pytest.mark.asyncio
 async def test_refresh_loop_only_calls_resolve_when_source_is_mdns(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -524,7 +516,6 @@ async def test_refresh_loop_only_calls_resolve_when_source_is_mdns(
     state_monitor.refresh_mdns.assert_awaited_with("kitchen")
 
 
-@pytest.mark.asyncio
 async def test_refresh_loop_sleeps_until_cache_expiry(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -570,7 +561,6 @@ async def test_refresh_loop_sleeps_until_cache_expiry(
     assert sleep_durations[1] == pytest.approx(_MDNS_REFRESH_PADDING_SECONDS)
 
 
-@pytest.mark.asyncio
 async def test_refresh_loop_skips_wire_query_when_recheck_finds_fresh_cache(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:

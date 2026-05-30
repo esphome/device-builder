@@ -29,8 +29,6 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
-import pytest
-
 from esphome_device_builder.controllers._device_scanner import (
     DeviceFileMetadata,
     DeviceScanner,
@@ -60,7 +58,6 @@ def _device(name: str = "kitchen", **overrides: Any) -> Device:
 # ----------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_reload_rereads_state_and_fires_updated(tmp_path: Path) -> None:
     """Reload re-runs the loader and fires ``UPDATED`` so listeners refresh."""
     yaml_path = tmp_path / "kitchen.yaml"
@@ -86,7 +83,6 @@ async def test_reload_rereads_state_and_fires_updated(tmp_path: Path) -> None:
     assert changes == [(ScanChange.UPDATED, refreshed)]
 
 
-@pytest.mark.asyncio
 async def test_reload_unknown_filename_is_noop(tmp_path: Path) -> None:
     """Reload of an untracked file returns False without touching listeners."""
     changes: list[tuple[ScanChange, Device]] = []
@@ -273,7 +269,6 @@ def test_unhandled_job_type_with_configuration_falls_through_silently() -> None:
 # ----------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_refresh_after_compile_persists_hash_and_reloads(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
@@ -310,7 +305,6 @@ async def test_refresh_after_compile_persists_hash_and_reloads(
     assert controller._scanner.calls == [("reload", "kitchen.yaml")]
 
 
-@pytest.mark.asyncio
 async def test_refresh_after_compile_skips_persist_on_hash_failure(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
@@ -349,7 +343,6 @@ async def test_refresh_after_compile_skips_persist_on_hash_failure(
     assert controller._scanner.calls == [("reload", "kitchen.yaml")]
 
 
-@pytest.mark.asyncio
 async def test_refresh_after_upload_skips_hash_compute(tmp_path: Path, monkeypatch: Any) -> None:
     """UPLOAD-only doesn't recompile — skip the heavy hash subprocess entirely."""
     compute_calls: list[Path] = []
@@ -438,7 +431,6 @@ def _flush_controller(device: Device) -> tuple[Any, list[Any]]:
     return controller, fired
 
 
-@pytest.mark.asyncio
 async def test_sync_after_flash_pins_deployed_hash_and_clears_pending() -> None:
     """Post-flash sync flips deployed → expected and emits ``DEVICE_UPDATED``."""
     device = _device(
@@ -458,7 +450,6 @@ async def test_sync_after_flash_pins_deployed_hash_and_clears_pending() -> None:
     assert [t for t, _p in fired] == [EventType.DEVICE_UPDATED]
 
 
-@pytest.mark.asyncio
 async def test_sync_after_flash_no_expected_hash_is_noop() -> None:
     """Without ``expected_config_hash`` we have nothing to pin — fall back to mtime."""
     device = _device(
@@ -476,7 +467,6 @@ async def test_sync_after_flash_no_expected_hash_is_noop() -> None:
     assert fired == []
 
 
-@pytest.mark.asyncio
 async def test_sync_after_flash_already_in_sync_is_noop() -> None:
     """Already-matching hashes skip both the cache write and the event."""
     device = _device(
@@ -493,7 +483,6 @@ async def test_sync_after_flash_already_in_sync_is_noop() -> None:
     assert fired == []
 
 
-@pytest.mark.asyncio
 async def test_sync_after_flash_unknown_configuration_is_noop() -> None:
     """Configuration not in the scanner's device list — silently skip."""
     device = _device(

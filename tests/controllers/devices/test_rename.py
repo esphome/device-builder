@@ -67,7 +67,6 @@ def _reset_fake_path_existing() -> Any:
     _FakePath.existing = set()
 
 
-@pytest.mark.asyncio
 async def test_rename_target_filename_collision_raises(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -88,7 +87,6 @@ async def test_rename_target_filename_collision_raises(
     assert "already exists" in excinfo.value.message
 
 
-@pytest.mark.asyncio
 async def test_rename_same_name_raises(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -109,7 +107,6 @@ async def test_rename_same_name_raises(
     assert "must differ" in excinfo.value.message
 
 
-@pytest.mark.asyncio
 async def test_rename_same_name_raises_for_yml_extension(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -132,7 +129,6 @@ async def test_rename_same_name_raises_for_yml_extension(
     assert "must differ" in excinfo.value.message
 
 
-@pytest.mark.asyncio
 async def test_rename_queues_firmware_job(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -162,7 +158,6 @@ async def test_rename_queues_firmware_job(
     assert controller._scanner.calls == []
 
 
-@pytest.mark.asyncio
 async def test_rename_missing_firmware_controller_raises(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:

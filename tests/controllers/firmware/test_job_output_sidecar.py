@@ -45,7 +45,6 @@ def _terminal_job(output: list[str]) -> FirmwareJob:
     )
 
 
-@pytest.mark.asyncio
 async def test_terminal_output_flushed_to_sidecar_and_stripped_from_blob(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -67,7 +66,6 @@ async def test_terminal_output_flushed_to_sidecar_and_stripped_from_blob(
     assert "output" not in entries[0]
 
 
-@pytest.mark.asyncio
 async def test_active_output_kept_in_ram_and_inline_in_blob(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -166,7 +164,6 @@ def test_write_sidecar_cleans_up_temp_on_failure(monkeypatch: pytest.MonkeyPatch
     assert [p for p in log_dir.iterdir() if p.suffix == ".tmp"] == []
 
 
-@pytest.mark.asyncio
 async def test_legacy_inline_output_migrates_to_sidecar_on_load(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -184,7 +181,6 @@ async def test_legacy_inline_output_migrates_to_sidecar_on_load(
     assert await asyncio.to_thread(read_job_output, "t1") == ["legacy a\n", "legacy b\n"]
 
 
-@pytest.mark.asyncio
 async def test_migration_isolates_per_job_write_failure(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -237,7 +233,6 @@ async def test_migration_isolates_per_job_write_failure(
     assert any("Failed to migrate job bad1" in r.message for r in caplog.records)
 
 
-@pytest.mark.asyncio
 async def test_persist_reaps_orphaned_sidecar(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -257,7 +252,6 @@ async def test_persist_reaps_orphaned_sidecar(
     assert await asyncio.to_thread(lambda: _job_log_path("t1").exists())
 
 
-@pytest.mark.asyncio
 async def test_persist_reaps_orphaned_tmp_file(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -281,7 +275,6 @@ async def test_persist_reaps_orphaned_tmp_file(
     assert await asyncio.to_thread(lambda: _job_log_path("t1").exists())
 
 
-@pytest.mark.asyncio
 async def test_concurrent_persist_snapshots_under_lock_and_keeps_all_jobs(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -319,7 +312,6 @@ async def test_concurrent_persist_snapshots_under_lock_and_keeps_all_jobs(
     assert {e["job_id"] for e in _blob_jobs(tmp_path)} == {"t1", "t2"}
 
 
-@pytest.mark.asyncio
 async def test_old_job_log_viewable_via_follow_job_after_restart(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:

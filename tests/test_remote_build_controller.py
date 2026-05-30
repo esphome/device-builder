@@ -381,7 +381,6 @@ def _patch_probe_internals(
     return cancel, spawn
 
 
-@pytest.mark.asyncio
 async def test_rebind_probe_match_mutates_pairing_and_fires_event(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -416,7 +415,6 @@ async def test_rebind_probe_match_mutates_pairing_and_fires_event(
     assert pin not in controller.offloader.state.rebind_probe_until
 
 
-@pytest.mark.asyncio
 async def test_rebind_probe_pin_mismatch_does_not_mutate(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -457,7 +455,6 @@ async def test_rebind_probe_pin_mismatch_does_not_mutate(
     assert controller.offloader.state.rebind_probe_until[pin] == 9999.0
 
 
-@pytest.mark.asyncio
 async def test_rebind_probe_unreachable_does_not_mutate(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -490,7 +487,6 @@ async def test_rebind_probe_unreachable_does_not_mutate(
     assert controller.offloader.state.rebind_probe_until[pin] == 9999.0
 
 
-@pytest.mark.asyncio
 async def test_rebind_probe_skips_when_pairing_replaced_mid_probe(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -523,7 +519,6 @@ async def test_rebind_probe_skips_when_pairing_replaced_mid_probe(
     spawn.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_rebind_probe_skips_when_pairing_status_flips_mid_probe(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -560,7 +555,6 @@ async def test_rebind_probe_skips_when_pairing_status_flips_mid_probe(
     spawn.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_rebind_probe_unexpected_exception_clears_cooldown(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -589,7 +583,6 @@ async def test_rebind_probe_unexpected_exception_clears_cooldown(
     assert pin not in controller.offloader.state.rebind_probe_until
 
 
-@pytest.mark.asyncio
 async def test_rebind_probe_skips_when_pairing_unpaired_mid_probe(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -672,7 +665,6 @@ def test_maybe_schedule_rebind_probe_skips_pending(tmp_path: Path) -> None:
     assert controller.offloader._tasks == set()
 
 
-@pytest.mark.asyncio
 async def test_maybe_schedule_rebind_probe_dedupes_within_cooldown(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -748,7 +740,6 @@ def test_maybe_schedule_rebind_probe_skips_without_priv(tmp_path: Path) -> None:
 # failure mode the probe can return.
 
 
-@pytest.mark.asyncio
 async def test_edit_pairing_endpoint_match_mutates_pairing_and_fires_event(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -783,7 +774,6 @@ async def test_edit_pairing_endpoint_match_mutates_pairing_and_fires_event(
     assert summary.pin_sha256 == pin
 
 
-@pytest.mark.asyncio
 async def test_edit_pairing_endpoint_pin_mismatch_raises_precondition_failed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -817,7 +807,6 @@ async def test_edit_pairing_endpoint_pin_mismatch_raises_precondition_failed(
     spawn.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_edit_pairing_endpoint_unreachable_raises_unavailable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -844,7 +833,6 @@ async def test_edit_pairing_endpoint_unreachable_raises_unavailable(
     spawn.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_edit_pairing_endpoint_unknown_pin_raises_not_found(tmp_path: Path) -> None:
     """A pin with no stored pairing raises NOT_FOUND before the probe runs."""
     controller = _make_controller(config_dir=tmp_path)
@@ -859,7 +847,6 @@ async def test_edit_pairing_endpoint_unknown_pin_raises_not_found(tmp_path: Path
     assert exc_info.value.code is ErrorCode.NOT_FOUND
 
 
-@pytest.mark.asyncio
 async def test_edit_pairing_endpoint_pending_pairing_raises_precondition_failed(
     tmp_path: Path,
 ) -> None:
@@ -885,7 +872,6 @@ async def test_edit_pairing_endpoint_pending_pairing_raises_precondition_failed(
     assert "pending" in str(exc_info.value).lower()
 
 
-@pytest.mark.asyncio
 async def test_edit_pairing_endpoint_same_endpoint_raises_precondition_failed(
     tmp_path: Path,
 ) -> None:
@@ -908,7 +894,6 @@ async def test_edit_pairing_endpoint_same_endpoint_raises_precondition_failed(
     assert exc_info.value.code is ErrorCode.PRECONDITION_FAILED
 
 
-@pytest.mark.asyncio
 async def test_edit_pairing_endpoint_raises_not_found_when_pairing_replaced_mid_probe(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -952,7 +937,6 @@ async def test_edit_pairing_endpoint_raises_not_found_when_pairing_replaced_mid_
     spawn.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_edit_pairing_endpoint_without_priv_raises_precondition_failed(
     tmp_path: Path,
 ) -> None:
@@ -977,7 +961,6 @@ async def test_edit_pairing_endpoint_without_priv_raises_precondition_failed(
     assert exc_info.value.code is ErrorCode.PRECONDITION_FAILED
 
 
-@pytest.mark.asyncio
 async def test_edit_pairing_endpoint_status_changed_mid_probe_raises_precondition_failed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1040,7 +1023,6 @@ async def test_edit_pairing_endpoint_status_changed_mid_probe_raises_preconditio
         {"pin_sha256": "a" * 64, "hostname": "a.local", "port": True},
     ],
 )
-@pytest.mark.asyncio
 async def test_edit_pairing_endpoint_invalid_args_rejected_before_lookup(
     tmp_path: Path, kwargs: dict[str, Any]
 ) -> None:
@@ -1226,7 +1208,6 @@ def test_hosts_snapshot_empty_when_no_peers(tmp_path: Path) -> None:
     assert controller.offloader.hosts_snapshot() == []
 
 
-@pytest.mark.asyncio
 async def test_get_settings_defaults_when_unset(tmp_path: Path) -> None:
     """A fresh dashboard with no metadata returns ``enabled=True``.
 
@@ -1242,7 +1223,6 @@ async def test_get_settings_defaults_when_unset(tmp_path: Path) -> None:
     assert settings == RemoteBuildSettingsView(enabled=True)
 
 
-@pytest.mark.asyncio
 async def test_set_settings_round_trips(tmp_path: Path) -> None:
     """Setting ``enabled=True`` persists and is read back by ``get_settings``."""
     controller = _make_controller(config_dir=tmp_path)
@@ -1252,7 +1232,6 @@ async def test_set_settings_round_trips(tmp_path: Path) -> None:
     assert read == RemoteBuildSettingsView(enabled=True)
 
 
-@pytest.mark.asyncio
 async def test_set_settings_rejects_non_bool(tmp_path: Path) -> None:
     """
     Non-boolean ``enabled`` raises ``INVALID_ARGS``, doesn't coerce.
@@ -1274,7 +1253,6 @@ async def test_set_settings_rejects_non_bool(tmp_path: Path) -> None:
     assert settings.enabled is True
 
 
-@pytest.mark.asyncio
 async def test_set_settings_round_trips_cleanup_ttl(tmp_path: Path) -> None:
     """``cleanup_ttl_seconds`` persists alongside ``enabled``."""
     controller = _make_controller(config_dir=tmp_path)
@@ -1284,7 +1262,6 @@ async def test_set_settings_round_trips_cleanup_ttl(tmp_path: Path) -> None:
     assert read.cleanup_ttl_seconds == 7200
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "bad_value",
     [
@@ -1310,7 +1287,6 @@ async def test_set_settings_rejects_non_int_cleanup_ttl(tmp_path: Path, bad_valu
     assert exc.value.code == ErrorCode.INVALID_ARGS
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "out_of_range",
     [
@@ -1335,7 +1311,6 @@ async def test_set_settings_rejects_out_of_range_cleanup_ttl(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_start_skips_when_devices_controller_missing(tmp_path: Path) -> None:
     """``start`` is a no-op when ``DevicesController`` hasn't been set."""
     db = MagicMock()
@@ -1351,7 +1326,6 @@ async def test_start_skips_when_devices_controller_missing(tmp_path: Path) -> No
     assert controller.offloader.state.browser is None
 
 
-@pytest.mark.asyncio
 async def test_start_skips_when_zeroconf_unavailable(tmp_path: Path) -> None:
     """``start`` is a no-op when zeroconf failed to bind."""
     controller = _make_controller(config_dir=tmp_path)
@@ -1360,7 +1334,6 @@ async def test_start_skips_when_zeroconf_unavailable(tmp_path: Path) -> None:
     assert controller.offloader.state.browser is None
 
 
-@pytest.mark.asyncio
 async def test_start_leaves_peer_link_resolver_none_when_devices_controller_missing(
     tmp_path: Path,
 ) -> None:
@@ -1385,7 +1358,6 @@ async def test_start_leaves_peer_link_resolver_none_when_devices_controller_miss
     assert controller.offloader.state.peer_link_resolver is None
 
 
-@pytest.mark.asyncio
 async def test_start_leaves_peer_link_resolver_none_when_zeroconf_failed_to_bind(
     tmp_path: Path,
 ) -> None:
@@ -1403,7 +1375,6 @@ async def test_start_leaves_peer_link_resolver_none_when_zeroconf_failed_to_bind
     assert controller.offloader.state.peer_link_resolver is None
 
 
-@pytest.mark.asyncio
 async def test_start_swallows_peer_link_resolver_construction_errors(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1438,7 +1409,6 @@ async def test_start_swallows_peer_link_resolver_construction_errors(
         await controller.stop()
 
 
-@pytest.mark.asyncio
 async def test_stop_swallows_peer_link_resolver_close_failures(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
@@ -1470,7 +1440,6 @@ async def test_stop_swallows_peer_link_resolver_close_failures(
     assert any("peer-link resolver close failed" in r.message for r in caplog.records)
 
 
-@pytest.mark.asyncio
 async def test_start_constructs_peer_link_resolver_when_zeroconf_is_up(
     tmp_path: Path,
 ) -> None:
@@ -1495,7 +1464,6 @@ async def test_start_constructs_peer_link_resolver_when_zeroconf_is_up(
         assert controller.offloader.state.peer_link_resolver is None
 
 
-@pytest.mark.asyncio
 async def test_start_swallows_browser_construction_errors(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -1516,7 +1484,6 @@ async def test_start_swallows_browser_construction_errors(
     assert controller.offloader.state.browser is None
 
 
-@pytest.mark.asyncio
 async def test_start_captures_own_instance_name(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -1545,7 +1512,6 @@ async def test_start_captures_own_instance_name(
     await controller.stop()
 
 
-@pytest.mark.asyncio
 async def test_start_skips_self_capture_when_advertiser_unregistered(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -1570,7 +1536,6 @@ async def test_start_skips_self_capture_when_advertiser_unregistered(
     await controller.stop()
 
 
-@pytest.mark.asyncio
 async def test_start_skips_self_capture_when_no_advertiser(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -1590,7 +1555,6 @@ async def test_start_skips_self_capture_when_no_advertiser(
     await controller.stop()
 
 
-@pytest.mark.asyncio
 async def test_stop_swallows_browser_cancel_errors(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -1608,7 +1572,6 @@ async def test_stop_swallows_browser_cancel_errors(
     assert controller.offloader.state.browser is None
 
 
-@pytest.mark.asyncio
 async def test_on_service_state_change_spawns_resolve_task_on_cache_miss(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1639,7 +1602,6 @@ async def test_on_service_state_change_spawns_resolve_task_on_cache_miss(
     assert event_type is EventType.REMOTE_BUILD_HOST_ADDED
 
 
-@pytest.mark.asyncio
 async def test_resolve_and_apply_swallows_errors(tmp_path: Path) -> None:
     """A resolve-side exception leaves the peer map untouched."""
     controller = _make_controller(config_dir=tmp_path)
@@ -1649,7 +1611,6 @@ async def test_resolve_and_apply_swallows_errors(tmp_path: Path) -> None:
     assert controller.offloader.state.peers == {}
 
 
-@pytest.mark.asyncio
 async def test_resolve_and_apply_skips_when_resolution_returns_false(tmp_path: Path) -> None:
     """An ``async_request`` that returns ``False`` (timeout) doesn't add a peer."""
     controller = _make_controller(config_dir=tmp_path)
@@ -1659,7 +1620,6 @@ async def test_resolve_and_apply_skips_when_resolution_returns_false(tmp_path: P
     assert controller.offloader.state.peers == {}
 
 
-@pytest.mark.asyncio
 async def test_stop_drains_resolve_tasks(tmp_path: Path) -> None:
     """In-flight resolve tasks are cancelled and the set is cleared."""
     controller = _make_controller(config_dir=tmp_path)
@@ -1813,7 +1773,6 @@ def _stub_identity_db(
     return reload_mock
 
 
-@pytest.mark.asyncio
 async def test_get_identity_returns_dashboard_id_pin_and_versions(tmp_path: Path) -> None:
     """``get_identity`` projects the persistent identity into the wire shape."""
     controller = _make_controller(config_dir=tmp_path)
@@ -1832,7 +1791,6 @@ async def test_get_identity_returns_dashboard_id_pin_and_versions(tmp_path: Path
     assert view.esphome_version
 
 
-@pytest.mark.asyncio
 async def test_get_identity_lazy_creates_peer_link_key_on_first_call(tmp_path: Path) -> None:
     """``get_identity`` writes the X25519 peer-link key to disk if it's missing."""
     controller = _make_controller(config_dir=tmp_path)
@@ -1853,7 +1811,6 @@ async def test_get_identity_lazy_creates_peer_link_key_on_first_call(tmp_path: P
     assert not (tmp_path / ".device-builder-key.pem").exists()
 
 
-@pytest.mark.asyncio
 async def test_get_identity_reflects_listener_bound_state(tmp_path: Path) -> None:
     """``listener_bound`` reads the dashboard's runner state."""
     controller = _make_controller(config_dir=tmp_path)
@@ -1866,7 +1823,6 @@ async def test_get_identity_reflects_listener_bound_state(tmp_path: Path) -> Non
     assert unbound_view.listener_bound is False
 
 
-@pytest.mark.asyncio
 async def test_get_identity_does_not_leak_cert_or_key_pem(tmp_path: Path) -> None:
     """Wire shape is the declared fields only — no PEM bytes."""
     controller = _make_controller(config_dir=tmp_path)
@@ -1885,7 +1841,6 @@ async def test_get_identity_does_not_leak_cert_or_key_pem(tmp_path: Path) -> Non
     assert "key_pem" not in encoded
 
 
-@pytest.mark.asyncio
 async def test_get_identity_is_idempotent_across_calls(tmp_path: Path) -> None:
     """Two calls return the same identity (no rotation triggered by reads)."""
     controller = _make_controller(config_dir=tmp_path)
@@ -1895,7 +1850,6 @@ async def test_get_identity_is_idempotent_across_calls(tmp_path: Path) -> None:
     assert first == second
 
 
-@pytest.mark.asyncio
 async def test_rotate_identity_changes_pin_sha256(tmp_path: Path) -> None:
     """A rotate produces a different ``pin_sha256`` than the previous identity."""
     controller = _make_controller(config_dir=tmp_path)
@@ -1909,7 +1863,6 @@ async def test_rotate_identity_changes_pin_sha256(tmp_path: Path) -> None:
     assert rotated.dashboard_id == pre.dashboard_id
 
 
-@pytest.mark.asyncio
 async def test_rotate_identity_calls_reload_hook_with_new_pin(tmp_path: Path) -> None:
     """The rotate hands the new pin off to the dashboard for listener rebuild."""
     controller = _make_controller(config_dir=tmp_path)
@@ -1918,7 +1871,6 @@ async def test_rotate_identity_calls_reload_hook_with_new_pin(tmp_path: Path) ->
     reload_mock.assert_awaited_once_with(pin_sha256=rotated.pin_sha256)
 
 
-@pytest.mark.asyncio
 async def test_rotate_identity_persists_to_disk(tmp_path: Path) -> None:
     """The new cert + key land on disk so a fresh ``get_identity`` agrees."""
     controller = _make_controller(config_dir=tmp_path)
@@ -1931,7 +1883,6 @@ async def test_rotate_identity_persists_to_disk(tmp_path: Path) -> None:
     assert reread.pin_sha256 == rotated.pin_sha256
 
 
-@pytest.mark.asyncio
 async def test_rotate_identity_response_omits_cert_pem(tmp_path: Path) -> None:
     """Rotate's wire response also redacts cert + key bytes."""
     controller = _make_controller(config_dir=tmp_path)
@@ -1946,7 +1897,6 @@ async def test_rotate_identity_response_omits_cert_pem(tmp_path: Path) -> None:
     assert "key_pem" not in encoded
 
 
-@pytest.mark.asyncio
 async def test_rotate_identity_surfaces_listener_bound_from_reload(tmp_path: Path) -> None:
     """``IdentityView.listener_bound`` reflects the rebuild's outcome."""
     controller = _make_controller(config_dir=tmp_path)
@@ -1959,7 +1909,6 @@ async def test_rotate_identity_surfaces_listener_bound_from_reload(tmp_path: Pat
     assert view.listener_bound is False
 
 
-@pytest.mark.asyncio
 async def test_rotate_identity_fires_event_on_bus(tmp_path: Path) -> None:
     """A successful rotate fires ``REMOTE_BUILD_IDENTITY_ROTATED``."""
     controller = _make_controller(config_dir=tmp_path)
@@ -1975,7 +1924,6 @@ async def test_rotate_identity_fires_event_on_bus(tmp_path: Path) -> None:
     }
 
 
-@pytest.mark.asyncio
 async def test_rotate_identity_concurrent_call_rejected(tmp_path: Path) -> None:
     """A second concurrent ``rotate_identity`` raises ``ALREADY_EXISTS``."""
     controller = _make_controller(config_dir=tmp_path)
@@ -2006,7 +1954,6 @@ async def test_rotate_identity_concurrent_call_rejected(tmp_path: Path) -> None:
     assert isinstance(first_result, IdentityView)
 
 
-@pytest.mark.asyncio
 async def test_rotate_identity_in_flight_flag_tracks_shielded_work(tmp_path: Path) -> None:
     """A cancelled awaiter doesn't release the flag while the shielded reload still runs."""
     controller = _make_controller(config_dir=tmp_path)
@@ -2044,7 +1991,6 @@ async def test_rotate_identity_in_flight_flag_tracks_shielded_work(tmp_path: Pat
     assert reload_calls == 1
 
 
-@pytest.mark.asyncio
 async def test_rotate_identity_clears_in_flight_flag_on_failure(tmp_path: Path) -> None:
     """A failed reload still clears the flag so the next rotate isn't stuck rejected."""
     controller = _make_controller(config_dir=tmp_path)
@@ -2314,7 +2260,6 @@ def test_stored_peer_refresh_from_pair_request_updates_all_documented_fields() -
     assert peer.dashboard_id == "alpha"
 
 
-@pytest.mark.asyncio
 async def test_start_seeds_approved_peers_dict_from_disk(tmp_path: Path) -> None:
     """``start()`` loads APPROVED peers off disk into ``_approved_peers``.
 
@@ -2364,7 +2309,6 @@ async def test_start_seeds_approved_peers_dict_from_disk(tmp_path: Path) -> None
     assert loaded.peer_ip == "172.16.5.42"
 
 
-@pytest.mark.asyncio
 async def test_start_recovers_to_empty_on_corrupt_peers_file(tmp_path: Path) -> None:
     """A corrupt ``.receiver_peers.json`` doesn't crash startup; dict stays empty.
 
@@ -2386,7 +2330,6 @@ async def test_start_recovers_to_empty_on_corrupt_peers_file(tmp_path: Path) -> 
     assert controller.receiver.state.approved_peers == {}
 
 
-@pytest.mark.asyncio
 async def test_start_loads_legacy_peers_file_without_peer_ip(tmp_path: Path) -> None:
     """A ``.receiver_peers.json`` written before ``peer_ip`` was added loads cleanly.
 
@@ -2416,7 +2359,6 @@ async def test_start_loads_legacy_peers_file_without_peer_ip(tmp_path: Path) -> 
     assert controller.receiver.state.approved_peers["alpha"].peer_ip == ""
 
 
-@pytest.mark.asyncio
 async def test_approve_peer_promotes_pending_to_approved(tmp_path: Path) -> None:
     controller = _make_controller(config_dir=tmp_path)
     controller.offloader._db.bus = MagicMock()
@@ -2432,7 +2374,6 @@ async def test_approve_peer_promotes_pending_to_approved(tmp_path: Path) -> None
     assert controller.receiver.state.approved_peers["alpha"].dashboard_id == "alpha"
 
 
-@pytest.mark.asyncio
 async def test_approve_peer_fires_pair_status_changed(tmp_path: Path) -> None:
     """Approval fires ``REMOTE_BUILD_PAIR_STATUS_CHANGED`` with status=approved."""
     controller = _make_controller(config_dir=tmp_path)
@@ -2448,7 +2389,6 @@ async def test_approve_peer_fires_pair_status_changed(tmp_path: Path) -> None:
     assert payload == {"dashboard_id": "alpha", "status": "approved"}
 
 
-@pytest.mark.asyncio
 async def test_approve_peer_unknown_returns_not_found(tmp_path: Path) -> None:
     controller = _make_controller(config_dir=tmp_path)
     controller.offloader._db.bus = MagicMock()
@@ -2460,7 +2400,6 @@ async def test_approve_peer_unknown_returns_not_found(tmp_path: Path) -> None:
     controller.offloader._db.bus.fire.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_approve_peer_already_approved_returns_invalid_args(tmp_path: Path) -> None:
     """Re-approving an already-APPROVED peer is rejected, not silently re-fired."""
     controller = _make_controller(config_dir=tmp_path)
@@ -2474,7 +2413,6 @@ async def test_approve_peer_already_approved_returns_invalid_args(tmp_path: Path
     controller.offloader._db.bus.fire.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_approve_peer_rejects_invalid_dashboard_id(tmp_path: Path) -> None:
     controller = _make_controller(config_dir=tmp_path)
     controller.offloader._db.bus = MagicMock()
@@ -2485,7 +2423,6 @@ async def test_approve_peer_rejects_invalid_dashboard_id(tmp_path: Path) -> None
     assert exc.value.code is ErrorCode.INVALID_ARGS
 
 
-@pytest.mark.asyncio
 async def test_approve_peer_rejects_non_string_dashboard_id(tmp_path: Path) -> None:
     """Non-string ``dashboard_id`` is rejected up front, not silently coerced."""
     controller = _make_controller(config_dir=tmp_path)
@@ -2498,7 +2435,6 @@ async def test_approve_peer_rejects_non_string_dashboard_id(tmp_path: Path) -> N
     controller.offloader._db.bus.fire.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_remove_peer_drops_pending_and_fires_removed(tmp_path: Path) -> None:
     """Removing a PENDING peer fires ``status="removed"``.
 
@@ -2523,7 +2459,6 @@ async def test_remove_peer_drops_pending_and_fires_removed(tmp_path: Path) -> No
     assert payload == {"dashboard_id": "alpha", "status": "removed"}
 
 
-@pytest.mark.asyncio
 async def test_remove_peer_drops_approved_and_fires_event(tmp_path: Path) -> None:
     """Removing an APPROVED peer is revocation; fires the removed event."""
     controller = _make_controller(config_dir=tmp_path)
@@ -2540,7 +2475,6 @@ async def test_remove_peer_drops_approved_and_fires_event(tmp_path: Path) -> Non
     assert payload == {"dashboard_id": "alpha", "status": "removed"}
 
 
-@pytest.mark.asyncio
 async def test_remove_peer_keeps_other_rows(tmp_path: Path) -> None:
     """``remove_peer`` only touches the matching dashboard_id."""
     controller = _make_controller(config_dir=tmp_path)
@@ -2553,7 +2487,6 @@ async def test_remove_peer_keeps_other_rows(tmp_path: Path) -> None:
     assert {peer.dashboard_id for peer in view.peers} == {"keep"}
 
 
-@pytest.mark.asyncio
 async def test_remove_peer_unknown_returns_not_found(tmp_path: Path) -> None:
     controller = _make_controller(config_dir=tmp_path)
     controller.offloader._db.bus = MagicMock()
@@ -2568,13 +2501,11 @@ async def test_remove_peer_unknown_returns_not_found(tmp_path: Path) -> None:
 # --- pairing window ---
 
 
-@pytest.mark.asyncio
 async def test_pairing_window_starts_closed(tmp_path: Path) -> None:
     controller = _make_controller(config_dir=tmp_path)
     assert controller.receiver.is_pairing_window_open() is False
 
 
-@pytest.mark.asyncio
 async def test_set_pairing_window_open_opens_and_fires(tmp_path: Path) -> None:
     controller = _make_controller(config_dir=tmp_path)
     controller.offloader._db.bus = MagicMock()
@@ -2596,7 +2527,6 @@ async def test_set_pairing_window_open_opens_and_fires(tmp_path: Path) -> None:
     await controller.stop()
 
 
-@pytest.mark.asyncio
 async def test_set_pairing_window_close_closes_and_fires(tmp_path: Path) -> None:
     controller = _make_controller(config_dir=tmp_path)
     controller.offloader._db.bus = MagicMock()
@@ -2617,7 +2547,6 @@ async def test_set_pairing_window_close_closes_and_fires(tmp_path: Path) -> None
     await controller.stop()
 
 
-@pytest.mark.asyncio
 async def test_set_pairing_window_close_while_already_closed_is_silent(tmp_path: Path) -> None:
     """A close from a client that wasn't extending must not fire."""
     controller = _make_controller(config_dir=tmp_path)
@@ -2629,7 +2558,6 @@ async def test_set_pairing_window_close_while_already_closed_is_silent(tmp_path:
     controller.offloader._db.bus.fire.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_set_pairing_window_extend_refreshes_deadline_and_fires(tmp_path: Path) -> None:
     """
     Repeat ``open=true`` advances the client's timestamp and fires the event.
@@ -2676,7 +2604,6 @@ async def test_set_pairing_window_extend_refreshes_deadline_and_fires(tmp_path: 
     await controller.stop()
 
 
-@pytest.mark.asyncio
 async def test_pairing_window_two_clients_refcount(tmp_path: Path) -> None:
     """Two tabs / two users: window stays open until the LAST client closes."""
     controller = _make_controller(config_dir=tmp_path)
@@ -2703,7 +2630,6 @@ async def test_pairing_window_two_clients_refcount(tmp_path: Path) -> None:
     await controller.stop()
 
 
-@pytest.mark.asyncio
 async def test_pairing_window_close_from_non_extender_does_not_fire(tmp_path: Path) -> None:
     """A spurious open=False from a client that wasn't extending is a no-op."""
     controller = _make_controller(config_dir=tmp_path)
@@ -2720,7 +2646,6 @@ async def test_pairing_window_close_from_non_extender_does_not_fire(tmp_path: Pa
     await controller.stop()
 
 
-@pytest.mark.asyncio
 async def test_set_pairing_window_rejects_non_bool(tmp_path: Path) -> None:
     controller = _make_controller(config_dir=tmp_path)
     controller.offloader._db.bus = MagicMock()
@@ -2731,7 +2656,6 @@ async def test_set_pairing_window_rejects_non_bool(tmp_path: Path) -> None:
     assert exc.value.code is ErrorCode.INVALID_ARGS
 
 
-@pytest.mark.asyncio
 async def test_pairing_window_auto_closes_when_clients_age_out(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2782,7 +2706,6 @@ async def test_pairing_window_auto_closes_when_clients_age_out(
     await controller.stop()
 
 
-@pytest.mark.asyncio
 async def test_stop_cancels_pairing_window_handle(tmp_path: Path) -> None:
     """``controller.stop()`` cleans up the auto-close TimerHandle."""
     controller = _make_controller(config_dir=tmp_path)
@@ -2796,7 +2719,6 @@ async def test_stop_cancels_pairing_window_handle(tmp_path: Path) -> None:
     assert controller.receiver.is_pairing_window_open() is False
 
 
-@pytest.mark.asyncio
 async def test_explicit_close_cancels_handle_no_duplicate_event(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2859,7 +2781,6 @@ async def test_explicit_close_cancels_handle_no_duplicate_event(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_record_pair_request_creates_pending_row(tmp_path: Path) -> None:
     """First pair_request from a previously-unknown dashboard_id creates PENDING."""
     controller = _make_controller(config_dir=tmp_path)
@@ -2886,7 +2807,6 @@ async def test_record_pair_request_creates_pending_row(tmp_path: Path) -> None:
     assert pending.label == "alpha"
 
 
-@pytest.mark.asyncio
 async def test_record_pair_request_fires_event(tmp_path: Path) -> None:
     """Creating a PENDING row fires REMOTE_BUILD_PAIR_REQUEST_RECEIVED."""
     controller = _make_controller(config_dir=tmp_path)
@@ -2927,7 +2847,6 @@ async def test_record_pair_request_fires_event(tmp_path: Path) -> None:
     assert stored.peer_ip == "192.168.1.10"
 
 
-@pytest.mark.asyncio
 async def test_record_pair_request_refreshes_existing_pending_row(tmp_path: Path) -> None:
     """
     Re-pair from same dashboard_id + same pubkey refreshes label / peer_ip / paired_at.
@@ -2979,7 +2898,6 @@ async def test_record_pair_request_refreshes_existing_pending_row(tmp_path: Path
     assert controller.receiver.state.approved_peers == {}
 
 
-@pytest.mark.asyncio
 async def test_record_pair_request_pending_pubkey_mismatch_returns_rejected(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
@@ -3060,7 +2978,6 @@ async def test_record_pair_request_pending_pubkey_mismatch_returns_rejected(
     )
 
 
-@pytest.mark.asyncio
 async def test_record_pair_request_already_approved_same_pin_returns_approved(
     tmp_path: Path,
 ) -> None:
@@ -3103,7 +3020,6 @@ async def test_record_pair_request_already_approved_same_pin_returns_approved(
     controller.offloader._db.bus.fire.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_record_pair_request_unknown_dashboard_id_closed_window_returns_no_pairing_window(
     tmp_path: Path,
 ) -> None:
@@ -3137,7 +3053,6 @@ async def test_record_pair_request_unknown_dashboard_id_closed_window_returns_no
     controller.offloader._db.bus.fire.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_record_pair_request_already_approved_bypasses_closed_window(
     tmp_path: Path,
 ) -> None:
@@ -3178,7 +3093,6 @@ async def test_record_pair_request_already_approved_bypasses_closed_window(
     assert response is IntentResponse.APPROVED
 
 
-@pytest.mark.asyncio
 async def test_record_pair_request_already_approved_different_pin_returns_rejected(
     tmp_path: Path,
 ) -> None:
@@ -3226,7 +3140,6 @@ async def test_record_pair_request_already_approved_different_pin_returns_reject
     controller.offloader._db.bus.fire.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_lookup_peer_for_session_approved_returns_ok(tmp_path: Path) -> None:
     controller = _make_controller(config_dir=tmp_path)
     controller.offloader._db.bus = MagicMock()
@@ -3248,7 +3161,6 @@ async def test_lookup_peer_for_session_approved_returns_ok(tmp_path: Path) -> No
     assert response == "ok"
 
 
-@pytest.mark.asyncio
 async def test_lookup_peer_for_session_pending_returns_pending(tmp_path: Path) -> None:
     controller = _make_controller(config_dir=tmp_path)
     controller.offloader._db.bus = MagicMock()
@@ -3270,7 +3182,6 @@ async def test_lookup_peer_for_session_pending_returns_pending(tmp_path: Path) -
     assert response == "pending"
 
 
-@pytest.mark.asyncio
 async def test_lookup_peer_for_session_unknown_returns_rejected(tmp_path: Path) -> None:
     controller = _make_controller(config_dir=tmp_path)
     controller.offloader._db.bus = MagicMock()
@@ -3282,7 +3193,6 @@ async def test_lookup_peer_for_session_unknown_returns_rejected(tmp_path: Path) 
     assert response == "rejected"
 
 
-@pytest.mark.asyncio
 async def test_lookup_peer_for_session_pin_mismatch_returns_rejected(tmp_path: Path) -> None:
     """
     Stored row exists but pin doesn't match the handshake's pubkey hash.
@@ -3313,7 +3223,6 @@ async def test_lookup_peer_for_session_pin_mismatch_returns_rejected(tmp_path: P
     assert response == "rejected"
 
 
-@pytest.mark.asyncio
 async def test_lookup_peer_for_status_mirrors_session_but_uses_approved_string(
     tmp_path: Path,
 ) -> None:
@@ -3342,7 +3251,6 @@ async def test_lookup_peer_for_status_mirrors_session_but_uses_approved_string(
     assert session_response == "ok"
 
 
-@pytest.mark.asyncio
 async def test_lookup_peer_for_status_unknown_returns_rejected(tmp_path: Path) -> None:
     """A removed/rejected peer (or one that never existed) returns rejected."""
     controller = _make_controller(config_dir=tmp_path)
@@ -3355,7 +3263,6 @@ async def test_lookup_peer_for_status_unknown_returns_rejected(tmp_path: Path) -
     assert response == "rejected"
 
 
-@pytest.mark.asyncio
 async def test_lookup_peer_for_status_long_polls_until_approve_fires(
     tmp_path: Path,
 ) -> None:
@@ -3402,7 +3309,6 @@ async def test_lookup_peer_for_status_long_polls_until_approve_fires(
     assert response is IntentResponse.APPROVED
 
 
-@pytest.mark.asyncio
 async def test_lookup_peer_for_status_long_poll_ignores_other_dashboard_ids(
     tmp_path: Path,
 ) -> None:
@@ -3787,7 +3693,6 @@ def _make_session_stub(dashboard_id: str) -> AsyncMock:
     return session
 
 
-@pytest.mark.asyncio
 async def test_on_firmware_queue_transition_broadcasts_to_every_session(
     tmp_path: Path,
 ) -> None:
@@ -3864,7 +3769,6 @@ def test_on_firmware_queue_transition_skips_when_firmware_missing(
     controller.offloader._db.create_background_task.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_broadcast_queue_status_continues_past_failed_session(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
@@ -4050,7 +3954,6 @@ def test_get_artifacts_download_sender_returns_installed_sender(tmp_path: Path) 
     assert controller.receiver.get_artifacts_download_sender() is installed
 
 
-@pytest.mark.asyncio
 async def test_run_cleanup_loop_reclaims_cold_subtree_and_skips_in_flight(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -4114,7 +4017,6 @@ async def test_run_cleanup_loop_reclaims_cold_subtree_and_skips_in_flight(
     assert not cold.subtree(tmp_path).exists()
 
 
-@pytest.mark.asyncio
 async def test_run_cleanup_loop_logs_per_cycle_exception_and_continues(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -4167,7 +4069,6 @@ async def test_run_cleanup_loop_logs_per_cycle_exception_and_continues(
     assert sweep_calls == 2
 
 
-@pytest.mark.asyncio
 async def test_run_cleanup_loop_short_circuits_when_firmware_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -4319,7 +4220,6 @@ def test_remote_builds_enabled_default_is_true(tmp_path: Path) -> None:
     assert controller.offloader.build_scheduler_snapshot().remote_builds_enabled is True
 
 
-@pytest.mark.asyncio
 async def test_set_offloader_settings_toggles_master_and_fires_event(tmp_path: Path) -> None:
     """
     ``set_offloader_settings(remote_builds_enabled=False)`` flips the toggle + fires the event.
@@ -4344,7 +4244,6 @@ async def test_set_offloader_settings_toggles_master_and_fires_event(tmp_path: P
     assert captured == [{"remote_builds_enabled": False}]
 
 
-@pytest.mark.asyncio
 async def test_set_offloader_settings_rejects_non_bool(tmp_path: Path) -> None:
     """Truthy non-bool inputs raise ``INVALID_ARGS`` rather than coerce.
 
@@ -4361,7 +4260,6 @@ async def test_set_offloader_settings_rejects_non_bool(tmp_path: Path) -> None:
     assert controller.offloader.state.remote_builds_enabled is True
 
 
-@pytest.mark.asyncio
 async def test_set_pairing_enabled_flips_field_and_fires_event(tmp_path: Path) -> None:
     """
     ``set_pairing_enabled(pin, False)`` flips ``StoredPairing.enabled`` + fires the event.
@@ -4391,7 +4289,6 @@ async def test_set_pairing_enabled_flips_field_and_fires_event(tmp_path: Path) -
     assert captured == [{"pin_sha256": pairing.pin_sha256, "enabled": False}]
 
 
-@pytest.mark.asyncio
 async def test_set_pairing_enabled_rejects_unknown_pin(tmp_path: Path) -> None:
     """An unknown pin raises ``NOT_FOUND`` instead of silently no-op'ing.
 
@@ -4405,7 +4302,6 @@ async def test_set_pairing_enabled_rejects_unknown_pin(tmp_path: Path) -> None:
     assert exc.value.code == ErrorCode.NOT_FOUND
 
 
-@pytest.mark.asyncio
 async def test_set_pairing_enabled_rejects_non_bool(tmp_path: Path) -> None:
     """Strict ``bool`` validation matches the master-toggle command."""
     controller = _make_controller(config_dir=tmp_path)
@@ -4422,7 +4318,6 @@ async def test_set_pairing_enabled_rejects_non_bool(tmp_path: Path) -> None:
     assert pairing.enabled is True
 
 
-@pytest.mark.asyncio
 async def test_set_offloader_settings_flips_version_match_policy(tmp_path: Path) -> None:
     """Setting the policy fires the new event and updates the snapshot."""
     controller = _make_controller(config_dir=tmp_path, real_bus=True)
@@ -4441,7 +4336,6 @@ async def test_set_offloader_settings_flips_version_match_policy(tmp_path: Path)
     assert captured == [{"version_match_policy": VersionMatchPolicy.EXACT_REQUIRED}]
 
 
-@pytest.mark.asyncio
 async def test_set_offloader_settings_rejects_unknown_policy(tmp_path: Path) -> None:
     """An unknown wire value raises ``INVALID_ARGS`` and leaves state untouched."""
     controller = _make_controller(config_dir=tmp_path)
@@ -4451,7 +4345,6 @@ async def test_set_offloader_settings_rejects_unknown_policy(tmp_path: Path) -> 
     assert controller.offloader.state.version_match_policy is VersionMatchPolicy.ANY
 
 
-@pytest.mark.asyncio
 async def test_set_offloader_settings_rejects_non_string_policy(tmp_path: Path) -> None:
     """A non-string ``version_match_policy`` (e.g. ``int``, ``bool``) raises INVALID_ARGS."""
     controller = _make_controller(config_dir=tmp_path)
@@ -4461,7 +4354,6 @@ async def test_set_offloader_settings_rejects_non_string_policy(tmp_path: Path) 
     assert controller.offloader.state.version_match_policy is VersionMatchPolicy.ANY
 
 
-@pytest.mark.asyncio
 async def test_set_offloader_settings_no_op_when_value_unchanged(tmp_path: Path) -> None:
     """Re-supplying the current value fires no event and schedules no save.
 
@@ -4485,7 +4377,6 @@ async def test_set_offloader_settings_no_op_when_value_unchanged(tmp_path: Path)
     save.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_set_offloader_settings_rejects_atomically_on_bad_policy(tmp_path: Path) -> None:
     """A bad policy doesn't half-apply a paired valid ``remote_builds_enabled`` flip."""
     controller = _make_controller(config_dir=tmp_path, real_bus=True)
@@ -4506,7 +4397,6 @@ async def test_set_offloader_settings_rejects_atomically_on_bad_policy(tmp_path:
     assert captured == []
 
 
-@pytest.mark.asyncio
 async def test_set_offloader_settings_rejects_all_none_args(tmp_path: Path) -> None:
     """Passing neither flag raises INVALID_ARGS rather than silently no-op'ing."""
     controller = _make_controller(config_dir=tmp_path)
@@ -4515,7 +4405,6 @@ async def test_set_offloader_settings_rejects_all_none_args(tmp_path: Path) -> N
     assert exc.value.code == ErrorCode.INVALID_ARGS
 
 
-@pytest.mark.asyncio
 async def test_build_scheduler_snapshot_resolves_esphome_version_per_call(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -4529,7 +4418,6 @@ async def test_build_scheduler_snapshot_resolves_esphome_version_per_call(
     assert second.offloader_esphome_version == "2026.6.0"
 
 
-@pytest.mark.asyncio
 async def test_get_offloader_settings_returns_master_plus_pairings(tmp_path: Path) -> None:
     """The view bundles the master toggle with the pairings snapshot.
 

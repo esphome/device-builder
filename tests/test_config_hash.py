@@ -97,7 +97,6 @@ def test_returns_none_when_hash_missing_or_wrong_type(tmp_path: Path) -> None:
     assert read_build_info_hash(yaml_path) is None
 
 
-@pytest.mark.asyncio
 async def test_async_wrapper_dispatches_to_sync_reader(tmp_path: Path) -> None:
     """``compute_yaml_config_hash`` returns the same value as ``read_build_info_hash``.
 

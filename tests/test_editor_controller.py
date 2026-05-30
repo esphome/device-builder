@@ -233,7 +233,6 @@ def _make_fake_proc(
     return proc, reader, stdin_capture
 
 
-@pytest.mark.asyncio
 async def test_validate_locked_returns_result_payload(tmp_path: Path) -> None:
     """Happy-path round trip: send validate, receive ``result``.
 
@@ -269,7 +268,6 @@ async def test_validate_locked_returns_result_payload(tmp_path: Path) -> None:
     assert b'"file":"kitchen.yaml"' in stdin_capture[0]
 
 
-@pytest.mark.asyncio
 async def test_validate_locked_handles_read_file_round_trip(tmp_path: Path) -> None:
     """``read_file`` is answered with the in-memory buffer, then result returns.
 
@@ -322,7 +320,6 @@ async def test_validate_locked_handles_read_file_round_trip(tmp_path: Path) -> N
     assert b"esphome" in stdin_capture[1]
 
 
-@pytest.mark.asyncio
 async def test_validate_locked_raises_when_subprocess_closes_stdout(
     tmp_path: Path,
 ) -> None:
@@ -349,7 +346,6 @@ async def test_validate_locked_raises_when_subprocess_closes_stdout(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_stop_terminates_all_sessions(tmp_path: Path) -> None:
     """``stop()`` walks every session and clears the registry.
 
@@ -383,7 +379,6 @@ def test_init_sets_default_state() -> None:
     assert controller._esphome_cmd == []
 
 
-@pytest.mark.asyncio
 async def test_start_resolves_esphome_command(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -412,7 +407,6 @@ async def test_start_resolves_esphome_command(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_ensure_subprocess_no_op_when_proc_already_running(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -449,7 +443,6 @@ async def test_ensure_subprocess_no_op_when_proc_already_running(
     assert session.proc is proc
 
 
-@pytest.mark.asyncio
 async def test_ensure_subprocess_spawns_and_drains_version_line(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -480,7 +473,6 @@ async def test_ensure_subprocess_spawns_and_drains_version_line(
     assert await proc.stdout.readline() == b""
 
 
-@pytest.mark.asyncio
 async def test_ensure_subprocess_terminates_session_and_raises_on_startup_timeout(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -530,7 +522,6 @@ async def test_ensure_subprocess_terminates_session_and_raises_on_startup_timeou
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_terminate_subprocess_no_op_when_session_proc_is_none(
     tmp_path: Path,
 ) -> None:
@@ -541,7 +532,6 @@ async def test_terminate_subprocess_no_op_when_session_proc_is_none(
     await controller._terminate_subprocess(session)
 
 
-@pytest.mark.asyncio
 async def test_terminate_subprocess_no_op_when_proc_already_exited(
     tmp_path: Path,
 ) -> None:
@@ -558,7 +548,6 @@ async def test_terminate_subprocess_no_op_when_proc_already_exited(
     proc.kill.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_terminate_subprocess_sends_exit_and_waits(tmp_path: Path) -> None:
     """Happy path: write ``{"type": "exit"}``, drain, close stdin, wait."""
     controller = _make_controller(tmp_path)
@@ -577,7 +566,6 @@ async def test_terminate_subprocess_sends_exit_and_waits(tmp_path: Path) -> None
     assert session.proc is None
 
 
-@pytest.mark.asyncio
 async def test_terminate_subprocess_escalates_through_terminate_then_kill(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -623,7 +611,6 @@ async def test_terminate_subprocess_escalates_through_terminate_then_kill(
     assert kill_quietly_calls == [proc]
 
 
-@pytest.mark.asyncio
 async def test_terminate_subprocess_swallows_stdin_write_failure(
     tmp_path: Path,
 ) -> None:
@@ -686,7 +673,6 @@ def test_resolve_file_returns_empty_when_requested_path_unresolvable(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_validate_locked_skips_unparseable_lines(tmp_path: Path) -> None:
     """A malformed JSON line is dropped; the loop reads the next line.
 
@@ -717,7 +703,6 @@ async def test_validate_locked_skips_unparseable_lines(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_validate_yaml_creates_session_and_delegates(
     tmp_path: Path,
 ) -> None:
@@ -746,7 +731,6 @@ async def test_validate_yaml_creates_session_and_delegates(
     assert controller._captured_session is controller._sessions["kitchen.yaml"]  # type: ignore[attr-defined]
 
 
-@pytest.mark.asyncio
 async def test_validate_yaml_terminates_session_on_timeout(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -782,7 +766,6 @@ async def test_validate_yaml_terminates_session_on_timeout(
     terminated.assert_awaited_once()
 
 
-@pytest.mark.asyncio
 async def test_validate_yaml_terminates_session_on_runtime_error(
     tmp_path: Path,
 ) -> None:
@@ -807,7 +790,6 @@ async def test_validate_yaml_terminates_session_on_runtime_error(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_validate_yaml_caches_result_for_repeated_content(tmp_path: Path) -> None:
     """A second call with identical content returns the cached result.
 
@@ -835,7 +817,6 @@ async def test_validate_yaml_caches_result_for_repeated_content(tmp_path: Path) 
     assert len(calls) == 1
 
 
-@pytest.mark.asyncio
 async def test_validate_yaml_cache_misses_on_different_content(tmp_path: Path) -> None:
     """Distinct content bypasses the cache and re-validates."""
     controller = _make_controller(tmp_path)
@@ -857,7 +838,6 @@ async def test_validate_yaml_cache_misses_on_different_content(tmp_path: Path) -
     assert calls == ["esphome:\n  name: kitchen\n", "esphome:\n  name: kitchen-2\n"]
 
 
-@pytest.mark.asyncio
 async def test_validate_yaml_cache_expires_after_ttl(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -884,7 +864,6 @@ async def test_validate_yaml_cache_expires_after_ttl(
     assert len(calls) == 2
 
 
-@pytest.mark.asyncio
 async def test_validate_yaml_cache_is_per_configuration(tmp_path: Path) -> None:
     """Same content under a different configuration doesn't share the cache."""
     controller = _make_controller(tmp_path)
@@ -903,7 +882,6 @@ async def test_validate_yaml_cache_is_per_configuration(tmp_path: Path) -> None:
     assert {c[0] for c in calls} == {"kitchen.yaml", "bedroom.yaml"}
 
 
-@pytest.mark.asyncio
 async def test_validate_yaml_inner_lock_recheck_coalesces_concurrent_calls(
     tmp_path: Path,
 ) -> None:

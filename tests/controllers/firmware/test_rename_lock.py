@@ -142,7 +142,6 @@ def test_running_rename_blocks_install(
         controller._check_rename_lock(_job("inst1", "kitchen.yaml", JobType.INSTALL))
 
 
-@pytest.mark.asyncio
 async def test_install_bulk_skips_locked_configs_and_queues_the_rest(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:

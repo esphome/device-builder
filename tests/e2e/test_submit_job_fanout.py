@@ -41,8 +41,6 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
-
 from esphome_device_builder.models import (
     EventType,
     JobLifecycleData,
@@ -53,7 +51,6 @@ from ..conftest import capture_events
 from .conftest import PairedInstances, make_and_seed_remote_peer_job
 
 
-@pytest.mark.asyncio
 async def test_remote_peer_job_lifecycle_fans_out_to_offloader_bus(
     paired_instances: PairedInstances,
 ) -> None:
@@ -106,7 +103,6 @@ async def test_remote_peer_job_lifecycle_fans_out_to_offloader_bus(
     assert running["receiver_port"] == paired_instances.receiver_server.port
 
 
-@pytest.mark.asyncio
 async def test_remote_peer_terminal_failure_carries_error_message(
     paired_instances: PairedInstances,
 ) -> None:
@@ -132,7 +128,6 @@ async def test_remote_peer_terminal_failure_carries_error_message(
     assert payload["error_message"] == "esphome compile failed: undefined reference"
 
 
-@pytest.mark.asyncio
 async def test_remote_peer_job_output_fans_out_to_offloader_bus(
     paired_instances: PairedInstances,
 ) -> None:
@@ -168,7 +163,6 @@ async def test_remote_peer_job_output_fans_out_to_offloader_bus(
     assert payload["pin_sha256"] == paired_instances.pin_sha256
 
 
-@pytest.mark.asyncio
 async def test_remote_peer_lifecycle_drops_when_session_already_closed(
     paired_instances: PairedInstances,
 ) -> None:

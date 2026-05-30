@@ -42,8 +42,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import pytest
-
 from esphome_device_builder.models import Device, DeviceState
 
 if TYPE_CHECKING:
@@ -86,7 +84,6 @@ def _seed_fleet(tmp_path: Path) -> list[Device]:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_bluetooth_proxy_query_picks_out_proxy_devices(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -108,7 +105,6 @@ async def test_bluetooth_proxy_query_picks_out_proxy_devices(
     assert matched == {"bluetooth_proxy.yaml", "ethernet_proxy.yaml"}
 
 
-@pytest.mark.asyncio
 async def test_ethernet_query_isolates_the_ethernet_device(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -137,7 +133,6 @@ async def test_ethernet_query_isolates_the_ethernet_device(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_cse7766_block_returns_multiple_lines_in_order(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -172,7 +167,6 @@ async def test_cse7766_block_returns_multiple_lines_in_order(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_comment_text_is_searchable(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -195,7 +189,6 @@ async def test_comment_text_is_searchable(
     assert "coexistence" in results[0]["matches"][0]["line_text"]
 
 
-@pytest.mark.asyncio
 async def test_substitution_interpolation_matches_as_literal_text(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -218,7 +211,6 @@ async def test_substitution_interpolation_matches_as_literal_text(
     assert len(results[0]["matches"]) >= 1
 
 
-@pytest.mark.asyncio
 async def test_secret_reference_is_searchable(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -251,7 +243,6 @@ async def test_secret_reference_is_searchable(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_per_file_cap_holds_against_chatty_fixture(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -274,7 +265,6 @@ async def test_per_file_cap_holds_against_chatty_fixture(
     assert len(plug_hits[0]["matches"]) == 5
 
 
-@pytest.mark.asyncio
 async def test_yaml_directive_marker_does_not_break_match(
     tmp_path: Path,
     make_controller: MakeControllerFactory,

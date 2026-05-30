@@ -52,7 +52,6 @@ def _seed_device(
     return yaml_path, build_path
 
 
-@pytest.mark.asyncio
 @pytest.mark.usefixtures("redirect_storage_path")
 async def test_delete_wipes_build_directory(
     tmp_path: Path, make_controller: MakeControllerFactory
@@ -72,7 +71,6 @@ async def test_delete_wipes_build_directory(
     assert not (tmp_path / ".esphome" / "storage" / "kitchen.yaml.json").exists()
 
 
-@pytest.mark.asyncio
 @pytest.mark.usefixtures("redirect_storage_path")
 async def test_delete_succeeds_when_never_compiled(
     tmp_path: Path, make_controller: MakeControllerFactory
@@ -87,7 +85,6 @@ async def test_delete_succeeds_when_never_compiled(
     assert not yaml_path.exists()
 
 
-@pytest.mark.asyncio
 @pytest.mark.usefixtures("redirect_storage_path")
 async def test_delete_tolerates_missing_build_directory(
     tmp_path: Path, make_controller: MakeControllerFactory
@@ -102,7 +99,6 @@ async def test_delete_tolerates_missing_build_directory(
     assert not yaml_path.exists()
 
 
-@pytest.mark.asyncio
 @pytest.mark.usefixtures("redirect_storage_path")
 async def test_delete_tolerates_rmtree_failure(
     tmp_path: Path,
@@ -126,7 +122,6 @@ async def test_delete_tolerates_rmtree_failure(
     assert build_path.exists()
 
 
-@pytest.mark.asyncio
 async def test_delete_raises_when_yaml_missing(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:

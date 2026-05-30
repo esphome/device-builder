@@ -484,7 +484,6 @@ def test_set_remote_build_port_updates_subsequent_advertise() -> None:
     assert decoded["remote_build_port"] == "7000"
 
 
-@pytest.mark.asyncio
 async def test_refresh_republishes_when_only_txt_changed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -523,7 +522,6 @@ async def test_refresh_republishes_when_only_txt_changed(
     assert decoded["pin_sha256"] == "a" * 64
 
 
-@pytest.mark.asyncio
 async def test_refresh_no_op_when_nothing_changed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -564,7 +562,6 @@ def test_service_instance_name_returns_none_before_register() -> None:
     assert advertiser.service_instance_name is None
 
 
-@pytest.mark.asyncio
 async def test_service_instance_name_returns_published_name_after_register(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -593,7 +590,6 @@ def test_service_target_endpoint_returns_none_before_register() -> None:
     assert advertiser.service_target_endpoint is None
 
 
-@pytest.mark.asyncio
 async def test_service_target_endpoint_returns_none_when_info_lacks_server_or_port(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -626,7 +622,6 @@ async def test_service_target_endpoint_returns_none_when_info_lacks_server_or_po
         await advertiser.unregister()
 
 
-@pytest.mark.asyncio
 async def test_service_target_endpoint_returns_lowercased_no_trailing_dot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -684,7 +679,6 @@ def _make_zeroconf_mock() -> MagicMock:
     return zc
 
 
-@pytest.mark.asyncio
 async def test_register_calls_async_register_service(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(dashboard_advertise, "_local_addresses", lambda: ["192.168.1.10"])
     advertiser = _make_advertiser(name="green", hostname="green.local")
@@ -701,7 +695,6 @@ async def test_register_calls_async_register_service(monkeypatch: pytest.MonkeyP
     assert info.parsed_addresses() == ["192.168.1.10"]
 
 
-@pytest.mark.asyncio
 async def test_register_runs_address_enumeration_in_executor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -731,7 +724,6 @@ async def test_register_runs_address_enumeration_in_executor(
     assert dashboard_advertise._local_addresses in captured
 
 
-@pytest.mark.asyncio
 async def test_register_is_idempotent() -> None:
     advertiser = _make_advertiser(name="green", hostname="green.local")
     zc = _make_zeroconf_mock()
@@ -741,7 +733,6 @@ async def test_register_is_idempotent() -> None:
     zc.async_register_service.assert_awaited_once()
 
 
-@pytest.mark.asyncio
 async def test_register_failure_clears_state() -> None:
     """A zeroconf register-side error leaves the advertiser unregistered.
 
@@ -758,7 +749,6 @@ async def test_register_failure_clears_state() -> None:
     zc.async_unregister_service.assert_not_awaited()
 
 
-@pytest.mark.asyncio
 async def test_register_starts_refresh_loop_task() -> None:
     """``register`` spawns a named background task that drives the refresh tick."""
     advertiser = _make_advertiser(name="green", hostname="green.local")
@@ -773,7 +763,6 @@ async def test_register_starts_refresh_loop_task() -> None:
         await advertiser.unregister()
 
 
-@pytest.mark.asyncio
 async def test_refresh_loop_invokes_refresh_on_each_tick(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -807,7 +796,6 @@ async def test_refresh_loop_invokes_refresh_on_each_tick(
         await advertiser.unregister()
 
 
-@pytest.mark.asyncio
 async def test_refresh_loop_survives_refresh_exceptions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -840,7 +828,6 @@ async def test_refresh_loop_survives_refresh_exceptions(
         await advertiser.unregister()
 
 
-@pytest.mark.asyncio
 async def test_unregister_cancels_refresh_loop() -> None:
     """``unregister`` drains the periodic-refresh task before tearing down."""
     advertiser = _make_advertiser(name="green", hostname="green.local")
@@ -853,7 +840,6 @@ async def test_unregister_cancels_refresh_loop() -> None:
     assert advertiser._refresh_task is None
 
 
-@pytest.mark.asyncio
 async def test_unregister_swallows_refresh_task_exception() -> None:
     """
     Drain a refresh task that ended in a non-``CancelledError`` exception.
@@ -889,7 +875,6 @@ async def test_unregister_swallows_refresh_task_exception() -> None:
     assert advertiser._refresh_task is None
 
 
-@pytest.mark.asyncio
 async def test_unregister_calls_async_unregister_service() -> None:
     advertiser = _make_advertiser(name="green", hostname="green.local")
     zc = _make_zeroconf_mock()
@@ -899,14 +884,12 @@ async def test_unregister_calls_async_unregister_service() -> None:
     zc.async_unregister_service.assert_awaited_once()
 
 
-@pytest.mark.asyncio
 async def test_unregister_without_register_is_noop() -> None:
     advertiser = _make_advertiser(name="green", hostname="green.local")
     await advertiser.unregister()
     assert advertiser.registered is False
 
 
-@pytest.mark.asyncio
 async def test_refresh_skips_when_addresses_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     Calling ``refresh`` when ``_local_addresses`` hasn't changed is a no-op.
@@ -927,7 +910,6 @@ async def test_refresh_skips_when_addresses_unchanged(monkeypatch: pytest.Monkey
     zc.async_update_service.assert_not_awaited()
 
 
-@pytest.mark.asyncio
 async def test_refresh_publishes_via_update_service_when_addresses_change(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -957,14 +939,12 @@ async def test_refresh_publishes_via_update_service_when_addresses_change(
     assert sorted(new_info.parsed_addresses()) == sorted(["192.168.1.42", "fdc8::1"])
 
 
-@pytest.mark.asyncio
 async def test_refresh_is_noop_when_not_registered() -> None:
     """``refresh()`` before ``register()`` is a no-op (no zeroconf to talk to)."""
     advertiser = _make_advertiser(name="green", hostname="green.local")
     assert await advertiser.refresh() is False
 
 
-@pytest.mark.asyncio
 async def test_refresh_swallows_update_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     """A zeroconf update-side error doesn't surface to the caller."""
     addresses = ["192.168.1.10"]
@@ -984,7 +964,6 @@ async def test_refresh_swallows_update_errors(monkeypatch: pytest.MonkeyPatch) -
     zc.async_update_service.assert_awaited_once()
 
 
-@pytest.mark.asyncio
 async def test_unregister_swallows_zeroconf_errors() -> None:
     """A teardown-time zeroconf failure must not surface to the caller."""
     advertiser = _make_advertiser(name="green", hostname="green.local")
@@ -1000,7 +979,6 @@ async def test_unregister_swallows_zeroconf_errors() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_device_builder_skips_advertise_when_zeroconf_unavailable(
     monkeypatch: pytest.MonkeyPatch,
     make_settings,
@@ -1033,7 +1011,6 @@ async def test_device_builder_skips_advertise_when_zeroconf_unavailable(
     assert constructed == [], "advertise must skip when zeroconf is None"
 
 
-@pytest.mark.asyncio
 async def test_device_builder_skips_advertise_in_ha_addon_mode(
     monkeypatch: pytest.MonkeyPatch,
     make_settings,
@@ -1068,7 +1045,6 @@ async def test_device_builder_skips_advertise_in_ha_addon_mode(
     assert constructed == [], "advertise must be skipped in HA addon mode"
 
 
-@pytest.mark.asyncio
 async def test_device_builder_constructs_advertiser_when_zeroconf_present(
     monkeypatch: pytest.MonkeyPatch,
     make_settings,
