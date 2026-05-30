@@ -114,6 +114,7 @@ from esphome_device_builder.models import (  # noqa: E402
     LightEffect,
     LightEffectIndex,
     PinFeature,
+    PinMode,
 )
 from script._light_schemas import (  # noqa: E402
     resolve_light_effects_applies_to,
@@ -1953,6 +1954,7 @@ def _convert_config_vars(  # noqa: C901
         override = _FIELD_OVERRIDES.get((component_id, key))
         if override is not None:
             entry = {**entry, **copy.deepcopy(override)}
+        _apply_pin_constraints(entry, component_id, key)
         # Cross-cutting infrastructure fields are only meaningful when
         # the named component is configured. Tag them so the frontend
         # can hide them by default.
@@ -2566,6 +2568,53 @@ def _resolve_pin_features(raw: dict) -> list[str]:
     """
     modes = raw.get("modes") or []
     return [m for m in modes if isinstance(m, str) and m in _PIN_FEATURE_VALUES]
+
+
+# Hand-curated hardware-capability and direction requirements for pin
+# fields, keyed on ``(component_id, field_key)``. The prebuilt schema
+# carries neither, so the frontend's pin-dropdown capability filter
+# (``pin_features``) and input/output gate (``pin_mode``) stay no-ops
+# until populated here. Values are enum members, not bare strings, so a
+# typo fails at sync time rather than silently dropping the constraint.
+# Keep targeted: unambiguous bus pins and GPIO directions only.
+_PIN_FEATURE_OVERRIDES: dict[tuple[str, str], list[PinFeature]] = {
+    ("sensor.adc", "pin"): [PinFeature.ADC],
+    ("output.esp32_dac", "pin"): [PinFeature.DAC],
+    ("i2c", "sda"): [PinFeature.I2C_SDA],
+    ("i2c", "scl"): [PinFeature.I2C_SCL],
+    ("uart", "tx_pin"): [PinFeature.UART_TX],
+    ("uart", "rx_pin"): [PinFeature.UART_RX],
+    ("binary_sensor.esp32_touch", "pin"): [PinFeature.TOUCH],
+    ("output.ledc", "pin"): [PinFeature.PWM],
+    ("output.esp8266_pwm", "pin"): [PinFeature.PWM],
+    ("output.rp2040_pwm", "pin"): [PinFeature.PWM],
+    ("output.libretiny_pwm", "pin"): [PinFeature.PWM],
+}
+
+_PIN_MODE_OVERRIDES: dict[tuple[str, str], PinMode] = {
+    ("output.gpio", "pin"): PinMode.OUTPUT,
+    ("switch.gpio", "pin"): PinMode.OUTPUT,
+    ("binary_sensor.gpio", "pin"): PinMode.INPUT,
+    ("stepper.a4988", "step_pin"): PinMode.OUTPUT,
+    ("stepper.a4988", "dir_pin"): PinMode.OUTPUT,
+    ("stepper.a4988", "sleep_pin"): PinMode.OUTPUT,
+    ("stepper.uln2003", "pin_a"): PinMode.OUTPUT,
+    ("stepper.uln2003", "pin_b"): PinMode.OUTPUT,
+    ("stepper.uln2003", "pin_c"): PinMode.OUTPUT,
+    ("stepper.uln2003", "pin_d"): PinMode.OUTPUT,
+}
+
+
+def _apply_pin_constraints(entry: dict, component_id: str, key: str) -> None:
+    """Attach curated ``pin_features`` / ``pin_mode`` to a pin entry in place."""
+    if entry.get("type") != "pin":
+        return
+    features = _PIN_FEATURE_OVERRIDES.get((component_id, key))
+    if features:
+        entry["pin_features"] = [f.value for f in features]
+    mode = _PIN_MODE_OVERRIDES.get((component_id, key))
+    if mode is not None:
+        entry["pin_mode"] = mode.value
 
 
 def _detect_platform_type(inner_schema: dict) -> str | None:
