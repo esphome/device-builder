@@ -461,7 +461,7 @@ async def test_send_response_encrypt_error_skips_send() -> None:
     session = MagicMock(spec=PeerLinkNoiseSession)
     session.encrypt.side_effect = NoiseInvalidMessage("nonce exhausted")
 
-    await _send_response(session, ws, IntentResponse.OK)
+    await _send_response(session, ws, IntentResponse.OK, reason=None)
     ws.send_bytes.assert_not_awaited()
 
 
@@ -485,7 +485,7 @@ async def test_send_response_advertises_esphome_version() -> None:
     session = MagicMock(spec=PeerLinkNoiseSession)
     session.encrypt.return_value = b"ciphertext-stub"
 
-    await _send_response(session, ws, IntentResponse.OK)
+    await _send_response(session, ws, IntentResponse.OK, reason=None)
 
     session.encrypt.assert_called_once()
     body = session.encrypt.call_args.args[0]

@@ -104,7 +104,7 @@ async def _send_response(
     ws: web.WebSocketResponse,
     response: IntentResponse,
     *,
-    reason: RejectReason | None = None,
+    reason: RejectReason | None,
 ) -> None:
     """Send the post-handshake intent_response as a single ChaCha20-Poly1305 frame.
 
