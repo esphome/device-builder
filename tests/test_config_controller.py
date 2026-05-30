@@ -72,6 +72,7 @@ from esphome_device_builder.controllers.config import (
     save_remote_build_settings,
     set_device_labels,
     set_device_metadata,
+    update_preferences,
 )
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import (
@@ -792,6 +793,39 @@ async def test_set_prefs_merges_partial_update(tmp_path: Path) -> None:
     # Persisted blob matches the merged state.
     persisted = await asyncio.to_thread(load_preferences, tmp_path)
     assert persisted == result
+
+
+def test_update_preferences_defaults_on_corrupt(tmp_path: Path) -> None:
+    """A malformed ``_preferences`` blob merges onto defaults, then persists clean."""
+    metadata_path = tmp_path / ".device-builder.json"
+    metadata_path.write_bytes(b'{"_preferences": [1, 2, 3]}')
+
+    updated = update_preferences(tmp_path, {"theme": Theme.DARK})
+
+    assert updated == UserPreferences(theme=Theme.DARK)
+    assert load_preferences(tmp_path) == UserPreferences(theme=Theme.DARK)
+
+
+@pytest.mark.asyncio
+async def test_set_prefs_concurrent_updates_do_not_lose_writes(tmp_path: Path) -> None:
+    """Concurrent partial updates of distinct fields all survive.
+
+    The read-merge-save runs inside one ``metadata_transaction``,
+    so two writers can't both read the same baseline and clobber
+    each other's field. A non-atomic load-then-save loses one.
+    """
+    controller = _make_controller(tmp_path)
+
+    await asyncio.gather(
+        controller.set_prefs(theme=Theme.DARK),
+        controller.set_prefs(dashboard_view=DashboardView.TABLE),
+        controller.set_prefs(navigator_visible=False),
+    )
+
+    persisted = await asyncio.to_thread(load_preferences, tmp_path)
+    assert persisted.theme == Theme.DARK
+    assert persisted.dashboard_view == DashboardView.TABLE
+    assert persisted.navigator_visible is False
 
 
 @pytest.mark.asyncio

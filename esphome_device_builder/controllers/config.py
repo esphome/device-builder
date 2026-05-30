@@ -610,6 +610,27 @@ def save_preferences(config_dir: Path, prefs: UserPreferences) -> None:
         data[_PREFS_KEY] = prefs.to_dict()
 
 
+def update_preferences(config_dir: Path, update_fields: dict[str, Any]) -> UserPreferences:
+    """
+    Merge *update_fields* into stored preferences under one lock.
+
+    Load, merge the partial update, validate, and save inside a
+    single ``metadata_transaction`` so two concurrent partial
+    updates can't both read the same baseline and clobber each
+    other's field. Defaults on a corrupt blob.
+    """
+    with metadata_transaction(config_dir) as data:
+        try:
+            current = UserPreferences.from_dict(data.get(_PREFS_KEY, {}))
+        except (ValueError, TypeError, LookupError):
+            current = UserPreferences()
+        merged = current.to_dict()
+        merged.update(update_fields)
+        updated = UserPreferences.from_dict(merged)
+        data[_PREFS_KEY] = updated.to_dict()
+        return updated
+
+
 _REMOTE_BUILD_FAIL_SAFE = RemoteBuildSettings(enabled=False)
 
 
@@ -1370,18 +1391,8 @@ class ConfigController:
         """
         loop = asyncio.get_running_loop()
         config_dir = self._db.settings.config_dir
-
-        # Load current, merge with provided fields, validate, save
-        current = await loop.run_in_executor(None, load_preferences, config_dir)
         update_fields = {k: v for k, v in kwargs.items() if k not in ("client", "message_id")}
-
-        # Merge into current preferences
-        current_dict = current.to_dict()
-        current_dict.update(update_fields)
-        updated = UserPreferences.from_dict(current_dict)
-
-        await loop.run_in_executor(None, save_preferences, config_dir, updated)
-        return updated
+        return await loop.run_in_executor(None, update_preferences, config_dir, update_fields)
 
     @api_command("config/get_secrets")
     async def get_secrets(self, **kwargs: Any) -> list[str]:
