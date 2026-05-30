@@ -157,6 +157,27 @@ def test_round_trip_on_click_preserves_trigger_params() -> None:
     assert parsed_second.automation.trigger_params == parsed_first.automation.trigger_params
 
 
+def test_round_trip_on_time_list_preserves_cron_params() -> None:
+    """``on_time`` cron params + actions survive parse → write → parse.
+
+    The writer canonicalises the single-entry list form to the
+    equivalent mapping form (both valid ESPHome); the round-trip is
+    pinned on structural equivalence, not byte identity.
+    """
+    text = _load("inline_on_time_list.yaml")
+    parsed_first = parse_device_yaml(text)[0]
+    new_text, _diff = render_upsert(
+        text,
+        tree=parsed_first.automation,
+        location=parsed_first.location,
+    )
+    parsed_second = parse_device_yaml(new_text)[0]
+    assert parsed_second.automation.trigger_params == parsed_first.automation.trigger_params
+    assert [a.action_id for a in parsed_second.automation.actions] == [
+        a.action_id for a in parsed_first.automation.actions
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Top-level blocks
 # ---------------------------------------------------------------------------

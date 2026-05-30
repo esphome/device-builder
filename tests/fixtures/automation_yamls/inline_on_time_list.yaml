@@ -1,0 +1,11 @@
+esphome:
+  name: x
+time:
+  - platform: sntp
+    id: my_time
+    on_time:
+      - seconds: 0
+        minutes: 30
+        hours: 8
+        then:
+          - logger.log: morning

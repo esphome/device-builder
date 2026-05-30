@@ -338,37 +338,74 @@ def _decompose_trigger_body(body: Any, *, trigger_id: str) -> AutomationTree:
     """
     Build an :class:`AutomationTree` from a trigger handler's body.
 
-    Accepts three YAML shortcut forms that all collapse to the same
-    tree: bare action list (``on_press: - action: ...``), single
-    bare action (``on_press: action: ...``), explicit ``then:``.
+    Accepts the YAML shortcut forms that all collapse to one tree:
+    bare action list (``on_press: - action: ...``), single bare
+    action (``on_press: action: ...``), explicit ``then:``, and the
+    cron-style ``validate_automation`` list whose single entry
+    carries trigger params plus a ``then`` (``on_time: - seconds: 0``
+    / ``then: ...``). Multiple cron entries raise — one flat tree
+    can't hold them; the frontend renders that block read-only.
     """
-    trigger_params: dict[str, Any] = {}
-    actions: list[ActionNode] = []
-
     if body is None:
-        return AutomationTree(
-            trigger_id=trigger_id,
-            trigger_params={},
-            actions=[],
-        )
+        return AutomationTree(trigger_id=trigger_id, trigger_params={}, actions=[])
 
     if isinstance(body, list):
-        actions = _decompose_action_list(body)
-    elif isinstance(body, dict):
-        trigger_params = _collect_block_params(body, action_list_keys={"then"})
-        if "then" in body:
-            actions = _decompose_action_list(body["then"])
-        else:
-            # Single-action shortcut: the body's keys are a mix of
-            # trigger params and known catalog action ids.
-            # ``_collect_block_params`` naively absorbed both; pull
-            # the action keys back out by catalog lookup and rebuild
-            # ``trigger_params`` without them.
-            action_body = {k: v for k, v in body.items() if catalog.action_by_id(k) is not None}
-            if action_body:
-                actions = _decompose_action_list([action_body])
-                trigger_params = {k: v for k, v in trigger_params.items() if k not in action_body}
+        entries = _automation_entry_list(body)
+        if entries is None:
+            return AutomationTree(
+                trigger_id=trigger_id,
+                trigger_params={},
+                actions=_decompose_action_list(body),
+            )
+        if len(entries) != 1:
+            msg = (
+                f"{trigger_id} carries {len(entries)} entries; the visual "
+                "editor edits a single entry per trigger — edit the YAML directly"
+            )
+            raise CommandError(ErrorCode.INVALID_ARGS, msg)
+        return _decompose_automation_entry(entries[0], trigger_id=trigger_id)
 
+    if isinstance(body, dict):
+        return _decompose_automation_entry(body, trigger_id=trigger_id)
+
+    return AutomationTree(trigger_id=trigger_id, trigger_params={}, actions=[])
+
+
+def _automation_entry_list(body: list) -> list[dict] | None:
+    """
+    Return the dict entries when *body* is a list of automations, else ``None``.
+
+    An action-list item is a single-key ``{action_id: params}``
+    mapping; an automation entry carries a ``then`` key or more than
+    one key (trigger params plus an optional shorthand action). The
+    presence of either marks the ``validate_automation`` list-of-
+    automations form (``on_time``'s cron entries) over a bare action
+    list, mirroring ESPHome's "whole list as ``then`` first" rule.
+    """
+    entries = [item for item in body if isinstance(item, dict)]
+    if not entries:
+        return None
+    if any("then" in item or len(item) != 1 for item in entries):
+        return entries
+    return None
+
+
+def _decompose_automation_entry(body: dict, *, trigger_id: str) -> AutomationTree:
+    """Build a tree from one automation mapping: trigger params + actions."""
+    trigger_params = _collect_block_params(body, action_list_keys={"then"})
+    actions: list[ActionNode] = []
+    if "then" in body:
+        actions = _decompose_action_list(body["then"])
+    else:
+        # Single-action shortcut: the body's keys are a mix of
+        # trigger params and known catalog action ids.
+        # ``_collect_block_params`` naively absorbed both; pull the
+        # action keys back out by catalog lookup and rebuild
+        # ``trigger_params`` without them.
+        action_body = {k: v for k, v in body.items() if catalog.action_by_id(k) is not None}
+        if action_body:
+            actions = _decompose_action_list([action_body])
+            trigger_params = {k: v for k, v in trigger_params.items() if k not in action_body}
     return AutomationTree(
         trigger_id=trigger_id,
         trigger_params=trigger_params,

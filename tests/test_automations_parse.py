@@ -109,6 +109,34 @@ def test_parse_inline_on_click_surfaces_trigger_params() -> None:
     assert [a.action_id for a in tree.actions] == ["switch.toggle"]
 
 
+def test_parse_inline_on_time_list_surfaces_cron_params() -> None:
+    """A single ``on_time:`` list entry's cron keys are trigger_params, not actions."""
+    parsed = parse_device_yaml(_load("inline_on_time_list.yaml"))
+    assert len(parsed) == 1
+    tree = parsed[0].automation
+    assert tree.trigger_id == "time.on_time"
+    assert tree.trigger_params == {"seconds": 0, "minutes": 30, "hours": 8}
+    assert [a.action_id for a in tree.actions] == ["logger.log"]
+
+
+def test_parse_on_time_with_multiple_entries_raises() -> None:
+    """A multi-entry ``on_time:`` list has no single-tree form — raises INVALID_ARGS."""
+    yaml_text = (
+        "time:\n"
+        "  - platform: sntp\n"
+        "    id: t\n"
+        "    on_time:\n"
+        "      - seconds: 0\n"
+        "        then:\n"
+        "          - logger.log: a\n"
+        "      - seconds: 30\n"
+        "        then:\n"
+        "          - logger.log: b\n"
+    )
+    with pytest.raises(CommandError):
+        parse_device_yaml(yaml_text)
+
+
 # ---------------------------------------------------------------------------
 # Top-level blocks
 # ---------------------------------------------------------------------------
