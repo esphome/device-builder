@@ -137,7 +137,7 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
             peer_ip=peer_ip,
         ),
     )
-    # Log the decision, not the bare handshake — "ok" here used to
+    # Log the decision, not the bare handshake; "ok" here used to
     # mean only "Noise XX completed", which read as "pairing
     # accepted" while the dispatch below still rejected.
     if outcome.response is IntentResponse.REJECTED:

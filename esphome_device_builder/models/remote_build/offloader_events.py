@@ -224,7 +224,7 @@ class OffloaderPeerLinkClosedData(TypedDict):
     ``"heartbeat_timeout"`` / ``"client_stopped"`` /
     ``"peer_hung_up"`` / ``"auth_rejected"`` /
     ``"receiver_rejected"`` / ``"pin_mismatch"``). The peer-link
-    client's reconnect logic branches on this — ``"superseded"``,
+    client's reconnect logic branches on this; ``"superseded"``,
     ``"receiver_rejected"`` and ``"pin_mismatch"`` orphan.
 
     ``error_detail`` is one-line context (e.g.
@@ -232,7 +232,7 @@ class OffloaderPeerLinkClosedData(TypedDict):
     populated only for ``"transport_error"``, ``"auth_rejected"``,
     ``"receiver_rejected"``, and ``"pin_mismatch"`` where the
     exception detail is the operator-actionable info. Empty for
-    the remaining reasons — the category name is the full
+    the remaining reasons, where the category name is the full
     explanation there.
     """
 
