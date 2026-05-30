@@ -786,7 +786,7 @@ def test_load_device_from_storage_resolves_config_once_for_packages(tmp_path: Pa
         encoding="utf-8",
     )
     with mock.patch(
-        "esphome_device_builder.helpers.device_yaml.load_device_yaml",
+        "esphome_device_builder.helpers.device_yaml._loading.load_device_yaml",
         wraps=device_yaml.load_device_yaml,
     ) as spy:
         device = load_device_from_storage(yaml_file)
@@ -1353,7 +1353,7 @@ def test_fallback_has_native_wifi_rp2040_returns_true_when_boards_table_missing(
     surfaces here. ``True`` matches the upstream default for
     unknown rp2040 boards: assume Wi-Fi present.
     """
-    monkeypatch.setattr(device_yaml, "_ESPHOME_RP2040_BOARDS", None)
+    monkeypatch.setattr(device_yaml._generation, "_ESPHOME_RP2040_BOARDS", None)
 
     # Look the helper up through the live module attr rather than
     # the test-time imported binding — ``tests/test_api_key.py``
@@ -1414,7 +1414,7 @@ def test_infer_native_wifi_routes_through_module_alias(
         calls.append(kwargs)
         return False
 
-    monkeypatch.setattr(device_yaml, "_has_native_wifi", _stub)
+    monkeypatch.setattr(device_yaml._generation, "_has_native_wifi", _stub)
 
     esp32_board = _make_board(platform=Platform.ESP32, variant=Esp32Variant.ESP32C3)
     rp2040_board = _make_board(platform=Platform.RP2040, pio_board="rpipicow")
@@ -1453,7 +1453,9 @@ def _redirect_ext_storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     def _ext(configuration: str) -> Path:
         return storage_dir / f"{configuration}.json"
 
-    monkeypatch.setattr("esphome_device_builder.helpers.device_yaml.resolve_storage_path", _ext)
+    monkeypatch.setattr(
+        "esphome_device_builder.helpers.device_yaml._loading.resolve_storage_path", _ext
+    )
 
 
 @pytest.mark.usefixtures("_redirect_ext_storage")

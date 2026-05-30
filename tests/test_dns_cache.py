@@ -494,7 +494,7 @@ def test_load_device_from_storage_threads_ip_through(monkeypatch, tmp_path) -> N
     # in this test; redirect it to ``tmp_path`` and short-circuit
     # ``StorageJSON.load`` so we exercise just the YAML + ip plumbing.
     monkeypatch.setattr(
-        device_yaml,
+        device_yaml._loading,
         "resolve_storage_path",
         lambda config: tmp_path / f"{config}.json",
     )
@@ -520,7 +520,7 @@ def test_load_device_from_storage_address_falls_back_to_filename_local(  # type:
     ``wr2-test`` and friends.
     """
     monkeypatch.setattr(
-        device_yaml,
+        device_yaml._loading,
         "resolve_storage_path",
         lambda config: tmp_path / f"{config}.json",
     )
@@ -547,7 +547,7 @@ def test_load_device_from_storage_address_uses_filename_not_parsed_name(  # type
     filename stem is canonical and matches what the user types.
     """
     monkeypatch.setattr(
-        device_yaml,
+        device_yaml._loading,
         "resolve_storage_path",
         lambda config: tmp_path / f"{config}.json",
     )
@@ -569,7 +569,7 @@ def test_load_device_from_storage_address_uses_storage_when_set(  # type: ignore
 ) -> None:
     """A real ``StorageJSON.address`` wins over the ``<name>.local`` fallback."""
     monkeypatch.setattr(
-        device_yaml,
+        device_yaml._loading,
         "resolve_storage_path",
         lambda config: tmp_path / f"{config}.json",
     )
