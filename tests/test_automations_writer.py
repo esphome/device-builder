@@ -202,13 +202,7 @@ def test_idless_multidomain_trigger_resolves_configured_domain() -> None:
 
 def test_stale_positional_id_on_idd_instance_is_refused() -> None:
     """A ``<domain>_<idx>`` id pointing at an instance with a real id is refused."""
-    text = (
-        "esphome:\n  name: x\n"
-        "binary_sensor:\n"
-        "  - platform: gpio\n"
-        "    id: real\n"
-        "    pin: GPIO0\n"
-    )
+    text = "esphome:\n  name: x\nbinary_sensor:\n  - platform: gpio\n    id: real\n    pin: GPIO0\n"
     with pytest.raises(CommandError):
         render_upsert(
             text,
