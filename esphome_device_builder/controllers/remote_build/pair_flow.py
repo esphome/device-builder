@@ -5,12 +5,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 from ...helpers.event_bus import Event
 from ...models import (
     EventType,
     IntentResponse,
+    RejectReason,
     RemoteBuildPairRequestReceivedData,
     RemoteBuildPairStatusChangedData,
     StoredPeer,
@@ -22,6 +24,21 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class IntentOutcome:
+    """
+    A receiver-side intent decision: the wire response plus an optional reason.
+
+    ``reason`` rides the wire to disambiguate the opaque
+    ``REJECTED`` (and marks a not-yet-approved ``PENDING`` on the
+    lookup path); the self-describing ``OK`` / ``APPROVED`` /
+    ``NO_PAIRING_WINDOW`` responses leave it ``None``.
+    """
+
+    response: IntentResponse
+    reason: RejectReason | None = None
+
+
 async def record_pair_request(
     controller: ReceiverController,
     *,
@@ -30,7 +47,7 @@ async def record_pair_request(
     static_x25519_pub: bytes,
     label: str,
     peer_ip: str,
-) -> IntentResponse:
+) -> IntentOutcome:
     """
     Process an ``intent="pair_request"`` Noise session.
 
@@ -57,11 +74,20 @@ async def record_pair_request(
     approved_peer = controller.state.approved_peers.get(dashboard_id)
     if approved_peer is not None:
         if approved_peer.pin_sha256 != pin_sha256:
-            return IntentResponse.REJECTED
-        return IntentResponse.APPROVED
+            _LOGGER.warning(
+                "pair_request pin mismatch for dashboard_id=%s from %s against an "
+                "APPROVED row (stored_offloader_pin=%s observed_offloader_pin=%s); "
+                "refusing (offloader identity rotated or dashboard_id impersonation)",
+                dashboard_id,
+                peer_ip,
+                approved_peer.pin_sha256,
+                pin_sha256,
+            )
+            return IntentOutcome(IntentResponse.REJECTED, RejectReason.PIN_MISMATCH)
+        return IntentOutcome(IntentResponse.APPROVED)
 
     if not controller.is_pairing_window_open():
-        return IntentResponse.NO_PAIRING_WINDOW
+        return IntentOutcome(IntentResponse.NO_PAIRING_WINDOW)
 
     # Refuse to overwrite a PENDING entry's pubkey — defense
     # in depth against a LAN attacker injecting a rival key
@@ -79,7 +105,7 @@ async def record_pair_request(
             dashboard_id,
             existing.peer_ip,
         )
-        return IntentResponse.REJECTED
+        return IntentOutcome(IntentResponse.REJECTED, RejectReason.PIN_MISMATCH)
 
     paired_at = time.time()
     controller.state.pending_peers[dashboard_id] = StoredPeer(
@@ -98,7 +124,7 @@ async def record_pair_request(
         "paired_at": paired_at,
     }
     controller._db.bus.fire(EventType.REMOTE_BUILD_PAIR_REQUEST_RECEIVED, payload)
-    return IntentResponse.PENDING
+    return IntentOutcome(IntentResponse.PENDING)
 
 
 async def lookup_peer_for_session(
@@ -106,7 +132,7 @@ async def lookup_peer_for_session(
     *,
     dashboard_id: str,
     pin_sha256: str,
-) -> IntentResponse:
+) -> IntentOutcome:
     """
     Resolve an ``intent="peer_link"`` request.
 
@@ -128,7 +154,7 @@ async def lookup_peer_for_status(
     *,
     dashboard_id: str,
     pin_sha256: str,
-) -> IntentResponse:
+) -> IntentOutcome:
     """
     Resolve an ``intent="pair_status"`` query, long-polling on PENDING.
 
@@ -168,7 +194,7 @@ async def lookup_peer_for_status(
             pin_sha256=pin_sha256,
             approved_response=IntentResponse.APPROVED,
         )
-        if snapshot is not IntentResponse.PENDING:
+        if snapshot.response is not IntentResponse.PENDING:
             return snapshot
         await flip_event.wait()
         return await _lookup_peer_response(
@@ -198,7 +224,7 @@ async def _lookup_peer_response(
     dashboard_id: str,
     pin_sha256: str,
     approved_response: IntentResponse,
-) -> IntentResponse:
+) -> IntentOutcome:
     """
     Shared lookup core for the peer_link / pair_status WS dispatch paths.
 
@@ -208,9 +234,9 @@ async def _lookup_peer_response(
     (caller passes :attr:`IntentResponse.OK` for peer_link,
     :attr:`IntentResponse.APPROVED` for pair_status).
 
-    Returns ``REJECTED`` when no row matches OR pin doesn't
-    match — the offloader treats either case the same (drop
-    local row + surface re-pair UI).
+    Returns ``REJECTED`` (with a :class:`RejectReason`) when no
+    row matches OR pin doesn't match; the pin-mismatch branch
+    logs the stored vs observed offloader pin.
     """
     # PENDING dict first — most pair-flow traffic is pending
     # peers polling pair_status. Both lookups are RAM reads
@@ -219,9 +245,26 @@ async def _lookup_peer_response(
     pending = controller.state.pending_peers.get(dashboard_id)
     if pending is not None:
         if pending.pin_sha256 != pin_sha256:
-            return IntentResponse.REJECTED
-        return IntentResponse.PENDING
+            _LOGGER.warning(
+                "peer-link pin mismatch for dashboard_id=%s against a PENDING row "
+                "(stored_offloader_pin=%s observed_offloader_pin=%s)",
+                dashboard_id,
+                pending.pin_sha256,
+                pin_sha256,
+            )
+            return IntentOutcome(IntentResponse.REJECTED, RejectReason.PIN_MISMATCH)
+        return IntentOutcome(IntentResponse.PENDING, RejectReason.PENDING_NOT_APPROVED)
     peer = controller.state.approved_peers.get(dashboard_id)
-    if peer is None or peer.pin_sha256 != pin_sha256:
-        return IntentResponse.REJECTED
-    return approved_response
+    if peer is None:
+        return IntentOutcome(IntentResponse.REJECTED, RejectReason.NO_APPROVED_PEER)
+    if peer.pin_sha256 != pin_sha256:
+        _LOGGER.warning(
+            "peer-link pin mismatch for dashboard_id=%s against an APPROVED row "
+            "(stored_offloader_pin=%s observed_offloader_pin=%s); offloader identity "
+            "rotated or a stranger is claiming this dashboard_id",
+            dashboard_id,
+            peer.pin_sha256,
+            pin_sha256,
+        )
+        return IntentOutcome(IntentResponse.REJECTED, RejectReason.PIN_MISMATCH)
+    return IntentOutcome(approved_response)

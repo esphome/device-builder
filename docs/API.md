@@ -346,6 +346,10 @@ A separate aiohttp `web.Application` binds on the dashboard's `--remote-build-po
 
 The Noise XX handshake exchanges static X25519 pubkeys mutually; the offloader pins the receiver's pin (out-of-band verified via `intent="preview"`) and the receiver looks up the offloader's pin against its `peers` list. Post-handshake, a single transport frame carries `{intent_response: ...}`. One-shot intents (`preview` / `pair_request` / `pair_status`) close the WS after that frame; `intent="peer_link"` on a successful auth keeps the WS open for application messages.
 
+A non-OK `intent_response` carries an optional `reason` (`RejectReason`): `no_approved_peer`, `pin_mismatch`, `pending_not_approved`, `bad_dashboard_id`, `bad_intent`. It is additive (absent from older receivers, read as `None`) and disambiguates the otherwise-opaque `rejected`; self-describing responses like `no_pairing_window` carry no reason. For a long-lived `peer_link`, the offloader treats `no_approved_peer` / `pin_mismatch` as terminal: it orphans the client (no 30s reconnect loop) and fires `OFFLOADER_PAIR_PEER_REVOKED` so the UI shows a re-pair CTA; a reason-less or `pending_not_approved` reject stays on the bounded-backoff reconnect path. The receiver logs the dispatch decision (not a premature `ok`) and, on a pin mismatch, logs the stored vs observed offloader pin.
+
+**Fully resetting a pairing** is per-end: offloader `remote_build/unpair` clears the `StoredPairing` (RAM + disk) and cancels the client, receiver `remote_build/remove_peer` clears the `StoredPeer` (RAM `pending` + RAM/disk `approved`). Removing on one side does not clear the other; a clean re-pair after a stuck `peer_link` rejection needs both, then a fresh `request_pair`.
+
 **Peer-link application messages** (post-handshake, ride over the established Noise session as one JSON-encoded transport frame per WS message). The complete set declared by `AppMessageType` in `controllers/remote_build/peer_link.py`:
 
 | `type` | Direction | Payload | Description |

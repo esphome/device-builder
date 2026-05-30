@@ -24,7 +24,8 @@ from ....helpers.peer_link_noise import (
     PeerLinkNoiseSession,
     pin_sha256_for_pubkey,
 )
-from ....models import IntentResponse, PeerLinkIntent
+from ....models import IntentResponse, PeerLinkIntent, RejectReason
+from ..pair_flow import IntentOutcome
 from .session import _run_peer_link_session
 from .wire_io import (
     _normalize_label,
@@ -98,7 +99,8 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
             return
         if await _read_handshake_message(session, ws, _HandshakeStep.MSG3) is None:
             return
-        await _send_response(session, ws, IntentResponse.REJECTED)
+        _LOGGER.warning("peer-link handshake from %s rejected (reason=bad_intent)", peer_ip)
+        await _send_response(session, ws, IntentResponse.REJECTED, reason=RejectReason.BAD_INTENT)
         return
 
     # --- handshake msg2 (receiver → offloader, empty encrypted) ---
@@ -123,15 +125,8 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
     pin = pin_sha256_for_pubkey(remote_static_pub)
     dashboard_id = _str_or_empty(msg3.get("dashboard_id"))
     label = _normalize_label(msg3.get("label"))
-    _LOGGER.info(
-        "peer-link handshake from %s ok (intent=%s dashboard_id=%s observed_offloader_pin=%s)",
-        peer_ip,
-        intent.value,
-        dashboard_id,
-        pin,
-    )
 
-    response = await _dispatch_intent(
+    outcome = await _dispatch_intent(
         controller,
         _DispatchInput(
             intent=intent,
@@ -142,12 +137,33 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
             peer_ip=peer_ip,
         ),
     )
-    await _send_response(session, ws, response)
+    # Log the decision, not the bare handshake; "ok" here used to
+    # mean only "Noise XX completed", which read as "pairing
+    # accepted" while the dispatch below still rejected.
+    if outcome.response is IntentResponse.REJECTED:
+        _LOGGER.warning(
+            "peer-link %s from %s rejected (dashboard_id=%s reason=%s observed_offloader_pin=%s)",
+            intent.value,
+            peer_ip,
+            dashboard_id,
+            outcome.reason.value if outcome.reason is not None else "unspecified",
+            pin,
+        )
+    else:
+        _LOGGER.info(
+            "peer-link %s from %s -> %s (dashboard_id=%s observed_offloader_pin=%s)",
+            intent.value,
+            peer_ip,
+            outcome.response.value,
+            dashboard_id,
+            pin,
+        )
+    await _send_response(session, ws, outcome.response, reason=outcome.reason)
 
     # Hand off to the long-lived application session on an
     # OK-authed peer_link; every other intent (incl. REJECTED
     # peer_link) closes the WS via the handler's ``finally``.
-    if intent is PeerLinkIntent.PEER_LINK and response is IntentResponse.OK:
+    if intent is PeerLinkIntent.PEER_LINK and outcome.response is IntentResponse.OK:
         await _run_peer_link_session(
             controller=controller,
             ws=ws,
@@ -160,9 +176,9 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
 async def _dispatch_intent(
     controller: ReceiverController,
     inp: _DispatchInput,
-) -> IntentResponse:
+) -> IntentOutcome:
     """
-    Resolve a single peer-link intent into a typed :class:`IntentResponse`.
+    Resolve a single peer-link intent into a typed :class:`IntentOutcome`.
 
     Pure dispatch — callable directly from tests without the WS /
     Noise plumbing. The WS driver has already validated the wire
@@ -173,7 +189,7 @@ async def _dispatch_intent(
         # Preview captures the responder's static pubkey via the
         # handshake transcript; no controller call + no
         # dashboard_id needed.
-        return IntentResponse.OK
+        return IntentOutcome(IntentResponse.OK)
 
     # Reject malformed dashboard_id before any controller call.
     # Same alphabet + length contract as
@@ -185,7 +201,7 @@ async def _dispatch_intent(
         or len(inp.dashboard_id) > DASHBOARD_ID_MAX_CHARS
         or not DASHBOARD_ID_PATTERN.fullmatch(inp.dashboard_id)
     ):
-        return IntentResponse.REJECTED
+        return IntentOutcome(IntentResponse.REJECTED, RejectReason.BAD_DASHBOARD_ID)
 
     if inp.intent is PeerLinkIntent.PAIR_REQUEST:
         # Pairing-window gate lives inside ``record_pair_request``,

@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from .enums import IntentResponse, PeerLinkIntent, PeerStatus, RemoteBuildPeerSource
+from .enums import (
+    IntentResponse,
+    PeerLinkIntent,
+    PeerStatus,
+    RejectReason,
+    RemoteBuildPeerSource,
+)
 from .offloader import (
     PAIRING_VERSION_MAX_LEN,
     OffloaderRemoteBuildSettings,
@@ -112,6 +118,7 @@ __all__ = (
     "ReceiverPeerLinkSessionClosedData",
     "ReceiverPeerLinkSessionOpenedData",
     "ReceiverPeers",
+    "RejectReason",
     "RemoteBuildHostAddedData",
     "RemoteBuildHostRemovedData",
     "RemoteBuildIdentityRotatedData",

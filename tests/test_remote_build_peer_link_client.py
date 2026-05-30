@@ -67,6 +67,10 @@ from esphome_device_builder.controllers.remote_build.peer_link_client import (
     preview_pair,
     request_pair,
 )
+from esphome_device_builder.controllers.remote_build.peer_link_client.client import (
+    _LOCAL_CLOSE_AUTH_REJECTED,
+    _LOCAL_CLOSE_RECEIVER_REJECTED,
+)
 from esphome_device_builder.helpers import json as _json
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.event_bus import EventBus
@@ -94,6 +98,7 @@ from esphome_device_builder.models import (
     OffloaderPeerLinkOpenedData,
     PeerLinkIntent,
     PeerStatus,
+    RejectReason,
     StoredPairing,
     StoredPeer,
 )
@@ -2110,7 +2115,8 @@ async def test_lookup_peer_for_status_pending_dict_pin_mismatch_returns_rejected
 
     response = await controller.lookup_peer_for_status(dashboard_id="alpha", pin_sha256="b" * 64)
 
-    assert response is IntentResponse.REJECTED
+    assert response.response is IntentResponse.REJECTED
+    assert response.reason is RejectReason.PIN_MISMATCH
 
 
 # ---------------------------------------------------------------------------
@@ -3101,20 +3107,22 @@ async def test_peer_link_client_close_event_carries_error_detail_on_noise_failur
         await cancel_and_drain(task)
 
 
-async def test_peer_link_client_auth_rejected_when_dashboard_id_unknown(
+async def test_peer_link_client_orphans_when_dashboard_id_unknown(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
 ) -> None:
-    """An unapproved dashboard_id fires CLOSED with auth_rejected.
+    """An unapproved dashboard_id is terminal: orphan + fire peer_revoked, don't retry.
 
     Drives a real handshake against the receiver but skips the
     ``_seed_approved_peer_for_initiator`` step. The receiver
-    responds ``intent_response: not_paired``; the client surfaces
-    that as the offloader-side ``auth_rejected`` reason on
-    ``OFFLOADER_PEER_LINK_CLOSED``.
+    responds ``intent_response: rejected`` with
+    ``reason: no_approved_peer``; the client surfaces a
+    peer-revoked alert and orphans instead of reconnecting every
+    30s forever.
     """
     server, _receiver, _, receiver_pub = receiver_server
     bus = EventBus()
     closed = capture_events(bus, EventType.OFFLOADER_PEER_LINK_CLOSED)
+    revoked = capture_events(bus, EventType.OFFLOADER_PAIR_PEER_REVOKED)
 
     client = PeerLinkClient(
         receiver_hostname="127.0.0.1",
@@ -3128,10 +3136,63 @@ async def test_peer_link_client_auth_rejected_when_dashboard_id_unknown(
     )
     task = asyncio.create_task(client.run())
     try:
-        await asyncio.wait_for(closed.received.wait(), timeout=2.0)
-        assert closed[0]["reason"] == "auth_rejected"
+        await asyncio.wait_for(task, timeout=2.0)
+        assert closed[0]["reason"] == "receiver_rejected"
+        assert revoked[0]["pin_sha256"] == "a" * 64
+        assert revoked[0]["receiver_label"] == "test-receiver"
+        assert client.is_orphaned
     finally:
         await cancel_and_drain(task)
+
+
+def _min_peer_link_client(bus: EventBus) -> PeerLinkClient:
+    """Build a PeerLinkClient with no live socket for unit-testing the reject mapping."""
+    return PeerLinkClient(
+        receiver_hostname="127.0.0.1",
+        receiver_port=6055,
+        identity_priv=secrets.token_bytes(32),
+        dashboard_id="alpha",
+        pinned_static_x25519_pub=b"\x01" * 32,
+        pin_sha256="a" * 64,
+        receiver_label="rx",
+        bus=bus,
+    )
+
+
+@pytest.mark.parametrize("reason", [RejectReason.PIN_MISMATCH, RejectReason.NO_APPROVED_PEER])
+def test_on_handshake_rejected_terminal_orphans(reason: RejectReason) -> None:
+    """A terminal reject reason fires peer_revoked and returns the orphaning close reason."""
+    bus = EventBus()
+    revoked = capture_events(bus, EventType.OFFLOADER_PAIR_PEER_REVOKED)
+    client = _min_peer_link_client(bus)
+
+    close_reason = client._on_handshake_rejected(
+        {"intent_response": "rejected", "reason": reason.value}
+    )
+
+    assert close_reason == _LOCAL_CLOSE_RECEIVER_REJECTED
+    assert revoked[0]["pin_sha256"] == "a" * 64
+    assert client.last_connect_error.startswith("rejected:")
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {"intent_response": "pending", "reason": RejectReason.PENDING_NOT_APPROVED.value},
+        {"intent_response": "rejected"},  # older receiver: no reason
+    ],
+)
+def test_on_handshake_rejected_transient_keeps_retrying(response: dict[str, str]) -> None:
+    """A transient or reason-less reject keeps the reconnect path; no peer_revoked alert."""
+    bus = EventBus()
+    revoked = capture_events(bus, EventType.OFFLOADER_PAIR_PEER_REVOKED)
+    client = _min_peer_link_client(bus)
+
+    close_reason = client._on_handshake_rejected(response)
+
+    assert close_reason == _LOCAL_CLOSE_AUTH_REJECTED
+    assert not revoked.received.is_set()
+    assert client.last_connect_error
 
 
 async def test_peer_link_client_pin_mismatch_aborts_and_orphans(
@@ -3240,6 +3301,49 @@ async def test_peer_link_client_pin_mismatch_aborts_and_orphans(
             assert f"observed_bytes={receiver_pub.hex()}" in msg
         finally:
             await cancel_and_drain(task)
+
+
+async def test_wrong_key_rejection_never_reaches_reason_handler(
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
+) -> None:
+    """A rejected response from a non-pinned responder is gated by the pin check.
+
+    Trust-boundary invariant: the receiver-rejection recovery
+    (orphan + ``peer_revoked``) only honours a ``reason`` from
+    the OOB-pinned receiver. Here the responder's key doesn't
+    match the pin and the row is unseeded, so the genuine
+    receiver would answer ``rejected{no_approved_peer}`` — a
+    forged terminal reason an attacker could send. The client
+    must close on ``pin_mismatch`` (the pin check runs before
+    the response is decrypted), NOT on ``receiver_rejected``,
+    and must not fire ``OFFLOADER_PAIR_PEER_REVOKED``.
+    """
+    server, _receiver, _, receiver_pub = receiver_server
+    bus = EventBus()
+    closed = capture_events(bus, EventType.OFFLOADER_PEER_LINK_CLOSED)
+    revoked = capture_events(bus, EventType.OFFLOADER_PAIR_PEER_REVOKED)
+    pin_mismatch = capture_events(bus, EventType.OFFLOADER_PAIR_PIN_MISMATCH)
+
+    wrong_pub = bytes([receiver_pub[0] ^ 0x01]) + receiver_pub[1:]
+    client = PeerLinkClient(
+        receiver_hostname="127.0.0.1",
+        receiver_port=server.port,
+        identity_priv=secrets.token_bytes(32),
+        dashboard_id="never-paired",
+        pinned_static_x25519_pub=wrong_pub,
+        pin_sha256=pin_sha256_for_pubkey(wrong_pub),
+        receiver_label="my-laptop",
+        bus=bus,
+    )
+    task = asyncio.create_task(client.run())
+    try:
+        await asyncio.wait_for(task, timeout=2.0)
+        assert closed[0]["reason"] == "pin_mismatch"
+        assert len(pin_mismatch) == 1
+        assert not revoked.received.is_set()
+        assert client.is_orphaned
+    finally:
+        await cancel_and_drain(task)
 
 
 async def test_peer_link_client_self_loopback_logs_error_and_retries(
@@ -5651,11 +5755,11 @@ async def test_controller_download_artifacts_malformed_tarball_maps_to_invalid_a
 # ---------------------------------------------------------------------------
 
 
-async def test_receiver_logs_accept_and_handshake_ok_on_preview_session(
+async def test_receiver_logs_accept_and_decision_on_preview_session(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Receiver emits ``WS accepted`` + ``handshake ... ok`` for every completed session."""
+    """Receiver logs ``WS accepted`` + the dispatch decision (not a premature ``ok``)."""
     server, _, _, _ = receiver_server
     initiator_priv = secrets.token_bytes(32)
 
@@ -5669,15 +5773,15 @@ async def test_receiver_logs_accept_and_handshake_ok_on_preview_session(
         )
 
     accept = [rec for rec in caplog.records if "peer-link WS accepted from" in rec.getMessage()]
-    handshake = [rec for rec in caplog.records if "peer-link handshake from" in rec.getMessage()]
+    decision = [rec for rec in caplog.records if "peer-link preview from" in rec.getMessage()]
     assert len(accept) >= 1
-    assert len(handshake) >= 1
+    assert len(decision) >= 1
     initiator_pub = (
         X25519PrivateKey.from_private_bytes(initiator_priv).public_key().public_bytes_raw()
     )
     expected_offloader_pin = pin_sha256_for_pubkey(initiator_pub)
-    assert f"observed_offloader_pin={expected_offloader_pin}" in handshake[-1].getMessage()
-    assert "intent=preview" in handshake[-1].getMessage()
+    assert f"observed_offloader_pin={expected_offloader_pin}" in decision[-1].getMessage()
+    assert "-> ok" in decision[-1].getMessage()
 
 
 async def test_run_one_session_logs_connected_peer_after_tcp_connect(

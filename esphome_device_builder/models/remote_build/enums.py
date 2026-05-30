@@ -82,3 +82,24 @@ class IntentResponse(StrEnum):
     PENDING = "pending"
     REJECTED = "rejected"
     NO_PAIRING_WINDOW = "no_pairing_window"
+
+
+class RejectReason(StrEnum):
+    """
+    Optional ``reason`` the receiver attaches to a non-OK ``intent_response``.
+
+    Additive wire field, absent from older receivers, so a
+    missing reason reads as ``None``. Disambiguates the opaque
+    ``REJECTED``: ``NO_APPROVED_PEER`` / ``PIN_MISMATCH`` are
+    terminal (offloader orphans + surfaces a re-pair alert),
+    ``PENDING_NOT_APPROVED`` is transient (keep polling),
+    ``BAD_DASHBOARD_ID`` / ``BAD_INTENT`` are protocol refusals
+    surfaced for diagnostics. Self-describing responses
+    (``NO_PAIRING_WINDOW``) carry no reason.
+    """
+
+    NO_APPROVED_PEER = "no_approved_peer"
+    PIN_MISMATCH = "pin_mismatch"
+    PENDING_NOT_APPROVED = "pending_not_approved"
+    BAD_DASHBOARD_ID = "bad_dashboard_id"
+    BAD_INTENT = "bad_intent"

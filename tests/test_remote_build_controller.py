@@ -74,6 +74,7 @@ from esphome_device_builder.models import (
     PeerQueueStatusSnapshotEntry,
     PeerStatus,
     QueueStatus,
+    RejectReason,
     RemoteBuildPeer,
     RemoteBuildPeerSource,
     RemoteBuildSettingsView,
@@ -2798,7 +2799,7 @@ async def test_record_pair_request_creates_pending_row(tmp_path: Path) -> None:
         peer_ip="192.168.1.10",
     )
 
-    assert response == "pending"
+    assert response.response == "pending"
     # PENDING entries live in-memory; APPROVED dict is empty.
     assert controller.receiver.state.approved_peers == {}
     pending = controller.receiver.state.pending_peers["alpha"]
@@ -2882,7 +2883,7 @@ async def test_record_pair_request_refreshes_existing_pending_row(tmp_path: Path
         peer_ip="10.0.0.1",
     )
 
-    assert response == "pending"
+    assert response.response == "pending"
     # PENDING refresh updates the in-memory dict, not disk.
     refreshed = controller.receiver.state.pending_peers["alpha"]
     assert refreshed.pin_sha256 == pin
@@ -2953,7 +2954,8 @@ async def test_record_pair_request_pending_pubkey_mismatch_returns_rejected(
             peer_ip="10.0.0.99",
         )
 
-    assert response == "rejected"
+    assert response.response == "rejected"
+    assert response.reason is RejectReason.PIN_MISMATCH
     # Original PENDING row stays untouched. This is the
     # security-critical invariant: the operator's view of the
     # legitimate pair_request can't be silently mutated by an
@@ -3012,7 +3014,7 @@ async def test_record_pair_request_already_approved_same_pin_returns_approved(
         peer_ip="10.0.0.1",
     )
 
-    assert response == "approved"
+    assert response.response == "approved"
     [peer] = controller.receiver.state.approved_peers.values()
     assert peer.pin_sha256 == pin
     assert peer.label == "alpha"
@@ -3044,7 +3046,7 @@ async def test_record_pair_request_unknown_dashboard_id_closed_window_returns_no
         peer_ip="10.0.0.1",
     )
 
-    assert response is IntentResponse.NO_PAIRING_WINDOW
+    assert response.response is IntentResponse.NO_PAIRING_WINDOW
     # No row was created — the gate fired before the insert.
     assert controller.receiver.state.approved_peers == {}
     assert controller.receiver.state.pending_peers == {}
@@ -3090,7 +3092,7 @@ async def test_record_pair_request_already_approved_bypasses_closed_window(
         peer_ip="10.0.0.1",
     )
 
-    assert response is IntentResponse.APPROVED
+    assert response.response is IntentResponse.APPROVED
 
 
 async def test_record_pair_request_already_approved_different_pin_returns_rejected(
@@ -3130,7 +3132,7 @@ async def test_record_pair_request_already_approved_different_pin_returns_reject
         peer_ip="10.0.0.1",
     )
 
-    assert response == "rejected"
+    assert response.response == "rejected"
     [peer] = controller.receiver.state.approved_peers.values()
     # Original row untouched.
     assert peer.pin_sha256 == original_pin
@@ -3158,7 +3160,7 @@ async def test_lookup_peer_for_session_approved_returns_ok(tmp_path: Path) -> No
         dashboard_id="alpha", pin_sha256=pin
     )
 
-    assert response == "ok"
+    assert response.response == "ok"
 
 
 async def test_lookup_peer_for_session_pending_returns_pending(tmp_path: Path) -> None:
@@ -3179,7 +3181,7 @@ async def test_lookup_peer_for_session_pending_returns_pending(tmp_path: Path) -
         dashboard_id="alpha", pin_sha256=pin
     )
 
-    assert response == "pending"
+    assert response.response == "pending"
 
 
 async def test_lookup_peer_for_session_unknown_returns_rejected(tmp_path: Path) -> None:
@@ -3190,7 +3192,8 @@ async def test_lookup_peer_for_session_unknown_returns_rejected(tmp_path: Path) 
         dashboard_id="ghost", pin_sha256="anything"
     )
 
-    assert response == "rejected"
+    assert response.response == "rejected"
+    assert response.reason is RejectReason.NO_APPROVED_PEER
 
 
 async def test_lookup_peer_for_session_pin_mismatch_returns_rejected(tmp_path: Path) -> None:
@@ -3220,7 +3223,8 @@ async def test_lookup_peer_for_session_pin_mismatch_returns_rejected(tmp_path: P
         dashboard_id="alpha", pin_sha256="differentpin" * 4
     )
 
-    assert response == "rejected"
+    assert response.response == "rejected"
+    assert response.reason is RejectReason.PIN_MISMATCH
 
 
 async def test_lookup_peer_for_status_mirrors_session_but_uses_approved_string(
@@ -3247,8 +3251,8 @@ async def test_lookup_peer_for_status_mirrors_session_but_uses_approved_string(
         dashboard_id="alpha", pin_sha256=pin
     )
 
-    assert status_response == "approved"
-    assert session_response == "ok"
+    assert status_response.response == "approved"
+    assert session_response.response == "ok"
 
 
 async def test_lookup_peer_for_status_unknown_returns_rejected(tmp_path: Path) -> None:
@@ -3260,7 +3264,7 @@ async def test_lookup_peer_for_status_unknown_returns_rejected(tmp_path: Path) -
         dashboard_id="ghost", pin_sha256="pin"
     )
 
-    assert response == "rejected"
+    assert response.response == "rejected"
 
 
 async def test_lookup_peer_for_status_long_polls_until_approve_fires(
@@ -3306,7 +3310,7 @@ async def test_lookup_peer_for_status_long_polls_until_approve_fires(
         await flip_task
         await controller.stop()
 
-    assert response is IntentResponse.APPROVED
+    assert response.response is IntentResponse.APPROVED
 
 
 async def test_lookup_peer_for_status_long_poll_ignores_other_dashboard_ids(
@@ -3365,7 +3369,7 @@ async def test_lookup_peer_for_status_long_poll_ignores_other_dashboard_ids(
     # removal event; alpha's re-snapshot misses → REJECTED. NOT
     # APPROVED (which would mean bravo's flip woke alpha's waiter
     # incorrectly).
-    assert response is IntentResponse.REJECTED
+    assert response.response is IntentResponse.REJECTED
 
 
 # ---------------------------------------------------------------------------
@@ -3840,6 +3844,32 @@ def test_on_offloader_pair_pin_mismatch_caches_alert(tmp_path: Path) -> None:
     assert cached["expected_pin"] == "a" * 64
     assert cached["observed_pin"] == "b" * 64
     assert "fired_at" in cached  # set by the listener at fire-time
+
+
+def test_on_offloader_pair_peer_revoked_caches_alert(tmp_path: Path) -> None:
+    """``OFFLOADER_PAIR_PEER_REVOKED`` listener caches a peer-revoked snapshot row.
+
+    The peer-link client fires this when the receiver rejects a
+    long-lived ``peer_link`` handshake on an already-APPROVED row;
+    the controller listens so the alert reaches late-subscribing
+    tabs through ``initial_state.offloader_alerts``.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    payload = {
+        "receiver_hostname": "host.local",
+        "receiver_port": 6055,
+        "receiver_label": "my-laptop",
+        "pin_sha256": "a" * 64,
+    }
+    controller.offloader._on_offloader_pair_peer_revoked(MagicMock(data=payload))
+
+    cached = controller.offloader.state.offloader_alerts["a" * 64]
+    assert cached["kind"] == "peer_revoked"
+    assert cached["receiver_hostname"] == "host.local"
+    assert cached["receiver_port"] == 6055
+    assert cached["pin_sha256"] == "a" * 64
+    assert cached["receiver_label"] == "my-laptop"
+    assert "fired_at" in cached
 
 
 def test_on_offloader_queue_status_changed_caches_snapshot(tmp_path: Path) -> None:

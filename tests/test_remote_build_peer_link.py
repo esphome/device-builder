@@ -88,6 +88,7 @@ from esphome_device_builder.models import (
     IntentResponse,
     PeerLinkIntent,
     QueueStatus,
+    RejectReason,
     StoredPeer,
 )
 
@@ -152,7 +153,8 @@ async def test_dispatch_preview_returns_ok(tmp_path: Path) -> None:
         ),
     )
 
-    assert response is IntentResponse.OK
+    assert response.response is IntentResponse.OK
+    assert response.reason is None
     controller.offloader._db.bus.fire.assert_not_called()
 
 
@@ -177,7 +179,7 @@ async def test_dispatch_pair_request_open_window_creates_pending(tmp_path: Path)
         ),
     )
 
-    assert response is IntentResponse.PENDING
+    assert response.response is IntentResponse.PENDING
     fire = controller.offloader._db.bus.fire
     fire.assert_called_once()
     _, payload = fire.call_args.args
@@ -205,7 +207,9 @@ async def test_dispatch_pair_request_closed_window_returns_no_pairing_window(
         ),
     )
 
-    assert response is IntentResponse.NO_PAIRING_WINDOW
+    assert response.response is IntentResponse.NO_PAIRING_WINDOW
+    # Self-describing response carries no redundant reason.
+    assert response.reason is None
     controller.offloader._db.bus.fire.assert_not_called()
     # No row was created since the window gate fired first.
 
@@ -241,7 +245,8 @@ async def test_dispatch_peer_link_approved_returns_ok(tmp_path: Path) -> None:
         ),
     )
 
-    assert response is IntentResponse.OK
+    assert response.response is IntentResponse.OK
+    assert response.reason is None
 
 
 async def test_dispatch_pair_request_empty_dashboard_id_returns_rejected(tmp_path: Path) -> None:
@@ -270,7 +275,8 @@ async def test_dispatch_pair_request_empty_dashboard_id_returns_rejected(tmp_pat
         ),
     )
 
-    assert response is IntentResponse.REJECTED
+    assert response.response is IntentResponse.REJECTED
+    assert response.reason is RejectReason.BAD_DASHBOARD_ID
     controller.offloader._db.bus.fire.assert_not_called()
     assert controller.receiver.state.approved_peers == {}
     assert controller.receiver.state.pending_peers == {}
@@ -307,7 +313,8 @@ async def test_dispatch_pair_request_malformed_dashboard_id_returns_rejected(
         ),
     )
 
-    assert response is IntentResponse.REJECTED
+    assert response.response is IntentResponse.REJECTED
+    assert response.reason is RejectReason.BAD_DASHBOARD_ID
     controller.offloader._db.bus.fire.assert_not_called()
     assert controller.receiver.state.approved_peers == {}
     assert controller.receiver.state.pending_peers == {}
@@ -348,7 +355,8 @@ async def test_dispatch_pair_status_unknown_after_window_close_returns_rejected(
         ),
     )
 
-    assert response is IntentResponse.REJECTED
+    assert response.response is IntentResponse.REJECTED
+    assert response.reason is RejectReason.NO_APPROVED_PEER
 
 
 # ---------------------------------------------------------------------------
@@ -453,7 +461,7 @@ async def test_send_response_encrypt_error_skips_send() -> None:
     session = MagicMock(spec=PeerLinkNoiseSession)
     session.encrypt.side_effect = NoiseInvalidMessage("nonce exhausted")
 
-    await _send_response(session, ws, IntentResponse.OK)
+    await _send_response(session, ws, IntentResponse.OK, reason=None)
     ws.send_bytes.assert_not_awaited()
 
 
@@ -477,7 +485,7 @@ async def test_send_response_advertises_esphome_version() -> None:
     session = MagicMock(spec=PeerLinkNoiseSession)
     session.encrypt.return_value = b"ciphertext-stub"
 
-    await _send_response(session, ws, IntentResponse.OK)
+    await _send_response(session, ws, IntentResponse.OK, reason=None)
 
     session.encrypt.assert_called_once()
     body = session.encrypt.call_args.args[0]
@@ -486,6 +494,20 @@ async def test_send_response_advertises_esphome_version() -> None:
         "intent_response": IntentResponse.OK.value,
         "esphome_version": esphome_version,
     }
+
+
+async def test_send_response_carries_reason_when_set() -> None:
+    """A non-OK response carries the optional ``reason``; OK omits it."""
+    ws = _make_ws_stub()
+    session = MagicMock(spec=PeerLinkNoiseSession)
+    session.encrypt.return_value = b"ciphertext-stub"
+
+    await _send_response(session, ws, IntentResponse.REJECTED, reason=RejectReason.PIN_MISMATCH)
+
+    body = session.encrypt.call_args.args[0]
+    parsed = json.loads(body)
+    assert parsed["intent_response"] == IntentResponse.REJECTED.value
+    assert parsed["reason"] == RejectReason.PIN_MISMATCH.value
 
 
 async def test_drive_session_msg1_timeout_returns_quietly(

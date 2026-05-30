@@ -18,7 +18,7 @@ from esphome.const import __version__ as esphome_version
 
 from ....helpers import json as _json
 from ....helpers.peer_link_noise import NOISE_ERRORS, PeerLinkNoiseSession
-from ....models import IntentResponse, PeerLinkIntent
+from ....models import IntentResponse, PeerLinkIntent, RejectReason
 
 if TYPE_CHECKING:
     from .handshake import _HandshakeStep
@@ -103,6 +103,8 @@ async def _send_response(
     session: PeerLinkNoiseSession,
     ws: web.WebSocketResponse,
     response: IntentResponse,
+    *,
+    reason: RejectReason | None,
 ) -> None:
     """Send the post-handshake intent_response as a single ChaCha20-Poly1305 frame.
 
@@ -112,8 +114,18 @@ async def _send_response(
     :attr:`StoredPairing.esphome_version` so a receiver upgrade
     surfaces in pick_build_path's version-compat gate on the next
     session-open without operator action.
+
+    *reason* rides along on non-OK responses (additive field;
+    older offloaders ignore it) so the offloader can tell a
+    terminal rejection apart from a transient one.
     """
-    body = _json.dumps({"intent_response": response.value, "esphome_version": esphome_version})
+    payload: dict[str, str] = {
+        "intent_response": response.value,
+        "esphome_version": esphome_version,
+    }
+    if reason is not None:
+        payload["reason"] = reason.value
+    body = _json.dumps(payload)
     try:
         encrypted = session.encrypt(body)
     except NOISE_ERRORS:

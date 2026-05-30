@@ -37,6 +37,7 @@ from ....helpers.peer_link_resolver import _SkipHostsResolver, make_peer_link_ht
 from ....models import (
     IntentResponse,
     PeerLinkIntent,
+    RejectReason,
     SubmitJobAckFrameData,
 )
 from .._client_models import (
@@ -76,6 +77,27 @@ _RECONNECT_INITIAL_BACKOFF_SECONDS = 1.0
 _RECONNECT_MAX_BACKOFF_SECONDS = 30.0
 
 
+# Per-reason recovery policy: a receiver ``reason`` maps to
+# ``(orphan?, operator-facing message)``. A reason absent here
+# (older receiver, unknown / non-string) falls through to the
+# transient default, so the client keeps reconnecting.
+_REJECT_DEFAULT: tuple[bool, str] = (False, "auth rejected")
+_REJECT_INFO: dict[str, tuple[bool, str]] = {
+    RejectReason.PIN_MISMATCH.value: (
+        True,
+        "rejected: receiver has a different key on file (re-pair)",
+    ),
+    RejectReason.NO_APPROVED_PEER.value: (
+        True,
+        "rejected: receiver has no approval on file (re-pair)",
+    ),
+    RejectReason.PENDING_NOT_APPROVED.value: (
+        False,
+        "waiting for the receiver to accept the pairing",
+    ),
+}
+
+
 # Offloader-side close reasons (wire-level ones live in
 # :class:`TerminateReason`). Surfaced verbatim in the
 # ``OFFLOADER_PEER_LINK_CLOSED`` event so subscribers can
@@ -86,6 +108,12 @@ _LOCAL_CLOSE_HEARTBEAT_TIMEOUT = "heartbeat_timeout"
 _LOCAL_CLOSE_CLIENT_STOPPED = "client_stopped"
 _LOCAL_CLOSE_PEER_HUNG_UP = "peer_hung_up"
 _LOCAL_CLOSE_AUTH_REJECTED = "auth_rejected"
+# Terminal ``intent_response: rejected`` (``no_approved_peer`` /
+# ``pin_mismatch``). Orphans rather than reconnecting so a doomed
+# handshake doesn't hammer the receiver every 30s; re-pair / unpair
+# is the recovery. A reason-less or ``pending_not_approved`` reject
+# stays on the reconnect path.
+_LOCAL_CLOSE_RECEIVER_REJECTED = "receiver_rejected"
 # Receiver's post-handshake pubkey didn't match the OOB-confirmed
 # value — either legitimate rotation or a MITM / mDNS spoof.
 # Aborts before any application frames flow and orphans so the
@@ -302,9 +330,9 @@ class PeerLinkClient:
                     )
                     self._orphaned = True
                     return
-                if close_reason == _LOCAL_CLOSE_PIN_MISMATCH:
+                if close_reason in (_LOCAL_CLOSE_PIN_MISMATCH, _LOCAL_CLOSE_RECEIVER_REJECTED):
                     # Detection site in :meth:`_run_one_session` logs
-                    # the warning with both pubkeys; this branch only
+                    # the warning + fires the alert; this branch only
                     # owns the orphan transition.
                     self._orphaned = True
                     return
@@ -404,14 +432,7 @@ class PeerLinkClient:
                     not isinstance(response, dict)
                     or response.get("intent_response") != IntentResponse.OK.value
                 ):
-                    _LOGGER.warning(
-                        "peer-link client to %s:%d rejected at handshake: %r",
-                        self._hostname,
-                        self._port,
-                        response,
-                    )
-                    self._last_connect_error = "auth rejected"
-                    return _LOCAL_CLOSE_AUTH_REJECTED
+                    return self._on_handshake_rejected(response)
                 receiver_version = _extract_receiver_esphome_version(response)
                 channel = PeerLinkChannel(
                     noise=session, ws=ws, log_label=f"{self._hostname}:{self._port}"
@@ -622,8 +643,35 @@ class PeerLinkClient:
     def _fire_pin_mismatch(self, *, observed: bytes) -> None:
         _dispatch.fire_pin_mismatch(self, observed=observed)
 
+    def _fire_peer_revoked(self) -> None:
+        _dispatch.fire_peer_revoked(self)
+
     def _fire_queue_status(self, *, idle: bool, running: bool, queue_depth: int) -> None:
         _dispatch.fire_queue_status(self, idle=idle, running=running, queue_depth=queue_depth)
+
+    def _on_handshake_rejected(self, response: Any) -> str:
+        """Map a non-OK ``intent_response`` to a close reason; orphan on terminal reasons."""
+        reason = response.get("reason") if isinstance(response, dict) else None
+        key = reason if isinstance(reason, str) else ""
+        terminal, message = _REJECT_INFO.get(key, _REJECT_DEFAULT)
+        self._last_connect_error = message
+        if terminal:
+            _LOGGER.warning(
+                "peer-link client to %s:%d rejected by receiver (reason=%s); orphaning "
+                "until the operator re-pairs or unpairs",
+                self._hostname,
+                self._port,
+                reason,
+            )
+            self._fire_peer_revoked()
+            return _LOCAL_CLOSE_RECEIVER_REJECTED
+        _LOGGER.warning(
+            "peer-link client to %s:%d rejected at handshake: %r",
+            self._hostname,
+            self._port,
+            response,
+        )
+        return _LOCAL_CLOSE_AUTH_REJECTED
 
     def _on_self_static_observed(self, peer: Any) -> str:
         """Skip *peer*'s IP next resolve, log ERROR, return the transport-error close reason."""
