@@ -2,22 +2,17 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 import pytest
+from esphome import pins
 
-import esphome_device_builder
 from esphome_device_builder.models.common import PinFeature, PinMode
 from script.sync_components import (  # type: ignore[import-not-found]
-    _PIN_FEATURE_OVERRIDES,
-    _PIN_MODE_OVERRIDES,
     _apply_pin_constraints,
+    _collect_pin_constraints,
+    _get_esphome_loader,
+    _pin_constraint_from_validator,
     _resolve_pin_features,
 )
-
-_COMPONENTS_DIR = Path(esphome_device_builder.__file__).parent / "definitions" / "components"
-
 
 # --- _resolve_pin_features: schema ``modes`` -> hardware-capability filter ---
 
@@ -36,109 +31,110 @@ def test_resolve_pin_features_keeps_hardware_capabilities() -> None:
     ]
 
 
-def test_resolve_pin_features_filters_mixed_input() -> None:
-    assert _resolve_pin_features({"modes": ["output", "uart_tx", "pullup", "pwm"]}) == [
-        "uart_tx",
-        "pwm",
-    ]
-
-
 @pytest.mark.parametrize("raw", [{}, {"modes": None}, {"modes": []}])
 def test_resolve_pin_features_handles_missing_or_empty(raw: dict) -> None:
     assert _resolve_pin_features(raw) == []
 
 
-def test_resolve_pin_features_drops_non_string_items() -> None:
-    assert _resolve_pin_features({"modes": [None, 5, True, "adc"]}) == ["adc"]
-
-
-# --- override tables: one mapping per capability category is pinned so a
-# regen that drops the table (or an accidental edit) fails CI ---
+# --- _pin_constraint_from_validator: direction off the gpio-schema closure ---
 
 
 @pytest.mark.parametrize(
-    ("component_id", "key", "expected"),
+    ("validator", "expected_mode"),
     [
-        ("sensor.adc", "pin", [PinFeature.ADC]),
-        ("output.esp32_dac", "pin", [PinFeature.DAC]),
-        ("i2c", "sda", [PinFeature.I2C_SDA]),
-        ("i2c", "scl", [PinFeature.I2C_SCL]),
-        ("uart", "tx_pin", [PinFeature.UART_TX]),
-        ("uart", "rx_pin", [PinFeature.UART_RX]),
-        ("binary_sensor.esp32_touch", "pin", [PinFeature.TOUCH]),
-        ("output.ledc", "pin", [PinFeature.PWM]),
+        (pins.gpio_input_pin_schema, PinMode.INPUT),
+        (pins.gpio_output_pin_schema, PinMode.OUTPUT),
+        (pins.gpio_pin_schema({"input": True, "output": True}), PinMode.INPUT_OUTPUT),
     ],
 )
-def test_pin_feature_overrides_cover_each_category(
-    component_id: str, key: str, expected: list[PinFeature]
+def test_pin_constraint_derives_direction(validator: object, expected_mode: PinMode) -> None:
+    constraint = _pin_constraint_from_validator(validator)
+    assert constraint.mode == expected_mode
+    assert constraint.features == ()
+
+
+def test_pin_constraint_non_pin_validator_is_empty() -> None:
+    constraint = _pin_constraint_from_validator(str)
+    assert constraint.mode is None
+    assert constraint.features == ()
+
+
+# --- _collect_pin_constraints: derivation from the component's live schema.
+# These walk the installed esphome package, so they pin the contract against
+# ESPHome's real pin validators rather than a hand-maintained table. ---
+
+
+def test_collect_derives_input_and_output_without_cross_contamination() -> None:
+    """``gpio`` ships as input (binary_sensor) and output (output); they must not collide."""
+    loader = _get_esphome_loader()
+    bsensor = _collect_pin_constraints(loader, "binary_sensor", "gpio", "gpio.binary_sensor")
+    output = _collect_pin_constraints(loader, "output", "gpio", "gpio.output")
+    assert bsensor[("pin",)].mode == PinMode.INPUT
+    assert output[("pin",)].mode == PinMode.OUTPUT
+
+
+@pytest.mark.parametrize(
+    ("domain", "stem", "top_key", "feature"),
+    [
+        ("sensor", "adc", "adc.sensor", PinFeature.ADC),
+        ("output", "esp32_dac", "esp32_dac.output", PinFeature.DAC),
+        ("binary_sensor", "esp32_touch", "esp32_touch.binary_sensor", PinFeature.TOUCH),
+    ],
+)
+def test_collect_derives_fixed_silicon_features(
+    domain: str, stem: str, top_key: str, feature: PinFeature
 ) -> None:
-    assert _PIN_FEATURE_OVERRIDES[(component_id, key)] == expected
+    constraints = _collect_pin_constraints(_get_esphome_loader(), domain, stem, top_key)
+    assert feature in constraints[("pin",)].features
 
 
-@pytest.mark.parametrize(
-    ("component_id", "key", "expected"),
-    [
-        ("output.gpio", "pin", PinMode.OUTPUT),
-        ("switch.gpio", "pin", PinMode.OUTPUT),
-        ("binary_sensor.gpio", "pin", PinMode.INPUT),
-        ("stepper.a4988", "step_pin", PinMode.OUTPUT),
-        ("stepper.uln2003", "pin_a", PinMode.OUTPUT),
-    ],
-)
-def test_pin_mode_overrides(component_id: str, key: str, expected: PinMode) -> None:
-    assert _PIN_MODE_OVERRIDES[(component_id, key)] == expected
+def test_collect_omits_matrix_routed_bus_capabilities() -> None:
+    """i2c sda/scl route through the GPIO matrix — emitting a feature would wrongly filter."""
+    constraints = _collect_pin_constraints(_get_esphome_loader(), None, "i2c", "i2c")
+    for constraint in constraints.values():
+        assert PinFeature.I2C_SDA not in constraint.features
+        assert PinFeature.I2C_SCL not in constraint.features
 
 
-# --- _apply_pin_constraints: emission-time application onto an entry dict ---
+def test_collect_returns_empty_without_loader() -> None:
+    assert _collect_pin_constraints(None, "output", "gpio", "gpio.output") == {}
 
 
-def test_apply_pin_constraints_sets_features() -> None:
-    entry = {"type": "pin", "key": "pin", "pin_features": [], "pin_mode": None}
-    _apply_pin_constraints(entry, "sensor.adc", "pin")
-    assert entry["pin_features"] == ["adc"]
-    assert entry["pin_mode"] is None
+# --- _apply_pin_constraints: stamping derived constraints onto catalog entries ---
 
 
-def test_apply_pin_constraints_sets_mode() -> None:
-    entry = {"type": "pin", "key": "pin", "pin_features": [], "pin_mode": None}
-    _apply_pin_constraints(entry, "binary_sensor.gpio", "pin")
-    assert entry["pin_mode"] == "input"
+def _entry(key: str = "pin", **extra: object) -> dict:
+    return {"type": "pin", "key": key, **extra}
 
 
-def test_apply_pin_constraints_noop_for_unknown_field() -> None:
-    entry = {"type": "pin", "key": "pin", "pin_features": [], "pin_mode": None}
-    _apply_pin_constraints(entry, "sensor.unknown", "pin")
-    assert entry["pin_features"] == []
-    assert entry["pin_mode"] is None
+def test_apply_stamps_mode_and_features() -> None:
+    entries = [_entry()]
+    loader = _get_esphome_loader()
+    constraints = _collect_pin_constraints(loader, "output", "esp32_dac", "esp32_dac.output")
+    _apply_pin_constraints(entries, constraints)
+    assert entries[0]["pin_mode"] == "output"
+    assert entries[0]["pin_features"] == ["dac"]
 
 
-def test_apply_pin_constraints_noop_for_non_pin_entry() -> None:
-    entry = {"type": "string", "key": "pin", "pin_features": [], "pin_mode": None}
-    _apply_pin_constraints(entry, "sensor.adc", "pin")
-    assert entry["pin_features"] == []
+def test_apply_only_targets_pin_typed_entries() -> None:
+    entries = [{"type": "string", "key": "pin"}]
+    from script.sync_components import _PinConstraint  # type: ignore[import-not-found]
+
+    _apply_pin_constraints(entries, {("pin",): _PinConstraint(PinMode.OUTPUT, ())})
+    assert "pin_mode" not in entries[0]
 
 
-# --- every curated mapping targets a real pin field in the shipped catalog,
-# so a typo here or a schema rename that moves the field is caught in CI ---
+def test_apply_merges_without_duplicating_existing_features() -> None:
+    from script.sync_components import _PinConstraint  # type: ignore[import-not-found]
 
-
-def _pin_keys_in_component(component_id: str) -> set[str]:
-    path = _COMPONENTS_DIR / f"{component_id}.json"
-    if not path.exists():
-        return set()
-    data = json.loads(path.read_text(encoding="utf-8"))
-    return {
-        entry.get("key")
-        for entry in (data.get("config_entries") or [])
-        if isinstance(entry, dict) and entry.get("type") == "pin"
-    }
-
-
-@pytest.mark.parametrize(
-    ("component_id", "key"),
-    sorted(set(_PIN_FEATURE_OVERRIDES) | set(_PIN_MODE_OVERRIDES)),
-)
-def test_override_keys_exist_as_pin_entries_in_catalog(component_id: str, key: str) -> None:
-    assert key in _pin_keys_in_component(component_id), (
-        f"{component_id}.{key} is not a pin entry in the committed catalog"
+    entries = [_entry(pin_features=["adc"])]
+    _apply_pin_constraints(
+        entries, {("pin",): _PinConstraint(None, (PinFeature.ADC, PinFeature.DAC))}
     )
+    assert entries[0]["pin_features"] == ["adc", "dac"]
+
+
+def test_apply_is_noop_for_unconstrained_path() -> None:
+    entries = [_entry()]
+    _apply_pin_constraints(entries, {})
+    assert "pin_mode" not in entries[0]

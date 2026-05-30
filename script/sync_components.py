@@ -806,6 +806,7 @@ def main() -> int:
     )
 
     _audit_catalog_for_unit_mismatches(catalog)
+    _audit_catalog_for_pin_metadata(catalog)
 
     _emit_split_catalog(catalog, version)
 
@@ -1770,6 +1771,10 @@ def build_component_entry(
     _apply_field_ranges(config_entries, introspection.get("field_ranges") or {})
     _apply_refined_types(config_entries, introspection.get("refined_types") or {})
     _apply_inclusive_groups(config_entries, introspection.get("inclusive_groups") or {})
+    _apply_pin_constraints(
+        config_entries,
+        _collect_pin_constraints(_get_esphome_loader(), domain, stem, top_key),
+    )
     _apply_unit_of_measurement_options(config_entries)
     _promote_multi_value_keys(config_entries)
 
@@ -1954,7 +1959,6 @@ def _convert_config_vars(  # noqa: C901
         override = _FIELD_OVERRIDES.get((component_id, key))
         if override is not None:
             entry = {**entry, **copy.deepcopy(override)}
-        _apply_pin_constraints(entry, component_id, key)
         # Cross-cutting infrastructure fields are only meaningful when
         # the named component is configured. Tag them so the frontend
         # can hide them by default.
@@ -2570,53 +2574,6 @@ def _resolve_pin_features(raw: dict) -> list[str]:
     return [m for m in modes if isinstance(m, str) and m in _PIN_FEATURE_VALUES]
 
 
-# Hand-curated hardware-capability and direction requirements for pin
-# fields, keyed on ``(component_id, field_key)``. The prebuilt schema
-# carries neither, so the frontend's pin-dropdown capability filter
-# (``pin_features``) and input/output gate (``pin_mode``) stay no-ops
-# until populated here. Values are enum members, not bare strings, so a
-# typo fails at sync time rather than silently dropping the constraint.
-# Keep targeted: unambiguous bus pins and GPIO directions only.
-_PIN_FEATURE_OVERRIDES: dict[tuple[str, str], list[PinFeature]] = {
-    ("sensor.adc", "pin"): [PinFeature.ADC],
-    ("output.esp32_dac", "pin"): [PinFeature.DAC],
-    ("i2c", "sda"): [PinFeature.I2C_SDA],
-    ("i2c", "scl"): [PinFeature.I2C_SCL],
-    ("uart", "tx_pin"): [PinFeature.UART_TX],
-    ("uart", "rx_pin"): [PinFeature.UART_RX],
-    ("binary_sensor.esp32_touch", "pin"): [PinFeature.TOUCH],
-    ("output.ledc", "pin"): [PinFeature.PWM],
-    ("output.esp8266_pwm", "pin"): [PinFeature.PWM],
-    ("output.rp2040_pwm", "pin"): [PinFeature.PWM],
-    ("output.libretiny_pwm", "pin"): [PinFeature.PWM],
-}
-
-_PIN_MODE_OVERRIDES: dict[tuple[str, str], PinMode] = {
-    ("output.gpio", "pin"): PinMode.OUTPUT,
-    ("switch.gpio", "pin"): PinMode.OUTPUT,
-    ("binary_sensor.gpio", "pin"): PinMode.INPUT,
-    ("stepper.a4988", "step_pin"): PinMode.OUTPUT,
-    ("stepper.a4988", "dir_pin"): PinMode.OUTPUT,
-    ("stepper.a4988", "sleep_pin"): PinMode.OUTPUT,
-    ("stepper.uln2003", "pin_a"): PinMode.OUTPUT,
-    ("stepper.uln2003", "pin_b"): PinMode.OUTPUT,
-    ("stepper.uln2003", "pin_c"): PinMode.OUTPUT,
-    ("stepper.uln2003", "pin_d"): PinMode.OUTPUT,
-}
-
-
-def _apply_pin_constraints(entry: dict, component_id: str, key: str) -> None:
-    """Attach curated ``pin_features`` / ``pin_mode`` to a pin entry in place."""
-    if entry.get("type") != "pin":
-        return
-    features = _PIN_FEATURE_OVERRIDES.get((component_id, key))
-    if features:
-        entry["pin_features"] = [f.value for f in features]
-    mode = _PIN_MODE_OVERRIDES.get((component_id, key))
-    if mode is not None:
-        entry["pin_mode"] = mode.value
-
-
 def _detect_platform_type(inner_schema: dict) -> str | None:
     """Infer the platform_type for a NESTED entry from its extends list.
 
@@ -3200,6 +3157,39 @@ def _audit_catalog_for_unit_mismatches(catalog: list[dict]) -> None:
     )
     for component_id, dotted_path, default in mismatches:
         _LOGGER.warning("  %s.%s = %r", component_id, dotted_path, default)
+
+
+def _audit_catalog_for_pin_metadata(catalog: list[dict]) -> None:
+    """
+    Warn on ``pin`` entries the introspection derived no metadata for.
+
+    Coverage signal for the pin-constraint derivation: a pin field with
+    neither ``pin_mode`` nor ``pin_features`` means the walker found no
+    ``gpio_*_pin_schema`` closure or capability validator on it — a new
+    ESPHome pin-validator shape, a renamed field, or a genuinely
+    unconstrained pin. Surfacing it as a sync-time WARNING turns an
+    uncovered component into telemetry instead of a silent no-op.
+    """
+    uncovered: list[tuple[str, str]] = []
+    for component in catalog:
+        for path, entry in _walk_entries(component.get("config_entries") or []):
+            if entry.get("type") != "pin":
+                continue
+            if entry.get("pin_mode") or entry.get("pin_features"):
+                continue
+            uncovered.append((component["id"], ".".join(path)))
+    if not uncovered:
+        return
+    _LOGGER.warning(
+        "Catalog audit: %d pin entries have no derived pin_mode/pin_features "
+        "— the introspection walker found no gpio_*_pin_schema closure or "
+        "capability validator. Either a new ESPHome pin-validator shape "
+        "(_pin_constraint_from_validator needs to learn it) or a genuinely "
+        "unconstrained pin.",
+        len(uncovered),
+    )
+    for component_id, dotted_path in uncovered:
+        _LOGGER.warning("  %s.%s", component_id, dotted_path)
 
 
 def _walk_entries(
@@ -3897,6 +3887,144 @@ def _walk_catalog_entries(
                 walk(inner, sub_path)
 
     walk(entries, ())
+
+
+# Capability validators ESPHome wraps a pin field in when the pin must
+# sit on fixed silicon. Keyed on the validator's ``__name__`` so the
+# derivation tracks ESPHome's own pin schema across releases instead of
+# a hand-maintained per-component table. Bus capabilities
+# (i2c/spi/uart/pwm) are deliberately absent: on the supported chips
+# those route through the GPIO matrix to (almost) any pin, so the field
+# carries a plain ``gpio_*_pin_schema`` and emitting a capability
+# requirement would wrongly narrow the board pin dropdown.
+_PIN_FEATURE_VALIDATORS: dict[str, PinFeature] = {
+    "validate_adc_pin": PinFeature.ADC,
+    "validate_touch_pad": PinFeature.TOUCH,
+    "valid_dac_pin": PinFeature.DAC,
+}
+
+
+class _PinConstraint(NamedTuple):
+    """Direction + fixed-silicon capabilities derived for one pin field."""
+
+    mode: PinMode | None
+    features: tuple[PinFeature, ...]
+
+
+def _pin_mode_from_closure(validator: Any) -> PinMode | None:
+    """Read ``input`` / ``output`` flags off a ``gpio_*_pin_schema`` closure."""
+    try:
+        default_mode = inspect.getclosurevars(validator).nonlocals.get("default_mode")
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(default_mode, dict):
+        return None
+    can_input = bool(default_mode.get("input"))
+    can_output = bool(default_mode.get("output"))
+    if can_input and can_output:
+        return PinMode.INPUT_OUTPUT
+    if can_output:
+        return PinMode.OUTPUT
+    if can_input:
+        return PinMode.INPUT
+    return None
+
+
+def _pin_constraint_from_validator(node: Any) -> _PinConstraint:
+    """
+    Derive ``(pin_mode, pin_features)`` from a field's live validator.
+
+    Direction comes from the ``default_mode`` ESPHome's
+    ``gpio_*_pin_schema`` closure captures; features from the
+    fixed-silicon validators in ``_PIN_FEATURE_VALIDATORS``. Unwraps
+    ``vol.All`` / ``vol.Any`` so a composed validator (a DAC pin is
+    gpio-output *and* ``valid_dac_pin``) yields both halves. Returns
+    empties when *node* isn't a pin validator.
+    """
+    mode: PinMode | None = None
+    features: list[PinFeature] = []
+    seen: set[int] = set()
+    stack: list[Any] = [node]
+    while stack:
+        current = stack.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        qualname = getattr(current, "__qualname__", "") or ""
+        if "_schema_creator.<locals>.validator" in qualname:
+            mode = _pin_mode_from_closure(current) or mode
+        feature = _PIN_FEATURE_VALIDATORS.get(getattr(current, "__name__", "") or "")
+        if feature is not None and feature not in features:
+            features.append(feature)
+        stack.extend(getattr(current, "validators", None) or [])
+    return _PinConstraint(mode, tuple(features))
+
+
+def _collect_pin_constraints(
+    loader: Any,
+    domain: str | None,
+    stem: str,
+    top_key: str,
+) -> dict[tuple[str, ...], _PinConstraint]:
+    """
+    Walk the component's own live schema for per-pin direction + capability.
+
+    Scoped to the exact manifest for this component — platform
+    components resolve through ``get_platform(domain, stem)``, bus /
+    hub components through ``get_component(top_key)``. Deliberately NOT
+    routed through ``introspect_component``'s cross-platform merge: a
+    bare stem like ``gpio`` ships both ``binary_sensor.gpio`` (input)
+    and ``output.gpio`` (output), which collide at path ``("pin",)``
+    and would stamp one direction onto both.
+    """
+    if loader is None:
+        return {}
+    try:
+        manifest = (
+            loader.get_platform(domain, stem)
+            if domain in _PLATFORM_DOMAINS
+            else loader.get_component(top_key)
+        )
+    except Exception:
+        return {}
+    schema = getattr(manifest, "config_schema", None)
+    if schema is None:
+        return {}
+
+    out: dict[tuple[str, ...], _PinConstraint] = {}
+
+    def visit(_key: Any, _key_name: str, val: Any, path: tuple[str, ...]) -> None:
+        constraint = _pin_constraint_from_validator(val)
+        if constraint.mode is not None or constraint.features:
+            out[path] = constraint
+
+    _walk_schema_keys(schema, visit)
+    return out
+
+
+def _apply_pin_constraints(
+    entries: list[dict],
+    constraints: dict[tuple[str, ...], _PinConstraint],
+) -> None:
+    """Stamp derived ``pin_mode`` / ``pin_features`` onto pin entries in place."""
+    if not constraints:
+        return
+
+    def visit(entry: dict, path: tuple[str, ...]) -> None:
+        if entry.get("type") != "pin":
+            return
+        constraint = constraints.get(path)
+        if constraint is None:
+            return
+        if constraint.mode is not None:
+            entry["pin_mode"] = constraint.mode.value
+        if constraint.features:
+            existing = entry.get("pin_features") or []
+            entry["pin_features"] = list(
+                dict.fromkeys([*existing, *(f.value for f in constraint.features)])
+            )
+
+    _walk_catalog_entries(entries, visit)
 
 
 def _apply_refined_types(
