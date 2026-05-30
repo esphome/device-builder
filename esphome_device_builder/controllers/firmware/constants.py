@@ -104,15 +104,17 @@ _PROGRESS_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^\s*Uploading:.*?\b(\d{1,3})\s*%"),
 )
 
-# History retention. Bulk operations can spawn dozens of jobs at once;
-# we want a useful audit trail without letting the metadata file grow
-# without bound.
+# History retention.
 #   - "Primary" = COMPILE / UPLOAD / INSTALL: dedup'd to the most
-#     recent terminal job per device, then capped globally.
+#     recent terminal job per device, then capped globally. The dedup
+#     already bounds the pool to the distinct-device count, and a
+#     terminal job's output lives in a sidecar (RAM/metadata hold only
+#     a small record), so the cap is a high safety ceiling for large
+#     fleets, not the normal limiter — it must clear a full batch.
 #   - "Aux" = CLEAN / RESET_BUILD_ENV: kept in a separate small pool
 #     so they don't crowd out the device history.
 # Active (queued/running) jobs are exempt from both pools.
-_MAX_PRIMARY_TERMINAL_JOBS = 50
+_MAX_PRIMARY_TERMINAL_JOBS = 500
 _MAX_AUX_TERMINAL_JOBS = 5
 _PRIMARY_JOB_TYPES: frozenset[JobType] = frozenset(
     {JobType.COMPILE, JobType.UPLOAD, JobType.INSTALL}
