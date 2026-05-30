@@ -1187,3 +1187,43 @@ def test_delete_on_time_unknown_component_raises_not_found() -> None:
     with pytest.raises(CommandError) as exc:
         render_delete(yaml_text, location=loc)
     assert exc.value.code is ErrorCode.NOT_FOUND
+
+
+_IDLESS_ON_TIME_LIST = (
+    "time:\n  - platform: sntp\n"
+    "    on_time:\n      - seconds: 0\n        then:\n          - logger.log: hi\n"
+)
+
+
+def test_round_trip_on_time_list_entry_on_idless_instance() -> None:
+    """A list-shaped ``on_time`` on an id-less time component (``time_0``) round-trips."""
+    parsed = parse_device_yaml(_IDLESS_ON_TIME_LIST)
+    assert len(parsed) == 1
+    location = parsed[0].location
+    assert location.component_id == "time_0"
+    new_text, _diff = render_upsert(
+        _IDLESS_ON_TIME_LIST, tree=parsed[0].automation, location=location
+    )
+    reparsed = parse_device_yaml(new_text)
+    assert len(reparsed) == 1
+    assert reparsed[0].location == location
+
+
+def test_delete_on_time_list_entry_on_idless_instance() -> None:
+    """Deleting the only list-shaped ``on_time`` entry on an id-less time component."""
+    location = parse_device_yaml(_IDLESS_ON_TIME_LIST)[0].location
+    new_text, _diff = render_delete(_IDLESS_ON_TIME_LIST, location=location)
+    assert "on_time:" not in new_text
+
+
+def test_idless_positional_index_out_of_range_is_refused() -> None:
+    """A ``<domain>_<idx>`` id past the end of the section is refused (not mis-written)."""
+    with pytest.raises(CommandError):
+        render_upsert(
+            _IDLESS_BINARY_SENSOR,
+            tree=AutomationTree(
+                trigger_id="binary_sensor.on_press",
+                actions=[ActionNode(action_id="logger.log", params={"format": "hi"})],
+            ),
+            location=ComponentOnLocation(component_id="binary_sensor_5", trigger="on_press"),
+        )
