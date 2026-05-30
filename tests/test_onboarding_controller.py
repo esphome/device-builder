@@ -15,7 +15,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from esphome_device_builder.controllers.config import save_preferences
+from esphome_device_builder.controllers.config import (
+    load_preferences,
+    save_preferences,
+    update_preferences,
+)
 from esphome_device_builder.controllers.onboarding import (
     OnboardingController,
     _replace_or_append_secret,
@@ -30,7 +34,7 @@ from esphome_device_builder.models.onboarding import (
     OnboardingStepId,
     OnboardingStepStatus,
 )
-from esphome_device_builder.models.preferences import UserPreferences
+from esphome_device_builder.models.preferences import Theme, UserPreferences
 
 
 def _make_controller(config_dir: Path) -> OnboardingController:
@@ -243,6 +247,28 @@ async def test_mark_acknowledged_is_idempotent(tmp_path: Path) -> None:
     await controller.mark_acknowledged()
     state = await controller.mark_acknowledged()
     assert state.completed_version == ONBOARDING_VERSION
+
+
+@pytest.mark.asyncio
+async def test_mark_acknowledged_does_not_clobber_a_concurrent_pref_write(
+    tmp_path: Path,
+) -> None:
+    """Concurrent acknowledgement and a ``set_preferences`` write keep both fields.
+
+    Both share the ``_preferences`` blob and go through
+    ``metadata_transaction``, so neither can read a stale baseline
+    and overwrite the other's field.
+    """
+    controller = _make_controller(tmp_path)
+
+    await asyncio.gather(
+        controller.mark_acknowledged(),
+        asyncio.to_thread(update_preferences, tmp_path, {"theme": Theme.DARK}),
+    )
+
+    persisted = await asyncio.to_thread(load_preferences, tmp_path)
+    assert persisted.onboarding_completed_version == ONBOARDING_VERSION
+    assert persisted.theme == Theme.DARK
 
 
 @pytest.mark.asyncio

@@ -610,6 +610,14 @@ def save_preferences(config_dir: Path, prefs: UserPreferences) -> None:
         data[_PREFS_KEY] = prefs.to_dict()
 
 
+def _prefs_from_data(data: dict[str, Any]) -> UserPreferences:
+    """Decode the ``_preferences`` blob, defaulting on a corrupt shape."""
+    try:
+        return UserPreferences.from_dict(data.get(_PREFS_KEY, {}))
+    except (ValueError, TypeError, LookupError):
+        return UserPreferences()
+
+
 def update_preferences(config_dir: Path, update_fields: dict[str, Any]) -> UserPreferences:
     """
     Merge *update_fields* into stored preferences under one lock.
@@ -617,18 +625,36 @@ def update_preferences(config_dir: Path, update_fields: dict[str, Any]) -> UserP
     Load, merge the partial update, validate, and save inside a
     single ``metadata_transaction`` so two concurrent partial
     updates can't both read the same baseline and clobber each
-    other's field. Defaults on a corrupt blob.
+    other's field. Defaults on a corrupt blob. Validates the
+    untrusted partial dict through ``from_dict``; for a
+    conditional in-place update use ``preferences_transaction``.
     """
     with metadata_transaction(config_dir) as data:
-        try:
-            current = UserPreferences.from_dict(data.get(_PREFS_KEY, {}))
-        except (ValueError, TypeError, LookupError):
-            current = UserPreferences()
-        merged = current.to_dict()
+        merged = _prefs_from_data(data).to_dict()
         merged.update(update_fields)
         updated = UserPreferences.from_dict(merged)
         data[_PREFS_KEY] = updated.to_dict()
         return updated
+
+
+@contextmanager
+def preferences_transaction(config_dir: Path) -> Iterator[UserPreferences]:
+    """
+    Atomic read-modify-write context for user preferences.
+
+    Yields the current :class:`UserPreferences` (defaults on a
+    corrupt blob). Mutate it in place; on a clean exit the blob is
+    persisted under the same ``metadata_transaction`` lock, so a
+    conditional update can't lose a concurrent writer's field.
+    Exceptions inside the block discard the pending mutation. Use
+    when the next state depends on reading the current one;
+    ``set_prefs`` uses ``update_preferences`` instead because it
+    validates an untrusted partial dict.
+    """
+    with metadata_transaction(config_dir) as data:
+        prefs = _prefs_from_data(data)
+        yield prefs
+        data[_PREFS_KEY] = prefs.to_dict()
 
 
 _REMOTE_BUILD_FAIL_SAFE = RemoteBuildSettings(enabled=False)
