@@ -56,6 +56,7 @@ from esphome_device_builder.controllers.config import (
     _read_descriptor_file,
     _run_esptool,
     _save_metadata,
+    clear_volatile_device_metadata,
     delete_label_cascade,
     get_device_ip,
     get_device_metadata,
@@ -1810,3 +1811,84 @@ def test_set_device_labels_rejects_non_string_items(tmp_path: Path) -> None:
 
     # No partial write happened.
     assert "kitchen.yaml" not in _load_metadata(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# Coverage fillers exposed by the package split
+# ---------------------------------------------------------------------------
+
+
+async def test_get_version_returns_server_and_esphome_versions(tmp_path: Path) -> None:
+    """``config/version`` reports both the server and the esphome version."""
+    controller = _make_controller(tmp_path)
+    result = await controller.get_version()
+    assert set(result) == {"server_version", "esphome_version"}
+
+
+def test_status_use_mqtt_reflects_env(
+    make_settings: MakeSettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``status_use_mqtt`` mirrors ``ESPHOME_DASHBOARD_USE_MQTT``."""
+    settings = make_settings()
+    monkeypatch.delenv("ESPHOME_DASHBOARD_USE_MQTT", raising=False)
+    assert settings.status_use_mqtt is False
+    monkeypatch.setenv("ESPHOME_DASHBOARD_USE_MQTT", "true")
+    assert settings.status_use_mqtt is True
+
+
+def test_metadata_transaction_persists_without_fcntl(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The no-fcntl degraded path (Windows / no fcntl) still round-trips the write."""
+    monkeypatch.setattr(config_module.metadata, "_HAS_FCNTL", False)
+
+    with metadata_transaction(tmp_path) as data:
+        data["kitchen.yaml"] = {"board_id": "esp32"}
+
+    raw = json.loads((tmp_path / ".device-builder.json").read_bytes())
+    assert raw == {"kitchen.yaml": {"board_id": "esp32"}}
+
+
+def test_clear_volatile_device_metadata_drops_emptied_entry(tmp_path: Path) -> None:
+    """Clearing the last volatile field drops the now-empty entry; mixed entries survive."""
+    (tmp_path / ".device-builder.json").write_bytes(
+        json.dumps(
+            {
+                "volatile_only.yaml": {"mac_address": "AA:BB:CC:DD:EE:FF"},
+                "mixed.yaml": {"board_id": "esp32", "mac_address": "AA:BB:CC:DD:EE:FF"},
+            }
+        ).encode()
+    )
+
+    clear_volatile_device_metadata(tmp_path, "volatile_only.yaml")
+    clear_volatile_device_metadata(tmp_path, "mixed.yaml")
+
+    raw = _load_metadata(tmp_path)
+    assert "volatile_only.yaml" not in raw
+    assert raw["mixed.yaml"] == {"board_id": "esp32"}
+
+
+def test_set_device_labels_treats_non_list_catalog_as_empty(tmp_path: Path) -> None:
+    """A corrupt non-list ``_labels`` block reads as an empty catalog."""
+    (tmp_path / ".device-builder.json").write_bytes(
+        json.dumps({"_labels": {"corrupt": "mapping"}}).encode()
+    )
+
+    # Empty assignment has nothing to validate, so it succeeds; no labels are written.
+    set_device_labels(tmp_path, "kitchen.yaml", [])
+    assert _load_metadata(tmp_path)["kitchen.yaml"] == {}
+
+    # Any real id can't match the empty catalog → rejected.
+    with pytest.raises(ValueError, match="Unknown label id"):
+        set_device_labels(tmp_path, "kitchen.yaml", ["a"])
+
+
+def test_set_device_labels_overwrites_non_dict_entry(tmp_path: Path) -> None:
+    """A corrupt non-dict device entry is replaced with a fresh mapping rather than crashing."""
+    (tmp_path / ".device-builder.json").write_bytes(
+        json.dumps({"_labels": [{"id": "a", "name": "A"}], "kitchen.yaml": "corrupt"}).encode()
+    )
+
+    set_device_labels(tmp_path, "kitchen.yaml", ["a"])
+
+    assert _load_metadata(tmp_path)["kitchen.yaml"] == {"labels": ["a"]}
