@@ -264,7 +264,6 @@ def _set_esphome_cmd(controller: FirmwareController) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_install_serial_chip_match_proceeds_to_completed(
     firmware_controller_factory: FirmwareControllerFactory,
     tmp_path: Path,
@@ -303,7 +302,6 @@ async def test_install_serial_chip_match_proceeds_to_completed(
 
 
 @pytest.mark.parametrize("submit_command", ["install", "upload"])
-@pytest.mark.asyncio
 async def test_serial_chip_mismatch_marks_failed_with_message(
     firmware_controller_factory: FirmwareControllerFactory,
     tmp_path: Path,
@@ -354,7 +352,6 @@ async def test_serial_chip_mismatch_marks_failed_with_message(
     assert captured["job_completed"] == []
 
 
-@pytest.mark.asyncio
 async def test_install_serial_no_chip_detected_proceeds_to_completed(
     firmware_controller_factory: FirmwareControllerFactory,
     tmp_path: Path,
@@ -421,7 +418,6 @@ async def test_install_serial_no_chip_detected_proceeds_to_completed(
     ],
     ids=["ota", "ipv4", "mdns_hostname", "windows_com"],
 )
-@pytest.mark.asyncio
 async def test_install_non_dev_port_skips_chip_check(
     firmware_controller_factory: FirmwareControllerFactory,
     tmp_path: Path,
@@ -464,7 +460,6 @@ async def test_install_non_dev_port_skips_chip_check(
     assert job.status == JobStatus.COMPLETED
 
 
-@pytest.mark.asyncio
 async def test_install_serial_no_storage_skips_check(
     firmware_controller_factory: FirmwareControllerFactory,
     tmp_path: Path,
@@ -508,7 +503,6 @@ async def test_install_serial_no_storage_skips_check(
     assert job.status == JobStatus.COMPLETED
 
 
-@pytest.mark.asyncio
 async def test_install_serial_storage_without_target_platform_skips_check(
     firmware_controller_factory: FirmwareControllerFactory,
     tmp_path: Path,
@@ -547,7 +541,6 @@ async def test_install_serial_storage_without_target_platform_skips_check(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_cancel_during_hanging_verify_chip_terminates_subprocess(
     firmware_controller_factory: FirmwareControllerFactory,
     tmp_path: Path,
@@ -633,7 +626,6 @@ async def test_cancel_during_hanging_verify_chip_terminates_subprocess(
     assert captured["job_failed"] == []
 
 
-@pytest.mark.asyncio
 async def test_cancel_during_verify_chip_marks_job_cancelled(
     firmware_controller_factory: FirmwareControllerFactory,
     tmp_path: Path,
@@ -704,7 +696,6 @@ async def test_cancel_during_verify_chip_marks_job_cancelled(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_tracked_subprocess_registers_and_clears_current_process(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -748,7 +739,6 @@ async def test_tracked_subprocess_registers_and_clears_current_process(
     assert controller.state.current_process is None
 
 
-@pytest.mark.asyncio
 async def test_tracked_subprocess_restores_prior_value_on_exit(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -783,7 +773,6 @@ async def test_tracked_subprocess_restores_prior_value_on_exit(
     assert controller.state.current_process is sentinel  # restored
 
 
-@pytest.mark.asyncio
 async def test_tracked_subprocess_restores_prior_value_on_exception(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -825,7 +814,6 @@ async def test_tracked_subprocess_restores_prior_value_on_exception(
     assert controller.state.current_process is None
 
 
-@pytest.mark.asyncio
 async def test_cancel_in_gap_between_verify_and_main_spawn_terminates(
     firmware_controller_factory: FirmwareControllerFactory,
     tmp_path: Path,

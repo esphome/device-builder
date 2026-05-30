@@ -23,8 +23,6 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-import pytest
-
 from esphome_device_builder.controllers._build_size_refresher import BuildSizeRefresher
 from esphome_device_builder.helpers.build_size import (
     BuildDirSignal,
@@ -77,7 +75,6 @@ def _make(
 # ----------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_request_adds_to_pending_set_and_wakes_event(tmp_path: Path) -> None:
     """``request`` is sync, idempotent, and signals the wake event."""
     refresher, _, _ = _make(tmp_path)
@@ -88,7 +85,6 @@ async def test_request_adds_to_pending_set_and_wakes_event(tmp_path: Path) -> No
     assert refresher._wake.is_set()
 
 
-@pytest.mark.asyncio
 async def test_start_is_idempotent(tmp_path: Path) -> None:
     """A second ``start`` while the worker is alive is a no-op."""
     refresher, _, _ = _make(tmp_path)
@@ -99,7 +95,6 @@ async def test_start_is_idempotent(tmp_path: Path) -> None:
     await refresher.stop()
 
 
-@pytest.mark.asyncio
 async def test_stop_with_no_running_worker_is_noop(tmp_path: Path) -> None:
     """``stop`` on a never-started refresher must not raise."""
     refresher, _, _ = _make(tmp_path)
@@ -112,7 +107,6 @@ async def test_stop_with_no_running_worker_is_noop(tmp_path: Path) -> None:
 # ----------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_worker_drains_pending_and_fires_on_refreshed(tmp_path: Path) -> None:
     """A request lands in the queue; the worker walks + fires the callback."""
     done = asyncio.Event()
@@ -143,7 +137,6 @@ async def test_worker_drains_pending_and_fires_on_refreshed(tmp_path: Path) -> N
     assert refresher.pending == set()
 
 
-@pytest.mark.asyncio
 async def test_worker_skips_callback_when_refresh_returns_none(tmp_path: Path) -> None:
     """Refresh returning ``None`` (cache hit) → no ``on_refreshed`` invoke.
 
@@ -192,7 +185,6 @@ async def test_worker_skips_callback_when_refresh_returns_none(tmp_path: Path) -
     assert refreshed == []
 
 
-@pytest.mark.asyncio
 async def test_worker_logs_and_continues_on_refresh_exception(tmp_path: Path, caplog: Any) -> None:
     """A per-iteration walk error logs + keeps the worker alive for the next item.
 
@@ -248,7 +240,6 @@ async def test_worker_logs_and_continues_on_refresh_exception(tmp_path: Path, ca
     assert refreshed == ["kitchen.yaml"]
 
 
-@pytest.mark.asyncio
 async def test_worker_logs_and_continues_on_callback_exception(tmp_path: Path, caplog: Any) -> None:
     """``on_refreshed`` raising must not kill the worker either."""
     error_seen = asyncio.Event()
@@ -300,7 +291,6 @@ async def test_worker_logs_and_continues_on_callback_exception(tmp_path: Path, c
 # ----------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_enqueue_stale_fleet_pushes_divergent_filenames(tmp_path: Path) -> None:
     """``find_stale_build_dirs`` returns a list → each one ends up in pending."""
     refresher, _, _ = _make(tmp_path, filenames=["a.yaml", "b.yaml", "c.yaml"])
@@ -313,7 +303,6 @@ async def test_enqueue_stale_fleet_pushes_divergent_filenames(tmp_path: Path) ->
     assert refresher.pending == {"a.yaml", "c.yaml"}
 
 
-@pytest.mark.asyncio
 async def test_enqueue_stale_fleet_empty_filenames_skips_executor(tmp_path: Path) -> None:
     """No configured devices → no executor handoff at all."""
     calls: list[Any] = []
@@ -338,7 +327,6 @@ async def test_enqueue_stale_fleet_empty_filenames_skips_executor(tmp_path: Path
 # ----------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_worker_logs_when_initial_fleet_sweep_raises(tmp_path: Path, caplog: Any) -> None:
     """Initial sweep raising must not kill the worker — log + carry on."""
     sweep_failed = asyncio.Event()
@@ -392,7 +380,6 @@ async def test_worker_logs_when_initial_fleet_sweep_raises(tmp_path: Path, caplo
     assert refreshed == ["a.yaml"]
 
 
-@pytest.mark.asyncio
 async def test_stop_logs_unexpected_worker_exception(tmp_path: Path, caplog: Any) -> None:
     """Anything other than ``CancelledError`` from the worker gets logged.
 

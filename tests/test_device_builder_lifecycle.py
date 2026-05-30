@@ -60,7 +60,6 @@ def test_init_leaves_controllers_unset(make_settings: MakeSettingsFactory) -> No
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_start_initialises_all_controllers(
     make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
 ) -> None:
@@ -90,7 +89,6 @@ async def test_start_initialises_all_controllers(
         await db.stop()
 
 
-@pytest.mark.asyncio
 async def test_start_registers_command_handlers_from_every_controller(
     make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
 ) -> None:
@@ -124,7 +122,6 @@ async def test_start_registers_command_handlers_from_every_controller(
         await db.stop()
 
 
-@pytest.mark.asyncio
 async def test_start_spawns_background_polling_task(
     make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
 ) -> None:
@@ -145,7 +142,6 @@ async def test_start_spawns_background_polling_task(
         await db.stop()
 
 
-@pytest.mark.asyncio
 async def test_background_poll_skips_when_no_subscribers(
     make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
 ) -> None:
@@ -205,7 +201,6 @@ async def test_background_poll_skips_when_no_subscribers(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_stop_cancels_background_tasks_and_tears_down_controllers(
     make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
 ) -> None:
@@ -249,7 +244,6 @@ async def test_stop_cancels_background_tasks_and_tears_down_controllers(
     assert db._executor is None
 
 
-@pytest.mark.asyncio
 async def test_stop_is_safe_without_start(make_settings: MakeSettingsFactory) -> None:
     """``stop()`` on a never-started instance doesn't crash.
 

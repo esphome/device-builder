@@ -167,7 +167,6 @@ def catalog() -> BoardCatalog:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_get_board_returns_match_by_id(catalog: BoardCatalog) -> None:
     """``boards/get_board`` returns the entry whose ``id`` matches."""
     board = await catalog.get_board(board_id="m5stack-cores3")
@@ -176,7 +175,6 @@ async def test_get_board_returns_match_by_id(catalog: BoardCatalog) -> None:
     assert board.esphome.variant == Esp32Variant.ESP32S3
 
 
-@pytest.mark.asyncio
 async def test_get_board_returns_none_for_unknown_id(catalog: BoardCatalog) -> None:
     """Unknown board id → ``None`` (not an exception).
 
@@ -206,7 +204,6 @@ def test_get_by_id_is_synchronous_alias_for_get_board(catalog: BoardCatalog) -> 
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_get_boards_unfiltered_returns_everything_with_total(
     catalog: BoardCatalog,
 ) -> None:
@@ -218,7 +215,6 @@ async def test_get_boards_unfiltered_returns_everything_with_total(
     assert resp.limit == 50
 
 
-@pytest.mark.asyncio
 async def test_get_boards_filters_by_platform(catalog: BoardCatalog) -> None:
     """``platform=esp8266`` drops every entry on a different platform."""
     resp = await catalog.get_boards(platform=Platform.ESP8266)
@@ -227,7 +223,6 @@ async def test_get_boards_filters_by_platform(catalog: BoardCatalog) -> None:
     assert {b.id for b in resp.boards} == {"d1-mini", "generic-esp8266"}
 
 
-@pytest.mark.asyncio
 async def test_get_boards_filters_by_variant_case_insensitive(
     catalog: BoardCatalog,
 ) -> None:
@@ -244,7 +239,6 @@ async def test_get_boards_filters_by_variant_case_insensitive(
     assert {b.id for b in resp.boards} == {"seeed-xiao-esp32c3", "generic-esp32c3"}
 
 
-@pytest.mark.asyncio
 async def test_get_boards_filters_by_tag(catalog: BoardCatalog) -> None:
     """``tag=display`` returns only the entry tagged for it."""
     resp = await catalog.get_boards(tag=BoardTag.DISPLAY)
@@ -253,7 +247,6 @@ async def test_get_boards_filters_by_tag(catalog: BoardCatalog) -> None:
     assert resp.boards[0].id == "m5stack-cores3"
 
 
-@pytest.mark.asyncio
 async def test_get_boards_query_searches_name_description_manufacturer_id_tags(
     catalog: BoardCatalog,
 ) -> None:
@@ -279,7 +272,6 @@ async def test_get_boards_query_searches_name_description_manufacturer_id_tags(
     assert {b.id for b in by_id.boards} == {"generic-esp8266"}
 
 
-@pytest.mark.asyncio
 async def test_get_boards_filters_compose(catalog: BoardCatalog) -> None:
     """Multiple filters AND together — platform + variant + tag.
 
@@ -301,7 +293,6 @@ async def test_get_boards_filters_compose(catalog: BoardCatalog) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_get_boards_sorts_featured_first_generic_last(
     catalog: BoardCatalog,
 ) -> None:
@@ -324,7 +315,6 @@ async def test_get_boards_sorts_featured_first_generic_last(
     assert ids[2] == "m5stack-cores3"
 
 
-@pytest.mark.asyncio
 async def test_get_boards_paginates_via_offset_and_limit(
     catalog: BoardCatalog,
 ) -> None:
@@ -345,7 +335,6 @@ async def test_get_boards_paginates_via_offset_and_limit(
     assert [b.id for b in resp.boards] == ["m5stack-cores3", "generic-esp32c3"]
 
 
-@pytest.mark.asyncio
 async def test_get_boards_offset_past_end_returns_empty_page(
     catalog: BoardCatalog,
 ) -> None:

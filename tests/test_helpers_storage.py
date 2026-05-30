@@ -67,20 +67,17 @@ async def _drain_loop_until(predicate: Callable[[], bool], timeout: float = 1.0)
     raise AssertionError(msg)
 
 
-@pytest.mark.asyncio
 async def test_async_load_returns_none_when_file_missing(store: Store[bytes]) -> None:
     """A non-existent file yields ``None`` rather than raising."""
     assert await store.async_load() is None
 
 
-@pytest.mark.asyncio
 async def test_async_load_decodes_existing_file(store_path: Path, store: Store[bytes]) -> None:
     """An existing file is read + handed through the decoder."""
     store_path.write_bytes(b"hello")
     assert await store.async_load() == b"hello"
 
 
-@pytest.mark.asyncio
 async def test_async_delay_save_writes_after_delay(store_path: Path, store: Store[bytes]) -> None:
     """A scheduled save lands on disk after the delay elapses."""
     store.async_delay_save(lambda: b"delayed", delay=0.05)
@@ -91,7 +88,6 @@ async def test_async_delay_save_writes_after_delay(store_path: Path, store: Stor
     assert store_path.read_bytes() == b"delayed"
 
 
-@pytest.mark.asyncio
 async def test_async_delay_save_collapses_within_window(
     store_path: Path, store: Store[bytes]
 ) -> None:
@@ -117,7 +113,6 @@ async def test_async_delay_save_collapses_within_window(
     assert store_path.read_bytes() == b"final"
 
 
-@pytest.mark.asyncio
 async def test_async_delay_save_extends_deadline_on_later_call(
     store_path: Path, store: Store[bytes]
 ) -> None:
@@ -140,7 +135,6 @@ async def test_async_delay_save_extends_deadline_on_later_call(
     assert store_path.read_bytes() == b"late"
 
 
-@pytest.mark.asyncio
 async def test_async_delay_save_earlier_call_replaces_handle(
     store_path: Path, store: Store[bytes]
 ) -> None:
@@ -165,7 +159,6 @@ async def test_async_delay_save_earlier_call_replaces_handle(
     assert store_path.read_bytes() == b"earlier"
 
 
-@pytest.mark.asyncio
 async def test_async_save_now_flushes_pending_save(store_path: Path, store: Store[bytes]) -> None:
     """``async_save_now`` cancels the timer + writes immediately."""
     store.async_delay_save(lambda: b"pending", delay=10.0)
@@ -174,7 +167,6 @@ async def test_async_save_now_flushes_pending_save(store_path: Path, store: Stor
     assert store_path.read_bytes() == b"pending"
 
 
-@pytest.mark.asyncio
 async def test_async_save_now_is_noop_when_empty(store_path: Path, store: Store[bytes]) -> None:
     """Calling on an empty store is idempotent."""
     await store.async_save_now()
@@ -182,7 +174,6 @@ async def test_async_save_now_is_noop_when_empty(store_path: Path, store: Store[
     assert not store_path.exists()
 
 
-@pytest.mark.asyncio
 async def test_async_save_now_awaits_inflight_write(tmp_path: Path) -> None:
     """Concurrent in-flight write completes before the final flush issues.
 
@@ -227,7 +218,6 @@ async def test_async_save_now_awaits_inflight_write(tmp_path: Path) -> None:
     assert store_path.read_bytes() == b"second"
 
 
-@pytest.mark.asyncio
 async def test_write_failure_logged_and_swallowed(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -264,7 +254,6 @@ async def test_write_failure_logged_and_swallowed(
     assert str(store_path) in matching[0].getMessage()
 
 
-@pytest.mark.asyncio
 async def test_default_name_falls_back_to_path(tmp_path: Path) -> None:
     """Omitting *name* derives a stand-in from the store path."""
     store_path = tmp_path / "data.json"
@@ -277,7 +266,6 @@ async def test_default_name_falls_back_to_path(tmp_path: Path) -> None:
     assert str(store_path) in store._name
 
 
-@pytest.mark.asyncio
 async def test_data_func_called_at_flush_not_scheduling(
     store_path: Path, store: Store[bytes]
 ) -> None:
@@ -293,7 +281,6 @@ async def test_data_func_called_at_flush_not_scheduling(
     assert store_path.read_bytes() == b"after-mutation"
 
 
-@pytest.mark.asyncio
 async def test_atomic_write_creates_parent_directory(tmp_path: Path) -> None:
     """The store creates missing parent directories rather than failing."""
     store_path = tmp_path / "subdir" / "nested" / "data.json"
@@ -312,7 +299,6 @@ async def test_atomic_write_creates_parent_directory(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows doesn't honor POSIX mode bits")
-@pytest.mark.asyncio
 async def test_default_mode_is_owner_only(tmp_path: Path) -> None:
     """The default ``mode=0o600`` keeps persisted state owner-only.
 
@@ -333,7 +319,6 @@ async def test_default_mode_is_owner_only(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows doesn't honor POSIX mode bits")
-@pytest.mark.asyncio
 async def test_explicit_mode_is_applied(tmp_path: Path) -> None:
     """Caller-supplied *mode* lands on the persisted file.
 
@@ -354,7 +339,6 @@ async def test_explicit_mode_is_applied(tmp_path: Path) -> None:
     assert stat.S_IMODE(store_path.stat().st_mode) == 0o644
 
 
-@pytest.mark.asyncio
 async def test_atomic_write_cleans_up_tempfile_on_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -387,7 +371,6 @@ async def test_atomic_write_cleans_up_tempfile_on_error(
     assert not list(tmp_path.glob("data.json.*.tmp"))
 
 
-@pytest.mark.asyncio
 async def test_constructor_registers_shutdown_callback(
     recorder: _Recorder, store: Store[bytes], store_path: Path
 ) -> None:
@@ -404,7 +387,6 @@ async def test_constructor_registers_shutdown_callback(
     assert store_path.read_bytes() == b"via-shutdown"
 
 
-@pytest.mark.asyncio
 async def test_lifecycle_walk_flushes_pending_saves_across_stores(
     tmp_path: Path,
 ) -> None:
@@ -446,7 +428,6 @@ async def test_lifecycle_walk_flushes_pending_saves_across_stores(
     assert peers_path.read_bytes() == b"peers-final"
 
 
-@pytest.mark.asyncio
 async def test_save_now_skips_when_no_pending_data_after_drain(
     store_path: Path, store: Store[bytes]
 ) -> None:
@@ -458,7 +439,6 @@ async def test_save_now_skips_when_no_pending_data_after_drain(
     assert store_path.read_bytes() == b"v"
 
 
-@pytest.mark.asyncio
 async def test_extend_then_save_now_picks_up_latest(store_path: Path, store: Store[bytes]) -> None:
     """A flush after multiple extending calls writes the latest state once."""
     store.async_delay_save(lambda: b"a", delay=10.0)
@@ -468,7 +448,6 @@ async def test_extend_then_save_now_picks_up_latest(store_path: Path, store: Sto
     assert store_path.read_bytes() == b"c"
 
 
-@pytest.mark.asyncio
 async def test_handle_write_returns_early_when_data_func_already_drained(
     recorder: _Recorder, store: Store[bytes], store_path: Path
 ) -> None:
@@ -485,7 +464,6 @@ async def test_handle_write_returns_early_when_data_func_already_drained(
     assert not store_path.exists()
 
 
-@pytest.mark.asyncio
 async def test_load_propagates_decoder_errors(tmp_path: Path) -> None:
     """A corrupt file surfaces the decoder exception rather than masking.
 
@@ -511,7 +489,6 @@ async def test_load_propagates_decoder_errors(tmp_path: Path) -> None:
         await store.async_load()
 
 
-@pytest.mark.asyncio
 async def test_path_property_exposes_store_path(store_path: Path, store: Store[bytes]) -> None:
     """The ``path`` property surfaces the store's on-disk location."""
     assert store.path == store_path

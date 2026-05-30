@@ -75,7 +75,6 @@ def _patch_ignored_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None
     )
 
 
-@pytest.mark.asyncio
 async def test_toggle_ignore_true_adds_to_set_and_persists(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -95,7 +94,6 @@ async def test_toggle_ignore_true_adds_to_set_and_persists(
     assert payload == {"ignored_devices": ["kitchen-1a2b3c"]}
 
 
-@pytest.mark.asyncio
 async def test_toggle_ignore_false_removes_and_persists(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -123,7 +121,6 @@ async def test_toggle_ignore_false_removes_and_persists(
     await controller.toggle_ignore(name="never-ignored", ignore=False)
 
 
-@pytest.mark.asyncio
 async def test_toggle_ignore_mirrors_flag_onto_cached_adoptable_and_fires(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -164,7 +161,6 @@ async def test_toggle_ignore_mirrors_flag_onto_cached_adoptable_and_fires(
     assert fired[0].data == {"device": cached}
 
 
-@pytest.mark.asyncio
 async def test_toggle_ignore_does_not_fire_when_state_unchanged(
     tmp_path: Path,
     make_controller: MakeControllerFactory,

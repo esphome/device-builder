@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from esphome_device_builder.controllers.firmware.bulk import _esphome_version_sort_key
 from esphome_device_builder.models import Device, JobType
 from tests.conftest import make_device
@@ -39,7 +37,6 @@ def _device(
     )
 
 
-@pytest.mark.asyncio
 async def test_install_bulk_queues_stale_devices_before_pending_changes(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -81,7 +78,6 @@ async def test_install_bulk_queues_stale_devices_before_pending_changes(
     assert [job.job_type for job in jobs] == [JobType.INSTALL] * 5
 
 
-@pytest.mark.asyncio
 async def test_bulk_order_preserves_tail_input_order(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -114,7 +110,6 @@ async def test_bulk_order_preserves_tail_input_order(
     ]
 
 
-@pytest.mark.asyncio
 async def test_bulk_order_keeps_newer_deployed_versions_in_tail(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -145,7 +140,6 @@ async def test_bulk_order_keeps_newer_deployed_versions_in_tail(
     ]
 
 
-@pytest.mark.asyncio
 async def test_bulk_order_uses_update_available_as_stale_gate(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -174,7 +168,6 @@ async def test_bulk_order_uses_update_available_as_stale_gate(
     ]
 
 
-@pytest.mark.asyncio
 async def test_bulk_order_sorts_prerelease_numbers_numerically(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -201,7 +194,6 @@ async def test_bulk_order_sorts_prerelease_numbers_numerically(
     assert [job.configuration for job in jobs] == ["beta-2.yaml", "beta-10.yaml"]
 
 
-@pytest.mark.asyncio
 async def test_bulk_order_keeps_missing_versions_out_of_stale_bucket(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -237,7 +229,6 @@ async def test_bulk_order_keeps_missing_versions_out_of_stale_bucket(
     ]
 
 
-@pytest.mark.asyncio
 async def test_bulk_order_treats_unknown_deployed_version_as_oldest_stale(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -262,7 +253,6 @@ def test_esphome_version_sort_key_handles_missing_versions() -> None:
     assert _esphome_version_sort_key("") == _esphome_version_sort_key(None)
 
 
-@pytest.mark.asyncio
 async def test_compile_bulk_uses_stale_first_order(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -280,7 +270,6 @@ async def test_compile_bulk_uses_stale_first_order(
     assert [job.job_type for job in jobs] == [JobType.COMPILE, JobType.COMPILE]
 
 
-@pytest.mark.asyncio
 async def test_bulk_order_preserves_input_without_devices_controller(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:

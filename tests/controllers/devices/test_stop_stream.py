@@ -49,7 +49,6 @@ def _make_ws_client() -> WebSocketClient:
     return WebSocketClient(MagicMock(), MagicMock(), authenticated=True)
 
 
-@pytest.mark.asyncio
 async def test_stop_stream_returns_false_without_client(
     tmp_path: Any, make_controller: MakeControllerFactory
 ) -> None:
@@ -67,7 +66,6 @@ async def test_stop_stream_returns_false_without_client(
     assert result == {"cancelled": False}
 
 
-@pytest.mark.asyncio
 async def test_stop_stream_cancels_registered_task(
     tmp_path: Any, make_controller: MakeControllerFactory
 ) -> None:
@@ -106,7 +104,6 @@ async def test_stop_stream_cancels_registered_task(
     assert task.cancelled()
 
 
-@pytest.mark.asyncio
 async def test_stop_stream_returns_false_for_unknown_stream(
     tmp_path: Any, make_controller: MakeControllerFactory
 ) -> None:
@@ -126,7 +123,6 @@ async def test_stop_stream_returns_false_for_unknown_stream(
     assert result == {"cancelled": False}
 
 
-@pytest.mark.asyncio
 async def test_stop_stream_returns_false_after_double_cancel(
     tmp_path: Any, make_controller: MakeControllerFactory
 ) -> None:

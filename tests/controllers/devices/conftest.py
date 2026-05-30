@@ -305,7 +305,7 @@ def seed_device() -> SeedDeviceFactory:
     blockbuster on the CI Linux runners flags the underlying
     ``os.path.abspath`` from a synchronous async-test context.
     Pushing the write to a thread keeps the seed call cheap to
-    use from any ``@pytest.mark.asyncio`` test.
+    use from any async test.
     """
 
     async def _seed(

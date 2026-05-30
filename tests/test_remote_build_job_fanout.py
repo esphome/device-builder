@@ -121,7 +121,6 @@ def _seed_via_queued(bus: EventBus, job: FirmwareJob) -> None:
         (EventType.JOB_CANCELLED, JobStatus.CANCELLED, "cancelled"),
     ],
 )
-@pytest.mark.asyncio
 async def test_lifecycle_event_fans_out_as_job_state_changed(
     event_type: EventType, status_field: JobStatus, expected_status: str
 ) -> None:
@@ -147,7 +146,6 @@ async def test_lifecycle_event_fans_out_as_job_state_changed(
     assert frame["error_message"] == ""
 
 
-@pytest.mark.asyncio
 async def test_failed_event_carries_error_message() -> None:
     """``failed`` carries ``FirmwareJob.error`` on the wire so the offloader can surface it."""
     bus = EventBus()
@@ -168,7 +166,6 @@ async def test_failed_event_carries_error_message() -> None:
     assert frame["error_message"] == "compile failed: bad pin"
 
 
-@pytest.mark.asyncio
 async def test_local_job_does_not_fan_out() -> None:
     """A local-only job (``remote_peer=""``) is skipped at the listener."""
     bus = EventBus()
@@ -189,7 +186,6 @@ async def test_local_job_does_not_fan_out() -> None:
     session.send_app_frame.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_lifecycle_skips_when_session_gone() -> None:
     """A fan-out for a peer whose session has unregistered is skipped silently."""
     bus = EventBus()
@@ -209,7 +205,6 @@ async def test_lifecycle_skips_when_session_gone() -> None:
     assert controller.background_tasks == []
 
 
-@pytest.mark.asyncio
 async def test_job_queued_caches_correlation_and_fans_out_queued_frame() -> None:
     """``JOB_QUEUED`` populates the cache AND fans out a ``queued`` wire frame.
 
@@ -238,7 +233,6 @@ async def test_job_queued_caches_correlation_and_fans_out_queued_frame() -> None
     assert fanout._remote_jobs == {job.job_id: ("alpha", "wire-job")}
 
 
-@pytest.mark.asyncio
 async def test_queued_with_missing_remote_job_id_logs_and_skips_cache(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -277,7 +271,6 @@ async def test_queued_with_missing_remote_job_id_logs_and_skips_cache(
     assert any("missing remote_job_id" in msg for msg in debug_calls)
 
 
-@pytest.mark.asyncio
 async def test_terminal_event_drops_cache_entry() -> None:
     """A terminal event (completed / failed / cancelled) drops the cache entry.
 
@@ -307,7 +300,6 @@ async def test_terminal_event_drops_cache_entry() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_job_output_fans_out_as_job_output_frame() -> None:
     """``JOB_OUTPUT`` for a cached remote-peer job sends a ``job_output`` frame."""
     bus = EventBus()
@@ -331,7 +323,6 @@ async def test_job_output_fans_out_as_job_output_frame() -> None:
     assert frame["line"] == "Compiling .pioenvs/...\n"
 
 
-@pytest.mark.asyncio
 async def test_job_output_skips_local_job() -> None:
     """A local job's JOB_QUEUED never enters the cache, so its JOB_OUTPUT is skipped."""
     bus = EventBus()
@@ -354,7 +345,6 @@ async def test_job_output_skips_local_job() -> None:
     assert local_job.job_id not in fanout._remote_jobs
 
 
-@pytest.mark.asyncio
 async def test_job_output_skips_when_session_gone() -> None:
     """``JOB_OUTPUT`` for a cached job whose session unregistered is silently dropped."""
     bus = EventBus()
@@ -370,7 +360,6 @@ async def test_job_output_skips_when_session_gone() -> None:
     assert controller.background_tasks == []
 
 
-@pytest.mark.asyncio
 async def test_job_output_skips_unknown_job_id() -> None:
     """``JOB_OUTPUT`` for an unseen ``job_id`` (no JOB_QUEUED before) is silently dropped."""
     bus = EventBus()
@@ -390,7 +379,6 @@ async def test_job_output_skips_unknown_job_id() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_stop_detaches_listeners() -> None:
     """``stop()`` removes every listener registered by ``start()``.
 
@@ -411,7 +399,6 @@ async def test_stop_detaches_listeners() -> None:
     session.send_app_frame.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_send_app_frame_failure_is_swallowed() -> None:
     """A ``send_app_frame`` raise doesn't propagate out of the fan-out task."""
     bus = EventBus()

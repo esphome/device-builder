@@ -150,7 +150,6 @@ async def _run_until_terminal(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_compile_runs_subprocess_to_completion(
     firmware_controller_factory: FirmwareControllerFactory, tmp_path: Path
 ) -> None:
@@ -202,7 +201,6 @@ async def test_compile_runs_subprocess_to_completion(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_compile_nonzero_exit_marks_failed(
     firmware_controller_factory: FirmwareControllerFactory, tmp_path: Path
 ) -> None:
@@ -231,7 +229,6 @@ async def test_compile_nonzero_exit_marks_failed(
     assert captured["job_completed"] == []
 
 
-@pytest.mark.asyncio
 async def test_compile_exit_zero_with_error_pattern_marks_failed(
     firmware_controller_factory: FirmwareControllerFactory, tmp_path: Path
 ) -> None:
@@ -262,7 +259,6 @@ async def test_compile_exit_zero_with_error_pattern_marks_failed(
     assert captured["job_completed"] == []
 
 
-@pytest.mark.asyncio
 async def test_compile_platformio_no_module_named_pip_shrug_is_not_failure(
     firmware_controller_factory: FirmwareControllerFactory, tmp_path: Path
 ) -> None:
@@ -295,7 +291,6 @@ async def test_compile_platformio_no_module_named_pip_shrug_is_not_failure(
     assert captured["job_failed"] == []
 
 
-@pytest.mark.asyncio
 async def test_compile_no_module_named_esphome_renders_actionable_hint(
     firmware_controller_factory: FirmwareControllerFactory, tmp_path: Path
 ) -> None:
@@ -337,7 +332,6 @@ async def test_compile_no_module_named_esphome_renders_actionable_hint(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_compile_mid_run_cancel_marks_cancelled(
     firmware_controller_factory: FirmwareControllerFactory, tmp_path: Path
 ) -> None:
@@ -433,7 +427,6 @@ async def test_compile_mid_run_cancel_marks_cancelled(
     assert job.job_id not in controller.state.cancel_requested
 
 
-@pytest.mark.asyncio
 async def test_execute_job_runner_shutdown_terminates_and_marks_cancelled(
     firmware_controller_factory: FirmwareControllerFactory, tmp_path: Path
 ) -> None:
@@ -517,7 +510,6 @@ async def test_execute_job_runner_shutdown_terminates_and_marks_cancelled(
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX process-group semantics")
-@pytest.mark.asyncio
 async def test_execute_job_runner_shutdown_kills_subprocess_group(
     firmware_controller_factory: FirmwareControllerFactory, tmp_path: Path
 ) -> None:
@@ -615,7 +607,6 @@ async def test_execute_job_runner_shutdown_kills_subprocess_group(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_compile_progress_lines_fire_job_progress(
     firmware_controller_factory: FirmwareControllerFactory, tmp_path: Path
 ) -> None:
@@ -657,7 +648,6 @@ async def test_compile_progress_lines_fire_job_progress(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_run_queue_routes_reset_build_env_through_clean_all_subprocess(
     firmware_controller_factory: FirmwareControllerFactory, tmp_path: Path
 ) -> None:
@@ -707,7 +697,6 @@ async def test_run_queue_routes_reset_build_env_through_clean_all_subprocess(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_compile_inflight_output_trims_when_cap_exceeded(
     firmware_controller_factory: FirmwareControllerFactory,
     tmp_path: Path,
@@ -778,7 +767,6 @@ async def test_compile_inflight_output_trims_when_cap_exceeded(
     assert all(status is JobStatus.RUNNING for status, _, _ in inflight)
 
 
-@pytest.mark.asyncio
 async def test_compile_repeats_error_pattern_short_circuits_check(
     firmware_controller_factory: FirmwareControllerFactory, tmp_path: Path
 ) -> None:
@@ -812,7 +800,6 @@ async def test_compile_repeats_error_pattern_short_circuits_check(
     assert job.exit_code == 0
 
 
-@pytest.mark.asyncio
 async def test_compile_cr_progress_lines_collapsed_in_storage(
     firmware_controller_factory: FirmwareControllerFactory, tmp_path: Path
 ) -> None:

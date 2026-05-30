@@ -181,7 +181,6 @@ def _write_build_artifacts_on_disk(tmp_path: Path) -> dict[str, bytes]:
     return images
 
 
-@pytest.mark.asyncio
 async def test_download_artifacts_round_trip_returns_unpacked_images(
     paired_instances: PairedInstances,
     tmp_path: Path,
@@ -245,7 +244,6 @@ async def test_download_artifacts_round_trip_returns_unpacked_images(
     assert result["total_bytes"] == sum(int(img["size"]) for img in response_images)
 
 
-@pytest.mark.asyncio
 async def test_download_artifacts_unknown_job_surfaces_not_found(
     paired_instances: PairedInstances,
 ) -> None:
@@ -278,7 +276,6 @@ async def test_download_artifacts_unknown_job_surfaces_not_found(
     assert exc_info.value.code == ErrorCode.NOT_FOUND
 
 
-@pytest.mark.asyncio
 async def test_download_artifacts_job_not_completed_surfaces_precondition_failed(
     paired_instances: PairedInstances,
 ) -> None:
@@ -305,7 +302,6 @@ async def test_download_artifacts_job_not_completed_surfaces_precondition_failed
     assert exc_info.value.code == ErrorCode.PRECONDITION_FAILED
 
 
-@pytest.mark.asyncio
 async def test_download_artifacts_pack_oversize_surfaces_unavailable(
     paired_instances: PairedInstances,
     tmp_path: Path,

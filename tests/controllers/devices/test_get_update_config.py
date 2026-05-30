@@ -57,7 +57,6 @@ def _stub_regenerate(controller: DevicesController) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_get_config_returns_yaml_content(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -78,7 +77,6 @@ async def test_get_config_returns_yaml_content(
     assert result == yaml_content
 
 
-@pytest.mark.asyncio
 async def test_get_config_decodes_utf8_with_unicode(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -98,7 +96,6 @@ async def test_get_config_decodes_utf8_with_unicode(
     assert result == yaml_content
 
 
-@pytest.mark.asyncio
 async def test_get_config_propagates_file_not_found(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -122,7 +119,6 @@ async def test_get_config_propagates_file_not_found(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_update_config_writes_content_to_disk(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -137,7 +133,6 @@ async def test_update_config_writes_content_to_disk(
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == new_content
 
 
-@pytest.mark.asyncio
 async def test_update_config_overwrites_existing_yaml(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -157,7 +152,6 @@ async def test_update_config_overwrites_existing_yaml(
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == new_content
 
 
-@pytest.mark.asyncio
 async def test_update_config_writes_utf8_unicode_intact(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -182,7 +176,6 @@ async def test_update_config_writes_utf8_unicode_intact(
     assert (tmp_path / "kuche.yaml").read_text(encoding="utf-8") == new_content
 
 
-@pytest.mark.asyncio
 async def test_update_config_triggers_scan(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -204,7 +197,6 @@ async def test_update_config_triggers_scan(
     assert controller._scanner.calls == [("request", "new.yaml")]
 
 
-@pytest.mark.asyncio
 async def test_update_config_schedules_storage_regenerate(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -229,7 +221,6 @@ async def test_update_config_schedules_storage_regenerate(
     assert regenerated == ["kitchen.yaml"]
 
 
-@pytest.mark.asyncio
 async def test_update_config_writes_before_requesting_reload(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -266,7 +257,6 @@ async def test_update_config_writes_before_requesting_reload(
     assert yaml_path.read_text(encoding="utf-8") == new_content
 
 
-@pytest.mark.asyncio
 async def test_update_config_refuses_empty_content(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -286,7 +276,6 @@ async def test_update_config_refuses_empty_content(
     assert controller._scanner.calls == []
 
 
-@pytest.mark.asyncio
 async def test_update_config_refuses_whitespace_only_content(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -306,7 +295,6 @@ async def test_update_config_refuses_whitespace_only_content(
     assert controller._scanner.calls == []
 
 
-@pytest.mark.asyncio
 async def test_round_trip_update_then_get_returns_written_content(
     tmp_path: Path,
     make_controller: MakeControllerFactory,

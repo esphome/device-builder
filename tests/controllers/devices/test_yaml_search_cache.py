@@ -28,8 +28,6 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 from esphome_device_builder.controllers.devices._yaml_search_cache import (
     MAX_FILE_BYTES,
     YamlSearchCache,
@@ -40,7 +38,6 @@ from esphome_device_builder.controllers.devices._yaml_search_cache import (
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_cold_call_reads_file_and_caches(tmp_path: Path) -> None:
     """First call against a fresh file reads from disk + splits lines.
 
@@ -58,7 +55,6 @@ async def test_cold_call_reads_file_and_caches(tmp_path: Path) -> None:
     assert lines == ["esphome:", "  name: kitchen", "wifi:"]
 
 
-@pytest.mark.asyncio
 async def test_warm_call_returns_cached_without_reading(tmp_path: Path) -> None:
     """Second call against an unchanged file doesn't re-read.
 
@@ -81,7 +77,6 @@ async def test_warm_call_returns_cached_without_reading(tmp_path: Path) -> None:
     assert second is first  # same list object — the cache returned the cached one
 
 
-@pytest.mark.asyncio
 async def test_mtime_change_invalidates_cache(tmp_path: Path) -> None:
     """A new mtime forces a re-read; the cached entry is replaced.
 
@@ -112,7 +107,6 @@ async def test_mtime_change_invalidates_cache(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_missing_file_returns_none_and_clears_stale(tmp_path: Path) -> None:
     """File deleted between calls → ``None`` + cache entry removed.
 
@@ -144,7 +138,6 @@ async def test_missing_file_returns_none_and_clears_stale(tmp_path: Path) -> Non
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_unreadable_file_returns_none_and_clears_stale(tmp_path: Path) -> None:
     """File stats OK but read fails → ``None`` + cache entry removed.
 
@@ -188,7 +181,6 @@ async def test_unreadable_file_returns_none_and_clears_stale(tmp_path: Path) -> 
     assert refreshed == ["wifi:"]
 
 
-@pytest.mark.asyncio
 async def test_prune_drops_only_stale_entries(tmp_path: Path) -> None:
     """``prune(live)`` removes entries whose key isn't in *live*.
 
@@ -223,7 +215,6 @@ async def test_prune_drops_only_stale_entries(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_concurrent_misses_against_same_file_read_once(tmp_path: Path) -> None:
     """Two simultaneous misses on the same file collapse to one read.
 
@@ -261,7 +252,6 @@ async def test_concurrent_misses_against_same_file_read_once(tmp_path: Path) -> 
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_oversize_file_returns_none_without_loading(tmp_path: Path) -> None:
     """Files past ``MAX_FILE_BYTES`` are skipped *before* read_text fires.
 
@@ -295,7 +285,6 @@ async def test_oversize_file_returns_none_without_loading(tmp_path: Path) -> Non
     assert read_calls == 0
 
 
-@pytest.mark.asyncio
 async def test_oversize_file_drops_stale_cache_entry(tmp_path: Path) -> None:
     """A previously-cached small file is evicted if it grows past the cap.
 

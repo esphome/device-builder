@@ -15,8 +15,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
-
 from esphome_device_builder.models import Device, DeviceState
 
 from .conftest import (
@@ -54,7 +52,6 @@ def test_state_change_fans_out_to_every_matching_device() -> None:
     assert targeted == ["kitchen (1).yaml", "kitchen.yaml"]
 
 
-@pytest.mark.asyncio
 async def test_ip_change_fans_out_to_every_matching_device() -> None:
     a = _device("kitchen.yaml", ip="")
     b = _device("kitchen (1).yaml", ip="")
@@ -76,7 +73,6 @@ async def test_ip_change_fans_out_to_every_matching_device() -> None:
     ]
 
 
-@pytest.mark.asyncio
 async def test_version_change_fans_out_to_every_matching_device() -> None:
     a = _device("kitchen.yaml", current_version="2026.5.0", deployed_version="")
     b = _device("kitchen (1).yaml", current_version="2026.5.0", deployed_version="")
@@ -96,7 +92,6 @@ async def test_version_change_fans_out_to_every_matching_device() -> None:
     ]
 
 
-@pytest.mark.asyncio
 async def test_config_hash_change_fans_out_to_every_matching_device() -> None:
     a = _device("kitchen.yaml", expected_config_hash="abcd1234", deployed_config_hash="")
     b = _device(
@@ -119,7 +114,6 @@ async def test_config_hash_change_fans_out_to_every_matching_device() -> None:
     assert len(captured) == 2
 
 
-@pytest.mark.asyncio
 async def test_api_encryption_change_fans_out_to_every_matching_device() -> None:
     a = _device("kitchen.yaml", api_encryption_active=None)
     b = _device("kitchen (1).yaml", api_encryption_active=None)

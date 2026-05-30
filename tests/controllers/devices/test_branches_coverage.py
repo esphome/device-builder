@@ -69,7 +69,6 @@ def _device(name: str, *, ip: str = "", ip_addresses: list[str] | None = None) -
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
 async def test_create_device_writes_file_content_verbatim(
     tmp_path: Path, make_controller: MakeControllerFactory
@@ -102,7 +101,6 @@ async def test_create_device_writes_file_content_verbatim(
     pio_lookup.assert_called_once()
 
 
-@pytest.mark.asyncio
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
 async def test_create_device_falls_back_to_platform_variant_lookup(
     tmp_path: Path, make_controller: MakeControllerFactory
@@ -133,7 +131,6 @@ async def test_create_device_falls_back_to_platform_variant_lookup(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 @pytest.mark.usefixtures("redirect_storage_path")
 async def test_delete_device_unlinks_yaml_then_scans(
     tmp_path: Path,
@@ -157,7 +154,6 @@ async def test_delete_device_unlinks_yaml_then_scans(
     assert ("scan",) in controller._scanner.calls
 
 
-@pytest.mark.asyncio
 @pytest.mark.usefixtures("redirect_storage_path")
 async def test_delete_bulk_returns_per_device_success_with_mixed_outcomes(
     tmp_path: Path,
@@ -195,7 +191,6 @@ async def test_delete_bulk_returns_per_device_success_with_mixed_outcomes(
     assert len(scan_calls) == 1
 
 
-@pytest.mark.asyncio
 @pytest.mark.usefixtures("redirect_storage_path")
 async def test_archive_bulk_returns_per_device_success_with_mixed_outcomes(
     tmp_path: Path,
@@ -242,7 +237,6 @@ async def test_archive_bulk_returns_per_device_success_with_mixed_outcomes(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_get_api_key_resolves_through_yaml_loader(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -266,7 +260,6 @@ async def test_get_api_key_resolves_through_yaml_loader(
     assert result == {"key": "a/c+inline-key=="}
 
 
-@pytest.mark.asyncio
 async def test_get_api_key_returns_empty_when_no_encryption(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -288,7 +281,6 @@ async def test_get_api_key_returns_empty_when_no_encryption(
     assert result == {"key": ""}
 
 
-@pytest.mark.asyncio
 async def test_get_api_key_falls_back_to_esphome_config_subprocess(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -336,7 +328,6 @@ async def test_get_api_key_falls_back_to_esphome_config_subprocess(
     assert result == {"key": "ZGFzaGJvYXJkLWtleS1mcm9tLWVzcGhvbWUtY29uZmln"}
 
 
-@pytest.mark.asyncio
 async def test_get_api_key_subprocess_returns_empty_on_nonzero_exit(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -370,7 +361,6 @@ async def test_get_api_key_subprocess_returns_empty_on_nonzero_exit(
     assert result == {"key": ""}
 
 
-@pytest.mark.asyncio
 async def test_get_api_key_subprocess_returns_empty_on_unparsable_yaml(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -402,7 +392,6 @@ async def test_get_api_key_subprocess_returns_empty_on_unparsable_yaml(
     assert result == {"key": ""}
 
 
-@pytest.mark.asyncio
 async def test_get_api_key_subprocess_returns_empty_on_oserror(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -430,7 +419,6 @@ async def test_get_api_key_subprocess_returns_empty_on_oserror(
     assert result == {"key": ""}
 
 
-@pytest.mark.asyncio
 async def test_get_api_key_skips_subprocess_when_fast_path_finds_key(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -457,7 +445,6 @@ async def test_get_api_key_skips_subprocess_when_fast_path_finds_key(
     spawn_spy.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_get_api_key_fallback_skipped_when_esphome_cmd_unset(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -494,7 +481,6 @@ async def test_get_api_key_fallback_skipped_when_esphome_cmd_unset(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_add_component_unknown_id_raises(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -517,7 +503,6 @@ async def test_add_component_unknown_id_raises(
         )
 
 
-@pytest.mark.asyncio
 async def test_add_component_missing_required_field_raises(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -650,7 +635,6 @@ def test_on_firmware_job_completed_skips_when_configuration_empty(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_persist_build_size_writes_triple(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -670,7 +654,6 @@ async def test_persist_build_size_writes_triple(
     }
 
 
-@pytest.mark.asyncio
 async def test_persist_device_metadata_async_routes_store_field_to_store(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -825,7 +808,6 @@ def test_on_scan_change_removed_revisits_importables(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_stream_subprocess_applies_line_transform(
     tmp_path: Path,
     make_controller: MakeControllerFactory,

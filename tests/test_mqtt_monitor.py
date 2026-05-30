@@ -1375,7 +1375,6 @@ async def test_run_reconnects_on_connect_and_listen_failure(
     assert monitor._last_seen == {}
 
 
-@pytest.mark.asyncio
 async def test_run_collapses_repeat_unreachable_errors_to_debug(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -1437,7 +1436,6 @@ async def test_run_collapses_repeat_unreachable_errors_to_debug(
         assert record.exc_info is None
 
 
-@pytest.mark.asyncio
 async def test_run_resets_log_gate_after_successful_connect(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -1526,7 +1524,6 @@ async def test_run_resets_log_gate_after_successful_connect(
     assert len(debugs) == 1, [r.message for r in debugs]
 
 
-@pytest.mark.asyncio
 async def test_run_loud_logs_unexpected_after_expected_failure(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -1591,7 +1588,6 @@ async def test_run_loud_logs_unexpected_after_expected_failure(
     assert errors[0].exc_info is not None
 
 
-@pytest.mark.asyncio
 async def test_run_collapses_repeat_unexpected_errors_to_debug(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,

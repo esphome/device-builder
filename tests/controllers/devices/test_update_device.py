@@ -20,8 +20,6 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-import pytest
-
 from esphome_device_builder.controllers.config import (
     get_device_metadata,
     set_device_metadata,
@@ -30,7 +28,6 @@ from esphome_device_builder.controllers.config import (
 from .conftest import MakeControllerFactory
 
 
-@pytest.mark.asyncio
 async def test_update_device_writes_full_metadata(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -68,7 +65,6 @@ async def test_update_device_writes_full_metadata(
     assert meta["board_id"] == "esp32-c3-devkitm-1"
 
 
-@pytest.mark.asyncio
 async def test_update_device_partial_keeps_unrelated_fields(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -101,7 +97,6 @@ async def test_update_device_partial_keeps_unrelated_fields(
     assert response.board_id == "esp32-c3-devkitm-1"
 
 
-@pytest.mark.asyncio
 async def test_update_device_falls_back_to_name_for_missing_friendly_name(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -124,7 +119,6 @@ async def test_update_device_falls_back_to_name_for_missing_friendly_name(
     assert response.board_id == "esp32-c3-devkitm-1"
 
 
-@pytest.mark.asyncio
 async def test_update_device_persists_via_executor(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:

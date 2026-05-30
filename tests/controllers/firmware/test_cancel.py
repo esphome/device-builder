@@ -61,7 +61,6 @@ def _job(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_cancel_raises_not_found_for_unknown_job_id(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -88,7 +87,6 @@ async def test_cancel_raises_not_found_for_unknown_job_id(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_cancel_queued_job_marks_terminal_and_fires_event(
     firmware_controller_factory: FirmwareControllerFactory,
     capture_firmware_events: CaptureEventsFactory,
@@ -112,7 +110,6 @@ async def test_cancel_queued_job_marks_terminal_and_fires_event(
     assert [(e.event_type, e.data) for e in captured] == [(EventType.JOB_CANCELLED, {"job": job})]
 
 
-@pytest.mark.asyncio
 async def test_cancel_queued_job_prunes_history_before_persisting(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -146,7 +143,6 @@ async def test_cancel_queued_job_prunes_history_before_persisting(
     assert order == ["prune", "persist"]
 
 
-@pytest.mark.asyncio
 async def test_cancel_queued_does_not_touch_terminate_current_process(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -173,7 +169,6 @@ async def test_cancel_queued_does_not_touch_terminate_current_process(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_cancel_running_job_records_intent_and_terminates(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -195,7 +190,6 @@ async def test_cancel_running_job_records_intent_and_terminates(
     controller._terminate_current_process.assert_awaited_once()
 
 
-@pytest.mark.asyncio
 async def test_cancel_running_job_does_not_fire_event_directly(
     firmware_controller_factory: FirmwareControllerFactory,
     capture_firmware_events: CaptureEventsFactory,
@@ -220,7 +214,6 @@ async def test_cancel_running_job_does_not_fire_event_directly(
     assert job.status == JobStatus.RUNNING
 
 
-@pytest.mark.asyncio
 async def test_cancel_running_job_with_no_current_job_raises_runtime_error(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -241,7 +234,6 @@ async def test_cancel_running_job_with_no_current_job_raises_runtime_error(
     controller._terminate_current_process.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_cancel_running_job_with_mismatched_current_job_raises(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -270,7 +262,6 @@ async def test_cancel_running_job_with_mismatched_current_job_raises(
     "status",
     [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED],
 )
-@pytest.mark.asyncio
 async def test_cancel_terminal_job_raises_invalid_args(
     status: JobStatus,
     firmware_controller_factory: FirmwareControllerFactory,

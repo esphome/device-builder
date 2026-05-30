@@ -334,7 +334,6 @@ def test_on_service_state_change_handles_none_properties(
     assert captured.count("unknown") >= 4  # 4 TXT fields all unknown
 
 
-@pytest.mark.asyncio
 async def test_run_prints_header_then_awaits_then_cleans_up(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -397,7 +396,6 @@ async def test_run_prints_header_then_awaits_then_cleans_up(
     assert "-" * 60 in captured
 
 
-@pytest.mark.asyncio
 async def test_run_verbose_flag_enables_debug_logging() -> None:
     """``-v`` flag flips the root + zeroconf loggers to DEBUG.
 

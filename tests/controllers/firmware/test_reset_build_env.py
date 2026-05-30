@@ -30,8 +30,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from esphome_device_builder.models import EventType, JobStatus, JobType
 from tests.controllers.firmware.conftest import (
     BareFirmwareControllerFactory,
@@ -45,7 +43,6 @@ from tests.controllers.firmware.conftest import (
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_reset_build_env_returns_queued_job_with_reset_type(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -64,7 +61,6 @@ async def test_reset_build_env_returns_queued_job_with_reset_type(
     assert job.job_type == JobType.RESET_BUILD_ENV
 
 
-@pytest.mark.asyncio
 async def test_reset_build_env_uses_empty_configuration(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -87,7 +83,6 @@ async def test_reset_build_env_uses_empty_configuration(
     assert job.configuration == ""
 
 
-@pytest.mark.asyncio
 async def test_reset_build_env_registers_job_in_jobs_map(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -99,7 +94,6 @@ async def test_reset_build_env_registers_job_in_jobs_map(
     assert await controller.get_job(job_id=job.job_id) is job
 
 
-@pytest.mark.asyncio
 async def test_reset_build_env_fires_job_queued_after_enqueue(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -126,7 +120,6 @@ async def test_reset_build_env_fires_job_queued_after_enqueue(
     assert log[1][1].data == {"job": job}
 
 
-@pytest.mark.asyncio
 async def test_reset_build_env_accepts_arbitrary_kwargs(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:

@@ -17,8 +17,6 @@ Three states matter for the apply path:
 
 from __future__ import annotations
 
-import pytest
-
 from esphome_device_builder.models import EventType
 
 from .conftest import (
@@ -95,7 +93,6 @@ def test_apply_api_encryption_dedupes_repeated_empty() -> None:
 # ----------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_on_api_encryption_change_updates_device_and_fires_event() -> None:
     """Callback writes the value onto the in-memory device + fires DEVICE_UPDATED."""
     device = make_device(api_encryption_active=None)
@@ -107,7 +104,6 @@ async def test_on_api_encryption_change_updates_device_and_fires_event() -> None
     assert any(e.event_type == EventType.DEVICE_UPDATED for e in captured)
 
 
-@pytest.mark.asyncio
 async def test_on_api_encryption_change_records_empty_string() -> None:
     """Empty string flips ``None`` → ``""`` and fires the event.
 
@@ -126,7 +122,6 @@ async def test_on_api_encryption_change_records_empty_string() -> None:
     assert len(captured) == 1
 
 
-@pytest.mark.asyncio
 async def test_on_api_encryption_change_skips_when_same() -> None:
     """No-op when the in-memory device already has the announced value AND ``api_encrypted`` agrees.
 
@@ -152,7 +147,6 @@ async def test_on_api_encryption_change_skips_when_same() -> None:
     assert captured == []
 
 
-@pytest.mark.asyncio
 async def test_on_api_encryption_change_promotes_api_encrypted_when_yaml_missed_it() -> None:
     """Truthy mDNS broadcast flips ``api_encrypted=True`` when YAML missed it.
 
@@ -175,7 +169,6 @@ async def test_on_api_encryption_change_promotes_api_encrypted_when_yaml_missed_
     assert len(captured) == 1
 
 
-@pytest.mark.asyncio
 async def test_on_api_encryption_change_promotion_fires_even_when_active_unchanged() -> None:
     """Repeat truthy broadcast still promotes ``api_encrypted`` if YAML scan reset it.
 
@@ -202,7 +195,6 @@ async def test_on_api_encryption_change_promotion_fires_even_when_active_unchang
     assert len(captured) == 1
 
 
-@pytest.mark.asyncio
 async def test_on_api_encryption_change_empty_does_not_clear_api_encrypted() -> None:
     """Wire-confirmed-plaintext doesn't *demote* a YAML-claimed encryption.
 
@@ -230,7 +222,6 @@ async def test_on_api_encryption_change_empty_does_not_clear_api_encrypted() -> 
     assert len(captured) == 1
 
 
-@pytest.mark.asyncio
 async def test_on_api_encryption_change_unknown_device_is_noop() -> None:
     """A stray callback for a name we don't track must not raise or fire."""
     controller, captured = make_devices_controller_with_bus([])

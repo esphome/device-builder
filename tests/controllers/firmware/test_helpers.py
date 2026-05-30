@@ -176,7 +176,6 @@ def test_names_touched_by_job_with_empty_configuration_is_empty() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_verify_esphome_importable_success_with_known_module() -> None:
     """A trivial Python ``-c`` that prints its version returns ``(True, output)``.
 
@@ -191,7 +190,6 @@ async def test_verify_esphome_importable_success_with_known_module() -> None:
     assert "1.2.3" in detail
 
 
-@pytest.mark.asyncio
 async def test_verify_esphome_importable_returns_false_on_no_module_named() -> None:
     """Even on a 0 exit, output containing ``No module named`` flips the result.
 
@@ -205,7 +203,6 @@ async def test_verify_esphome_importable_returns_false_on_no_module_named() -> N
     assert "No module named" in detail
 
 
-@pytest.mark.asyncio
 async def test_verify_esphome_importable_returns_false_on_nonzero_exit() -> None:
     """Non-zero exit → ``(False, output_or_exit_marker)``."""
     cmd = [sys.executable, "-c", "import sys; sys.exit(3)"]
@@ -214,7 +211,6 @@ async def test_verify_esphome_importable_returns_false_on_nonzero_exit() -> None
     assert "exit 3" in detail
 
 
-@pytest.mark.asyncio
 async def test_verify_esphome_importable_returns_false_on_oserror() -> None:
     """A missing executable returns ``(False, "FileNotFoundError: ...")``.
 
@@ -228,7 +224,6 @@ async def test_verify_esphome_importable_returns_false_on_oserror() -> None:
     assert "FileNotFoundError" in detail or "OSError" in detail
 
 
-@pytest.mark.asyncio
 async def test_verify_esphome_importable_returns_false_on_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

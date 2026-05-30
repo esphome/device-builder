@@ -50,7 +50,6 @@ def _write_secrets(config_dir: Path, content: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_get_state_pending_for_missing_secrets(tmp_path: Path) -> None:
     """No ``secrets.yaml`` ⇒ wifi step pending, version baseline."""
     controller = _make_controller(tmp_path)
@@ -62,7 +61,6 @@ async def test_get_state_pending_for_missing_secrets(tmp_path: Path) -> None:
     assert state.steps[0].status == OnboardingStepStatus.PENDING
 
 
-@pytest.mark.asyncio
 async def test_get_state_pending_for_empty_string_secrets(tmp_path: Path) -> None:
     """Existing-install bootstrap with ``wifi_ssid: ""`` ⇒ still pending."""
     _write_secrets(tmp_path, 'wifi_ssid: ""\nwifi_password: ""\n')
@@ -71,7 +69,6 @@ async def test_get_state_pending_for_empty_string_secrets(tmp_path: Path) -> Non
     assert state.steps[0].status == OnboardingStepStatus.PENDING
 
 
-@pytest.mark.asyncio
 async def test_get_state_pending_for_placeholder_secrets(tmp_path: Path) -> None:
     """Fresh-install bootstrap with the placeholder ⇒ still pending."""
     _write_secrets(
@@ -83,7 +80,6 @@ async def test_get_state_pending_for_placeholder_secrets(tmp_path: Path) -> None
     assert state.steps[0].status == OnboardingStepStatus.PENDING
 
 
-@pytest.mark.asyncio
 async def test_get_state_done_for_real_secrets(tmp_path: Path) -> None:
     _write_secrets(tmp_path, "wifi_ssid: home_network\nwifi_password: hunter2\n")
     controller = _make_controller(tmp_path)
@@ -96,7 +92,6 @@ async def test_get_state_done_for_real_secrets(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_set_wifi_credentials_writes_to_secrets_yaml(tmp_path: Path) -> None:
     """The setter updates the file and the next get_state reflects it."""
     _write_secrets(
@@ -111,7 +106,6 @@ async def test_set_wifi_credentials_writes_to_secrets_yaml(tmp_path: Path) -> No
     assert 'wifi_password: "hunter2"' in content
 
 
-@pytest.mark.asyncio
 async def test_set_wifi_credentials_preserves_other_secrets_and_comments(
     tmp_path: Path,
 ) -> None:
@@ -136,7 +130,6 @@ async def test_set_wifi_credentials_preserves_other_secrets_and_comments(
     assert 'wifi_password: "secret"' in content
 
 
-@pytest.mark.asyncio
 async def test_set_wifi_credentials_creates_file_when_missing(tmp_path: Path) -> None:
     """User who deleted secrets.yaml between bootstrap and onboarding."""
     controller = _make_controller(tmp_path)
@@ -146,7 +139,6 @@ async def test_set_wifi_credentials_creates_file_when_missing(tmp_path: Path) ->
     assert 'wifi_password: "secret"' in content
 
 
-@pytest.mark.asyncio
 async def test_set_wifi_credentials_preserves_ssid_whitespace(tmp_path: Path) -> None:
     """IEEE 802.11 allows leading/trailing whitespace in SSIDs.
 
@@ -160,7 +152,6 @@ async def test_set_wifi_credentials_preserves_ssid_whitespace(tmp_path: Path) ->
     assert 'wifi_ssid: "  MyNetwork  "' in content
 
 
-@pytest.mark.asyncio
 async def test_set_wifi_credentials_quotes_double_quotes_safely(
     tmp_path: Path,
 ) -> None:
@@ -171,14 +162,12 @@ async def test_set_wifi_credentials_quotes_double_quotes_safely(
     assert r'wifi_ssid: "Net\"With\"Quotes"' in content
 
 
-@pytest.mark.asyncio
 async def test_set_wifi_credentials_rejects_empty_ssid(tmp_path: Path) -> None:
     controller = _make_controller(tmp_path)
     with pytest.raises(CommandError, match="SSID can't be empty"):
         await controller.set_wifi_credentials(ssid="   ", password="p")
 
 
-@pytest.mark.asyncio
 async def test_set_wifi_credentials_rejects_non_string_ssid(tmp_path: Path) -> None:
     """A misbehaving client sending a number / null gets a clean error.
 
@@ -191,21 +180,18 @@ async def test_set_wifi_credentials_rejects_non_string_ssid(tmp_path: Path) -> N
         await controller.set_wifi_credentials(ssid=42, password="p")  # type: ignore[arg-type]
 
 
-@pytest.mark.asyncio
 async def test_set_wifi_credentials_rejects_non_string_password(tmp_path: Path) -> None:
     controller = _make_controller(tmp_path)
     with pytest.raises(CommandError, match="Password must be a string"):
         await controller.set_wifi_credentials(ssid="MyAP", password=None)  # type: ignore[arg-type]
 
 
-@pytest.mark.asyncio
 async def test_set_wifi_credentials_rejects_oversize_ssid(tmp_path: Path) -> None:
     controller = _make_controller(tmp_path)
     with pytest.raises(CommandError, match="32 characters"):
         await controller.set_wifi_credentials(ssid="A" * 33, password="p")
 
 
-@pytest.mark.asyncio
 async def test_set_wifi_credentials_rejects_oversize_password(
     tmp_path: Path,
 ) -> None:
@@ -214,7 +200,6 @@ async def test_set_wifi_credentials_rejects_oversize_password(
         await controller.set_wifi_credentials(ssid="MyAP", password="P" * 65)
 
 
-@pytest.mark.asyncio
 async def test_set_wifi_credentials_accepts_empty_password(tmp_path: Path) -> None:
     """Open networks have empty passwords — must not be rejected."""
     controller = _make_controller(tmp_path)
@@ -227,7 +212,6 @@ async def test_set_wifi_credentials_accepts_empty_password(tmp_path: Path) -> No
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_mark_acknowledged_persists_current_version(tmp_path: Path) -> None:
     controller = _make_controller(tmp_path)
     state = await controller.mark_acknowledged()
@@ -237,7 +221,6 @@ async def test_mark_acknowledged_persists_current_version(tmp_path: Path) -> Non
     assert state2.completed_version == ONBOARDING_VERSION
 
 
-@pytest.mark.asyncio
 async def test_mark_acknowledged_is_idempotent(tmp_path: Path) -> None:
     controller = _make_controller(tmp_path)
     await controller.mark_acknowledged()
@@ -245,7 +228,6 @@ async def test_mark_acknowledged_is_idempotent(tmp_path: Path) -> None:
     assert state.completed_version == ONBOARDING_VERSION
 
 
-@pytest.mark.asyncio
 async def test_mark_acknowledged_does_not_downgrade_a_higher_stored_version(
     tmp_path: Path,
 ) -> None:
@@ -273,7 +255,6 @@ async def test_mark_acknowledged_does_not_downgrade_a_higher_stored_version(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "ssid",
     [
@@ -298,7 +279,6 @@ async def test_set_wifi_credentials_rejects_newlines_in_ssid(tmp_path: Path, ssi
         await controller.set_wifi_credentials(ssid=ssid, password="p")
 
 
-@pytest.mark.asyncio
 async def test_set_wifi_credentials_rejects_newlines_in_password(
     tmp_path: Path,
 ) -> None:
@@ -307,7 +287,6 @@ async def test_set_wifi_credentials_rejects_newlines_in_password(
         await controller.set_wifi_credentials(ssid="MyAP", password="p\nass")
 
 
-@pytest.mark.asyncio
 async def test_set_wifi_credentials_allows_tab_in_value(tmp_path: Path) -> None:
     """Allow TAB through — don't over-block.
 
@@ -319,7 +298,6 @@ async def test_set_wifi_credentials_allows_tab_in_value(tmp_path: Path) -> None:
     assert state.steps[0].status == OnboardingStepStatus.DONE
 
 
-@pytest.mark.asyncio
 async def test_set_wifi_credentials_preserves_inline_comments(
     tmp_path: Path,
 ) -> None:
@@ -341,7 +319,6 @@ async def test_set_wifi_credentials_preserves_inline_comments(
     assert 'wifi_password: "newpw"  # WPA2' in content
 
 
-@pytest.mark.asyncio
 async def test_set_wifi_credentials_rewrites_duplicate_keys(
     tmp_path: Path,
 ) -> None:
@@ -375,7 +352,6 @@ async def test_set_wifi_credentials_rewrites_duplicate_keys(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_get_state_pending_for_malformed_secrets_yaml(tmp_path: Path) -> None:
     """Treat malformed YAML as ``unconfigured`` instead of crashing.
 

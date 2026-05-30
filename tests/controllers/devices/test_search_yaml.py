@@ -55,7 +55,6 @@ def _seed_yaml(tmp_path: Path, name: str, content: str) -> None:
 
 
 @pytest.mark.parametrize("query", ["", "   ", "\t"])
-@pytest.mark.asyncio
 async def test_search_yaml_empty_query_returns_empty_without_io(
     query: str,
     tmp_path: Path,
@@ -85,7 +84,6 @@ async def test_search_yaml_empty_query_returns_empty_without_io(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_search_yaml_substring_match_returns_per_device_hits(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -135,7 +133,6 @@ async def test_search_yaml_substring_match_returns_per_device_hits(
     ]
 
 
-@pytest.mark.asyncio
 async def test_search_yaml_friendly_name_falls_back_to_device_name(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -163,7 +160,6 @@ async def test_search_yaml_friendly_name_falls_back_to_device_name(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_search_yaml_default_is_case_insensitive(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -184,7 +180,6 @@ async def test_search_yaml_default_is_case_insensitive(
     assert results[0]["matches"][0]["line_number"] == 1
 
 
-@pytest.mark.asyncio
 async def test_search_yaml_case_sensitive_opt_in(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -208,7 +203,6 @@ async def test_search_yaml_case_sensitive_opt_in(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_search_yaml_caps_matches_per_file(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -235,7 +229,6 @@ async def test_search_yaml_caps_matches_per_file(
     assert len(results[0]["matches"]) == 5
 
 
-@pytest.mark.asyncio
 async def test_search_yaml_caps_total_results(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -266,7 +259,6 @@ async def test_search_yaml_caps_total_results(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_search_yaml_serialises_concurrent_calls(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -317,7 +309,6 @@ async def test_search_yaml_serialises_concurrent_calls(
     assert max_in_flight == 1
 
 
-@pytest.mark.asyncio
 async def test_search_yaml_skips_missing_files(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -351,7 +342,6 @@ async def test_search_yaml_skips_missing_files(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_search_yaml_default_context_is_two_lines(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -382,7 +372,6 @@ async def test_search_yaml_default_context_is_two_lines(
     ]
 
 
-@pytest.mark.asyncio
 async def test_search_yaml_context_lines_zero_drops_window(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -408,7 +397,6 @@ async def test_search_yaml_context_lines_zero_drops_window(
     assert results[0]["matches"][0]["after"] == []
 
 
-@pytest.mark.asyncio
 async def test_search_yaml_context_lines_clamped_to_max(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -437,7 +425,6 @@ async def test_search_yaml_context_lines_clamped_to_max(
     assert len(results[0]["matches"][0]["after"]) == MAX_CONTEXT_LINES
 
 
-@pytest.mark.asyncio
 async def test_search_yaml_negative_context_lines_falls_back_to_zero(
     tmp_path: Path,
     make_controller: MakeControllerFactory,

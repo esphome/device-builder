@@ -53,8 +53,6 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
 from esphome_device_builder.helpers.remote_build_layout import RemoteBuildPath
 from esphome_device_builder.models import (
     EventType,
@@ -120,7 +118,6 @@ def _wire_receiver_firmware_recorder(instances: PairedInstances) -> list[Firmwar
     return created_jobs
 
 
-@pytest.mark.asyncio
 async def test_submit_job_round_trip_extracts_real_bundle_and_queues_job(
     paired_instances: PairedInstances,
 ) -> None:
@@ -195,7 +192,6 @@ async def test_submit_job_round_trip_extracts_real_bundle_and_queues_job(
     assert job.configuration == extracted_yaml.relative_to(receiver_config_dir).as_posix()
 
 
-@pytest.mark.asyncio
 async def test_submit_job_round_trip_with_relative_receiver_config_dir(
     paired_instances_relative_receiver_config_dir: PairedInstances,
 ) -> None:
@@ -237,7 +233,6 @@ async def test_submit_job_round_trip_with_relative_receiver_config_dir(
     assert job.configuration == extracted_yaml.relative_to(receiver_config_dir).as_posix()
 
 
-@pytest.mark.asyncio
 async def test_submit_job_round_trip_then_fanout_to_offloader_bus(
     paired_instances: PairedInstances,
 ) -> None:
@@ -304,7 +299,6 @@ async def test_submit_job_round_trip_then_fanout_to_offloader_bus(
     assert payload["pin_sha256"] == paired_instances.pin_sha256
 
 
-@pytest.mark.asyncio
 async def test_submit_job_round_trip_carries_display_strings_to_receiver_job(
     paired_instances: PairedInstances,
 ) -> None:

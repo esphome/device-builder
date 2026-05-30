@@ -85,7 +85,6 @@ def _make_controller(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_create_label_persists_and_emits_event(tmp_path: Path) -> None:
     """Happy path: name + color saved, ``LABEL_CREATED`` fired with the label."""
     controller, captured = _make_controller(tmp_path)
@@ -106,7 +105,6 @@ async def test_create_label_persists_and_emits_event(tmp_path: Path) -> None:
     assert label_events[0].data == {"label": label}
 
 
-@pytest.mark.asyncio
 async def test_create_label_trims_whitespace(tmp_path: Path) -> None:
     """Surrounding whitespace is stripped before save AND uniqueness check."""
     controller, _ = _make_controller(tmp_path)
@@ -116,7 +114,6 @@ async def test_create_label_trims_whitespace(tmp_path: Path) -> None:
     assert label.name == "Kitchen"
 
 
-@pytest.mark.asyncio
 async def test_create_label_default_color_is_none(tmp_path: Path) -> None:
     """Omitting ``color`` lets the frontend pick a chip color."""
     controller, _ = _make_controller(tmp_path)
@@ -126,7 +123,6 @@ async def test_create_label_default_color_is_none(tmp_path: Path) -> None:
     assert label.color is None
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("name", ["", "   ", "\t\n"])
 async def test_create_label_rejects_empty_name(tmp_path: Path, name: str) -> None:
     """Empty / whitespace-only names raise ``INVALID_ARGS``."""
@@ -138,7 +134,6 @@ async def test_create_label_rejects_empty_name(tmp_path: Path, name: str) -> Non
     assert exc_info.value.code is ErrorCode.INVALID_ARGS
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("name", [123, None, ["bad"], {"bad": True}])
 async def test_create_label_rejects_non_string_name(tmp_path: Path, name: Any) -> None:
     """Non-string ``name`` payloads raise ``INVALID_ARGS``.
@@ -155,7 +150,6 @@ async def test_create_label_rejects_non_string_name(tmp_path: Path, name: Any) -
     assert exc_info.value.code is ErrorCode.INVALID_ARGS
 
 
-@pytest.mark.asyncio
 async def test_create_label_rejects_overlong_name(tmp_path: Path) -> None:
     """Names longer than 50 chars (matches GitHub's cap) are rejected."""
     controller, _ = _make_controller(tmp_path)
@@ -166,7 +160,6 @@ async def test_create_label_rejects_overlong_name(tmp_path: Path) -> None:
     assert exc_info.value.code is ErrorCode.INVALID_ARGS
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("color", ["red", "#fff", "#GGGGGG", "ff0000", "#ff00ff00"])
 async def test_create_label_rejects_invalid_color(tmp_path: Path, color: str) -> None:
     """Anything that isn't a 6-digit hex with leading ``#`` is rejected.
@@ -183,7 +176,6 @@ async def test_create_label_rejects_invalid_color(tmp_path: Path, color: str) ->
     assert exc_info.value.code is ErrorCode.INVALID_ARGS
 
 
-@pytest.mark.asyncio
 async def test_create_label_unique_name_case_insensitive(tmp_path: Path) -> None:
     """``"Kitchen"`` and ``"kitchen"`` are treated as the same name."""
     controller, _ = _make_controller(tmp_path)
@@ -203,7 +195,6 @@ async def test_create_label_unique_name_case_insensitive(tmp_path: Path) -> None
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_list_labels_returns_catalog_in_insertion_order(tmp_path: Path) -> None:
     """Catalog read returns labels in the order they were created."""
     await asyncio.to_thread(
@@ -227,7 +218,6 @@ async def test_list_labels_returns_catalog_in_insertion_order(tmp_path: Path) ->
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_update_label_rename_preserves_id_and_color(tmp_path: Path) -> None:
     """Renaming changes the name but keeps the id and existing color.
 
@@ -248,7 +238,6 @@ async def test_update_label_rename_preserves_id_and_color(tmp_path: Path) -> Non
     assert update_events[0].data == {"label": updated}
 
 
-@pytest.mark.asyncio
 async def test_update_label_clear_color_via_explicit_null(tmp_path: Path) -> None:
     """``color=None`` clears the color; sentinel pattern distinguishes from "leave alone"."""
     controller, _ = _make_controller(tmp_path)
@@ -260,7 +249,6 @@ async def test_update_label_clear_color_via_explicit_null(tmp_path: Path) -> Non
     assert updated.color is None
 
 
-@pytest.mark.asyncio
 async def test_update_label_no_changes_rejected(tmp_path: Path) -> None:
     """Passing neither name nor color is a user error.
 
@@ -277,7 +265,6 @@ async def test_update_label_no_changes_rejected(tmp_path: Path) -> None:
     assert exc_info.value.code is ErrorCode.INVALID_ARGS
 
 
-@pytest.mark.asyncio
 async def test_update_label_unknown_id_returns_not_found(tmp_path: Path) -> None:
     """An id that isn't in the catalog raises ``NOT_FOUND``."""
     controller, _ = _make_controller(tmp_path)
@@ -288,7 +275,6 @@ async def test_update_label_unknown_id_returns_not_found(tmp_path: Path) -> None
     assert exc_info.value.code is ErrorCode.NOT_FOUND
 
 
-@pytest.mark.asyncio
 async def test_update_label_rename_blocked_by_other_label(tmp_path: Path) -> None:
     """Renaming to another label's name is rejected; existing entries unchanged."""
     controller, _ = _make_controller(tmp_path)
@@ -310,7 +296,6 @@ async def test_update_label_rename_blocked_by_other_label(tmp_path: Path) -> Non
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_delete_label_removes_from_catalog_and_emits_event(tmp_path: Path) -> None:
     """Delete drops the label and broadcasts ``LABEL_DELETED`` with the id."""
     controller, captured = _make_controller(tmp_path)
@@ -326,7 +311,6 @@ async def test_delete_label_removes_from_catalog_and_emits_event(tmp_path: Path)
     assert deleted_events[0].data == {"label_id": created.id}
 
 
-@pytest.mark.asyncio
 async def test_delete_label_unknown_id_raises_not_found(tmp_path: Path) -> None:
     """Deleting a label that isn't in the catalog raises ``NOT_FOUND``.
 
@@ -343,7 +327,6 @@ async def test_delete_label_unknown_id_raises_not_found(tmp_path: Path) -> None:
     assert exc_info.value.code is ErrorCode.NOT_FOUND
 
 
-@pytest.mark.asyncio
 async def test_delete_label_cascades_through_assigned_devices(tmp_path: Path) -> None:
     """Devices that referenced the deleted label get reloaded.
 
@@ -374,7 +357,6 @@ async def test_delete_label_cascades_through_assigned_devices(tmp_path: Path) ->
     assert deleted_events[0].data == {"label_id": a.id}
 
 
-@pytest.mark.asyncio
 async def test_delete_label_tolerates_devices_controller_absent(tmp_path: Path) -> None:
     """Cascade still completes when no DevicesController is wired.
 
@@ -394,7 +376,6 @@ async def test_delete_label_tolerates_devices_controller_absent(tmp_path: Path) 
     assert "labels" not in raw["kitchen.yaml"]
 
 
-@pytest.mark.asyncio
 async def test_delete_label_swallows_per_device_reload_failures(tmp_path: Path) -> None:
     """A reload failure on one device doesn't stop the cascade.
 
@@ -433,7 +414,6 @@ async def test_delete_label_swallows_per_device_reload_failures(tmp_path: Path) 
     assert len(deleted_events) == 1
 
 
-@pytest.mark.asyncio
 async def test_delete_label_can_remove_corrupt_catalog_entry(tmp_path: Path) -> None:
     """A catalog entry that ``Label.from_dict`` would reject is still deletable.
 
@@ -470,7 +450,6 @@ async def test_delete_label_can_remove_corrupt_catalog_entry(tmp_path: Path) -> 
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_persistence_round_trip_across_controller_instances(tmp_path: Path) -> None:
     """Labels created via one controller survive a fresh instance."""
     first, _ = _make_controller(tmp_path)

@@ -20,8 +20,6 @@ import asyncio
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
 from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor, shared
 from esphome_device_builder.models import Device, DeviceState
 
@@ -77,7 +75,6 @@ def _make_monitor(
     return monitor, fake_zc.async_resolve_host
 
 
-@pytest.mark.asyncio
 async def test_non_api_device_marked_online_when_mdns_resolves() -> None:
     """A web-server-only YAML flips ONLINE when mDNS resolves its hostname.
 
@@ -95,7 +92,6 @@ async def test_non_api_device_marked_online_when_mdns_resolves() -> None:
     resolver.assert_awaited_once()
 
 
-@pytest.mark.asyncio
 async def test_api_device_skipped() -> None:
     """API-loaded devices go through the browser path, not the resolve fallback.
 
@@ -112,7 +108,6 @@ async def test_api_device_skipped() -> None:
     assert devices[0].state == DeviceState.UNKNOWN
 
 
-@pytest.mark.asyncio
 async def test_uncompiled_device_skipped() -> None:
     """Devices with empty ``loaded_integrations`` skip the resolve.
 
@@ -130,7 +125,6 @@ async def test_uncompiled_device_skipped() -> None:
     resolver.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_non_local_hostname_skipped() -> None:
     """Resolve only kicks in for ``.local`` hostnames — DNS is the right tool elsewhere."""
     devices = [_device(address="device.example.com", loaded_integrations=["mqtt"])]
@@ -141,7 +135,6 @@ async def test_non_local_hostname_skipped() -> None:
     resolver.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_resolve_miss_is_silent_no_offline_branch_by_design() -> None:
     """A miss is silent — ONLY trust mDNS for ONLINE, never for OFFLINE.
 
@@ -167,7 +160,6 @@ async def test_resolve_miss_is_silent_no_offline_branch_by_design() -> None:
     assert monitor.priority_for("kitchen") == "unknown"
 
 
-@pytest.mark.asyncio
 async def test_resolve_exception_does_not_propagate() -> None:
     """A zeroconf exception on one host doesn't poison the others.
 
@@ -201,7 +193,6 @@ async def test_resolve_exception_does_not_propagate() -> None:
     assert kitchen.state == DeviceState.UNKNOWN
 
 
-@pytest.mark.asyncio
 async def test_no_zeroconf_is_a_noop() -> None:
     """Pre-start (or zeroconf-failed) sweep must not raise."""
     devices = [_device(loaded_integrations=["web_server"])]
@@ -213,7 +204,6 @@ async def test_no_zeroconf_is_a_noop() -> None:
     assert devices[0].state == DeviceState.UNKNOWN
 
 
-@pytest.mark.asyncio
 async def test_already_online_via_higher_priority_skipped() -> None:
     """A device claimed by mDNS / MQTT already doesn't get re-resolved.
 
@@ -231,7 +221,6 @@ async def test_already_online_via_higher_priority_skipped() -> None:
     resolver.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_resolve_hit_locks_out_ping() -> None:
     """A resolve hit claims ``mdns`` priority and ICMP stops.
 
@@ -254,7 +243,6 @@ async def test_resolve_hit_locks_out_ping() -> None:
     assert shared.should_ping(monitor, devices[0]) is False
 
 
-@pytest.mark.asyncio
 async def test_offline_via_ping_still_resolved() -> None:
     """A device flipped OFFLINE by ping is still a resolve candidate.
 
@@ -273,7 +261,6 @@ async def test_offline_via_ping_still_resolved() -> None:
     assert devices[0].state == DeviceState.ONLINE
 
 
-@pytest.mark.asyncio
 async def test_resolve_picks_ipv4_for_apply_ip() -> None:
     """Active resolve forwards every IP; primary picks IPv4 when present.
 
@@ -294,7 +281,6 @@ async def test_resolve_picks_ipv4_for_apply_ip() -> None:
     assert devices[0].ip_addresses == ["fe80::1%en0", "192.168.1.42", "fe80::2%en0"]
 
 
-@pytest.mark.asyncio
 async def test_no_candidates_skips_zeroconf_call() -> None:
     """All API-loaded fleet → no resolve work.
 
@@ -311,7 +297,6 @@ async def test_no_candidates_skips_zeroconf_call() -> None:
     resolver.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_multiple_devices_resolve_in_parallel(monkeypatch: Any) -> None:
     """All non-API devices resolve in a single ``asyncio.gather`` call.
 

@@ -191,7 +191,6 @@ def test_apply_with_no_tracker_does_not_raise() -> None:
     monitor.apply("kitchen", DeviceState.ONLINE, "mdns")
 
 
-@pytest.mark.asyncio
 async def test_ping_success_records_rtt_and_observation() -> None:
     """A successful ICMP probe captures ``min_rtt`` and stamps freshness."""
     devices = [_make_device()]
@@ -214,7 +213,6 @@ async def test_ping_success_records_rtt_and_observation() -> None:
     assert snap["ping_last_seen_seconds_ago"] is not None
 
 
-@pytest.mark.asyncio
 async def test_ping_failure_does_not_record_rtt() -> None:
     """An unreachable host leaves the rtt slot null — no "0 ms" lie."""
     devices = [_make_device()]
@@ -237,7 +235,6 @@ async def test_ping_failure_does_not_record_rtt() -> None:
     assert snap["ping_last_seen_seconds_ago"] is None
 
 
-@pytest.mark.asyncio
 async def test_ping_retry_absorbs_transient_miss() -> None:
     """First-shot miss → retry with multiple packets → ONLINE, not OFFLINE."""
     devices = [_make_device(state=DeviceState.ONLINE)]
@@ -266,7 +263,6 @@ async def test_ping_retry_absorbs_transient_miss() -> None:
     assert snap["ping_rtt_ms"] == 7.5
 
 
-@pytest.mark.asyncio
 async def test_ping_retry_still_offline_when_retry_also_misses() -> None:
     """Both probes miss → OFFLINE. Retry doesn't mask a genuinely-gone device."""
     devices = [_make_device(state=DeviceState.ONLINE)]
@@ -289,7 +285,6 @@ async def test_ping_retry_still_offline_when_retry_also_misses() -> None:
     assert snap["ping_rtt_ms"] is None
 
 
-@pytest.mark.asyncio
 async def test_ping_no_retry_when_first_probe_succeeds() -> None:
     """Healthy path stays a single packet; the retry is opt-in on miss."""
     devices = [_make_device()]
@@ -306,7 +301,6 @@ async def test_ping_no_retry_when_first_probe_succeeds() -> None:
     fake_ping.assert_awaited_once()
 
 
-@pytest.mark.asyncio
 async def test_ping_no_retry_when_already_offline() -> None:
     """Already-OFFLINE devices skip the retry — the miss just confirms the state."""
     devices = [_make_device(state=DeviceState.OFFLINE)]
@@ -324,7 +318,6 @@ async def test_ping_no_retry_when_already_offline() -> None:
     assert devices[0].state == DeviceState.OFFLINE
 
 
-@pytest.mark.asyncio
 async def test_ping_retry_absorbs_transient_miss_when_unknown() -> None:
     """Cold-start UNKNOWN devices retry too; a single dropped packet can't flip OFFLINE.
 
@@ -350,7 +343,6 @@ async def test_ping_retry_absorbs_transient_miss_when_unknown() -> None:
     assert devices[0].state == DeviceState.ONLINE
 
 
-@pytest.mark.asyncio
 async def test_can_use_icmp_lib_with_privilege_picks_raw_when_available() -> None:
     """``SOCK_RAW`` probe succeeds; the loop runs in privileged mode."""
     fake_ping = AsyncMock(return_value=MagicMock())
@@ -364,7 +356,6 @@ async def test_can_use_icmp_lib_with_privilege_picks_raw_when_available() -> Non
     assert fake_ping.await_args_list[0].kwargs.get("privileged") is True
 
 
-@pytest.mark.asyncio
 async def test_can_use_icmp_lib_with_privilege_falls_back_to_dgram() -> None:
     """Raw socket denied; the probe falls back to unprivileged ``SOCK_DGRAM``."""
     fake_ping = AsyncMock(side_effect=[SocketPermissionError(True), MagicMock()])
@@ -378,7 +369,6 @@ async def test_can_use_icmp_lib_with_privilege_falls_back_to_dgram() -> None:
     assert fake_ping.await_args_list[1].kwargs.get("privileged") is False
 
 
-@pytest.mark.asyncio
 async def test_can_use_icmp_lib_with_privilege_returns_none_when_both_denied() -> None:
     """Both modes denied; probe returns ``None`` so ``run`` disables the sweep."""
     fake_ping = AsyncMock(side_effect=[SocketPermissionError(True), SocketPermissionError(False)])
@@ -391,7 +381,6 @@ async def test_can_use_icmp_lib_with_privilege_returns_none_when_both_denied() -
     assert fake_ping.await_count == 2
 
 
-@pytest.mark.asyncio
 async def test_can_use_icmp_lib_with_privilege_returns_none_when_icmplib_missing() -> None:
     """``icmp_ping`` is ``None`` (icmplib not installed) → probe returns ``None``."""
     with patch(
@@ -401,7 +390,6 @@ async def test_can_use_icmp_lib_with_privilege_returns_none_when_icmplib_missing
         assert await _can_use_icmp_lib_with_privilege() is None
 
 
-@pytest.mark.asyncio
 async def test_can_use_icmp_lib_with_privilege_returns_none_on_unexpected_oserror() -> None:
     """Non-permission ``OSError`` also degrades gracefully; the task doesn't die."""
     fake_ping = AsyncMock(side_effect=[OSError("EAFNOSUPPORT"), OSError("EAFNOSUPPORT")])
@@ -414,7 +402,6 @@ async def test_can_use_icmp_lib_with_privilege_returns_none_on_unexpected_oserro
     assert fake_ping.await_count == 2
 
 
-@pytest.mark.asyncio
 async def test_ping_device_uses_privileged_flag_from_probe() -> None:
     """``_ping_device`` forwards ``self._privileged`` to every ``icmp_ping`` call."""
     devices = [_make_device(state=DeviceState.UNKNOWN)]
@@ -434,7 +421,6 @@ async def test_ping_device_uses_privileged_flag_from_probe() -> None:
     assert fake_ping.await_args_list[1].kwargs.get("privileged") is False
 
 
-@pytest.mark.asyncio
 async def test_mdns_removed_clears_tracker_for_device() -> None:
     """A ``Removed`` mDNS event wipes every channel's history for the device.
 
@@ -470,7 +456,6 @@ async def test_mdns_removed_clears_tracker_for_device() -> None:
     assert snap["ping_rtt_ms"] is None
 
 
-@pytest.mark.asyncio
 async def test_mdns_removed_via_dispatch_clears_tracker() -> None:
     """The real browser-callback path (Removed) routes through to ``clear``.
 
@@ -1005,7 +990,6 @@ def test_get_mdns_cache_info_picks_latest_record() -> None:
     assert info.ttl_remaining_seconds == pytest.approx(115.0, abs=0.5)
 
 
-@pytest.mark.asyncio
 async def test_refresh_mdns_no_zeroconf_is_a_noop() -> None:
     """``refresh_mdns`` is silent when zeroconf failed to start.
 
@@ -1025,7 +1009,6 @@ async def test_refresh_mdns_no_zeroconf_is_a_noop() -> None:
     assert snap["mdns_last_seen_seconds_ago"] is None
 
 
-@pytest.mark.asyncio
 async def test_refresh_mdns_calls_resolve_host() -> None:
     """``refresh_mdns`` delegates to ``AsyncEsphomeZeroconf.async_resolve_host``.
 
@@ -1052,7 +1035,6 @@ async def test_refresh_mdns_calls_resolve_host() -> None:
     assert seen.count("kitchen") >= 1
 
 
-@pytest.mark.asyncio
 async def test_refresh_mdns_swallows_resolve_errors() -> None:
     """A resolve exception is logged but does not propagate.
 
@@ -1072,7 +1054,6 @@ async def test_refresh_mdns_swallows_resolve_errors() -> None:
     assert devices[0].state is DeviceState.UNKNOWN
 
 
-@pytest.mark.asyncio
 async def test_refresh_mdns_empty_resolve_no_state_change() -> None:
     """An empty resolve (device didn't respond) leaves state untouched.
 

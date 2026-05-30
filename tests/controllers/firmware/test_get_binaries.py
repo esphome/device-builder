@@ -156,7 +156,6 @@ def test_resolve_download_component_handles_none() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_get_binaries_returns_empty_when_storage_missing(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -176,7 +175,6 @@ async def test_get_binaries_returns_empty_when_storage_missing(
     assert result == []
 
 
-@pytest.mark.asyncio
 async def test_get_binaries_returns_empty_when_target_platform_missing(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -196,7 +194,6 @@ async def test_get_binaries_returns_empty_when_target_platform_missing(
     assert result == []
 
 
-@pytest.mark.asyncio
 async def test_get_binaries_logs_and_returns_empty_on_module_failure(
     tmp_path: Path,
     caplog: Any,
@@ -238,7 +235,6 @@ async def test_get_binaries_logs_and_returns_empty_on_module_failure(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_get_binaries_routes_esp32_variants_through_umbrella_module(
     tmp_path: Path, monkeypatch: Any, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -273,7 +269,6 @@ async def test_get_binaries_routes_esp32_variants_through_umbrella_module(
     assert captured[0].name == "kitchen"
 
 
-@pytest.mark.asyncio
 async def test_get_binaries_routes_libretiny_families_through_umbrella_module(
     tmp_path: Path, monkeypatch: Any, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -304,7 +299,6 @@ async def test_get_binaries_routes_libretiny_families_through_umbrella_module(
     assert len(captured) == 1
 
 
-@pytest.mark.asyncio
 async def test_get_binaries_returns_module_list_verbatim(
     tmp_path: Path, monkeypatch: Any, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:

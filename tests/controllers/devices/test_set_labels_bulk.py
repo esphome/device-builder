@@ -6,8 +6,6 @@ import asyncio
 import json
 from pathlib import Path
 
-import pytest
-
 from esphome_device_builder.controllers.config import save_labels
 from esphome_device_builder.models import Label
 
@@ -18,7 +16,6 @@ from .conftest import (
 )
 
 
-@pytest.mark.asyncio
 async def test_set_labels_bulk_applies_each_update(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -57,7 +54,6 @@ async def test_set_labels_bulk_applies_each_update(
     assert ("reload", "garage.yaml") in scanner.calls
 
 
-@pytest.mark.asyncio
 async def test_set_labels_bulk_reports_per_entry_failure(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -89,7 +85,6 @@ async def test_set_labels_bulk_reports_per_entry_failure(
     assert "garage.yaml" not in raw
 
 
-@pytest.mark.asyncio
 async def test_set_labels_bulk_preserves_input_order_with_duplicates(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -118,7 +113,6 @@ async def test_set_labels_bulk_preserves_input_order_with_duplicates(
     assert raw["kitchen.yaml"]["labels"] == ["lbl-b"]
 
 
-@pytest.mark.asyncio
 async def test_set_labels_bulk_malformed_row_isolates_failure(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -153,7 +147,6 @@ async def test_set_labels_bulk_malformed_row_isolates_failure(
     assert raw["kitchen.yaml"]["labels"] == ["lbl-a"]
 
 
-@pytest.mark.asyncio
 async def test_set_labels_bulk_empty_updates_returns_empty(
     tmp_path: Path,
     make_controller: MakeControllerFactory,

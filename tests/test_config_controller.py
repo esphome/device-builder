@@ -744,7 +744,6 @@ def test_save_preferences_round_trip(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_get_prefs_returns_loaded_preferences(tmp_path: Path) -> None:
     """``get_prefs`` returns the persisted blob, not a fresh default.
 
@@ -766,7 +765,6 @@ async def test_get_prefs_returns_loaded_preferences(tmp_path: Path) -> None:
     assert prefs == persisted
 
 
-@pytest.mark.asyncio
 async def test_set_prefs_merges_partial_update(tmp_path: Path) -> None:
     """Partial-update merge: only the supplied field changes.
 
@@ -794,7 +792,6 @@ async def test_set_prefs_merges_partial_update(tmp_path: Path) -> None:
     assert persisted == result
 
 
-@pytest.mark.asyncio
 async def test_get_secrets_returns_empty_when_missing(tmp_path: Path) -> None:
     """No secrets.yaml → empty list, not a raise.
 
@@ -806,7 +803,6 @@ async def test_get_secrets_returns_empty_when_missing(tmp_path: Path) -> None:
     assert keys == []
 
 
-@pytest.mark.asyncio
 async def test_get_secrets_returns_sorted_keys(tmp_path: Path) -> None:
     """Returned secret names are sorted alphabetically.
 
@@ -824,7 +820,6 @@ async def test_get_secrets_returns_sorted_keys(tmp_path: Path) -> None:
     assert keys == ["api_key", "wifi_password", "wifi_ssid"]
 
 
-@pytest.mark.asyncio
 async def test_get_info_returns_storage_metadata_dict(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -887,7 +882,6 @@ async def test_get_info_returns_storage_metadata_dict(
     }
 
 
-@pytest.mark.asyncio
 async def test_get_info_returns_none_when_storage_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -910,7 +904,6 @@ async def test_get_info_returns_none_when_storage_missing(
     assert result is None
 
 
-@pytest.mark.asyncio
 async def test_get_info_rejects_path_traversal(make_settings: MakeSettingsFactory) -> None:
     """Traversal-shaped configuration raises ``CommandError(INVALID_ARGS)``.
 
@@ -1002,7 +995,6 @@ def test_rel_path_bounds_control_byte_payload(make_settings: MakeSettingsFactory
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_get_serial_ports_returns_path_and_desc(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1034,7 +1026,6 @@ async def test_get_serial_ports_returns_path_and_desc(
     ]
 
 
-@pytest.mark.asyncio
 async def test_get_serial_ports_runs_in_executor(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1073,7 +1064,6 @@ async def test_get_serial_ports_runs_in_executor(
     )
 
 
-@pytest.mark.asyncio
 async def test_get_serial_ports_substitutes_path_for_na_description(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1220,7 +1210,6 @@ def test_read_descriptor_file_returns_none_on_oserror(tmp_path: Path) -> None:
     assert _read_descriptor_file(str(tmp_path / "does-not-exist.bin")) is None
 
 
-@pytest.mark.asyncio
 async def test_run_esptool_calls_run_subprocess_capture_with_resolved_cmd(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1259,7 +1248,6 @@ async def test_run_esptool_calls_run_subprocess_capture_with_resolved_cmd(
     assert captured_kwargs == {"timeout": 30.0}
 
 
-@pytest.mark.asyncio
 async def test_run_esptool_substitutes_minus_one_when_returncode_is_none(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1287,7 +1275,6 @@ async def test_run_esptool_substitutes_minus_one_when_returncode_is_none(
     assert timed_out is True
 
 
-@pytest.mark.asyncio
 async def test_detect_chip_omits_board_id_when_read_flash_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1358,7 +1345,6 @@ def _mock_run_esptool(monkeypatch: pytest.MonkeyPatch, side_effect):
     monkeypatch.setattr("esphome_device_builder.controllers.config._run_esptool", fake)
 
 
-@pytest.mark.asyncio
 async def test_detect_chip_returns_chip_and_board_id_on_full_success(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1385,7 +1371,6 @@ async def test_detect_chip_returns_chip_and_board_id_on_full_success(
     }
 
 
-@pytest.mark.asyncio
 async def test_detect_chip_omits_board_id_when_manifest_read_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1412,7 +1397,6 @@ async def test_detect_chip_omits_board_id_when_manifest_read_fails(
     assert "board_id" not in result
 
 
-@pytest.mark.asyncio
 async def test_detect_chip_rejects_missing_or_invalid_port(tmp_path: Path) -> None:
     controller = _make_controller(tmp_path)
 
@@ -1425,7 +1409,6 @@ async def test_detect_chip_rejects_missing_or_invalid_port(tmp_path: Path) -> No
     assert exc.value.code == ErrorCode.INVALID_ARGS
 
 
-@pytest.mark.asyncio
 async def test_detect_chip_surfaces_port_busy_message(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1447,7 +1430,6 @@ async def test_detect_chip_surfaces_port_busy_message(
     assert "/dev/ttyUSB0" in exc.value.message
 
 
-@pytest.mark.asyncio
 async def test_detect_chip_surfaces_no_response_message(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1467,7 +1449,6 @@ async def test_detect_chip_surfaces_no_response_message(
     assert "cable" in exc.value.message.lower() or "boot" in exc.value.message.lower()
 
 
-@pytest.mark.asyncio
 async def test_detect_chip_surfaces_permission_denied_message(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1488,7 +1469,6 @@ async def test_detect_chip_surfaces_permission_denied_message(
     assert "dialout" in exc.value.message.lower()
 
 
-@pytest.mark.asyncio
 async def test_detect_chip_surfaces_timeout_message(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1502,7 +1482,6 @@ async def test_detect_chip_surfaces_timeout_message(
     assert "didn't finish in time" in exc.value.message.lower()
 
 
-@pytest.mark.asyncio
 async def test_detect_chip_surfaces_unknown_chip_message(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1519,7 +1498,6 @@ async def test_detect_chip_surfaces_unknown_chip_message(
     assert "manually" in exc.value.message.lower()
 
 
-@pytest.mark.asyncio
 async def test_detect_chip_surfaces_no_esptool_message(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1536,7 +1514,6 @@ async def test_detect_chip_surfaces_no_esptool_message(
     assert "esptool" in exc.value.message.lower()
 
 
-@pytest.mark.asyncio
 async def test_get_serial_ports_returns_empty_when_no_ports(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

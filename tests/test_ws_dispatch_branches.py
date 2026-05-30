@@ -13,8 +13,6 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
 from esphome_device_builder.api.ws import WebSocketClient
 from esphome_device_builder.controllers.auth import AuthError
 from esphome_device_builder.helpers.api import CommandError
@@ -61,7 +59,6 @@ def test_token_property_returns_value_set_by_authenticator() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_send_result_invokes_to_dict_on_dataclass_results() -> None:
     """``send_result`` flattens ``to_dict``-shaped results before sending.
 
@@ -83,7 +80,6 @@ async def test_send_result_invokes_to_dict_on_dataclass_results() -> None:
     assert payload["message_id"] == "m1"
 
 
-@pytest.mark.asyncio
 async def test_send_event_serialises_eventmessage() -> None:
     """``send_event`` packages the event into the ``EventMessage`` envelope."""
     client, ws = _make_client()
@@ -101,7 +97,6 @@ async def test_send_event_serialises_eventmessage() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_handle_command_invalid_message_format() -> None:
     """A raw payload that fails ``CommandMessage.from_dict`` returns INVALID_MESSAGE.
 
@@ -119,7 +114,6 @@ async def test_handle_command_invalid_message_format() -> None:
     assert payload["message_id"] == ""
 
 
-@pytest.mark.asyncio
 async def test_handle_command_unknown_command_returns_typed_error() -> None:
     """Unrecognised commands surface as ``UNKNOWN_COMMAND``, not as a 500.
 
@@ -137,7 +131,6 @@ async def test_handle_command_unknown_command_returns_typed_error() -> None:
     assert "garbage/nonexistent" in payload["details"]
 
 
-@pytest.mark.asyncio
 async def test_handle_command_pre_auth_blocks_non_auth_commands() -> None:
     """A non-``auth`` command before authentication is refused with NOT_AUTHENTICATED.
 
@@ -158,7 +151,6 @@ async def test_handle_command_pre_auth_blocks_non_auth_commands() -> None:
     client.device_builder.command_handlers["devices/list"].assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_handle_command_passes_through_auth_error_code() -> None:
     """``AuthError`` from a handler keeps its own code/message verbatim.
 
@@ -179,7 +171,6 @@ async def test_handle_command_passes_through_auth_error_code() -> None:
     assert payload["details"] == "slow down"
 
 
-@pytest.mark.asyncio
 async def test_handle_command_passes_through_command_error_code() -> None:
     """``CommandError`` from a handler also keeps its own typed code."""
     client, ws = _make_client()
@@ -196,7 +187,6 @@ async def test_handle_command_passes_through_command_error_code() -> None:
     assert payload["details"] == "bad name"
 
 
-@pytest.mark.asyncio
 async def test_handle_command_unexpected_exception_becomes_internal_error() -> None:
     """A bare ``Exception`` from a handler is logged and surfaced as INTERNAL_ERROR.
 

@@ -64,7 +64,6 @@ def _install_fake_subprocess(
     return captured
 
 
-@pytest.mark.asyncio
 async def test_build_yaml_bundle_returns_subprocess_output(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -83,7 +82,6 @@ async def test_build_yaml_bundle_returns_subprocess_output(
     assert "-o" in args
 
 
-@pytest.mark.asyncio
 async def test_build_yaml_bundle_missing_yaml_raises_file_not_found(
     tmp_path: Path,
 ) -> None:
@@ -92,7 +90,6 @@ async def test_build_yaml_bundle_missing_yaml_raises_file_not_found(
         await build_yaml_bundle(tmp_path / "missing.yaml")
 
 
-@pytest.mark.asyncio
 async def test_build_yaml_bundle_subprocess_failure_raises_bundle_build_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -110,7 +107,6 @@ async def test_build_yaml_bundle_subprocess_failure_raises_bundle_build_error(
     assert "INVALID_YAML" in exc_info.value.output
 
 
-@pytest.mark.asyncio
 async def test_build_yaml_bundle_cleans_temp_file_on_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -126,7 +122,6 @@ async def test_build_yaml_bundle_cleans_temp_file_on_failure(
     assert not output_path.exists()
 
 
-@pytest.mark.asyncio
 async def test_build_yaml_bundle_cleans_temp_file_on_success(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -140,7 +135,6 @@ async def test_build_yaml_bundle_cleans_temp_file_on_success(
     assert not output_path.exists()
 
 
-@pytest.mark.asyncio
 async def test_build_yaml_bundle_timeout_raises_bundle_build_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

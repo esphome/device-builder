@@ -58,7 +58,6 @@ def _ext_storage_for_archive(redirect_storage_path: None) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_archive_moves_yaml_to_archive_dir(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -84,7 +83,6 @@ async def test_archive_moves_yaml_to_archive_dir(
     assert archived.read_text() == original_text
 
 
-@pytest.mark.asyncio
 async def test_archive_wipes_build_directory(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -107,7 +105,6 @@ async def test_archive_wipes_build_directory(
     assert not build_path.exists()
 
 
-@pytest.mark.asyncio
 async def test_archive_wipes_storage_sidecar(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -132,7 +129,6 @@ async def test_archive_wipes_storage_sidecar(
     assert not storage_path.exists()
 
 
-@pytest.mark.asyncio
 async def test_archive_clears_volatile_metadata_keeps_identity(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -189,7 +185,6 @@ async def test_archive_clears_volatile_metadata_keeps_identity(
     assert controller._metadata_store.get("kitchen.yaml") == {}
 
 
-@pytest.mark.asyncio
 async def test_archive_drops_metadata_entry_when_only_volatile_fields(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -225,7 +220,6 @@ async def test_archive_drops_metadata_entry_when_only_volatile_fields(
     assert "kitchen.yaml" not in raw
 
 
-@pytest.mark.asyncio
 async def test_archive_succeeds_when_never_compiled(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -248,7 +242,6 @@ async def test_archive_succeeds_when_never_compiled(
     assert (tmp_path / "archive" / "kitchen.yaml").exists()
 
 
-@pytest.mark.asyncio
 async def test_archive_collision_raises_invalid_args(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -285,7 +278,6 @@ async def test_archive_collision_raises_invalid_args(
     assert (tmp_path / "kitchen.yaml").read_text() == "second version\n"
 
 
-@pytest.mark.asyncio
 async def test_archive_missing_file_raises_file_not_found(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -301,7 +293,6 @@ async def test_archive_missing_file_raises_file_not_found(
         await controller._archive_single("ghost.yaml")
 
 
-@pytest.mark.asyncio
 async def test_archive_device_full_flow_calls_scanner(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -324,7 +315,6 @@ async def test_archive_device_full_flow_calls_scanner(
     assert controller._scanner.calls == [("scan",)]
 
 
-@pytest.mark.asyncio
 async def test_unarchive_device_full_flow_calls_scanner(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -345,7 +335,6 @@ async def test_unarchive_device_full_flow_calls_scanner(
     assert controller._scanner.calls == [("scan",)]
 
 
-@pytest.mark.asyncio
 async def test_list_archived_full_flow(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -370,7 +359,6 @@ async def test_list_archived_full_flow(
     assert rows[0]["friendly_name"] == "Kitchen"
 
 
-@pytest.mark.asyncio
 async def test_archive_device_translates_missing_to_command_error(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -388,7 +376,6 @@ async def test_archive_device_translates_missing_to_command_error(
     assert exc.value.code == ErrorCode.NOT_FOUND
 
 
-@pytest.mark.asyncio
 async def test_unarchive_device_translates_missing_to_command_error(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -404,7 +391,6 @@ async def test_unarchive_device_translates_missing_to_command_error(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_unarchive_moves_yaml_back(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -426,7 +412,6 @@ async def test_unarchive_moves_yaml_back(
     assert (tmp_path / "kitchen.yaml").exists()
 
 
-@pytest.mark.asyncio
 async def test_unarchive_refuses_to_clobber_active_config(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -454,7 +439,6 @@ async def test_unarchive_refuses_to_clobber_active_config(
     assert active.read_text() == "# active, freshly written\n"
 
 
-@pytest.mark.asyncio
 async def test_unarchive_missing_archive_file_raises(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -485,7 +469,6 @@ async def test_unarchive_missing_archive_file_raises(
         "with\x00null.yaml",
     ],
 )
-@pytest.mark.asyncio
 async def test_archive_rejects_path_traversal(
     tmp_path: Path, make_controller: MakeControllerFactory, configuration: str
 ) -> None:
@@ -565,7 +548,6 @@ def test_clear_volatile_device_metadata_drops_corrupt_non_dict_entry(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_delete_archived_removes_yaml_and_sidecars(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -592,7 +574,6 @@ async def test_delete_archived_removes_yaml_and_sidecars(
     assert not storage_path.exists()
 
 
-@pytest.mark.asyncio
 async def test_delete_archived_preserves_active_sidecars(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -626,7 +607,6 @@ async def test_delete_archived_preserves_active_sidecars(
     assert storage_path.read_text() == '{"name":"active"}'
 
 
-@pytest.mark.asyncio
 async def test_delete_archived_succeeds_without_sidecars(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -646,7 +626,6 @@ async def test_delete_archived_succeeds_without_sidecars(
     assert not (archive_dir / "kitchen.yaml").exists()
 
 
-@pytest.mark.asyncio
 async def test_delete_archived_missing_raises_file_not_found(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -656,7 +635,6 @@ async def test_delete_archived_missing_raises_file_not_found(
         await controller._delete_archived_single("ghost.yaml")
 
 
-@pytest.mark.asyncio
 async def test_delete_archived_translates_missing_to_command_error(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:

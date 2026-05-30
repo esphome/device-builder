@@ -70,7 +70,6 @@ def _capture_apply(
     return calls
 
 
-@pytest.mark.asyncio
 async def test_probe_device_cache_hit_applies_synchronously(monkeypatch) -> None:
     """A cached service info applies inline; no task is spawned."""
     monitor = _make_monitor()
@@ -89,7 +88,6 @@ async def test_probe_device_cache_hit_applies_synchronously(monkeypatch) -> None
     assert not monitor._tasks
 
 
-@pytest.mark.asyncio
 async def test_probe_device_uses_service_name_when_provided(monkeypatch) -> None:
     """``service_name`` overrides the lookup but apply still keys by ``device_name``.
 
@@ -125,7 +123,6 @@ async def test_probe_device_uses_service_name_when_provided(monkeypatch) -> None
     assert apply_calls == [("my-living-room", fake_info)]
 
 
-@pytest.mark.asyncio
 async def test_probe_device_cache_miss_spawns_task(monkeypatch) -> None:
     """Cache miss → fire-and-forget resolve task tracked in ``_tasks``."""
     monitor = _make_monitor()
@@ -172,7 +169,6 @@ def test_probe_device_no_zeroconf_is_a_noop() -> None:
     assert not monitor._tasks
 
 
-@pytest.mark.asyncio
 async def test_apply_service_info_claims_online() -> None:
     """``_apply_service_info`` flips the device ONLINE under the mDNS source.
 
@@ -214,7 +210,6 @@ async def test_apply_service_info_claims_online() -> None:
     ]
 
 
-@pytest.mark.asyncio
 async def test_apply_service_info_routes_mac_txt_to_apply_mac_address() -> None:
     """A populated ``mac`` TXT lands at ``apply_mac_address``.
 

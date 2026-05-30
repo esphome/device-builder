@@ -30,7 +30,6 @@ from tests.controllers.firmware.conftest import (
 )
 
 
-@pytest.mark.asyncio
 async def test_compile_returns_queued_job_with_compile_type(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -52,7 +51,6 @@ async def test_compile_returns_queued_job_with_compile_type(
     assert job.configuration == "kitchen.yaml"
 
 
-@pytest.mark.asyncio
 async def test_compile_rejects_traversal_configuration(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
@@ -74,7 +72,6 @@ async def test_compile_rejects_traversal_configuration(
     assert exc.value.code == ErrorCode.INVALID_ARGS
 
 
-@pytest.mark.asyncio
 async def test_compile_enqueues_before_firing_job_queued(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -101,7 +98,6 @@ async def test_compile_enqueues_before_firing_job_queued(
     assert log[1][1].data == {"job": job}
 
 
-@pytest.mark.asyncio
 async def test_compile_registers_job_in_jobs_map(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:

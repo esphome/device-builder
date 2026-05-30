@@ -23,8 +23,6 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
-import pytest
-
 from esphome_device_builder.models import FirmwareJob, JobStatus, JobType
 from tests.controllers.firmware.conftest import FirmwareControllerFactory
 
@@ -44,7 +42,6 @@ def _job(job_id: str, status: JobStatus, *, job_type: JobType = JobType.COMPILE)
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_clear_default_removes_all_terminal_states(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -66,7 +63,6 @@ async def test_clear_default_removes_all_terminal_states(
     assert await controller.get_jobs() == []
 
 
-@pytest.mark.asyncio
 async def test_clear_default_keeps_queued_and_running_jobs(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -89,7 +85,6 @@ async def test_clear_default_keeps_queued_and_running_jobs(
     assert {j.job_id for j in await controller.get_jobs()} == {"q", "r"}
 
 
-@pytest.mark.asyncio
 async def test_clear_default_with_no_terminal_jobs_is_noop(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -117,7 +112,6 @@ async def test_clear_default_with_no_terminal_jobs_is_noop(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_clear_with_specific_status_removes_only_that_status(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -140,7 +134,6 @@ async def test_clear_with_specific_status_removes_only_that_status(
     assert {j.job_id for j in await controller.get_jobs()} == {"f", "x"}
 
 
-@pytest.mark.asyncio
 async def test_clear_with_status_string_matches_enum_value(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -164,7 +157,6 @@ async def test_clear_with_status_string_matches_enum_value(
     assert {j.job_id for j in await controller.get_jobs()} == {"f"}
 
 
-@pytest.mark.asyncio
 async def test_clear_with_status_can_remove_active_jobs(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -188,7 +180,6 @@ async def test_clear_with_status_can_remove_active_jobs(
     assert {j.job_id for j in await controller.get_jobs()} == {"q", "c"}
 
 
-@pytest.mark.asyncio
 async def test_clear_with_status_no_matches_is_noop(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -209,7 +200,6 @@ async def test_clear_with_status_no_matches_is_noop(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_clear_persists_after_removal(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -240,7 +230,6 @@ async def test_clear_persists_after_removal(
     assert seen_ids_at_persist == {"q"}
 
 
-@pytest.mark.asyncio
 async def test_clear_accepts_arbitrary_kwargs(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -261,7 +250,6 @@ async def test_clear_accepts_arbitrary_kwargs(
     assert await controller.get_jobs() == []
 
 
-@pytest.mark.asyncio
 async def test_clear_with_empty_jobs_map_is_noop(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:

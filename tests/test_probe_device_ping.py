@@ -109,7 +109,6 @@ def test_probe_device_ping_herd_collapses_to_single_set() -> None:
     assert monitor._tasks == set()
 
 
-@pytest.mark.asyncio
 async def test_wake_bails_idle_wait_early(monkeypatch: pytest.MonkeyPatch) -> None:
     """A wake fired during the idle wait re-runs the sweep without paying ``_PING_INTERVAL``."""
     _patch_loop_for_wake_tests(monkeypatch)
@@ -126,7 +125,6 @@ async def test_wake_bails_idle_wait_early(monkeypatch: pytest.MonkeyPatch) -> No
         assert sweeps.count == 2
 
 
-@pytest.mark.asyncio
 async def test_wake_during_sweep_triggers_followup(monkeypatch: pytest.MonkeyPatch) -> None:
     """A wake fired mid-sweep survives the pre-sweep ``_wake.clear()`` to drive one follow-up."""
     _patch_loop_for_wake_tests(monkeypatch)

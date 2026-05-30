@@ -10,13 +10,11 @@ assertions on top.
 
 from __future__ import annotations
 
-import pytest
 from esphome.const import __version__ as receiver_version
 
 from .conftest import PairedInstances
 
 
-@pytest.mark.asyncio
 async def test_paired_instances_open_peer_link_session(
     paired_instances: PairedInstances,
 ) -> None:
@@ -53,7 +51,6 @@ async def test_paired_instances_open_peer_link_session(
     assert paired_instances.offloader_dashboard_id in sessions
 
 
-@pytest.mark.asyncio
 async def test_paired_instances_teardown_closes_session_cleanly(
     paired_instances: PairedInstances,
 ) -> None:
@@ -105,7 +102,6 @@ async def test_paired_instances_teardown_closes_session_cleanly(
     assert paired_instances.offloader_closed[0]["error_detail"] == ""
 
 
-@pytest.mark.asyncio
 async def test_paired_instances_snapshot_reflects_connected_state(
     paired_instances: PairedInstances,
 ) -> None:
@@ -129,7 +125,6 @@ async def test_paired_instances_snapshot_reflects_connected_state(
     assert summary.last_connect_error == ""
 
 
-@pytest.mark.asyncio
 async def test_paired_instances_snapshot_carries_receiver_esphome_version(
     paired_instances: PairedInstances,
 ) -> None:

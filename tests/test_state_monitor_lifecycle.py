@@ -186,7 +186,6 @@ async def _stop_and_drain(monitor: DeviceStateMonitor) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_stop_cancels_every_async_resource(monkeypatch: pytest.MonkeyPatch) -> None:
     """``start`` → ``stop`` cancels the ping task, browser, in-flight resolves, and zeroconf.
 
@@ -217,7 +216,6 @@ async def test_stop_cancels_every_async_resource(monkeypatch: pytest.MonkeyPatch
     assert in_flight.cancelled() or in_flight.done()
 
 
-@pytest.mark.asyncio
 async def test_stop_swallows_browser_cancel_exception(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -237,7 +235,6 @@ async def test_stop_swallows_browser_cancel_exception(
     assert monitor._mdns._mdns_browser is None
 
 
-@pytest.mark.asyncio
 async def test_stop_swallows_zeroconf_close_exception(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -256,7 +253,6 @@ async def test_stop_swallows_zeroconf_close_exception(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_start_falls_back_when_zeroconf_construct_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -289,7 +285,6 @@ async def test_start_falls_back_when_zeroconf_construct_fails(
         await _stop_and_drain(monitor)
 
 
-@pytest.mark.asyncio
 async def test_start_continues_when_browser_construct_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -333,7 +328,6 @@ async def test_start_continues_when_browser_construct_fails(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_dispatch_removed_event_flips_offline_clears_ip(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -356,7 +350,6 @@ async def test_dispatch_removed_event_flips_offline_clears_ip(
         await _stop_and_drain(monitor)
 
 
-@pytest.mark.asyncio
 async def test_dispatch_removed_event_clears_reachability_tracker(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -393,7 +386,6 @@ async def test_dispatch_removed_event_clears_reachability_tracker(
         await _stop_and_drain(monitor)
 
 
-@pytest.mark.asyncio
 async def test_dispatch_added_cache_hit_propagates_full_txt_bundle(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -441,7 +433,6 @@ async def test_dispatch_added_cache_hit_propagates_full_txt_bundle(
         await _stop_and_drain(monitor)
 
 
-@pytest.mark.asyncio
 async def test_dispatch_added_cache_hit_falls_back_to_v6_when_no_v4(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -475,7 +466,6 @@ async def test_dispatch_added_cache_hit_falls_back_to_v6_when_no_v4(
         await _stop_and_drain(monitor)
 
 
-@pytest.mark.asyncio
 async def test_dispatch_added_with_explicit_empty_api_encryption_pushes_empty_string(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -510,7 +500,6 @@ async def test_dispatch_added_with_explicit_empty_api_encryption_pushes_empty_st
         await _stop_and_drain(monitor)
 
 
-@pytest.mark.asyncio
 async def test_dispatch_added_without_api_encryption_txt_preserves_last_known(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -553,7 +542,6 @@ async def test_dispatch_added_without_api_encryption_txt_preserves_last_known(
         await _stop_and_drain(monitor)
 
 
-@pytest.mark.asyncio
 async def test_dispatch_added_without_api_encryption_txt_keeps_unknown_at_none(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -588,7 +576,6 @@ async def test_dispatch_added_without_api_encryption_txt_keeps_unknown_at_none(
         await _stop_and_drain(monitor)
 
 
-@pytest.mark.asyncio
 async def test_dispatch_added_api_encryption_absent_with_other_content_clears_to_empty(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -640,7 +627,6 @@ async def test_dispatch_added_api_encryption_absent_with_other_content_clears_to
         await _stop_and_drain(monitor)
 
 
-@pytest.mark.asyncio
 async def test_dispatch_added_api_encryption_bare_key_pushes_empty_string(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -731,7 +717,6 @@ async def test_dispatch_added_api_encryption_bare_key_pushes_empty_string(
     ],
     ids=lambda v: v if isinstance(v, str) else "",
 )
-@pytest.mark.asyncio
 async def test_dispatch_added_sparse_announce_preserves_last_known(
     device_field: str,
     txt_key: str,
@@ -772,7 +757,6 @@ async def test_dispatch_added_sparse_announce_preserves_last_known(
         await _stop_and_drain(monitor)
 
 
-@pytest.mark.asyncio
 async def test_dispatch_added_cache_miss_resolves_and_applies(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -810,7 +794,6 @@ async def test_dispatch_added_cache_miss_resolves_and_applies(
         await _stop_and_drain(monitor)
 
 
-@pytest.mark.asyncio
 async def test_dispatch_added_cache_miss_skips_apply_when_request_returns_false(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -842,7 +825,6 @@ async def test_dispatch_added_cache_miss_skips_apply_when_request_returns_false(
         await _stop_and_drain(monitor)
 
 
-@pytest.mark.asyncio
 async def test_dispatch_added_cache_miss_swallows_resolve_exception(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -875,7 +857,6 @@ async def test_dispatch_added_cache_miss_swallows_resolve_exception(
         await _stop_and_drain(monitor)
 
 
-@pytest.mark.asyncio
 async def test_dispatch_skips_unconfigured_devices(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -935,7 +916,6 @@ def _build_discovered(name: str, **overrides: Any) -> Any:
     return discovered
 
 
-@pytest.mark.asyncio
 async def test_dispatch_http_service_added_records_url_and_refires_importable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -972,7 +952,6 @@ async def test_dispatch_http_service_added_records_url_and_refires_importable(
         await _stop_and_drain(monitor)
 
 
-@pytest.mark.asyncio
 async def test_dispatch_http_service_added_skips_when_no_importable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1004,7 +983,6 @@ async def test_dispatch_http_service_added_skips_when_no_importable(
         await _stop_and_drain(monitor)
 
 
-@pytest.mark.asyncio
 async def test_dispatch_http_service_removed_clears_url_and_refires(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1039,7 +1017,6 @@ async def test_dispatch_http_service_removed_clears_url_and_refires(
         await _stop_and_drain(monitor)
 
 
-@pytest.mark.asyncio
 async def test_dispatch_http_service_removed_for_untracked_is_noop(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1060,7 +1037,6 @@ async def test_dispatch_http_service_removed_for_untracked_is_noop(
         await _stop_and_drain(monitor)
 
 
-@pytest.mark.asyncio
 async def test_dispatch_http_service_added_cache_miss_resolves_and_applies(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1231,7 +1207,6 @@ def _shrink_ping_intervals(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ping_module, "_PING_INTERVAL", 0.001)
 
 
-@pytest.mark.asyncio
 async def test_start_drives_ping_pipeline_to_online_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1261,7 +1236,6 @@ async def test_start_drives_ping_pipeline_to_online_state(
         await _stop_and_drain(monitor)
 
 
-@pytest.mark.asyncio
 async def test_start_disables_sweep_when_privilege_probe_returns_none(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -1288,7 +1262,6 @@ async def test_start_disables_sweep_when_privilege_probe_returns_none(
     assert any("privileges are insufficient" in rec.message for rec in caplog.records)
 
 
-@pytest.mark.asyncio
 async def test_start_with_icmplib_unavailable_skips_dns_resolution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1313,7 +1286,6 @@ async def test_start_with_icmplib_unavailable_skips_dns_resolution(
         await _stop_and_drain(monitor)
 
 
-@pytest.mark.asyncio
 async def test_start_marks_offline_on_icmp_exception(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1346,7 +1318,6 @@ async def test_start_marks_offline_on_icmp_exception(
         await _stop_and_drain(monitor)
 
 
-@pytest.mark.asyncio
 async def test_start_skips_ping_for_cached_dns_failures(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -1381,7 +1352,6 @@ async def test_start_skips_ping_for_cached_dns_failures(
     assert any("cached DNS failure" in rec.message for rec in caplog.records)
 
 
-@pytest.mark.asyncio
 async def test_start_logs_ping_count_at_debug(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -1408,7 +1378,6 @@ async def test_start_logs_ping_count_at_debug(
     assert any("Pinging 1 devices" in rec.message for rec in caplog.records)
 
 
-@pytest.mark.asyncio
 async def test_repeat_sweep_with_unchanged_targets_logs_once(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -1446,7 +1415,6 @@ async def test_repeat_sweep_with_unchanged_targets_logs_once(
     assert len(ping_logs) == 1
 
 
-@pytest.mark.asyncio
 async def test_dns_failure_flicker_does_not_re_emit_log(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -1495,7 +1463,6 @@ async def test_dns_failure_flicker_does_not_re_emit_log(
     assert cache_calls["n"] >= 4
 
 
-@pytest.mark.asyncio
 async def test_start_skips_devices_without_address(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1581,7 +1548,6 @@ def test_get_cached_addresses_returns_none_when_addresses_empty(
     assert monitor.get_cached_addresses("kitchen.local") is None
 
 
-@pytest.mark.asyncio
 async def test_start_uses_v6_fallback_when_only_v6_in_mdns_cache(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

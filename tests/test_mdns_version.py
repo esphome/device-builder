@@ -14,8 +14,6 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock
 
-import pytest
-
 from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
 from esphome_device_builder.models import Device, EventType
 
@@ -99,7 +97,6 @@ def test_apply_version_no_callback_silently_drops() -> None:
 # ----------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_on_version_change_updates_device_fires_event_and_persists(
     monkeypatch: Any,
 ) -> None:
@@ -119,7 +116,6 @@ async def test_on_version_change_updates_device_fires_event_and_persists(
     assert controller._metadata_store.get(device.configuration) == {"deployed_version": "2026.5.0"}
 
 
-@pytest.mark.asyncio
 async def test_on_version_change_skips_when_same() -> None:
     """No-op when in-memory device already has the announced version."""
     device = _device(deployed_version="2026.5.0")
@@ -134,7 +130,6 @@ async def test_on_version_change_skips_when_same() -> None:
     assert scheduled == []
 
 
-@pytest.mark.asyncio
 async def test_on_version_change_marks_update_available_when_behind() -> None:
     """A device on an older version than the dashboard → ``update_available`` flips on."""
     device = _device(current_version="2026.5.0", deployed_version="2026.4.0")

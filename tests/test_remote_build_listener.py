@@ -47,7 +47,6 @@ from .conftest import MakeSettingsFactory
 from .conftest import RemoteBuildTestHandles as RemoteBuildController
 
 
-@pytest.mark.asyncio
 async def test_maybe_start_remote_build_site_skips_when_explicitly_disabled(
     tmp_path: Path,
 ) -> None:
@@ -79,7 +78,6 @@ async def test_maybe_start_remote_build_site_skips_when_explicitly_disabled(
     assert db._remote_build_runner is None
 
 
-@pytest.mark.asyncio
 async def test_maybe_start_remote_build_site_binds_by_default_on_fresh_install(
     tmp_path: Path,
 ) -> None:
@@ -111,7 +109,6 @@ async def test_maybe_start_remote_build_site_binds_by_default_on_fresh_install(
             await db._remote_build_runner.cleanup()
 
 
-@pytest.mark.asyncio
 async def test_maybe_start_remote_build_site_binds_when_enabled(tmp_path: Path) -> None:
     """
     Flipping ``enabled=True`` makes the lifecycle hook bind the listener.
@@ -147,7 +144,6 @@ async def test_maybe_start_remote_build_site_binds_when_enabled(tmp_path: Path) 
             await db._remote_build_runner.cleanup()
 
 
-@pytest.mark.asyncio
 async def test_maybe_start_remote_build_site_fails_soft_on_bind_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -195,7 +191,6 @@ async def test_maybe_start_remote_build_site_fails_soft_on_bind_error(
     monkeypatch.setattr(web.TCPSite, "start", real_start)
 
 
-@pytest.mark.asyncio
 async def test_maybe_start_remote_build_site_refuses_port_zero_with_multi_host(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -247,7 +242,6 @@ async def test_maybe_start_remote_build_site_refuses_port_zero_with_multi_host(
     assert refusal_logged, "expected the operator-facing refusal on the fail-soft log's exc_info"
 
 
-@pytest.mark.asyncio
 async def test_strip_server_header_middleware_overrides_to_empty(tmp_path: Path) -> None:
     """
     The Server header is overridden to empty string.
@@ -266,7 +260,6 @@ async def test_strip_server_header_middleware_overrides_to_empty(tmp_path: Path)
     assert response.headers["Server"] == ""
 
 
-@pytest.mark.asyncio
 async def test_maybe_start_remote_build_site_updates_advertiser_on_success(
     tmp_path: Path,
 ) -> None:
@@ -313,7 +306,6 @@ async def test_maybe_start_remote_build_site_updates_advertiser_on_success(
             await db._remote_build_runner.cleanup()
 
 
-@pytest.mark.asyncio
 async def test_start_registers_advertiser_with_all_txt_keys_in_one_announce(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -365,7 +357,6 @@ async def test_start_registers_advertiser_with_all_txt_keys_in_one_announce(
         await db.stop()
 
 
-@pytest.mark.asyncio
 async def test_maybe_start_remote_build_site_against_unregistered_advertiser_stages_only(
     tmp_path: Path,
 ) -> None:
@@ -422,7 +413,6 @@ async def test_maybe_start_remote_build_site_against_unregistered_advertiser_sta
             await db._remote_build_runner.cleanup()
 
 
-@pytest.mark.asyncio
 async def test_maybe_start_remote_build_site_advertises_actual_port_for_ephemeral(
     tmp_path: Path,
 ) -> None:
@@ -471,7 +461,6 @@ async def test_maybe_start_remote_build_site_advertises_actual_port_for_ephemera
             await db._remote_build_runner.cleanup()
 
 
-@pytest.mark.asyncio
 async def test_maybe_start_remote_build_site_skips_ha_addon_without_persisted_opt_in(
     tmp_path: Path,
 ) -> None:
@@ -497,7 +486,6 @@ async def test_maybe_start_remote_build_site_skips_ha_addon_without_persisted_op
     assert db._remote_build_runner is None
 
 
-@pytest.mark.asyncio
 async def test_maybe_start_remote_build_site_binds_ha_addon_after_explicit_opt_in(
     tmp_path: Path,
 ) -> None:
@@ -537,7 +525,6 @@ async def test_maybe_start_remote_build_site_binds_ha_addon_after_explicit_opt_i
             await db._remote_build_runner.cleanup()
 
 
-@pytest.mark.asyncio
 async def test_maybe_start_remote_build_site_respects_ha_addon_explicit_disable(
     tmp_path: Path,
 ) -> None:
@@ -573,7 +560,6 @@ async def test_maybe_start_remote_build_site_respects_ha_addon_explicit_disable(
     assert db._remote_build_runner is None
 
 
-@pytest.mark.asyncio
 async def test_reload_remote_build_identity_no_op_when_listener_unbound(
     tmp_path: Path,
 ) -> None:
@@ -608,7 +594,6 @@ async def test_reload_remote_build_identity_no_op_when_listener_unbound(
     assert listener_bound is False
 
 
-@pytest.mark.asyncio
 async def test_reload_remote_build_identity_rebuilds_listener(tmp_path: Path) -> None:
     """
     Rotation while the listener is bound: tear down + rebuild against the new cert.
@@ -655,7 +640,6 @@ async def test_reload_remote_build_identity_rebuilds_listener(tmp_path: Path) ->
             await db._remote_build_runner.cleanup()
 
 
-@pytest.mark.asyncio
 async def test_reload_remote_build_identity_clears_advertiser_when_rebuild_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -727,7 +711,6 @@ async def test_reload_remote_build_identity_clears_advertiser_when_rebuild_fails
             await db._remote_build_runner.cleanup()
 
 
-@pytest.mark.asyncio
 async def test_reload_remote_build_identity_advertiser_refresh_failure_is_swallowed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -769,7 +752,6 @@ async def test_reload_remote_build_identity_advertiser_refresh_failure_is_swallo
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_apply_remote_build_enabled_binds_when_disk_says_true(tmp_path: Path) -> None:
     """Convergence: disk ``enabled=True`` + listener absent → bind."""
     loop = asyncio.get_running_loop()
@@ -797,7 +779,6 @@ async def test_apply_remote_build_enabled_binds_when_disk_says_true(tmp_path: Pa
             await db._remote_build_runner.cleanup()
 
 
-@pytest.mark.asyncio
 async def test_apply_remote_build_enabled_tears_down_when_disk_says_false(
     tmp_path: Path,
 ) -> None:
@@ -845,7 +826,6 @@ async def test_apply_remote_build_enabled_tears_down_when_disk_says_false(
     advertiser.unregister.assert_not_awaited()
 
 
-@pytest.mark.asyncio
 async def test_apply_remote_build_enabled_no_op_before_loop_set(tmp_path: Path) -> None:
     """No-op when the dashboard hasn't finished startup yet (``loop is None``)."""
     settings = DashboardSettings(config_dir=tmp_path)
@@ -861,7 +841,6 @@ async def test_apply_remote_build_enabled_no_op_before_loop_set(tmp_path: Path) 
     assert bound is False
 
 
-@pytest.mark.asyncio
 async def test_apply_remote_build_enabled_idempotent_when_already_off(tmp_path: Path) -> None:
     """Disk ``enabled=False`` + listener absent → no-op (no advertiser touch)."""
     settings = DashboardSettings(config_dir=tmp_path)
@@ -881,7 +860,6 @@ async def test_apply_remote_build_enabled_idempotent_when_already_off(tmp_path: 
     advertiser.refresh.assert_not_awaited()
 
 
-@pytest.mark.asyncio
 async def test_apply_remote_build_enabled_idempotent_when_already_on(tmp_path: Path) -> None:
     """Disk ``enabled=True`` + listener bound → no-op (no rebind, no advertiser churn)."""
     loop = asyncio.get_running_loop()
@@ -915,7 +893,6 @@ async def test_apply_remote_build_enabled_idempotent_when_already_on(tmp_path: P
             await db._remote_build_runner.cleanup()
 
 
-@pytest.mark.asyncio
 async def test_set_settings_live_rebinds_listener(tmp_path: Path) -> None:
     """End-to-end: ``set_settings(enabled=True)`` flips disk + binds the listener."""
     settings = DashboardSettings(config_dir=tmp_path)

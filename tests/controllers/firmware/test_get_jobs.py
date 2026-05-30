@@ -18,8 +18,6 @@ noticing.
 
 from __future__ import annotations
 
-import pytest
-
 from esphome_device_builder.models import FirmwareJob, JobStatus, JobType
 from tests.controllers.firmware.conftest import FirmwareControllerFactory
 
@@ -46,7 +44,6 @@ def _job(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_get_jobs_returns_every_job_when_unfiltered(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -67,7 +64,6 @@ async def test_get_jobs_returns_every_job_when_unfiltered(
     assert {j.job_id for j in result} == {"a", "b", "c"}
 
 
-@pytest.mark.asyncio
 async def test_get_jobs_sorts_newest_first_by_created_at(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -90,7 +86,6 @@ async def test_get_jobs_sorts_newest_first_by_created_at(
     assert [j.job_id for j in result] == ["new", "middle", "old"]
 
 
-@pytest.mark.asyncio
 async def test_get_jobs_filters_by_status(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -110,7 +105,6 @@ async def test_get_jobs_filters_by_status(
     assert result == [completed]
 
 
-@pytest.mark.asyncio
 async def test_get_jobs_filters_by_configuration(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -125,7 +119,6 @@ async def test_get_jobs_filters_by_configuration(
     assert result == [garage]
 
 
-@pytest.mark.asyncio
 async def test_get_jobs_combines_status_and_configuration_filters(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -142,7 +135,6 @@ async def test_get_jobs_combines_status_and_configuration_filters(
     assert result == [kitchen_done]
 
 
-@pytest.mark.asyncio
 async def test_get_jobs_filter_with_no_matches_returns_empty_list(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -163,7 +155,6 @@ async def test_get_jobs_filter_with_no_matches_returns_empty_list(
     assert result == []
 
 
-@pytest.mark.asyncio
 async def test_get_jobs_on_empty_controller_returns_empty_list(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -178,7 +169,6 @@ async def test_get_jobs_on_empty_controller_returns_empty_list(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_get_job_returns_the_matching_job_for_known_id(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -197,7 +187,6 @@ async def test_get_job_returns_the_matching_job_for_known_id(
     assert result is target
 
 
-@pytest.mark.asyncio
 async def test_get_job_returns_none_for_unknown_id(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -214,7 +203,6 @@ async def test_get_job_returns_none_for_unknown_id(
     assert await controller.get_job(job_id="ghost") is None
 
 
-@pytest.mark.asyncio
 async def test_get_job_does_not_mutate_state(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:

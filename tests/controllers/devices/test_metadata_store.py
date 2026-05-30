@@ -33,7 +33,6 @@ def _make_store(tmp_path: Path) -> DeviceMetadataStore:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_async_load_with_no_files_leaves_state_empty(tmp_path: Path) -> None:
     """No shared sidecar + no new file → empty RAM, no disk writes."""
     store = _make_store(tmp_path)
@@ -45,7 +44,6 @@ async def test_async_load_with_no_files_leaves_state_empty(tmp_path: Path) -> No
     assert not (tmp_path / ".device-builder.json").exists()
 
 
-@pytest.mark.asyncio
 async def test_async_load_migrates_live_fields_from_shared_sidecar(tmp_path: Path) -> None:
     """First-run migration pulls store-shaped fields out of the shared sidecar."""
     await asyncio.to_thread(
@@ -89,7 +87,6 @@ async def test_async_load_migrates_live_fields_from_shared_sidecar(tmp_path: Pat
     assert (tmp_path / ".device-builder-devices.json").exists()
 
 
-@pytest.mark.asyncio
 async def test_async_load_skips_migration_when_new_file_exists(tmp_path: Path) -> None:
     """Pre-existing new file wins; orphan fields in the shared sidecar are left alone."""
     new_path = tmp_path / ".device-builder-devices.json"
@@ -111,7 +108,6 @@ async def test_async_load_skips_migration_when_new_file_exists(tmp_path: Path) -
     }
 
 
-@pytest.mark.asyncio
 async def test_async_load_drops_shared_entry_with_only_store_fields(tmp_path: Path) -> None:
     """A shared-sidecar entry holding only store-shaped fields collapses out."""
     await asyncio.to_thread(
@@ -135,7 +131,6 @@ async def test_async_load_drops_shared_entry_with_only_store_fields(tmp_path: Pa
     assert "kitchen.yaml" not in shared
 
 
-@pytest.mark.asyncio
 async def test_async_load_migration_is_idempotent_across_loads(tmp_path: Path) -> None:
     """Second ``async_load`` reads the new file; shared sidecar stays byte-identical."""
     await asyncio.to_thread(
@@ -161,7 +156,6 @@ async def test_async_load_migration_is_idempotent_across_loads(tmp_path: Path) -
     assert await asyncio.to_thread(_load_metadata, tmp_path) == shared_after_first
 
 
-@pytest.mark.asyncio
 async def test_async_load_preserves_top_level_catalogs(tmp_path: Path) -> None:
     """Migration leaves ``_labels`` / ``_preferences`` / ``_remote_build`` alone."""
     await asyncio.to_thread(
@@ -187,7 +181,6 @@ async def test_async_load_preserves_top_level_catalogs(tmp_path: Path) -> None:
     assert shared["_remote_build"] == {"enabled": True}
 
 
-@pytest.mark.asyncio
 async def test_e2e_pre_pr_shape_migrates_through_resolver(
     tmp_path: Path,
     make_controller: Any,
@@ -259,7 +252,6 @@ async def test_e2e_pre_pr_shape_migrates_through_resolver(
     }
 
 
-@pytest.mark.asyncio
 async def test_async_load_recovers_from_corrupt_store_json(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -274,7 +266,6 @@ async def test_async_load_recovers_from_corrupt_store_json(
     assert any("corrupt JSON" in r.message for r in caplog.records)
 
 
-@pytest.mark.asyncio
 async def test_async_load_recovers_from_non_dict_store_json(tmp_path: Path) -> None:
     """A non-dict top-level value in the store file decodes as empty state."""
     (tmp_path / ".device-builder-devices.json").write_bytes(b"[1, 2, 3]")
@@ -285,7 +276,6 @@ async def test_async_load_recovers_from_non_dict_store_json(tmp_path: Path) -> N
     assert store.snapshot_all() == {}
 
 
-@pytest.mark.asyncio
 async def test_migration_strip_skips_non_dict_entries(tmp_path: Path) -> None:
     """A non-dict entry in the shared sidecar doesn't trip the strip phase."""
     await asyncio.to_thread(
@@ -306,7 +296,6 @@ async def test_migration_strip_skips_non_dict_entries(tmp_path: Path) -> None:
     assert shared["bad.yaml"] == "not-a-dict"
 
 
-@pytest.mark.asyncio
 async def test_migration_strip_handles_concurrent_corruption(tmp_path: Path) -> None:
     """A migrated entry that turns non-dict between read and strip skips cleanly."""
     store = _make_store(tmp_path)
@@ -319,7 +308,6 @@ async def test_migration_strip_handles_concurrent_corruption(tmp_path: Path) -> 
     assert shared == {"kitchen.yaml": "not-a-dict"}
 
 
-@pytest.mark.asyncio
 async def test_round_trip_after_migration(tmp_path: Path) -> None:
     """Migration → mutate → flush → reload: full state round-trips through disk."""
     await asyncio.to_thread(
@@ -338,7 +326,6 @@ async def test_round_trip_after_migration(tmp_path: Path) -> None:
     assert second.get("kitchen.yaml") == {"ip": "192.168.1.42", "deployed_version": "2026.5.1"}
 
 
-@pytest.mark.asyncio
 async def test_async_load_drops_corrupt_non_dict_entries(tmp_path: Path) -> None:
     """A non-dict shared-sidecar entry is ignored during migration, not crashed on."""
     await asyncio.to_thread(
@@ -379,7 +366,6 @@ def test_get_returns_defensive_copy(tmp_path: Path) -> None:
     assert store._state["kitchen.yaml"]["ip"] == "10.0.0.1"
 
 
-@pytest.mark.asyncio
 async def test_update_merges_truthy_fields_into_entry(tmp_path: Path) -> None:
     """Truthy values write; subsequent updates merge into the entry."""
     store = _make_store(tmp_path)
@@ -393,7 +379,6 @@ async def test_update_merges_truthy_fields_into_entry(tmp_path: Path) -> None:
     }
 
 
-@pytest.mark.asyncio
 async def test_update_treats_none_as_leave_alone(tmp_path: Path) -> None:
     """``None`` keeps the existing value."""
     store = _make_store(tmp_path)
@@ -403,7 +388,6 @@ async def test_update_treats_none_as_leave_alone(tmp_path: Path) -> None:
     assert store.get("kitchen.yaml") == {"ip": "10.0.0.1", "deployed_version": "2026.5.1"}
 
 
-@pytest.mark.asyncio
 async def test_update_treats_falsy_as_clear(tmp_path: Path) -> None:
     """A falsy value pops the field; an empty entry drops the filename."""
     store = _make_store(tmp_path)
@@ -417,7 +401,6 @@ async def test_update_treats_falsy_as_clear(tmp_path: Path) -> None:
     assert "kitchen.yaml" not in store.snapshot_all()
 
 
-@pytest.mark.asyncio
 async def test_update_replaces_inner_dict_never_mutates_in_place(tmp_path: Path) -> None:
     """Captured reference sees the pre-update state — no in-place writes."""
     store = _make_store(tmp_path)
@@ -435,7 +418,6 @@ async def test_update_replaces_inner_dict_never_mutates_in_place(tmp_path: Path)
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_set_field_writes_empty_string_literally(tmp_path: Path) -> None:
     """``set_field`` persists the empty-string sentinel that ``update`` would clear."""
     store = _make_store(tmp_path)
@@ -443,7 +425,6 @@ async def test_set_field_writes_empty_string_literally(tmp_path: Path) -> None:
     assert store.get("kitchen.yaml") == {"api_encryption_active": ""}
 
 
-@pytest.mark.asyncio
 async def test_set_field_overwrites_existing_value(tmp_path: Path) -> None:
     """A subsequent ``set_field`` replaces the prior value verbatim."""
     store = _make_store(tmp_path)
@@ -452,7 +433,6 @@ async def test_set_field_overwrites_existing_value(tmp_path: Path) -> None:
     assert store.get("kitchen.yaml") == {"api_encryption_active": ""}
 
 
-@pytest.mark.asyncio
 async def test_set_field_replaces_inner_dict_never_mutates_in_place(tmp_path: Path) -> None:
     """Captured reference sees the pre-write state — no in-place writes."""
     store = _make_store(tmp_path)
@@ -465,7 +445,6 @@ async def test_set_field_replaces_inner_dict_never_mutates_in_place(tmp_path: Pa
     assert store._state["kitchen.yaml"] is not captured
 
 
-@pytest.mark.asyncio
 async def test_set_field_no_op_when_value_unchanged(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -486,7 +465,6 @@ async def test_set_field_no_op_when_value_unchanged(
     assert schedules == [_DEFAULT_SAVE_DELAY]
 
 
-@pytest.mark.asyncio
 async def test_update_idempotent_no_op_when_value_unchanged(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -513,7 +491,6 @@ async def test_update_idempotent_no_op_when_value_unchanged(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_remove_drops_entry_and_flushes(tmp_path: Path) -> None:
     """``remove`` pops + flushes immediately so a quick restart can't resurrect."""
     store = _make_store(tmp_path)
@@ -528,7 +505,6 @@ async def test_remove_drops_entry_and_flushes(tmp_path: Path) -> None:
     assert b"kitchen.yaml" not in on_disk
 
 
-@pytest.mark.asyncio
 async def test_remove_unknown_filename_is_noop(tmp_path: Path) -> None:
     """``remove`` for a filename never in the store doesn't touch disk."""
     store = _make_store(tmp_path)
@@ -536,7 +512,6 @@ async def test_remove_unknown_filename_is_noop(tmp_path: Path) -> None:
     assert not (tmp_path / ".device-builder-devices.json").exists()
 
 
-@pytest.mark.asyncio
 async def test_clear_volatile_pops_every_store_field(tmp_path: Path) -> None:
     """``clear_volatile`` drops every store-owned field for the filename."""
     store = _make_store(tmp_path)
@@ -559,7 +534,6 @@ async def test_clear_volatile_pops_every_store_field(tmp_path: Path) -> None:
     assert store.get("kitchen.yaml") == {}
 
 
-@pytest.mark.asyncio
 async def test_clear_volatile_replaces_entry_does_not_mutate_in_place(tmp_path: Path) -> None:
     """A reference held mid-iteration sees the pre-clear state, not a half-cleared one."""
     store = _make_store(tmp_path)
@@ -572,7 +546,6 @@ async def test_clear_volatile_replaces_entry_does_not_mutate_in_place(tmp_path: 
     assert captured == {"ip": "10.0.0.1", "deployed_config_hash": "abc12345"}
 
 
-@pytest.mark.asyncio
 async def test_clear_volatile_unknown_filename_is_noop(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -622,7 +595,6 @@ def test_store_fields_pinned() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_multiple_updates_coalesce_into_one_disk_write(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
@@ -657,7 +629,6 @@ async def test_multiple_updates_coalesce_into_one_disk_write(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_update_then_load_round_trip(tmp_path: Path) -> None:
     """A second store instance reads back what the first one persisted."""
     first = _make_store(tmp_path)
