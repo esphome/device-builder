@@ -119,36 +119,13 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         for pairing in state.pairings.values():
             if pairing.status is PeerStatus.APPROVED:
                 self._spawn_peer_link_client(pairing)
-        self._listeners.callback(
-            self._db.bus.add_listener(
-                EventType.OFFLOADER_QUEUE_STATUS_CHANGED,
-                self._on_offloader_queue_status_changed,
-            )
+        self._subscribe(
+            EventType.OFFLOADER_QUEUE_STATUS_CHANGED, self._on_offloader_queue_status_changed
         )
-        self._listeners.callback(
-            self._db.bus.add_listener(
-                EventType.OFFLOADER_JOB_STATE_CHANGED,
-                self._on_offloader_job_state_changed,
-            )
-        )
-        self._listeners.callback(
-            self._db.bus.add_listener(
-                EventType.OFFLOADER_PAIR_PIN_MISMATCH,
-                self._on_offloader_pair_pin_mismatch,
-            )
-        )
-        self._listeners.callback(
-            self._db.bus.add_listener(
-                EventType.OFFLOADER_PEER_LINK_OPENED,
-                self._on_offloader_peer_link_opened,
-            )
-        )
-        self._listeners.callback(
-            self._db.bus.add_listener(
-                EventType.OFFLOADER_PEER_LINK_CLOSED,
-                self._on_offloader_peer_link_closed,
-            )
-        )
+        self._subscribe(EventType.OFFLOADER_JOB_STATE_CHANGED, self._on_offloader_job_state_changed)
+        self._subscribe(EventType.OFFLOADER_PAIR_PIN_MISMATCH, self._on_offloader_pair_pin_mismatch)
+        self._subscribe(EventType.OFFLOADER_PEER_LINK_OPENED, self._on_offloader_peer_link_opened)
+        self._subscribe(EventType.OFFLOADER_PEER_LINK_CLOSED, self._on_offloader_peer_link_closed)
         self._start_discovery()
 
     async def stop(self) -> None:

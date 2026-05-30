@@ -109,9 +109,7 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
             EventType.JOB_STARTED,
             *TERMINAL_JOB_EVENTS,
         ):
-            self._listeners.callback(
-                self._db.bus.add_listener(event_type, self._on_firmware_queue_transition)
-            )
+            self._subscribe(event_type, self._on_firmware_queue_transition)
 
     async def stop(self) -> None:
         """Close listeners, terminate sessions, drain tasks, flush store."""

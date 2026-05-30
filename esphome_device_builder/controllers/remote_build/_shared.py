@@ -12,7 +12,7 @@ Exposes:
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from contextlib import ExitStack
 from typing import TYPE_CHECKING, Any
 
@@ -21,6 +21,7 @@ from .._task_controller_base import TaskControllerBase
 
 if TYPE_CHECKING:
     from ...device_builder import DeviceBuilder
+    from ...helpers.event_bus import Event, EventType
 
 
 async def drain_tasks(tasks: Iterable[asyncio.Task[Any]]) -> None:
@@ -54,3 +55,7 @@ class _RemoteBuildBase(TaskControllerBase):
         self._db = device_builder
         self._listeners = ExitStack()
         self._shutdown_callbacks: list[ShutdownCallback] = []
+
+    def _subscribe(self, event_type: EventType, listener: Callable[[Event[Any]], None]) -> None:
+        """Register *listener* for *event_type*, auto-removed when ``_listeners`` closes."""
+        self._listeners.callback(self._db.bus.add_listener(event_type, listener))
