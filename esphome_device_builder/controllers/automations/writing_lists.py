@@ -12,7 +12,11 @@ the single-handler / top-level splice paths.
 from __future__ import annotations
 
 from ...helpers.api import CommandError
-from ...helpers.yaml import remove_inline_handler, upsert_inline_handler
+from ...helpers.yaml import (
+    remove_inline_handler,
+    synthetic_instance_index,
+    upsert_inline_handler,
+)
 from ...models.api import ErrorCode
 from ...models.automations import (
     AutomationTree,
@@ -129,6 +133,13 @@ def _require_instance(
         for instance in section:
             if isinstance(instance, dict) and str(instance.get("id", "")) == component_id:
                 return instance
+        # Fall back to the parser's positional ``<domain>_<idx>`` label for
+        # an id-less instance (only when that instance is genuinely id-less).
+        idx = synthetic_instance_index(domain, component_id)
+        if idx is not None and idx < len(section):
+            candidate = section[idx]
+            if isinstance(candidate, dict) and "id" not in candidate:
+                return candidate
     msg = f"Component instance id={component_id!r} not found under {domain!r}"
     raise CommandError(error_code, msg)
 

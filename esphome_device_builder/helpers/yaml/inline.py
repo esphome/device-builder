@@ -7,6 +7,20 @@ import re
 from .scalar import ESPHOME_YAML_INDENT
 
 
+def synthetic_instance_index(domain: str, component_id: str) -> int | None:
+    """
+    Decode a parser-synthesized ``<domain>_<idx>`` id back to its list index.
+
+    The automation parser labels an id-less component instance
+    ``f"{domain}_{idx}"`` — its position in the ``<domain>:`` list. id-less
+    instances are valid ESPHome (a GPIO ``binary_sensor`` with no ``id:``), so
+    their inline ``on_*:`` handlers must still resolve on write. Returns
+    ``None`` for a real id (which the literal ``id:`` lookup handles).
+    """
+    m = re.fullmatch(rf"{re.escape(domain)}_(\d+)", component_id)
+    return int(m.group(1)) if m else None
+
+
 def upsert_inline_handler(
     yaml_text: str,
     *,
@@ -178,7 +192,47 @@ def _locate_component_instance(  # noqa: C901
         child_indent = dash_indent + ESPHOME_YAML_INDENT
         if _instance_id_matches(lines, start, end, child_indent, component_id):
             return start, end, child_indent
-    return None
+
+    return _locate_idless_instance(lines, domain, component_id, item_starts, domain_end)
+
+
+def _locate_idless_instance(
+    lines: list[str],
+    domain: str,
+    component_id: str,
+    item_starts: list[int],
+    domain_end: int,
+) -> tuple[int, int, str] | None:
+    """
+    Resolve the parser's positional ``<domain>_<idx>`` label for an id-less instance.
+
+    Only resolves onto a genuinely id-less instance — a real id always matches
+    the literal lookup first, and a stale positional id pointing at an id'd
+    instance is refused (``None``) so the caller raises a clean "not found".
+    """
+    idx = synthetic_instance_index(domain, component_id)
+    if idx is None or idx >= len(item_starts):
+        return None
+    start = item_starts[idx]
+    end = item_starts[idx + 1] if idx + 1 < len(item_starts) else domain_end
+    dash_indent = lines[start][: len(lines[start]) - len(lines[start].lstrip(" "))]
+    child_indent = dash_indent + ESPHOME_YAML_INDENT
+    if _instance_has_id(lines, start, end, child_indent):
+        return None
+    return start, end, child_indent
+
+
+def _instance_has_id(
+    lines: list[str],
+    start: int,
+    end: int,
+    child_indent: str,
+) -> bool:
+    """Return True iff the instance at *start* declares any ``id:`` field."""
+    if re.match(r"^\s*-\s*id:\s*\S+", lines[start].rstrip("\n\r")):
+        return True
+    child_re = re.compile(rf"^{re.escape(child_indent)}id:\s*\S+")
+    return any(child_re.match(lines[jdx].rstrip("\n\r")) for jdx in range(start, end))
 
 
 def _instance_id_matches(

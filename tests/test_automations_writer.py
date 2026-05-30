@@ -144,6 +144,82 @@ def test_upsert_inline_on_press_leaves_sibling_components_untouched() -> None:
     assert a_idx < on_press_idx < b_idx, "on_press landed under the wrong instance"
 
 
+_IDLESS_BINARY_SENSOR = (
+    "esphome:\n  name: x\n"
+    "binary_sensor:\n"
+    "  - platform: gpio\n"
+    "    pin: GPIO0\n"
+    "    on_press:\n"
+    "      - logger.log: pressed\n"
+)
+
+
+def test_round_trip_inline_handler_on_idless_instance() -> None:
+    """An inline ``on_*`` on an id-less component (synthetic id) round-trips."""
+    parsed = parse_device_yaml(_IDLESS_BINARY_SENSOR)
+    assert len(parsed) == 1
+    location = parsed[0].location
+    assert isinstance(location, ComponentOnLocation)
+    assert location.component_id == "binary_sensor_0"
+    new_text, _diff = render_upsert(
+        _IDLESS_BINARY_SENSOR, tree=parsed[0].automation, location=location
+    )
+    reparsed = parse_device_yaml(new_text)
+    assert len(reparsed) == 1
+    assert reparsed[0].location == location
+    assert [a.action_id for a in reparsed[0].automation.actions] == ["logger.log"]
+
+
+def test_delete_inline_handler_on_idless_instance() -> None:
+    """Deleting an inline handler on an id-less component removes it."""
+    location = parse_device_yaml(_IDLESS_BINARY_SENSOR)[0].location
+    new_text, diff = render_delete(_IDLESS_BINARY_SENSOR, location=location)
+    assert "on_press:" not in new_text
+    assert parse_device_yaml(new_text) == []
+    assert diff.replacement == ""
+
+
+def test_idless_multidomain_trigger_resolves_configured_domain() -> None:
+    """``on_turn_on`` spans switch/fan/light; an id-less switch resolves to switch."""
+    text = (
+        "esphome:\n  name: x\n"
+        "switch:\n"
+        "  - platform: gpio\n"
+        "    pin: GPIO2\n"
+        "    on_turn_on:\n"
+        "      - logger.log: state\n"
+    )
+    parsed = parse_device_yaml(text)
+    assert len(parsed) == 1
+    location = parsed[0].location
+    assert location.component_id == "switch_0"
+    new_text, _diff = render_upsert(text, tree=parsed[0].automation, location=location)
+    assert "switch:" in new_text
+    reparsed = parse_device_yaml(new_text)
+    assert len(reparsed) == 1
+    assert reparsed[0].location == location
+
+
+def test_stale_positional_id_on_idd_instance_is_refused() -> None:
+    """A ``<domain>_<idx>`` id pointing at an instance with a real id is refused."""
+    text = (
+        "esphome:\n  name: x\n"
+        "binary_sensor:\n"
+        "  - platform: gpio\n"
+        "    id: real\n"
+        "    pin: GPIO0\n"
+    )
+    with pytest.raises(CommandError):
+        render_upsert(
+            text,
+            tree=AutomationTree(
+                trigger_id="binary_sensor.on_press",
+                actions=[ActionNode(action_id="logger.log", params={"format": "hi"})],
+            ),
+            location=ComponentOnLocation(component_id="binary_sensor_0", trigger="on_press"),
+        )
+
+
 def test_upsert_valid_automation_leaves_unparseable_sibling_verbatim() -> None:
     """Editing a valid automation never rewrites a broken sibling block (#1050)."""
     text = (

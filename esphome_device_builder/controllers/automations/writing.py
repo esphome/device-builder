@@ -21,6 +21,7 @@ from ...helpers.api import CommandError
 from ...helpers.yaml import (
     _splice_into_domain_block,
     remove_inline_handler,
+    synthetic_instance_index,
     upsert_inline_handler,
 )
 from ...models.api import ErrorCode
@@ -592,16 +593,25 @@ def _component_domain_from_yaml(
     )
     top_re = re.compile(r"^([a-zA-Z_][\w]*)\s*:")
     current_domain: str | None = None
+    top_level_domains: list[str] = []
     for line in yaml_text.splitlines():
         if line and not line[0].isspace():
             m = top_re.match(line)
             current_domain = m.group(1) if m else None
+            if current_domain is not None:
+                top_level_domains.append(current_domain)
             continue
         if current_domain is None:
             continue
         m = id_re.match(line)
         if m and m.group(1) == target_id:
             return current_domain
+    # No literal ``id:`` match — the parser labels id-less instances
+    # ``<domain>_<idx>``, so recover the domain from that prefix before
+    # falling back to the ambiguous catalog guess.
+    for domain in top_level_domains:
+        if synthetic_instance_index(domain, target_id) is not None:
+            return domain
     return _component_domain(location)
 
 
