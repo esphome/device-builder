@@ -6,6 +6,7 @@ hand-rolled text scanning makes regression risk meaningful.
 
 from __future__ import annotations
 
+import importlib
 import logging
 from copy import deepcopy
 from pathlib import Path
@@ -13,6 +14,8 @@ from typing import Any, ClassVar
 from unittest import mock
 
 import pytest
+from esphome.components import wifi as esphome_wifi
+from esphome.components.rp2040.boards import BOARDS as ESPHOME_RP2040_BOARDS
 
 from esphome_device_builder.helpers import device_yaml
 from esphome_device_builder.helpers.device_yaml import (
@@ -795,6 +798,17 @@ def test_load_device_from_storage_resolves_config_once_for_packages(tmp_path: Pa
 
 
 # ----------------------------------------------------------------------
+# extract_directly_referenced_integrations — key walk
+# ----------------------------------------------------------------------
+
+
+def test_extract_directly_referenced_integrations_skips_non_string_keys() -> None:
+    """A non-string top-level key (templated / malformed) is skipped, not emitted."""
+    config = {"sensor": [{"platform": "dht"}], 1: {"ignored": True}}
+    assert device_yaml.extract_directly_referenced_integrations(config) == ["dht", "sensor"]
+
+
+# ----------------------------------------------------------------------
 # _parse_inline_value — comment + quote stripping
 # ----------------------------------------------------------------------
 
@@ -1395,6 +1409,43 @@ def test_select_wifi_helper_falls_back_when_upstream_missing() -> None:
     selected = _select_wifi_helper(None)
 
     assert selected is device_yaml._fallback_has_native_wifi
+
+
+def test_generation_binds_upstream_when_has_native_wifi_present(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pin the import guard branch that binds an upstream ``has_native_wifi`` helper."""
+    upstream = lambda **_: True  # noqa: E731
+    monkeypatch.setattr(esphome_wifi, "has_native_wifi", upstream, raising=False)
+    reloaded = importlib.reload(device_yaml._generation)
+    try:
+        assert reloaded._esphome_has_native_wifi is upstream
+        assert reloaded._ESPHOME_RP2040_BOARDS is None
+        assert not reloaded._ESP32_NO_WIFI_VARIANTS
+    finally:
+        monkeypatch.undo()
+        importlib.reload(device_yaml._generation)
+
+
+def test_generation_falls_back_when_has_native_wifi_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Module load populates the fallback constants when the upstream helper is absent.
+
+    Pins the ``except ImportError`` branch of ``_generation``'s
+    import guard by removing ``has_native_wifi`` and reloading,
+    simulating the pre-#16300 esphome we ship against today.
+    """
+    monkeypatch.delattr(esphome_wifi, "has_native_wifi", raising=False)
+    reloaded = importlib.reload(device_yaml._generation)
+    try:
+        expected_variants = frozenset(v.lower() for v in esphome_wifi.NO_WIFI_VARIANTS)
+        assert reloaded._esphome_has_native_wifi is None
+        assert reloaded._ESPHOME_RP2040_BOARDS is ESPHOME_RP2040_BOARDS
+        assert expected_variants == reloaded._ESP32_NO_WIFI_VARIANTS
+    finally:
+        monkeypatch.undo()
+        importlib.reload(device_yaml._generation)
 
 
 def test_infer_native_wifi_routes_through_module_alias(

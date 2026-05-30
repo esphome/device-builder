@@ -101,6 +101,12 @@ def test_load_device_yaml_returns_none_on_parse_failure(yaml_file: Path) -> None
     assert load_device_yaml(yaml_file) is None
 
 
+def test_load_device_yaml_returns_none_when_not_mapping(yaml_file: Path) -> None:
+    """A file whose top level parses to a list / scalar returns ``None``."""
+    yaml_file.write_text("- one\n- two\n", encoding="utf-8")
+    assert load_device_yaml(yaml_file) is None
+
+
 def test_load_device_yaml_resolves_secrets(tmp_path: Path) -> None:
     """``!secret`` references resolve through the sibling ``secrets.yaml``.
 
@@ -174,7 +180,7 @@ def test_detect_platform_from_yaml_swallows_parser_exceptions(
 ) -> None:
     """A raising ``parse_platform_from_yaml`` falls through to '' rather than propagating."""
     monkeypatch.setattr(
-        device_yaml,
+        device_yaml._parsing,
         "parse_platform_from_yaml",
         mock.MagicMock(side_effect=ValueError("simulated parser failure")),
     )
