@@ -22,6 +22,7 @@ from ....models import (
     JobStateChangedFrameData,
     OffloaderJobOutputData,
     OffloaderJobStateChangedData,
+    OffloaderPairPeerRevokedData,
     OffloaderPairPinMismatchData,
     OffloaderPeerLinkClosedData,
     OffloaderPeerLinkOpenedData,
@@ -316,6 +317,17 @@ def fire_pin_mismatch(client: PeerLinkClient, *, observed: bytes) -> None:
         "observed_pin": pin_sha256_for_pubkey(observed),
     }
     client._bus.fire(EventType.OFFLOADER_PAIR_PIN_MISMATCH, payload)
+
+
+def fire_peer_revoked(client: PeerLinkClient) -> None:
+    """Fire ``OFFLOADER_PAIR_PEER_REVOKED`` after a terminal peer-link rejection."""
+    payload: OffloaderPairPeerRevokedData = {
+        "receiver_hostname": client._hostname,
+        "receiver_port": client._port,
+        "receiver_label": client._receiver_label,
+        "pin_sha256": client._pin_sha256,
+    }
+    client._bus.fire(EventType.OFFLOADER_PAIR_PEER_REVOKED, payload)
 
 
 def fire_queue_status(

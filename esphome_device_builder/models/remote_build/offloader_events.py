@@ -223,16 +223,17 @@ class OffloaderPeerLinkClosedData(TypedDict):
     side initiated (``"transport_error"`` /
     ``"heartbeat_timeout"`` / ``"client_stopped"`` /
     ``"peer_hung_up"`` / ``"auth_rejected"`` /
-    ``"pin_mismatch"``). The peer-link client's reconnect logic
-    branches on this — ``"superseded"`` orphans (another
-    instance with our ``dashboard_id`` took our slot).
+    ``"receiver_rejected"`` / ``"pin_mismatch"``). The peer-link
+    client's reconnect logic branches on this — ``"superseded"``,
+    ``"receiver_rejected"`` and ``"pin_mismatch"`` orphan.
 
     ``error_detail`` is one-line context (e.g.
     ``"ConnectionRefusedError: [Errno 61] Connection refused"``)
     populated only for ``"transport_error"``, ``"auth_rejected"``,
-    and ``"pin_mismatch"`` where the exception detail is the
-    operator-actionable info. Empty for the remaining reasons —
-    the category name is the full explanation there.
+    ``"receiver_rejected"``, and ``"pin_mismatch"`` where the
+    exception detail is the operator-actionable info. Empty for
+    the remaining reasons — the category name is the full
+    explanation there.
     """
 
     receiver_hostname: str

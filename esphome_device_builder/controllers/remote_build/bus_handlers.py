@@ -30,9 +30,11 @@ from ...helpers.event_bus import Event
 from ...models import (
     PAIRING_VERSION_MAX_LEN,
     OffloaderJobStateChangedData,
+    OffloaderPairPeerRevokedData,
     OffloaderPairPinMismatchData,
     OffloaderPeerLinkClosedData,
     OffloaderPeerLinkOpenedData,
+    OffloaderPeerRevokedAlert,
     OffloaderPinMismatchAlert,
     OffloaderQueueStatusChangedData,
     OffloaderRemoteJobSnapshotEntry,
@@ -77,6 +79,22 @@ def on_offloader_pair_pin_mismatch(
         "receiver_label": data["receiver_label"],
         "expected_pin": data["expected_pin"],
         "observed_pin": data["observed_pin"],
+        "fired_at": time.time(),
+    }
+    controller.state.offloader_alerts[data["pin_sha256"]] = alert
+
+
+def on_offloader_pair_peer_revoked(
+    controller: OffloaderController, event: Event[OffloaderPairPeerRevokedData]
+) -> None:
+    """Cache the peer-revoked alert in ``offloader_alerts`` for late-subscriber snapshot."""
+    data = event.data
+    alert: OffloaderPeerRevokedAlert = {
+        "kind": "peer_revoked",
+        "receiver_hostname": data["receiver_hostname"],
+        "receiver_port": data["receiver_port"],
+        "pin_sha256": data["pin_sha256"],
+        "receiver_label": data["receiver_label"],
         "fired_at": time.time(),
     }
     controller.state.offloader_alerts[data["pin_sha256"]] = alert

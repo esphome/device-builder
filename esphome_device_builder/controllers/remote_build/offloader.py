@@ -38,6 +38,7 @@ from ...models import (
     OffloaderAlertSnapshotEntry,
     OffloaderJobStateChangedData,
     OffloaderPairAlertDismissedData,
+    OffloaderPairPeerRevokedData,
     OffloaderPairPinMismatchData,
     OffloaderPeerLinkClosedData,
     OffloaderPeerLinkOpenedData,
@@ -139,6 +140,12 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         )
         self._listeners.callback(
             self._db.bus.add_listener(
+                EventType.OFFLOADER_PAIR_PEER_REVOKED,
+                self._on_offloader_pair_peer_revoked,
+            )
+        )
+        self._listeners.callback(
+            self._db.bus.add_listener(
                 EventType.OFFLOADER_PEER_LINK_OPENED,
                 self._on_offloader_peer_link_opened,
             )
@@ -230,6 +237,10 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
     def _on_offloader_pair_pin_mismatch(self, event: Event[OffloaderPairPinMismatchData]) -> None:
         """Cache the alert in ``_offloader_alerts`` for late-subscriber snapshot."""
         bus_handlers.on_offloader_pair_pin_mismatch(self, event)
+
+    def _on_offloader_pair_peer_revoked(self, event: Event[OffloaderPairPeerRevokedData]) -> None:
+        """Cache the peer-revoked alert in ``_offloader_alerts`` for late-subscriber snapshot."""
+        bus_handlers.on_offloader_pair_peer_revoked(self, event)
 
     def _on_offloader_peer_link_opened(self, event: Event[OffloaderPeerLinkOpenedData]) -> None:
         """Add ``pin_sha256`` to ``_open_peer_links`` and refresh the receiver version."""

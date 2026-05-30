@@ -30,7 +30,6 @@ from ...models import (
     TERMINAL_JOB_EVENTS,
     EventType,
     IdentityView,
-    IntentResponse,
     PairingWindowState,
     PeerStatus,
     PeerSummary,
@@ -307,7 +306,7 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         static_x25519_pub: bytes,
         label: str,
         peer_ip: str,
-    ) -> IntentResponse:
+    ) -> pair_flow.IntentOutcome:
         """Process an ``intent="pair_request"`` Noise session."""
         return await pair_flow.record_pair_request(
             self,
@@ -320,13 +319,15 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
 
     async def lookup_peer_for_session(
         self, *, dashboard_id: str, pin_sha256: str
-    ) -> IntentResponse:
+    ) -> pair_flow.IntentOutcome:
         """Resolve an ``intent="peer_link"`` request."""
         return await pair_flow.lookup_peer_for_session(
             self, dashboard_id=dashboard_id, pin_sha256=pin_sha256
         )
 
-    async def lookup_peer_for_status(self, *, dashboard_id: str, pin_sha256: str) -> IntentResponse:
+    async def lookup_peer_for_status(
+        self, *, dashboard_id: str, pin_sha256: str
+    ) -> pair_flow.IntentOutcome:
         """Resolve an ``intent="pair_status"`` query, long-polling on PENDING."""
         return await pair_flow.lookup_peer_for_status(
             self, dashboard_id=dashboard_id, pin_sha256=pin_sha256
