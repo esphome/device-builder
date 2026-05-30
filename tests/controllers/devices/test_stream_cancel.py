@@ -125,6 +125,40 @@ async def test_stream_subprocess_normal_completion_emits_success(tmp_path: Any) 
     assert result_events == [{"code": 0, "success": True}]
 
 
+async def test_stream_subprocess_swallows_non_task_cancellation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A ``CancelledError`` that isn't a task cancellation returns quietly, no result.
+
+    Spawn / ``proc.wait`` can surface ``CancelledError`` while the
+    task's ``cancelling()`` count is 0 (asyncio.timeout / TaskGroup
+    uncancel). The handler swallows it and unregisters rather than
+    propagating or emitting a ``result``.
+    """
+    ctrl = _make_controller()
+    client = _make_client()
+    sent_events: list[tuple[str, Any]] = []
+
+    async def capture(_mid: str, event: str, data: Any = None) -> None:
+        sent_events.append((event, data))
+
+    client.send_event = capture  # type: ignore[method-assign]
+
+    async def boom(*_args: Any, **_kwargs: Any) -> Any:
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.logs.create_subprocess_exec", boom
+    )
+
+    # Awaited directly, not via ``task.cancel()`` — so the running
+    # task's ``cancelling()`` is 0 when the except branch checks it.
+    await ctrl._stream_subprocess([sys.executable, "-c", "pass"], client, "stream-x")
+
+    assert sent_events == []
+    assert "stream-x" not in client._stream_tasks
+
+
 async def test_stream_subprocess_emits_carriage_return_progress_lines() -> None:
     r"""`\r` progress lines reach the client as separate events.
 
