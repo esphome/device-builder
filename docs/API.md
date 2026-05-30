@@ -255,7 +255,7 @@ Parsing and writing live on the backend: the frontend exchanges structured `Auto
 
 ### Config
 
-> Controller: [`ConfigController`](../esphome_device_builder/controllers/config.py)
+> Controller: [`ConfigController`](../esphome_device_builder/controllers/config/controller.py)
 >
 > Models: [`UserPreferences`](../esphome_device_builder/models/preferences.py)
 

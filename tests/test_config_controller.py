@@ -127,7 +127,7 @@ def test_metadata_transaction_serialises_across_flocks(
     """Cross-process flock serialises peers RMW-ing disjoint keys."""
     # Bypass _METADATA_LOCK so the two threads race directly at
     # the flock — the same path two real processes would hit.
-    monkeypatch.setattr(config_module, "_METADATA_LOCK", nullcontext())
+    monkeypatch.setattr(config_module.metadata, "_METADATA_LOCK", nullcontext())
 
     thread_a_in_block = threading.Event()
     release_a = threading.Event()
@@ -179,7 +179,7 @@ def test_metadata_transaction_rejects_non_regular_lock_file(
     # Real block/char devices need root + a special FS; flip
     # ``S_ISREG`` in the module so a normal regular-file open
     # takes the rejection branch as if it had hit one.
-    monkeypatch.setattr(config_module.stat, "S_ISREG", lambda _mode: False)
+    monkeypatch.setattr(config_module.metadata.stat, "S_ISREG", lambda _mode: False)
 
     with pytest.raises(OSError, match="is not a regular file"), metadata_transaction(tmp_path):
         pass
@@ -883,7 +883,7 @@ async def test_get_info_returns_storage_metadata_dict(
     # redirect it onto our seeded sidecar so the handler's read lands
     # there without a real CORE setup.
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.config.resolve_storage_path",
+        "esphome_device_builder.controllers.config.controller.resolve_storage_path",
         lambda configuration: sidecar.parent / f"{configuration}.json",
     )
     controller = _make_controller(tmp_path)
@@ -927,7 +927,7 @@ async def test_get_info_returns_none_when_storage_missing(
     looking blank fields instead of the compile prompt.
     """
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.config.resolve_storage_path",
+        "esphome_device_builder.controllers.config.controller.resolve_storage_path",
         lambda configuration: tmp_path / "missing-storage.json",
     )
     controller = _make_controller(tmp_path)
@@ -1046,7 +1046,7 @@ async def test_get_serial_ports_returns_path_and_desc(
         SerialPort(path="/dev/ttyACM0", description="Arduino Uno"),
     ]
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.config.get_serial_ports",
+        "esphome_device_builder.controllers.config.controller.get_serial_ports",
         lambda: fake_ports,
     )
     controller = _make_controller(tmp_path)
@@ -1082,7 +1082,7 @@ async def test_get_serial_ports_runs_in_executor(
         return [SerialPort(path="/dev/ttyUSB0", description="USB Serial")]
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.config.get_serial_ports",
+        "esphome_device_builder.controllers.config.controller.get_serial_ports",
         _record_thread,
     )
     controller = _make_controller(tmp_path)
@@ -1110,7 +1110,7 @@ async def test_get_serial_ports_substitutes_path_for_na_description(
     actually being broken.
     """
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.config.get_serial_ports",
+        "esphome_device_builder.controllers.config.controller.get_serial_ports",
         lambda: [SerialPort(path="/dev/ttyUSB0", description="n/a")],
     )
     controller = _make_controller(tmp_path)
@@ -1268,7 +1268,7 @@ async def test_run_esptool_calls_run_subprocess_capture_with_resolved_cmd(
         return _FakeCaptured()
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.config.run_subprocess_capture", fake_capture
+        "esphome_device_builder.controllers.config.chip_detect.run_subprocess_capture", fake_capture
     )
 
     rc, stdout, timed_out = await _run_esptool(["--port", "/dev/ttyUSB0", "chip-id"], 30.0)
@@ -1300,7 +1300,7 @@ async def test_run_esptool_substitutes_minus_one_when_returncode_is_none(
         return _FakeCaptured()
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.config.run_subprocess_capture", fake_capture
+        "esphome_device_builder.controllers.config.chip_detect.run_subprocess_capture", fake_capture
     )
 
     rc, _stdout, timed_out = await _run_esptool(["--port", "/dev/ttyUSB0", "chip-id"], 1.0)
@@ -1375,7 +1375,7 @@ def _mock_run_esptool(monkeypatch: pytest.MonkeyPatch, side_effect):
             return rc, stdout, False
         return result
 
-    monkeypatch.setattr("esphome_device_builder.controllers.config._run_esptool", fake)
+    monkeypatch.setattr("esphome_device_builder.controllers.config.chip_detect._run_esptool", fake)
 
 
 async def test_detect_chip_returns_chip_and_board_id_on_full_success(
@@ -1557,7 +1557,7 @@ async def test_get_serial_ports_returns_empty_when_no_ports(
     returned ``None`` would break iteration in the frontend.
     """
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.config.get_serial_ports",
+        "esphome_device_builder.controllers.config.controller.get_serial_ports",
         list,
     )
     controller = _make_controller(tmp_path)

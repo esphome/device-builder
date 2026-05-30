@@ -319,7 +319,7 @@ against legacy behaviour before assuming the simpler version suffices.
   wipe `/data/build/` for upgrades without touching user YAML, and gives
   two addon instances independent data dirs while sharing the config
   tree. `CORE.config_path` is set to a sentinel YAML inside `config_dir`
-  on startup (`controllers/config.py:_DASHBOARD_SENTINEL_FILE`); helpers
+  on startup (`controllers/config/settings.py:_DASHBOARD_SENTINEL_FILE`); helpers
   wanting the storage layout MUST resolve through that initialised CORE,
   not reconstruct from a `Path` argument. The audit covers
   `controllers/firmware/`, `controllers/devices/`, `helpers/config_hash`,
