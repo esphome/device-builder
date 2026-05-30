@@ -25,8 +25,16 @@ from typing import Any
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from ruamel.yaml.scalarstring import LiteralScalarString
 
-from ...models.automations import ActionNode, AutomationTree, ConditionNode, LightEffect
-from .parsing import make_yaml
+from ...models.automations import (
+    ActionNode,
+    AutomationAction,
+    AutomationCondition,
+    AutomationTree,
+    ConditionNode,
+    LightEffect,
+)
+from . import catalog
+from .parsing import DEFAULT_SHORTHAND_KEY, make_yaml
 
 
 def render_script_item(tree: AutomationTree, script_id: str) -> str:
@@ -88,6 +96,13 @@ def emit_action_seq(actions: list[ActionNode]) -> CommentedSeq:
     return seq
 
 
+def _shorthand_key(entry: AutomationAction | AutomationCondition | None) -> str:
+    """Return the single-param key that collapses to a bare-scalar form."""
+    if entry is not None and entry.scalar_shorthand_key:
+        return entry.scalar_shorthand_key
+    return DEFAULT_SHORTHAND_KEY
+
+
 def emit_action_node(node: ActionNode) -> CommentedMap:
     """Build one ``{<action_id>: <body>}`` mapping for an action node."""
     body = CommentedMap()
@@ -98,8 +113,14 @@ def emit_action_node(node: ActionNode) -> CommentedMap:
     if node.conditions:
         body["condition"] = emit_condition_seq(node.conditions)
     out = CommentedMap()
-    if not node.children and not node.conditions and len(node.params) == 1 and "id" in node.params:
-        out[node.action_id] = encode_value(node.params["id"])
+    shorthand = _shorthand_key(catalog.action_by_id(node.action_id))
+    if (
+        not node.children
+        and not node.conditions
+        and len(node.params) == 1
+        and shorthand in node.params
+    ):
+        out[node.action_id] = encode_value(node.params[shorthand])
         return out
     if not body:
         out[node.action_id] = None
@@ -128,8 +149,9 @@ def emit_condition_node(node: ConditionNode) -> CommentedMap:
     if not node.params:
         out[node.condition_id] = None
         return out
-    if len(node.params) == 1 and "id" in node.params:
-        out[node.condition_id] = encode_value(node.params["id"])
+    shorthand = _shorthand_key(catalog.condition_by_id(node.condition_id))
+    if len(node.params) == 1 and shorthand in node.params:
+        out[node.condition_id] = encode_value(node.params[shorthand])
         return out
     body = CommentedMap()
     for key, value in node.params.items():

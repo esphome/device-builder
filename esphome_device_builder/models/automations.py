@@ -71,6 +71,11 @@ class AutomationAction(DataClassORJSONMixin):
     is_control_flow: bool = False
     has_else_branch: bool = False
     accepts_action_list: list[str] = field(default_factory=list)
+    # The config key a bare-scalar shorthand maps to (ESPHome's
+    # ``maybe_simple_value`` key) — ``logger.log: "hi"`` is ``{format: "hi"}``,
+    # ``light.turn_on: id`` is ``{id: id}``. ``None`` for actions with no
+    # scalar shorthand.
+    scalar_shorthand_key: str | None = None
 
 
 @dataclass
@@ -90,6 +95,9 @@ class AutomationCondition(DataClassORJSONMixin):
     domain: str
     config_entries: list[ConfigEntry] = field(default_factory=list)
     accepts_condition_list: bool = False
+    # See :class:`AutomationAction.scalar_shorthand_key` — e.g.
+    # ``display.is_displaying_page: <page_id>`` maps to ``{page_id: …}``.
+    scalar_shorthand_key: str | None = None
 
 
 @dataclass

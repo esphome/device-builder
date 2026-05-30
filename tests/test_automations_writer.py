@@ -176,8 +176,9 @@ def test_upsert_valid_automation_leaves_unparseable_sibling_verbatim() -> None:
     # spliced around, not through — its lines survive byte-for-byte.
     assert "    on_time:\n      - hours: 2,3,4,5\n" in new_text
     assert "          - logger.log:\n              format: Test 2\n" in new_text
-    # The edit did land on the switch automation.
-    assert "format: Edited" in new_text
+    # The edit landed on the switch automation; a lone ``format`` collapses to
+    # the ``logger.log`` scalar shorthand (its ``maybe_simple_value`` key).
+    assert "- logger.log: Edited" in new_text
 
 
 def test_round_trip_on_click_preserves_trigger_params() -> None:

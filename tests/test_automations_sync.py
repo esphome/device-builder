@@ -68,6 +68,44 @@ def test_build_automations_extracts_component_action(tmp_path: Path) -> None:
     assert toggle["name"] == "Switch → Toggle"
     assert toggle["is_control_flow"] is False
     assert toggle["accepts_action_list"] == []
+    # The ``maybe`` shorthand key surfaces as ``scalar_shorthand_key``.
+    assert toggle["scalar_shorthand_key"] == "id"
+
+
+def test_build_automations_captures_value_and_absent_shorthand_keys(tmp_path: Path) -> None:
+    """``maybe`` becomes ``scalar_shorthand_key``; its absence yields ``None``."""
+    schema_dir = _write_schema(
+        tmp_path,
+        "logger.json",
+        {
+            "logger": {
+                "action": {
+                    "log": {
+                        "maybe": "format",
+                        "schema": {
+                            "config_vars": {"format": {"key": "Required", "type": "string"}}
+                        },
+                        "type": "schema",
+                        "docs": "Log a message.",
+                    },
+                    "set_level": {
+                        "schema": {"config_vars": {"level": {"key": "Required", "type": "enum"}}},
+                        "type": "schema",
+                        "docs": "Set the log level.",
+                    },
+                },
+                "schemas": {},
+            },
+        },
+    )
+    actions = {
+        a["id"]: a
+        for a in sync_components.build_automations(schema_dir=schema_dir, component_ids=set())[
+            "actions"
+        ]
+    }
+    assert actions["logger.log"]["scalar_shorthand_key"] == "format"
+    assert actions["logger.set_level"]["scalar_shorthand_key"] is None
 
 
 def test_build_automations_strips_then_from_control_flow_action_params(

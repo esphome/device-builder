@@ -4704,6 +4704,9 @@ _CORE_AUTOMATION_LABELS: dict[str, str] = {
 # ``See also`` link via :func:`clean_docs`.
 _CORE_AUTOMATION_DOCS = "https://esphome.io/automations/actions"
 
+# Schema-bundle field recording an action/condition's ``maybe_simple_value`` key.
+_SCHEMA_MAYBE_FIELD = "maybe"
+
 
 def build_automations(  # noqa: C901
     *,
@@ -4877,6 +4880,7 @@ def _convert_automation_action(
         "is_control_flow": is_control_flow,
         "has_else_branch": has_else_branch,
         "accepts_action_list": accepts_action_list,
+        "scalar_shorthand_key": _scalar_shorthand_key(body),
     }
 
 
@@ -4908,7 +4912,20 @@ def _convert_automation_condition(
         "domain": domain,
         "config_entries": [_strip_entry_defaults(e) for e in config_entries],
         "accepts_condition_list": accepts_condition_list,
+        "scalar_shorthand_key": _scalar_shorthand_key(body),
     }
+
+
+def _scalar_shorthand_key(body: dict) -> str | None:
+    """
+    Return the config key a bare-scalar shorthand maps to.
+
+    The schema bundle records ESPHome's ``maybe_simple_value`` key on the
+    registry body's ``maybe`` field (``logger.log`` → ``format``,
+    ``light.turn_on`` → ``id``); absent for actions with no scalar shorthand.
+    """
+    maybe = body.get(_SCHEMA_MAYBE_FIELD)
+    return maybe if isinstance(maybe, str) else None
 
 
 def _is_scalar_extends_schema(schema: dict | None) -> bool:

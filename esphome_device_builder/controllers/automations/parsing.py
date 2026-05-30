@@ -50,6 +50,13 @@ from . import catalog
 # Device-level trigger keys under the ``esphome:`` block.
 _DEVICE_TRIGGER_KEYS: tuple[str, ...] = ("on_boot", "on_loop", "on_shutdown")
 
+# Action-body keys that introduce a condition gate rather than plain params.
+_CONDITION_GATE_KEYS: frozenset[str] = frozenset({"condition", "all", "any"})
+
+# Fallback shorthand key when a catalog entry has no ``scalar_shorthand_key``
+# (id-reference actions / conditions). Shared with the emitter's collapse check.
+DEFAULT_SHORTHAND_KEY = "id"
+
 
 def make_yaml() -> YAML:
     """
@@ -553,15 +560,21 @@ def _decompose_action(action_id: str, raw_params: Any) -> ActionNode:
             if key in action.accepts_action_list:
                 children[key] = _decompose_action_list(value)
                 continue
-            if key in ("condition", "all", "any"):
+            if key in _CONDITION_GATE_KEYS:
                 conditions = _decompose_condition_list(value)
                 continue
             params[key] = _render_value(value)
     else:
-        # Bare-id shortcut (e.g. ``light.turn_on: living_room``):
-        # surface the scalar under the ``id`` key so the writer can
-        # reconstruct the short form on round-trip.
-        params = {"id": _render_value(raw_params)}
+        # Bare-scalar shorthand (``logger.log: "hi"`` / ``light.turn_on: id``):
+        # surface the scalar under the action's own ``maybe_simple_value`` key
+        # so the writer reconstructs the short form on round-trip.
+        key = action.scalar_shorthand_key or DEFAULT_SHORTHAND_KEY
+        # ``core.wait_until`` has ``maybe == "condition"``; a shorthand that
+        # names a gate / sub-list key must never land in ``params`` — fall
+        # back to ``id`` so it round-trips harmlessly.
+        if key in _CONDITION_GATE_KEYS or key in action.accepts_action_list:
+            key = DEFAULT_SHORTHAND_KEY
+        params = {key: _render_value(raw_params)}
 
     return ActionNode(
         action_id=action_id,
@@ -602,7 +615,8 @@ def _decompose_condition(raw: dict) -> ConditionNode:
     elif isinstance(value, dict):
         params = {k: _render_value(v) for k, v in value.items()}
     elif value is not None:
-        params = {"id": _render_value(value)}
+        key = catalog_entry.scalar_shorthand_key or DEFAULT_SHORTHAND_KEY
+        params = {key: _render_value(value)}
     return ConditionNode(
         condition_id=str(cond_id),
         params=params,

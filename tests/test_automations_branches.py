@@ -22,6 +22,7 @@ from esphome_device_builder.controllers.automations.controller import (
     _scope_from_yaml,
 )
 from esphome_device_builder.controllers.automations.emitter import (
+    dump,
     emit_action_node,
     emit_action_seq,
     emit_condition_node,
@@ -313,6 +314,38 @@ def test_decompose_action_with_scalar_value_uses_id_shortcut() -> None:
     """A scalar value (``light.turn_on: living_room``) surfaces under ``id``."""
     node = _decompose_action("light.turn_on", "living_room")
     assert node.params == {"id": "living_room"}
+
+
+def test_decompose_action_scalar_uses_value_shorthand_key() -> None:
+    """A value action's scalar lands under its ``maybe`` key, not ``id`` (#bug)."""
+    node = _decompose_action("logger.log", "Good morning")
+    assert node.params == {"format": "Good morning"}
+
+
+def test_decompose_action_scalar_falls_back_to_id_for_gate_keyed_shorthand() -> None:
+    """``wait_until`` (``maybe == "condition"``) must not put the scalar in params."""
+    node = _decompose_action("wait_until", "some_id")
+    assert node.params == {"id": "some_id"}
+
+
+def test_decompose_condition_scalar_uses_value_shorthand_key() -> None:
+    """A value condition's scalar lands under its ``maybe`` key."""
+    node = _decompose_condition({"display.is_displaying_page": "home_page"})
+    assert node.params == {"page_id": "home_page"}
+
+
+def test_emit_action_multi_param_value_action_has_no_synthetic_id() -> None:
+    """Editing a ``logger.log`` (adding a field) never emits a bogus ``id:``."""
+    node = ActionNode(action_id="logger.log", params={"format": "x", "level": "INFO"})
+    out = dump([emit_action_node(node)])
+    assert "format: x" in out and "level: INFO" in out
+    assert "id:" not in out
+
+
+def test_emit_action_single_value_param_collapses_to_shorthand() -> None:
+    """A lone shorthand-keyed param re-collapses to the bare-scalar form."""
+    node = ActionNode(action_id="logger.log", params={"format": "hi"})
+    assert dump([emit_action_node(node)]).strip() == "- logger.log: hi"
 
 
 def test_decompose_action_with_children_and_conditions() -> None:
