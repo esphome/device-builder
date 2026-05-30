@@ -26,13 +26,13 @@ from unittest.mock import patch
 
 import pytest
 
-from esphome_device_builder.controllers import components as components_module
 from esphome_device_builder.controllers.boards import BoardCatalog
 from esphome_device_builder.controllers.components import (
     INTERNAL_COMPONENT_IDS,
     ComponentCatalog,
     _FeaturedRecord,
 )
+from esphome_device_builder.controllers.components import _resolve as components_module
 from esphome_device_builder.models import (
     ComponentCatalogIndexEntry,
     ComponentCategory,
@@ -93,7 +93,7 @@ def test_load_warns_and_leaves_catalog_empty_when_index_missing(
     cat = ComponentCatalog()
     with (
         patch(
-            "esphome_device_builder.controllers.components._COMPONENTS_INDEX_JSON",
+            "esphome_device_builder.controllers.components.controller._COMPONENTS_INDEX_JSON",
             missing,
         ),
         caplog.at_level(logging.WARNING),
@@ -126,7 +126,7 @@ def test_load_filters_out_internal_helper_components(tmp_path: Path) -> None:
 
     cat = ComponentCatalog()
     with patch(
-        "esphome_device_builder.controllers.components._COMPONENTS_INDEX_JSON",
+        "esphome_device_builder.controllers.components.controller._COMPONENTS_INDEX_JSON",
         index_path,
     ):
         cat.load()
@@ -343,7 +343,7 @@ def test_build_featured_registry_is_empty_when_index_is_empty(
     cleanly without crashing.
     """
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.components.load_featured_components_index",
+        "esphome_device_builder.controllers.components.controller.load_featured_components_index",
         dict,
     )
     cat = ComponentCatalog(_Container(boards=None))
@@ -370,7 +370,7 @@ def test_build_featured_registry_skips_and_warns_on_unknown_component_id(
     cat = ComponentCatalog(_Container(boards=None))
     phantom = FeaturedComponent(id="zzz_test_phantom", component_id="not.a.real.component")
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.components.load_featured_components_index",
+        "esphome_device_builder.controllers.components.controller.load_featured_components_index",
         lambda: {"some_board": [phantom]},
     )
     with caplog.at_level(logging.WARNING):
@@ -488,7 +488,7 @@ async def test_get_body_reads_from_disk_and_caches(tmp_path: Path) -> None:
         )
     )
     with patch(
-        "esphome_device_builder.controllers.components._COMPONENT_BODIES_DIR",
+        "esphome_device_builder.controllers.components._resolve._COMPONENT_BODIES_DIR",
         bodies_dir,
     ):
         first = await cat.get_body("wifi")
@@ -626,7 +626,7 @@ async def test_get_body_returns_none_when_body_missing_on_disk(
     bodies_dir.mkdir()
     with (
         patch(
-            "esphome_device_builder.controllers.components._COMPONENT_BODIES_DIR",
+            "esphome_device_builder.controllers.components._resolve._COMPONENT_BODIES_DIR",
             bodies_dir,
         ),
         caplog.at_level(logging.WARNING),
@@ -830,7 +830,7 @@ async def test_get_component_bodies_returns_dict_keyed_by_id(tmp_path: Path) -> 
             )
         )
     with patch(
-        "esphome_device_builder.controllers.components._COMPONENT_BODIES_DIR",
+        "esphome_device_builder.controllers.components._resolve._COMPONENT_BODIES_DIR",
         bodies_dir,
     ):
         result = await cat.get_component_bodies(
