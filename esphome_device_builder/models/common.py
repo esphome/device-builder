@@ -1,7 +1,7 @@
 """Common/shared data models.
 
 Hosts shared types referenced from multiple domains (boards, components,
-devices) — ConfigEntry, hardware pin enums, paged-response
+devices) — ConfigEntry, EventType, hardware pin enums, paged-response
 base, etc. Anything in this module must remain free of imports from
 sibling models to keep the dependency graph acyclic.
 """
@@ -39,6 +39,106 @@ class PagedResponse(DataClassORJSONMixin):
     total: int = 0
     offset: int = 0
     limit: int = 50
+
+
+# ---------------------------------------------------------------------------
+# Event types
+# ---------------------------------------------------------------------------
+
+
+class EventType(StrEnum):
+    """Events pushed to connected clients via subscribe_events."""
+
+    # Device config file changes (disk scanner)
+    DEVICE_ADDED = "device_added"
+    DEVICE_REMOVED = "device_removed"
+    DEVICE_UPDATED = "device_updated"
+
+    # Device online/offline state change
+    DEVICE_STATE_CHANGED = "device_state_changed"
+
+    # Per-device reachability detail; excluded from the broadcast
+    # subscribe_events, delivered via devices/subscribe_reachability.
+    DEVICE_REACHABILITY = "device_reachability"
+
+    # Discoverable device changes
+    IMPORTABLE_DEVICE_ADDED = "importable_device_added"
+    IMPORTABLE_DEVICE_REMOVED = "importable_device_removed"
+
+    # Label catalog mutations (assignment changes ride DEVICE_UPDATED)
+    LABEL_CREATED = "label_created"
+    LABEL_UPDATED = "label_updated"
+    LABEL_DELETED = "label_deleted"
+
+    # Firmware job lifecycle
+    JOB_QUEUED = "job_queued"
+    JOB_STARTED = "job_started"
+    JOB_OUTPUT = "job_output"
+    JOB_PROGRESS = "job_progress"
+    JOB_COMPLETED = "job_completed"
+    JOB_FAILED = "job_failed"
+    JOB_CANCELLED = "job_cancelled"
+
+    # Receiver rotated its X25519 peer-link identity
+    REMOTE_BUILD_IDENTITY_ROTATED = "remote_build_identity_rotated"
+    # pair_request landed for an unknown peer while pairing window open
+    REMOTE_BUILD_PAIR_REQUEST_RECEIVED = "remote_build_pair_request_received"
+    # Receiver-side peer status change (approved/removed)
+    REMOTE_BUILD_PAIR_STATUS_CHANGED = "remote_build_pair_status_changed"
+    # Offloader-side counterpart to REMOTE_BUILD_PAIR_STATUS_CHANGED
+    OFFLOADER_PAIR_STATUS_CHANGED = "offloader_pair_status_changed"
+    # Offloader-side mDNS auto-rebind to a moved receiver endpoint
+    OFFLOADER_PAIR_ENDPOINT_REBOUND = "offloader_pair_endpoint_rebound"
+    # Pairing window opened/extended/closed
+    REMOTE_BUILD_PAIRING_WINDOW_CHANGED = "remote_build_pairing_window_changed"
+    # mDNS-discovered peer dashboard appeared/refreshed
+    REMOTE_BUILD_HOST_ADDED = "remote_build_host_added"
+    # mDNS-discovered peer dashboard left the LAN
+    REMOTE_BUILD_HOST_REMOVED = "remote_build_host_removed"
+    # Offloader peer-link Noise WS session opened
+    OFFLOADER_PEER_LINK_OPENED = "offloader_peer_link_opened"
+    # Offloader peer-link session closed (payload carries reason)
+    OFFLOADER_PEER_LINK_CLOSED = "offloader_peer_link_closed"
+    # Receiver-side peer-link session opened
+    RECEIVER_PEER_LINK_SESSION_OPENED = "receiver_peer_link_session_opened"
+    # Receiver-side peer-link session closed
+    RECEIVER_PEER_LINK_SESSION_CLOSED = "receiver_peer_link_session_closed"
+    # Offloader detected receiver pin drift (identity rotated under us)
+    OFFLOADER_PAIR_PIN_MISMATCH = "offloader_pair_pin_mismatch"
+    # Offloader detected the receiver rejected/revoked the pairing
+    OFFLOADER_PAIR_PEER_REVOKED = "offloader_pair_peer_revoked"
+    # Offloader pair alert cleared (re-pair or unpair)
+    OFFLOADER_PAIR_ALERT_DISMISSED = "offloader_pair_alert_dismissed"
+    # Receiver pushed a queue_status snapshot over peer-link
+    OFFLOADER_QUEUE_STATUS_CHANGED = "offloader_queue_status_changed"
+    # Receiver pushed a job_state_changed frame for a remote job
+    OFFLOADER_JOB_STATE_CHANGED = "offloader_job_state_changed"
+    # Receiver pushed a job_output frame for a remote job
+    OFFLOADER_JOB_OUTPUT = "offloader_job_output"
+    # Offloader master "remote builds enabled" toggle changed
+    OFFLOADER_REMOTE_BUILDS_TOGGLED = "offloader_remote_builds_toggled"
+    # Offloader per-pairing enable toggle changed
+    OFFLOADER_PAIRING_ENABLED_CHANGED = "offloader_pairing_enabled_changed"
+    # Cross-tab sync for the master version-match policy
+    OFFLOADER_VERSION_MATCH_POLICY_CHANGED = "offloader_version_match_policy_changed"
+
+
+class StreamEvent(StrEnum):
+    """Per-stream frame names sent via ``WebSocketClient.send_event``.
+
+    Distinct from :class:`EventType` (the global event-bus channel
+    name): a ``StreamEvent`` is the ``event`` field of a single
+    streaming command's response frames. Some wire values coincide
+    with ``EventType`` (``"job_output"``); those call sites pass the
+    ``EventType`` member directly rather than redeclaring it here.
+    """
+
+    # Per-line subprocess output (follow_job / stream_logs / validate_config)
+    OUTPUT = "output"
+    # Terminal frame — final status / exit code; sent priority
+    RESULT = "result"
+    # Initial replay of buffered state at stream start
+    SNAPSHOT = "snapshot"
 
 
 # ---------------------------------------------------------------------------

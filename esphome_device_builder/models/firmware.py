@@ -8,7 +8,7 @@ from typing import NamedTuple, TypedDict
 
 from mashumaro.mixins.orjson import DataClassORJSONMixin
 
-from .events import EventType
+from .common import EventType
 
 
 class QueueStatus(NamedTuple):
