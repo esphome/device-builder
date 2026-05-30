@@ -3303,6 +3303,49 @@ async def test_peer_link_client_pin_mismatch_aborts_and_orphans(
             await cancel_and_drain(task)
 
 
+async def test_wrong_key_rejection_never_reaches_reason_handler(
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
+) -> None:
+    """A rejected response from a non-pinned responder is gated by the pin check.
+
+    Trust-boundary invariant: the receiver-rejection recovery
+    (orphan + ``peer_revoked``) only honours a ``reason`` from
+    the OOB-pinned receiver. Here the responder's key doesn't
+    match the pin and the row is unseeded, so the genuine
+    receiver would answer ``rejected{no_approved_peer}`` — a
+    forged terminal reason an attacker could send. The client
+    must close on ``pin_mismatch`` (the pin check runs before
+    the response is decrypted), NOT on ``receiver_rejected``,
+    and must not fire ``OFFLOADER_PAIR_PEER_REVOKED``.
+    """
+    server, _receiver, _, receiver_pub = receiver_server
+    bus = EventBus()
+    closed = capture_events(bus, EventType.OFFLOADER_PEER_LINK_CLOSED)
+    revoked = capture_events(bus, EventType.OFFLOADER_PAIR_PEER_REVOKED)
+    pin_mismatch = capture_events(bus, EventType.OFFLOADER_PAIR_PIN_MISMATCH)
+
+    wrong_pub = bytes([receiver_pub[0] ^ 0x01]) + receiver_pub[1:]
+    client = PeerLinkClient(
+        receiver_hostname="127.0.0.1",
+        receiver_port=server.port,
+        identity_priv=secrets.token_bytes(32),
+        dashboard_id="never-paired",
+        pinned_static_x25519_pub=wrong_pub,
+        pin_sha256=pin_sha256_for_pubkey(wrong_pub),
+        receiver_label="my-laptop",
+        bus=bus,
+    )
+    task = asyncio.create_task(client.run())
+    try:
+        await asyncio.wait_for(task, timeout=2.0)
+        assert closed[0]["reason"] == "pin_mismatch"
+        assert len(pin_mismatch) == 1
+        assert not revoked.received.is_set()
+        assert client.is_orphaned
+    finally:
+        await cancel_and_drain(task)
+
+
 async def test_peer_link_client_self_loopback_logs_error_and_retries(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     caplog: pytest.LogCaptureFixture,
