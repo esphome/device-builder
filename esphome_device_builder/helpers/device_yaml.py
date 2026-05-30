@@ -99,6 +99,10 @@ if TYPE_CHECKING:
 
 _PLATFORM_KEYS = frozenset({"esp32", "esp8266", "rp2040", "bk72xx", "rtl87xx", "ln882x", "nrf52"})
 
+# Distinguishes "caller passed no resolved_config" from a legitimate
+# None (parse failure), so the detector only loads when not pre-fed.
+_UNSET: Any = object()
+
 # Wi-Fi-first families for the fallback dispatcher's allowlist —
 # mirrors upstream's ``_WIFI_FIRST_PLATFORMS`` so the wizard's
 # behaviour stays identical whether the upstream helper is
@@ -501,7 +505,12 @@ def parse_platform_from_yaml(yaml_content: str) -> tuple[str, str, str]:
     return platform, pio_board, variant
 
 
-def detect_platform_from_yaml(path: Path) -> str:
+def detect_platform_from_yaml(
+    path: Path,
+    *,
+    yaml_content: str | None = None,
+    resolved_config: Any = _UNSET,
+) -> str:
     """
     Find a YAML file's platform key.
 
@@ -518,24 +527,29 @@ def detect_platform_from_yaml(path: Path) -> str:
     merge could surface. The cheap-regex-only fast path stays the
     winner for the typical no-packages config.
 
+    Hot-path callers may pass the already-read *yaml_content* and
+    merged *resolved_config* to skip a second ``read_text`` +
+    ``load_device_yaml`` (which can re-clone remote packages).
+
     Returns the empty string when neither path turns up a platform.
     """
+    if yaml_content is None:
+        try:
+            yaml_content = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return ""
     try:
-        raw = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return ""
-    try:
-        platform, _, _ = parse_platform_from_yaml(raw)
+        platform, _, _ = parse_platform_from_yaml(yaml_content)
     except Exception:  # noqa: BLE001 — future-proof against parse_platform_from_yaml gaining a throw shape
         platform = ""
     if platform:
         return platform
-    if not yaml_has_top_level_block(raw, CONF_PACKAGES):
+    if not yaml_has_top_level_block(yaml_content, CONF_PACKAGES):
         # No ``packages:`` block in the raw text → the merge can't
         # surface a platform key that wasn't already there. Skip
         # the load to keep the scan cheap.
         return ""
-    config = load_device_yaml(path)
+    config = resolved_config if resolved_config is not _UNSET else load_device_yaml(path)
     if isinstance(config, dict):
         for key in config:
             # ``key`` is ``Any`` (dict came from ``yaml_util.load_yaml``
@@ -930,7 +944,9 @@ def load_device_from_storage(
         if core_platform:
             target_platform = core_platform.lower()
     if not target_platform:
-        target_platform = detect_platform_from_yaml(path)
+        target_platform = detect_platform_from_yaml(
+            path, yaml_content=yaml_content, resolved_config=resolved_config
+        )
 
     loaded_integrations = sorted(storage.loaded_integrations) if storage else []
     # Subset of loaded_integrations the user directly wrote — top-

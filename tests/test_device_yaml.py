@@ -10,6 +10,7 @@ import logging
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, ClassVar
+from unittest import mock
 
 import pytest
 
@@ -793,6 +794,47 @@ def test_detect_platform_reads_real_file(tmp_path: Path) -> None:
     path = tmp_path / "device.yaml"
     path.write_text("esp32:\n  variant: ESP32S3\n", encoding="utf-8")
     assert detect_platform_from_yaml(path) == "esp32"
+
+
+def test_detect_platform_uses_prefed_yaml_content_without_reading(tmp_path: Path) -> None:
+    """Pre-fed ``yaml_content`` detects without touching disk (file doesn't exist)."""
+    missing = tmp_path / "no-such-file.yaml"
+    assert (
+        detect_platform_from_yaml(missing, yaml_content="esp8266:\n  board: nodemcuv2\n")
+        == "esp8266"
+    )
+
+
+def test_detect_platform_uses_prefed_resolved_config_skips_reparse(tmp_path: Path) -> None:
+    """Pre-fed ``resolved_config`` for a packages config never re-loads the YAML."""
+    yaml_content = "esphome:\n  name: ble\npackages:\n  board: !include board.yaml\n"
+    resolved = {"esphome": {"name": "ble"}, "esp32": {"board": "esp32dev"}}
+    with mock.patch(
+        "esphome_device_builder.helpers.device_yaml.load_device_yaml",
+        wraps=device_yaml.load_device_yaml,
+    ) as spy:
+        result = detect_platform_from_yaml(
+            tmp_path / "ble.yaml", yaml_content=yaml_content, resolved_config=resolved
+        )
+    assert result == "esp32"
+    spy.assert_not_called()
+
+
+def test_load_device_from_storage_resolves_config_once_for_packages(tmp_path: Path) -> None:
+    """The scan path reuses the merged config: ``load_device_yaml`` runs once, not twice."""
+    (tmp_path / "board.yaml").write_text("esp32:\n  board: esp32dev\n", encoding="utf-8")
+    yaml_file = tmp_path / "ble.yaml"
+    yaml_file.write_text(
+        "esphome:\n  name: ble\npackages:\n  board: !include board.yaml\n",
+        encoding="utf-8",
+    )
+    with mock.patch(
+        "esphome_device_builder.helpers.device_yaml.load_device_yaml",
+        wraps=device_yaml.load_device_yaml,
+    ) as spy:
+        device = load_device_from_storage(yaml_file)
+    assert device.target_platform == "esp32"
+    assert spy.call_count == 1
 
 
 # ----------------------------------------------------------------------
