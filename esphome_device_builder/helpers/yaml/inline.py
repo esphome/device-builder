@@ -17,8 +17,11 @@ def synthetic_instance_index(domain: str, component_id: str) -> int | None:
     their inline ``on_*:`` handlers must still resolve on write. Returns
     ``None`` for a real id (which the literal ``id:`` lookup handles).
     """
-    m = re.fullmatch(rf"{re.escape(domain)}_(\d+)", component_id)
-    return int(m.group(1)) if m else None
+    prefix = f"{domain}_"
+    if not component_id.startswith(prefix):
+        return None
+    suffix = component_id[len(prefix) :]
+    return int(suffix) if suffix.isdecimal() else None
 
 
 def upsert_inline_handler(
