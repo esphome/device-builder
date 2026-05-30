@@ -29,9 +29,10 @@ class IntentOutcome:
     """
     A receiver-side intent decision: the wire response plus an optional reason.
 
-    ``reason`` is populated only for non-OK responses and rides
-    the wire so the offloader and the receiver logs can tell the
-    REJECTED branches apart.
+    ``reason`` rides the wire to disambiguate the opaque
+    ``REJECTED`` (and marks a not-yet-approved ``PENDING`` on the
+    lookup path); the self-describing ``OK`` / ``APPROVED`` /
+    ``NO_PAIRING_WINDOW`` responses leave it ``None``.
     """
 
     response: IntentResponse
@@ -86,7 +87,7 @@ async def record_pair_request(
         return IntentOutcome(IntentResponse.APPROVED)
 
     if not controller.is_pairing_window_open():
-        return IntentOutcome(IntentResponse.NO_PAIRING_WINDOW, RejectReason.NO_PAIRING_WINDOW)
+        return IntentOutcome(IntentResponse.NO_PAIRING_WINDOW)
 
     # Refuse to overwrite a PENDING entry's pubkey — defense
     # in depth against a LAN attacker injecting a rival key

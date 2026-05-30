@@ -85,7 +85,7 @@ _TERMINAL_REJECT_REASONS: frozenset[str] = frozenset(
 
 
 def _describe_rejection(reason: object) -> str:
-    """One-line operator-facing text for a receiver ``intent_response: rejected``."""
+    """One-line operator-facing text for a non-OK receiver ``intent_response``."""
     if reason == RejectReason.PIN_MISMATCH.value:
         return "rejected: receiver has a different key on file (re-pair)"
     if reason == RejectReason.NO_APPROVED_PEER.value:

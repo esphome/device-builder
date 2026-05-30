@@ -208,7 +208,8 @@ async def test_dispatch_pair_request_closed_window_returns_no_pairing_window(
     )
 
     assert response.response is IntentResponse.NO_PAIRING_WINDOW
-    assert response.reason is RejectReason.NO_PAIRING_WINDOW
+    # Self-describing response carries no redundant reason.
+    assert response.reason is None
     controller.offloader._db.bus.fire.assert_not_called()
     # No row was created since the window gate fired first.
 

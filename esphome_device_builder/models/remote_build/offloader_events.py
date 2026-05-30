@@ -227,13 +227,11 @@ class OffloaderPeerLinkClosedData(TypedDict):
     client's reconnect logic branches on this; ``"superseded"``,
     ``"receiver_rejected"`` and ``"pin_mismatch"`` orphan.
 
-    ``error_detail`` is one-line context (e.g.
-    ``"ConnectionRefusedError: [Errno 61] Connection refused"``)
-    populated only for ``"transport_error"``, ``"auth_rejected"``,
-    ``"receiver_rejected"``, and ``"pin_mismatch"`` where the
-    exception detail is the operator-actionable info. Empty for
-    the remaining reasons, where the category name is the full
-    explanation there.
+    ``error_detail`` is one-line operator-facing context for
+    ``"transport_error"`` (the exception text),
+    ``"auth_rejected"`` / ``"receiver_rejected"`` (the rejection
+    description), and ``"pin_mismatch"``. Empty for the remaining
+    reasons, where the category name is the full explanation.
     """
 
     receiver_hostname: str
