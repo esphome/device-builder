@@ -91,6 +91,10 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
         return
     intent = _parse_intent(msg1_payload)
     if intent is None:
+        _LOGGER.info(
+            "peer-link from %s rejected: missing or unrecognized intent in msg1",
+            peer_ip,
+        )
         # Complete the handshake before rejecting so the offloader
         # sees the rejection in an authenticated frame, not a raw
         # transport close.
@@ -185,6 +189,11 @@ async def _dispatch_intent(
         or len(inp.dashboard_id) > DASHBOARD_ID_MAX_CHARS
         or not DASHBOARD_ID_PATTERN.fullmatch(inp.dashboard_id)
     ):
+        _LOGGER.info(
+            "peer-link intent=%s from %s rejected: missing or malformed dashboard_id",
+            inp.intent.value,
+            inp.peer_ip,
+        )
         return IntentResponse.REJECTED
 
     if inp.intent is PeerLinkIntent.PAIR_REQUEST:

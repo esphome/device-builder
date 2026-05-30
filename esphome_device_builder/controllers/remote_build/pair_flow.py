@@ -22,6 +22,11 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
+def _pin_prefix(pin: str) -> str:
+    """First 8 hex chars of a ``pin_sha256`` for log correlation, never the full digest."""
+    return f"{pin[:8]}…" if pin else "(empty)"
+
+
 async def record_pair_request(
     controller: ReceiverController,
     *,
@@ -57,6 +62,17 @@ async def record_pair_request(
     approved_peer = controller.state.approved_peers.get(dashboard_id)
     if approved_peer is not None:
         if approved_peer.pin_sha256 != pin_sha256:
+            _LOGGER.warning(
+                "pair_request from %s for dashboard_id=%s rejected: an APPROVED "
+                "pairing exists but its pin (%s) doesn't match the offloader's "
+                "observed pin (%s) — the offloader's peer-link identity rotated "
+                "or the stored pairing is stale; remove the pairing on this "
+                "receiver and re-pair",
+                peer_ip,
+                dashboard_id,
+                _pin_prefix(approved_peer.pin_sha256),
+                _pin_prefix(pin_sha256),
+            )
             return IntentResponse.REJECTED
         return IntentResponse.APPROVED
 
@@ -219,9 +235,34 @@ async def _lookup_peer_response(
     pending = controller.state.pending_peers.get(dashboard_id)
     if pending is not None:
         if pending.pin_sha256 != pin_sha256:
+            _LOGGER.warning(
+                "peer-link intent for dashboard_id=%s rejected: pin mismatch "
+                "against the PENDING pairing (stored %s, offloader presented %s)",
+                dashboard_id,
+                _pin_prefix(pending.pin_sha256),
+                _pin_prefix(pin_sha256),
+            )
             return IntentResponse.REJECTED
         return IntentResponse.PENDING
     peer = controller.state.approved_peers.get(dashboard_id)
-    if peer is None or peer.pin_sha256 != pin_sha256:
+    if peer is None:
+        _LOGGER.info(
+            "peer-link intent for dashboard_id=%s rejected: no PENDING or "
+            "APPROVED pairing record for this dashboard_id (removed, never "
+            "paired, or window-close cleared it) — the offloader should send "
+            "a fresh pair_request",
+            dashboard_id,
+        )
+        return IntentResponse.REJECTED
+    if peer.pin_sha256 != pin_sha256:
+        _LOGGER.warning(
+            "peer-link intent for dashboard_id=%s rejected: pin mismatch "
+            "against the APPROVED pairing (stored %s, offloader presented %s) "
+            "— the offloader's peer-link identity rotated or the stored "
+            "pairing is stale; remove the pairing and re-pair",
+            dashboard_id,
+            _pin_prefix(peer.pin_sha256),
+            _pin_prefix(pin_sha256),
+        )
         return IntentResponse.REJECTED
     return approved_response

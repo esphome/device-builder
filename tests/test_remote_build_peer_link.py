@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import secrets
 from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
@@ -356,6 +357,125 @@ async def test_dispatch_pair_status_unknown_after_window_close_returns_rejected(
     )
 
     assert response is IntentResponse.REJECTED
+
+
+# ---------------------------------------------------------------------------
+# Rejection-reason logging — #1045: the receiver logs the handshake as
+# "ok" then sends intent_response=rejected with no operator-facing reason.
+# Each rejection branch now emits a diagnostic line correlatable by
+# dashboard_id with the "handshake ... ok" line.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dispatch_peer_link_pin_mismatch_logs_reason(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """peer_link against an APPROVED row with a different pin logs the mismatch."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller.offloader._db.bus = MagicMock()
+    approved_pub = b"\xbb" * 32
+    approved_pin = hashlib.sha256(approved_pub).hexdigest()
+    _seed_peer(
+        controller,
+        StoredPeer(
+            dashboard_id="alpha",
+            pin_sha256=approved_pin,
+            static_x25519_pub=approved_pub,
+            label="alpha",
+            paired_at=1.0,
+        ),
+    )
+    other_pub = b"\xcc" * 32
+    other_pin = hashlib.sha256(other_pub).hexdigest()
+
+    with caplog.at_level(logging.WARNING):
+        response = await _dispatch_intent(
+            controller.receiver,
+            _DispatchInput(
+                intent=PeerLinkIntent.PEER_LINK,
+                dashboard_id="alpha",
+                label="",
+                pin_sha256=other_pin,
+                static_x25519_pub=other_pub,
+                peer_ip="192.168.1.10",
+            ),
+        )
+
+    assert response is IntentResponse.REJECTED
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("pin mismatch" in m and "APPROVED" in m and "alpha" in m for m in messages)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_peer_link_unknown_dashboard_id_logs_reason(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """peer_link with no PENDING/APPROVED record logs the missing-row reason."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller.offloader._db.bus = MagicMock()
+    pub = b"\xdd" * 32
+    pin = hashlib.sha256(pub).hexdigest()
+
+    with caplog.at_level(logging.INFO):
+        response = await _dispatch_intent(
+            controller.receiver,
+            _DispatchInput(
+                intent=PeerLinkIntent.PEER_LINK,
+                dashboard_id="alpha",
+                label="",
+                pin_sha256=pin,
+                static_x25519_pub=pub,
+                peer_ip="192.168.1.10",
+            ),
+        )
+
+    assert response is IntentResponse.REJECTED
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("no PENDING or APPROVED" in m and "alpha" in m for m in messages)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_pair_request_approved_pin_mismatch_logs_reason(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A re-pair against an APPROVED row whose pin differs logs the stale-pairing reason."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller.offloader._db.bus = MagicMock()
+    approved_pub = b"\xbb" * 32
+    approved_pin = hashlib.sha256(approved_pub).hexdigest()
+    _seed_peer(
+        controller,
+        StoredPeer(
+            dashboard_id="alpha",
+            pin_sha256=approved_pin,
+            static_x25519_pub=approved_pub,
+            label="alpha",
+            paired_at=1.0,
+        ),
+    )
+    rotated_pub = b"\xee" * 32
+    rotated_pin = hashlib.sha256(rotated_pub).hexdigest()
+
+    with caplog.at_level(logging.WARNING):
+        response = await _dispatch_intent(
+            controller.receiver,
+            _DispatchInput(
+                intent=PeerLinkIntent.PAIR_REQUEST,
+                dashboard_id="alpha",
+                label="alpha",
+                pin_sha256=rotated_pin,
+                static_x25519_pub=rotated_pub,
+                peer_ip="192.168.1.10",
+            ),
+        )
+
+    assert response is IntentResponse.REJECTED
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("stale" in m and "192.168.1.10" in m and "alpha" in m for m in messages)
 
 
 # ---------------------------------------------------------------------------
