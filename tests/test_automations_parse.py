@@ -384,6 +384,76 @@ def test_parse_raises_on_unloadable_yaml() -> None:
         parse_device_yaml("switch:\n  - name: [unterminated\n")
 
 
+# ---------------------------------------------------------------------------
+# List-shaped triggers (time.on_time)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_on_time_list_emits_one_entry_per_item() -> None:
+    """Each entry of a list-form on_time is its own indexed automation."""
+    parsed = parse_device_yaml(_load("time_on_time_list.yaml"))
+    assert len(parsed) == 2
+    first, second = parsed
+    assert first.location.kind == "component_on"
+    assert first.location.component_id == "my_time"
+    assert first.location.trigger == "on_time"
+    assert first.location.index == 0
+    assert second.location.index == 1
+    assert first.automation.trigger_params == {"seconds": 0, "minutes": 30, "hours": 8}
+    assert second.automation.trigger_params == {"cron": "0 0 12 * * *"}
+    assert [a.action_id for a in first.automation.actions] == ["logger.log"]
+    assert first.error is None and second.error is None
+
+
+def test_parse_on_time_single_mapping_uses_index_none() -> None:
+    """The single-mapping on_time form stays one automation with index None."""
+    yaml = (
+        "time:\n  - platform: sntp\n    id: my_time\n"
+        "    on_time:\n      seconds: 0\n      hours: 8\n"
+        "      then:\n        - logger.log: hi\n"
+    )
+    parsed = parse_device_yaml(yaml)
+    assert len(parsed) == 1
+    assert parsed[0].location.index is None
+    assert parsed[0].automation.trigger_params == {"seconds": 0, "hours": 8}
+
+
+def test_parse_on_time_list_isolates_one_bad_entry() -> None:
+    """An unknown action in one on_time entry flags only that entry."""
+    yaml = (
+        "time:\n  - platform: sntp\n    id: my_time\n"
+        "    on_time:\n"
+        "      - seconds: 0\n        then:\n          - logger.log: ok\n"
+        "      - hours: 8\n        then:\n          - not_a_real_action: 5\n"
+    )
+    parsed = parse_device_yaml(yaml)
+    assert len(parsed) == 2
+    assert parsed[0].error is None
+    assert parsed[1].error is not None
+    assert "not_a_real_action" in parsed[1].error
+    assert parsed[1].automation.actions == []
+
+
+def test_parse_bare_action_list_is_not_list_form() -> None:
+    """A bare action list (on_press) is one automation, not per-item entries."""
+    parsed = parse_device_yaml(_load("inline_on_press_bare_actionlist.yaml"))
+    component_on = [p for p in parsed if p.location.kind == "component_on"]
+    assert all(p.location.index is None for p in component_on)
+
+
+def test_parse_unknown_action_in_list_surfaces_as_error() -> None:
+    """A bare action list with an unknown id stays one entry with its error set."""
+    yaml = (
+        "binary_sensor:\n  - platform: gpio\n    id: btn\n"
+        "    on_press:\n      - not_a_real_action: 5\n"
+    )
+    parsed = parse_device_yaml(yaml)
+    assert len(parsed) == 1
+    assert parsed[0].location.index is None
+    assert parsed[0].error is not None
+    assert "not_a_real_action" in parsed[0].error
+
+
 def test_parse_returns_empty_for_minimal_yaml() -> None:
     """A YAML without any recognised automation shape parses to empty list."""
     assert parse_device_yaml("esphome:\n  name: x\n") == []

@@ -43,11 +43,7 @@ def render_script_item(tree: AutomationTree, script_id: str) -> str:
 
 def render_interval_item(tree: AutomationTree) -> str:
     """Render a single ``- interval: ...`` interval list item."""
-    item = CommentedMap()
-    for key, value in tree.trigger_params.items():
-        item[key] = encode_value(value)
-    item["then"] = emit_action_seq(tree.actions)
-    return dump([item])
+    return dump([emit_trigger_list_item(tree)])
 
 
 def render_api_action_item(tree: AutomationTree, action_name: str) -> str:
@@ -70,13 +66,18 @@ def render_trigger_handler(tree: AutomationTree, *, key: str) -> str:
     round-trips stay deterministic (the parser accepts both
     shortcut shapes too).
     """
-    body = CommentedMap()
-    for param_key, value in tree.trigger_params.items():
-        body[param_key] = encode_value(value)
-    body["then"] = emit_action_seq(tree.actions)
     wrapper = CommentedMap()
-    wrapper[key] = body
+    wrapper[key] = emit_trigger_list_item(tree)
     return dump(wrapper)
+
+
+def emit_trigger_list_item(tree: AutomationTree) -> CommentedMap:
+    """Build one entry mapping (trigger params plus ``then:``) for a list-shaped trigger."""
+    item = CommentedMap()
+    for key, value in tree.trigger_params.items():
+        item[key] = encode_value(value)
+    item["then"] = emit_action_seq(tree.actions)
+    return item
 
 
 def emit_action_seq(actions: list[ActionNode]) -> CommentedSeq:

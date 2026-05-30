@@ -241,10 +241,18 @@ class IntervalLocation(DataClassORJSONMixin):
 
 @dataclass
 class ComponentOnLocation(DataClassORJSONMixin):
-    """An inline ``on_*:`` handler under a configured component instance."""
+    """
+    An inline ``on_*:`` handler under a configured component instance.
+
+    ``index`` is ``None`` for the single-handler mapping form
+    (``on_press: {then: [...]}``); for a list-shaped trigger
+    (``time.on_time`` is a YAML list of cron entries) it selects one
+    entry of that list.
+    """
 
     component_id: str
     trigger: str
+    index: int | None = None
     kind: Literal["component_on"] = "component_on"
 
 

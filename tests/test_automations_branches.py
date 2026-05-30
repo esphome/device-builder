@@ -37,6 +37,7 @@ from esphome_device_builder.controllers.automations.parsing import (
     _decompose_trigger_mapping,
     _dump_slice,
     _estimate_end_line,
+    _is_list_form_trigger,
     _item_range,
     _key_range,
     _render_params,
@@ -165,6 +166,38 @@ def test_scope_skips_component_instance_without_id() -> None:
 def test_decode_location_per_kind(payload: dict, expected: type) -> None:
     """Each ``kind`` discriminator routes to the matching dataclass."""
     assert isinstance(_decode_location(payload), expected)
+
+
+def test_decode_location_component_on_legacy_payload_defaults_index_none() -> None:
+    """A pre-index component_on payload decodes with ``index`` None."""
+    loc = _decode_location({"kind": "component_on", "component_id": "b", "trigger": "on_press"})
+    assert isinstance(loc, ComponentOnLocation)
+    assert loc.index is None
+
+
+def test_decode_location_component_on_carries_index() -> None:
+    """A component_on payload with ``index`` round-trips it."""
+    loc = _decode_location(
+        {"kind": "component_on", "component_id": "my_time", "trigger": "on_time", "index": 2}
+    )
+    assert isinstance(loc, ComponentOnLocation)
+    assert loc.index == 2
+
+
+def test_is_list_form_trigger_discriminates_cron_vs_bare_actions() -> None:
+    """A cron entry list is list-form; a bare action list is not."""
+    on_time = catalog.trigger_by_id("time.on_time")
+    on_press = catalog.trigger_by_id("binary_sensor.on_press")
+    assert _is_list_form_trigger([{"seconds": 0, "then": []}], on_time) is True
+    assert _is_list_form_trigger([{"then": []}], on_press) is True
+    assert _is_list_form_trigger([{"seconds": 0}], on_time) is True
+    assert _is_list_form_trigger([{"switch.toggle": "relay"}], on_press) is False
+    # An unknown action id is a bare action, not a trigger entry — so its
+    # parse error still surfaces instead of being read as trigger params.
+    assert _is_list_form_trigger([{"not_a_real_action": 5}], on_press) is False
+    assert _is_list_form_trigger(["bare-scalar"], on_time) is False
+    assert _is_list_form_trigger([], on_time) is False
+    assert _is_list_form_trigger({"seconds": 0}, on_time) is False
 
 
 def test_decode_location_missing_kind_raises_invalid_args() -> None:

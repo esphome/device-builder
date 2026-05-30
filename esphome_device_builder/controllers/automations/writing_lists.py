@@ -20,7 +20,7 @@ from ...models.automations import (
     YamlDiff,
 )
 from . import catalog
-from .emitter import dump, emit_effect_item
+from .emitter import dump, emit_effect_item, emit_trigger_list_item
 from .parsing import make_yaml
 
 
@@ -29,6 +29,129 @@ def wrap_handler_list_block(handler_key: str, rendered_list: str) -> str:
     # ``upsert_inline_handler`` writes ``rendered_yaml`` verbatim under the
     # component instance; the list dump is bare, so add the header here.
     return f"{handler_key}:\n" + rendered_list.rstrip() + "\n"
+
+
+def _resplice_list_block(
+    yaml_text: str,
+    *,
+    domain: str,
+    component_id: str,
+    handler_key: str,
+    entries: list,
+) -> tuple[str, YamlDiff]:
+    """
+    Re-emit a component's list handler from *entries* and return the diff.
+
+    Non-empty *entries* replace the whole block; an empty list removes the
+    handler key. Callers locate the instance first, so a ``None`` splice
+    result is unreachable.
+    """
+    if entries:
+        rendered = wrap_handler_list_block(handler_key, dump(entries))
+        res = upsert_inline_handler(
+            yaml_text,
+            component_domain=domain,
+            component_id=component_id,
+            handler_key=handler_key,
+            rendered_yaml=rendered,
+        )
+        if res is None:  # pragma: no cover — instance located by the caller
+            msg = f"Component instance id={component_id!r} not found under {domain!r}"
+            raise CommandError(ErrorCode.INTERNAL_ERROR, msg)
+        new_text, from_line, to_line, replacement = res
+        return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement=replacement)
+    removed = remove_inline_handler(
+        yaml_text,
+        component_domain=domain,
+        component_id=component_id,
+        handler_key=handler_key,
+    )
+    if removed is None:  # pragma: no cover — instance located by the caller
+        msg = f"{handler_key}: not found on component id={component_id!r}"
+        raise CommandError(ErrorCode.INTERNAL_ERROR, msg)
+    new_text, from_line, to_line = removed
+    return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement="")
+
+
+def upsert_component_on_entry(
+    yaml_text: str,
+    *,
+    tree: AutomationTree,
+    domain: str,
+    component_id: str,
+    trigger_key: str,
+    index: int,
+) -> tuple[str, YamlDiff]:
+    """
+    Insert or replace one entry of a list-shaped trigger (``time.on_time``).
+
+    ``index == len(entries)`` appends; an in-range index replaces. Refuses
+    when the existing handler is a single mapping rather than a list — the
+    user picked that shape, so don't silently rewrite it.
+    """
+    instance = _require_instance(
+        yaml_text, domain=domain, component_id=component_id, error_code=ErrorCode.INVALID_ARGS
+    )
+    existing = instance.get(trigger_key)
+    if existing is not None and not isinstance(existing, list):
+        msg = f"{trigger_key}: is a single mapping, not a list; convert it to a list first"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    entries = existing if isinstance(existing, list) else []
+    new_item = emit_trigger_list_item(tree)
+    if index == len(entries):
+        entries.append(new_item)
+    elif 0 <= index < len(entries):
+        entries[index] = new_item
+    else:
+        msg = f"{trigger_key}[{index}] out of range (have {len(entries)})"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    return _resplice_list_block(
+        yaml_text,
+        domain=domain,
+        component_id=component_id,
+        handler_key=trigger_key,
+        entries=entries,
+    )
+
+
+def _require_instance(
+    yaml_text: str, *, domain: str, component_id: str, error_code: ErrorCode
+) -> dict:
+    """
+    Return the ``<domain>:`` list item whose ``id`` matches *component_id*.
+
+    ``error_code`` selects the ``CommandError`` code so callers keep their
+    INVALID_ARGS (upsert) / NOT_FOUND (delete) contracts.
+    """
+    data = make_yaml().load(yaml_text) or {}
+    section = data.get(domain) if isinstance(data, dict) else None
+    if isinstance(section, list):
+        for instance in section:
+            if isinstance(instance, dict) and str(instance.get("id", "")) == component_id:
+                return instance
+    msg = f"Component instance id={component_id!r} not found under {domain!r}"
+    raise CommandError(error_code, msg)
+
+
+def delete_list_entry(
+    yaml_text: str, *, domain: str, component_id: str, handler_key: str, index: int
+) -> tuple[str, YamlDiff]:
+    """Drop entry *index* from a component's ``<handler_key>:`` list; re-splice."""
+    instance = _require_instance(
+        yaml_text, domain=domain, component_id=component_id, error_code=ErrorCode.NOT_FOUND
+    )
+    entries = instance.get(handler_key)
+    if not isinstance(entries, list) or not 0 <= index < len(entries):
+        msg = f"{handler_key}[{index}] not present on component id={component_id!r}"
+        raise CommandError(ErrorCode.NOT_FOUND, msg)
+    del entries[index]
+    return _resplice_list_block(
+        yaml_text,
+        domain=domain,
+        component_id=component_id,
+        handler_key=handler_key,
+        entries=entries,
+    )
 
 
 def upsert_light_effect(
@@ -47,25 +170,20 @@ def upsert_light_effect(
     if catalog_entry is None:
         msg = f"Unknown light effect id: {effect_id!r}"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    rendered = wrap_handler_list_block(
-        "effects",
-        dump([emit_effect_item(catalog_entry, str(effect_id), params or {})]),
-    )
-    res = upsert_inline_handler(
+    _require_instance(
         yaml_text,
-        component_domain="light",
+        domain="light",
+        component_id=location.component_id,
+        error_code=ErrorCode.INVALID_ARGS,
+    )
+    item = emit_effect_item(catalog_entry, str(effect_id), params or {})
+    # Effects upsert replaces the whole block with the one rendered entry.
+    return _resplice_list_block(
+        yaml_text,
+        domain="light",
         component_id=location.component_id,
         handler_key="effects",
-        rendered_yaml=rendered,
-    )
-    if res is None:
-        msg = f"Light instance id={location.component_id!r} not found; can't splice effect entry"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    new_text, from_line, to_line, replacement = res
-    return new_text, YamlDiff(
-        fromLine=from_line,
-        toLine=to_line,
-        replacement=replacement,
+        entries=[item],
     )
 
 
@@ -74,58 +192,10 @@ def delete_light_effect(
     location: LightEffectLocation,
 ) -> tuple[str, YamlDiff]:
     """Drop one entry from a light's ``effects:`` list."""
-    # Easiest path: parse, mutate the list, re-emit. We don't have a
-    # line-precise splice helper for "remove list item at index N
-    # inside an inline handler" — this keeps the writer simple at
-    # the cost of touching the whole ``effects:`` block in the diff.
-    yaml = make_yaml()
-    data = yaml.load(yaml_text) or {}
-    lights = data.get("light") if isinstance(data, dict) else None
-    if not isinstance(lights, list):
-        msg = "No light: block; can't delete effect"
-        raise CommandError(ErrorCode.NOT_FOUND, msg)
-    for instance in lights:
-        if not isinstance(instance, dict):
-            continue
-        if str(instance.get("id", "")) != location.component_id:
-            continue
-        effects = instance.get("effects")
-        if not isinstance(effects, list) or not 0 <= location.index < len(effects):
-            msg = f"effects[{location.index}] not present on light id={location.component_id!r}"
-            raise CommandError(ErrorCode.NOT_FOUND, msg)
-        del effects[location.index]
-        if not effects:
-            del instance["effects"]
-        # Re-render the inline handler block to splice through
-        # ``upsert_inline_handler`` (or remove it when empty).
-        if "effects" in instance:
-            rendered = wrap_handler_list_block("effects", dump(effects))
-            res = upsert_inline_handler(
-                yaml_text,
-                component_domain="light",
-                component_id=location.component_id,
-                handler_key="effects",
-                rendered_yaml=rendered,
-            )
-            if res is None:  # pragma: no cover — instance found above
-                msg = f"light id={location.component_id!r} not found in splice"
-                raise CommandError(ErrorCode.INTERNAL_ERROR, msg)
-            new_text, from_line, to_line, replacement = res
-            return new_text, YamlDiff(
-                fromLine=from_line,
-                toLine=to_line,
-                replacement=replacement,
-            )
-        removed = remove_inline_handler(
-            yaml_text,
-            component_domain="light",
-            component_id=location.component_id,
-            handler_key="effects",
-        )
-        if removed is None:  # pragma: no cover — instance found above
-            msg = f"effects: not found on light id={location.component_id!r}"
-            raise CommandError(ErrorCode.NOT_FOUND, msg)
-        new_text, from_line, to_line = removed
-        return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement="")
-    msg = f"Light id={location.component_id!r} not found"
-    raise CommandError(ErrorCode.NOT_FOUND, msg)
+    return delete_list_entry(
+        yaml_text,
+        domain="light",
+        component_id=location.component_id,
+        handler_key="effects",
+        index=location.index,
+    )

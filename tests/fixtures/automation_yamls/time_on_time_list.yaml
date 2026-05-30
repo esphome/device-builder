@@ -1,0 +1,12 @@
+time:
+  - platform: sntp
+    id: my_time
+    on_time:
+      - seconds: 0
+        minutes: 30
+        hours: 8
+        then:
+          - logger.log: morning
+      - cron: "0 0 12 * * *"
+        then:
+          - logger.log: noon

@@ -36,6 +36,7 @@ from ...models.automations import (
     ActionNode,
     ApiActionLocation,
     AutomationTree,
+    AutomationTrigger,
     ComponentOnLocation,
     ConditionNode,
     DeviceOnLocation,
@@ -307,8 +308,8 @@ def _parse_inline_component_triggers(root: Any) -> list[ParsedAutomation]:
             for key, body in list(instance.items()):
                 if not key.startswith("on_"):
                     continue
-                trigger_id = f"{domain}.{key}"
-                if catalog.trigger_by_id(trigger_id) is None:
+                trigger = catalog.trigger_by_id(f"{domain}.{key}")
+                if trigger is None:
                     # Not a known component trigger — skip rather
                     # than surface as a parse error. Component
                     # schemas occasionally carry ``on_*`` keys that
@@ -316,25 +317,116 @@ def _parse_inline_component_triggers(root: Any) -> list[ParsedAutomation]:
                     # (e.g. legacy aliases). The catalog is the
                     # source of truth.
                     continue
-                from_line, to_line = _key_range(instance, key)
-                tree, error = _safe_tree(
-                    partial(_decompose_trigger_body, body, trigger_id=trigger_id),
-                    trigger_id=trigger_id,
-                )
-                out.append(
-                    ParsedAutomation(
-                        location=ComponentOnLocation(
-                            component_id=str(comp_id),
-                            trigger=key,
-                        ),
-                        label=f"{comp_name} → {_pretty_name(key)}",
-                        automation=tree,
-                        from_line=from_line,
-                        to_line=to_line,
-                        raw_yaml=_dump_slice({key: body}),
-                        error=error,
+                out.extend(
+                    _parse_one_inline_trigger(
+                        instance,
+                        comp_id=str(comp_id),
+                        comp_name=str(comp_name),
+                        key=key,
+                        body=body,
+                        trigger=trigger,
                     )
                 )
+    return out
+
+
+def _parse_one_inline_trigger(
+    instance: dict,
+    *,
+    comp_id: str,
+    comp_name: str,
+    key: str,
+    body: Any,
+    trigger: AutomationTrigger,
+) -> list[ParsedAutomation]:
+    """Parse one inline ``on_*:`` handler — single mapping or list-shaped."""
+    trigger_id = trigger.id
+    if _is_list_form_trigger(body, trigger):
+        return _parse_list_form_trigger(
+            body, comp_id=comp_id, comp_name=comp_name, key=key, trigger_id=trigger_id
+        )
+    from_line, to_line = _key_range(instance, key)
+    tree, error = _safe_tree(
+        partial(_decompose_trigger_body, body, trigger_id=trigger_id),
+        trigger_id=trigger_id,
+    )
+    return [
+        ParsedAutomation(
+            location=ComponentOnLocation(component_id=comp_id, trigger=key),
+            label=f"{comp_name} → {_pretty_name(key)}",
+            automation=tree,
+            from_line=from_line,
+            to_line=to_line,
+            raw_yaml=_dump_slice({key: body}),
+            error=error,
+        )
+    ]
+
+
+def _is_list_form_trigger(body: Any, trigger: AutomationTrigger) -> bool:
+    """
+    Report whether *body* is a YAML list of trigger entries (``time.on_time``).
+
+    A bare action list (``on_press: [{light.turn_on: id}, ...]``) is *not*
+    list-form: every item there is a known action id. List-form requires a
+    non-empty list whose every item is trigger-shaped (see
+    :func:`_is_trigger_entry`), so the conservative default keeps the
+    existing bare-action-list behaviour intact.
+    """
+    return (
+        isinstance(body, list)
+        and bool(body)
+        and all(_is_trigger_entry(item, trigger) for item in body)
+    )
+
+
+def _is_trigger_entry(item: Any, trigger: AutomationTrigger) -> bool:
+    """
+    Report whether *item* looks like one entry of a list-shaped trigger.
+
+    Requires a ``then:`` or one of the trigger's own config keys — a bare
+    action item (including an unknown action id) is *not* an entry, so it
+    stays a bare action list and its parse error still surfaces.
+    """
+    if not isinstance(item, dict) or not item:
+        return False
+    if "then" in item:
+        return True
+    cron_keys = {entry.key for entry in trigger.config_entries}
+    return any(key in cron_keys for key in item)
+
+
+def _parse_list_form_trigger(
+    body: list,
+    *,
+    comp_id: str,
+    comp_name: str,
+    key: str,
+    trigger_id: str,
+) -> list[ParsedAutomation]:
+    """Emit one :class:`ParsedAutomation` per entry of a list-shaped trigger."""
+    out: list[ParsedAutomation] = []
+    for index, entry in enumerate(body):
+        from_line, to_line = _item_range(body, index)
+        tree, error = _safe_tree(
+            partial(_decompose_trigger_mapping, entry, trigger_id=trigger_id),
+            trigger_id=trigger_id,
+        )
+        out.append(
+            ParsedAutomation(
+                location=ComponentOnLocation(
+                    component_id=comp_id,
+                    trigger=key,
+                    index=index,
+                ),
+                label=f"{comp_name} → {_pretty_name(key)} #{index + 1}",
+                automation=tree,
+                from_line=from_line,
+                to_line=to_line,
+                raw_yaml=_dump_slice([entry]),
+                error=error,
+            )
+        )
     return out
 
 

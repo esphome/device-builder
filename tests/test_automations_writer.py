@@ -1003,3 +1003,116 @@ def test_round_trip_preserves_comments_above_top_level_blocks() -> None:
     assert "# This is a wake-up script\n" in new_text
     # Original script body is untouched.
     assert "- id: alarm" in new_text
+
+
+# ---------------------------------------------------------------------------
+# List-shaped triggers (time.on_time)
+# ---------------------------------------------------------------------------
+
+
+def _on_time_loc(index: int) -> ComponentOnLocation:
+    return ComponentOnLocation(component_id="my_time", trigger="on_time", index=index)
+
+
+def test_round_trip_on_time_list_entry_is_stable() -> None:
+    """Parse → upsert an entry with its own tree → re-parse keeps both entries."""
+    yaml_text = _load("time_on_time_list.yaml")
+    first = parse_device_yaml(yaml_text)[0]
+    new_text, _diff = render_upsert(yaml_text, tree=first.automation, location=_on_time_loc(0))
+    reparsed = parse_device_yaml(new_text)
+    assert [p.location.index for p in reparsed] == [0, 1]
+    assert reparsed[0].automation.trigger_params == {"seconds": 0, "minutes": 30, "hours": 8}
+
+
+def test_upsert_on_time_appends_entry_at_end() -> None:
+    """An index equal to the entry count appends a new schedule."""
+    yaml_text = _load("time_on_time_list.yaml")
+    tree = AutomationTree(
+        trigger_id="time.on_time",
+        trigger_params={"hours": 23},
+        actions=[ActionNode(action_id="logger.log", params={"id": "night"})],
+    )
+    new_text, _diff = render_upsert(yaml_text, tree=tree, location=_on_time_loc(2))
+    reparsed = parse_device_yaml(new_text)
+    assert [p.location.index for p in reparsed] == [0, 1, 2]
+    assert reparsed[2].automation.trigger_params == {"hours": 23}
+
+
+def test_upsert_on_time_replaces_entry_and_leaves_siblings() -> None:
+    """Replacing one entry leaves the other untouched."""
+    yaml_text = _load("time_on_time_list.yaml")
+    tree = AutomationTree(
+        trigger_id="time.on_time",
+        trigger_params={"seconds": 5},
+        actions=[ActionNode(action_id="logger.log", params={"id": "tick"})],
+    )
+    new_text, _diff = render_upsert(yaml_text, tree=tree, location=_on_time_loc(0))
+    reparsed = parse_device_yaml(new_text)
+    assert reparsed[0].automation.trigger_params == {"seconds": 5}
+    assert reparsed[1].automation.trigger_params == {"cron": "0 0 12 * * *"}
+
+
+def test_upsert_on_time_index_out_of_range_raises() -> None:
+    """An index past the append slot is rejected."""
+    yaml_text = _load("time_on_time_list.yaml")
+    tree = AutomationTree(trigger_id="time.on_time", trigger_params={"hours": 1})
+    with pytest.raises(CommandError) as exc:
+        render_upsert(yaml_text, tree=tree, location=_on_time_loc(9))
+    assert exc.value.code is ErrorCode.INVALID_ARGS
+
+
+def test_upsert_on_time_with_index_refuses_existing_mapping() -> None:
+    """Indexing into a single-mapping on_time is refused, not silently rewritten."""
+    yaml_text = (
+        "time:\n  - platform: sntp\n    id: my_time\n"
+        "    on_time:\n      seconds: 0\n      then:\n        - logger.log: hi\n"
+    )
+    tree = AutomationTree(trigger_id="time.on_time", trigger_params={"hours": 1})
+    with pytest.raises(CommandError) as exc:
+        render_upsert(yaml_text, tree=tree, location=_on_time_loc(0))
+    assert exc.value.code is ErrorCode.INVALID_ARGS
+
+
+def test_delete_on_time_entry_keeps_siblings() -> None:
+    """Deleting one entry leaves the rest of the list in place."""
+    yaml_text = _load("time_on_time_list.yaml")
+    new_text, _diff = render_delete(yaml_text, location=_on_time_loc(0))
+    reparsed = parse_device_yaml(new_text)
+    assert len(reparsed) == 1
+    assert reparsed[0].automation.trigger_params == {"cron": "0 0 12 * * *"}
+
+
+def test_delete_last_on_time_entry_removes_the_key() -> None:
+    """Deleting the final entry drops the whole on_time: key."""
+    yaml_text = (
+        "time:\n  - platform: sntp\n    id: my_time\n"
+        "    on_time:\n      - seconds: 0\n        then:\n          - logger.log: hi\n"
+    )
+    new_text, _diff = render_delete(yaml_text, location=_on_time_loc(0))
+    assert "on_time:" not in new_text
+    assert parse_device_yaml(new_text) == []
+
+
+def test_delete_on_time_missing_index_raises_not_found() -> None:
+    """Deleting an index that isn't there is a NOT_FOUND."""
+    yaml_text = _load("time_on_time_list.yaml")
+    with pytest.raises(CommandError) as exc:
+        render_delete(yaml_text, location=_on_time_loc(9))
+    assert exc.value.code is ErrorCode.NOT_FOUND
+
+
+def test_upsert_on_time_no_component_block_raises_invalid_args() -> None:
+    """Upserting an entry when no time component exists is INVALID_ARGS."""
+    tree = AutomationTree(trigger_id="time.on_time", trigger_params={"hours": 1})
+    with pytest.raises(CommandError) as exc:
+        render_upsert("esphome:\n  name: x\n", tree=tree, location=_on_time_loc(0))
+    assert exc.value.code is ErrorCode.INVALID_ARGS
+
+
+def test_delete_on_time_unknown_component_raises_not_found() -> None:
+    """Deleting an entry on an id that isn't configured is NOT_FOUND."""
+    yaml_text = _load("time_on_time_list.yaml")
+    loc = ComponentOnLocation(component_id="ghost", trigger="on_time", index=0)
+    with pytest.raises(CommandError) as exc:
+        render_delete(yaml_text, location=loc)
+    assert exc.value.code is ErrorCode.NOT_FOUND

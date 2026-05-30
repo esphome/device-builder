@@ -43,7 +43,12 @@ from .emitter import (
     render_trigger_handler,
 )
 from .parsing import make_yaml
-from .writing_lists import delete_light_effect, upsert_light_effect
+from .writing_lists import (
+    delete_light_effect,
+    delete_list_entry,
+    upsert_component_on_entry,
+    upsert_light_effect,
+)
 
 # ---------------------------------------------------------------------------
 # Public entry points
@@ -138,12 +143,20 @@ def _upsert_component_on(
     location: ComponentOnLocation,
 ) -> tuple[str, YamlDiff]:
     """Splice an inline ``on_*:`` handler under a configured component."""
-    trigger = catalog.trigger_by_id(
-        f"{_component_domain_from_yaml(yaml_text, location)}.{location.trigger}",
-    )
+    instance_domain = _component_domain_from_yaml(yaml_text, location)
+    trigger = catalog.trigger_by_id(f"{instance_domain}.{location.trigger}")
     if trigger is None:
         msg = f"Unknown trigger id {location.trigger!r} on component {location.component_id!r}"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    if location.index is not None:
+        return upsert_component_on_entry(
+            yaml_text,
+            tree=tree,
+            domain=instance_domain,
+            component_id=location.component_id,
+            trigger_key=location.trigger,
+            index=location.index,
+        )
     domain = trigger.applies_to[0] if trigger.applies_to else ""
     rendered = render_trigger_handler(tree, key=location.trigger)
     res = upsert_inline_handler(
@@ -445,9 +458,16 @@ def _delete_component_on(
     location: ComponentOnLocation,
 ) -> tuple[str, YamlDiff]:
     """Drop an inline ``on_*:`` handler from a configured component."""
-    trigger = catalog.trigger_by_id(
-        f"{_component_domain_from_yaml(yaml_text, location)}.{location.trigger}",
-    )
+    instance_domain = _component_domain_from_yaml(yaml_text, location)
+    if location.index is not None:
+        return delete_list_entry(
+            yaml_text,
+            domain=instance_domain,
+            component_id=location.component_id,
+            handler_key=location.trigger,
+            index=location.index,
+        )
+    trigger = catalog.trigger_by_id(f"{instance_domain}.{location.trigger}")
     domain = trigger.applies_to[0] if trigger and trigger.applies_to else ""
     res = remove_inline_handler(
         yaml_text,
