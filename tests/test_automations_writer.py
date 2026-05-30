@@ -1095,6 +1095,30 @@ def test_round_trip_on_time_list_entry_is_stable() -> None:
     assert reparsed[0].automation.trigger_params == {"seconds": 0, "minutes": 30, "hours": 8}
 
 
+def test_upsert_appends_entry_for_non_on_time_repeatable_trigger() -> None:
+    """A second entry on a non-on_time repeatable trigger appends, not overwrites."""
+    yaml_text = (
+        "sensor:\n"
+        "  - platform: template\n"
+        "    id: s1\n"
+        "    name: s\n"
+        "    on_value_range:\n"
+        "      - above: 10\n"
+        "        then:\n"
+        "          - logger.log: hi\n"
+    )
+    tree = AutomationTree(
+        trigger_id="sensor.on_value_range",
+        trigger_params={"below": 5},
+        actions=[ActionNode(action_id="logger.log", params={"format": "lo"})],
+    )
+    location = ComponentOnLocation(component_id="s1", trigger="on_value_range", index=1)
+    new_text, _diff = render_upsert(yaml_text, tree=tree, location=location)
+    reparsed = parse_device_yaml(new_text)
+    assert [p.location.index for p in reparsed] == [0, 1]
+    assert reparsed[1].automation.trigger_params == {"below": 5}
+
+
 def test_upsert_on_time_appends_entry_at_end() -> None:
     """An index equal to the entry count appends a new schedule."""
     yaml_text = _load("time_on_time_list.yaml")

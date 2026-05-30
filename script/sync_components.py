@@ -5135,14 +5135,18 @@ def _extract_triggers_from_section(
                 raw.get("schema") if isinstance(raw.get("schema"), dict) else None,
                 schema_dir,
             )
+            trigger_id = key if is_device_level else f"{top_key}.{key}"
             out.append(
                 {
-                    "id": key if is_device_level else f"{top_key}.{key}",
+                    "id": trigger_id,
                     "name": _automation_label(domain, key, docs.name),
                     "description": docs.text,
                     "docs_url": docs.url or _CORE_AUTOMATION_DOCS,
                     "applies_to": applies_to,
                     "is_device_level": is_device_level,
+                    # Per-entry params mark a list-shaped trigger; only
+                    # component ones are wizard-stackable by index.
+                    "repeatable": bool(param_entries) and not is_device_level,
                     "config_entries": [_strip_entry_defaults(e) for e in param_entries],
                 }
             )

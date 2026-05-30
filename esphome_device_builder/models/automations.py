@@ -47,6 +47,9 @@ class AutomationTrigger(DataClassORJSONMixin):
     docs_url: str
     applies_to: list[str] = field(default_factory=list)
     is_device_level: bool = False
+    # True for a component trigger the wizard can stack by index (ESPHome
+    # accepts it as a list of per-entry-param entries).
+    repeatable: bool = False
     config_entries: list[ConfigEntry] = field(default_factory=list)
 
 
@@ -166,6 +169,7 @@ class AutomationTriggerIndex(DataClassORJSONMixin):
     docs_url: str
     applies_to: list[str] = field(default_factory=list)
     is_device_level: bool = False
+    repeatable: bool = False
 
 
 @dataclass

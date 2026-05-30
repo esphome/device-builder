@@ -231,9 +231,72 @@ def test_build_automations_extracts_component_trigger_with_nested_params(
     on_click = next(t for t in result["triggers"] if t["id"] == "binary_sensor.on_click")
     assert on_click["applies_to"] == ["binary_sensor"]
     assert on_click["is_device_level"] is False
+    # Carries per-entry params (min_length) -> repeatable.
+    assert on_click["repeatable"] is True
     cfg_keys = {e["key"] for e in on_click["config_entries"]}
     assert "min_length" in cfg_keys
     assert "then" not in cfg_keys  # placeholder stripped
+
+
+def test_build_automations_derives_repeatable_from_per_entry_params(tmp_path: Path) -> None:
+    """Per-entry params mark a component trigger repeatable; paramless and device-level don't."""
+    _params = {"config_vars": {"seconds": {"key": "Optional"}, "then": {"type": "trigger"}}}
+    _bare = {"config_vars": {"then": {"type": "trigger"}}}
+    schema_dir = _write_schema(
+        tmp_path,
+        "demo.json",
+        {
+            "demo": {
+                "schemas": {
+                    "DEMO_SCHEMA": {
+                        "schema": {
+                            "config_vars": {
+                                "on_schedule": {
+                                    "key": "Optional",
+                                    "schema": _params,
+                                    "type": "trigger",
+                                },
+                                "on_press": {"key": "Optional", "schema": _bare, "type": "trigger"},
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    )
+    # Device-level section (``esphome``) with a params trigger.
+    _write_schema(
+        tmp_path,
+        "esphome.json",
+        {
+            "esphome": {
+                "schemas": {
+                    "ESPHOME_SCHEMA": {
+                        "schema": {
+                            "config_vars": {
+                                "on_boot": {
+                                    "key": "Optional",
+                                    "schema": _params,
+                                    "type": "trigger",
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    )
+    triggers = {
+        t["id"]: t
+        for t in sync_components.build_automations(schema_dir=schema_dir, component_ids=set())[
+            "triggers"
+        ]
+    }
+    assert triggers["demo.on_schedule"]["repeatable"] is True
+    assert triggers["demo.on_press"]["repeatable"] is False
+    # Device-level handlers carry params but grow inline, never stacked by index.
+    assert triggers["on_boot"]["is_device_level"] is True
+    assert triggers["on_boot"]["repeatable"] is False
 
 
 def test_build_automations_extracts_light_effect(tmp_path: Path) -> None:
