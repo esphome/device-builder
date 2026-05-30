@@ -16,6 +16,11 @@ try:
 except ImportError:  # pragma: no cover; covered by the import below
     from esphome.dashboard.util.text import friendly_name_slugify
 
+try:
+    from esphome.core.config import FRIENDLY_NAME_MAX_LEN
+except ImportError:  # pragma: no cover; older esphome without the constant
+    FRIENDLY_NAME_MAX_LEN = 120
+
 from esphome.helpers import rmtree, sort_ip_addresses
 from esphome.storage_json import StorageJSON
 
@@ -48,11 +53,60 @@ __all__ = [
     "_unlink_storage_sidecar",
     "_validate_archive_configuration",
     "_wipe_device_build_dir",
+    "clean_friendly_name",
     "friendly_name_slugify",
+    "slugify_hostname",
 ]
 
 
 _LOGGER = logging.getLogger(__name__)
+
+
+# C0 controls, DEL, and C1 controls. ESPHome's friendly_name validator
+# doesn't reject these, and ``_safe_yaml_scalar`` only escapes a few
+# (``\n`` / ``\t`` / ``\r``) while emitting the rest (NUL, bell, …)
+# literally — a literal NUL alone makes the YAML unparsable.
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+# ESPHome's ``validate_hostname`` caps the device name at 31 chars (24
+# with name_add_mac_suffix, which the create wizard never sets). Keep
+# in sync with ESPHOME_DEVICE_NAME_MAX_LEN in esphome/core/entity_base.h.
+_HOSTNAME_MAX_LEN = 31
+
+
+def slugify_hostname(value: str) -> str:
+    """
+    Slugify *value* into a valid ``esphome.name`` (the mDNS hostname).
+
+    Wraps ESPHome's ``friendly_name_slugify`` (lowercase-dashed ASCII)
+    and clamps to the hostname length cap ``validate_hostname``
+    enforces — ``friendly_name_slugify`` itself doesn't, so a long
+    display name would otherwise generate a config ESPHome rejects.
+    A dash left dangling at the cut is dropped so the slug stays valid.
+    """
+    slug: str = friendly_name_slugify(value)
+    return slug[:_HOSTNAME_MAX_LEN].rstrip("-")
+
+
+def clean_friendly_name(value: str) -> str:
+    """
+    Clean a raw display name into a valid ``esphome.friendly_name``.
+
+    ESPHome validates friendly_name only with ``string_no_slash`` plus a
+    ``FRIENDLY_NAME_MAX_LEN``-byte cap — it accepts control characters,
+    so a pasted newline / tab / NUL would otherwise land in the YAML
+    scalar. This swaps the reserved ``/`` for ``⁄`` (U+2044, ESPHome's
+    own substitution), turns control characters (EOL / tab / …) into
+    spaces and collapses whitespace runs, then clamps to the byte cap on
+    a character boundary. YAML-metacharacter quoting (``:``, ``#``) is
+    the separate job of ``_safe_yaml_scalar`` at emit time.
+    """
+    cleaned = _CONTROL_CHARS_RE.sub(" ", value.replace("/", "⁄"))
+    cleaned = " ".join(cleaned.split())
+    encoded = cleaned.encode("utf-8")
+    if len(encoded) > FRIENDLY_NAME_MAX_LEN:
+        cleaned = encoded[:FRIENDLY_NAME_MAX_LEN].decode("utf-8", "ignore").rstrip()
+    return cleaned
 
 
 def _rewrite_required_yaml_leaf(

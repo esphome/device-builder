@@ -11,24 +11,37 @@ exception.
 from __future__ import annotations
 
 import asyncio
+import io
+import warnings
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
+import esphome.config_validation as cv
 import pytest
+from esphome.core.config import FRIENDLY_NAME_MAX_LEN
 from esphome.storage_json import StorageJSON
+from ruamel.yaml import YAML
 
 from esphome_device_builder.controllers.config import (
     get_device_metadata,
     set_device_metadata,
 )
+from esphome_device_builder.controllers.devices.helpers import (
+    clean_friendly_name,
+    slugify_hostname,
+)
 from esphome_device_builder.controllers.devices.mutations_yaml import (
     yaml_content_for_create,
 )
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.yaml import _safe_yaml_scalar
 from esphome_device_builder.models import ErrorCode
 
 from .conftest import MakeControllerFactory, StubBoardLookups
+
+# ESPHome's friendly_name field validator (no slash + byte cap).
+_FRIENDLY_NAME_VALIDATOR = cv.All(cv.string_no_slash, cv.ByteLength(max=FRIENDLY_NAME_MAX_LEN))
 
 VALID_FILE_CONTENT = (
     "esphome:\n  name: kitchen\n  friendly_name: Kitchen\n"
@@ -186,6 +199,135 @@ async def test_create_device_rejects_name_with_no_hostname_safe_characters(
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
     assert "hostname-safe" in excinfo.value.message
     assert ctrl._scanner.calls == []
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_create_device_swaps_reserved_slash_in_friendly_name(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A ``/`` in the name becomes ``⁄`` in friendly_name, ESPHome's own swap (#1070)."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    boards = StubBoardLookups(ctrl)
+    boards.find_by_pio_board_returns(None)
+    boards.find_by_platform_variant_returns(None)
+
+    result = await ctrl.create_device(name="Living Room / Bath #2")
+
+    assert result.configuration == "living-room--bath-2.yaml"
+    storage = StorageJSON.load(tmp_path / "storage.json")
+    assert storage is not None
+    # ESPHome reserves ``/`` (deprecated, hard error in 2026.7.0); the
+    # backend swaps it for ``⁄`` so the generated YAML validates.
+    assert storage.friendly_name == "Living Room ⁄ Bath #2"
+    assert "/" not in storage.friendly_name
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_create_device_strips_control_chars_from_friendly_name(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """Control / EOL chars become spaces (collapsed) so the YAML scalar stays clean (#1070)."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    boards = StubBoardLookups(ctrl)
+    boards.find_by_pio_board_returns(None)
+    boards.find_by_platform_variant_returns(None)
+
+    # Newline + tab become spaces; bell + NUL are dropped; a literal NUL
+    # would otherwise make the generated YAML unparsable.
+    result = await ctrl.create_device(name="Bed\nroom\trm\x07\x00")
+
+    assert result.configuration == "bed-room-rm.yaml"
+    storage = StorageJSON.load(tmp_path / "storage.json")
+    assert storage is not None
+    assert storage.friendly_name == "Bed room rm"
+    assert not any(ord(c) < 0x20 or 0x7F <= ord(c) <= 0x9F for c in storage.friendly_name)
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_create_device_clamps_friendly_name_to_byte_limit(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """An over-long name is clamped to the friendly_name byte cap on a char boundary (#1070)."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    boards = StubBoardLookups(ctrl)
+    boards.find_by_pio_board_returns(None)
+    boards.find_by_platform_variant_returns(None)
+
+    # 70 × ``ü`` = 140 UTF-8 bytes (2 each); friendly_name clamps to 60
+    # (120 bytes) on a char boundary, while the hostname is independently
+    # clamped to ESPHome's 31-char name cap. Both caps must hold or the
+    # create fails ESPHome validation.
+    result = await ctrl.create_device(name="ü" * 70)
+
+    storage = StorageJSON.load(tmp_path / "storage.json")
+    assert storage is not None
+    assert storage.friendly_name == "ü" * 60
+    assert len(storage.friendly_name.encode("utf-8")) == 120
+    assert storage.name == "u" * 31
+    assert result.configuration == f"{'u' * 31}.yaml"
+
+
+def test_slugify_hostname_clamps_after_trimming_the_cut_dash() -> None:
+    """The clamp is applied before the dash-strip so the cut can't leave a trailing dash (#1070)."""
+    # 30 'a' + " b" slugs to 'aaaa…(30)-b' (32 chars); the cut at 31
+    # lands on the dash. Stripping must happen AFTER the truncation,
+    # or the hostname would end in '-'.
+    assert slugify_hostname("a" * 30 + " b") == "a" * 30
+    # General length clamp + validity.
+    long_name = "A Very Long Living Room Climate Sensor Name Here"
+    out = slugify_hostname(long_name)
+    assert len(out) <= 31
+    assert not out.startswith("-") and not out.endswith("-")
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        pytest.param("Bedroom #2: lamp", id="hash-and-colon"),
+        pytest.param('Lamp "quoted"', id="double-quote"),
+        pytest.param("back\\slash", id="backslash"),
+        pytest.param("it's a 'test'", id="single-quote"),
+        pytest.param(": leading colon", id="leading-colon"),
+        pytest.param("- leading dash", id="leading-dash"),
+        pytest.param("! & * ? | > % @ ` ~ [ ] { } ,", id="all-indicators"),
+        pytest.param("trailing colon:", id="trailing-colon"),
+        pytest.param("null", id="reserved-word"),
+        pytest.param("Kitchen/Bath", id="slash"),
+        pytest.param("emoji 🚀 home", id="emoji"),
+        pytest.param("tab\tnl\ncr\r", id="eol-and-tab"),
+        pytest.param("\x00\x07\x1b bell", id="c0-control"),
+        pytest.param("C1\x85\x9f here", id="c1-control"),
+        pytest.param("x" * 200, id="over-byte-cap"),
+    ],
+)
+def test_clean_friendly_name_round_trips_and_validates(raw: str) -> None:
+    """Both derived fields stay valid for any raw input (#1070).
+
+    Pins that ``clean_friendly_name`` + ``_safe_yaml_scalar`` leave no
+    character class that lands invalid YAML or a schema-invalid
+    friendly_name, and that ``slugify_hostname`` always yields a valid,
+    length-capped ``esphome.name``.
+    """
+    cleaned = clean_friendly_name(raw)
+    if not cleaned:
+        return  # slugs/cleans to empty -> create rejects via "name is required"
+
+    # ESPHome accepts it, with no friendly_name deprecation warning
+    # (the slash was already swapped for ``⁄``).
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert _FRIENDLY_NAME_VALIDATOR(cleaned) == cleaned
+
+    # And the emitted scalar re-parses to exactly the cleaned value.
+    doc = f"esphome:\n  name: x\n  friendly_name: {_safe_yaml_scalar(cleaned)}\n"
+    parsed = YAML(typ="safe").load(io.StringIO(doc))
+    assert parsed["esphome"]["friendly_name"] == cleaned
+
+    # The hostname from the same input is a valid, length-capped name.
+    hostname = slugify_hostname(raw)
+    if hostname:
+        assert len(hostname) <= 31
+        assert cv.valid_name(hostname) == hostname
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")

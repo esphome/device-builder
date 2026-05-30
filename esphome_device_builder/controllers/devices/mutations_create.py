@@ -11,7 +11,7 @@ from ...helpers.api import CommandError
 from ...helpers.device_yaml import parse_platform_from_yaml
 from ...helpers.storage_path import resolve_storage_path
 from ...models import ErrorCode, WizardResponse
-from .helpers import friendly_name_slugify
+from .helpers import clean_friendly_name, slugify_hostname
 
 if TYPE_CHECKING:
     from .controller import DevicesController
@@ -43,20 +43,18 @@ async def create_device(  # noqa: PLR0912, PLR0915, C901
     (its hard-coded ``board: esp32dev`` would mis-bind).
     """
     # The wizard passes the user's raw input here — capitalisation,
-    # inter-word spaces, and unicode all stay intact (only the
-    # surrounding whitespace is trimmed, since accidental leading
-    # / trailing spaces on a display label are almost certainly
-    # noise). Slugify the cleaned value for the hostname (mDNS /
-    # filename / esphome.name: schema all require the canonical
-    # lowercase-dashed form) and keep the cleaned original as the
-    # display label written into esphome.friendly_name:.
-    # Centralising the slug here keeps the frontend out of the
-    # sanitisation business and avoids two slug implementations
-    # drifting apart.
-    friendly = name.strip()
+    # inter-word spaces, and unicode all stay intact. ``clean_friendly_name``
+    # makes it a valid ``esphome.friendly_name:`` (trims, swaps the
+    # reserved ``/`` for ``⁄`` as ESPHome itself does, drops control
+    # chars, clamps to the byte cap), and ``slugify_hostname`` derives
+    # the canonical lowercase-dashed hostname clamped to ESPHome's name
+    # length cap (mDNS / filename / esphome.name: schema). Centralising
+    # both here keeps the frontend out of the sanitisation business and
+    # avoids two implementations drifting.
+    friendly = clean_friendly_name(name)
     if not friendly:
         raise CommandError(ErrorCode.INVALID_ARGS, "name is required")
-    name = friendly_name_slugify(friendly)
+    name = slugify_hostname(friendly)
     if not name:
         raise CommandError(
             ErrorCode.INVALID_ARGS,

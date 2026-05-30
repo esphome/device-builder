@@ -13,7 +13,11 @@ from ...helpers.yaml import (
     rewrite_name_or_substitution,
 )
 from ...models import ErrorCode
-from .helpers import _rewrite_required_yaml_leaf, friendly_name_slugify
+from .helpers import (
+    _rewrite_required_yaml_leaf,
+    clean_friendly_name,
+    friendly_name_slugify,
+)
 
 if TYPE_CHECKING:
     from .controller import DevicesController
@@ -107,10 +111,16 @@ async def clone_device(  # noqa: C901
     new_content = _rewrite_required_yaml_leaf(source_content, ("esphome", "name"), new_name)
     # ``friendly_name`` is optional on the clone path; the
     # underlying helper is already a no-op when the leaf is
-    # missing, so skip the required-leaf wrapper here.
+    # missing, so skip the required-leaf wrapper here. The clone
+    # dialog supplies a raw display name, so clean it to ESPHome's
+    # friendly_name rules (slash swap / control strip / byte cap) —
+    # the same generator-hardening as the create wizard, so a clone
+    # can't reintroduce the #1070 symptom.
     if new_friendly_name:
         new_content = rewrite_name_or_substitution(
-            new_content, ("esphome", "friendly_name"), new_friendly_name
+            new_content,
+            ("esphome", "friendly_name"),
+            clean_friendly_name(new_friendly_name),
         )
     # No-op when the source uses ``!secret`` / ``${...}`` for
     # the key; those indirections stay shared with the source.

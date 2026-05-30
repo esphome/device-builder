@@ -108,6 +108,29 @@ async def test_clone_device_uses_explicit_friendly_name_when_provided(
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_cleans_friendly_name_to_schema_rules(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A clone's raw friendly name is cleaned like the create wizard's (#1070)."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    (tmp_path / "kitchen.yaml").write_text(SOURCE_YAML, "utf-8")
+
+    await ctrl.clone_device(
+        configuration="kitchen.yaml",
+        new_name="bedroom-bulb",
+        new_friendly_name="Bath / Lamp\twith\x00ctl",
+    )
+
+    new_yaml = (tmp_path / "bedroom-bulb.yaml").read_text("utf-8")
+    # ``/`` -> ``⁄`` (ESPHome's own swap), tab -> space, NUL dropped,
+    # whitespace collapsed. ``⁄`` is not a YAML metachar, so it stays a
+    # plain scalar.
+    assert "friendly_name: Bath ⁄ Lamp with ctl\n" in new_yaml
+    assert "/" not in new_yaml.split("friendly_name:", 1)[1].splitlines()[0]
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
 async def test_clone_device_skips_friendly_rewrite_when_blank(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
