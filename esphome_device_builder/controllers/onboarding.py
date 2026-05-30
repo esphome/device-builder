@@ -169,9 +169,7 @@ class OnboardingController:
             # version. A user who briefly ran a future build (with
             # `ONBOARDING_VERSION = 2`) and then rolled back to this
             # build (`= 1`) shouldn't lose the v2 acknowledgement and
-            # get re-prompted on the next upgrade. mutate_preferences
-            # runs this under one lock so a concurrent set_preferences
-            # write can't clobber the bump (or be clobbered by it).
+            # get re-prompted on the next upgrade.
             prefs.onboarding_completed_version = max(
                 prefs.onboarding_completed_version, ONBOARDING_VERSION
             )

@@ -593,12 +593,7 @@ def clear_volatile_device_metadata(config_dir: Path, filename: str) -> None:
 
 
 def _prefs_from_data(data: dict[str, Any]) -> UserPreferences:
-    """
-    Decode the ``_preferences`` blob, defaulting on a corrupt shape.
-
-    A hand-edited sidecar with a malformed prefs blob shouldn't
-    take the whole dashboard down.
-    """
+    """Decode the ``_preferences`` blob, returning defaults on a corrupt shape."""
     try:
         return UserPreferences.from_dict(data.get(_PREFS_KEY, {}))
     except (ValueError, TypeError, LookupError):
@@ -622,12 +617,9 @@ def mutate_preferences(
     """
     Atomic read-modify-write for user preferences.
 
-    Load the current prefs (defaults on a corrupt blob), call
-    *mutate* to produce the next state, and persist under one
-    ``metadata_transaction`` lock so a concurrent writer can't
-    read the same baseline and clobber the result. *mutate* either
-    returns the new prefs or mutates the passed object in place and
-    returns ``None``.
+    *mutate* receives the current prefs (defaults on a corrupt
+    blob) and returns the next state, or mutates it in place and
+    returns ``None``. Load and save share one lock.
     """
     with metadata_transaction(config_dir) as data:
         prefs = _prefs_from_data(data)
