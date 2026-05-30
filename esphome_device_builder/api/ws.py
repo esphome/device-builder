@@ -127,6 +127,12 @@ class WebSocketClient:
         self._authenticated = authenticated
         self._token = token
         self._tasks: set[asyncio.Task] = set()
+        # Subset of ``_tasks`` holding the spawned streaming handlers,
+        # tracked separately so ``_MAX_CONCURRENT_STREAMS`` is enforced
+        # against *streams only* — not whatever else may land in
+        # ``_tasks``. Keying the cap on ``len(self._tasks)`` would make
+        # the limit drift the moment any non-stream task is tracked.
+        self._streaming_tasks: set[asyncio.Task] = set()
         self._stream_tasks: dict[str, asyncio.Task] = {}
         self._close_after_send: bool = False
 
@@ -176,6 +182,13 @@ class WebSocketClient:
         task = asyncio.create_task(coro)
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+        return task
+
+    def create_streaming_task(self, coro: Any) -> asyncio.Task:
+        """Create a tracked task counted against ``_MAX_CONCURRENT_STREAMS``."""
+        task = self.create_task(coro)
+        self._streaming_tasks.add(task)
+        task.add_done_callback(self._streaming_tasks.discard)
         return task
 
     def register_stream(self, message_id: str, task: asyncio.Task) -> None:
@@ -242,14 +255,14 @@ class WebSocketClient:
             # loop. Spawn a tracked task instead, but bound the count
             # so a client spamming stream-open frames can't fan out
             # unbounded server-side tasks.
-            if len(self._tasks) >= _MAX_CONCURRENT_STREAMS:
+            if len(self._streaming_tasks) >= _MAX_CONCURRENT_STREAMS:
                 await self.send_error(
                     cmd.message_id,
                     ErrorCode.RATE_LIMITED,
                     "Too many active streams on this connection",
                 )
                 return
-            self.create_task(self._run_handler(handler, cmd))
+            self.create_streaming_task(self._run_handler(handler, cmd))
             return
 
         await self._run_handler(handler, cmd)

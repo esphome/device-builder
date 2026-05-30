@@ -132,8 +132,8 @@ async def test_streaming_cap_rejects_with_rate_limited() -> None:
         await asyncio.Event().wait()
 
     for _ in range(_MAX_CONCURRENT_STREAMS):
-        client.create_task(_park())
-    assert len(client._tasks) == _MAX_CONCURRENT_STREAMS
+        client.create_streaming_task(_park())
+    assert len(client._streaming_tasks) == _MAX_CONCURRENT_STREAMS
 
     handler = AsyncMock(return_value=None)
     client.device_builder.command_handlers = {"subscribe_events": handler}
