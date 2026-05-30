@@ -390,33 +390,34 @@ def _decompose_trigger_body(body: Any, *, trigger_id: str) -> AutomationTree:
     tree: bare action list (``on_press: - action: ...``), single
     bare action (``on_press: action: ...``), explicit ``then:``.
     """
-    trigger_params: dict[str, Any] = {}
-    actions: list[ActionNode] = []
+    if isinstance(body, dict):
+        return _decompose_trigger_mapping(body, trigger_id=trigger_id)
+    actions = _decompose_action_list(body) if isinstance(body, list) else []
+    return AutomationTree(trigger_id=trigger_id, trigger_params={}, actions=actions)
 
-    if body is None:
-        return AutomationTree(
-            trigger_id=trigger_id,
-            trigger_params={},
-            actions=[],
-        )
 
-    if isinstance(body, list):
-        actions = _decompose_action_list(body)
-    elif isinstance(body, dict):
-        trigger_params = _collect_block_params(body, action_list_keys={"then"})
-        if "then" in body:
-            actions = _decompose_action_list(body["then"])
-        else:
-            # Single-action shortcut: the body's keys are a mix of
-            # trigger params and known catalog action ids.
-            # ``_collect_block_params`` naively absorbed both; pull
-            # the action keys back out by catalog lookup and rebuild
-            # ``trigger_params`` without them.
-            action_body = {k: v for k, v in body.items() if catalog.action_by_id(k) is not None}
-            if action_body:
-                actions = _decompose_action_list([action_body])
-                trigger_params = {k: v for k, v in trigger_params.items() if k not in action_body}
+def _decompose_trigger_mapping(body: dict[str, Any], *, trigger_id: str) -> AutomationTree:
+    """
+    Decompose one mapping-form trigger handler (params + ``then:``).
 
+    Splits the mapping into trigger params and its action list,
+    accepting the explicit ``then:`` form and the single-action
+    shortcut. Reused per list entry for list-shaped triggers.
+    """
+    trigger_params = _collect_block_params(body, action_list_keys={"then"})
+    if "then" in body:
+        actions = _decompose_action_list(body["then"])
+    else:
+        # Single-action shortcut: the body's keys are a mix of
+        # trigger params and known catalog action ids.
+        # ``_collect_block_params`` naively absorbed both; pull
+        # the action keys back out by catalog lookup and rebuild
+        # ``trigger_params`` without them.
+        action_body = {k: v for k, v in body.items() if catalog.action_by_id(k) is not None}
+        actions = []
+        if action_body:
+            actions = _decompose_action_list([action_body])
+            trigger_params = {k: v for k, v in trigger_params.items() if k not in action_body}
     return AutomationTree(
         trigger_id=trigger_id,
         trigger_params=trigger_params,

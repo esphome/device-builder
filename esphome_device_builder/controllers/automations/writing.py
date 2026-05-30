@@ -37,14 +37,13 @@ from ...models.automations import (
 )
 from . import api_actions, catalog
 from .emitter import (
-    dump,
-    emit_effect_item,
     render_api_action_item,
     render_interval_item,
     render_script_item,
     render_trigger_handler,
 )
 from .parsing import make_yaml
+from .writing_lists import delete_light_effect, upsert_light_effect
 
 # ---------------------------------------------------------------------------
 # Public entry points
@@ -73,7 +72,7 @@ def render_upsert(
     if isinstance(location, ComponentOnLocation):
         return _upsert_component_on(yaml_text, tree, location)
     if isinstance(location, LightEffectLocation):
-        return _upsert_light_effect(yaml_text, tree, location)
+        return upsert_light_effect(yaml_text, tree, location)
     if isinstance(location, ApiActionLocation):
         return _upsert_api_action(yaml_text, tree, location)
     msg = f"Unsupported AutomationLocation: {type(location).__name__}"
@@ -91,7 +90,7 @@ def render_delete(
     if isinstance(location, ComponentOnLocation):
         return _delete_component_on(yaml_text, location)
     if isinstance(location, LightEffectLocation):
-        return _delete_light_effect(yaml_text, location)
+        return delete_light_effect(yaml_text, location)
     if isinstance(location, ApiActionLocation):
         return _delete_api_action(yaml_text, location)
     msg = f"Unsupported AutomationLocation: {type(location).__name__}"
@@ -199,43 +198,6 @@ def _upsert_api_action(
         rendered_text = api_actions.indent_for_list(rendered, item_indent)
         return api_actions.render_replacement(lines, item_start, item_end, rendered_text)
     return api_actions.render_append(lines, actions_end, item_indent, rendered)
-
-
-def _upsert_light_effect(
-    yaml_text: str,
-    tree: AutomationTree,
-    location: LightEffectLocation,
-) -> tuple[str, YamlDiff]:
-    """Splice an ``effects:`` list item under a configured light."""
-    # The tree carries the effect id under ``trigger_params`` (one
-    # key mapping to its params dict). Reverse the parser's shape.
-    if not tree.trigger_params or len(tree.trigger_params) != 1:
-        msg = "LightEffect upsert requires exactly one effect-id key in trigger_params"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    effect_id, params = next(iter(tree.trigger_params.items()))
-    catalog_entry = catalog.light_effect_by_id(str(effect_id))
-    if catalog_entry is None:
-        msg = f"Unknown light effect id: {effect_id!r}"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    rendered = _wrap_effects_block(
-        dump([emit_effect_item(catalog_entry, str(effect_id), params or {})]),
-    )
-    res = upsert_inline_handler(
-        yaml_text,
-        component_domain="light",
-        component_id=location.component_id,
-        handler_key="effects",
-        rendered_yaml=rendered,
-    )
-    if res is None:
-        msg = f"Light instance id={location.component_id!r} not found; can't splice effect entry"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    new_text, from_line, to_line, replacement = res
-    return new_text, YamlDiff(
-        fromLine=from_line,
-        toLine=to_line,
-        replacement=replacement,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -546,68 +508,6 @@ def _delete_api_action(
     return api_actions.render_delete_actions_key(lines, actions_start, actions_end)
 
 
-def _delete_light_effect(
-    yaml_text: str,
-    location: LightEffectLocation,
-) -> tuple[str, YamlDiff]:
-    """Drop one entry from a light's ``effects:`` list."""
-    # Easiest path: parse, mutate the list, re-emit. We don't have a
-    # line-precise splice helper for "remove list item at index N
-    # inside an inline handler" — this keeps the writer simple at
-    # the cost of touching the whole ``effects:`` block in the diff.
-    yaml = make_yaml()
-    data = yaml.load(yaml_text) or {}
-    lights = data.get("light") if isinstance(data, dict) else None
-    if not isinstance(lights, list):
-        msg = "No light: block; can't delete effect"
-        raise CommandError(ErrorCode.NOT_FOUND, msg)
-    for instance in lights:
-        if not isinstance(instance, dict):
-            continue
-        if str(instance.get("id", "")) != location.component_id:
-            continue
-        effects = instance.get("effects")
-        if not isinstance(effects, list) or not 0 <= location.index < len(effects):
-            msg = f"effects[{location.index}] not present on light id={location.component_id!r}"
-            raise CommandError(ErrorCode.NOT_FOUND, msg)
-        del effects[location.index]
-        if not effects:
-            del instance["effects"]
-        # Re-render the inline handler block to splice through
-        # ``upsert_inline_handler`` (or remove it when empty).
-        if "effects" in instance:
-            rendered = _wrap_effects_block(dump(effects))
-            res = upsert_inline_handler(
-                yaml_text,
-                component_domain="light",
-                component_id=location.component_id,
-                handler_key="effects",
-                rendered_yaml=rendered,
-            )
-            if res is None:  # pragma: no cover — instance found above
-                msg = f"light id={location.component_id!r} not found in splice"
-                raise CommandError(ErrorCode.INTERNAL_ERROR, msg)
-            new_text, from_line, to_line, replacement = res
-            return new_text, YamlDiff(
-                fromLine=from_line,
-                toLine=to_line,
-                replacement=replacement,
-            )
-        removed = remove_inline_handler(
-            yaml_text,
-            component_domain="light",
-            component_id=location.component_id,
-            handler_key="effects",
-        )
-        if removed is None:  # pragma: no cover — instance found above
-            msg = f"effects: not found on light id={location.component_id!r}"
-            raise CommandError(ErrorCode.NOT_FOUND, msg)
-        new_text, from_line, to_line = removed
-        return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement="")
-    msg = f"Light id={location.component_id!r} not found"
-    raise CommandError(ErrorCode.NOT_FOUND, msg)
-
-
 # ---------------------------------------------------------------------------
 # Low-level utilities
 # ---------------------------------------------------------------------------
@@ -683,16 +583,6 @@ def _component_domain_from_yaml(
         if m and m.group(1) == target_id:
             return current_domain
     return _component_domain(location)
-
-
-def _wrap_effects_block(rendered_list: str) -> str:
-    """Prefix a rendered ``- effect: ...`` list with the ``effects:`` key."""
-    # ``upsert_inline_handler`` writes ``rendered_yaml`` verbatim under the
-    # component instance — for trigger handlers the renderer already
-    # emits ``on_press:\n  ...``; for effects the list dump is bare, so
-    # add the ``effects:`` header here.
-    body = rendered_list.rstrip()
-    return "effects:\n" + body + "\n"
 
 
 def _indent_block(block_text: str, indent: str) -> list[str]:

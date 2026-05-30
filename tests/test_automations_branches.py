@@ -34,6 +34,7 @@ from esphome_device_builder.controllers.automations.parsing import (
     _decompose_action_list,
     _decompose_condition,
     _decompose_condition_list,
+    _decompose_trigger_mapping,
     _dump_slice,
     _estimate_end_line,
     _item_range,
@@ -235,6 +236,25 @@ def test_parse_light_skips_non_dict_instances() -> None:
     )
     effects = [p for p in parsed if p.location.kind == "light_effect"]
     assert len(effects) == 1
+
+
+def test_decompose_trigger_mapping_explicit_then() -> None:
+    """A mapping with ``then:`` splits into trigger params and its action list."""
+    tree = _decompose_trigger_mapping(
+        {"seconds": 0, "then": [{"delay": "1s"}]}, trigger_id="time.on_time"
+    )
+    assert tree.trigger_id == "time.on_time"
+    assert tree.trigger_params == {"seconds": 0}
+    assert [a.action_id for a in tree.actions] == ["delay"]
+
+
+def test_decompose_trigger_mapping_single_action_shortcut() -> None:
+    """The single-action shortcut pulls the action key out of trigger params."""
+    tree = _decompose_trigger_mapping(
+        {"min_length": "50ms", "logger.log": "hi"}, trigger_id="binary_sensor.on_click"
+    )
+    assert tree.trigger_params == {"min_length": "50ms"}
+    assert [a.action_id for a in tree.actions] == ["logger.log"]
 
 
 def test_decompose_action_list_returns_empty_for_none() -> None:
