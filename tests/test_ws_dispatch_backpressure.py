@@ -14,6 +14,7 @@ Pin two contracts the recovery path depends on:
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -62,6 +63,7 @@ async def test_stream_backpressure_closes_ws_after_sending_error() -> None:
 
     raw = {"message_id": "m1", "command": "subscribe_events"}
     await client._handle_command(raw)
+    await asyncio.gather(*client._tasks)
 
     # Both calls happened.
     assert ws.send_json.await_count == 1
@@ -99,6 +101,7 @@ async def test_other_handler_exceptions_do_not_close_ws() -> None:
 
     raw = {"message_id": "m2", "command": "misc"}
     await client._handle_command(raw)
+    await asyncio.gather(*client._tasks)
 
     assert ws.send_json.await_count == 1
     assert ws.close.await_count == 0
@@ -125,6 +128,7 @@ async def test_stream_backpressure_send_failure_still_closes() -> None:
     raw = {"message_id": "m3", "command": "subscribe_events"}
     # Should not raise — ConnectionResetError is suppressed by send().
     await client._handle_command(raw)
+    await asyncio.gather(*client._tasks)
 
     # send_json was attempted; close still fired despite the
     # connection-reset on the send.

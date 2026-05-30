@@ -10,6 +10,7 @@ error. The tests below pin one assertion per branch.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -173,6 +174,7 @@ async def test_handle_command_passes_through_auth_error_code() -> None:
     }
 
     await client._handle_command({"message_id": "m1", "command": "auth/login"})
+    await asyncio.gather(*client._tasks)
 
     payload = _last_payload(ws)
     assert payload["error_code"] == ErrorCode.RATE_LIMITED.value
@@ -190,6 +192,7 @@ async def test_handle_command_passes_through_command_error_code() -> None:
     }
 
     await client._handle_command({"message_id": "m1", "command": "devices/rename"})
+    await asyncio.gather(*client._tasks)
 
     payload = _last_payload(ws)
     assert payload["error_code"] == ErrorCode.INVALID_ARGS.value
@@ -210,6 +213,7 @@ async def test_handle_command_unexpected_exception_becomes_internal_error() -> N
     }
 
     await client._handle_command({"message_id": "m1", "command": "devices/list"})
+    await asyncio.gather(*client._tasks)
 
     payload = _last_payload(ws)
     assert payload["error_code"] == ErrorCode.INTERNAL_ERROR.value

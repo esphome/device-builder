@@ -717,6 +717,7 @@ async def test_ws_pre_auth_allows_auth_command(tmp_path: Path) -> None:
             "args": {"username": "admin", "password": "hunter2"},
         }
     )
+    await asyncio.gather(*client._tasks)
 
     sent = client._sent
     assert len(sent) == 1
@@ -730,6 +731,7 @@ async def test_ws_authenticated_can_call_normal_commands(tmp_path: Path) -> None
     client = _make_ws_client(auth, authenticated=True)
 
     await client._handle_command({"command": "ping", "message_id": "3", "args": {}})
+    await asyncio.gather(*client._tasks)
 
     sent = client._sent
     assert sent[0]["result"] == {"pong": True}
@@ -747,6 +749,7 @@ async def test_ws_auth_alias_command_works(tmp_path: Path) -> None:
             "args": {"username": "admin", "password": "hunter2"},
         }
     )
+    await asyncio.gather(*client._tasks)
 
     sent = client._sent
     assert "result" in sent[0]
