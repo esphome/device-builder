@@ -37,7 +37,7 @@ from ..models import (
     UserPreferences,
 )
 from ..models.onboarding import ONBOARDING_VERSION
-from .config import load_preferences, preferences_transaction
+from .config import load_preferences, mutate_preferences
 
 if TYPE_CHECKING:
     from esphome_device_builder.device_builder import DeviceBuilder
@@ -164,21 +164,19 @@ class OnboardingController:
         loop = asyncio.get_running_loop()
         config_dir = self._db.settings.config_dir
 
-        def _bump() -> None:
-            # Read-decide-write under one lock so a concurrent
-            # ``set_preferences`` writing the same blob can't clobber
-            # this acknowledgement (or be clobbered by it).
-            with preferences_transaction(config_dir) as prefs:
-                # Monotonic via max(): never downgrade a stored higher
-                # version. A user who briefly ran a future build (with
-                # `ONBOARDING_VERSION = 2`) and then rolled back to this
-                # build (`= 1`) shouldn't lose the v2 acknowledgement and
-                # get re-prompted on the next upgrade.
-                prefs.onboarding_completed_version = max(
-                    prefs.onboarding_completed_version, ONBOARDING_VERSION
-                )
+        def _bump(prefs: UserPreferences) -> None:
+            # Monotonic via max(): never downgrade a stored higher
+            # version. A user who briefly ran a future build (with
+            # `ONBOARDING_VERSION = 2`) and then rolled back to this
+            # build (`= 1`) shouldn't lose the v2 acknowledgement and
+            # get re-prompted on the next upgrade. mutate_preferences
+            # runs this under one lock so a concurrent set_preferences
+            # write can't clobber the bump (or be clobbered by it).
+            prefs.onboarding_completed_version = max(
+                prefs.onboarding_completed_version, ONBOARDING_VERSION
+            )
 
-        await loop.run_in_executor(None, _bump)
+        await loop.run_in_executor(None, mutate_preferences, config_dir, _bump)
         return await self.get_state()
 
 

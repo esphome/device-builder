@@ -10,7 +10,7 @@ import re
 import stat
 import tempfile
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -592,16 +592,22 @@ def clear_volatile_device_metadata(config_dir: Path, filename: str) -> None:
             data.pop(filename, None)
 
 
-def load_preferences(config_dir: Path) -> UserPreferences:
-    """Load user preferences, returning defaults for missing fields."""
-    raw = _load_metadata(config_dir).get(_PREFS_KEY, {})
+def _prefs_from_data(data: dict[str, Any]) -> UserPreferences:
+    """
+    Decode the ``_preferences`` blob, defaulting on a corrupt shape.
+
+    A hand-edited sidecar with a malformed prefs blob shouldn't
+    take the whole dashboard down.
+    """
     try:
-        return UserPreferences.from_dict(raw)
+        return UserPreferences.from_dict(data.get(_PREFS_KEY, {}))
     except (ValueError, TypeError, LookupError):
-        # mashumaro runtime-shape errors → defaults. Hand-edited
-        # sidecar with a malformed prefs blob shouldn't take the
-        # whole dashboard down.
         return UserPreferences()
+
+
+def load_preferences(config_dir: Path) -> UserPreferences:
+    """Load user preferences, returning defaults for missing or corrupt fields."""
+    return _prefs_from_data(_load_metadata(config_dir))
 
 
 def save_preferences(config_dir: Path, prefs: UserPreferences) -> None:
@@ -610,51 +616,34 @@ def save_preferences(config_dir: Path, prefs: UserPreferences) -> None:
         data[_PREFS_KEY] = prefs.to_dict()
 
 
-def _prefs_from_data(data: dict[str, Any]) -> UserPreferences:
-    """Decode the ``_preferences`` blob, defaulting on a corrupt shape."""
-    try:
-        return UserPreferences.from_dict(data.get(_PREFS_KEY, {}))
-    except (ValueError, TypeError, LookupError):
-        return UserPreferences()
-
-
-def update_preferences(config_dir: Path, update_fields: dict[str, Any]) -> UserPreferences:
+def mutate_preferences(
+    config_dir: Path, mutate: Callable[[UserPreferences], UserPreferences | None]
+) -> UserPreferences:
     """
-    Merge *update_fields* into stored preferences under one lock.
+    Atomic read-modify-write for user preferences.
 
-    Load, merge the partial update, validate, and save inside a
-    single ``metadata_transaction`` so two concurrent partial
-    updates can't both read the same baseline and clobber each
-    other's field. Defaults on a corrupt blob. Validates the
-    untrusted partial dict through ``from_dict``; for a
-    conditional in-place update use ``preferences_transaction``.
-    """
-    with metadata_transaction(config_dir) as data:
-        merged = _prefs_from_data(data).to_dict()
-        merged.update(update_fields)
-        updated = UserPreferences.from_dict(merged)
-        data[_PREFS_KEY] = updated.to_dict()
-        return updated
-
-
-@contextmanager
-def preferences_transaction(config_dir: Path) -> Iterator[UserPreferences]:
-    """
-    Atomic read-modify-write context for user preferences.
-
-    Yields the current :class:`UserPreferences` (defaults on a
-    corrupt blob). Mutate it in place; on a clean exit the blob is
-    persisted under the same ``metadata_transaction`` lock, so a
-    conditional update can't lose a concurrent writer's field.
-    Exceptions inside the block discard the pending mutation. Use
-    when the next state depends on reading the current one;
-    ``set_prefs`` uses ``update_preferences`` instead because it
-    validates an untrusted partial dict.
+    Load the current prefs (defaults on a corrupt blob), call
+    *mutate* to produce the next state, and persist under one
+    ``metadata_transaction`` lock so a concurrent writer can't
+    read the same baseline and clobber the result. *mutate* either
+    returns the new prefs or mutates the passed object in place and
+    returns ``None``.
     """
     with metadata_transaction(config_dir) as data:
         prefs = _prefs_from_data(data)
-        yield prefs
-        data[_PREFS_KEY] = prefs.to_dict()
+        result = mutate(prefs)
+        if result is None:
+            result = prefs
+        data[_PREFS_KEY] = result.to_dict()
+        return result
+
+
+def update_preferences(config_dir: Path, update_fields: dict[str, Any]) -> UserPreferences:
+    """Merge a validated partial dict into stored preferences atomically."""
+    return mutate_preferences(
+        config_dir,
+        lambda prefs: UserPreferences.from_dict({**prefs.to_dict(), **update_fields}),
+    )
 
 
 _REMOTE_BUILD_FAIL_SAFE = RemoteBuildSettings(enabled=False)
