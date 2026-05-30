@@ -77,22 +77,25 @@ _RECONNECT_INITIAL_BACKOFF_SECONDS = 1.0
 _RECONNECT_MAX_BACKOFF_SECONDS = 30.0
 
 
-# Reject reasons that won't self-heal on retry; the operator has
-# to re-pair or unpair.
-_TERMINAL_REJECT_REASONS: frozenset[str] = frozenset(
-    {RejectReason.NO_APPROVED_PEER.value, RejectReason.PIN_MISMATCH.value}
-)
-
-
-def _describe_rejection(reason: object) -> str:
-    """One-line operator-facing text for a non-OK receiver ``intent_response``."""
-    if reason == RejectReason.PIN_MISMATCH.value:
-        return "rejected: receiver has a different key on file (re-pair)"
-    if reason == RejectReason.NO_APPROVED_PEER.value:
-        return "rejected: receiver has no approval on file (re-pair)"
-    if reason == RejectReason.PENDING_NOT_APPROVED.value:
-        return "waiting for the receiver to accept the pairing"
-    return "auth rejected"
+# Per-reason recovery policy: a receiver ``reason`` maps to
+# ``(orphan?, operator-facing message)``. A reason absent here
+# (older receiver, unknown / non-string) falls through to the
+# transient default, so the client keeps reconnecting.
+_REJECT_DEFAULT: tuple[bool, str] = (False, "auth rejected")
+_REJECT_INFO: dict[str, tuple[bool, str]] = {
+    RejectReason.PIN_MISMATCH.value: (
+        True,
+        "rejected: receiver has a different key on file (re-pair)",
+    ),
+    RejectReason.NO_APPROVED_PEER.value: (
+        True,
+        "rejected: receiver has no approval on file (re-pair)",
+    ),
+    RejectReason.PENDING_NOT_APPROVED.value: (
+        False,
+        "waiting for the receiver to accept the pairing",
+    ),
+}
 
 
 # Offloader-side close reasons (wire-level ones live in
@@ -649,8 +652,10 @@ class PeerLinkClient:
     def _on_handshake_rejected(self, response: Any) -> str:
         """Map a non-OK ``intent_response`` to a close reason; orphan on terminal reasons."""
         reason = response.get("reason") if isinstance(response, dict) else None
-        self._last_connect_error = _describe_rejection(reason)
-        if reason in _TERMINAL_REJECT_REASONS:
+        key = reason if isinstance(reason, str) else ""
+        terminal, message = _REJECT_INFO.get(key, _REJECT_DEFAULT)
+        self._last_connect_error = message
+        if terminal:
             _LOGGER.warning(
                 "peer-link client to %s:%d rejected by receiver (reason=%s); orphaning "
                 "until the operator re-pairs or unpairs",
