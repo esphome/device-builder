@@ -1,14 +1,18 @@
 """End-to-end coverage for the ``GET /api/firmware/download`` HTTP route.
 
 Downloads move to HTTP (not the WebSocket) so a large artifact like the
-~14 MB ``firmware.elf`` isn't capped by a proxy's WebSocket ``max_msg_size``.
-This drives the real ``auth_middleware`` + the real ``http_download`` handler
-through an aiohttp test client, with an on-disk build directory — the same
-shape production uses, just with a stub ``device_builder``.
+~14 MB ``firmware.elf`` isn't capped by a proxy's WebSocket ``max_msg_size``,
+and a plain navigation streams it straight to disk (mobile-friendly). The route
+carries its own single-use capability token (minted over the authenticated WS
+by ``firmware/download_token``) instead of a bearer header, so it's in
+``auth_middleware``'s public allowlist and the handler validates the token.
 
-Pins: serves the bytes + a sanitized ``Content-Disposition``; gated by auth
-when a password is set; ``404`` for a missing file, a path-traversal ``file``,
-and an unbuilt device.
+This drives the real ``auth_middleware`` + the real ``http_download`` handler
+(+ ``DownloadTokens``) through an aiohttp test client with an on-disk build
+directory. Pins: a valid token serves the bytes + a sanitized
+``Content-Disposition`` even with a password set (proving the allowlist); a
+missing / unknown / reused / expired token, a traversal ``file``, and an
+unbuilt device all ``404``.
 """
 
 from __future__ import annotations
@@ -18,17 +22,17 @@ from typing import Any
 
 from aiohttp import web
 
-from esphome_device_builder.controllers.firmware.download import http_download
+from esphome_device_builder.controllers.firmware.download import (
+    DownloadTokens,
+    http_download,
+)
 from esphome_device_builder.helpers.auth import auth_middleware
 from tests._storage_fixtures import write_storage_json
 
 
 class _StubSessionStore:
-    def __init__(self, valid: set[str]) -> None:
-        self._valid = valid
-
     async def validate(self, token: str) -> object | None:
-        return "session" if token in self._valid else None
+        return None
 
 
 class _StubRateLimiter:
@@ -41,8 +45,8 @@ class _StubRateLimiter:
 
 
 class _StubAuth:
-    def __init__(self, valid_tokens: set[str] | None = None) -> None:
-        self.session_store = _StubSessionStore(valid_tokens or set())
+    def __init__(self) -> None:
+        self.session_store = _StubSessionStore()
         self.rate_limiter = _StubRateLimiter()
 
 
@@ -55,19 +59,20 @@ class _StubSettings:
 
 
 class _StubFirmware:
-    # The configuration-boundary traversal gate is covered in
-    # test_traversal_validation.py; here it's a no-op so the route test can
-    # focus on auth + file resolution + serving.
+    def __init__(self, *, token_ttl: float = 60.0) -> None:
+        self.download_tokens = DownloadTokens(ttl_seconds=token_ttl)
+
+    # The WS download_token command's boundary gate is covered in
+    # test_download_token.py; here it's a no-op so the route test can focus on
+    # token validation + file resolution + serving.
     async def _validate_configuration_boundary(self, configuration: str) -> None: ...
 
 
 class _StubDeviceBuilder:
-    def __init__(
-        self, *, using_password: bool = False, valid_tokens: set[str] | None = None
-    ) -> None:
+    def __init__(self, *, using_password: bool = False, token_ttl: float = 60.0) -> None:
         self.settings = _StubSettings(using_password=using_password)
-        self.auth = _StubAuth(valid_tokens)
-        self.firmware = _StubFirmware()
+        self.auth = _StubAuth()
+        self.firmware = _StubFirmware(token_ttl=token_ttl)
 
 
 def _make_app(db: _StubDeviceBuilder) -> web.Application:
@@ -94,133 +99,119 @@ def _seed_build(tmp_path: Path, monkeypatch: Any, *, elf: bytes = b"ELF-BYTES") 
     )
 
 
-async def test_download_serves_bytes_with_attachment_header(
+async def test_valid_token_serves_bytes_even_with_password_set(
     aiohttp_client: Any, tmp_path: Path, monkeypatch: Any
 ) -> None:
     _seed_build(tmp_path, monkeypatch, elf=b"ELFDATA-123")
-    client = await aiohttp_client(_make_app(_StubDeviceBuilder(using_password=False)))
+    # using_password=True proves the route is reachable via the token alone,
+    # with no Authorization header (auth_middleware allowlist).
+    db = _StubDeviceBuilder(using_password=True)
+    token = db.firmware.download_tokens.create("kitchen.yaml", "firmware.elf")
+    client = await aiohttp_client(_make_app(db))
 
-    resp = await client.get(
-        "/api/firmware/download",
-        params={"configuration": "kitchen.yaml", "file": "firmware.elf"},
-    )
+    resp = await client.get("/api/firmware/download", params={"token": token})
 
     assert resp.status == 200
     assert await resp.read() == b"ELFDATA-123"
-    cd = resp.headers["Content-Disposition"]
-    assert cd == 'attachment; filename="kitchen-firmware.elf"'
+    assert resp.headers["Content-Disposition"] == 'attachment; filename="kitchen-firmware.elf"'
     assert resp.headers["Content-Type"] == "application/octet-stream"
 
 
-async def test_download_requires_auth_when_password_set(
-    aiohttp_client: Any, tmp_path: Path, monkeypatch: Any
-) -> None:
-    _seed_build(tmp_path, monkeypatch)
-    client = await aiohttp_client(_make_app(_StubDeviceBuilder(using_password=True)))
-
-    resp = await client.get(
-        "/api/firmware/download",
-        params={"configuration": "kitchen.yaml", "file": "firmware.elf"},
-    )
-
-    assert resp.status == 401
-
-
-async def test_download_accepts_valid_bearer_token(
-    aiohttp_client: Any, tmp_path: Path, monkeypatch: Any
-) -> None:
-    _seed_build(tmp_path, monkeypatch, elf=b"OK")
-    client = await aiohttp_client(
-        _make_app(_StubDeviceBuilder(using_password=True, valid_tokens={"tok"}))
-    )
-
-    resp = await client.get(
-        "/api/firmware/download",
-        params={"configuration": "kitchen.yaml", "file": "firmware.elf"},
-        headers={"Authorization": "Bearer tok"},
-    )
-
-    assert resp.status == 200
-    assert await resp.read() == b"OK"
-
-
-async def test_download_missing_file_is_404(
-    aiohttp_client: Any, tmp_path: Path, monkeypatch: Any
-) -> None:
+async def test_missing_token_is_404(aiohttp_client: Any, tmp_path: Path, monkeypatch: Any) -> None:
     _seed_build(tmp_path, monkeypatch)
     client = await aiohttp_client(_make_app(_StubDeviceBuilder()))
 
-    resp = await client.get(
-        "/api/firmware/download",
-        params={"configuration": "kitchen.yaml", "file": "nope.bin"},
-    )
+    resp = await client.get("/api/firmware/download")
 
     assert resp.status == 404
 
 
-async def test_download_path_traversal_is_404(
+async def test_unknown_token_is_404(aiohttp_client: Any, tmp_path: Path, monkeypatch: Any) -> None:
+    _seed_build(tmp_path, monkeypatch)
+    client = await aiohttp_client(_make_app(_StubDeviceBuilder()))
+
+    resp = await client.get("/api/firmware/download", params={"token": "not-a-real-token"})
+
+    assert resp.status == 404
+
+
+async def test_token_is_single_use(aiohttp_client: Any, tmp_path: Path, monkeypatch: Any) -> None:
+    _seed_build(tmp_path, monkeypatch)
+    db = _StubDeviceBuilder()
+    token = db.firmware.download_tokens.create("kitchen.yaml", "firmware.elf")
+    client = await aiohttp_client(_make_app(db))
+
+    first = await client.get("/api/firmware/download", params={"token": token})
+    second = await client.get("/api/firmware/download", params={"token": token})
+
+    assert first.status == 200
+    assert second.status == 404
+
+
+async def test_expired_token_is_404(aiohttp_client: Any, tmp_path: Path, monkeypatch: Any) -> None:
+    _seed_build(tmp_path, monkeypatch)
+    db = _StubDeviceBuilder(token_ttl=-1.0)  # already expired on creation
+    token = db.firmware.download_tokens.create("kitchen.yaml", "firmware.elf")
+    client = await aiohttp_client(_make_app(db))
+
+    resp = await client.get("/api/firmware/download", params={"token": token})
+
+    assert resp.status == 404
+
+
+async def test_token_bound_to_traversal_file_is_404(
     aiohttp_client: Any, tmp_path: Path, monkeypatch: Any
 ) -> None:
-    """A ``file`` that escapes the build dir resolves out and is rejected."""
+    """Even a valid token can't escape the build dir — the file is resolved + checked."""
     _seed_build(tmp_path, monkeypatch)
-    # Plant a secret outside the build dir to prove it can't be reached.
     (tmp_path / "secret.txt").write_bytes(b"top secret")
-    client = await aiohttp_client(_make_app(_StubDeviceBuilder()))
+    db = _StubDeviceBuilder()
+    token = db.firmware.download_tokens.create("kitchen.yaml", "../../../../../../secret.txt")
+    client = await aiohttp_client(_make_app(db))
 
-    resp = await client.get(
-        "/api/firmware/download",
-        params={
-            "configuration": "kitchen.yaml",
-            "file": "../../../../../../secret.txt",
-        },
-    )
+    resp = await client.get("/api/firmware/download", params={"token": token})
 
     assert resp.status == 404
 
 
-async def test_download_unbuilt_device_is_404(
-    aiohttp_client: Any, tmp_path: Path, monkeypatch: Any
-) -> None:
-    # Redirect storage but write no sidecar → StorageJSON.load returns None.
+async def test_unbuilt_device_is_404(aiohttp_client: Any, tmp_path: Path, monkeypatch: Any) -> None:
     monkeypatch.setattr(
         "esphome_device_builder.controllers.firmware.download.resolve_storage_path",
         lambda configuration: tmp_path / ".esphome" / "storage" / f"{configuration}.json",
     )
-    client = await aiohttp_client(_make_app(_StubDeviceBuilder()))
+    db = _StubDeviceBuilder()
+    token = db.firmware.download_tokens.create("kitchen.yaml", "firmware.elf")
+    client = await aiohttp_client(_make_app(db))
 
-    resp = await client.get(
-        "/api/firmware/download",
-        params={"configuration": "kitchen.yaml", "file": "firmware.elf"},
-    )
+    resp = await client.get("/api/firmware/download", params={"token": token})
 
     assert resp.status == 404
 
 
-async def test_download_sanitizes_content_disposition(
-    aiohttp_client: Any, tmp_path: Path, monkeypatch: Any
-) -> None:
-    """A filename with a quote can't break out of the Content-Disposition header."""
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.firmware.download.resolve_storage_path",
-        lambda configuration: tmp_path / ".esphome" / "storage" / f"{configuration}.json",
-    )
-    build_dir = tmp_path / ".esphome" / "build" / "kitchen" / ".pioenvs" / "kitchen"
-    build_dir.mkdir(parents=True, exist_ok=True)
-    weird = 'fw".elf'
-    (build_dir / weird).write_bytes(b"x")
-    write_storage_json(
-        tmp_path,
-        "kitchen.yaml",
-        firmware_bin_path=build_dir / "firmware.bin",
-        overrides={"esp_platform": "esp32"},
-    )
-    client = await aiohttp_client(_make_app(_StubDeviceBuilder()))
+# ---------------------------------------------------------------------------
+# DownloadTokens
+# ---------------------------------------------------------------------------
 
-    resp = await client.get(
-        "/api/firmware/download",
-        params={"configuration": "kitchen.yaml", "file": weird},
-    )
 
-    assert resp.status == 200
-    # The raw quote is sanitized away — exactly one opening/closing quote pair.
-    assert resp.headers["Content-Disposition"] == 'attachment; filename="kitchen-fw_.elf"'
+def test_download_tokens_round_trip() -> None:
+    tokens = DownloadTokens()
+    token = tokens.create("kitchen.yaml", "firmware.elf")
+    assert tokens.consume(token) == ("kitchen.yaml", "firmware.elf")
+
+
+def test_download_tokens_unknown_returns_none() -> None:
+    assert DownloadTokens().consume("nope") is None
+    assert DownloadTokens().consume("") is None
+
+
+def test_download_tokens_are_single_use() -> None:
+    tokens = DownloadTokens()
+    token = tokens.create("kitchen.yaml", "firmware.elf")
+    assert tokens.consume(token) is not None
+    assert tokens.consume(token) is None
+
+
+def test_download_tokens_expire() -> None:
+    tokens = DownloadTokens(ttl_seconds=-1.0)  # expiry in the past
+    token = tokens.create("kitchen.yaml", "firmware.elf")
+    assert tokens.consume(token) is None

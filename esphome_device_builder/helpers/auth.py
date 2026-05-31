@@ -309,7 +309,11 @@ def parse_basic_auth(authorization: str) -> tuple[str, str] | None:
 # /ws bypasses the gate because auth happens in-band on the WebSocket —
 # browsers can't set Authorization headers on `new WebSocket(...)`.
 # Frontend assets are public so the login page can load before login.
-_PUBLIC_PATHS = frozenset({"/", "/ws", "/favicon.ico", "/manifest.json"})
+# /api/firmware/download bypasses too because a plain navigation can't send a
+# bearer header; it carries its own single-use capability token instead, minted
+# over the authenticated WS (see firmware/download_token) and validated by the
+# handler — the token is the authorization.
+_PUBLIC_PATHS = frozenset({"/", "/ws", "/favicon.ico", "/manifest.json", "/api/firmware/download"})
 _PUBLIC_PREFIXES = ("/assets/", "/boards/images/")
 
 

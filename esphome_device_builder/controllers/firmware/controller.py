@@ -57,6 +57,8 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     def __init__(self, device_builder: DeviceBuilder) -> None:
         self._db = device_builder
         self.state = FirmwareState()
+        # Short-lived capability tokens for the HTTP artifact-download route.
+        self.download_tokens = download_mod.DownloadTokens()
         self._runner_task: asyncio.Task | None = None
         # Serializes ``persist_jobs`` so a slow executor write can't be
         # overtaken by a newer one (which would let a stale snapshot
@@ -318,8 +320,13 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         return await download_mod.get_binaries(self, configuration=configuration)
 
     # Artifact bytes are served over HTTP (GET /api/firmware/download), not the
-    # WebSocket — a ~14 MB firmware.elf exceeds a proxy's WS max_msg_size. See
-    # controllers/firmware/download.py::http_download.
+    # WebSocket — a ~14 MB firmware.elf exceeds a proxy's WS max_msg_size, and a
+    # navigation streams to disk (mobile-friendly). This command mints the
+    # single-use token that authorizes one such download.
+    @api_command("firmware/download_token")
+    async def download_token(self, *, configuration: str, file: str, **kwargs: Any) -> dict:
+        await self._validate_configuration_boundary(configuration)
+        return {"token": self.download_tokens.create(configuration, file)}
 
     # ------------------------------------------------------------------
     # Internals — queue processing

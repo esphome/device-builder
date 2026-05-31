@@ -6,6 +6,8 @@ import asyncio
 import importlib
 import logging
 import re
+import secrets
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -130,17 +132,62 @@ def _resolve_artifact_path(configuration: str, file: str) -> tuple[Path, str]:
     return path, download_name
 
 
-async def http_download(request: web.Request) -> web.StreamResponse:
-    """``GET /api/firmware/download?configuration=&file=`` — stream an artifact.
+class DownloadTokens:
+    """Single-use, short-TTL capability tokens for HTTP artifact downloads.
 
-    HTTP (not WebSocket) so large artifacts like the ~14 MB ``firmware.elf``
-    aren't capped by a proxy's WebSocket ``max_msg_size``. Auth is handled by
-    the shared ``auth_middleware`` (public site) or the supervisor (ingress
-    site); this route is not in the middleware's public allowlist.
+    A token is minted over the authenticated WebSocket
+    (``firmware/download_token``) and consumed by ``GET /api/firmware/download``.
+    The token *is* that route's authorization (the route is in
+    ``auth_middleware``'s public allowlist), which lets a plain ``<a href>``
+    navigation stream the file straight to disk — no ``Authorization`` header,
+    no in-browser buffering, works on mobile. So each token is unguessable
+    (:mod:`secrets`), expires fast, is single-use, and is bound to one
+    ``(configuration, file)`` pair, so it can't be replayed or repurposed.
+    """
+
+    def __init__(self, ttl_seconds: float = 60.0) -> None:
+        self._ttl = ttl_seconds
+        self._tokens: dict[str, tuple[str, str, float]] = {}
+
+    def create(self, configuration: str, file: str) -> str:
+        self._purge()
+        token = secrets.token_urlsafe(32)
+        self._tokens[token] = (configuration, file, time.monotonic() + self._ttl)
+        return token
+
+    def consume(self, token: str) -> tuple[str, str] | None:
+        """Pop a token (single-use) and return its ``(configuration, file)``.
+
+        Returns ``None`` for an unknown, already-used, or expired token.
+        """
+        entry = self._tokens.pop(token, None)
+        if entry is None:
+            return None
+        configuration, file, expiry = entry
+        if time.monotonic() > expiry:
+            return None
+        return configuration, file
+
+    def _purge(self) -> None:
+        now = time.monotonic()
+        for token in [t for t, (_, _, exp) in self._tokens.items() if now > exp]:
+            del self._tokens[token]
+
+
+async def http_download(request: web.Request) -> web.StreamResponse:
+    """``GET /api/firmware/download?token=`` — stream an artifact.
+
+    HTTP (not WebSocket) so a large ``firmware.elf`` isn't capped by a proxy's
+    WebSocket ``max_msg_size``, and a navigation streams it straight to disk.
+    The ``token`` (see :class:`DownloadTokens`) is the sole authorization and
+    carries the ``(configuration, file)`` it was minted for, so query params
+    can't point it at a different artifact.
     """
     db = request.app["device_builder"]
-    configuration = request.query.get("configuration", "")
-    file = request.query.get("file", "")
+    resolved = db.firmware.download_tokens.consume(request.query.get("token", ""))
+    if resolved is None:
+        raise web.HTTPNotFound
+    configuration, file = resolved
     try:
         await db.firmware._validate_configuration_boundary(configuration)
         loop = asyncio.get_running_loop()

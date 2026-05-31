@@ -34,6 +34,7 @@ import pytest
 from esphome_device_builder.controllers.config import DashboardSettings
 from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.controllers.firmware._state import FirmwareState
+from esphome_device_builder.controllers.firmware.download import DownloadTokens
 from esphome_device_builder.helpers.event_bus import Event, EventBus
 from esphome_device_builder.models import EventType, FirmwareJob
 
@@ -146,6 +147,7 @@ def firmware_controller_factory(
     ) -> FirmwareController:
         controller = FirmwareController.__new__(FirmwareController)
         controller.state = FirmwareState()
+        controller.download_tokens = DownloadTokens()
         controller.state.jobs = {j.job_id: j for j in jobs}
         # ``__new__`` bypasses ``__init__`` where the real controller
         # creates this; ``persist_jobs`` acquires it to serialize writes.
@@ -218,6 +220,7 @@ def bare_firmware_controller_factory() -> BareFirmwareControllerFactory:
     ) -> FirmwareController:
         controller = FirmwareController.__new__(FirmwareController)
         controller.state = FirmwareState()
+        controller.download_tokens = DownloadTokens()
         if esphome_cmd is not None:
             controller.state.esphome_cmd = esphome_cmd
         if current_job is not None:
