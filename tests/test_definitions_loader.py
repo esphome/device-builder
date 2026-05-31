@@ -180,6 +180,25 @@ def test_build_from_manifests_strict_raises_on_broken(
         build_board_catalog_from_manifests(strict=True)
 
 
+def test_build_from_manifests_accepts_missing_optional_description(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A manifest omitting the schema-optional ``description`` loads (empty string), not crashes."""
+    fake_boards = tmp_path / "boards"
+    (fake_boards / "no-desc").mkdir(parents=True)
+    (fake_boards / "no-desc" / "manifest.yaml").write_text(
+        "id: no-desc\nname: No Description\nesphome:\n  platform: esp32\n  board: esp32dev\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(defs, "_BOARDS_DIR", fake_boards)
+    monkeypatch.setattr(defs, "_GENERIC_DIR", fake_boards / "_generic")
+
+    result = build_board_catalog_from_manifests(strict=True)
+
+    entry = next(b for b in result.boards if b.id == "no-desc")
+    assert entry.description == ""
+
+
 def test_load_board_index_warns_when_json_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
