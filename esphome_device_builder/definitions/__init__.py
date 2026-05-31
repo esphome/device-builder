@@ -283,7 +283,7 @@ def build_board_catalog_from_manifests(*, strict: bool = False) -> BoardCatalogR
                 BoardCatalogEntry(
                     id=data["id"],
                     name=data["name"],
-                    description=data.get("description", ""),
+                    description=data["description"],
                     manufacturer=data.get("manufacturer", ""),
                     esphome=esphome_cfg,
                     hardware=_load_hardware(data.get("hardware"), board_id),
