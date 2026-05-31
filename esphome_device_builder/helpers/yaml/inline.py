@@ -7,6 +7,23 @@ import re
 from .scalar import ESPHOME_YAML_INDENT
 
 
+def synthetic_instance_index(domain: str, component_id: str) -> int | None:
+    """
+    Decode a parser-synthesized ``<domain>_<idx>`` id back to its list index.
+
+    The automation parser labels an id-less component instance
+    ``f"{domain}_{idx}"`` — its position in the ``<domain>:`` list. id-less
+    instances are valid ESPHome (a GPIO ``binary_sensor`` with no ``id:``), so
+    their inline ``on_*:`` handlers must still resolve on write. Returns
+    ``None`` for a real id (which the literal ``id:`` lookup handles).
+    """
+    prefix = f"{domain}_"
+    if not component_id.startswith(prefix):
+        return None
+    suffix = component_id[len(prefix) :]
+    return int(suffix) if suffix.isdecimal() else None
+
+
 def upsert_inline_handler(
     yaml_text: str,
     *,
@@ -172,24 +189,61 @@ def _locate_component_instance(  # noqa: C901
             continue
         item_starts.append(idx)
 
-    for run, start in enumerate(item_starts):
-        end = item_starts[run + 1] if run + 1 < len(item_starts) else domain_end
-        dash_indent = lines[start][: len(lines[start]) - len(lines[start].lstrip(" "))]
-        child_indent = dash_indent + ESPHOME_YAML_INDENT
-        if _instance_id_matches(lines, start, end, child_indent, component_id):
+    bounds = _instance_bounds(lines, item_starts, domain_end)
+    for start, end, child_indent in bounds:
+        if _instance_declared_id(lines, start, end, child_indent) == component_id:
             return start, end, child_indent
-    return None
+
+    return _locate_idless_instance(lines, domain, component_id, bounds)
 
 
-def _instance_id_matches(
+def _instance_bounds(
+    lines: list[str], item_starts: list[int], domain_end: int
+) -> list[tuple[int, int, str]]:
+    """Per-instance ``(start, end, child_indent)`` triples for the located items."""
+    bounds: list[tuple[int, int, str]] = []
+    for pos, start in enumerate(item_starts):
+        end = item_starts[pos + 1] if pos + 1 < len(item_starts) else domain_end
+        bounds.append((start, end, _child_indent(lines, start)))
+    return bounds
+
+
+def _child_indent(lines: list[str], start: int) -> str:
+    """Leading whitespace of an instance's child fields (its dash indent plus one level)."""
+    dash_indent = lines[start][: len(lines[start]) - len(lines[start].lstrip(" "))]
+    return dash_indent + ESPHOME_YAML_INDENT
+
+
+def _locate_idless_instance(
+    lines: list[str],
+    domain: str,
+    component_id: str,
+    bounds: list[tuple[int, int, str]],
+) -> tuple[int, int, str] | None:
+    """
+    Resolve the parser's positional ``<domain>_<idx>`` label for an id-less instance.
+
+    Only resolves onto a genuinely id-less instance — a real id always matches
+    the literal lookup first, and a stale positional id pointing at an id'd
+    instance is refused (``None``) so the caller raises a clean "not found".
+    """
+    idx = synthetic_instance_index(domain, component_id)
+    if idx is None or idx >= len(bounds):
+        return None
+    start, end, child_indent = bounds[idx]
+    if _instance_declared_id(lines, start, end, child_indent) is not None:
+        return None
+    return start, end, child_indent
+
+
+def _instance_declared_id(
     lines: list[str],
     start: int,
     end: int,
     child_indent: str,
-    component_id: str,
-) -> bool:
+) -> str | None:
     """
-    Return True iff the instance at *start* carries ``id: component_id``.
+    Return the ``id:`` the instance at *start* declares, or ``None`` when id-less.
 
     Two shapes the schema permits: ``- id: <comp_id>`` on the dash
     line itself, or ``id:`` as a regular child field at
@@ -198,13 +252,13 @@ def _instance_id_matches(
     first_line = lines[start].rstrip("\n\r")
     inline_match = re.match(r"^\s*-\s*id:\s*(?P<id>\S+)", first_line)
     if inline_match:
-        return inline_match.group("id") == component_id
+        return inline_match.group("id")
     child_re = re.compile(rf"^{re.escape(child_indent)}id:\s*(?P<id>\S+)")
     for jdx in range(start, end):
         m = child_re.match(lines[jdx].rstrip("\n\r"))
         if m:
-            return m.group("id") == component_id
-    return False
+            return m.group("id")
+    return None
 
 
 def _indent_block(block_text: str, indent: str) -> list[str]:

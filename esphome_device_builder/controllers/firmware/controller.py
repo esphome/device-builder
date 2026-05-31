@@ -57,6 +57,8 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     def __init__(self, device_builder: DeviceBuilder) -> None:
         self._db = device_builder
         self.state = FirmwareState()
+        # Short-lived capability tokens for the HTTP artifact-download route.
+        self.download_tokens = download_mod.DownloadTokens()
         self._runner_task: asyncio.Task | None = None
         # Serializes ``persist_jobs`` so a slow executor write can't be
         # overtaken by a newer one (which would let a stale snapshot
@@ -317,18 +319,24 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     async def get_binaries(self, *, configuration: str, **kwargs: Any) -> list[dict]:
         return await download_mod.get_binaries(self, configuration=configuration)
 
-    @api_command("firmware/download")
-    async def download(
-        self,
-        *,
-        configuration: str,
-        file: str,
-        compressed: bool = False,
-        **kwargs: Any,
-    ) -> dict:
-        return await download_mod.download(
-            self, configuration=configuration, file=file, compressed=compressed
-        )
+    # Artifact bytes are served over HTTP (GET /api/firmware/download), not the
+    # WebSocket — a ~14 MB firmware.elf exceeds a proxy's WS max_msg_size, and a
+    # navigation streams to disk (mobile-friendly). This command mints the
+    # single-use token that authorizes one such download.
+    @api_command("firmware/download_token")
+    async def download_token(self, *, configuration: str, file: str, **kwargs: Any) -> dict:
+        await self._validate_configuration_boundary(configuration)
+        # Resolve up front so the caller learns the exact filename the download
+        # will save under (so the UI's "saved as …" matches the file), and so a
+        # missing artifact fails here rather than on the download navigation.
+        loop = asyncio.get_running_loop()
+        try:
+            _, filename = await loop.run_in_executor(
+                None, download_mod._resolve_artifact_path, configuration, file
+            )
+        except (FileNotFoundError, ValueError) as err:
+            raise CommandError(ErrorCode.NOT_FOUND, "Firmware artifact not found") from err
+        return {"token": self.download_tokens.create(configuration, file), "filename": filename}
 
     # ------------------------------------------------------------------
     # Internals — queue processing

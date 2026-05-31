@@ -194,6 +194,13 @@ def _write_build_artifacts_on_disk(tmp_path: Path, *, configuration: str) -> dic
         "firmware.bin": b"firmware-bin-bytes",
         "bootloader.bin": b"bootloader-bytes",
         "partitions.bin": b"partitions-bytes",
+        # Download artefacts a real esp32 compile also emits: the two
+        # downloadable images plus the ELF the stack trace decoder needs.
+        # They ride back through the BUILD_FILES tarball but are not flash
+        # images, so they don't appear in the ``result["images"]`` set.
+        "firmware.factory.bin": b"factory-bin-bytes",
+        "firmware.ota.bin": b"ota-bin-bytes",
+        "firmware.elf": b"elf-debug-symbols",
     }
     image_paths: dict[str, Path] = {}
     for name, payload in images.items():
@@ -590,6 +597,13 @@ async def test_remote_compile_materialises_for_local_firmware_download(
     assert (download_dir / "firmware.bin").read_bytes() == images["firmware.bin"]
     assert (download_dir / "bootloader.bin").read_bytes() == images["bootloader.bin"]
     assert (download_dir / "partitions.bin").read_bytes() == images["partitions.bin"]
+    # The download artefacts (factory/OTA + ELF) ride back from the remote
+    # builder into the same dir ``get_binaries`` reads, so the Download picker
+    # offers them with no local recompile. (get_binaries' filter + ELF-append
+    # is covered against this layout in test_get_binaries.py.)
+    assert (download_dir / "firmware.elf").read_bytes() == images["firmware.elf"]
+    assert (download_dir / "firmware.factory.bin").read_bytes() == images["firmware.factory.bin"]
+    assert (download_dir / "firmware.ota.bin").read_bytes() == images["firmware.ota.bin"]
 
     # #654: read_build_info_hash resolves post-materialise.
     assert (build_path / BUILD_INFO_MEMBER_NAME).is_file()

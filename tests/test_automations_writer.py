@@ -144,6 +144,76 @@ def test_upsert_inline_on_press_leaves_sibling_components_untouched() -> None:
     assert a_idx < on_press_idx < b_idx, "on_press landed under the wrong instance"
 
 
+_IDLESS_BINARY_SENSOR = (
+    "esphome:\n  name: x\n"
+    "binary_sensor:\n"
+    "  - platform: gpio\n"
+    "    pin: GPIO0\n"
+    "    on_press:\n"
+    "      - logger.log: pressed\n"
+)
+
+
+def test_round_trip_inline_handler_on_idless_instance() -> None:
+    """An inline ``on_*`` on an id-less component (synthetic id) round-trips."""
+    parsed = parse_device_yaml(_IDLESS_BINARY_SENSOR)
+    assert len(parsed) == 1
+    location = parsed[0].location
+    assert isinstance(location, ComponentOnLocation)
+    assert location.component_id == "binary_sensor_0"
+    new_text, _diff = render_upsert(
+        _IDLESS_BINARY_SENSOR, tree=parsed[0].automation, location=location
+    )
+    reparsed = parse_device_yaml(new_text)
+    assert len(reparsed) == 1
+    assert reparsed[0].location == location
+    assert [a.action_id for a in reparsed[0].automation.actions] == ["logger.log"]
+
+
+def test_delete_inline_handler_on_idless_instance() -> None:
+    """Deleting an inline handler on an id-less component removes it."""
+    location = parse_device_yaml(_IDLESS_BINARY_SENSOR)[0].location
+    new_text, diff = render_delete(_IDLESS_BINARY_SENSOR, location=location)
+    assert "on_press:" not in new_text
+    assert parse_device_yaml(new_text) == []
+    assert diff.replacement == ""
+
+
+def test_idless_multidomain_trigger_resolves_configured_domain() -> None:
+    """``on_turn_on`` spans switch/fan/light; an id-less switch resolves to switch."""
+    text = (
+        "esphome:\n  name: x\n"
+        "switch:\n"
+        "  - platform: gpio\n"
+        "    pin: GPIO2\n"
+        "    on_turn_on:\n"
+        "      - logger.log: state\n"
+    )
+    parsed = parse_device_yaml(text)
+    assert len(parsed) == 1
+    location = parsed[0].location
+    assert location.component_id == "switch_0"
+    new_text, _diff = render_upsert(text, tree=parsed[0].automation, location=location)
+    assert "switch:" in new_text
+    reparsed = parse_device_yaml(new_text)
+    assert len(reparsed) == 1
+    assert reparsed[0].location == location
+
+
+def test_stale_positional_id_on_idd_instance_is_refused() -> None:
+    """A ``<domain>_<idx>`` id pointing at an instance with a real id is refused."""
+    text = "esphome:\n  name: x\nbinary_sensor:\n  - platform: gpio\n    id: real\n    pin: GPIO0\n"
+    with pytest.raises(CommandError):
+        render_upsert(
+            text,
+            tree=AutomationTree(
+                trigger_id="binary_sensor.on_press",
+                actions=[ActionNode(action_id="logger.log", params={"format": "hi"})],
+            ),
+            location=ComponentOnLocation(component_id="binary_sensor_0", trigger="on_press"),
+        )
+
+
 def test_upsert_valid_automation_leaves_unparseable_sibling_verbatim() -> None:
     """Editing a valid automation never rewrites a broken sibling block (#1050)."""
     text = (
@@ -1025,6 +1095,96 @@ def test_round_trip_on_time_list_entry_is_stable() -> None:
     assert reparsed[0].automation.trigger_params == {"seconds": 0, "minutes": 30, "hours": 8}
 
 
+def test_upsert_appends_entry_for_non_on_time_repeatable_trigger() -> None:
+    """A second entry on a non-on_time repeatable trigger appends, not overwrites."""
+    yaml_text = (
+        "sensor:\n"
+        "  - platform: template\n"
+        "    id: s1\n"
+        "    name: s\n"
+        "    on_value_range:\n"
+        "      - above: 10\n"
+        "        then:\n"
+        "          - logger.log: hi\n"
+    )
+    tree = AutomationTree(
+        trigger_id="sensor.on_value_range",
+        trigger_params={"below": 5},
+        actions=[ActionNode(action_id="logger.log", params={"format": "lo"})],
+    )
+    location = ComponentOnLocation(component_id="s1", trigger="on_value_range", index=1)
+    new_text, _diff = render_upsert(yaml_text, tree=tree, location=location)
+    reparsed = parse_device_yaml(new_text)
+    assert [p.location.index for p in reparsed] == [0, 1]
+    assert reparsed[1].automation.trigger_params == {"below": 5}
+
+
+_ON_TIME_COMMENTED = (
+    "time:\n  - platform: sntp\n    id: my_time\n    on_time:\n"
+    "      # morning schedule\n"
+    "      - seconds: 0\n        then:\n          - logger.log: morning\n"
+    "\n# unrelated trailing comment\nsensor:\n  - platform: template\n    id: s1\n    name: s\n"
+)
+
+
+def test_upsert_preserves_inner_comments_and_does_not_duplicate_the_trailing_one() -> None:
+    """Append keeps an entry's own comment and leaves the after-block comment in place, once."""
+    tree = AutomationTree(
+        trigger_id="time.on_time",
+        trigger_params={"hours": 23},
+        actions=[ActionNode(action_id="logger.log", params={"format": "night"})],
+    )
+    new_text, _diff = render_upsert(
+        _ON_TIME_COMMENTED,
+        tree=tree,
+        location=ComponentOnLocation(component_id="my_time", trigger="on_time", index=1),
+    )
+    # Inner comment survives; the after-block comment isn't duplicated and stays
+    # attached to the following block.
+    assert new_text.count("# morning schedule") == 1
+    assert new_text.count("# unrelated trailing comment") == 1
+    assert "\n# unrelated trailing comment\nsensor:" in new_text
+    assert [p.location.index for p in parse_device_yaml(new_text)] == [0, 1]
+
+
+def test_upsert_drops_a_comment_trailing_the_last_entry() -> None:
+    """A comment ruamel binds to the last entry is dropped, never duplicated (accepted trade)."""
+    yaml_text = (
+        "time:\n  - platform: sntp\n    id: my_time\n    on_time:\n"
+        "      - seconds: 0\n        then:\n          - logger.log: hi\n"
+        "      # tail of the last entry\n"
+        "sensor:\n  - platform: template\n    id: s1\n    name: s\n"
+    )
+    tree = AutomationTree(
+        trigger_id="time.on_time",
+        trigger_params={"hours": 23},
+        actions=[ActionNode(action_id="logger.log", params={"format": "night"})],
+    )
+    new_text, _diff = render_upsert(
+        yaml_text,
+        tree=tree,
+        location=ComponentOnLocation(component_id="my_time", trigger="on_time", index=1),
+    )
+    # Indistinguishable from the after-block comment, so intentionally dropped, not duplicated.
+    assert new_text.count("# tail of the last entry") == 0
+    assert [p.location.index for p in parse_device_yaml(new_text)] == [0, 1]
+
+
+def test_delete_entry_does_not_duplicate_the_trailing_comment() -> None:
+    """Deleting an entry leaves the after-block comment intact and un-duplicated."""
+    yaml_text = (
+        "time:\n  - platform: sntp\n    id: my_time\n    on_time:\n"
+        "      - seconds: 0\n        then:\n          - logger.log: a\n"
+        "      - seconds: 30\n        then:\n          - logger.log: b\n"
+        "\n# unrelated trailing comment\nsensor:\n  - platform: template\n    id: s1\n    name: s\n"
+    )
+    new_text, _diff = render_delete(
+        yaml_text, location=ComponentOnLocation(component_id="my_time", trigger="on_time", index=0)
+    )
+    assert new_text.count("# unrelated trailing comment") == 1
+    assert [p.location.index for p in parse_device_yaml(new_text)] == [0]
+
+
 def test_upsert_on_time_appends_entry_at_end() -> None:
     """An index equal to the entry count appends a new schedule."""
     yaml_text = _load("time_on_time_list.yaml")
@@ -1117,3 +1277,43 @@ def test_delete_on_time_unknown_component_raises_not_found() -> None:
     with pytest.raises(CommandError) as exc:
         render_delete(yaml_text, location=loc)
     assert exc.value.code is ErrorCode.NOT_FOUND
+
+
+_IDLESS_ON_TIME_LIST = (
+    "time:\n  - platform: sntp\n"
+    "    on_time:\n      - seconds: 0\n        then:\n          - logger.log: hi\n"
+)
+
+
+def test_round_trip_on_time_list_entry_on_idless_instance() -> None:
+    """A list-shaped ``on_time`` on an id-less time component (``time_0``) round-trips."""
+    parsed = parse_device_yaml(_IDLESS_ON_TIME_LIST)
+    assert len(parsed) == 1
+    location = parsed[0].location
+    assert location.component_id == "time_0"
+    new_text, _diff = render_upsert(
+        _IDLESS_ON_TIME_LIST, tree=parsed[0].automation, location=location
+    )
+    reparsed = parse_device_yaml(new_text)
+    assert len(reparsed) == 1
+    assert reparsed[0].location == location
+
+
+def test_delete_on_time_list_entry_on_idless_instance() -> None:
+    """Deleting the only list-shaped ``on_time`` entry on an id-less time component."""
+    location = parse_device_yaml(_IDLESS_ON_TIME_LIST)[0].location
+    new_text, _diff = render_delete(_IDLESS_ON_TIME_LIST, location=location)
+    assert "on_time:" not in new_text
+
+
+def test_idless_positional_index_out_of_range_is_refused() -> None:
+    """A ``<domain>_<idx>`` id past the end of the section is refused (not mis-written)."""
+    with pytest.raises(CommandError):
+        render_upsert(
+            _IDLESS_BINARY_SENSOR,
+            tree=AutomationTree(
+                trigger_id="binary_sensor.on_press",
+                actions=[ActionNode(action_id="logger.log", params={"format": "hi"})],
+            ),
+            location=ComponentOnLocation(component_id="binary_sensor_5", trigger="on_press"),
+        )

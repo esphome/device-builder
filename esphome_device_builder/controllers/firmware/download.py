@@ -3,18 +3,22 @@
 from __future__ import annotations
 
 import asyncio
-import base64
-import gzip
 import importlib
 import logging
+import re
+import secrets
+import time
+from pathlib import Path
 from typing import TYPE_CHECKING
 
+from aiohttp import web
 from esphome.components.esp32 import VARIANTS as ESP32_VARIANTS
 from esphome.components.libretiny.const import (
     FAMILY_COMPONENT as _LIBRETINY_FAMILY_COMPONENT,
 )
 from esphome.storage_json import StorageJSON
 
+from ...helpers.api import CommandError
 from ...helpers.storage_path import resolve_storage_path
 
 if TYPE_CHECKING:
@@ -33,12 +37,25 @@ _LIBRETINY_TARGET_PLATFORMS: frozenset[str] = frozenset(_LIBRETINY_FAMILY_COMPON
     "libretiny"
 }
 
+# Stable ``type`` tag per artifact filename so the frontend can map it to a
+# localized label (falling back to the platform-supplied ``title`` for any
+# file not listed here).
+_ARTIFACT_TYPES: dict[str, str] = {
+    "firmware.factory.bin": "factory",
+    "firmware.ota.bin": "ota",
+    "firmware.bin": "bin",
+    "firmware.uf2": "uf2",
+    "firmware.elf": "elf",
+}
+
 
 async def get_binaries(controller: FirmwareController, *, configuration: str) -> list[dict]:
-    """List firmware binaries for a compiled device as ``[{title, file}]``.
+    """List on-disk downloadable artifacts as ``[{title, file}]``.
 
-    The ``file`` names can be passed to ``firmware/download`` to
-    retrieve the binary content.
+    The platform's ``get_download_types`` entries that exist, plus a
+    ``firmware.elf`` entry when present (``get_download_types`` never
+    lists it). Empty means nothing is built yet. Each ``file`` is fetched
+    over HTTP via ``GET /api/firmware/download`` (see :func:`http_download`).
     """
     # ``resolve_storage_path`` collapses to
     # ``<data_dir>/storage/<Path(configuration).name>.json``; a
@@ -55,63 +72,141 @@ async def get_binaries(controller: FirmwareController, *, configuration: str) ->
         try:
             component = _resolve_download_component(storage.target_platform)
             module = importlib.import_module(f"esphome.components.{component}")
-            return list(module.get_download_types(storage))
+            types = list(module.get_download_types(storage))
         except Exception:  # noqa: BLE001 — third-party regression: upstream ``get_download_types`` could raise anything
             _LOGGER.warning("Could not determine download types for %s", configuration)
             return []
+        # No build dir → can't confirm anything on disk → treat as not built.
+        if storage.firmware_bin_path is None:
+            return []
+        build_dir = storage.firmware_bin_path.parent
+        # Filter to files that exist so a cleaned build reads as "compile
+        # first" rather than offering a name ``firmware/download`` would 404 on.
+        downloads = [dict(t) for t in types if (build_dir / t["file"]).is_file()]
+        # firmware.elf sits beside firmware.bin on every platform
+        # (remote_build/artifact_platforms/*.py). The `not any` guards against a
+        # future get_download_types that lists it, so it can't appear twice.
+        if (build_dir / "firmware.elf").is_file() and not any(
+            t["file"] == "firmware.elf" for t in downloads
+        ):
+            downloads.append(
+                {
+                    "title": "ELF (for debugging)",
+                    "description": "Debug symbols for the ESP stack trace decoder.",
+                    "file": "firmware.elf",
+                }
+            )
+        for entry in downloads:
+            artifact_type = _ARTIFACT_TYPES.get(entry["file"])
+            if artifact_type:
+                entry["type"] = artifact_type
+        return downloads
 
     return await loop.run_in_executor(None, _get_types)
 
 
-async def download(
-    controller: FirmwareController,
-    *,
-    configuration: str,
-    file: str,
-    compressed: bool = False,
-) -> dict:
-    """Download a compiled firmware binary as ``{filename, data, size, compressed}``.
+def _resolve_artifact_path(configuration: str, file: str) -> tuple[Path, str]:
+    """Resolve a build artifact to ``(path, download_name)``, traversal-safe.
 
-    ``data`` is base64-encoded bytes; for Web Serial flashing the
-    frontend decodes the base64 itself.
+    Raises ``FileNotFoundError`` when the device isn't built or *file* is
+    absent, and ``ValueError`` (from ``relative_to``) when *file* escapes the
+    build directory. ``download_name`` is restricted to a filename-safe charset
+    so it can't inject into a ``Content-Disposition`` header.
     """
-    # ``_validate_configuration_boundary`` is the only traversal
-    # gate; do not reorder. Coverage:
-    # ``test_download.py::test_download_validator_runs_before_ext_storage_path``.
-    await controller._validate_configuration_boundary(configuration)
-    loop = asyncio.get_running_loop()
+    storage = StorageJSON.load(resolve_storage_path(configuration))
+    if storage is None or storage.firmware_bin_path is None:
+        msg = "No firmware binary — compile the device first"
+        raise FileNotFoundError(msg)
 
-    def _read_binary() -> dict:
-        storage = StorageJSON.load(resolve_storage_path(configuration))
-        if storage is None or storage.firmware_bin_path is None:
-            msg = "No firmware binary — compile the device first"
-            raise FileNotFoundError(msg)
+    base_dir = storage.firmware_bin_path.parent.resolve()
+    path = (base_dir / file).resolve()
+    # Path traversal protection — resolve() collapses ``..`` / absolute
+    # ``file`` / symlinks, then relative_to raises if it escaped base_dir.
+    path.relative_to(base_dir)
 
-        base_dir = storage.firmware_bin_path.parent.resolve()
-        path = (base_dir / file).resolve()
-        # Path traversal protection
-        path.relative_to(base_dir)
+    if not path.is_file():
+        msg = f"Binary not found: {file}"
+        raise FileNotFoundError(msg)
 
-        if not path.is_file():
-            msg = f"Binary not found: {file}"
-            raise FileNotFoundError(msg)
+    download_name = re.sub(r"[^A-Za-z0-9._-]", "_", f"{storage.name}-{path.name}")
+    return path, download_name
 
-        data = path.read_bytes()
-        if compressed:
-            data = gzip.compress(data, 9)
 
-        filename = f"{storage.name}-{file}"
-        if compressed:
-            filename += ".gz"
+class DownloadTokens:
+    """Single-use, short-TTL capability tokens for HTTP artifact downloads.
 
-        return {
-            "filename": filename,
-            "data": base64.b64encode(data).decode("ascii"),
-            "size": len(data),
-            "compressed": compressed,
-        }
+    A token is minted over the authenticated WebSocket
+    (``firmware/download_token``) and consumed by ``GET /api/firmware/download``.
+    The token *is* that route's authorization (the route is in
+    ``auth_middleware``'s public allowlist), which lets a plain ``<a href>``
+    navigation stream the file straight to disk — no ``Authorization`` header,
+    no in-browser buffering, works on mobile. So each token is unguessable
+    (:mod:`secrets`), expires fast, is single-use, and is bound to one
+    ``(configuration, file)`` pair, so it can't be replayed or repurposed.
+    """
 
-    return await loop.run_in_executor(None, _read_binary)
+    def __init__(self, ttl_seconds: float = 60.0) -> None:
+        self._ttl = ttl_seconds
+        self._tokens: dict[str, tuple[str, str, float]] = {}
+
+    def create(self, configuration: str, file: str) -> str:
+        self._purge()
+        token = secrets.token_urlsafe(32)
+        self._tokens[token] = (configuration, file, time.monotonic() + self._ttl)
+        return token
+
+    def consume(self, token: str) -> tuple[str, str] | None:
+        """Pop a token (single-use) and return its ``(configuration, file)``.
+
+        Returns ``None`` for an unknown, already-used, or expired token.
+        """
+        entry = self._tokens.pop(token, None)
+        if entry is None:
+            return None
+        configuration, file, expiry = entry
+        if time.monotonic() > expiry:
+            return None
+        return configuration, file
+
+    def _purge(self) -> None:
+        now = time.monotonic()
+        for token in [t for t, (_, _, exp) in self._tokens.items() if now > exp]:
+            del self._tokens[token]
+
+
+async def http_download(request: web.Request) -> web.StreamResponse:
+    """``GET /api/firmware/download?token=`` — stream an artifact.
+
+    HTTP (not WebSocket) so a large ``firmware.elf`` isn't capped by a proxy's
+    WebSocket ``max_msg_size``, and a navigation streams it straight to disk.
+    The ``token`` (see :class:`DownloadTokens`) is the sole authorization and
+    carries the ``(configuration, file)`` it was minted for, so query params
+    can't point it at a different artifact.
+    """
+    db = request.app["device_builder"]
+    resolved = db.firmware.download_tokens.consume(request.query.get("token", ""))
+    if resolved is None:
+        raise web.HTTPNotFound
+    configuration, file = resolved
+    try:
+        await db.firmware._validate_configuration_boundary(configuration)
+        loop = asyncio.get_running_loop()
+        path, download_name = await loop.run_in_executor(
+            None, _resolve_artifact_path, configuration, file
+        )
+    except (CommandError, FileNotFoundError, ValueError) as err:
+        # Collapse "not built" / "missing" / "traversal" to a bare 404 for the
+        # caller, but log so an operator debugging a failed download has a
+        # server-side signal (the token already authenticated the request).
+        _LOGGER.debug("Firmware download rejected for %s/%s: %s", configuration, file, err)
+        raise web.HTTPNotFound from None
+    return web.FileResponse(
+        path,
+        headers={
+            "Content-Disposition": f'attachment; filename="{download_name}"',
+            "Content-Type": "application/octet-stream",
+        },
+    )
 
 
 def _resolve_download_component(target_platform: str | None) -> str:
