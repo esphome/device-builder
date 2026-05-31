@@ -171,7 +171,7 @@ jobs:
         #   at ~1-2 minutes; without the cap a single hung worker
         #   burns the runner's full 6h budget.
         timeout-minutes: 5
-        run: uv run pytest -q -n auto --maxfail=5 --durations=10 --timeout=120 --ignore=tests/benchmarks --ignore=tests/real_compile --cov=esphome_device_builder --cov-report=xml --cov-report=term
+        run: uv run pytest -q -n auto --maxfail=5 --durations=10 --timeout=120 --ignore=tests/benchmarks --ignore=tests/real_compile --ignore=tests/e2e --cov=esphome_device_builder --cov-report=xml --cov-report=term
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354  # v6.0.1
@@ -252,7 +252,57 @@ jobs:
         # upstream beta/dev are exactly the case this protects
         # against.
         timeout-minutes: 5
-        run: uv run pytest -q -n auto --maxfail=5 --durations=10 --timeout=120 --ignore=tests/benchmarks --ignore=tests/real_compile
+        run: uv run pytest -q -n auto --maxfail=5 --durations=10 --timeout=120 --ignore=tests/benchmarks --ignore=tests/real_compile --ignore=tests/e2e
+
+  e2e:
+    name: E2E (esphome ${{ matrix.channel }})
+    runs-on: ubuntu-latest
+    # The remote-build offload e2e suite (``tests/e2e/``) stands up
+    # two real controllers over a live peer-link wire. It's split off
+    # the unit matrix so it can't slow the unit run or conflate signal
+    # (an e2e flake reading as a unit failure) as the suite grows.
+    # ``stable`` is a strict gate; ``dev`` is advisory because
+    # ESPHome's nightly can break mid-day — we want the signal without
+    # a permanent red on every device-builder PR.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - channel: stable
+            # No extra install — the ``[esphome]`` extra resolves the
+            # stable release the dashboard ships with.
+            install: ""
+            allow_failure: false
+          - channel: dev
+            install: uv pip install --upgrade git+https://github.com/esphome/esphome.git@dev
+            allow_failure: true
+    continue-on-error: ${{ matrix.allow_failure }}
+    steps:
+      - name: Check out code from GitHub
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Set up uv and Python 3.14
+        uses: ./.github/actions/setup-uv-python
+        with:
+          python-version: "3.14"
+
+      - name: Create venv + install package + test deps
+        run: |
+          uv venv
+          uv pip install -e '.[esphome,test]'
+
+      - name: Install esphome (${{ matrix.channel }} channel)
+        if: matrix.install != ''
+        run: ${{ matrix.install }}
+
+      - name: Show installed esphome version
+        run: uv pip show esphome | grep -E '^(Name|Version):'
+
+      - name: Run e2e tests
+        timeout-minutes: 5
+        run: uv run pytest -q -n auto tests/e2e --maxfail=5 --durations=10 --timeout=120 --no-cov
 
   benchmarks:
     name: Run benchmarks (CodSpeed)
