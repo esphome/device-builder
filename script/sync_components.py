@@ -69,7 +69,7 @@ _CACHE_ROOT = _REPO_ROOT / ".cache"
 # Fields stripped from index entries — they belong on the per-id body
 # files only. Slim-index keeps the catalog UI's list / search /
 # filter paths off the per-field tree.
-_INDEX_DROP_FIELDS: frozenset[str] = frozenset({"config_entries", "required_groups", "is_list"})
+_INDEX_DROP_FIELDS: frozenset[str] = frozenset({"config_entries", "required_groups"})
 
 _RELEASES_API = "https://api.github.com/repos/esphome/esphome-schema/releases"
 _SCHEMA_URL_TEMPLATE = "https://schema.esphome.io/{version}/schema.zip"
@@ -1788,9 +1788,6 @@ def build_component_entry(
         ),
         "config_entries": config_entries,
     }
-    # Emitted only when true so the catalog stays sparse; defaults False.
-    if ((section.get("schemas") or {}).get("CONFIG_SCHEMA") or {}).get("is_list"):
-        component["is_list"] = True
     # Required-groups straddle the component root (path ``()``) and
     # nested ``NESTED`` entries; the applier needs the whole
     # component dict to stamp both locations.
