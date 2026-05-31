@@ -138,10 +138,8 @@ class ComponentCatalogEntry(DataClassORJSONMixin):
     # is a singleton (e.g. `wifi:`, `api:`).
     multi_conf: bool = False
 
-    # Whether the component body is a YAML list of mappings (globals),
-    # one item per list entry, rather than a single mapping. The section
-    # editor renders these as a repeatable list. config_entries stay flat
-    # (one item's fields); the flag is what tells the form it is a list.
+    # Component body is a YAML list of mappings (globals), not a single
+    # mapping; config_entries stay flat (one item's fields).
     is_list: bool = False
 
     # Empty list = component works on every target platform. Non-empty

@@ -1788,9 +1788,7 @@ def build_component_entry(
         ),
         "config_entries": config_entries,
     }
-    # Component body is a YAML list of mappings (globals), not a single
-    # mapping. Emitted only when true so the catalog stays sparse; the
-    # model defaults is_list to False.
+    # Emitted only when true so the catalog stays sparse; defaults False.
     if ((section.get("schemas") or {}).get("CONFIG_SCHEMA") or {}).get("is_list"):
         component["is_list"] = True
     # Required-groups straddle the component root (path ``()``) and
