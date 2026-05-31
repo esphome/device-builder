@@ -69,8 +69,11 @@ async def get_binaries(controller: FirmwareController, *, configuration: str) ->
         # first" rather than offering a name ``firmware/download`` would 404 on.
         downloads = [t for t in types if (build_dir / t["file"]).is_file()]
         # firmware.elf sits beside firmware.bin on every platform
-        # (remote_build/artifact_platforms/*.py).
-        if (build_dir / "firmware.elf").is_file():
+        # (remote_build/artifact_platforms/*.py). The `not any` guards against a
+        # future get_download_types that lists it, so it can't appear twice.
+        if (build_dir / "firmware.elf").is_file() and not any(
+            t["file"] == "firmware.elf" for t in downloads
+        ):
             downloads.append(
                 {
                     "title": "ELF (for debugging)",

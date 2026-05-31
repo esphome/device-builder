@@ -382,6 +382,33 @@ async def test_get_binaries_appends_elf_entry_when_present(
     assert result == [factory, _ELF_ENTRY]
 
 
+async def test_get_binaries_does_not_duplicate_elf_listed_upstream(
+    tmp_path: Path, monkeypatch: Any, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """If a platform's get_download_types ever lists firmware.elf, it appears once.
+
+    ``get_download_types`` doesn't list the ELF today, but guard the
+    append so a future upstream that does can't produce a duplicate
+    entry in the picker.
+    """
+    elf = {"title": "Upstream ELF", "file": "firmware.elf"}
+    _install_fake_component(monkeypatch, "esp32", [elf])
+
+    build_dir = _make_build(tmp_path, "firmware.elf")
+    write_storage_json(
+        tmp_path,
+        "kitchen.yaml",
+        firmware_bin_path=build_dir / "firmware.bin",
+        overrides={"esp_platform": "esp32"},
+    )
+    controller = firmware_controller_factory()
+
+    result = await controller.get_binaries(configuration="kitchen.yaml")
+
+    assert result == [elf]
+    assert sum(entry["file"] == "firmware.elf" for entry in result) == 1
+
+
 async def test_get_binaries_omits_elf_entry_when_absent(
     tmp_path: Path, monkeypatch: Any, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
