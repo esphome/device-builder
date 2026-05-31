@@ -145,13 +145,12 @@ Connections that arrive on the trusted ingress site (HA add-on supervisor proxy)
 | `firmware/follow_job` | `{job_id}` | Streaming | Historical output + live stream for one job |
 | `firmware/follow_jobs` | `{snapshot?: true}` | Streaming | All jobs' lifecycle + output + progress |
 | `firmware/get_binaries` | `{configuration}` | `[{title, file, type?, description?}]` | List downloadable build artifacts present on disk |
-| `firmware/download` | `{configuration, file, compressed?}` | `{filename, data, size}` | Download binary (base64) |
 | `firmware/cancel` | `{job_id}` | — | Cancel queued or running job |
 | `firmware/clear` | `{status?}` | — | Remove finished jobs |
 
 **`firmware/get_binaries`**: returns only artifacts that exist in the build directory (an empty list means "compile first"), each `{title, file, type?, description?}`. `description` is optional subtext from the platform's `get_download_types`. `type` is a stable tag (`factory` / `ota` / `bin` / `uf2` / `elf`) the frontend maps to a localized label, falling back to `title` when absent or unrecognized. A `firmware.elf` entry (debug symbols for the ESP stack trace decoder) is appended when present; `get_download_types` itself never lists it.
 
-**Downloading a `file`** goes over **HTTP**, not the WebSocket: `GET /api/firmware/download?configuration=&file=` streams the raw file with `Content-Disposition: attachment`. A 14 MB `firmware.elf` as a single base64 WS message exceeds a proxy's WebSocket `max_msg_size` (HA ingress, nginx); HTTP has no such cap and skips the base64 overhead. The route is gated by the same `auth_middleware` as other REST endpoints (Bearer token, or bypassed on the trusted ingress site). Both `configuration` and `file` are traversal-validated server-side and the served filename is sanitized for the header. The legacy WS `firmware/download` command is retained for in-browser Web Serial flashing, which needs the bytes in JS (small images only).
+**Downloading a `file`** goes over **HTTP**, not the WebSocket: `GET /api/firmware/download?configuration=&file=` streams the raw file with `Content-Disposition: attachment`. A 14 MB `firmware.elf` as a single base64 WS message exceeds a proxy's WebSocket `max_msg_size` (HA ingress, nginx); HTTP has no such cap and skips the base64 overhead. This matches the legacy ESPHome dashboard, which served downloads over HTTP. The route is gated by the same `auth_middleware` as other REST endpoints (Bearer token, or bypassed on the trusted ingress site); both `configuration` and `file` are traversal-validated server-side and the served filename is sanitized for the header. Every download path (the save-to-disk picker and the in-browser Web Serial flash) uses this route, so there is no WebSocket download command.
 
 **Job queue**: one job runs at a time, others wait. Jobs persist across server restarts. Output buffered in `FirmwareJob.output` — clients can reconnect via `firmware/follow_job`.
 

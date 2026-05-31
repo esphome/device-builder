@@ -317,18 +317,9 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     async def get_binaries(self, *, configuration: str, **kwargs: Any) -> list[dict]:
         return await download_mod.get_binaries(self, configuration=configuration)
 
-    @api_command("firmware/download")
-    async def download(
-        self,
-        *,
-        configuration: str,
-        file: str,
-        compressed: bool = False,
-        **kwargs: Any,
-    ) -> dict:
-        return await download_mod.download(
-            self, configuration=configuration, file=file, compressed=compressed
-        )
+    # Artifact bytes are served over HTTP (GET /api/firmware/download), not the
+    # WebSocket — a ~14 MB firmware.elf exceeds a proxy's WS max_msg_size. See
+    # controllers/firmware/download.py::http_download.
 
     # ------------------------------------------------------------------
     # Internals — queue processing

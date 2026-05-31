@@ -119,17 +119,6 @@ async def test_get_binaries_rejects_traversal(
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
 
 
-async def test_download_rejects_traversal(
-    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
-) -> None:
-    """``firmware/download`` re-validates for the same reason."""
-    controller = firmware_controller_factory()
-
-    with pytest.raises(CommandError) as excinfo:
-        await controller.download(configuration="../etc/passwd", file="firmware.bin")
-    assert excinfo.value.code == ErrorCode.INVALID_ARGS
-
-
 async def test_rename_rejects_traversal_in_new_name(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:

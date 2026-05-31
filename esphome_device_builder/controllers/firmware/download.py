@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
-import gzip
 import importlib
 import logging
 import re
@@ -54,8 +52,8 @@ async def get_binaries(controller: FirmwareController, *, configuration: str) ->
 
     The platform's ``get_download_types`` entries that exist, plus a
     ``firmware.elf`` entry when present (``get_download_types`` never
-    lists it). Empty means nothing is built yet. ``file`` feeds
-    ``firmware/download``.
+    lists it). Empty means nothing is built yet. Each ``file`` is fetched
+    over HTTP via ``GET /api/firmware/download`` (see :func:`http_download`).
     """
     # ``resolve_storage_path`` collapses to
     # ``<data_dir>/storage/<Path(configuration).name>.json``; a
@@ -103,40 +101,6 @@ async def get_binaries(controller: FirmwareController, *, configuration: str) ->
         return downloads
 
     return await loop.run_in_executor(None, _get_types)
-
-
-async def download(
-    controller: FirmwareController,
-    *,
-    configuration: str,
-    file: str,
-    compressed: bool = False,
-) -> dict:
-    """Download a compiled firmware binary as ``{filename, data, size, compressed}``.
-
-    ``data`` is base64-encoded bytes; for Web Serial flashing the
-    frontend decodes the base64 itself.
-    """
-    # ``_validate_configuration_boundary`` is the only traversal
-    # gate; do not reorder. Coverage:
-    # ``test_download.py::test_download_validator_runs_before_ext_storage_path``.
-    await controller._validate_configuration_boundary(configuration)
-    loop = asyncio.get_running_loop()
-
-    def _read_binary() -> dict:
-        path, download_name = _resolve_artifact_path(configuration, file)
-        data = path.read_bytes()
-        if compressed:
-            data = gzip.compress(data, 9)
-            download_name += ".gz"
-        return {
-            "filename": download_name,
-            "data": base64.b64encode(data).decode("ascii"),
-            "size": len(data),
-            "compressed": compressed,
-        }
-
-    return await loop.run_in_executor(None, _read_binary)
 
 
 def _resolve_artifact_path(configuration: str, file: str) -> tuple[Path, str]:

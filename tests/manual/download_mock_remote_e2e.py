@@ -22,11 +22,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import base64
 import logging
 import sys
 from pathlib import Path
 
+from esphome_device_builder.controllers.firmware import download as download_mod
 from esphome_device_builder.models import EventType
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -93,15 +93,14 @@ async def main() -> int:
                     print(f"job.error: {job_obj.error}")
             return 1
 
-        # firmware/download reads the offloader-side StorageJSON sidecar
-        # that the materialiser just rewrote.
-        result = await pair.offloader.firmware.download(
-            configuration=yaml_path.name,
-            file=args.file,
-        )
+        # The HTTP download route reads the offloader-side StorageJSON sidecar
+        # that the materialiser just rewrote; resolve the same path it serves.
+        await pair.offloader.firmware._validate_configuration_boundary(yaml_path.name)
+        path, name = download_mod._resolve_artifact_path(yaml_path.name, args.file)
+        data = path.read_bytes()
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_bytes(base64.b64decode(result["data"]))
-        print(f"Wrote {result['size']} bytes to {out_path} ({result['filename']})")
+        out_path.write_bytes(data)
+        print(f"Wrote {len(data)} bytes to {out_path} ({name})")
         return 0
 
 

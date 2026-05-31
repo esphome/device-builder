@@ -45,9 +45,8 @@ from tests.controllers.firmware.conftest import FirmwareControllerFactory
 def _redirect_ext_storage_path(monkeypatch: Any, tmp_path: Path) -> None:
     """Pin ``ext_storage_path`` at ``<tmp>/.esphome/storage/<config>.json``.
 
-    Same redirect ``test_download.py`` uses — ``CORE.config_path``
-    isn't initialised in the test process, so the controller-side
-    binding gets the tmpfs layout instead.
+    ``CORE.config_path`` isn't initialised in the test process, so the
+    controller-side binding gets the tmpfs layout instead.
     """
     monkeypatch.setattr(
         "esphome_device_builder.controllers.firmware.download.resolve_storage_path",
