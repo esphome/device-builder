@@ -21,6 +21,13 @@ def test_globals_body_is_marked_as_list() -> None:
     assert _load("globals").is_list is True
 
 
+def test_other_list_bodied_components_are_marked() -> None:
+    # globals is not special-cased; the flag rides on every list-bodied
+    # component the schema marks (i2c, font, ...).
+    assert _load("i2c").is_list is True
+    assert _load("font").is_list is True
+
+
 def test_globals_config_entries_stay_flat() -> None:
     # Flat fields, not a single nested wrapper, so add-component is untouched.
     entry = _load("globals")
