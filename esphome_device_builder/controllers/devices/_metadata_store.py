@@ -181,9 +181,7 @@ class DeviceMetadataStore:
         self._store.async_delay_save(self._snapshot, delay=delay)
         return True
 
-    def _commit_rename(
-        self, old_filename: str, new_filename: str, merged: dict[str, Any]
-    ) -> bool:
+    def _commit_rename(self, old_filename: str, new_filename: str, merged: dict[str, Any]) -> bool:
         """Drop *old_filename* and land *merged* on *new_filename* in one step.
 
         Both dict mutations run before the single ``async_delay_save``
