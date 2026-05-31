@@ -109,3 +109,47 @@ def test_atomic_write_closes_fd_when_fdopen_fails(
     assert len(closed) == 1, f"expected one explicit os.close, got {closed}"
     assert not target.exists()
     assert not list(tmp_path.glob("demo.bin.*.tmp"))
+
+
+def test_atomic_write_retries_replace_on_windows_handle_race(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A transient Windows ``PermissionError`` on rename is retried, not surfaced."""
+    monkeypatch.setattr("esphome_device_builder.helpers.atomic_io._IS_WINDOWS", True)
+    monkeypatch.setattr("esphome_device_builder.helpers.atomic_io.time.sleep", lambda _s: None)
+    target = tmp_path / "demo.bin"
+    target.write_bytes(b"old")
+
+    real_replace = os.replace
+    calls = {"n": 0}
+
+    def _flaky(src: object, dst: object) -> None:
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise PermissionError(5, "Access is denied")
+        real_replace(src, dst)
+
+    monkeypatch.setattr("os.replace", _flaky)
+    atomic_write(target, b"new")
+
+    assert calls["n"] == 3  # failed twice, succeeded on the third
+    assert target.read_bytes() == b"new"
+    assert not list(tmp_path.glob("demo.bin.*.tmp"))
+
+
+def test_atomic_write_does_not_retry_replace_on_posix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ``PermissionError`` on POSIX is a real error and surfaces immediately."""
+    monkeypatch.setattr("esphome_device_builder.helpers.atomic_io._IS_WINDOWS", False)
+    calls = {"n": 0}
+
+    def _fail(src: object, dst: object) -> None:
+        calls["n"] += 1
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr("os.replace", _fail)
+    with pytest.raises(PermissionError):
+        atomic_write(tmp_path / "demo.bin", b"x")
+
+    assert calls["n"] == 1  # no retry on POSIX

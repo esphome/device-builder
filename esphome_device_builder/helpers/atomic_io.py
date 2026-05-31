@@ -16,7 +16,17 @@ from __future__ import annotations
 import contextlib
 import os
 import tempfile
+import time
 from pathlib import Path
+
+# Windows raises ``PermissionError`` (WinError 5) from ``os.replace`` when a
+# transient handle holds the destination open (a concurrent reader, an
+# antivirus or the search indexer). POSIX rename is atomic and never hits
+# this, so the retry is Windows-only; a few short waits clear the typical
+# sub-second window.
+_IS_WINDOWS = os.name == "nt"
+_REPLACE_RETRIES = 10
+_REPLACE_RETRY_BACKOFF_S = 0.05
 
 
 def atomic_write(
@@ -55,7 +65,7 @@ def atomic_write(
             if mode is not None:
                 tmp_path.chmod(mode)
             fh.write(data)
-        tmp_path.replace(path)
+        _replace_with_retry(tmp_path, path)
     except Exception:
         # Suppress all OSError on cleanup so the original write
         # failure isn't masked by a secondary unlink permission
@@ -63,3 +73,18 @@ def atomic_write(
         with contextlib.suppress(OSError):
             tmp_path.unlink()
         raise
+
+
+def _replace_with_retry(src: Path, dst: Path) -> None:
+    """``Path.replace`` *src* onto *dst*, retried on a Windows handle race."""
+    for attempt in range(_REPLACE_RETRIES):
+        try:
+            src.replace(dst)
+        except PermissionError:
+            # POSIX rename can't hit this transiently, so a PermissionError
+            # there is real; re-raise. On Windows, back off and retry.
+            if not _IS_WINDOWS or attempt == _REPLACE_RETRIES - 1:
+                raise
+            time.sleep(_REPLACE_RETRY_BACKOFF_S)
+        else:
+            return
