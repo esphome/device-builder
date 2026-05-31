@@ -194,8 +194,11 @@ async def http_download(request: web.Request) -> web.StreamResponse:
         path, download_name = await loop.run_in_executor(
             None, _resolve_artifact_path, configuration, file
         )
-    except (CommandError, FileNotFoundError, ValueError):
-        # Don't distinguish "not built" / "missing" / "traversal" to a caller.
+    except (CommandError, FileNotFoundError, ValueError) as err:
+        # Collapse "not built" / "missing" / "traversal" to a bare 404 for the
+        # caller, but log so an operator debugging a failed download has a
+        # server-side signal (the token already authenticated the request).
+        _LOGGER.debug("Firmware download rejected for %s/%s: %s", configuration, file, err)
         raise web.HTTPNotFound from None
     return web.FileResponse(
         path,

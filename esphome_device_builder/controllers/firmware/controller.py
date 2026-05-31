@@ -326,7 +326,17 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     @api_command("firmware/download_token")
     async def download_token(self, *, configuration: str, file: str, **kwargs: Any) -> dict:
         await self._validate_configuration_boundary(configuration)
-        return {"token": self.download_tokens.create(configuration, file)}
+        # Resolve up front so the caller learns the exact filename the download
+        # will save under (so the UI's "saved as …" matches the file), and so a
+        # missing artifact fails here rather than on the download navigation.
+        loop = asyncio.get_running_loop()
+        try:
+            _, filename = await loop.run_in_executor(
+                None, download_mod._resolve_artifact_path, configuration, file
+            )
+        except (FileNotFoundError, ValueError) as err:
+            raise CommandError(ErrorCode.NOT_FOUND, "Firmware artifact not found") from err
+        return {"token": self.download_tokens.create(configuration, file), "filename": filename}
 
     # ------------------------------------------------------------------
     # Internals — queue processing

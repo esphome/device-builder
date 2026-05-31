@@ -215,3 +215,12 @@ def test_download_tokens_expire() -> None:
     tokens = DownloadTokens(ttl_seconds=-1.0)  # expiry in the past
     token = tokens.create("kitchen.yaml", "firmware.elf")
     assert tokens.consume(token) is None
+
+
+def test_download_tokens_purge_drops_expired_on_create() -> None:
+    tokens = DownloadTokens(ttl_seconds=-1.0)  # everything expires immediately
+    tokens.create("kitchen.yaml", "firmware.elf")
+    # The next create() purges the expired entry before adding the new one, so
+    # the store doesn't grow unbounded.
+    tokens.create("kitchen.yaml", "firmware.bin")
+    assert len(tokens._tokens) == 1
