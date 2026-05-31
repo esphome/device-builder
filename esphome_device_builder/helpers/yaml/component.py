@@ -427,7 +427,7 @@ def _format_flow_yaml_value(value: Any) -> str:
         and not formatted.startswith('"')
         and any(c in value for c in ",[]{}")
     ):
-        return f'"{value}"'
+        return _quote(value)
     return formatted
 
 

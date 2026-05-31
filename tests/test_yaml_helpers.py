@@ -1353,6 +1353,18 @@ def test_generate_component_yaml_quotes_flow_string_with_flow_indicator() -> Non
     assert '  items: ["a,b", c]' in out
 
 
+@pytest.mark.parametrize(
+    "value",
+    ['a,"b', "x,\\y", '{a},"q"'],
+    ids=["embedded-quote", "backslash", "brace-quote"],
+)
+def test_generate_component_yaml_flow_list_escapes_quote_bearing_element(value: str) -> None:
+    """A flow-list element with both a flow indicator and a quote/backslash escapes cleanly."""
+    component = _component(component_id="myc", category=ComponentCategory.MISC)
+    out = generate_component_yaml(component, {"items": [value, "c"]})
+    assert yaml.safe_load(out)["myc"]["items"] == [value, "c"]
+
+
 # ---------------------------------------------------------------------------
 # generate_component_yaml — MAP fields with string value templates
 # ---------------------------------------------------------------------------
