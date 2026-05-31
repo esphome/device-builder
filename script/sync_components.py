@@ -69,7 +69,7 @@ _CACHE_ROOT = _REPO_ROOT / ".cache"
 # Fields stripped from index entries — they belong on the per-id body
 # files only. Slim-index keeps the catalog UI's list / search /
 # filter paths off the per-field tree.
-_INDEX_DROP_FIELDS: frozenset[str] = frozenset({"config_entries", "required_groups"})
+_INDEX_DROP_FIELDS: frozenset[str] = frozenset({"config_entries", "required_groups", "is_list"})
 
 _RELEASES_API = "https://api.github.com/repos/esphome/esphome-schema/releases"
 _SCHEMA_URL_TEMPLATE = "https://schema.esphome.io/{version}/schema.zip"
