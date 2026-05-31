@@ -223,8 +223,11 @@ def generate_device_yaml(
 
         lines.append("wifi:")
         if ssid:
-            lines.append(f"  ssid: {ssid}")
-            lines.append(f"  password: {psk}")
+            # Raw user input, same as friendly_name above — an SSID like
+            # ``Home #2`` or a password starting with an indicator char
+            # would truncate or fail to parse if emitted unquoted.
+            lines.append(f"  ssid: {_safe_yaml_scalar(ssid)}")
+            lines.append(f"  password: {_safe_yaml_scalar(psk)}")
         else:
             lines.append("  ssid: !secret wifi_ssid")
             lines.append("  password: !secret wifi_password")

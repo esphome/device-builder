@@ -14,6 +14,7 @@ from typing import Any, ClassVar
 from unittest import mock
 
 import pytest
+import yaml
 from esphome.components import wifi as esphome_wifi
 from esphome.components.rp2040.boards import BOARDS as ESPHOME_RP2040_BOARDS
 
@@ -947,6 +948,32 @@ def test_generate_yaml_emits_explicit_wifi_credentials_when_provided() -> None:
     secret = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
     assert "  ssid: !secret wifi_ssid\n" in secret
     assert "  password: !secret wifi_password\n" in secret
+
+
+@pytest.mark.parametrize(
+    ("ssid", "psk"),
+    [
+        pytest.param("Home #2", "plainpass", id="ssid_space_hash"),
+        pytest.param("MyNet", "*secret!", id="psk_leading_indicator"),
+        pytest.param("[guest]", "p4ss", id="ssid_leading_bracket"),
+        pytest.param("off", "no", id="reserved_words"),
+        pytest.param("MyNet", "trailing ", id="psk_trailing_space"),
+        pytest.param("key: val", "p4ss", id="ssid_colon_space"),
+    ],
+)
+def test_generate_device_yaml_quotes_wifi_credentials(ssid: str, psk: str) -> None:
+    """ssid/psk are raw user input; metacharacters must round-trip intact.
+
+    Mirrors the ``friendly_name`` safe-scalar handling — an SSID like
+    ``Home #2`` would otherwise truncate at the comment marker and a
+    password starting with ``*`` would make the generated YAML unparseable.
+    """
+    board = _make_esp32_board(variant=Esp32Variant.ESP32)
+    text = generate_device_yaml("kitchen", "Kitchen", board, ssid=ssid, psk=psk)
+
+    parsed = yaml.safe_load(text)
+    assert parsed["wifi"]["ssid"] == ssid
+    assert parsed["wifi"]["password"] == psk
 
 
 # ---------------------------------------------------------------------------
