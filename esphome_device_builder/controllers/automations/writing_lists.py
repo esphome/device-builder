@@ -11,6 +11,8 @@ the single-handler / top-level splice paths.
 
 from __future__ import annotations
 
+from typing import Any
+
 from ...helpers.api import CommandError
 from ...helpers.yaml import (
     remove_inline_handler,
@@ -33,6 +35,37 @@ def wrap_handler_list_block(handler_key: str, rendered_list: str) -> str:
     # ``upsert_inline_handler`` writes ``rendered_yaml`` verbatim under the
     # component instance; the list dump is bare, so add the header here.
     return f"{handler_key}:\n" + rendered_list.rstrip() + "\n"
+
+
+def _drop_after_block_comment(entries: list) -> None:
+    """
+    Strip the comments ruamel bound to the last list entry.
+
+    That trailing slot also holds whatever followed the block in the
+    source (the next sibling's leading comment); re-emitting it would
+    duplicate that comment on splice. The sequence's own comments and
+    earlier entries are untouched, so inner comments survive. A comment
+    authored at the tail of the last entry is indistinguishable from the
+    after-block one, so it's dropped; an accepted cost versus the
+    duplication it would otherwise cause.
+    """
+    if entries:
+        _strip_comments(entries[-1])
+
+
+def _strip_comments(node: Any) -> None:
+    """Recursively clear ruamel comment associations on *node*."""
+    ca = getattr(node, "ca", None)
+    if ca is not None:
+        ca.items.clear()
+        ca.comment = None
+        ca.end.clear()
+    if isinstance(node, dict):
+        for child in node.values():
+            _strip_comments(child)
+    elif isinstance(node, list):
+        for child in node:
+            _strip_comments(child)
 
 
 def _resplice_list_block(
@@ -101,6 +134,7 @@ def upsert_component_on_entry(
         msg = f"{trigger_key}: is a single mapping, not a list; convert it to a list first"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     entries = existing if isinstance(existing, list) else []
+    _drop_after_block_comment(entries)
     new_item = emit_trigger_list_item(tree)
     if index == len(entries):
         entries.append(new_item)
@@ -155,6 +189,7 @@ def delete_list_entry(
     if not isinstance(entries, list) or not 0 <= index < len(entries):
         msg = f"{handler_key}[{index}] not present on component id={component_id!r}"
         raise CommandError(ErrorCode.NOT_FOUND, msg)
+    _drop_after_block_comment(entries)
     del entries[index]
     return _resplice_list_block(
         yaml_text,
