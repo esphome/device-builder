@@ -962,12 +962,7 @@ def test_generate_yaml_emits_explicit_wifi_credentials_when_provided() -> None:
     ],
 )
 def test_generate_device_yaml_quotes_wifi_credentials(ssid: str, psk: str) -> None:
-    """ssid/psk are raw user input; metacharacters must round-trip intact.
-
-    Mirrors the ``friendly_name`` safe-scalar handling — an SSID like
-    ``Home #2`` would otherwise truncate at the comment marker and a
-    password starting with ``*`` would make the generated YAML unparseable.
-    """
+    """ssid/psk round-trip through safe-scalar quoting intact."""
     board = _make_esp32_board(variant=Esp32Variant.ESP32)
     text = generate_device_yaml("kitchen", "Kitchen", board, ssid=ssid, psk=psk)
 

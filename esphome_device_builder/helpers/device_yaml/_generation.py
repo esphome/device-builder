@@ -223,9 +223,9 @@ def generate_device_yaml(
 
         lines.append("wifi:")
         if ssid:
-            # Raw user input, same as friendly_name above — an SSID like
-            # ``Home #2`` or a password starting with an indicator char
-            # would truncate or fail to parse if emitted unquoted.
+            # An unquoted SSID like 'Home #2' truncates at the # comment
+            # marker; a password starting with an indicator char (*, !, &)
+            # fails to parse. Route raw user input through scalar-safe quoting.
             lines.append(f"  ssid: {_safe_yaml_scalar(ssid)}")
             lines.append(f"  password: {_safe_yaml_scalar(psk)}")
         else:
