@@ -93,7 +93,7 @@ def merge_component_yaml(
     return _append_block(existing, block)
 
 
-def generate_component_yaml(  # noqa: C901
+def generate_component_yaml(  # noqa: C901, PLR0912
     component: ComponentCatalogEntry,
     fields: dict[str, Any],
 ) -> str:
@@ -167,19 +167,26 @@ def generate_component_yaml(  # noqa: C901
         autofill.update(sub)
         fields[entry.key] = autofill
 
-    lines: list[str] = []
     if is_platform:
-        lines.append(f"{category}:")
-        lines.append(f"{ESPHOME_YAML_INDENT}- platform: {unqualified}")
+        lines = [f"{category}:", f"{ESPHOME_YAML_INDENT}- platform: {unqualified}"]
         indent = ESPHOME_YAML_INDENT * 2
-    else:
-        lines.append(f"{comp_id}:")
-        indent = ESPHOME_YAML_INDENT
+        for key, value in fields.items():
+            lines.extend(_emit_field(key, value, indent))
+        return "\n".join(lines)
 
+    body: list[str] = []
     for key, value in fields.items():
-        lines.extend(_emit_field(key, value, indent))
+        body.extend(_emit_field(key, value, ESPHOME_YAML_INDENT))
 
-    return "\n".join(lines)
+    # ``multi_conf`` components are YAML lists (``globals:`` a list of
+    # typed variables, ``i2c:`` a list of buses), so emit the first
+    # entry in ``- `` list form. A bare mapping only survives via
+    # ``cv.ensure_list`` and misleads the user about the block's shape;
+    # the next add normalises it to list form anyway.
+    if component.multi_conf:
+        return "\n".join([f"{comp_id}:", *_mapping_body_to_list_item(body)])
+
+    return "\n".join([f"{comp_id}:", *body])
 
 
 def _coerce_string_map_values(
@@ -283,19 +290,18 @@ def _splice_into_domain_block(existing: str, domain: str, block: str) -> str | N
 
 def _splice_into_multi_conf_block(existing: str, comp_id: str, block: str) -> str | None:
     """
-    Normalise ``<comp_id>:`` to list-form, then splice *block* in.
+    Normalise an existing ``<comp_id>:`` body to list-form, then splice *block* in.
 
-    Returns ``None`` when no such block exists so the caller can
-    fall back to a plain append.
+    *block* already arrives list-form from
+    :func:`generate_component_yaml`; this only has to rewrite a legacy
+    mapping-form body already on disk before appending the new item.
+    Returns ``None`` when no such block exists so the caller can fall
+    back to a plain append.
     """
     normalized = _normalize_multi_conf_block(existing, comp_id)
     if normalized is None:
         return None
-    block_lines = block.splitlines()
-    if len(block_lines) < 2 or block_lines[0].rstrip() != f"{comp_id}:":
-        return None
-    list_block = f"{comp_id}:\n" + "\n".join(_mapping_body_to_list_item(block_lines[1:]))
-    return _splice_into_domain_block(normalized, comp_id, list_block)
+    return _splice_into_domain_block(normalized, comp_id, block)
 
 
 def _normalize_multi_conf_block(existing: str, comp_id: str) -> str | None:

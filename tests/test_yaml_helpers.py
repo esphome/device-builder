@@ -981,8 +981,8 @@ _RTTTL_LIST = "rtttl:\n  - id: rtttl_1\n    output: buzz\n  - id: rtttl_2\n    o
             "esphome:\n  name: kitchen\n",
             "rtttl_1",
             ["rtttl_1"],
-            "rtttl:\n  id: rtttl_1\n  output: buzz\n",
-            id="first_add_emits_mapping",
+            "rtttl:\n  - id: rtttl_1\n    output: buzz\n",
+            id="first_add_emits_list",
         ),
         pytest.param(
             f"esphome:\n  name: kitchen\n\n{_RTTTL_MAPPING}",
@@ -1091,6 +1091,22 @@ def test_mapping_body_to_list_item_preserves_blank_lines() -> None:
         "",
         "    output: buzz",
     ]
+
+
+def test_generate_component_yaml_multi_conf_emits_list_form() -> None:
+    """A ``multi_conf`` component's first entry renders as a ``- `` list item."""
+    component = _component(component_id="globals", category=ComponentCategory.MISC, multi_conf=True)
+    out = generate_component_yaml(component, {"id": "g1", "type": "int", "initial_value": "0"})
+    assert out.startswith("globals:\n  - id: g1\n")
+    assert "    type: int" in out
+    assert "    initial_value:" in out
+
+
+def test_generate_component_yaml_singleton_emits_mapping_form() -> None:
+    """A non-``multi_conf`` singleton stays a bare mapping (no ``- ``)."""
+    component = _component(component_id="wifi", category=ComponentCategory.MISC, multi_conf=False)
+    out = generate_component_yaml(component, {"ssid": "home"})
+    assert out == "wifi:\n  ssid: home"
 
 
 # ---------------------------------------------------------------------------
