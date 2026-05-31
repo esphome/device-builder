@@ -114,7 +114,10 @@ def set_device_labels(config_dir: Path, configuration: str, label_ids: list[str]
         # the delete sees the YAML gone and refuses rather than
         # re-creating an orphan entry for a device that no longer
         # exists. The controller's pre-call scanner check is a fast
-        # UX path; this is the race-tight backstop.
+        # UX path; this is the race-tight backstop. This also fires by
+        # design during the atomic-save window (vscode-on-macOS et al.
+        # briefly unlink the YAML mid-save) — a transient NOT_FOUND on a
+        # retriable user click, not a bug.
         if not (config_dir / configuration).exists():
             raise FileNotFoundError(configuration)
         catalog = data.get(_LABELS_KEY, [])
