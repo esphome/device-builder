@@ -16,8 +16,9 @@ configuration-traversal branch is already covered in
   upstream's ``FAMILY_COMPONENT.values()``), so a new ESP32
   variant or LibreTiny family in upstream auto-shows up as a
   parametrised case here without an inline list edit.
-- The result-list pass-through is honest — whatever the upstream
-  module returns is what the WS client sees.
+- The transforms layered on the upstream list: filtering to files
+  present on disk, appending the ``firmware.elf`` entry, and tagging
+  each entry with a stable artifact ``type``.
 """
 
 from __future__ import annotations
@@ -86,6 +87,31 @@ def _install_fake_component(
     # attribute if it didn't exist before) on teardown.
     monkeypatch.setattr(parent, module_name, fake, raising=False)
     return captured
+
+
+# The ELF entry ``get_binaries`` appends when ``firmware.elf`` is on disk.
+# Kept in sync with ``download.get_binaries`` by assertion below.
+_ELF_ENTRY = {
+    "title": "ELF (for debugging)",
+    "description": "Debug symbols for the ESP stack trace decoder.",
+    "file": "firmware.elf",
+    "type": "elf",
+}
+
+
+def _make_build(tmp_path: Path, *files: str) -> Path:
+    """Create a fake ``.pioenvs/kitchen`` build dir holding *files*.
+
+    Returns the directory so the test can point ``firmware_bin_path``
+    at a sibling — ``get_binaries`` only stats the entry files and
+    ``firmware.elf`` under this parent, so ``firmware.bin`` itself need
+    not exist.
+    """
+    build_dir = tmp_path / ".esphome" / "build" / "kitchen" / ".pioenvs" / "kitchen"
+    build_dir.mkdir(parents=True, exist_ok=True)
+    for name in files:
+        (build_dir / name).write_bytes(b"x")
+    return build_dir
 
 
 # ---------------------------------------------------------------------------
@@ -253,9 +279,11 @@ async def test_get_binaries_routes_esp32_variants_through_umbrella_module(
         [{"title": "Modern (Web Serial)", "file": "firmware-factory.bin"}],
     )
 
+    build_dir = _make_build(tmp_path, "firmware-factory.bin")
     write_storage_json(
         tmp_path,
         "kitchen.yaml",
+        firmware_bin_path=build_dir / "firmware.bin",
         overrides={"esp_platform": "esp32c3"},
     )
     controller = firmware_controller_factory()
@@ -286,9 +314,11 @@ async def test_get_binaries_routes_libretiny_families_through_umbrella_module(
         [{"title": "LibreTiny RBL", "file": "firmware.rbl"}],
     )
 
+    build_dir = _make_build(tmp_path, "firmware.rbl")
     write_storage_json(
         tmp_path,
         "kitchen.yaml",
+        firmware_bin_path=build_dir / "firmware.bin",
         overrides={"esp_platform": "bk72xx"},
     )
     controller = firmware_controller_factory()
@@ -299,32 +329,127 @@ async def test_get_binaries_routes_libretiny_families_through_umbrella_module(
     assert len(captured) == 1
 
 
-async def test_get_binaries_returns_module_list_verbatim(
+async def test_get_binaries_filters_to_files_present_on_disk(
     tmp_path: Path, monkeypatch: Any, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
-    """The upstream module's list is returned verbatim — no filtering, no re-shaping.
+    """Only ``get_download_types`` entries whose file exists are returned.
 
-    Pin the pass-through so a refactor that adds a "drop entries
-    without an OTA bin" filter (or any other transform) shows up
-    as a contract change in the test diff. The frontend's flash
-    picker maps over each entry's ``title``/``file`` directly;
-    silently dropping entries would hide install options from the
-    user.
+    A cleaned or partial build then reads as "compile first" instead
+    of offering a name ``firmware/download`` would 404 on. Here the
+    upstream module lists three formats but only two are on disk, so
+    the missing ``boot_app0.bin`` is dropped.
     """
-    expected = [
-        {"title": "Modern (Web Serial)", "file": "firmware-factory.bin"},
-        {"title": "OTA Update", "file": "firmware.ota.bin"},
-        {"title": "Boot App 0", "file": "boot_app0.bin"},
-    ]
-    _install_fake_component(monkeypatch, "esp32", expected)
+    factory = {"title": "Modern (Web Serial)", "file": "firmware.factory.bin", "type": "factory"}
+    ota = {"title": "OTA Update", "file": "firmware.ota.bin", "type": "ota"}
+    boot = {"title": "Boot App 0", "file": "boot_app0.bin"}
+    _install_fake_component(monkeypatch, "esp32", [factory, ota, boot])
 
+    build_dir = _make_build(tmp_path, "firmware.factory.bin", "firmware.ota.bin")
     write_storage_json(
         tmp_path,
         "kitchen.yaml",
+        firmware_bin_path=build_dir / "firmware.bin",
         overrides={"esp_platform": "esp32"},
     )
     controller = firmware_controller_factory()
 
     result = await controller.get_binaries(configuration="kitchen.yaml")
 
-    assert result == expected
+    assert result == [factory, ota]
+
+
+async def test_get_binaries_appends_elf_entry_when_present(
+    tmp_path: Path, monkeypatch: Any, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """``firmware.elf`` is offered as an extra entry for the stack trace decoder.
+
+    ``get_download_types`` never lists the ELF; ``get_binaries`` adds
+    it when the symbols are on disk so the unified Download picker can
+    offer it alongside the firmware images.
+    """
+    factory = {"title": "Modern (Web Serial)", "file": "firmware.factory.bin", "type": "factory"}
+    _install_fake_component(monkeypatch, "esp32", [factory])
+
+    build_dir = _make_build(tmp_path, "firmware.factory.bin", "firmware.elf")
+    write_storage_json(
+        tmp_path,
+        "kitchen.yaml",
+        firmware_bin_path=build_dir / "firmware.bin",
+        overrides={"esp_platform": "esp32"},
+    )
+    controller = firmware_controller_factory()
+
+    result = await controller.get_binaries(configuration="kitchen.yaml")
+
+    assert result == [factory, _ELF_ENTRY]
+
+
+async def test_get_binaries_does_not_duplicate_elf_listed_upstream(
+    tmp_path: Path, monkeypatch: Any, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """If a platform's get_download_types ever lists firmware.elf, it appears once.
+
+    ``get_download_types`` doesn't list the ELF today, but guard the
+    append so a future upstream that does can't produce a duplicate
+    entry in the picker.
+    """
+    elf = {"title": "Upstream ELF", "file": "firmware.elf", "type": "elf"}
+    _install_fake_component(monkeypatch, "esp32", [elf])
+
+    build_dir = _make_build(tmp_path, "firmware.elf")
+    write_storage_json(
+        tmp_path,
+        "kitchen.yaml",
+        firmware_bin_path=build_dir / "firmware.bin",
+        overrides={"esp_platform": "esp32"},
+    )
+    controller = firmware_controller_factory()
+
+    result = await controller.get_binaries(configuration="kitchen.yaml")
+
+    assert result == [elf]
+    assert sum(entry["file"] == "firmware.elf" for entry in result) == 1
+
+
+async def test_get_binaries_omits_elf_entry_when_absent(
+    tmp_path: Path, monkeypatch: Any, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """No ``firmware.elf`` on disk → no ELF entry."""
+    factory = {"title": "Modern (Web Serial)", "file": "firmware.factory.bin", "type": "factory"}
+    _install_fake_component(monkeypatch, "esp32", [factory])
+
+    build_dir = _make_build(tmp_path, "firmware.factory.bin")
+    write_storage_json(
+        tmp_path,
+        "kitchen.yaml",
+        firmware_bin_path=build_dir / "firmware.bin",
+        overrides={"esp_platform": "esp32"},
+    )
+    controller = firmware_controller_factory()
+
+    result = await controller.get_binaries(configuration="kitchen.yaml")
+
+    assert result == [factory]
+    assert _ELF_ENTRY not in result
+
+
+async def test_get_binaries_returns_empty_when_no_build_path(
+    tmp_path: Path, monkeypatch: Any, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """Storage exists but ``firmware_bin_path`` is unset → empty list.
+
+    Without a build directory we can't confirm any artifact is on
+    disk, so the device reads as not-yet-built ("compile first").
+    """
+    _install_fake_component(
+        monkeypatch,
+        "esp32",
+        [{"title": "Modern (Web Serial)", "file": "firmware.factory.bin", "type": "factory"}],
+    )
+
+    write_storage_json(tmp_path, "kitchen.yaml", overrides={"esp_platform": "esp32"})
+    controller = firmware_controller_factory()
+
+    result = await controller.get_binaries(configuration="kitchen.yaml")
+
+    assert result == []

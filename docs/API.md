@@ -144,10 +144,12 @@ Connections that arrive on the trusted ingress site (HA add-on supervisor proxy)
 | `firmware/get_job` | `{job_id}` | `FirmwareJob` | Get job with full output |
 | `firmware/follow_job` | `{job_id}` | Streaming | Historical output + live stream for one job |
 | `firmware/follow_jobs` | `{snapshot?: true}` | Streaming | All jobs' lifecycle + output + progress |
-| `firmware/get_binaries` | `{configuration}` | `[{title, file}]` | List compiled firmware files |
+| `firmware/get_binaries` | `{configuration}` | `[{title, file, type?, description?}]` | List downloadable build artifacts present on disk |
 | `firmware/download` | `{configuration, file, compressed?}` | `{filename, data, size}` | Download binary (base64) |
 | `firmware/cancel` | `{job_id}` | — | Cancel queued or running job |
 | `firmware/clear` | `{status?}` | — | Remove finished jobs |
+
+**`firmware/get_binaries`**: returns only artifacts that exist in the build directory (an empty list means "compile first"), each `{title, file, type?, description?}`. `description` is optional subtext from the platform's `get_download_types`. `type` is a stable tag (`factory` / `ota` / `bin` / `uf2` / `elf`) the frontend maps to a localized label, falling back to `title` when absent or unrecognized. A `firmware.elf` entry (debug symbols for the ESP stack trace decoder) is appended when present; `get_download_types` itself never lists it. Any `file` can be fetched via `firmware/download`.
 
 **Job queue**: one job runs at a time, others wait. Jobs persist across server restarts. Output buffered in `FirmwareJob.output` — clients can reconnect via `firmware/follow_job`.
 

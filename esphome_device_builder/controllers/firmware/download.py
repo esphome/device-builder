@@ -33,12 +33,25 @@ _LIBRETINY_TARGET_PLATFORMS: frozenset[str] = frozenset(_LIBRETINY_FAMILY_COMPON
     "libretiny"
 }
 
+# Stable ``type`` tag per artifact filename so the frontend can map it to a
+# localized label (falling back to the platform-supplied ``title`` for any
+# file not listed here).
+_ARTIFACT_TYPES: dict[str, str] = {
+    "firmware.factory.bin": "factory",
+    "firmware.ota.bin": "ota",
+    "firmware.bin": "bin",
+    "firmware.uf2": "uf2",
+    "firmware.elf": "elf",
+}
+
 
 async def get_binaries(controller: FirmwareController, *, configuration: str) -> list[dict]:
-    """List firmware binaries for a compiled device as ``[{title, file}]``.
+    """List on-disk downloadable artifacts as ``[{title, file}]``.
 
-    The ``file`` names can be passed to ``firmware/download`` to
-    retrieve the binary content.
+    The platform's ``get_download_types`` entries that exist, plus a
+    ``firmware.elf`` entry when present (``get_download_types`` never
+    lists it). Empty means nothing is built yet. ``file`` feeds
+    ``firmware/download``.
     """
     # ``resolve_storage_path`` collapses to
     # ``<data_dir>/storage/<Path(configuration).name>.json``; a
@@ -55,10 +68,35 @@ async def get_binaries(controller: FirmwareController, *, configuration: str) ->
         try:
             component = _resolve_download_component(storage.target_platform)
             module = importlib.import_module(f"esphome.components.{component}")
-            return list(module.get_download_types(storage))
+            types = list(module.get_download_types(storage))
         except Exception:  # noqa: BLE001 — third-party regression: upstream ``get_download_types`` could raise anything
             _LOGGER.warning("Could not determine download types for %s", configuration)
             return []
+        # No build dir → can't confirm anything on disk → treat as not built.
+        if storage.firmware_bin_path is None:
+            return []
+        build_dir = storage.firmware_bin_path.parent
+        # Filter to files that exist so a cleaned build reads as "compile
+        # first" rather than offering a name ``firmware/download`` would 404 on.
+        downloads = [dict(t) for t in types if (build_dir / t["file"]).is_file()]
+        # firmware.elf sits beside firmware.bin on every platform
+        # (remote_build/artifact_platforms/*.py). The `not any` guards against a
+        # future get_download_types that lists it, so it can't appear twice.
+        if (build_dir / "firmware.elf").is_file() and not any(
+            t["file"] == "firmware.elf" for t in downloads
+        ):
+            downloads.append(
+                {
+                    "title": "ELF (for debugging)",
+                    "description": "Debug symbols for the ESP stack trace decoder.",
+                    "file": "firmware.elf",
+                }
+            )
+        for entry in downloads:
+            artifact_type = _ARTIFACT_TYPES.get(entry["file"])
+            if artifact_type:
+                entry["type"] = artifact_type
+        return downloads
 
     return await loop.run_in_executor(None, _get_types)
 
