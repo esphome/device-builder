@@ -7,14 +7,18 @@ import base64
 import gzip
 import importlib
 import logging
+import re
+from pathlib import Path
 from typing import TYPE_CHECKING
 
+from aiohttp import web
 from esphome.components.esp32 import VARIANTS as ESP32_VARIANTS
 from esphome.components.libretiny.const import (
     FAMILY_COMPONENT as _LIBRETINY_FAMILY_COMPONENT,
 )
 from esphome.storage_json import StorageJSON
 
+from ...helpers.api import CommandError
 from ...helpers.storage_path import resolve_storage_path
 
 if TYPE_CHECKING:
@@ -120,36 +124,75 @@ async def download(
     loop = asyncio.get_running_loop()
 
     def _read_binary() -> dict:
-        storage = StorageJSON.load(resolve_storage_path(configuration))
-        if storage is None or storage.firmware_bin_path is None:
-            msg = "No firmware binary — compile the device first"
-            raise FileNotFoundError(msg)
-
-        base_dir = storage.firmware_bin_path.parent.resolve()
-        path = (base_dir / file).resolve()
-        # Path traversal protection
-        path.relative_to(base_dir)
-
-        if not path.is_file():
-            msg = f"Binary not found: {file}"
-            raise FileNotFoundError(msg)
-
+        path, download_name = _resolve_artifact_path(configuration, file)
         data = path.read_bytes()
         if compressed:
             data = gzip.compress(data, 9)
-
-        filename = f"{storage.name}-{file}"
-        if compressed:
-            filename += ".gz"
-
+            download_name += ".gz"
         return {
-            "filename": filename,
+            "filename": download_name,
             "data": base64.b64encode(data).decode("ascii"),
             "size": len(data),
             "compressed": compressed,
         }
 
     return await loop.run_in_executor(None, _read_binary)
+
+
+def _resolve_artifact_path(configuration: str, file: str) -> tuple[Path, str]:
+    """Resolve a build artifact to ``(path, download_name)``, traversal-safe.
+
+    Raises ``FileNotFoundError`` when the device isn't built or *file* is
+    absent, and ``ValueError`` (from ``relative_to``) when *file* escapes the
+    build directory. ``download_name`` is restricted to a filename-safe charset
+    so it can't inject into a ``Content-Disposition`` header.
+    """
+    storage = StorageJSON.load(resolve_storage_path(configuration))
+    if storage is None or storage.firmware_bin_path is None:
+        msg = "No firmware binary — compile the device first"
+        raise FileNotFoundError(msg)
+
+    base_dir = storage.firmware_bin_path.parent.resolve()
+    path = (base_dir / file).resolve()
+    # Path traversal protection — resolve() collapses ``..`` / absolute
+    # ``file`` / symlinks, then relative_to raises if it escaped base_dir.
+    path.relative_to(base_dir)
+
+    if not path.is_file():
+        msg = f"Binary not found: {file}"
+        raise FileNotFoundError(msg)
+
+    download_name = re.sub(r"[^A-Za-z0-9._-]", "_", f"{storage.name}-{path.name}")
+    return path, download_name
+
+
+async def http_download(request: web.Request) -> web.StreamResponse:
+    """``GET /api/firmware/download?configuration=&file=`` — stream an artifact.
+
+    HTTP (not WebSocket) so large artifacts like the ~14 MB ``firmware.elf``
+    aren't capped by a proxy's WebSocket ``max_msg_size``. Auth is handled by
+    the shared ``auth_middleware`` (public site) or the supervisor (ingress
+    site); this route is not in the middleware's public allowlist.
+    """
+    db = request.app["device_builder"]
+    configuration = request.query.get("configuration", "")
+    file = request.query.get("file", "")
+    try:
+        await db.firmware._validate_configuration_boundary(configuration)
+        loop = asyncio.get_running_loop()
+        path, download_name = await loop.run_in_executor(
+            None, _resolve_artifact_path, configuration, file
+        )
+    except (CommandError, FileNotFoundError, ValueError):
+        # Don't distinguish "not built" / "missing" / "traversal" to a caller.
+        raise web.HTTPNotFound from None
+    return web.FileResponse(
+        path,
+        headers={
+            "Content-Disposition": f'attachment; filename="{download_name}"',
+            "Content-Type": "application/octet-stream",
+        },
+    )
 
 
 def _resolve_download_component(target_platform: str | None) -> str:

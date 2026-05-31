@@ -40,6 +40,7 @@ from .controllers.config import (
 from .controllers.devices import DevicesController
 from .controllers.editor import EditorController
 from .controllers.firmware import FirmwareController
+from .controllers.firmware.download import http_download as firmware_http_download
 from .controllers.labels import LabelsController
 from .controllers.onboarding import OnboardingController
 from .controllers.remote_build import OffloaderController, ReceiverController
@@ -732,6 +733,12 @@ class DeviceBuilder:
 
         # Legacy REST endpoints (HA backward compat)
         app.router.add_routes(create_legacy_routes())
+
+        # HTTP firmware-artifact download. Registered before the SPA catch-all
+        # so it isn't swallowed; gated by auth_middleware (or the supervisor on
+        # the ingress site). HTTP, not WS, so a large firmware.elf isn't capped
+        # by a proxy's WebSocket max_msg_size.
+        app.router.add_get("/api/firmware/download", firmware_http_download)
 
         # Static file serving for board images
         boards_dir = Path(__file__).parent / "definitions" / "boards"
