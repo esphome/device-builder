@@ -679,7 +679,20 @@ def make_label_test_device(
 def attach_reloading_scanner(
     controller: DevicesController, config_dir: Path, devices: list[Device]
 ) -> ReloadingScanner:
-    """Swap the default ``RecordingScanner`` for the reload-aware one seeded with N devices."""
+    """Swap the default ``RecordingScanner`` for the reload-aware one seeded with N devices.
+
+    Each seeded device gets a backing YAML on disk so the
+    "scanner has device X" / "X.yaml exists" invariant holds —
+    ``set_device_labels`` refuses to write a sidecar entry for a
+    configuration whose YAML is gone.
+    """
+    for device in devices:
+        yaml_path = config_dir / device.configuration
+        if not yaml_path.exists():
+            yaml_path.write_text(
+                f"esphome:\n  name: {configuration_stem(device.configuration)}\n",
+                encoding="utf-8",
+            )
     scanner = ReloadingScanner(config_dir, devices)
     controller._scanner = scanner
     return scanner

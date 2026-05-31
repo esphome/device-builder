@@ -30,6 +30,7 @@ import pytest
 from esphome_device_builder.controllers.config import (
     get_device_metadata,
     save_labels,
+    set_device_labels,
 )
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.helpers.api import CommandError
@@ -238,6 +239,49 @@ async def test_set_labels_rejects_unknown_configuration(
     assert meta == {}
     # And no scanner reload was triggered.
     assert ("reload", "ghost.yaml") not in scanner.calls
+
+
+async def test_set_labels_yaml_deleted_mid_write_does_not_orphan(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A device whose YAML vanishes after the scanner check raises NOT_FOUND, no orphan.
+
+    Models the ``set_labels`` vs ``devices/delete`` race: the
+    pre-call scanner check passes (device still indexed), then the
+    delete unlinks the YAML before the locked sidecar write lands.
+    ``set_device_labels`` re-checks YAML existence inside the
+    metadata transaction, so it refuses instead of re-materialising
+    an orphan ``.device-builder.json`` entry pinning labels to a
+    deleted device.
+    """
+    await asyncio.to_thread(save_labels, tmp_path, [Label(id="lbl-a", name="Alpha")])
+
+    controller = make_controller(tmp_path)
+    # Device stays in the scanner index (delete hasn't rescanned yet)…
+    _attach_reloading_scanner(controller, tmp_path, _make_device("kitchen.yaml"))
+    # …but its YAML is already gone (the racing delete's unlink).
+    (tmp_path / "kitchen.yaml").unlink()
+
+    with pytest.raises(CommandError) as exc_info:
+        await controller.set_labels(configuration="kitchen.yaml", label_ids=["lbl-a"])
+
+    assert exc_info.value.code is ErrorCode.NOT_FOUND
+
+    # No orphan sidecar entry was created for the deleted device.
+    meta = await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml")
+    assert "labels" not in meta
+
+
+async def test_set_device_labels_refuses_missing_yaml(tmp_path: Path) -> None:
+    """``set_device_labels`` raises ``FileNotFoundError`` and writes nothing when YAML is absent."""
+    await asyncio.to_thread(save_labels, tmp_path, [Label(id="lbl-a", name="Alpha")])
+
+    with pytest.raises(FileNotFoundError):
+        await asyncio.to_thread(set_device_labels, tmp_path, "ghost.yaml", ["lbl-a"])
+
+    meta = await asyncio.to_thread(get_device_metadata, tmp_path, "ghost.yaml")
+    assert meta == {}
 
 
 async def test_reload_configuration_delegates_to_scanner(

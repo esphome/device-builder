@@ -79,6 +79,11 @@ async def set_labels(
     def _persist() -> None:
         try:
             set_device_labels(config_dir, configuration, label_ids)
+        except FileNotFoundError as err:
+            # The device's YAML vanished between the scanner check
+            # above and the locked write (a racing ``devices/delete``).
+            # Surface NOT_FOUND rather than orphan a sidecar entry.
+            raise CommandError(ErrorCode.NOT_FOUND, f"Device {configuration!r} not found") from err
         except (TypeError, ValueError) as err:
             # ``set_device_labels`` raises ``TypeError`` for non-string
             # items and ``ValueError`` for unknown label ids; both
