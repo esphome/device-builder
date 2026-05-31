@@ -10,6 +10,7 @@ from ..config import (
     clear_volatile_device_metadata,
     get_device_metadata,
     remove_device_metadata,
+    rename_device_metadata,
     set_device_metadata,
 )
 
@@ -39,6 +40,12 @@ class SharedSidecarClient:
     async def remove(self, filename: str) -> None:
         """Drop *filename*'s entry entirely."""
         await asyncio.to_thread(remove_device_metadata, self._config_dir, filename)
+
+    async def rename(self, old_filename: str, new_filename: str) -> None:
+        """Move *old_filename*'s entry to *new_filename* (transactional)."""
+        await asyncio.to_thread(
+            rename_device_metadata, self._config_dir, old_filename, new_filename
+        )
 
     async def clear_volatile(self, filename: str) -> None:
         """Clear archive-volatile fields (currently ``mac_address``)."""

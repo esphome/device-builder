@@ -53,6 +53,7 @@ from .metadata import (
     get_device_metadata,
     metadata_transaction,
     remove_device_metadata,
+    rename_device_metadata,
     set_device_metadata,
 )
 from .preferences import (
@@ -119,6 +120,7 @@ __all__ = [
     "mutate_preferences",
     "remote_build_settings_transaction",
     "remove_device_metadata",
+    "rename_device_metadata",
     "save_labels",
     "save_preferences",
     "save_remote_build_settings",

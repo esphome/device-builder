@@ -122,6 +122,18 @@ class DeviceMetadataBase(DeviceBuilderBase):
         await self._metadata_store.remove(configuration)
         await self._shared_sidecar.remove(configuration)
 
+    async def _migrate_device_metadata(
+        self, old_configuration: str, new_configuration: str
+    ) -> None:
+        """Move store + shared-sidecar entries from *old* to *new* filename.
+
+        ``esphome rename`` swaps the YAML filename out; the
+        filename-keyed sidecar identity fields (labels / comment /
+        board_id) would otherwise be lost on the renamed device.
+        """
+        await self._metadata_store.rename(old_configuration, new_configuration)
+        await self._shared_sidecar.rename(old_configuration, new_configuration)
+
     async def _clear_volatile_device_metadata(self, configuration: str) -> None:
         """Clear archive-volatile fields in both stores (keeps identity).
 

@@ -135,6 +135,23 @@ class DeviceMetadataStore:
         if self._commit_entry(filename, {}, delay=0.0):
             await self._store.async_save_now()
 
+    async def rename(self, old_filename: str, new_filename: str) -> None:
+        """Move *old_filename*'s entry to *new_filename*; flush immediately.
+
+        Pre-existing *new_filename* fields win on conflict, mirroring
+        the shared sidecar's rename so the two stores agree.
+        """
+        if old_filename == new_filename:
+            return
+        old_entry = self._state.get(old_filename)
+        if not old_entry:
+            return
+        merged = {**old_entry, **self._state.get(new_filename, {})}
+        changed = self._commit_entry(new_filename, merged, delay=0.0)
+        changed = self._commit_entry(old_filename, {}, delay=0.0) or changed
+        if changed:
+            await self._store.async_save_now()
+
     def clear_volatile(self, filename: str) -> None:
         """Drop every store-owned field for *filename*."""
         current = self._state.get(filename)
