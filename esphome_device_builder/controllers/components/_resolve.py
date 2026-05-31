@@ -142,6 +142,7 @@ def _materialise_featured(
         image_url=underlying.image_url,
         dependencies=list(underlying.dependencies),
         multi_conf=underlying.multi_conf,
+        is_list=underlying.is_list,
         supported_platforms=list(underlying.supported_platforms),
         config_entries=[
             _materialise_entry_with_preset(entry, target_platform, presets.get(entry.key))
@@ -212,6 +213,7 @@ def _materialise(
         image_url=component.image_url,
         dependencies=component.dependencies,
         multi_conf=component.multi_conf,
+        is_list=component.is_list,
         supported_platforms=component.supported_platforms,
         config_entries=[_materialise_entry(e, target_platform) for e in component.config_entries],
     )

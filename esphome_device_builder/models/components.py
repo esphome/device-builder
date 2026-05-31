@@ -138,6 +138,12 @@ class ComponentCatalogEntry(DataClassORJSONMixin):
     # is a singleton (e.g. `wifi:`, `api:`).
     multi_conf: bool = False
 
+    # Whether the component body is a YAML list of mappings (globals),
+    # one item per list entry, rather than a single mapping. The section
+    # editor renders these as a repeatable list. config_entries stay flat
+    # (one item's fields); the flag is what tells the form it is a list.
+    is_list: bool = False
+
     # Empty list = component works on every target platform. Non-empty
     # = component is restricted to those platforms (e.g. ["esp32"] for
     # ESP32-only hardware features). Frontend uses this to filter the
