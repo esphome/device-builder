@@ -5135,6 +5135,12 @@ def _extract_triggers_from_section(
                 raw.get("schema") if isinstance(raw.get("schema"), dict) else None,
                 schema_dir,
             )
+            # A trigger's own params (on_time's cron fields,
+            # on_value_range's bounds) are its primary config, not
+            # advanced knobs the name-based heuristic would hide; surface
+            # them on the main form like multi-sensor sub-readings (#983).
+            for entry in param_entries:
+                entry["advanced"] = False
             trigger_id = key if is_device_level else f"{top_key}.{key}"
             out.append(
                 {

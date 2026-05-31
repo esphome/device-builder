@@ -238,6 +238,42 @@ def test_build_automations_extracts_component_trigger_with_nested_params(
     assert "then" not in cfg_keys  # placeholder stripped
 
 
+def test_build_automations_trigger_params_are_not_advanced(tmp_path: Path) -> None:
+    """A trigger's per-entry params surface on the main form, not behind 'advanced'."""
+    schema_dir = _write_schema(
+        tmp_path,
+        "time.json",
+        {
+            "time": {
+                "schemas": {
+                    "TIME_SCHEMA": {
+                        "schema": {
+                            "config_vars": {
+                                "on_time": {
+                                    "key": "Optional",
+                                    "type": "trigger",
+                                    "schema": {
+                                        "config_vars": {
+                                            # Optional + not an "important" key: the name-based
+                                            # heuristic would default it to advanced.
+                                            "seconds": {"key": "Optional"},
+                                            "then": {"type": "trigger"},
+                                        }
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    )
+    result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
+    on_time = next(t for t in result["triggers"] if t["id"] == "time.on_time")
+    seconds = next(e for e in on_time["config_entries"] if e["key"] == "seconds")
+    assert not seconds.get("advanced")
+
+
 def test_build_automations_derives_repeatable_from_per_entry_params(tmp_path: Path) -> None:
     """Per-entry params mark a component trigger repeatable; paramless and device-level don't."""
     _params = {"config_vars": {"seconds": {"key": "Optional"}, "then": {"type": "trigger"}}}
