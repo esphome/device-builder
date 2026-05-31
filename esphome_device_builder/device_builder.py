@@ -1221,17 +1221,21 @@ class DeviceBuilder:
                 settings.port,
             )
             app = self.create_app(trusted=True, with_ingress_site=False)
+            hosts = resolve_bind_host(settings.ingress_host or "0.0.0.0")
+            ensure_single_host_for_ephemeral_port(hosts, settings.ingress_port, "--ingress-port")
             web.run_app(
                 app,
-                host=resolve_bind_host(settings.ingress_host or "0.0.0.0"),
+                host=hosts,
                 port=settings.ingress_port,
                 shutdown_timeout=_SHUTDOWN_TIMEOUT_SECONDS,
             )
             return
         app = self.create_app()
+        hosts = resolve_bind_host(settings.host)
+        ensure_single_host_for_ephemeral_port(hosts, settings.port, "--port")
         web.run_app(
             app,
-            host=resolve_bind_host(settings.host),
+            host=hosts,
             port=settings.port,
             shutdown_timeout=_SHUTDOWN_TIMEOUT_SECONDS,
         )

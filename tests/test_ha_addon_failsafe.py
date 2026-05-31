@@ -194,6 +194,56 @@ def test_non_ha_addon_binds_public_site_normally(make_settings: MakeSettingsFact
     assert captured["host"] == ["0.0.0.0"]
 
 
+def test_public_run_refuses_port_zero_with_multi_host(
+    make_settings: MakeSettingsFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``--port 0`` paired with a multi-address NIC refuses the public bind.
+
+    Each ``TCPSite(port=0)`` gets its own OS-assigned port, so the
+    advertised ``settings.port`` (mDNS SRV) no longer matches any
+    listener. The ingress/remote-build paths already refuse this;
+    the public path must too.
+    """
+    db = _make_db(make_settings, on_ha_addon=False, using_password=False)
+    db.settings.host = "eth0"
+    db.settings.port = 0
+    monkeypatch.setattr(
+        "esphome_device_builder.device_builder.resolve_bind_host",
+        lambda _: ["192.168.1.10", "192.168.1.11"],
+    )
+
+    with (
+        patch("esphome_device_builder.device_builder.web.run_app") as run_app_mock,
+        pytest.raises(RuntimeError, match=r"--port 0 .* multiple addresses"),
+    ):
+        db.run()
+
+    run_app_mock.assert_not_called()
+
+
+def test_ingress_only_run_refuses_port_zero_with_multi_host(
+    make_settings: MakeSettingsFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``--ingress-port 0`` + multi-address NIC refuses the ingress-only bind."""
+    monkeypatch.delenv("DISABLE_HA_AUTHENTICATION", raising=False)
+    db = _make_db(make_settings, on_ha_addon=True, using_password=False)
+    db.settings.ingress_port = 0
+    monkeypatch.setattr(
+        "esphome_device_builder.device_builder.resolve_bind_host",
+        lambda _: ["192.168.1.10", "192.168.1.11"],
+    )
+
+    with (
+        patch("esphome_device_builder.device_builder.web.run_app") as run_app_mock,
+        pytest.raises(RuntimeError, match=r"--ingress-port 0 .* multiple addresses"),
+    ):
+        db.run()
+
+    run_app_mock.assert_not_called()
+
+
 async def test_start_and_stop_ingress_site_lifecycle(make_settings: MakeSettingsFactory) -> None:
     """``_start_ingress_site`` / ``_stop_ingress_site`` actually bind+release.
 
