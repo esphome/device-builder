@@ -19,6 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Annotated, Any, Literal
 
+from mashumaro.config import BaseConfig
 from mashumaro.mixins.orjson import DataClassORJSONMixin
 from mashumaro.types import Discriminator
 
@@ -266,6 +267,15 @@ class ComponentOnLocation(DataClassORJSONMixin):
     trigger: str
     index: int | None = None
     kind: Literal["component_on"] = "component_on"
+
+    class Config(BaseConfig):
+        """Drop ``index`` from the wire for the single-handler form."""
+
+        # The frontend keys a single handler with no ``index``; a trailing
+        # ``null`` would never match its un-indexed location key. omit_none
+        # only — omit_default would also drop the ``kind`` discriminator and
+        # break union decode.
+        omit_none = True
 
 
 @dataclass

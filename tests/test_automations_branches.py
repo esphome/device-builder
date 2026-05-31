@@ -185,6 +185,19 @@ def test_decode_location_component_on_carries_index() -> None:
     assert loc.index == 2
 
 
+def test_component_on_single_form_omits_index_on_the_wire() -> None:
+    """The single-handler form serializes without an ``index`` key."""
+    wire = ComponentOnLocation(component_id="b", trigger="on_state").to_dict()
+    assert "index" not in wire
+    assert wire == {"kind": "component_on", "component_id": "b", "trigger": "on_state"}
+
+
+def test_component_on_list_form_keeps_index_on_the_wire() -> None:
+    """A list-shaped handler keeps its integer ``index`` on the wire."""
+    wire = ComponentOnLocation(component_id="my_time", trigger="on_time", index=0).to_dict()
+    assert wire["index"] == 0
+
+
 def test_is_list_form_trigger_discriminates_cron_vs_bare_actions() -> None:
     """A cron entry list is list-form; a bare action list is not."""
     on_time = catalog.trigger_by_id("time.on_time")
