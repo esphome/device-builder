@@ -33,6 +33,17 @@ _LIBRETINY_TARGET_PLATFORMS: frozenset[str] = frozenset(_LIBRETINY_FAMILY_COMPON
     "libretiny"
 }
 
+# Stable ``type`` tag per artifact filename so the frontend can map it to a
+# localized label (falling back to the platform-supplied ``title`` for any
+# file not listed here).
+_ARTIFACT_TYPES: dict[str, str] = {
+    "firmware.factory.bin": "factory",
+    "firmware.ota.bin": "ota",
+    "firmware.bin": "bin",
+    "firmware.uf2": "uf2",
+    "firmware.elf": "elf",
+}
+
 
 async def get_binaries(controller: FirmwareController, *, configuration: str) -> list[dict]:
     """List on-disk downloadable artifacts as ``[{title, file}]``.
@@ -67,7 +78,7 @@ async def get_binaries(controller: FirmwareController, *, configuration: str) ->
         build_dir = storage.firmware_bin_path.parent
         # Filter to files that exist so a cleaned build reads as "compile
         # first" rather than offering a name ``firmware/download`` would 404 on.
-        downloads = [t for t in types if (build_dir / t["file"]).is_file()]
+        downloads = [dict(t) for t in types if (build_dir / t["file"]).is_file()]
         # firmware.elf sits beside firmware.bin on every platform
         # (remote_build/artifact_platforms/*.py). The `not any` guards against a
         # future get_download_types that lists it, so it can't appear twice.
@@ -81,6 +92,10 @@ async def get_binaries(controller: FirmwareController, *, configuration: str) ->
                     "file": "firmware.elf",
                 }
             )
+        for entry in downloads:
+            artifact_type = _ARTIFACT_TYPES.get(entry["file"])
+            if artifact_type:
+                entry["type"] = artifact_type
         return downloads
 
     return await loop.run_in_executor(None, _get_types)
