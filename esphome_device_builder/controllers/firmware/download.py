@@ -35,10 +35,15 @@ _LIBRETINY_TARGET_PLATFORMS: frozenset[str] = frozenset(_LIBRETINY_FAMILY_COMPON
 
 
 async def get_binaries(controller: FirmwareController, *, configuration: str) -> list[dict]:
-    """List firmware binaries for a compiled device as ``[{title, file}]``.
+    """List downloadable artifacts for a built device as ``[{title, file}]``.
 
-    The ``file`` names can be passed to ``firmware/download`` to
-    retrieve the binary content.
+    Returns the platform's ``get_download_types`` entries whose file is
+    actually present in the build directory, plus an ``firmware.elf``
+    entry when that file exists (debug symbols for the ESP stack trace
+    decoder, which ``get_download_types`` never lists). An empty list
+    means nothing is built yet, which the dashboard reads as "compile
+    first". The ``file`` names can be passed to ``firmware/download``
+    to retrieve the content.
     """
     # ``resolve_storage_path`` collapses to
     # ``<data_dir>/storage/<Path(configuration).name>.json``; a
@@ -55,10 +60,32 @@ async def get_binaries(controller: FirmwareController, *, configuration: str) ->
         try:
             component = _resolve_download_component(storage.target_platform)
             module = importlib.import_module(f"esphome.components.{component}")
-            return list(module.get_download_types(storage))
+            types = list(module.get_download_types(storage))
         except Exception:  # noqa: BLE001 — third-party regression: upstream ``get_download_types`` could raise anything
             _LOGGER.warning("Could not determine download types for %s", configuration)
             return []
+        # Without a known build directory we can't confirm any artifact
+        # is on disk, so the device reads as not-yet-built.
+        if storage.firmware_bin_path is None:
+            return []
+        build_dir = storage.firmware_bin_path.parent
+        # Only offer artifacts that actually exist. A cleaned or partial
+        # build then reads as "compile first" instead of handing back a
+        # name ``firmware/download`` would 404 on, and the ELF entry only
+        # appears once its symbols are on disk.
+        downloads = [t for t in types if (build_dir / t["file"]).is_file()]
+        # ``firmware.elf`` sits beside ``firmware.bin`` in ``.pioenvs/<name>/``
+        # on every platform (see remote_build/artifact_platforms/*.py), so the
+        # build dir is the right place to look regardless of target.
+        if (build_dir / "firmware.elf").is_file():
+            downloads.append(
+                {
+                    "title": "ELF (for debugging)",
+                    "description": "Debug symbols for the ESP stack trace decoder.",
+                    "file": "firmware.elf",
+                }
+            )
+        return downloads
 
     return await loop.run_in_executor(None, _get_types)
 
