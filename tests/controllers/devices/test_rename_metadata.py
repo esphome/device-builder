@@ -74,6 +74,41 @@ def test_rename_device_metadata_same_name_is_noop(tmp_path: Path) -> None:
     assert get_device_metadata(tmp_path, "kitchen.yaml").get("comment") == "keep"
 
 
+def test_rename_device_metadata_missing_old_entry_is_noop(tmp_path: Path) -> None:
+    """No old entry leaves the target untouched (early-return guard)."""
+    set_device_metadata(tmp_path, "livingroom.yaml", comment="fresh")
+
+    rename_device_metadata(tmp_path, "kitchen.yaml", "livingroom.yaml")
+
+    assert get_device_metadata(tmp_path, "kitchen.yaml") == {}
+    assert get_device_metadata(tmp_path, "livingroom.yaml").get("comment") == "fresh"
+
+
+async def test_metadata_store_rename_missing_old_entry_is_noop(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """Store rename with no old entry leaves the target untouched (early-return guard)."""
+    controller = make_controller(tmp_path)
+    controller._metadata_store.update("livingroom.yaml", expected_config_hash="fresh")
+
+    await controller._metadata_store.rename("kitchen.yaml", "livingroom.yaml")
+
+    assert controller._metadata_store.get("kitchen.yaml") == {}
+    assert controller._metadata_store.get("livingroom.yaml").get("expected_config_hash") == "fresh"
+
+
+async def test_metadata_store_rename_same_name_is_noop(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """Store rename with old == new leaves the entry untouched (early-return guard)."""
+    controller = make_controller(tmp_path)
+    controller._metadata_store.update("kitchen.yaml", expected_config_hash="keep")
+
+    await controller._metadata_store.rename("kitchen.yaml", "kitchen.yaml")
+
+    assert controller._metadata_store.get("kitchen.yaml").get("expected_config_hash") == "keep"
+
+
 async def test_migrate_device_metadata_moves_both_stores(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -122,6 +157,59 @@ async def test_completed_rename_migrates_metadata_then_scans(
     moved = await controller._shared_sidecar.get("livingroom.yaml")
     assert moved.get("labels") == ["a"]
     assert moved.get("comment") == "downstairs"
+    assert controller._scanner.calls == [("scan",)]
+
+
+async def test_completed_rename_normalizes_new_name_with_extension(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A ``new_name`` carrying ``.yaml`` still targets the bare-stem key."""
+    controller = make_controller(tmp_path)
+    await controller._shared_sidecar.update("kitchen.yaml", labels=["a"])
+
+    scheduled: list[Any] = []
+    controller._db.create_background_task = scheduled.append
+
+    job = FirmwareJob(
+        job_id="abc123",
+        configuration="kitchen.yaml",
+        job_type=JobType.RENAME,
+        status=JobStatus.COMPLETED,
+        new_name="livingroom.yaml",
+    )
+    firmware_sync.on_job_completed(controller, Event(EventType.JOB_COMPLETED, {"job": job}))
+
+    await scheduled[0]
+
+    moved = await controller._shared_sidecar.get("livingroom.yaml")
+    assert moved.get("labels") == ["a"]
+    assert await controller._shared_sidecar.get("livingroom.yaml.yaml") == {}
+
+
+async def test_completed_rename_scans_even_when_migration_fails(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A failed metadata migration must not skip the rescan."""
+    controller = make_controller(tmp_path)
+
+    async def _boom(*_: Any) -> None:
+        raise RuntimeError("migration failed")
+
+    controller._migrate_device_metadata = _boom
+
+    scheduled: list[Any] = []
+    controller._db.create_background_task = scheduled.append
+
+    job = FirmwareJob(
+        job_id="abc123",
+        configuration="kitchen.yaml",
+        job_type=JobType.RENAME,
+        status=JobStatus.COMPLETED,
+        new_name="livingroom",
+    )
+    firmware_sync.on_job_completed(controller, Event(EventType.JOB_COMPLETED, {"job": job}))
+
+    await scheduled[0]
     assert controller._scanner.calls == [("scan",)]
 
 
