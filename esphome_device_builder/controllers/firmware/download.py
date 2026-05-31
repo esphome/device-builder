@@ -35,15 +35,12 @@ _LIBRETINY_TARGET_PLATFORMS: frozenset[str] = frozenset(_LIBRETINY_FAMILY_COMPON
 
 
 async def get_binaries(controller: FirmwareController, *, configuration: str) -> list[dict]:
-    """List downloadable artifacts for a built device as ``[{title, file}]``.
+    """List on-disk downloadable artifacts as ``[{title, file}]``.
 
-    Returns the platform's ``get_download_types`` entries whose file is
-    actually present in the build directory, plus an ``firmware.elf``
-    entry when that file exists (debug symbols for the ESP stack trace
-    decoder, which ``get_download_types`` never lists). An empty list
-    means nothing is built yet, which the dashboard reads as "compile
-    first". The ``file`` names can be passed to ``firmware/download``
-    to retrieve the content.
+    The platform's ``get_download_types`` entries that exist, plus a
+    ``firmware.elf`` entry when present (``get_download_types`` never
+    lists it). Empty means nothing is built yet. ``file`` feeds
+    ``firmware/download``.
     """
     # ``resolve_storage_path`` collapses to
     # ``<data_dir>/storage/<Path(configuration).name>.json``; a
@@ -64,19 +61,15 @@ async def get_binaries(controller: FirmwareController, *, configuration: str) ->
         except Exception:  # noqa: BLE001 — third-party regression: upstream ``get_download_types`` could raise anything
             _LOGGER.warning("Could not determine download types for %s", configuration)
             return []
-        # Without a known build directory we can't confirm any artifact
-        # is on disk, so the device reads as not-yet-built.
+        # No build dir → can't confirm anything on disk → treat as not built.
         if storage.firmware_bin_path is None:
             return []
         build_dir = storage.firmware_bin_path.parent
-        # Only offer artifacts that actually exist. A cleaned or partial
-        # build then reads as "compile first" instead of handing back a
-        # name ``firmware/download`` would 404 on, and the ELF entry only
-        # appears once its symbols are on disk.
+        # Filter to files that exist so a cleaned build reads as "compile
+        # first" rather than offering a name ``firmware/download`` would 404 on.
         downloads = [t for t in types if (build_dir / t["file"]).is_file()]
-        # ``firmware.elf`` sits beside ``firmware.bin`` in ``.pioenvs/<name>/``
-        # on every platform (see remote_build/artifact_platforms/*.py), so the
-        # build dir is the right place to look regardless of target.
+        # firmware.elf sits beside firmware.bin on every platform
+        # (remote_build/artifact_platforms/*.py).
         if (build_dir / "firmware.elf").is_file():
             downloads.append(
                 {
