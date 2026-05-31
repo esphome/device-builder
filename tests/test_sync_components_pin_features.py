@@ -11,6 +11,7 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _collect_pin_constraints,
     _get_esphome_loader,
     _pin_constraint_from_validator,
+    _PinConstraint,
     _resolve_pin_features,
 )
 
@@ -118,15 +119,11 @@ def test_apply_stamps_mode_and_features() -> None:
 
 def test_apply_only_targets_pin_typed_entries() -> None:
     entries = [{"type": "string", "key": "pin"}]
-    from script.sync_components import _PinConstraint  # type: ignore[import-not-found]
-
     _apply_pin_constraints(entries, {("pin",): _PinConstraint(PinMode.OUTPUT, ())})
     assert "pin_mode" not in entries[0]
 
 
 def test_apply_merges_without_duplicating_existing_features() -> None:
-    from script.sync_components import _PinConstraint  # type: ignore[import-not-found]
-
     entries = [_entry(pin_features=["adc"])]
     _apply_pin_constraints(
         entries, {("pin",): _PinConstraint(None, (PinFeature.ADC, PinFeature.DAC))}
