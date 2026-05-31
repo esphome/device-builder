@@ -147,9 +147,7 @@ class DeviceMetadataStore:
         if not old_entry:
             return
         merged = {**old_entry, **self._state.get(new_filename, {})}
-        changed = self._commit_entry(new_filename, merged, delay=0.0)
-        changed = self._commit_entry(old_filename, {}, delay=0.0) or changed
-        if changed:
+        if self._commit_rename(old_filename, new_filename, merged):
             await self._store.async_save_now()
 
     def clear_volatile(self, filename: str) -> None:
@@ -181,6 +179,29 @@ class DeviceMetadataStore:
         else:
             self._state.pop(filename, None)
         self._store.async_delay_save(self._snapshot, delay=delay)
+        return True
+
+    def _commit_rename(
+        self, old_filename: str, new_filename: str, merged: dict[str, Any]
+    ) -> bool:
+        """Drop *old_filename* and land *merged* on *new_filename* in one step.
+
+        Both dict mutations run before the single ``async_delay_save``
+        so no save snapshot ever observes the half-renamed state (an
+        executor encode racing a second ``_commit_entry`` could see
+        both keys or trip ``dict changed size during iteration``).
+        Returns True iff state changed.
+        """
+        new_changed = merged != self._state.get(new_filename, {})
+        old_present = old_filename in self._state
+        if not new_changed and not old_present:
+            return False
+        if merged:
+            self._state[new_filename] = merged
+        else:
+            self._state.pop(new_filename, None)
+        self._state.pop(old_filename, None)
+        self._store.async_delay_save(self._snapshot, delay=0.0)
         return True
 
     def _snapshot(self) -> dict[str, dict[str, Any]]:
