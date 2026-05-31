@@ -88,10 +88,8 @@ def set_device_labels(config_dir: Path, configuration: str, label_ids: list[str]
     assignments. Raises :class:`ValueError` for non-string entries
     in *label_ids* and for ids that aren't in the catalog (caller
     translates to ``CommandError(INVALID_ARGS)`` at the API surface),
-    and :class:`FileNotFoundError` when *configuration*'s YAML is gone
-    (caller translates to ``NOT_FOUND``) — the existence re-check runs
-    inside the lock so a label write that lost a race with
-    ``devices/delete`` can't re-materialise an orphan sidecar entry.
+    and :class:`FileNotFoundError` when *configuration*'s YAML is absent
+    (caller translates to ``NOT_FOUND``).
     """
     deduped: list[str] = []
     seen: set[str] = set()
@@ -107,17 +105,11 @@ def set_device_labels(config_dir: Path, configuration: str, label_ids: list[str]
         deduped.append(lid)
         seen.add(lid)
     with metadata_transaction(config_dir) as data:
-        # Filesystem-authoritative existence guard, INSIDE the lock.
-        # ``devices/delete`` (archive.delete_single) unlinks the YAML
-        # before it pops the sidecar entry; the metadata lock orders
-        # this check against that pop, so a label write arriving after
-        # the delete sees the YAML gone and refuses rather than
-        # re-creating an orphan entry for a device that no longer
-        # exists. The controller's pre-call scanner check is a fast
-        # UX path; this is the race-tight backstop. This also fires by
-        # design during the atomic-save window (vscode-on-macOS et al.
-        # briefly unlink the YAML mid-save) — a transient NOT_FOUND on a
-        # retriable user click, not a bug.
+        # Existence re-check INSIDE the lock. ``devices/delete`` unlinks the
+        # YAML before popping the sidecar entry, so the lock orders this check
+        # against that pop: a write that lost the race refuses instead of
+        # re-materialising an orphan. Also fires transiently during atomic-save
+        # churn — a retriable NOT_FOUND.
         if not (config_dir / configuration).exists():
             raise FileNotFoundError(configuration)
         catalog = data.get(_LABELS_KEY, [])
