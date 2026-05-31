@@ -34,6 +34,14 @@ def on_scan_change(controller: DevicesController, kind: ScanChange, device: Devi
         # broadcast ``_esphomelib._tcp``; the bootstrap-window
         # guard inside the monitor wrapper skips it on cold start.
         controller._state_monitor.probe_device_ping(device.name)
+        # A device that was advertising as importable and is now
+        # configured (out-of-band YAML drop, wizard, clone) must
+        # drop its stale import_result row so already-connected
+        # subscribe_events clients stop rendering the adopt banner;
+        # read-time filters mask it only on a fresh page load. The
+        # adopt API prunes explicitly, but the scanner path didn't.
+        # Idempotent: fires REMOVED only when a row actually existed.
+        controller._on_importable_removed(device.name)
     if kind in (ScanChange.UPDATED, ScanChange.REMOVED):
         # YAML cache key changed; clear any prior failure
         # marker so the next edit gets a fresh chance at

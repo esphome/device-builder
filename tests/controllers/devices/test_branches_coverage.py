@@ -37,6 +37,7 @@ from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.helpers.build_size import BuildDirSignal, BuildSizeRefreshResult
 from esphome_device_builder.helpers.event_bus import Event
 from esphome_device_builder.models import (
+    AdoptableDevice,
     ConfigEntry,
     ConfigEntryType,
     Device,
@@ -801,6 +802,55 @@ def test_on_scan_change_removed_revisits_importables(
     controller._on_scan_change(ScanChange.REMOVED, device)
 
     assert ("revisit_all_importables",) in controller._state_monitor.calls
+
+
+def _adoptable(name: str) -> AdoptableDevice:
+    return AdoptableDevice(
+        name=name,
+        friendly_name=name,
+        package_import_url="github://foo/bar.yaml",
+        project_name="foo.bar",
+        project_version="1.0",
+        network="wifi",
+        ignored=False,
+    )
+
+
+def test_on_scan_change_added_prunes_stale_importable_row(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    capture_devices_events: CaptureDevicesEventsFactory,
+) -> None:
+    """A discovered device becoming configured drops its importable row and fires REMOVED.
+
+    Without the prune, an already-connected ``subscribe_events``
+    client keeps the adopt banner for a now-configured device
+    until a full reload; read-time filters mask it only on cold
+    load. The adopt API prunes explicitly — the scanner path
+    (out-of-band YAML drop, wizard, clone) must too.
+    """
+    controller = make_controller(tmp_path, with_state_monitor=True)
+    controller.state.import_result["kitchen"] = _adoptable("kitchen")
+    captured = capture_devices_events(controller, EventType.IMPORTABLE_DEVICE_REMOVED)
+
+    controller._on_scan_change(ScanChange.ADDED, _device("kitchen"))
+
+    assert "kitchen" not in controller.state.import_result
+    assert [e.data["name"] for e in captured] == ["kitchen"]
+
+
+def test_on_scan_change_added_without_importable_row_is_silent(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    capture_devices_events: CaptureDevicesEventsFactory,
+) -> None:
+    """ADDED for a device with no importable row fires no spurious REMOVED."""
+    controller = make_controller(tmp_path, with_state_monitor=True)
+    captured = capture_devices_events(controller, EventType.IMPORTABLE_DEVICE_REMOVED)
+
+    controller._on_scan_change(ScanChange.ADDED, _device("kitchen"))
+
+    assert captured == []
 
 
 # ---------------------------------------------------------------------------
