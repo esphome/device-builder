@@ -497,7 +497,7 @@ def test_pack_build_artifacts_skips_missing_build_files(tmp_path: Path) -> None:
 
 
 def test_pack_build_artifacts_libretiny_ships_uf2(tmp_path: Path) -> None:
-    """Libretiny BUILD_FILES is resolved from the registry (.uf2 + .bin + .elf)."""
+    """Libretiny BUILD_FILES is resolved from the registry (.uf2 + .bin + .elf + .json)."""
     _write_receiver_state(
         tmp_path,
         device_name="bw15",
@@ -505,6 +505,9 @@ def test_pack_build_artifacts_libretiny_ships_uf2(tmp_path: Path) -> None:
         extra_build_files={
             ".pioenvs/bw15/firmware.uf2": b"UF2",
             ".pioenvs/bw15/firmware.elf": b"ELF",
+            # firmware.json lets the offloader re-enumerate the public chip
+            # images via get_download_types (#1102).
+            ".pioenvs/bw15/firmware.json": b"[]",
         },
     )
 
@@ -516,6 +519,7 @@ def test_pack_build_artifacts_libretiny_ships_uf2(tmp_path: Path) -> None:
     assert ".pioenvs/bw15/firmware.uf2" in names
     assert ".pioenvs/bw15/firmware.bin" in names
     assert ".pioenvs/bw15/firmware.elf" in names
+    assert ".pioenvs/bw15/firmware.json" in names
 
 
 def test_pack_build_artifacts_rejects_unknown_target_platform(tmp_path: Path) -> None:

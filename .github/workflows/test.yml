@@ -300,8 +300,24 @@ jobs:
       - name: Show installed esphome version
         run: uv pip show esphome | grep -E '^(Name|Version):'
 
+      - name: Cache PlatformIO core + per-platform toolchains
+        # The LibreTiny e2e (test_libretiny_compile_download.py) runs a real
+        # bk7231n compile, which clones the LibreTiny SDK from source on a
+        # cold runner. Cache ``~/.platformio`` per channel so stable/dev
+        # SDK downloads don't collide.
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.platformio
+          key: pio-e2e-libretiny-${{ runner.os }}-${{ matrix.channel }}-${{ hashFiles('tests/e2e/test_libretiny_compile_download.py') }}
+          restore-keys: |
+            pio-e2e-libretiny-${{ runner.os }}-${{ matrix.channel }}-
+
       - name: Run e2e tests
-        timeout-minutes: 5
+        # 20 min outer cap (vs the unit job's 5): a cold LibreTiny SDK clone
+        # plus compile runs minutes. The fast e2e tests keep the per-test
+        # ``--timeout=120``; the LibreTiny test opts out via its own
+        # ``@pytest.mark.timeout(600)`` decorator.
+        timeout-minutes: 20
         run: uv run pytest -q -n auto tests/e2e --maxfail=5 --durations=10 --timeout=120 --no-cov
 
   benchmarks:

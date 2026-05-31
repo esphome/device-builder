@@ -57,7 +57,7 @@ import tarfile
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 from esphome.core import CORE
@@ -93,68 +93,13 @@ from esphome_device_builder.models import (
 from esphome_device_builder.models.api import ErrorCode
 
 from .._storage_fixtures import write_storage_json
-from ..conftest import capture_events, wire_firmware_remote_peer_api_mocks
-from .conftest import PairedInstances, make_real_bundle
-
-
-def _wire_receiver_firmware_recorder(instances: PairedInstances) -> list[FirmwareJob]:
-    """Wire receiver's ``db.firmware`` to record submitted jobs.
-
-    Mirror of ``test_submit_job._wire_receiver_firmware_recorder``.
-    The receiver-side ``_create_job`` builds a :class:`FirmwareJob`
-    carrying every field the production controller's dispatch
-    sets (configuration / job_type / remote_peer / remote_job_id);
-    ``_enqueue`` resolves with ``accepted=True`` so the
-    ``submit_job_ack`` lands on the success branch. The recorded
-    list lets the test mutate the job's ``status`` from
-    ``QUEUED`` → ``COMPLETED`` after firing the lifecycle events
-    so the download-side ``_find_remote_job`` accepts it.
-
-    ``firmware.state.jobs`` is a real dict (not a mock) so the
-    receiver-side download path's ``firmware.state.jobs.values()``
-    iteration finds the recorded job. Production has the real
-    queue populating this dict; here we populate it from
-    ``_create_job``.
-    """
-    created_jobs: list[FirmwareJob] = []
-    receiver_jobs: dict[str, FirmwareJob] = {}
-
-    def _create_job(
-        configuration: str,
-        job_type: JobType,
-        *,
-        remote_peer: str = "",
-        remote_job_id: str = "",
-        **_: Any,
-    ) -> FirmwareJob:
-        job = FirmwareJob(
-            job_id=f"rcv-{len(created_jobs)}",
-            configuration=configuration,
-            job_type=job_type,
-            status=JobStatus.QUEUED,
-            remote_peer=remote_peer,
-            remote_job_id=remote_job_id,
-        )
-        created_jobs.append(job)
-        receiver_jobs[job.job_id] = job
-        return job
-
-    firmware = instances.receiver._db.firmware
-    firmware._create_job = MagicMock(side_effect=_create_job)
-    firmware._enqueue = AsyncMock(side_effect=lambda job: job)
-    wire_firmware_remote_peer_api_mocks(firmware, receiver_jobs)
-    # ``_on_firmware_queue_transition`` (registered on every
-    # JOB_QUEUED / JOB_STARTED / terminal event) reads
-    # ``queue_status_snapshot()`` and tuple-unpacks the result.
-    # The harness's ``MagicMock`` firmware controller returns a
-    # MagicMock by default — unpacks as zero values and trips a
-    # ValueError. Pin a sane tuple so the listener runs cleanly
-    # rather than spamming the test log with swallowed
-    # exceptions on every fire().
-    firmware.queue_status_snapshot = MagicMock(
-        return_value=QueueStatus(idle=True, running=False, queue_depth=0)
-    )
-    return created_jobs
+from ..conftest import capture_events
+from .conftest import (
+    PairedInstances,
+    drive_remote_job_to_completed,
+    make_real_bundle,
+    wire_receiver_firmware_recorder,
+)
 
 
 def _write_build_artifacts_on_disk(tmp_path: Path, *, configuration: str) -> dict[str, bytes]:
@@ -428,7 +373,7 @@ async def test_remote_install_submit_then_lifecycle_then_download_on_one_session
       fan-out frames.
     """
     await paired_instances.wait_until_session_opened()
-    created_jobs = _wire_receiver_firmware_recorder(paired_instances)
+    created_jobs = wire_receiver_firmware_recorder(paired_instances)
     state_changes = capture_events(
         paired_instances.offloader_bus, EventType.OFFLOADER_JOB_STATE_CHANGED
     )
@@ -543,7 +488,7 @@ async def test_remote_compile_materialises_for_local_firmware_download(
 ) -> None:
     """#624: compile remote → materialise → firmware/download reads staged bytes."""
     await paired_instances.wait_until_session_opened()
-    created_jobs = _wire_receiver_firmware_recorder(paired_instances)
+    created_jobs = wire_receiver_firmware_recorder(paired_instances)
     state_changes = capture_events(
         paired_instances.offloader_bus, EventType.OFFLOADER_JOB_STATE_CHANGED
     )
@@ -574,12 +519,7 @@ async def test_remote_compile_materialises_for_local_firmware_download(
     receiver_job = created_jobs[0]
     images = _write_build_artifacts_on_disk(tmp_path, configuration=receiver_job.configuration)
 
-    paired_instances.receiver_bus.fire(EventType.JOB_QUEUED, JobLifecycleData(job=receiver_job))
-    paired_instances.receiver_bus.fire(EventType.JOB_STARTED, JobLifecycleData(job=receiver_job))
-    await state_changes.wait_for_status("running")
-    paired_instances.receiver_bus.fire(EventType.JOB_COMPLETED, JobLifecycleData(job=receiver_job))
-    await state_changes.wait_for_status("completed")
-    receiver_job.status = JobStatus.COMPLETED
+    await drive_remote_job_to_completed(paired_instances, receiver_job, state_changes)
 
     packed = await handle.client.download_artifacts(job_id="off-compile-1")
     build_path = await asyncio.to_thread(
@@ -670,7 +610,7 @@ async def test_windows_receiver_tarball_materialises_for_local_firmware_download
 ) -> None:
     """Windows-receiver tarball over a real Noise session lands a readable factory binary."""
     await paired_instances.wait_until_session_opened()
-    created_jobs = _wire_receiver_firmware_recorder(paired_instances)
+    created_jobs = wire_receiver_firmware_recorder(paired_instances)
     state_changes = capture_events(
         paired_instances.offloader_bus, EventType.OFFLOADER_JOB_STATE_CHANGED
     )
@@ -698,12 +638,7 @@ async def test_windows_receiver_tarball_materialises_for_local_firmware_download
     receiver_build = await asyncio.to_thread(_seed_factory_binary)
     images["firmware.factory.bin"] = b"FACTORY-BIN-BYTES"
 
-    paired_instances.receiver_bus.fire(EventType.JOB_QUEUED, JobLifecycleData(job=receiver_job))
-    paired_instances.receiver_bus.fire(EventType.JOB_STARTED, JobLifecycleData(job=receiver_job))
-    await state_changes.wait_for_status("running")
-    paired_instances.receiver_bus.fire(EventType.JOB_COMPLETED, JobLifecycleData(job=receiver_job))
-    await state_changes.wait_for_status("completed")
-    receiver_job.status = JobStatus.COMPLETED
+    await drive_remote_job_to_completed(paired_instances, receiver_job, state_changes)
 
     packed = await handle.client.download_artifacts(job_id="off-windows-1")
     munged = await asyncio.to_thread(
@@ -852,7 +787,7 @@ async def test_back_to_back_successful_jobs_keep_scheduler_routing_remote(
         paired_instances.offloader_bus, EventType.OFFLOADER_QUEUE_STATUS_CHANGED
     )
     await paired_instances.wait_until_session_opened()
-    receiver_jobs = _wire_receiver_firmware_recorder(paired_instances)
+    receiver_jobs = wire_receiver_firmware_recorder(paired_instances)
     # Initial cold-connect push lands; cache should already be
     # idle before we drive any traffic.
     await _wait_for_offloader_idle(paired_instances, queue_status_events)
@@ -913,7 +848,7 @@ async def test_failed_first_job_still_routes_remote_on_second_install(
         paired_instances.offloader_bus, EventType.OFFLOADER_QUEUE_STATUS_CHANGED
     )
     await paired_instances.wait_until_session_opened()
-    receiver_jobs = _wire_receiver_firmware_recorder(paired_instances)
+    receiver_jobs = wire_receiver_firmware_recorder(paired_instances)
     await _wait_for_offloader_idle(paired_instances, queue_status_events)
 
     handle = paired_instances.offloader.state.peer_link_clients[paired_instances.pin_sha256]
@@ -972,7 +907,7 @@ async def test_remote_clean_round_trip_lands_clean_job_and_fans_state_back(
     ``JOB_COMPLETED`` is the whole terminal.
     """
     await paired_instances.wait_until_session_opened()
-    receiver_jobs = _wire_receiver_firmware_recorder(paired_instances)
+    receiver_jobs = wire_receiver_firmware_recorder(paired_instances)
     state_changes = capture_events(
         paired_instances.offloader_bus, EventType.OFFLOADER_JOB_STATE_CHANGED
     )

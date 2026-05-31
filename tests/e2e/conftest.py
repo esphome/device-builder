@@ -41,6 +41,8 @@ from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from aiohttp import web
@@ -63,6 +65,7 @@ from esphome_device_builder.models import (
     JobLifecycleData,
     JobStatus,
     JobType,
+    QueueStatus,
 )
 
 from ..conftest import (
@@ -70,6 +73,7 @@ from ..conftest import (
     _CapturedEvents,
     capture_events,
     make_remote_build_controller,
+    wire_firmware_remote_peer_api_mocks,
 )
 
 
@@ -376,19 +380,24 @@ def make_remote_peer_job(
     )
 
 
-def make_real_bundle(*, configuration_filename: str = "kitchen.yaml") -> bytes:
+def make_real_bundle(
+    *,
+    configuration_filename: str = "kitchen.yaml",
+    yaml_body: bytes = b"esphome:\n  name: kitchen\n",
+) -> bytes:
     """
     Build a minimal-but-valid esphome bundle the upstream extractor accepts.
 
     Emits a ``manifest.json`` + the referenced YAML member; skips
     :class:`BundleBuilder` so the test doesn't need a real
-    ``CORE.config_dir`` / ``CORE.config_path`` setup.
+    ``CORE.config_dir`` / ``CORE.config_path`` setup. Pass *yaml_body*
+    to drive a real ``esphome compile`` against a platform-specific
+    config (the LibreTiny e2e ships a ``bk72xx`` board here).
     """
     manifest = {
         "manifest_version": 1,
         "config_filename": configuration_filename,
     }
-    yaml_body = b"esphome:\n  name: kitchen\n"
     members: list[tuple[str, bytes]] = [
         ("manifest.json", json.dumps(manifest).encode("utf-8")),
         (configuration_filename, yaml_body),
@@ -434,3 +443,81 @@ async def make_and_seed_remote_peer_job(
     # before the test fires the next event.
     await asyncio.sleep(0)
     return job
+
+
+def wire_receiver_firmware_recorder(instances: PairedInstances) -> list[FirmwareJob]:
+    """Wire receiver's ``db.firmware`` to record submitted jobs.
+
+    The receiver-side ``_create_job`` builds a :class:`FirmwareJob`
+    carrying every field the production controller's dispatch
+    sets (configuration / job_type / remote_peer / remote_job_id);
+    ``_enqueue`` resolves with ``accepted=True`` so the
+    ``submit_job_ack`` lands on the success branch. The recorded
+    list lets the test mutate the job's ``status`` from
+    ``QUEUED`` → ``COMPLETED`` after firing the lifecycle events
+    so the download-side ``_find_remote_job`` accepts it.
+
+    ``firmware.state.jobs`` is a real dict (not a mock) so the
+    receiver-side download path's ``firmware.state.jobs.values()``
+    iteration finds the recorded job.
+    """
+    created_jobs: list[FirmwareJob] = []
+    receiver_jobs: dict[str, FirmwareJob] = {}
+
+    def _create_job(
+        configuration: str,
+        job_type: JobType,
+        *,
+        remote_peer: str = "",
+        remote_job_id: str = "",
+        **_: Any,
+    ) -> FirmwareJob:
+        job = FirmwareJob(
+            job_id=f"rcv-{len(created_jobs)}",
+            configuration=configuration,
+            job_type=job_type,
+            status=JobStatus.QUEUED,
+            remote_peer=remote_peer,
+            remote_job_id=remote_job_id,
+        )
+        created_jobs.append(job)
+        receiver_jobs[job.job_id] = job
+        return job
+
+    firmware = instances.receiver._db.firmware
+    firmware._create_job = MagicMock(side_effect=_create_job)
+    firmware._enqueue = AsyncMock(side_effect=lambda job: job)
+    wire_firmware_remote_peer_api_mocks(firmware, receiver_jobs)
+    # ``_on_firmware_queue_transition`` (registered on every
+    # JOB_QUEUED / JOB_STARTED / terminal event) reads
+    # ``queue_status_snapshot()`` and tuple-unpacks the result.
+    # The harness's ``MagicMock`` firmware controller returns a
+    # MagicMock by default — unpacks as zero values and trips a
+    # ValueError. Pin a sane tuple so the listener runs cleanly
+    # rather than spamming the test log with swallowed
+    # exceptions on every fire().
+    firmware.queue_status_snapshot = MagicMock(
+        return_value=QueueStatus(idle=True, running=False, queue_depth=0)
+    )
+    return created_jobs
+
+
+async def drive_remote_job_to_completed(
+    instances: PairedInstances,
+    job: FirmwareJob,
+    state_changes: _CapturedEvents,
+) -> None:
+    """Drive *job* QUEUED → STARTED → COMPLETED on the receiver bus and flip it COMPLETED.
+
+    Awaits the offloader's ``running`` then ``completed``
+    ``OFFLOADER_JOB_STATE_CHANGED`` via *state_changes* (a
+    :func:`capture_events` handle), then sets ``job.status`` so the
+    download side's ``_find_remote_job`` accepts it for
+    ``download_artifacts``.
+    """
+    instances.receiver_bus.fire(EventType.JOB_QUEUED, JobLifecycleData(job=job))
+    instances.receiver_bus.fire(EventType.JOB_STARTED, JobLifecycleData(job=job))
+    await state_changes.wait_for_status("running")
+    instances.receiver_bus.fire(EventType.JOB_COMPLETED, JobLifecycleData(job=job))
+    await state_changes.wait_for_status("completed")
+    job.status = JobStatus.COMPLETED
