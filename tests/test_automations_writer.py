@@ -1119,6 +1119,72 @@ def test_upsert_appends_entry_for_non_on_time_repeatable_trigger() -> None:
     assert reparsed[1].automation.trigger_params == {"below": 5}
 
 
+_ON_TIME_COMMENTED = (
+    "time:\n  - platform: sntp\n    id: my_time\n    on_time:\n"
+    "      # morning schedule\n"
+    "      - seconds: 0\n        then:\n          - logger.log: morning\n"
+    "\n# unrelated trailing comment\nsensor:\n  - platform: template\n    id: s1\n    name: s\n"
+)
+
+
+def test_upsert_preserves_inner_comments_and_does_not_duplicate_the_trailing_one() -> None:
+    """Append keeps an entry's own comment and leaves the after-block comment in place, once."""
+    tree = AutomationTree(
+        trigger_id="time.on_time",
+        trigger_params={"hours": 23},
+        actions=[ActionNode(action_id="logger.log", params={"format": "night"})],
+    )
+    new_text, _diff = render_upsert(
+        _ON_TIME_COMMENTED,
+        tree=tree,
+        location=ComponentOnLocation(component_id="my_time", trigger="on_time", index=1),
+    )
+    # Inner comment survives; the after-block comment isn't duplicated and stays
+    # attached to the following block.
+    assert new_text.count("# morning schedule") == 1
+    assert new_text.count("# unrelated trailing comment") == 1
+    assert "\n# unrelated trailing comment\nsensor:" in new_text
+    assert [p.location.index for p in parse_device_yaml(new_text)] == [0, 1]
+
+
+def test_upsert_drops_a_comment_trailing_the_last_entry() -> None:
+    """A comment ruamel binds to the last entry is dropped, never duplicated (accepted trade)."""
+    yaml_text = (
+        "time:\n  - platform: sntp\n    id: my_time\n    on_time:\n"
+        "      - seconds: 0\n        then:\n          - logger.log: hi\n"
+        "      # tail of the last entry\n"
+        "sensor:\n  - platform: template\n    id: s1\n    name: s\n"
+    )
+    tree = AutomationTree(
+        trigger_id="time.on_time",
+        trigger_params={"hours": 23},
+        actions=[ActionNode(action_id="logger.log", params={"format": "night"})],
+    )
+    new_text, _diff = render_upsert(
+        yaml_text,
+        tree=tree,
+        location=ComponentOnLocation(component_id="my_time", trigger="on_time", index=1),
+    )
+    # Indistinguishable from the after-block comment, so intentionally dropped, not duplicated.
+    assert new_text.count("# tail of the last entry") == 0
+    assert [p.location.index for p in parse_device_yaml(new_text)] == [0, 1]
+
+
+def test_delete_entry_does_not_duplicate_the_trailing_comment() -> None:
+    """Deleting an entry leaves the after-block comment intact and un-duplicated."""
+    yaml_text = (
+        "time:\n  - platform: sntp\n    id: my_time\n    on_time:\n"
+        "      - seconds: 0\n        then:\n          - logger.log: a\n"
+        "      - seconds: 30\n        then:\n          - logger.log: b\n"
+        "\n# unrelated trailing comment\nsensor:\n  - platform: template\n    id: s1\n    name: s\n"
+    )
+    new_text, _diff = render_delete(
+        yaml_text, location=ComponentOnLocation(component_id="my_time", trigger="on_time", index=0)
+    )
+    assert new_text.count("# unrelated trailing comment") == 1
+    assert [p.location.index for p in parse_device_yaml(new_text)] == [0]
+
+
 def test_upsert_on_time_appends_entry_at_end() -> None:
     """An index equal to the entry count appends a new schedule."""
     yaml_text = _load("time_on_time_list.yaml")
