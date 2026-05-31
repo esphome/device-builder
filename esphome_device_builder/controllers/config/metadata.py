@@ -254,10 +254,9 @@ def rename_device_metadata(config_dir: Path, old_filename: str, new_filename: st
         if not isinstance(old_entry, dict) or not old_entry:
             return
         existing_new = data.get(new_filename)
-        if isinstance(existing_new, dict):
-            data[new_filename] = {**old_entry, **existing_new}
-        else:
-            data[new_filename] = old_entry
+        data[new_filename] = (
+            {**old_entry, **existing_new} if isinstance(existing_new, dict) else old_entry
+        )
 
 
 # Per-device shared-sidecar fields that go stale on archive.
