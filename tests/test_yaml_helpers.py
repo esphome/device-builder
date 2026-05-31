@@ -28,6 +28,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+import yaml
 
 from esphome_device_builder.helpers.yaml import (
     YamlUpsertNotSupportedError,
@@ -1209,6 +1210,25 @@ def test_generate_component_yaml_quotes_strings_that_reparse_as_non_string(
     component = _component(component_id="myc", category=ComponentCategory.MISC)
     out = generate_component_yaml(component, {"v": value})
     assert f'  v: "{value}"' in out
+
+
+@pytest.mark.parametrize(
+    "value",
+    ['"Hello"', "'single'", '"with:colon"', '"trailing space "', "\\backslash"],
+    ids=["dq-cpp-literal", "sq-leading", "dq-embedded-colon", "dq-trailing-space", "backslash"],
+)
+def test_generate_component_yaml_quote_bearing_string_round_trips(value: str) -> None:
+    r"""Strings carrying quotes round-trip exactly (issue #1095).
+
+    A globals ``initial_value`` for a ``std::string`` is a C++ literal
+    (``'"Hello"'``); emitting it bare round-trips as plain ``Hello`` and
+    ESPHome then compiles an undeclared symbol. The value must survive a
+    full re-parse with its quotes intact, with embedded ``"`` / ``\``
+    escaped rather than wrapped in invalid ``""..."``.
+    """
+    component = _component(component_id="myc", category=ComponentCategory.MISC)
+    out = generate_component_yaml(component, {"v": value})
+    assert yaml.safe_load(out)["myc"]["v"] == value
 
 
 # ---------------------------------------------------------------------------
