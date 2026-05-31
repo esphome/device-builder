@@ -252,13 +252,27 @@ def _instance_declared_id(
     first_line = lines[start].rstrip("\n\r")
     inline_match = re.match(r"^\s*-\s*id:\s*(?P<id>\S+)", first_line)
     if inline_match:
-        return inline_match.group("id")
+        return _unquote_id(inline_match.group("id"))
     child_re = re.compile(rf"^{re.escape(child_indent)}id:\s*(?P<id>\S+)")
     for jdx in range(start, end):
         m = child_re.match(lines[jdx].rstrip("\n\r"))
         if m:
-            return m.group("id")
+            return _unquote_id(m.group("id"))
     return None
+
+
+def _unquote_id(raw: str) -> str:
+    r"""
+    Strip a surrounding matching quote pair from a captured ``id:`` token.
+
+    The ``\S+`` capture swallows the quotes of a quoted scalar
+    (``id: "foo"`` -> ``"foo"``) while the parsed component_id compared
+    against it is unquoted. ESPHome identifiers never contain quote
+    characters, so a matching surrounding pair is always wrapper syntax.
+    """
+    if len(raw) >= 2 and raw[0] in "\"'" and raw[-1] == raw[0]:
+        return raw[1:-1]
+    return raw
 
 
 def _indent_block(block_text: str, indent: str) -> list[str]:

@@ -782,6 +782,42 @@ def test_upsert_inline_handler_replace_with_sibling_below() -> None:
     assert "on_release:" in new_text
 
 
+@pytest.mark.parametrize("quote", ['"', "'"], ids=["double", "single"])
+def test_upsert_inline_handler_locates_quoted_id(quote: str) -> None:
+    """A quoted ``id:`` resolves against the unquoted parsed component_id."""
+    text = (
+        f"binary_sensor:\n  - platform: gpio\n    id: {quote}btn{quote}\n    pin: GPIO0\n"
+        "    on_press:\n      then:\n        - delay: 1s\n"
+    )
+    res = upsert_inline_handler(
+        text,
+        component_domain="binary_sensor",
+        component_id="btn",
+        handler_key="on_press",
+        rendered_yaml="on_press:\n  then:\n    - delay: 99s\n",
+    )
+    assert res is not None
+    new_text, _from, _to, _repl = res
+    assert "delay: 99s" in new_text
+
+
+def test_remove_inline_handler_locates_quoted_id() -> None:
+    """``remove_inline_handler`` finds an instance whose ``id:`` is quoted."""
+    text = (
+        'binary_sensor:\n  - platform: gpio\n    id: "btn"\n    pin: GPIO0\n'
+        "    on_press:\n      then:\n        - delay: 1s\n"
+    )
+    res = remove_inline_handler(
+        text,
+        component_domain="binary_sensor",
+        component_id="btn",
+        handler_key="on_press",
+    )
+    assert res is not None
+    new_text, _from, _to = res
+    assert "on_press" not in new_text
+
+
 def test_upsert_inline_handler_insert_with_trailing_blanks_in_instance() -> None:
     """Trailing blank lines under the component instance don't push insert into them."""
     text = (
