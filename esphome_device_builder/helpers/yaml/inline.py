@@ -262,13 +262,11 @@ def _instance_declared_id(
 
 
 def _unquote_id(raw: str) -> str:
-    r"""
+    """
     Strip a surrounding matching quote pair from a captured ``id:`` token.
 
-    The ``\S+`` capture swallows the quotes of a quoted scalar
-    (``id: "foo"`` -> ``"foo"``) while the parsed component_id compared
-    against it is unquoted. ESPHome identifiers never contain quote
-    characters, so a matching surrounding pair is always wrapper syntax.
+    ESPHome identifiers never contain quote characters, so a matching
+    surrounding pair is always wrapper syntax.
     """
     if len(raw) >= 2 and raw[0] in "\"'" and raw[-1] == raw[0]:
         return raw[1:-1]
