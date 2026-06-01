@@ -357,11 +357,15 @@ jobs:
       - name: Cache ESP-IDF toolchain
         # Native IDF does NOT use PlatformIO; its toolchain installs under
         # ``ESPHOME_ESP_IDF_PREFIX`` (set on the run step). Without the cache
-        # a cold IDF install + toolchain download runs on every PR.
+        # a cold IDF install + toolchain download runs on every PR. The
+        # installed IDF version is pinned by ``esphome@dev`` (reinstalled
+        # each run), not by the test file -- so use a rolling ``run_id`` key
+        # that saves a fresh cache every run (picking up dev IDF bumps) and
+        # ``restore-keys`` to warm from the most recent prior cache.
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: ~/.cache/esphome-idf
-          key: e2e-espidf-${{ runner.os }}-${{ hashFiles('tests/e2e/test_esp_idf_compile_download.py') }}
+          key: e2e-espidf-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             e2e-espidf-${{ runner.os }}-
 
