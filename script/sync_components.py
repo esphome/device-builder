@@ -3411,9 +3411,21 @@ def _emit_split_automations_catalog(automations: dict[str, Any], version: str) -
             # it lands in the slim index only, not the body file.
             slim_src = entry
             if type_key == "actions":
-                form_editable = len(entry.get("config_entries") or []) <= _MAX_FORM_CONFIG_ENTRIES
+                count = len(entry.get("config_entries") or [])
+                form_editable = count <= _MAX_FORM_CONFIG_ENTRIES
+                if not form_editable:
+                    _LOGGER.info(
+                        "Flagging action %s form_editable=False (%d config entries)",
+                        entry["id"],
+                        count,
+                    )
                 slim_src = {**entry, "form_editable": form_editable}
-            slim_entries.append(slim_cls.from_dict(slim_src).to_dict())
+            slim_dict = slim_cls.from_dict(slim_src).to_dict()
+            # Keep the index lean: only the rare non-editable actions carry
+            # the flag explicitly; everything else defaults to True on load.
+            if type_key == "actions" and slim_dict.get("form_editable", True):
+                del slim_dict["form_editable"]
+            slim_entries.append(slim_dict)
         index_payload[type_key] = slim_entries
 
     swap_split_catalog_in(

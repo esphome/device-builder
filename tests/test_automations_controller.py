@@ -71,16 +71,22 @@ async def test_get_actions_excludes_oversized_lvgl_update_forms() -> None:
     """
     controller = _make_controller(Path("/unused"))
     ids = {a["id"] for a in await controller.get_actions()}
-    # Bloated update forms are gone from the picker.
-    assert "lvgl.label.update" not in ids
-    assert "lvgl.widget.update" not in ids
+    # Bloated update forms are gone from the picker, but still exist in the
+    # unfiltered slim catalog — so this fails loudly if the index isn't
+    # regenerated or an id is renamed, rather than passing vacuously.
+    slim_ids = {a.id for a in catalog._slim_actions()}
+    for excluded in ("lvgl.label.update", "lvgl.widget.update"):
+        assert excluded in slim_ids
+        assert excluded not in ids
     # Small, genuinely editable LVGL actions remain.
     assert "lvgl.pause" in ids
     assert "lvgl.page.show" in ids
-    # Excluded ids are also unknown to the body store, so a parse of one
-    # falls through to the existing "unknown action id" fallback.
-    assert catalog.action_by_id("lvgl.label.update") is None
-    assert catalog.action_by_id("lvgl.pause") is not None
+    # Excluded ids also drop out of the known-id gate (``_ACTION_IDS`` feeds
+    # ``_ACTION_STORE.is_known``), so ``action_by_id`` returns None and the
+    # parser's existing unknown-id raw-YAML fallback takes over. Asserted
+    # against the in-memory set to avoid a blocking body-file read here.
+    assert "lvgl.label.update" not in catalog._ACTION_IDS
+    assert "lvgl.pause" in catalog._ACTION_IDS
 
 
 async def test_get_conditions_returns_full_catalog() -> None:
