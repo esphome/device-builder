@@ -71,13 +71,8 @@ _CACHE_ROOT = _REPO_ROOT / ".cache"
 # filter paths off the per-field tree.
 _INDEX_DROP_FIELDS: frozenset[str] = frozenset({"config_entries", "required_groups"})
 
-# An action with more than this many top-level config entries is flagged
-# ``form_editable=False`` in the slim index: its schema is too large to render
-# as a useful form. LVGL ``*.update`` actions expand the entire widget style
-# schema (160+ entries) while every other action stays <= 30, so this sits
-# comfortably between the two clusters and no normal action trips it. The
-# catalog drops flagged actions from the picker + known-id set, routing any
-# automation that uses one to the read-only raw-YAML fallback.
+# Actions with more top-level config entries than this are flagged
+# form_editable=False (LVGL *.update sits at 160+, every other action <= 30).
 _MAX_FORM_CONFIG_ENTRIES = 80
 
 _RELEASES_API = "https://api.github.com/repos/esphome/esphome-schema/releases"
@@ -3405,10 +3400,7 @@ def _emit_split_automations_catalog(automations: dict[str, Any], version: str) -
             # Build the slim index dict by round-tripping through
             # the slim model — drops fields that aren't in the
             # slim picker shape and validates the slim contract
-            # against the same source dict. Actions also carry a
-            # ``form_editable`` flag derived from their config-entry
-            # count (oversized forms fall back to raw-YAML editing);
-            # it lands in the slim index only, not the body file.
+            # against the same source dict.
             slim_src = entry
             if type_key == "actions":
                 count = len(entry.get("config_entries") or [])
@@ -3421,10 +3413,9 @@ def _emit_split_automations_catalog(automations: dict[str, Any], version: str) -
                     )
                 slim_src = {**entry, "form_editable": form_editable}
             slim_dict = slim_cls.from_dict(slim_src).to_dict()
-            # Keep the index lean: only the rare non-editable actions carry
-            # the flag explicitly; everything else defaults to True on load.
+            # Omit the flag when True so only non-editable actions carry it.
             if type_key == "actions" and slim_dict.get("form_editable", True):
-                del slim_dict["form_editable"]
+                slim_dict.pop("form_editable", None)
             slim_entries.append(slim_dict)
         index_payload[type_key] = slim_entries
 

@@ -185,11 +185,7 @@ class AutomationActionIndex(DataClassORJSONMixin):
     is_control_flow: bool = False
     has_else_branch: bool = False
     accepts_action_list: list[str] = field(default_factory=list)
-    # False when the action's form is too large to be useful in the visual
-    # editor (e.g. LVGL ``*.update`` actions expand the full widget style
-    # schema, 160+ fields). The catalog drops these from the picker and the
-    # known-id set, so an automation that uses one falls back to read-only
-    # raw-YAML editing.
+    # False when the editor should not render this action as a form.
     form_editable: bool = True
 
 

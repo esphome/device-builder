@@ -62,29 +62,17 @@ async def test_get_actions_returns_full_catalog() -> None:
 
 
 async def test_get_actions_excludes_oversized_lvgl_update_forms() -> None:
-    """Oversized LVGL ``*.update`` actions are kept out of the picker.
-
-    Their schema expands the full widget style schema (160+ fields), so the
-    generator flags them ``form_editable=False`` and the catalog drops them.
-    Small LVGL actions stay editable, and the body store no longer resolves
-    the excluded ids so the parser routes them to the raw-YAML fallback.
-    """
+    """Oversized LVGL actions are dropped from the picker and the known-id set."""
     controller = _make_controller(Path("/unused"))
     ids = {a["id"] for a in await controller.get_actions()}
-    # Bloated update forms are gone from the picker, but still exist in the
-    # unfiltered slim catalog — so this fails loudly if the index isn't
-    # regenerated or an id is renamed, rather than passing vacuously.
+    # Present in the unfiltered catalog but filtered out of the picker.
     slim_ids = {a.id for a in catalog._slim_actions()}
     for excluded in ("lvgl.label.update", "lvgl.widget.update"):
         assert excluded in slim_ids
         assert excluded not in ids
-    # Small, genuinely editable LVGL actions remain.
     assert "lvgl.pause" in ids
     assert "lvgl.page.show" in ids
-    # Excluded ids also drop out of the known-id gate (``_ACTION_IDS`` feeds
-    # ``_ACTION_STORE.is_known``), so ``action_by_id`` returns None and the
-    # parser's existing unknown-id raw-YAML fallback takes over. Asserted
-    # against the in-memory set to avoid a blocking body-file read here.
+    # In-memory check (avoids a blocking body read); _ACTION_IDS gates is_known.
     assert "lvgl.label.update" not in catalog._ACTION_IDS
     assert "lvgl.pause" in catalog._ACTION_IDS
 

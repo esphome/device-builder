@@ -115,14 +115,7 @@ def _slim_actions() -> list[AutomationActionIndex]:
 
 @cache
 def _editable_actions() -> list[AutomationActionIndex]:
-    """Actions the visual editor can render as a form.
-
-    Actions the generator flagged ``form_editable=False`` (oversized
-    schemas, e.g. LVGL ``*.update`` with 160+ fields) are dropped here, so
-    they're absent from both the picker and ``_ACTION_IDS``. Being unknown
-    to the parser routes any automation that uses one to the existing
-    read-only raw-YAML fallback, with no special-casing in the parser.
-    """
+    """Slim actions with ``form_editable`` set; feeds the picker + ``_ACTION_IDS``."""
     return [a for a in _slim_actions() if a.form_editable]
 
 
