@@ -110,8 +110,7 @@ def test_parse_inline_on_click_surfaces_trigger_params() -> None:
 
 
 def test_parse_on_value_range_float_params_are_json_serialisable() -> None:
-    """Decimal on_value_range thresholds round-trip as plain floats (#1124)."""
-    parsed = parse_device_yaml(_load("sensor_on_value_range_float.yaml"))
+    """Decimal on_value_range thresholds round-trip as plain floats."""
     tree = parsed[0].automation
     assert tree.trigger_id == "sensor.on_value_range"
     assert tree.trigger_params == {"above": 3.14, "below": 25.5}
