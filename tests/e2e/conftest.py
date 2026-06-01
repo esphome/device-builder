@@ -36,6 +36,8 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import subprocess
+import sys
 import tarfile
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
@@ -409,6 +411,20 @@ def make_real_bundle(
             info.size = len(data)
             tar.addfile(info, io.BytesIO(data))
     return buf.getvalue()
+
+
+def run_esphome_compile(
+    yaml_path: Path, *, env: dict[str, str]
+) -> subprocess.CompletedProcess[str]:
+    """Run ``esphome compile`` on *yaml_path* with *env*'s ESPHOME_DATA_DIR override."""
+    return subprocess.run(  # noqa: S603 — fixed argv list, no shell, test-only invocation
+        [sys.executable, "-m", "esphome", "compile", str(yaml_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+        close_fds=False,
+        env=env,
+    )
 
 
 async def make_and_seed_remote_peer_job(

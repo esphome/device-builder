@@ -300,24 +300,28 @@ jobs:
       - name: Show installed esphome version
         run: uv pip show esphome | grep -E '^(Name|Version):'
 
-      - name: Cache PlatformIO core + per-platform toolchains
-        # The LibreTiny e2e (test_libretiny_compile_download.py) runs a real
-        # bk7231n compile, which clones the LibreTiny SDK from source on a
-        # cold runner. Cache ``~/.platformio`` per channel so stable/dev
-        # SDK downloads don't collide.
+      - name: Cache compile toolchains (PlatformIO + ESP-IDF)
+        # LibreTiny builds under ``~/.platformio``; native-IDF does NOT use
+        # PlatformIO, its toolchain installs under ``ESPHOME_ESP_IDF_PREFIX``
+        # (set on the run step). Cache both, keyed per channel + compile test.
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
-          path: ~/.platformio
-          key: pio-e2e-libretiny-${{ runner.os }}-${{ matrix.channel }}-${{ hashFiles('tests/e2e/test_libretiny_compile_download.py') }}
+          path: |
+            ~/.platformio
+            ~/.cache/esphome-idf
+          key: e2e-toolchains-${{ runner.os }}-${{ matrix.channel }}-${{ hashFiles('tests/e2e/test_libretiny_compile_download.py', 'tests/e2e/test_esp_idf_compile_download.py') }}
           restore-keys: |
-            pio-e2e-libretiny-${{ runner.os }}-${{ matrix.channel }}-
+            e2e-toolchains-${{ runner.os }}-${{ matrix.channel }}-
 
       - name: Run e2e tests
-        # 20 min outer cap (vs the unit job's 5): a cold LibreTiny SDK clone
-        # plus compile runs minutes. The fast e2e tests keep the per-test
-        # ``--timeout=120``; the LibreTiny test opts out via its own
-        # ``@pytest.mark.timeout(600)`` decorator.
+        # 20 min cap: a cold SDK/toolchain install plus compile runs minutes.
+        # Fast tests keep ``--timeout=120``; real-compile ones set their own.
+        # Without ``ESPHOME_ESP_IDF_PREFIX`` esphome installs IDF under the
+        # throwaway per-job ``ESPHOME_DATA_DIR`` and reinstalls every run; it
+        # ``expanduser()``s the value, so ``~`` matches the cache path above.
         timeout-minutes: 20
+        env:
+          ESPHOME_ESP_IDF_PREFIX: ~/.cache/esphome-idf
         run: uv run pytest -q -n auto tests/e2e --maxfail=5 --durations=10 --timeout=120 --no-cov
 
   benchmarks:

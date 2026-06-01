@@ -23,8 +23,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import subprocess
-import sys
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -45,6 +43,7 @@ from .conftest import (
     PairedInstances,
     drive_remote_job_to_completed,
     make_real_bundle,
+    run_esphome_compile,
     wire_receiver_firmware_recorder,
 )
 
@@ -57,20 +56,6 @@ bk72xx:
   board: generic-bk7231n-qfn32-tuya
 logger:
 """.encode()
-
-
-def _run_esphome_compile(
-    yaml_path: Path, *, env: dict[str, str]
-) -> subprocess.CompletedProcess[str]:
-    """Run ``esphome compile`` on *yaml_path* with *env*'s ESPHOME_DATA_DIR override."""
-    return subprocess.run(  # noqa: S603 — fixed argv list, no shell, test-only invocation
-        [sys.executable, "-m", "esphome", "compile", str(yaml_path)],
-        capture_output=True,
-        text=True,
-        check=False,
-        close_fds=False,
-        env=env,
-    )
 
 
 @pytest.mark.timeout(600)
@@ -107,7 +92,7 @@ async def test_libretiny_bk7231n_compile_download_round_trip(
     config_dir = Path(paired_instances.receiver._db.settings.config_dir)
     yaml_path = config_dir / receiver_job.configuration
     result = await asyncio.to_thread(
-        _run_esphome_compile, yaml_path, env={**os.environ, "ESPHOME_DATA_DIR": str(data_dir)}
+        run_esphome_compile, yaml_path, env={**os.environ, "ESPHOME_DATA_DIR": str(data_dir)}
     )
     assert result.returncode == 0, (
         f"bk7231n compile failed:\nstdout:\n{result.stdout[-4000:]}\n"

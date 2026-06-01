@@ -124,6 +124,13 @@ def test_esp32_includes_factory_firmware_for_idf() -> None:
     assert "build/firmware.factory.bin" in rendered
 
 
+def test_esp32_includes_native_idf_elf() -> None:
+    """Native-IDF emits build/firmware.elf; BUILD_FILES ships it for the ELF download."""
+    rendered = [f.format(name="kitchen") for f in esp32.BUILD_FILES]
+    assert ".pioenvs/kitchen/firmware.elf" in rendered
+    assert "build/firmware.elf" in rendered
+
+
 def test_libretiny_includes_uf2_and_bin() -> None:
     """Libretiny ships both .uf2 (UART/ltchiptool) and .bin (OTA)."""
     rendered = [f.format(name="bw15") for f in build_files_for_platform("bk72xx")]
