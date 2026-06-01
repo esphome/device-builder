@@ -17,6 +17,7 @@ regressions, not async hygiene.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import sys
 import tempfile as _tempfile
 from collections.abc import Callable, Iterator
@@ -28,6 +29,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from blockbuster import blockbuster_ctx
 from esphome.core import CORE
+from esphome.storage_json import StorageJSON
 
 from esphome_device_builder.controllers._device_mqtt_coordinator import (
     DeviceMqttCoordinator,
@@ -59,17 +61,14 @@ from esphome_device_builder.models import (
 if TYPE_CHECKING:
     from blockbuster import BlockBuster
 
-# True when the installed esphome carries the native ESP-IDF toolchain
-# (>= 2026.5.0). StorageJSON only grows its ``toolchain`` field there, so
-# tests that synthesize a native-IDF build (which the offload path detects
-# via ``toolchain == "esp-idf"``) skip on older esphome where the field is
-# dropped on load. Mirrors the gate on the native-IDF compile e2e.
-try:
-    from esphome.const import CONF_TOOLCHAIN as _CONF_TOOLCHAIN  # noqa: F401
-
-    HAS_NATIVE_IDF_TOOLCHAIN = True
-except ImportError:
-    HAS_NATIVE_IDF_TOOLCHAIN = False
+# True when the installed esphome's StorageJSON carries a ``toolchain``
+# field (>= 2026.5.0). That field is the exact dependency the offload path
+# keys native-IDF detection on (``toolchain == "esp-idf"``); older esphome
+# drops it on load, so tests that synthesize a native-IDF build skip there.
+# Probed off the StorageJSON signature directly rather than a correlated
+# const so the gate tracks the real runtime dependency. Mirrors the
+# native-IDF compile e2e gate.
+HAS_NATIVE_IDF_TOOLCHAIN = "toolchain" in inspect.signature(StorageJSON.__init__).parameters
 
 # Call sites known to do bounded blocking I/O during one-time server
 # startup, where the cost is paid once and not on the request path.

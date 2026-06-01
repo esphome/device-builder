@@ -250,7 +250,8 @@ async def test_get_binaries_logs_and_returns_empty_on_module_failure(
 
     assert result == []
     assert any(
-        "Could not determine download types for kitchen" in rec.message for rec in caplog.records
+        "Could not determine download types for kitchen.yaml" in rec.message
+        for rec in caplog.records
     )
 
 

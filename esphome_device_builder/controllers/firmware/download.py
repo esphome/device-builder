@@ -69,26 +69,31 @@ async def get_binaries(controller: FirmwareController, *, configuration: str) ->
         storage = StorageJSON.load(resolve_storage_path(configuration))
         if storage is None:
             return []
-        return collect_download_entries(storage)
+        return collect_download_entries(storage, label=configuration)
 
     return await loop.run_in_executor(None, _get_types)
 
 
-def collect_download_entries(storage: StorageJSON) -> list[dict]:
+def collect_download_entries(storage: StorageJSON, *, label: str | None = None) -> list[dict]:
     """Return the downloadable artifacts on disk for *storage* as ``[{title, file, ...}]``.
 
     The platform's ``get_download_types`` entries that exist under
     ``firmware_bin_path.parent`` (the build dir, ``.pioenvs/<name>/`` or
     native-IDF ``build/``), plus ``firmware.elf`` when present. Empty
     when nothing is built. The single source of truth for what a build
-    offers; ``get_binaries`` is its async wrapper.
+    offers; ``get_binaries`` is its async wrapper. *label* identifies the
+    build in the failure log -- the caller's configuration filename when it
+    has one (more specific than ``storage.name`` across colliding device
+    names); defaults to ``storage.name``.
     """
     try:
         component = _resolve_download_component(storage.target_platform)
         module = importlib.import_module(f"esphome.components.{component}")
         types = list(module.get_download_types(storage))
-    except Exception:  # noqa: BLE001 — third-party regression: upstream ``get_download_types`` could raise anything
-        _LOGGER.warning("Could not determine download types for %s", storage.name)
+    except Exception:  # a third-party get_download_types regression could raise anything
+        _LOGGER.warning(
+            "Could not determine download types for %s", label or storage.name, exc_info=True
+        )
         return []
     # No build dir → can't confirm anything on disk → treat as not built.
     if storage.firmware_bin_path is None:
