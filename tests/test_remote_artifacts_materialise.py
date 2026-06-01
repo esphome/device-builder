@@ -599,10 +599,10 @@ def test_materialise_rejects_missing_storage_member(tmp_path: Path) -> None:
         _materialise_in_tmp(tarball, tmp_path)
 
 
-def test_materialise_rejects_missing_idedata_member(tmp_path: Path) -> None:
-    """A tarball without idedata.json raises MaterialiseError."""
+def test_materialise_rejects_pio_tarball_missing_idedata(tmp_path: Path) -> None:
+    """A PlatformIO tarball (platformio.ini present) without idedata.json is wire drift."""
     tarball = _synthetic_tarball(idedata=None)
-    with pytest.raises(MaterialiseError, match=r"missing required member: 'idedata\.json'"):
+    with pytest.raises(MaterialiseError, match=r"missing required 'idedata\.json' member"):
         _materialise_in_tmp(tarball, tmp_path)
 
 
@@ -651,11 +651,30 @@ def test_materialise_rejects_non_json_storage(tmp_path: Path) -> None:
         _materialise_in_tmp(tarball, tmp_path)
 
 
-def test_materialise_rejects_missing_platformio_ini(tmp_path: Path) -> None:
-    """A tarball without platformio.ini raises MaterialiseError post-extract."""
-    tarball = _synthetic_tarball(platformio_ini=None)
-    with pytest.raises(MaterialiseError, match=r"missing required 'platformio\.ini'"):
-        _materialise_in_tmp(tarball, tmp_path)
+def test_materialise_native_idf_round_trip_without_pio_metadata(
+    paired_roots: tuple[Path, Path],
+) -> None:
+    """Native ESP-IDF (no platformio.ini / idedata) round-trips; no idedata cache staged."""
+    receiver_root, offloader_root = paired_roots
+    tarball = _pack_in_tmp(
+        receiver_root,
+        native_idf=True,
+        extra_build_files={
+            "build/firmware.factory.bin": b"FACTORY",
+            "build/firmware.ota.bin": b"OTA",
+            "build/firmware.elf": b"ELF",
+        },
+    )
+    build_path = _materialise_in_tmp(tarball, offloader_root)
+
+    assert build_path == offloader_root / ".esphome" / "build" / "kitchen"
+    assert (build_path / "build" / "kitchen.bin").is_file()
+    assert (build_path / "build" / "firmware.factory.bin").is_file()
+    assert not (build_path / "platformio.ini").exists()
+    # Native IDF ships no idedata cache, so the offloader stages none.
+    sentinel = offloader_root / "___DASHBOARD_SENTINEL___.yaml"
+    with patch.object(CORE, "config_path", sentinel):
+        assert not resolve_idedata_path("kitchen.yaml", name="kitchen").exists()
 
 
 def test_materialise_rejects_oversized_member(

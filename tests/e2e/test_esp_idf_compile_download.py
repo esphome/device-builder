@@ -16,11 +16,13 @@ from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
-from esphome.components.esp32 import get_download_types
 from esphome.core import CORE
 from esphome.storage_json import StorageJSON
 
-from esphome_device_builder.controllers.firmware.download import get_binaries
+from esphome_device_builder.controllers.firmware.download import (
+    collect_download_entries,
+    get_binaries,
+)
 from esphome_device_builder.helpers.remote_artifacts_materialise import (
     materialise_remote_artifacts,
 )
@@ -66,21 +68,14 @@ logger:
 def _local_download_set(data_dir: Path) -> set[str]:
     """Return the download filenames a *local* build of this device offers.
 
-    Mirrors :func:`get_binaries`' selection against the receiver's own
-    storage + build dir: ``get_download_types`` entries that exist on
-    disk, plus ``firmware.elf`` when present. Derived from the receiver
-    rather than hard-coded so it tracks the esphome build layout.
+    Runs the production selection (:func:`collect_download_entries`)
+    against the receiver's own storage + build dir, so the parity check
+    shares one source of truth with the offloader side.
     """
     [storage_path] = list((data_dir / "storage").glob("*.json"))
     storage = StorageJSON.load(storage_path)
-    assert storage is not None and storage.firmware_bin_path is not None
-    build_dir = Path(storage.firmware_bin_path).parent
-    offered = {
-        dl["file"] for dl in get_download_types(storage) if (build_dir / dl["file"]).is_file()
-    }
-    if (build_dir / "firmware.elf").is_file():
-        offered.add("firmware.elf")
-    return offered
+    assert storage is not None
+    return {entry["file"] for entry in collect_download_entries(storage)}
 
 
 @pytest.mark.timeout(900)

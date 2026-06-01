@@ -64,7 +64,8 @@ class MaterialiseError(RuntimeError):
 
 class _ExtractedTarball(NamedTuple):
     storage_bytes: bytes
-    idedata_bytes: bytes
+    # None for a native ESP-IDF build, which emits no idedata cache.
+    idedata_bytes: bytes | None
     # ``PurePath``-flavoured per the receiver's OS so the path
     # remap works when receiver and offloader differ.
     receiver_build_path: PurePath
@@ -85,17 +86,20 @@ def materialise_remote_artifacts(tarball: bytes, configuration: str) -> Path:
     side-effects (the runner) can discard it.
     """
     extracted = _open_and_extract_build_tree(tarball, configuration)
-    cached_idedata_path = _stage_offloader_idedata(
-        configuration=configuration,
-        idedata_bytes=extracted.idedata_bytes,
-        device_name=extracted.build_path.name,
-        receiver_build_path=extracted.receiver_build_path,
-        offloader_build_path=extracted.build_path,
-    )
-    _force_idedata_cache_hit(
-        platformio_ini=extracted.build_path / PLATFORMIO_INI_MEMBER_NAME,
-        cached_idedata=cached_idedata_path,
-    )
+    # Native ESP-IDF ships no idedata cache; the offloader's esphome
+    # re-derives it from the CMake build at upload/logs time.
+    if extracted.idedata_bytes is not None:
+        cached_idedata_path = _stage_offloader_idedata(
+            configuration=configuration,
+            idedata_bytes=extracted.idedata_bytes,
+            device_name=extracted.build_path.name,
+            receiver_build_path=extracted.receiver_build_path,
+            offloader_build_path=extracted.build_path,
+        )
+        _force_idedata_cache_hit(
+            platformio_ini=extracted.build_path / PLATFORMIO_INI_MEMBER_NAME,
+            cached_idedata=cached_idedata_path,
+        )
     if extracted.validated_yaml_bytes is not None:
         _stage_offloader_validated_yaml(
             configuration=configuration,
@@ -120,7 +124,7 @@ def _open_and_extract_build_tree(tarball: bytes, configuration: str) -> _Extract
             storage_bytes, total_bytes = _read_member_required(
                 tar, STORAGE_MEMBER_NAME, total_so_far=total_bytes
             )
-            idedata_bytes, total_bytes = _read_member_required(
+            idedata_bytes, total_bytes = _read_member_optional(
                 tar, IDEDATA_MEMBER_NAME, total_so_far=total_bytes
             )
             validated_yaml_bytes, total_bytes = _read_member_optional(
@@ -168,8 +172,10 @@ def _open_and_extract_build_tree(tarball: bytes, configuration: str) -> _Extract
                 )
     except tarfile.TarError as err:
         raise MaterialiseError(f"tarball is malformed: {err}") from err
-    if not (build_path / PLATFORMIO_INI_MEMBER_NAME).is_file():
-        raise MaterialiseError(f"tarball missing required {PLATFORMIO_INI_MEMBER_NAME!r} member")
+    # PlatformIO ships platformio.ini + idedata.json together; a PIO
+    # tarball missing idedata is wire drift. Native ESP-IDF ships neither.
+    if (build_path / PLATFORMIO_INI_MEMBER_NAME).is_file() and idedata_bytes is None:
+        raise MaterialiseError(f"tarball missing required {IDEDATA_MEMBER_NAME!r} member")
     return _ExtractedTarball(
         storage_bytes=storage_bytes,
         idedata_bytes=idedata_bytes,

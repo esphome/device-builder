@@ -337,23 +337,28 @@ def _write_receiver_state(
     extras: list[tuple[str, str]] | None = None,
     extra_build_files: dict[str, bytes] | None = None,
     validated_yaml: bytes | None = None,
+    native_idf: bool = False,
 ) -> dict[str, Path]:
     """Lay down a minimal receiver-side build state on disk.
 
-    Writes:
+    PlatformIO shape (default) writes:
 
     * ``<data_dir>/build/<device_name>/platformio.ini``
     * ``<data_dir>/build/<device_name>/.pioenvs/<device_name>/firmware.bin``
-    * Any additional build-tree files in *extra_build_files*
-      (keys are paths relative to ``<build_path>/``).
-    * ``<data_dir>/storage/<basename>.json`` with the JSON
-      fields the new packer reads via ``StorageJSON.load``.
     * ``<data_dir>/idedata/<device_name>.json`` with an
       ``extra.flash_images`` entry per *extras*
       (``(basename, offset_hex)``); receiver-absolute paths
       under ``.pioenvs/<device_name>/<basename>`` so the
       WS-adapter rewrite to basenames is observable.
 
+    ``native_idf=True`` instead writes the CMake/ninja shape:
+    ``firmware_bin`` at ``build/<device_name>.bin`` and neither
+    platformio.ini nor an idedata cache (both PlatformIO-only),
+    so the packer's non-PIO branch is exercised. *extras* /
+    idedata are skipped in that mode.
+
+    Always writes ``<data_dir>/storage/<basename>.json`` and any
+    *extra_build_files* (keys relative to ``<build_path>/``).
     Returns the key paths so individual tests can mutate them
     (e.g. drop ``platformio.ini`` to drive the missing-file
     branch).
@@ -366,17 +371,23 @@ def _write_receiver_state(
     """
     data_dir = tmp_path / ".esphome"
     build_path = data_dir / "build" / device_name
-    pioenvs = build_path / ".pioenvs" / device_name
-    pioenvs.mkdir(parents=True, exist_ok=True)
-    (build_path / "platformio.ini").write_bytes(b"[env:kitchen]\nplatform = espressif32\n")
-    firmware_bin = pioenvs / "firmware.bin"
+    if native_idf:
+        idf_build = build_path / "build"
+        idf_build.mkdir(parents=True, exist_ok=True)
+        firmware_bin = idf_build / f"{device_name}.bin"
+    else:
+        pioenvs = build_path / ".pioenvs" / device_name
+        pioenvs.mkdir(parents=True, exist_ok=True)
+        (build_path / "platformio.ini").write_bytes(b"[env:kitchen]\nplatform = espressif32\n")
+        firmware_bin = pioenvs / "firmware.bin"
     firmware_bin.write_bytes(b"FIRMWARE")
 
     extra_paths: list[dict[str, str]] = []
-    for basename, offset in extras or []:
-        path = pioenvs / basename
-        path.write_bytes(basename.encode("ascii"))
-        extra_paths.append({"path": str(path), "offset": offset})
+    if not native_idf:
+        for basename, offset in extras or []:
+            path = pioenvs / basename
+            path.write_bytes(basename.encode("ascii"))
+            extra_paths.append({"path": str(path), "offset": offset})
 
     for rel_path, payload in (extra_build_files or {}).items():
         abs_path = build_path / rel_path
@@ -396,25 +407,8 @@ def _write_receiver_state(
                 "loaded_integrations": loaded_integrations or [],
                 "loaded_platforms": [],
                 "no_mdns": False,
-                "framework": "arduino",
+                "framework": "esp-idf" if native_idf else "arduino",
                 "core_platform": target_platform.lower(),
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    idedata_path = resolve_idedata_path(configuration, name=device_name)
-    idedata_path.parent.mkdir(parents=True, exist_ok=True)
-    idedata_path.write_text(
-        json.dumps(
-            {
-                "prog_path": str(pioenvs / "firmware.elf"),
-                "cc_path": (
-                    "/home/receiver/.platformio/packages/toolchain-xtensa32"
-                    "/bin/xtensa-esp32-elf-gcc"
-                ),
-                "extra": {"flash_images": extra_paths},
             }
         )
         + "\n",
@@ -425,9 +419,26 @@ def _write_receiver_state(
         "build_path": build_path,
         "firmware_bin": firmware_bin,
         "storage_path": storage_path,
-        "idedata_path": idedata_path,
         "platformio_ini": build_path / "platformio.ini",
     }
+    if not native_idf:
+        idedata_path = resolve_idedata_path(configuration, name=device_name)
+        idedata_path.parent.mkdir(parents=True, exist_ok=True)
+        idedata_path.write_text(
+            json.dumps(
+                {
+                    "prog_path": str(pioenvs / "firmware.elf"),
+                    "cc_path": (
+                        "/home/receiver/.platformio/packages/toolchain-xtensa32"
+                        "/bin/xtensa-esp32-elf-gcc"
+                    ),
+                    "extra": {"flash_images": extra_paths},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        paths["idedata_path"] = idedata_path
     if validated_yaml is not None:
         validated_yaml_path = resolve_compiled_config_path(configuration)
         validated_yaml_path.parent.mkdir(parents=True, exist_ok=True)
@@ -571,8 +582,8 @@ def test_pack_build_artifacts_raises_when_storage_missing(tmp_path: Path) -> Non
         pack_build_artifacts("kitchen.yaml")
 
 
-def test_pack_build_artifacts_raises_when_idedata_missing(tmp_path: Path) -> None:
-    """No cached idedata.json → FileNotFoundError."""
+def test_pack_build_artifacts_raises_when_pio_idedata_missing(tmp_path: Path) -> None:
+    """A PlatformIO build (platformio.ini present) without idedata.json → FileNotFoundError."""
     state = _write_receiver_state(tmp_path)
     state["idedata_path"].unlink()
 
@@ -580,13 +591,30 @@ def test_pack_build_artifacts_raises_when_idedata_missing(tmp_path: Path) -> Non
         pack_build_artifacts("kitchen.yaml")
 
 
-def test_pack_build_artifacts_raises_when_platformio_ini_missing(tmp_path: Path) -> None:
-    """No platformio.ini → FileNotFoundError."""
-    state = _write_receiver_state(tmp_path)
-    state["platformio_ini"].unlink()
+def test_pack_build_artifacts_native_idf_omits_pio_metadata(tmp_path: Path) -> None:
+    """Native ESP-IDF (no platformio.ini / idedata) packs storage + build/ files, no PIO members."""
+    _write_receiver_state(
+        tmp_path,
+        native_idf=True,
+        extra_build_files={
+            "build/firmware.factory.bin": b"FACTORY",
+            "build/firmware.ota.bin": b"OTA",
+            "build/firmware.elf": b"ELF",
+        },
+    )
 
-    with pytest.raises(FileNotFoundError, match=r"platformio\.ini missing"):
-        pack_build_artifacts("kitchen.yaml")
+    packed = pack_build_artifacts("kitchen.yaml")
+
+    names = _tar_member_names(packed.tarball)
+    assert IDEDATA_MEMBER_NAME not in names
+    assert PLATFORMIO_INI_MEMBER_NAME not in names
+    assert names[0] == STORAGE_MEMBER_NAME
+    # firmware_bin + the get_download_types factory/ota images + the ELF all
+    # ride from the native-IDF ``build/`` tree.
+    assert "build/kitchen.bin" in names
+    assert "build/firmware.factory.bin" in names
+    assert "build/firmware.ota.bin" in names
+    assert "build/firmware.elf" in names
 
 
 def test_pack_build_artifacts_includes_get_download_types_files(tmp_path: Path) -> None:
