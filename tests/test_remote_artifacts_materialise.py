@@ -659,6 +659,22 @@ def test_materialise_rejects_pio_tarball_missing_platformio_ini(tmp_path: Path) 
         _materialise_in_tmp(tarball, tmp_path)
 
 
+def test_materialise_rejects_native_idf_tarball_missing_firmware(tmp_path: Path) -> None:
+    """A native-IDF tarball missing its firmware binary raises rather than materialising empty."""
+    # Ungated: materialise reads the raw shipped ``toolchain`` field, so it
+    # holds on any esphome version (unlike the pack-side native-IDF tests).
+    storage = {
+        "storage_version": 1,
+        "name": "kitchen",
+        "build_path": _FAKE_BUILD_PATH,
+        "firmware_bin_path": f"{_FAKE_BUILD_PATH}/build/kitchen.bin",
+        "toolchain": "esp-idf",
+    }
+    tarball = _synthetic_tarball(storage=storage, idedata=None, platformio_ini=None)
+    with pytest.raises(MaterialiseError, match="missing its firmware binary"):
+        _materialise_in_tmp(tarball, tmp_path)
+
+
 @pytest.mark.skipif(
     not HAS_NATIVE_IDF_TOOLCHAIN, reason="esphome lacks the native ESP-IDF toolchain (< 2026.5.0)"
 )
