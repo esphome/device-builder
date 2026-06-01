@@ -310,5 +310,5 @@ source:
   type: esphome-devices
   remote_id: KinCony-DM8
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-DM8/index.md
-  upstream_revision: 7b98102863a3093e1d3c00c8bb77e71eeb43ad6e
+  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: d53f41c7a2f2aabe3bfbb1c7e5a495fe47565fa64ac1821728a6828be8acc5d3

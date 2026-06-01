@@ -90,5 +90,5 @@ source:
   type: esphome-devices
   remote_id: Holman-RGB-Wifi
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Holman-RGB-Wifi/index.md
-  upstream_revision: 7b98102863a3093e1d3c00c8bb77e71eeb43ad6e
+  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 93e80834d74dc7eb18054607cd90fe72fa8f1d4c4bac1004d26271b8707257a9

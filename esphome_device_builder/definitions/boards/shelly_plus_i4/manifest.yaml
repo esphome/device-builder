@@ -84,5 +84,5 @@ source:
   type: esphome-devices
   remote_id: Shelly-Plus-i4
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Shelly-Plus-i4/index.md
-  upstream_revision: 7b98102863a3093e1d3c00c8bb77e71eeb43ad6e
+  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: bf23e6f27f9a7fe7c1d1bddaa789015ff0a2fa6eb1d2df9507390e73a0f76fbb

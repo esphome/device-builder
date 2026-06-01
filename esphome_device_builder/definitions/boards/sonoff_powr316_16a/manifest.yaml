@@ -96,5 +96,5 @@ source:
   type: esphome-devices
   remote_id: Sonoff-POWR316-16a
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Sonoff-POWR316-16a/index.md
-  upstream_revision: 7b98102863a3093e1d3c00c8bb77e71eeb43ad6e
+  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 9511aea98abba3c75181d7414646f231ceb1e6a1b8c8bb18a71df526259e1e2a

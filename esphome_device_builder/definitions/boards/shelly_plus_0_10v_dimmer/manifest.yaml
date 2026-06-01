@@ -129,5 +129,5 @@ source:
   type: esphome-devices
   remote_id: Shelly-Plus-0-10V-Dimmer
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Shelly-Plus-0-10V-Dimmer/index.md
-  upstream_revision: 7b98102863a3093e1d3c00c8bb77e71eeb43ad6e
+  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 356a87b31d4b59e3c4e41899ad037d3100d6830d35dbad5dc7c05e68613aff8e
