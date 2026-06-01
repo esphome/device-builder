@@ -36,6 +36,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import os
 import subprocess
 import sys
 import tarfile
@@ -49,6 +50,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestServer
+from esphome.core import CORE
 
 from esphome_device_builder.api.ws import init_ws_app
 from esphome_device_builder.controllers.remote_build import (
@@ -61,6 +63,10 @@ from esphome_device_builder.controllers.remote_build.peer_link import (
 )
 from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.helpers.peer_link_identity import PeerLinkIdentityStore
+from esphome_device_builder.helpers.remote_artifacts_materialise import (
+    materialise_remote_artifacts,
+)
+from esphome_device_builder.helpers.remote_build_layout import parse_from_configuration
 from esphome_device_builder.models import (
     EventType,
     FirmwareJob,
@@ -425,6 +431,56 @@ def run_esphome_compile(
         close_fds=False,
         env=env,
     )
+
+
+async def run_offload_compile_round_trip(
+    instances: PairedInstances,
+    *,
+    job_id: str,
+    configuration_filename: str,
+    yaml_body: bytes,
+) -> tuple[Path, Path]:
+    """Submit + real-compile *yaml_body* on the receiver, download + materialise on the offloader.
+
+    Returns ``(receiver_data_dir, offloader_build_path)``. Owns the
+    submit -> compile -> lifecycle -> download -> materialise
+    orchestration the platform-specific compile e2es share; callers
+    assert on the produced artifacts. The compile + materialise run via
+    ``asyncio.to_thread`` so their blocking I/O stays off the loop.
+    """
+    await instances.wait_until_session_opened()
+    created_jobs = wire_receiver_firmware_recorder(instances)
+    state_changes = capture_events(instances.offloader_bus, EventType.OFFLOADER_JOB_STATE_CHANGED)
+
+    handle = instances.offloader.state.peer_link_clients[instances.pin_sha256]
+    ack = await handle.client.submit_job(
+        job_id=job_id,
+        configuration_filename=configuration_filename,
+        target="compile",
+        bundle_bytes=make_real_bundle(
+            configuration_filename=configuration_filename, yaml_body=yaml_body
+        ),
+    )
+    assert ack["accepted"] is True
+    receiver_job = created_jobs[0]
+
+    remote_build_path = parse_from_configuration(receiver_job.configuration)
+    assert remote_build_path is not None
+    data_dir = remote_build_path.data_dir(Path(CORE.data_dir))
+    yaml_path = Path(instances.receiver._db.settings.config_dir) / receiver_job.configuration
+    result = await asyncio.to_thread(
+        run_esphome_compile, yaml_path, env={**os.environ, "ESPHOME_DATA_DIR": str(data_dir)}
+    )
+    assert result.returncode == 0, (
+        f"compile failed:\nstdout:\n{result.stdout[-4000:]}\nstderr:\n{result.stderr[-2000:]}"
+    )
+
+    await drive_remote_job_to_completed(instances, receiver_job, state_changes)
+    packed = await handle.client.download_artifacts(job_id=job_id)
+    build_path = await asyncio.to_thread(
+        materialise_remote_artifacts, packed.tarball, configuration_filename
+    )
+    return data_dir, build_path
 
 
 async def make_and_seed_remote_peer_job(
