@@ -108,4 +108,7 @@ class ServerInfoMessage(DataClassORJSONMixin):
     esphome_version: str
     port: int
     ha_addon: bool = False
+    # True only when the connection is proxied through HA ingress; an
+    # add-on reached directly on its exposed port is False, unlike ha_addon.
+    ha_ingress: bool = False
     requires_auth: bool = False

@@ -238,3 +238,35 @@ async def test_invalid_json_message_returns_invalid_message_error(
         assert result_payload["result"] == {"pong": "yes"}
     finally:
         await ws.close()
+
+
+async def test_server_info_ha_ingress_reflects_x_ingress_path_header(
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """``ha_ingress`` mirrors whether Supervisor's ``X-Ingress-Path`` header is present."""
+    device_builder = MagicMock()
+    device_builder.settings = _make_settings(using_password=False)
+    device_builder.auth = MagicMock()
+    device_builder.command_handlers = {}
+
+    app = web.Application()
+    app["device_builder"] = device_builder
+    app["trusted_site"] = True
+    ws_module.init_ws_app(app)
+    app.router.add_routes(ws_module.create_ws_routes())
+
+    client = await aiohttp_client(app)
+
+    ws, info = await _connect_and_drain_server_info(
+        client, headers={"X-Ingress-Path": "/api/hassio_ingress/token"}
+    )
+    try:
+        assert info["ha_ingress"] is True
+    finally:
+        await ws.close()
+
+    ws, info = await _connect_and_drain_server_info(client)
+    try:
+        assert info["ha_ingress"] is False
+    finally:
+        await ws.close()

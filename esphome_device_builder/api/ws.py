@@ -335,6 +335,9 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
         esphome_version=esphome_version,
         port=settings.port,
         ha_addon=settings.on_ha_addon,
+        # Supervisor sets X-Ingress-Path only on ingress-proxied requests
+        # (this WS upgrade included).
+        ha_ingress=bool(request.headers.get("X-Ingress-Path")),
         requires_auth=(not pre_authenticated),
     )
     await client.send(info.to_dict())
