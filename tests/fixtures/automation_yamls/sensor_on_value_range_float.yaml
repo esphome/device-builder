@@ -1,0 +1,11 @@
+esphome:
+  name: x
+sensor:
+  - platform: template
+    name: 'Temp'
+    id: temp
+    on_value_range:
+      above: 3.14
+      below: 25.5
+      then:
+        - logger.log: hi
