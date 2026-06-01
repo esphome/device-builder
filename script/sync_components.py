@@ -71,6 +71,15 @@ _CACHE_ROOT = _REPO_ROOT / ".cache"
 # filter paths off the per-field tree.
 _INDEX_DROP_FIELDS: frozenset[str] = frozenset({"config_entries", "required_groups"})
 
+# An action with more than this many top-level config entries is flagged
+# ``form_editable=False`` in the slim index: its schema is too large to render
+# as a useful form. LVGL ``*.update`` actions expand the entire widget style
+# schema (160+ entries) while every other action stays <= 30, so this sits
+# comfortably between the two clusters and no normal action trips it. The
+# catalog drops flagged actions from the picker + known-id set, routing any
+# automation that uses one to the read-only raw-YAML fallback.
+_MAX_FORM_CONFIG_ENTRIES = 80
+
 _RELEASES_API = "https://api.github.com/repos/esphome/esphome-schema/releases"
 _SCHEMA_URL_TEMPLATE = "https://schema.esphome.io/{version}/schema.zip"
 _DOCS_INDEX_URL = (
@@ -3396,8 +3405,15 @@ def _emit_split_automations_catalog(automations: dict[str, Any], version: str) -
             # Build the slim index dict by round-tripping through
             # the slim model — drops fields that aren't in the
             # slim picker shape and validates the slim contract
-            # against the same source dict.
-            slim_entries.append(slim_cls.from_dict(entry).to_dict())
+            # against the same source dict. Actions also carry a
+            # ``form_editable`` flag derived from their config-entry
+            # count (oversized forms fall back to raw-YAML editing);
+            # it lands in the slim index only, not the body file.
+            slim_src = entry
+            if type_key == "actions":
+                form_editable = len(entry.get("config_entries") or []) <= _MAX_FORM_CONFIG_ENTRIES
+                slim_src = {**entry, "form_editable": form_editable}
+            slim_entries.append(slim_cls.from_dict(slim_src).to_dict())
         index_payload[type_key] = slim_entries
 
     swap_split_catalog_in(

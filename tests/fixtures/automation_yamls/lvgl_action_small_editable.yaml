@@ -1,0 +1,5 @@
+esphome:
+  name: x
+  on_boot:
+    then:
+      - lvgl.pause:

@@ -61,6 +61,28 @@ async def test_get_actions_returns_full_catalog() -> None:
         assert required in ids, f"{required} missing from action catalog"
 
 
+async def test_get_actions_excludes_oversized_lvgl_update_forms() -> None:
+    """Oversized LVGL ``*.update`` actions are kept out of the picker.
+
+    Their schema expands the full widget style schema (160+ fields), so the
+    generator flags them ``form_editable=False`` and the catalog drops them.
+    Small LVGL actions stay editable, and the body store no longer resolves
+    the excluded ids so the parser routes them to the raw-YAML fallback.
+    """
+    controller = _make_controller(Path("/unused"))
+    ids = {a["id"] for a in await controller.get_actions()}
+    # Bloated update forms are gone from the picker.
+    assert "lvgl.label.update" not in ids
+    assert "lvgl.widget.update" not in ids
+    # Small, genuinely editable LVGL actions remain.
+    assert "lvgl.pause" in ids
+    assert "lvgl.page.show" in ids
+    # Excluded ids are also unknown to the body store, so a parse of one
+    # falls through to the existing "unknown action id" fallback.
+    assert catalog.action_by_id("lvgl.label.update") is None
+    assert catalog.action_by_id("lvgl.pause") is not None
+
+
 async def test_get_conditions_returns_full_catalog() -> None:
     """``automations/get_conditions`` returns every catalog condition."""
     controller = _make_controller(Path("/unused"))

@@ -110,6 +110,33 @@ def test_parse_inline_on_click_surfaces_trigger_params() -> None:
 
 
 # ---------------------------------------------------------------------------
+# LVGL actions — oversized forms fall back to raw-YAML editing
+# ---------------------------------------------------------------------------
+
+
+def test_parse_oversized_lvgl_action_falls_back_to_raw_yaml() -> None:
+    """An automation using a non-form-editable LVGL action is read-only.
+
+    ``lvgl.label.update`` is excluded from the editable catalog (its form
+    expands the full widget style schema, 160+ fields), so the parser treats
+    it as an unknown id: the entry comes back with ``error`` set and an empty
+    tree, and the frontend renders the raw YAML.
+    """
+    parsed = parse_device_yaml(_load("lvgl_action_unsupported.yaml"))
+    assert len(parsed) == 1
+    assert parsed[0].error is not None
+    assert parsed[0].automation.actions == []
+
+
+def test_parse_small_lvgl_action_stays_editable() -> None:
+    """A small LVGL action (``lvgl.pause``) still decomposes normally."""
+    parsed = parse_device_yaml(_load("lvgl_action_small_editable.yaml"))
+    assert len(parsed) == 1
+    assert parsed[0].error is None
+    assert [a.action_id for a in parsed[0].automation.actions] == ["lvgl.pause"]
+
+
+# ---------------------------------------------------------------------------
 # Top-level blocks
 # ---------------------------------------------------------------------------
 
