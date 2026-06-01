@@ -139,8 +139,9 @@ def test_parse_interval_block() -> None:
     assert item.location.index == 0
     assert item.automation.trigger_params["interval"] == "60s"
     assert [a.action_id for a in item.automation.actions] == ["lambda"]
-    # Lambda body is surfaced as the {_lambda: source} sentinel.
-    lambda_body = item.automation.actions[0].params.get("id") or item.automation.actions[0].params
+    # Lambda body is surfaced as the {_lambda: source} sentinel under the
+    # lambda action's ``lambda`` shorthand key (its config-entry key).
+    lambda_body = item.automation.actions[0].params["lambda"]
     assert (
         isinstance(lambda_body, dict)
         and "_lambda" in lambda_body
@@ -296,9 +297,9 @@ def test_parse_lambda_action_surfaces_lambda_sentinel() -> None:
     actions = parsed[0].automation.actions
     assert len(actions) == 1
     assert actions[0].action_id == "lambda"
-    # The single-arg shortcut surfaces under the ``id`` key; the
-    # value carries the lambda sentinel.
-    body = actions[0].params.get("id") or actions[0].params
+    # The bare scalar surfaces under the lambda action's ``lambda``
+    # shorthand key (its config-entry key); the value carries the sentinel.
+    body = actions[0].params["lambda"]
     assert isinstance(body, dict)
     assert "_lambda" in body
     assert "ESP_LOGI" in body["_lambda"]
@@ -314,10 +315,10 @@ def test_parse_tagged_lambda_scalars_render_as_sentinel() -> None:
     assert [a.action_id for a in script_actions] == ["delay"]
     assert script_actions[0].params == {"id": {"_lambda": "return 0;"}}
 
-    # Interval: ``- lambda: !lambda |`` block → params={"id": {"_lambda": "<body>"}}.
+    # Interval: ``- lambda: !lambda |`` block → params={"lambda": {"_lambda": "<body>"}}.
     interval_actions = by_kind["interval"].automation.actions
     assert [a.action_id for a in interval_actions] == ["lambda"]
-    interval_body = interval_actions[0].params.get("id") or interval_actions[0].params
+    interval_body = interval_actions[0].params["lambda"]
     assert isinstance(interval_body, dict)
     assert interval_body.get("_lambda", "").strip().endswith("return;")
 

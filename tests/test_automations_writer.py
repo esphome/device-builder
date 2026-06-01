@@ -298,9 +298,10 @@ def test_round_trip_interval_lambda() -> None:
     parsed_second = parse_device_yaml(new_text)[0]
     body_first = parsed_first.automation.actions[0].params
     body_second = parsed_second.automation.actions[0].params
-    # The lambda survives as a dict under ``id`` (single-arg shortcut).
-    src_first = body_first["id"]["_lambda"] if "id" in body_first else body_first["_lambda"]
-    src_second = body_second["id"]["_lambda"] if "id" in body_second else body_second["_lambda"]
+    # The lambda survives as a dict under the lambda action's ``lambda``
+    # shorthand key (its config-entry key).
+    src_first = body_first["lambda"]["_lambda"]
+    src_second = body_second["lambda"]["_lambda"]
     assert "ESP_LOGI" in src_first
     assert src_first.strip() == src_second.strip()
 
@@ -596,7 +597,7 @@ def test_upsert_api_action_preserves_blank_lines_in_lambda_block_scalar() -> Non
         tree=AutomationTree(
             trigger_id=None,
             actions=[
-                ActionNode(action_id="lambda", params={"id": {"_lambda": body}}),
+                ActionNode(action_id="lambda", params={"lambda": {"_lambda": body}}),
             ],
         ),
         location=ApiActionLocation(action_name="logme"),
@@ -609,7 +610,7 @@ def test_upsert_api_action_preserves_blank_lines_in_lambda_block_scalar() -> Non
     api_entries = [p for p in parsed if p.location.kind == "api_action"]
     assert len(api_entries) == 1
     params = api_entries[0].automation.actions[0].params
-    src = params["id"]["_lambda"] if "id" in params else params["_lambda"]
+    src = params["lambda"]["_lambda"]
     assert "before" in src
     assert "after" in src
     assert "\n\n" in src

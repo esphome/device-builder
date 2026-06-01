@@ -399,3 +399,47 @@ def test_build_automations_dedupes_by_id(tmp_path: Path) -> None:
     result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
     matching = [a for a in result["actions"] if a["id"] == "switch.toggle"]
     assert len(matching) == 1
+
+
+def test_core_lambda_action_synthesizes_lambda_field() -> None:
+    """The core ``lambda`` action gets a single LAMBDA field + shorthand key.
+
+    The schema bundle carries no ``schema`` for the bare lambda block, so the
+    extractor would otherwise leave ``config_entries`` empty and the visual
+    editor would render no editor (#1119).
+    """
+    action = sync_components._convert_automation_action(
+        top_key="core",
+        domain="core",
+        name="lambda",
+        body={"docs": "Run C++."},
+        schema_dir=Path("/unused"),
+    )
+    assert action is not None
+    assert action["scalar_shorthand_key"] == "lambda"
+    assert action["config_entries"] == [
+        {
+            "key": "lambda",
+            "type": "lambda",
+            "label": "Lambda",
+            "description": "Run C++.",
+            "required": True,
+            "help_link": sync_components._CORE_LAMBDA_DOCS,
+        }
+    ]
+
+
+def test_core_lambda_condition_synthesizes_lambda_field() -> None:
+    """The core ``lambda`` condition gets the same synthesized LAMBDA field."""
+    condition = sync_components._convert_automation_condition(
+        top_key="core",
+        domain="core",
+        name="lambda",
+        body={"docs": "Return a bool."},
+        schema_dir=Path("/unused"),
+    )
+    assert condition is not None
+    assert condition["scalar_shorthand_key"] == "lambda"
+    assert [e["type"] for e in condition["config_entries"]] == ["lambda"]
+    assert condition["config_entries"][0]["key"] == "lambda"
+    assert condition["config_entries"][0]["required"] is True

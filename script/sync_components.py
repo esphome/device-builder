@@ -4870,6 +4870,14 @@ def _convert_automation_action(
     is_control_flow = bool(accepts_action_list) or has_condition_gate
     has_else_branch = "else" in (accepts_action_list or [])
     qualified = f"{top_key}.{name}" if top_key != "core" else name
+    config_entries, scalar_shorthand_key = _resolve_automation_lambda(
+        top_key=top_key,
+        name=name,
+        schema=schema,
+        docs=docs,
+        config_entries=config_entries,
+        body=body,
+    )
     return {
         "id": qualified,
         "name": _automation_label(domain, name, docs.name),
@@ -4880,7 +4888,7 @@ def _convert_automation_action(
         "is_control_flow": is_control_flow,
         "has_else_branch": has_else_branch,
         "accepts_action_list": accepts_action_list,
-        "scalar_shorthand_key": _scalar_shorthand_key(body),
+        "scalar_shorthand_key": scalar_shorthand_key,
     }
 
 
@@ -4904,6 +4912,14 @@ def _convert_automation_condition(
     # condition`` directly on the body, not inside a ``schema``.
     accepts_condition_list = bool(body.get("is_list") and body.get("registry") == "condition")
     qualified = f"{top_key}.{name}" if top_key != "core" else name
+    config_entries, scalar_shorthand_key = _resolve_automation_lambda(
+        top_key=top_key,
+        name=name,
+        schema=schema,
+        docs=docs,
+        config_entries=config_entries,
+        body=body,
+    )
     return {
         "id": qualified,
         "name": _automation_label(domain, name, docs.name),
@@ -4912,7 +4928,7 @@ def _convert_automation_condition(
         "domain": domain,
         "config_entries": [_strip_entry_defaults(e) for e in config_entries],
         "accepts_condition_list": accepts_condition_list,
-        "scalar_shorthand_key": _scalar_shorthand_key(body),
+        "scalar_shorthand_key": scalar_shorthand_key,
     }
 
 
@@ -4942,6 +4958,48 @@ def _is_scalar_extends_schema(schema: dict | None) -> bool:
 # can route to its lambda editor through the same dispatch table as
 # the other scalar types.
 _LAMBDA_REGISTRY_ID = "lambda"
+
+# Docs anchor for the lambda action / condition help link.
+_CORE_LAMBDA_DOCS = "https://esphome.io/automations/templates#config-lambda"
+
+
+def _resolve_automation_lambda(
+    *,
+    top_key: str,
+    name: str,
+    schema: dict | None,
+    docs: CleanedDocs,
+    config_entries: list[dict],
+    body: dict,
+) -> tuple[list[dict], str | None]:
+    """Resolve an action/condition's ``(config_entries, scalar_shorthand_key)``.
+
+    For the core ``lambda`` action and condition, substitute a synthesized
+    ``LAMBDA`` field; for everything else, pass the extracted entries through
+    with the body's ordinary scalar-shorthand key.
+
+    ESPHome's ``lambda`` action and condition take a single bare C++ block
+    (``- lambda: |- ...``) with no named params, so the schema bundle carries
+    no ``schema`` and the param extractor yields no ``config_entries`` —
+    leaving the visual editor with only the description and no field to edit
+    the body (#1119). Recognise it by id the same way the ``lambda`` filter /
+    effect does (see ``_LAMBDA_REGISTRY_ID``) and emit one ``LAMBDA`` entry
+    keyed ``lambda`` — the same shape the sensor's ``lambda:`` config var has
+    — so the existing form pipeline renders the lambda editor. Route the bare
+    scalar through that key via ``scalar_shorthand_key`` so the writer
+    collapses it back to ``lambda: |- ...`` on save.
+    """
+    if top_key == "core" and name == _LAMBDA_REGISTRY_ID and schema is None:
+        entry = {
+            "key": _LAMBDA_REGISTRY_ID,
+            "type": "lambda",
+            "label": "Lambda",
+            "description": docs.text or None,
+            "required": True,
+            "help_link": _CORE_LAMBDA_DOCS,
+        }
+        return [entry], _LAMBDA_REGISTRY_ID
+    return config_entries, _scalar_shorthand_key(body)
 
 
 def _scalar_value_type_for_schema(name: str, schema: dict | None) -> str | None:
