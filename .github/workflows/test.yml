@@ -300,29 +300,80 @@ jobs:
       - name: Show installed esphome version
         run: uv pip show esphome | grep -E '^(Name|Version):'
 
-      - name: Cache compile toolchains (PlatformIO + ESP-IDF)
-        # LibreTiny builds under ``~/.platformio``; native-IDF does NOT use
-        # PlatformIO, its toolchain installs under ``ESPHOME_ESP_IDF_PREFIX``
-        # (set on the run step). Cache both, keyed per channel + compile test.
+      - name: Cache PlatformIO core + per-platform toolchains
+        # The LibreTiny e2e (test_libretiny_compile_download.py) runs a real
+        # bk7231n compile, which clones the LibreTiny SDK from source on a
+        # cold runner. Cache ``~/.platformio`` per channel so stable/dev
+        # SDK downloads don't collide. The native-IDF e2e runs in its own
+        # job below (different toolchain tree), so it isn't cached here.
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
-          path: |
-            ~/.platformio
-            ~/.cache/esphome-idf
-          key: e2e-toolchains-${{ runner.os }}-${{ matrix.channel }}-${{ hashFiles('tests/e2e/test_libretiny_compile_download.py', 'tests/e2e/test_esp_idf_compile_download.py') }}
+          path: ~/.platformio
+          key: pio-e2e-libretiny-${{ runner.os }}-${{ matrix.channel }}-${{ hashFiles('tests/e2e/test_libretiny_compile_download.py') }}
           restore-keys: |
-            e2e-toolchains-${{ runner.os }}-${{ matrix.channel }}-
+            pio-e2e-libretiny-${{ runner.os }}-${{ matrix.channel }}-
 
       - name: Run e2e tests
-        # 20 min cap: a cold SDK/toolchain install plus compile runs minutes.
-        # Fast tests keep ``--timeout=120``; real-compile ones set their own.
-        # Without ``ESPHOME_ESP_IDF_PREFIX`` esphome installs IDF under the
-        # throwaway per-job ``ESPHOME_DATA_DIR`` and reinstalls every run; it
-        # ``expanduser()``s the value, so ``~`` matches the cache path above.
+        # 20 min outer cap: a cold LibreTiny SDK clone plus compile runs
+        # minutes. Fast tests keep ``--timeout=120``; the LibreTiny test
+        # opts out via its own ``@pytest.mark.timeout(600)``. The native-IDF
+        # e2e is excluded here and runs in the dev-only job below.
         timeout-minutes: 20
+        run: >-
+          uv run pytest -q -n auto tests/e2e --maxfail=5 --durations=10 --timeout=120 --no-cov
+          --ignore=tests/e2e/test_esp_idf_compile_download.py
+
+  e2e-native-idf:
+    name: E2E native ESP-IDF (esphome dev)
+    runs-on: ubuntu-latest
+    # The native ESP-IDF toolchain (esphome 2026.5.0+) is new and its cold
+    # compile installs the full IDF toolchain (minutes). It runs on its own
+    # runner, dev channel only and advisory (``continue-on-error``): it must
+    # neither slow the main e2e matrix nor gate a PR on an esphome nightly
+    # break. Fold it into the stable matrix once the toolchain has settled.
+    continue-on-error: true
+    steps:
+      - name: Check out code from GitHub
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Set up uv and Python 3.14
+        uses: ./.github/actions/setup-uv-python
+        with:
+          python-version: "3.14"
+
+      - name: Create venv + install package + test deps
+        run: |
+          uv venv
+          uv pip install -e '.[esphome,test]'
+
+      - name: Install esphome (dev channel)
+        run: uv pip install --upgrade git+https://github.com/esphome/esphome.git@dev
+
+      - name: Show installed esphome version
+        run: uv pip show esphome | grep -E '^(Name|Version):'
+
+      - name: Cache ESP-IDF toolchain
+        # Native IDF does NOT use PlatformIO; its toolchain installs under
+        # ``ESPHOME_ESP_IDF_PREFIX`` (set on the run step). Without the cache
+        # a cold IDF install + toolchain download runs on every PR.
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.cache/esphome-idf
+          key: e2e-espidf-${{ runner.os }}-${{ hashFiles('tests/e2e/test_esp_idf_compile_download.py') }}
+          restore-keys: |
+            e2e-espidf-${{ runner.os }}-
+
+      - name: Run native ESP-IDF e2e
+        # A cold native-IDF compile installs the IDF toolchain then runs
+        # ninja; the test's own ``@pytest.mark.timeout(900)`` caps it.
+        # esphome ``expanduser()``s ESPHOME_ESP_IDF_PREFIX, so ``~`` matches
+        # the cache path above.
+        timeout-minutes: 25
         env:
           ESPHOME_ESP_IDF_PREFIX: ~/.cache/esphome-idf
-        run: uv run pytest -q -n auto tests/e2e --maxfail=5 --durations=10 --timeout=120 --no-cov
+        run: uv run pytest -q tests/e2e/test_esp_idf_compile_download.py --durations=10 --timeout=900 --no-cov
 
   benchmarks:
     name: Run benchmarks (CodSpeed)
