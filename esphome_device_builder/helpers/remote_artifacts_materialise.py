@@ -172,10 +172,18 @@ def _open_and_extract_build_tree(tarball: bytes, configuration: str) -> _Extract
                 )
     except tarfile.TarError as err:
         raise MaterialiseError(f"tarball is malformed: {err}") from err
-    # PlatformIO ships platformio.ini + idedata.json together; a PIO
-    # tarball missing idedata is wire drift. Native ESP-IDF ships neither.
-    if (build_path / PLATFORMIO_INI_MEMBER_NAME).is_file() and idedata_bytes is None:
-        raise MaterialiseError(f"tarball missing required {IDEDATA_MEMBER_NAME!r} member")
+    # A native ESP-IDF tarball (toolchain "esp-idf") ships neither
+    # platformio.ini nor idedata.json; a PlatformIO tarball ships both, so
+    # their absence there is wire drift. Detect native-IDF positively off
+    # the toolchain, never off file absence, so a corrupt PIO tarball that
+    # lost its metadata still raises rather than passing as native-IDF.
+    if receiver_storage.get("toolchain") != "esp-idf":
+        if not (build_path / PLATFORMIO_INI_MEMBER_NAME).is_file():
+            raise MaterialiseError(
+                f"tarball missing required {PLATFORMIO_INI_MEMBER_NAME!r} member"
+            )
+        if idedata_bytes is None:
+            raise MaterialiseError(f"tarball missing required {IDEDATA_MEMBER_NAME!r} member")
     return _ExtractedTarball(
         storage_bytes=storage_bytes,
         idedata_bytes=idedata_bytes,

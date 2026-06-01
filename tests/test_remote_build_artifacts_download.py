@@ -58,6 +58,7 @@ from esphome_device_builder.models import (
     JobStatus,
 )
 
+from .conftest import HAS_NATIVE_IDF_TOOLCHAIN
 from .conftest import make_peer_link_session as _make_session
 
 # ---------------------------------------------------------------------------
@@ -408,6 +409,7 @@ def _write_receiver_state(
                 "loaded_platforms": [],
                 "no_mdns": False,
                 "framework": "esp-idf" if native_idf else "arduino",
+                "toolchain": "esp-idf" if native_idf else "platformio",
                 "core_platform": target_platform.lower(),
             }
         )
@@ -591,6 +593,18 @@ def test_pack_build_artifacts_raises_when_pio_idedata_missing(tmp_path: Path) ->
         pack_build_artifacts("kitchen.yaml")
 
 
+def test_pack_build_artifacts_raises_when_pio_platformio_ini_missing(tmp_path: Path) -> None:
+    """A PlatformIO build whose platformio.ini is gone raises, not silent native-IDF."""
+    state = _write_receiver_state(tmp_path)
+    state["platformio_ini"].unlink()
+
+    with pytest.raises(FileNotFoundError, match=r"platformio\.ini missing"):
+        pack_build_artifacts("kitchen.yaml")
+
+
+@pytest.mark.skipif(
+    not HAS_NATIVE_IDF_TOOLCHAIN, reason="esphome lacks the native ESP-IDF toolchain (< 2026.5.0)"
+)
 def test_pack_build_artifacts_native_idf_omits_pio_metadata(tmp_path: Path) -> None:
     """Native ESP-IDF (no platformio.ini / idedata) packs storage + build/ files, no PIO members."""
     _write_receiver_state(

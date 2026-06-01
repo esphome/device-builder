@@ -22,17 +22,11 @@ from esphome_device_builder.controllers.firmware.download import (
     get_binaries,
 )
 
+from ..conftest import HAS_NATIVE_IDF_TOOLCHAIN
 from .conftest import PairedInstances, run_offload_compile_round_trip
 
-try:
-    from esphome.const import CONF_TOOLCHAIN  # noqa: F401
-
-    _HAS_NATIVE_IDF = True
-except ImportError:
-    _HAS_NATIVE_IDF = False
-
 pytestmark = pytest.mark.skipif(
-    not _HAS_NATIVE_IDF, reason="esphome lacks the native ESP-IDF toolchain (< 2026.5.0)"
+    not HAS_NATIVE_IDF_TOOLCHAIN, reason="esphome lacks the native ESP-IDF toolchain (< 2026.5.0)"
 )
 
 _DEVICE = "esp-idf-e2e"

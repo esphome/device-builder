@@ -59,6 +59,18 @@ from esphome_device_builder.models import (
 if TYPE_CHECKING:
     from blockbuster import BlockBuster
 
+# True when the installed esphome carries the native ESP-IDF toolchain
+# (>= 2026.5.0). StorageJSON only grows its ``toolchain`` field there, so
+# tests that synthesize a native-IDF build (which the offload path detects
+# via ``toolchain == "esp-idf"``) skip on older esphome where the field is
+# dropped on load. Mirrors the gate on the native-IDF compile e2e.
+try:
+    from esphome.const import CONF_TOOLCHAIN as _CONF_TOOLCHAIN  # noqa: F401
+
+    HAS_NATIVE_IDF_TOOLCHAIN = True
+except ImportError:
+    HAS_NATIVE_IDF_TOOLCHAIN = False
+
 # Call sites known to do bounded blocking I/O during one-time server
 # startup, where the cost is paid once and not on the request path.
 # Listed here as ``(filename, function_name)`` pairs so blockbuster

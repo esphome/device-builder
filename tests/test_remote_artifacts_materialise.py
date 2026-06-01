@@ -47,6 +47,7 @@ from esphome_device_builder.helpers.storage_path import (
     resolve_idedata_path,
     resolve_storage_path,
 )
+from tests.conftest import HAS_NATIVE_IDF_TOOLCHAIN
 from tests.test_remote_build_artifacts_download import _write_receiver_state
 
 _SENTINEL = object()
@@ -651,6 +652,16 @@ def test_materialise_rejects_non_json_storage(tmp_path: Path) -> None:
         _materialise_in_tmp(tarball, tmp_path)
 
 
+def test_materialise_rejects_pio_tarball_missing_platformio_ini(tmp_path: Path) -> None:
+    """A PlatformIO tarball without platformio.ini raises, not silently passed as native-IDF."""
+    tarball = _synthetic_tarball(platformio_ini=None)
+    with pytest.raises(MaterialiseError, match=r"missing required 'platformio\.ini'"):
+        _materialise_in_tmp(tarball, tmp_path)
+
+
+@pytest.mark.skipif(
+    not HAS_NATIVE_IDF_TOOLCHAIN, reason="esphome lacks the native ESP-IDF toolchain (< 2026.5.0)"
+)
 def test_materialise_native_idf_round_trip_without_pio_metadata(
     paired_roots: tuple[Path, Path],
 ) -> None:
