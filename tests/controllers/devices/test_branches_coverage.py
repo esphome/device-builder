@@ -821,14 +821,7 @@ def test_on_scan_change_added_prunes_stale_importable_row(
     make_controller: MakeControllerFactory,
     capture_devices_events: CaptureDevicesEventsFactory,
 ) -> None:
-    """A discovered device becoming configured drops its importable row and fires REMOVED.
-
-    Without the prune, an already-connected ``subscribe_events``
-    client keeps the adopt banner for a now-configured device
-    until a full reload; read-time filters mask it only on cold
-    load. The adopt API prunes explicitly — the scanner path
-    (out-of-band YAML drop, wizard, clone) must too.
-    """
+    """A discovered device becoming configured drops its importable row and fires REMOVED."""
     controller = make_controller(tmp_path, with_state_monitor=True)
     controller.state.import_result["kitchen"] = _adoptable("kitchen")
     captured = capture_devices_events(controller, EventType.IMPORTABLE_DEVICE_REMOVED)
