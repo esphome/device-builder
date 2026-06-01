@@ -28,6 +28,7 @@ from typing import Any
 
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import TaggedScalar
+from ruamel.yaml.scalarfloat import ScalarFloat
 from ruamel.yaml.scalarstring import LiteralScalarString
 
 from ...helpers.api import CommandError
@@ -669,7 +670,10 @@ def _render_value(value: Any) -> Any:
         return {k: _render_value(v) for k, v in value.items()}
     if isinstance(value, list):
         return [_render_value(v) for v in value]
-    return value
+    # ruamel round-trip mode wraps floats in ScalarFloat (a float subclass);
+    # orjson serialises int/bool subclasses but refuses float subclasses, so
+    # coerce to a plain float for the wire.
+    return float(value) if isinstance(value, ScalarFloat) else value
 
 
 def _render_params(value: Any) -> Any:

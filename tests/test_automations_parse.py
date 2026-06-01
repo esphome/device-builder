@@ -109,6 +109,17 @@ def test_parse_inline_on_click_surfaces_trigger_params() -> None:
     assert [a.action_id for a in tree.actions] == ["switch.toggle"]
 
 
+def test_parse_on_value_range_float_params_are_json_serialisable() -> None:
+    """Decimal on_value_range thresholds round-trip as plain floats."""
+    parsed = parse_device_yaml(_load("sensor_on_value_range_float.yaml"))
+    tree = parsed[0].automation
+    assert tree.trigger_id == "sensor.on_value_range"
+    assert tree.trigger_params == {"above": 3.14, "below": 25.5}
+    assert type(tree.trigger_params["above"]) is float  # not ScalarFloat
+    # The real regression: the WS layer must be able to serialise the result.
+    orjson.dumps([p.to_dict() for p in parsed])
+
+
 # ---------------------------------------------------------------------------
 # LVGL actions — oversized forms fall back to raw-YAML editing
 # ---------------------------------------------------------------------------
