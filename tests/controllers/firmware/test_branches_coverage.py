@@ -314,3 +314,34 @@ def test_prune_history_collapses_primary_jobs_to_newest_per_configuration(
 
     surviving_ids = set(controller.state.jobs.keys())
     assert surviving_ids == {"new"}
+
+
+def test_prune_history_keeps_compile_and_upload_for_same_configuration(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """An install's COMPILE and UPLOAD share a config but both survive prune.
+
+    Dedup keys on (configuration, type), so the build log (COMPILE) stays in
+    history alongside the flash log (UPLOAD); collapsing per-config alone
+    would drop whichever finished first.
+    """
+    base = datetime(2026, 5, 1, tzinfo=UTC)
+    compile_job = _job(
+        "c",
+        "kitchen.yaml",
+        JobType.COMPILE,
+        status=JobStatus.COMPLETED,
+        created_at=base.isoformat(),
+    )
+    upload_job = _job(
+        "u",
+        "kitchen.yaml",
+        JobType.UPLOAD,
+        status=JobStatus.COMPLETED,
+        created_at=(base + timedelta(minutes=1)).isoformat(),
+    )
+    controller = firmware_controller_factory(compile_job, upload_job, with_settings=False)
+
+    controller._prune_history()
+
+    assert set(controller.state.jobs.keys()) == {"c", "u"}

@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 from esphome.core import CORE
 
 from ...helpers.atomic_io import atomic_write
-from ...models import TERMINAL_JOB_STATUSES, FirmwareJob, JobStatus
+from ...models import TERMINAL_JOB_STATUSES, FirmwareJob, JobStatus, JobType
 from ..config import _load_metadata, metadata_transaction
 from .constants import (
     _ACTIVE_JOB_STATUSES,
@@ -54,8 +54,11 @@ def prune_history(controller: FirmwareController) -> None:
 
     Active (queued / running) jobs are always kept. Terminal
     compile / upload / install jobs collapse to one entry per
-    configuration (newest wins) and cap at
-    :data:`_MAX_PRIMARY_TERMINAL_JOBS`. Terminal clean / reset
+    (configuration, job type) — newest wins — and cap at
+    :data:`_MAX_PRIMARY_TERMINAL_JOBS`. Keying on type as well as
+    config keeps both halves of an install (a COMPILE and its
+    dependent UPLOAD share a config) so the build log stays
+    reachable, not just the flash log. Terminal clean / reset
     jobs are kept in a separate pool capped at
     :data:`_MAX_AUX_TERMINAL_JOBS`. Caller persists the result;
     sidecars of dropped jobs are reaped by ``persist_jobs``.
@@ -74,15 +77,16 @@ def prune_history(controller: FirmwareController) -> None:
             aux.append(job)
 
     # Sort newest-first so dedup keeps the most recent entry per
-    # configuration and the cap retains the most recent N overall.
+    # (configuration, type) and the cap retains the most recent N overall.
     primary.sort(key=attrgetter("created_at"), reverse=True)
-    seen_configs: set[str] = set()
+    seen: set[tuple[str, JobType]] = set()
     deduped_primary: list[FirmwareJob] = []
     for job in primary:
         if job.configuration:
-            if job.configuration in seen_configs:
+            key = (job.configuration, job.job_type)
+            if key in seen:
                 continue
-            seen_configs.add(job.configuration)
+            seen.add(key)
         deduped_primary.append(job)
     deduped_primary = deduped_primary[:_MAX_PRIMARY_TERMINAL_JOBS]
 
