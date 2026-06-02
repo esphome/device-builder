@@ -707,7 +707,8 @@ def _next_non_blank_at_col_zero(lines: list[str], start: int) -> bool:
 
 
 def _build_diff_for_append(old_yaml: str, new_yaml: str) -> YamlDiff:
-    """Build a diff describing the lines changed by an append-style write.
+    """
+    Build a diff describing the lines changed by an append-style write.
 
     Bounds the change to the region between the common leading and
     trailing lines, so a splice into a block that isn't the last in

@@ -438,12 +438,7 @@ def test_round_trip_script_with_parameters() -> None:
 
 
 def test_append_diff_into_block_followed_by_others_does_not_duplicate_tail() -> None:
-    """Appending a second script returns a diff that applies cleanly.
-
-    The ``script:`` block is followed by ``ota:`` / ``web_server:``,
-    so the splice lands mid-document; the returned diff must replace
-    only the changed span, not re-emit the unchanged trailing blocks.
-    """
+    """A mid-file append's diff reproduces new_text without duplicating trailing blocks."""
     text = (
         "esphome:\n  name: x\n"
         "script:\n  - id: first\n    mode: single\n    then: []\n"
