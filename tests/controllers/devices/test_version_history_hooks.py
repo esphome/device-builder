@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -15,11 +15,8 @@ from .conftest import MakeControllerFactory
 
 
 def _vh_stub(record: Any) -> SimpleNamespace:
-    """Build a version_history stand-in: the given record + a no-op discard_pending."""
-    return SimpleNamespace(
-        record_configuration=record,
-        discard_pending=lambda _configuration: None,
-    )
+    """Build a version_history stand-in: the given record + a tracking discard_pending."""
+    return SimpleNamespace(record_configuration=record, discard_pending=MagicMock())
 
 
 async def test_update_config_commits_edit_message(
@@ -33,6 +30,8 @@ async def test_update_config_commits_edit_message(
     await controller.update_config(configuration="kitchen.yaml", content="esphome:\n  name: k\n")
 
     record.assert_awaited_once_with("kitchen.yaml", "Edit kitchen.yaml")
+    # On success the now-redundant catch-all entry is dropped.
+    controller._db.version_history.discard_pending.assert_called_once_with("kitchen.yaml")
 
 
 async def test_disabled_version_history_is_a_noop(
@@ -59,6 +58,9 @@ async def test_commit_failure_does_not_break_the_save(
 
     record.assert_awaited_once()
     assert (tmp_path / "kitchen.yaml").read_text() == "esphome:\n  name: k\n"
+    # On failure the queued catch-all entry is preserved so the debounced
+    # flush still records this save — not discarded.
+    controller._db.version_history.discard_pending.assert_not_called()
 
 
 async def test_programming_bug_in_commit_propagates(

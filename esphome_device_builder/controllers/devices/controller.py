@@ -847,17 +847,23 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         A git/subprocess failure keeps a hiccup from breaking the user's
         save (recoverable history gap for this one save); a programming
         bug propagates rather than being mislabelled as a git failure.
+        Does **not** itself take the per-file ``_yaml_write_lock`` — the
+        editor-save path in ``_persist_yaml_mutation`` holds it across the
+        write + this call; other callers (delete / archive) run unserialised.
         """
         version_history = self._db.version_history
         if version_history is None:
             return
-        # A dashboard commit supersedes any queued catch-all entry, so its
-        # rich message wins over the generic "external edit" one.
-        version_history.discard_pending(configuration)
         try:
             await version_history.record_configuration(configuration, message)
         except (OSError, subprocess.CalledProcessError):
+            # Leave any queued catch-all entry in place so the debounced
+            # flush still records this save's content (generic message).
             _LOGGER.exception("Version-history commit failed for %s", configuration)
+            return
+        # Committed with the rich message; drop a now-redundant queued
+        # catch-all entry so its generic message can't supersede it.
+        version_history.discard_pending(configuration)
 
     @staticmethod
     async def _read_yaml_async(path: Path) -> str:
