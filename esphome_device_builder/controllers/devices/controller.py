@@ -621,11 +621,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     async def apply_restored_yaml(
         self, configuration: str, content: str, *, restored_from: str
     ) -> None:
-        """Write a version-history-restored YAML back to disk and re-scan.
-
-        Recreates the file if it had been deleted; the scanner reload
-        then re-adds the device row through the normal event path.
-        """
+        """Write a version-history-restored YAML back to disk; recreates a deleted file."""
         await self._persist_yaml_mutation(
             configuration, content, message=f"Restore {configuration} to {restored_from}"
         )
@@ -811,35 +807,40 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     async def _persist_yaml_mutation(
         self, configuration: str, content: str, *, message: str | None = None
     ) -> None:
-        """Atomic write + inline version-history commit + background reload.
-
-        Returns once the bytes are on disk *and* committed to version
-        history; the scanner reload runs on its worker, so callers don't
-        see the post-reload device row before the next event tick.
-
-        The git commit is awaited inline (not fire-and-forget) so the
-        pre-clobber content is captured before the next save can
-        overwrite it — the load-bearing recovery guarantee. It's a
-        lock-serialised ``git add``/``commit`` on the executor, so this
-        adds that latency to the save round-trip and is a no-op when
-        version history is disabled. *message* labels the commit;
-        defaults to a generic "Update".
         """
-        await self._write_yaml_atomic_async(self._db.settings.rel_path(configuration), content)
-        await self._commit_history(configuration, message or f"Update {configuration}")
+        Atomically write *content*, commit it to history, then reload.
+
+        The write and the inline version-history commit are serialised
+        per file: ``commit_paths`` stages whatever is on disk, so a
+        concurrent writer to the same *configuration* must not slip
+        between this write and its commit and win the history slot. The
+        commit is awaited (not fire-and-forget) so the content is
+        captured before the next save can overwrite it.
+        """
+        async with self._yaml_write_lock(configuration):
+            await self._write_yaml_atomic_async(self._db.settings.rel_path(configuration), content)
+            await self._commit_history(configuration, message or f"Update {configuration}")
         self._scanner.request(configuration)
         # Mirrors the upstream dashboard's
         # ``async_schedule_storage_json_update``; without it
         # ``loaded_integrations`` stays at its pre-write state.
         self._schedule_storage_regenerate(configuration)
 
-    async def _commit_history(self, configuration: str, message: str) -> None:
-        """Record *configuration* in version history; best-effort, never raises.
+    def _yaml_write_lock(self, configuration: str) -> asyncio.Lock:
+        """Return the per-file lock guarding a YAML write + its history commit."""
+        locks: dict[str, asyncio.Lock] = self.__dict__.setdefault("_yaml_write_locks", {})
+        lock = locks.get(configuration)
+        if lock is None:
+            lock = locks[configuration] = asyncio.Lock()
+        return lock
 
-        This is the boundary that keeps a git failure from breaking a
-        user's save: ``record_configuration`` raises on a genuine git
-        error, and we swallow + log it here. The cost is a recoverable
-        history gap for this one save, never a lost save.
+    async def _commit_history(self, configuration: str, message: str) -> None:
+        """
+        Record *configuration* in version history; best-effort, never raises.
+
+        ``record_configuration`` raises on a genuine git error; swallowing
+        it here keeps a git hiccup from breaking the user's save, at the
+        cost of a recoverable history gap for this one save.
         """
         version_history = self._db.version_history
         if version_history is None:

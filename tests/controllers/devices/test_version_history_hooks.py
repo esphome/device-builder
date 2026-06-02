@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from .conftest import MakeControllerFactory
@@ -45,6 +47,33 @@ async def test_commit_failure_does_not_break_the_save(
 
     record.assert_awaited_once()
     assert (tmp_path / "kitchen.yaml").read_text() == "esphome:\n  name: k\n"
+
+
+async def test_concurrent_same_file_saves_each_get_committed(
+    make_controller: MakeControllerFactory, tmp_path: Path
+) -> None:
+    """Write+commit is serialized per file, so no concurrent save loses its version.
+
+    The commit records on-disk content; without per-file serialization a
+    second writer could slip between the first's write and commit and win
+    the history slot, dropping a version.
+    """
+    controller = make_controller(tmp_path)
+    committed: list[str] = []
+
+    async def _record(configuration: str, _message: str) -> None:
+        # Mirror commit_paths: capture whatever is on disk at commit time.
+        committed.append((tmp_path / configuration).read_text())
+
+    controller._db.version_history = SimpleNamespace(record_configuration=_record)
+
+    await asyncio.gather(
+        controller.update_config(configuration="kitchen.yaml", content="A\n"),
+        controller.update_config(configuration="kitchen.yaml", content="B\n"),
+    )
+
+    # Each commit captured the content its own save wrote — both survive.
+    assert sorted(committed) == ["A\n", "B\n"]
 
 
 def _attach_recorder(controller: object) -> AsyncMock:

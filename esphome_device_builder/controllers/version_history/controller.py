@@ -87,12 +87,11 @@ class VersionHistoryController:
             self._unsubs.append(self._db.bus.add_listener(event_type, self._on_disk_change))
 
     async def stop(self) -> None:
-        """Detach listeners, cancel the debounce timer, and flush what's queued.
+        """
+        Detach listeners, cancel the debounce timer, and flush what's queued.
 
-        Draining ``_pending`` on the way out means an external edit that
-        landed inside the debounce window isn't silently dropped on
-        shutdown (there's no startup re-snapshot for an already-tracked
-        file, so it would otherwise be a permanent history gap).
+        The final drain commits an edit caught in the debounce window
+        rather than dropping it on shutdown.
         """
         for unsub in self._unsubs:
             unsub()
@@ -106,14 +105,11 @@ class VersionHistoryController:
         await self._flush_pending()
 
     async def commit(self, paths: list[Path], message: str) -> str | None:
-        """Commit *paths* under *message*; return the sha, or ``None`` for a no-op.
+        """
+        Commit *paths* under *message*; return the sha, ``None`` for a no-op.
 
-        ``None`` means nothing changed for those paths (or the feature
-        is disabled). A genuine git failure **raises** — the distinction
-        between "nothing to commit" and "the commit failed" is what lets
-        the scanner catch-all warn on a persistently broken recorder.
-        Callers that must not break a user's save (the mutation path)
-        wrap this; see :meth:`DevicesController._commit_history`.
+        ``None`` means nothing changed (or disabled); a genuine git
+        failure **raises** so callers can tell the two apart.
         """
         if not self._repo.enabled or not paths:
             return None
@@ -121,10 +117,7 @@ class VersionHistoryController:
             return await self._in_executor(self._repo.commit_paths, paths, message)
 
     async def record_configuration(self, configuration: str, message: str) -> str | None:
-        """Commit a single config YAML by its dashboard *configuration* name.
-
-        Returns the sha (or ``None`` for a no-op); raises on a git failure.
-        """
+        """Commit one config by name; return the sha (``None`` no-op), raise on failure."""
         path = self._db.settings.rel_path(configuration)
         return await self.commit([path], message)
 
@@ -261,14 +254,12 @@ class VersionHistoryController:
         await self._flush_pending()
 
     async def _flush_pending(self) -> None:
-        """Commit every queued config; drain in a loop so nothing is stranded.
+        """
+        Commit every queued config, draining in a loop.
 
-        An external edit that lands while we're committing (the per-config
-        commit awaits) is picked up on the next pass instead of waiting for
-        the next scanner event. The final empty-check and the coroutine
-        return happen without an await between them, so no event can slip
-        in and be stranded — ``_on_disk_change`` then sees the task done
-        and schedules a fresh flush.
+        Load-bearing: the final ``while`` check and the return have no
+        await between them, so an event can't slip in and be stranded —
+        ``_on_disk_change`` then sees the task done and reschedules.
         """
         while self._pending:
             pending = self._pending
