@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -28,9 +29,13 @@ if TYPE_CHECKING:
     from ...helpers.event_bus import Event
     from ...models import DeviceEventData
 
-# A commit id from list_versions — full or abbreviated hex. Validated
-# before reaching git so a crafted ``configuration``/``sha`` can't smuggle
-# extra argv into the read commands.
+# A commit id from list_versions — full or abbreviated hex. ``sha`` is
+# validated against this before reaching git so it can't smuggle extra
+# argv into the read commands. The other untrusted input,
+# ``configuration``, is guarded separately by ``settings.rel_path`` (it
+# raises ``INVALID_ARGS`` for ``..`` / absolute paths that escape the
+# config dir, so a client can't read tracked files elsewhere in an
+# adopted work tree) and only ever reaches git as a pathspec after ``--``.
 _SHA_RE = re.compile(r"^[0-9a-fA-F]{4,40}$")
 
 _LOGGER = logging.getLogger(__name__)
@@ -82,13 +87,23 @@ class VersionHistoryController:
             self._unsubs.append(self._db.bus.add_listener(event_type, self._on_disk_change))
 
     async def stop(self) -> None:
-        """Detach listeners and cancel any pending debounced flush."""
+        """Detach listeners, cancel the debounce timer, and flush what's queued.
+
+        Draining ``_pending`` on the way out means an external edit that
+        landed inside the debounce window isn't silently dropped on
+        shutdown (there's no startup re-snapshot for an already-tracked
+        file, so it would otherwise be a permanent history gap).
+        """
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()
-        if self._flush_task is not None and not self._flush_task.done():
-            self._flush_task.cancel()
-            self._flush_task = None
+        task = self._flush_task
+        self._flush_task = None
+        if task is not None and not task.done():
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+        await self._flush_pending()
 
     async def commit(self, paths: list[Path], message: str) -> str | None:
         """Commit *paths* under *message*; best-effort, never raises.
@@ -222,22 +237,29 @@ class VersionHistoryController:
             self._flush_task = asyncio.create_task(self._flush_after_delay())
 
     async def _flush_after_delay(self) -> None:
-        """Wait out the debounce window, then commit every pending config.
-
-        Drains in a loop: an external edit that lands while we're
-        committing (the per-config commit awaits) is picked up on the
-        next pass instead of waiting for the next scanner event. The
-        final empty-check and the coroutine return happen without an
-        await between them, so no event can slip in and be stranded —
-        ``_on_disk_change`` then sees the task done and schedules a
-        fresh flush.
-        """
+        """Wait out the debounce window, then flush the queued configs."""
         await asyncio.sleep(_DEBOUNCE_SECONDS)
+        await self._flush_pending()
+
+    async def _flush_pending(self) -> None:
+        """Commit every queued config; drain in a loop so nothing is stranded.
+
+        An external edit that lands while we're committing (the per-config
+        commit awaits) is picked up on the next pass instead of waiting for
+        the next scanner event. The final empty-check and the coroutine
+        return happen without an await between them, so no event can slip
+        in and be stranded — ``_on_disk_change`` then sees the task done
+        and schedules a fresh flush.
+        """
         while self._pending:
             pending = self._pending
             self._pending = {}
             for configuration, message in pending.items():
                 try:
                     await self.record_configuration(configuration, message)
-                except Exception:  # noqa: BLE001 — one bad path can't kill the watcher
-                    _LOGGER.debug("Version-history catch-all failed for %s", configuration)
+                except Exception:
+                    # Warning, not debug: a persistently failing catch-all
+                    # means external edits silently stop being recorded.
+                    _LOGGER.warning(
+                        "Version-history catch-all failed for %s", configuration, exc_info=True
+                    )

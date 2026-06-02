@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import shutil
 from pathlib import Path
 from types import SimpleNamespace
@@ -249,11 +248,12 @@ async def test_get_version_rejects_bad_sha(tmp_path: Path) -> None:
     assert exc.value.code == ErrorCode.INVALID_ARGS
 
 
-async def test_stop_detaches_listeners_and_cancels_flush(
+async def test_stop_detaches_listeners_and_flushes_pending(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """stop() unsubscribes the scanner listeners and cancels a pending flush."""
-    # Long debounce so the flush task is still pending when we stop.
+    """stop() detaches listeners and flushes an edit queued in the debounce window."""
+    # Long debounce so the flush timer is still pending when we stop —
+    # the edit must be committed by stop()'s drain, not dropped.
     monkeypatch.setattr(
         "esphome_device_builder.controllers.version_history.controller._DEBOUNCE_SECONDS",
         30.0,
@@ -263,20 +263,33 @@ async def test_stop_detaches_listeners_and_cancels_flush(
     (tmp_path / "kitchen.yaml").write_text("v1\n", encoding="utf-8")
     device = Device(name="kitchen", friendly_name="Kitchen", configuration="kitchen.yaml")
     controller._db.bus.fire(EventType.DEVICE_UPDATED, DeviceEventData(device=device))
-    flush_task = controller._flush_task
-    assert flush_task is not None
+    assert controller._flush_task is not None
 
     await controller.stop()
 
     assert controller._unsubs == []
-    # cancel() only requests cancellation; awaiting drives it to done.
-    with pytest.raises(asyncio.CancelledError):
-        await flush_task
-    assert flush_task.cancelled()
+    # The queued edit was flushed on shutdown rather than lost.
+    assert await controller.list_versions(configuration="kitchen.yaml")
     # A post-stop event must not reach the (now detached) listener.
-    controller._pending.clear()
     controller._db.bus.fire(EventType.DEVICE_UPDATED, DeviceEventData(device=device))
     assert not controller._pending
+
+
+async def test_read_commands_reject_path_traversal(tmp_path: Path) -> None:
+    """A ``configuration`` escaping the config dir is refused before reaching git."""
+    controller = _make_controller(tmp_path)
+    await controller.start()
+    traversal = "../secrets.yaml"
+
+    for call in (
+        controller.list_versions(configuration=traversal),
+        controller.get_version(configuration=traversal, sha="abc1234"),
+        controller.get_diff(configuration=traversal, sha="abc1234"),
+        controller.restore(configuration=traversal),
+    ):
+        with pytest.raises(CommandError) as exc:
+            await call
+        assert exc.value.code == ErrorCode.INVALID_ARGS
 
 
 async def test_restore_unknown_sha_raises_not_found(tmp_path: Path) -> None:
