@@ -282,6 +282,29 @@ def test_commit_paths_does_not_sweep_unrelated_staged_edits(tmp_path: Path) -> N
     assert "user_wip.yaml" in _git(tmp_path, "diff", "--cached", "--name-only")
 
 
+def test_commit_never_modifies_the_working_tree(tmp_path: Path) -> None:
+    """Auto-commit records history; it must not rewrite any working-tree file.
+
+    The clobber concern: the feature only ever ``add``/``commit``s — never
+    ``checkout``/``reset``/``stash`` — so a user's on-disk content (even
+    uncommitted, unstaged edits to other files) is byte-for-byte preserved.
+    """
+    _make_repo(tmp_path)
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+    # A user file with uncommitted, unstaged working-tree edits.
+    user_file = tmp_path / "living_room.yaml"
+    user_file.write_text("user edits not yet saved\n", encoding="utf-8")
+
+    ours = tmp_path / "kitchen.yaml"
+    ours.write_text("ours\n", encoding="utf-8")
+    repo.commit_paths([ours], "Create kitchen.yaml")
+
+    # The user's file on disk is untouched, and so is ours.
+    assert user_file.read_text() == "user edits not yet saved\n"
+    assert ours.read_text() == "ours\n"
+
+
 # ---------------------------------------------------------------------------
 # reads
 # ---------------------------------------------------------------------------
