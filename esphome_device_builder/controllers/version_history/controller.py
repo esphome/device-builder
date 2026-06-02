@@ -121,6 +121,14 @@ class VersionHistoryController:
         path = self._db.settings.rel_path(configuration)
         return await self.commit([path], message)
 
+    def discard_pending(self, configuration: str) -> None:
+        """Drop a queued catch-all entry; a specific commit supersedes it.
+
+        Lets a dashboard commit's rich message win over the generic
+        external-edit message a debounced flush would otherwise apply.
+        """
+        self._pending.pop(configuration, None)
+
     # ------------------------------------------------------------------
     # WS commands
     # ------------------------------------------------------------------

@@ -3,11 +3,23 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock
 
+import pytest
+
 from .conftest import MakeControllerFactory
+
+
+def _vh_stub(record: Any) -> SimpleNamespace:
+    """Build a version_history stand-in: the given record + a no-op discard_pending."""
+    return SimpleNamespace(
+        record_configuration=record,
+        discard_pending=lambda _configuration: None,
+    )
 
 
 async def test_update_config_commits_edit_message(
@@ -16,7 +28,7 @@ async def test_update_config_commits_edit_message(
     """``devices/update_config`` records an "Edit <file>" commit."""
     controller = make_controller(tmp_path)
     record = AsyncMock(return_value="sha")
-    controller._db.version_history = type("VH", (), {"record_configuration": record})()
+    controller._db.version_history = _vh_stub(record)
 
     await controller.update_config(configuration="kitchen.yaml", content="esphome:\n  name: k\n")
 
@@ -38,15 +50,29 @@ async def test_disabled_version_history_is_a_noop(
 async def test_commit_failure_does_not_break_the_save(
     make_controller: MakeControllerFactory, tmp_path: Path
 ) -> None:
-    """A version-history commit error is swallowed — the save still lands on disk."""
+    """A genuine git error is swallowed — the save still lands on disk."""
     controller = make_controller(tmp_path)
-    record = AsyncMock(side_effect=RuntimeError("git exploded"))
-    controller._db.version_history = type("VH", (), {"record_configuration": record})()
+    record = AsyncMock(side_effect=subprocess.CalledProcessError(1, "git commit"))
+    controller._db.version_history = _vh_stub(record)
 
     await controller.update_config(configuration="kitchen.yaml", content="esphome:\n  name: k\n")
 
     record.assert_awaited_once()
     assert (tmp_path / "kitchen.yaml").read_text() == "esphome:\n  name: k\n"
+
+
+async def test_programming_bug_in_commit_propagates(
+    make_controller: MakeControllerFactory, tmp_path: Path
+) -> None:
+    """A non-git exception isn't mislabelled as a recoverable hiccup — it propagates."""
+    controller = make_controller(tmp_path)
+    record = AsyncMock(side_effect=AttributeError("real bug"))
+    controller._db.version_history = _vh_stub(record)
+
+    with pytest.raises(AttributeError):
+        await controller.update_config(
+            configuration="kitchen.yaml", content="esphome:\n  name: k\n"
+        )
 
 
 async def test_concurrent_same_file_saves_each_get_committed(
@@ -70,7 +96,7 @@ async def test_concurrent_same_file_saves_each_get_committed(
         )
         committed.append(content)
 
-    controller._db.version_history = SimpleNamespace(record_configuration=_record)
+    controller._db.version_history = _vh_stub(_record)
 
     await asyncio.gather(
         controller.update_config(configuration="kitchen.yaml", content="A\n"),
@@ -84,7 +110,7 @@ async def test_concurrent_same_file_saves_each_get_committed(
 def _attach_recorder(controller: object) -> AsyncMock:
     """Attach a recordable version_history stub; return its record mock."""
     record = AsyncMock(return_value="sha")
-    controller._db.version_history = type("VH", (), {"record_configuration": record})()  # type: ignore[attr-defined]
+    controller._db.version_history = _vh_stub(record)  # type: ignore[attr-defined]
     return record
 
 

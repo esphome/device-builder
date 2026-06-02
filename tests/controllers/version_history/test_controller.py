@@ -311,6 +311,18 @@ async def test_restore_unknown_sha_raises_not_found(tmp_path: Path) -> None:
     controller._db.devices.apply_restored_yaml.assert_not_awaited()
 
 
+async def test_discard_pending_drops_a_queued_catch_all_entry(tmp_path: Path) -> None:
+    """A specific commit supersedes a queued generic external-edit entry."""
+    controller = _make_controller(tmp_path)
+    await controller.start()
+    controller._pending["kitchen.yaml"] = "Edit kitchen.yaml"
+
+    controller.discard_pending("kitchen.yaml")
+
+    assert "kitchen.yaml" not in controller._pending
+    controller.discard_pending("kitchen.yaml")  # idempotent / unknown key is fine
+
+
 async def test_restore_commits_pending_external_edit_first(tmp_path: Path) -> None:
     """A restore captures a queued external edit before overwriting it.
 

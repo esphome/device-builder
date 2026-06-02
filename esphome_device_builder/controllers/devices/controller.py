@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import subprocess
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -112,6 +113,12 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             shutdown_register=self._shutdown_callbacks.append,
         )
         self._shared_sidecar = SharedSidecarClient(self._db.settings.config_dir)
+
+        # Per-file locks serialising a YAML write with its version-history
+        # commit (see ``_persist_yaml_mutation``). One ``asyncio.Lock`` is
+        # retained per configuration ever written — bounded by device count
+        # (tens), so the lack of eviction is deliberate, not a leak.
+        self._yaml_write_locks: dict[str, asyncio.Lock] = {}
 
         # Background ``--only-generate`` bookkeeping. ``--only-generate``
         # validates a YAML and writes its ``StorageJSON`` without doing
@@ -828,26 +835,28 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
     def _yaml_write_lock(self, configuration: str) -> asyncio.Lock:
         """Return the per-file lock guarding a YAML write + its history commit."""
-        locks: dict[str, asyncio.Lock] = self.__dict__.setdefault("_yaml_write_locks", {})
-        lock = locks.get(configuration)
+        lock = self._yaml_write_locks.get(configuration)
         if lock is None:
-            lock = locks[configuration] = asyncio.Lock()
+            lock = self._yaml_write_locks[configuration] = asyncio.Lock()
         return lock
 
     async def _commit_history(self, configuration: str, message: str) -> None:
         """
-        Record *configuration* in version history; best-effort, never raises.
+        Record *configuration* in version history; swallow genuine git errors.
 
-        ``record_configuration`` raises on a genuine git error; swallowing
-        it here keeps a git hiccup from breaking the user's save, at the
-        cost of a recoverable history gap for this one save.
+        A git/subprocess failure keeps a hiccup from breaking the user's
+        save (recoverable history gap for this one save); a programming
+        bug propagates rather than being mislabelled as a git failure.
         """
         version_history = self._db.version_history
         if version_history is None:
             return
+        # A dashboard commit supersedes any queued catch-all entry, so its
+        # rich message wins over the generic "external edit" one.
+        version_history.discard_pending(configuration)
         try:
             await version_history.record_configuration(configuration, message)
-        except Exception:
+        except (OSError, subprocess.CalledProcessError):
             _LOGGER.exception("Version-history commit failed for %s", configuration)
 
     @staticmethod
