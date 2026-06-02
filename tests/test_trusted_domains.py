@@ -65,6 +65,10 @@ from esphome_device_builder.helpers.origin import (
         ("[2001:0db8:0:0:0:0:0:1]:6052", "2001:db8::1"),
         ("2001:0db8::1", "2001:db8::1"),
         ("[2001:0DB8::0001]:443", "2001:db8::1"),
+        # RFC-1123 numeric hostname stays a hostname — the str form of
+        # ipaddress.ip_address rejects integer notation, so it is not
+        # coerced to a dotted-quad int-IP.
+        ("1234", "1234"),
     ],
 )
 def test_normalize_host_strips_port_and_brackets(raw: str, expected: str) -> None:
