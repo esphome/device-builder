@@ -290,3 +290,32 @@ async def test_cancel_all_active_jobs_reraises_runtime_error(
 
     with pytest.raises(RuntimeError):
         await factories.cancel_all_active_jobs(controller, exclude_job_ids=set())
+
+
+async def test_reset_build_env_rolls_back_its_job_when_cancel_reraises(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A re-raising global sweep leaves no orphaned RESET job behind.
+
+    An orphaned QUEUED reset is an active job: it wedges the upload lane via
+    ``upload_blocked`` and runs a clean-all on restart. Roll it back instead.
+    """
+    victim = FirmwareJob(
+        job_id="v1",
+        configuration="kitchen.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.RUNNING,
+    )
+    controller = firmware_controller_factory(victim, with_queue=True)
+
+    async def _boom(*, job_id: str) -> None:
+        raise RuntimeError("state out of sync")
+
+    controller.cancel = _boom  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError):
+        await controller.reset_build_env()
+
+    assert not any(
+        job.job_type is JobType.RESET_BUILD_ENV for job in controller.state.jobs.values()
+    )

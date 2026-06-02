@@ -182,7 +182,14 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         compile or upload running concurrently on either lane.
         """
         job = self._create_job("", JobType.RESET_BUILD_ENV)
-        await factories.cancel_all_active_jobs(self, exclude_job_ids={job.job_id})
+        # The global sweep re-raises on a state-out-of-sync RuntimeError; roll the
+        # just-created RESET job back so the orphan can't wedge the upload lane
+        # (it counts as an active reset in ``upload_blocked``) or wipe on restart.
+        try:
+            await factories.cancel_all_active_jobs(self, exclude_job_ids={job.job_id})
+        except BaseException:
+            self.state.jobs.pop(job.job_id, None)
+            raise
         return await self._enqueue(job)
 
     @api_command("firmware/install")
