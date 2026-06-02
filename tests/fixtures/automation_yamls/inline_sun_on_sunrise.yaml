@@ -1,0 +1,8 @@
+esphome:
+  name: x
+sun:
+  latitude: 51.0
+  longitude: -0.1
+  on_sunrise:
+    then:
+      - logger.log: sunrise

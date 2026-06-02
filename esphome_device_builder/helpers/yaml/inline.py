@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from .scalar import ESPHOME_YAML_INDENT
+from .scalar import ESPHOME_YAML_INDENT, block_body_is_list
 
 
 def synthetic_instance_index(domain: str, component_id: str) -> int | None:
@@ -170,6 +170,11 @@ def _locate_component_instance(  # noqa: C901
             domain_end = idx
             break
 
+    if not block_body_is_list(lines, domain_start, domain_end):
+        # Flat singleton mapping (``sun:`` / ``mqtt:``) — its only ``- ``
+        # lines (if any) are inner action lists, never instance items.
+        return _locate_singleton_instance(lines, domain, component_id, domain_start, domain_end)
+
     # Walk the domain body looking for a list item whose first child
     # line carries ``id: <component_id>``. Only column-2 dashes count
     # as instance starts — deeper dashes are inner action lists.
@@ -234,6 +239,27 @@ def _locate_idless_instance(
     if _instance_declared_id(lines, start, end, child_indent) is not None:
         return None
     return start, end, child_indent
+
+
+def _locate_singleton_instance(
+    lines: list[str],
+    domain: str,
+    component_id: str,
+    domain_start: int,
+    domain_end: int,
+) -> tuple[int, int, str] | None:
+    """
+    Locate a flat singleton component block (``sun:`` / ``mqtt:``) as one span.
+
+    The ``<domain>:`` header is the instance start, the next top-level
+    key is the end, and child fields sit one indent in. Matches when
+    *component_id* is the block's declared ``id:`` or — when id-less —
+    the domain name itself.
+    """
+    declared = _instance_declared_id(lines, domain_start, domain_end, ESPHOME_YAML_INDENT)
+    if component_id == declared or (declared is None and component_id == domain):
+        return domain_start, domain_end, ESPHOME_YAML_INDENT
+    return None
 
 
 def _instance_declared_id(

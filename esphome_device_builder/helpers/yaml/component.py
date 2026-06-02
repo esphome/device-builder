@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 import yaml
 
 from ...models.common import ConfigEntryType
-from .scalar import _PLAIN_SCALAR_INDICATOR_LEAD, ESPHOME_YAML_INDENT, _quote
+from .scalar import _PLAIN_SCALAR_INDICATOR_LEAD, ESPHOME_YAML_INDENT, _quote, block_body_is_list
 
 if TYPE_CHECKING:
     from ...models import ComponentCatalogEntry
@@ -319,13 +319,8 @@ def _normalize_multi_conf_block(existing: str, comp_id: str) -> str | None:
         return None
     block_start, last_content = bounds
 
-    for idx in range(block_start + 1, last_content):
-        stripped = file_lines[idx].strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        if stripped.startswith("- ") or stripped == "-":
-            return existing
-        break
+    if block_body_is_list(file_lines, block_start, last_content):
+        return existing
 
     body_lines = [line.rstrip("\n\r") for line in file_lines[block_start + 1 : last_content]]
     rewritten = "\n".join(_mapping_body_to_list_item(body_lines)) + "\n"

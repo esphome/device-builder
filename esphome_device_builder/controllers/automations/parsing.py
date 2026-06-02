@@ -298,43 +298,67 @@ def _parse_api_actions(root: Any) -> list[ParsedAutomation]:
     return out
 
 
+def singleton_component_id(section: dict, domain: str) -> str:
+    """Identity of a flat singleton component — its ``id:`` or the domain when id-less."""
+    return str(section.get("id") or domain)
+
+
 def _parse_inline_component_triggers(root: Any) -> list[ParsedAutomation]:
-    """Walk configured component instances for inline ``on_*:`` handlers."""
+    """
+    Walk component instances for inline ``on_*:`` handlers.
+
+    Handles list-domain instances (``switch:`` is a list) and flat
+    singleton components (``sun:`` / ``mqtt:`` are a single mapping).
+    """
     if not isinstance(root, dict):
         return []
     out: list[ParsedAutomation] = []
     for domain, section in root.items():
         if domain not in _component_trigger_domains():
             continue
-        if not isinstance(section, list):
+        if isinstance(section, list):
+            for idx, instance in enumerate(section):
+                if not isinstance(instance, dict):
+                    continue
+                comp_id = str(instance.get("id") or f"{domain}_{idx}")
+                out.extend(_parse_instance_triggers(domain, instance, comp_id))
+        elif isinstance(section, dict):
+            # Flat singleton: the whole block is the single instance.
+            out.extend(
+                _parse_instance_triggers(domain, section, singleton_component_id(section, domain))
+            )
+    return out
+
+
+def _parse_instance_triggers(
+    domain: str,
+    instance: dict,
+    comp_id: str,
+) -> list[ParsedAutomation]:
+    """Emit every recognised inline ``on_*:`` handler on one component instance."""
+    comp_name = str(instance.get("name") or comp_id)
+    out: list[ParsedAutomation] = []
+    for key, body in list(instance.items()):
+        if not key.startswith("on_"):
             continue
-        for idx, instance in enumerate(section):
-            if not isinstance(instance, dict):
-                continue
-            comp_id = instance.get("id") or f"{domain}_{idx}"
-            comp_name = instance.get("name") or comp_id
-            for key, body in list(instance.items()):
-                if not key.startswith("on_"):
-                    continue
-                trigger = catalog.trigger_by_id(f"{domain}.{key}")
-                if trigger is None:
-                    # Not a known component trigger — skip rather
-                    # than surface as a parse error. Component
-                    # schemas occasionally carry ``on_*`` keys that
-                    # are config values rather than automations
-                    # (e.g. legacy aliases). The catalog is the
-                    # source of truth.
-                    continue
-                out.extend(
-                    _parse_one_inline_trigger(
-                        instance,
-                        comp_id=str(comp_id),
-                        comp_name=str(comp_name),
-                        key=key,
-                        body=body,
-                        trigger=trigger,
-                    )
-                )
+        trigger = catalog.trigger_by_id(f"{domain}.{key}")
+        if trigger is None:
+            # Not a known component trigger — skip rather than surface
+            # as a parse error. Component schemas occasionally carry
+            # ``on_*`` keys that are config values rather than
+            # automations (e.g. legacy aliases). The catalog is the
+            # source of truth.
+            continue
+        out.extend(
+            _parse_one_inline_trigger(
+                instance,
+                comp_id=comp_id,
+                comp_name=comp_name,
+                key=key,
+                body=body,
+                trigger=trigger,
+            )
+        )
     return out
 
 

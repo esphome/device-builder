@@ -109,6 +109,46 @@ def test_parse_inline_on_click_surfaces_trigger_params() -> None:
     assert [a.action_id for a in tree.actions] == ["switch.toggle"]
 
 
+# ---------------------------------------------------------------------------
+# Inline triggers on flat singleton components (sun:, mqtt:)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_flat_singleton_idless_keys_on_domain() -> None:
+    """An id-less ``sun:`` block keys its handler on the domain name."""
+    parsed = parse_device_yaml(_load("inline_sun_on_sunrise.yaml"))
+    assert len(parsed) == 1
+    item = parsed[0]
+    assert item.location.kind == "component_on"
+    assert item.location.component_id == "sun"
+    assert item.location.trigger == "on_sunrise"
+    assert item.location.index is None
+    assert [a.action_id for a in item.automation.actions] == ["logger.log"]
+
+
+def test_parse_flat_singleton_uses_declared_id() -> None:
+    """An id'd ``sun:`` block keys both handlers on its declared id."""
+    parsed = parse_device_yaml(_load("inline_sun_idd.yaml"))
+    assert {p.location.component_id for p in parsed} == {"home_sun"}
+    assert {p.location.trigger for p in parsed} == {"on_sunrise", "on_sunset"}
+
+
+def test_parse_flat_singleton_mqtt_surfaces_trigger_params() -> None:
+    """``mqtt:`` is a singleton; ``on_message.topic`` is a trigger param, not an action."""
+    parsed = parse_device_yaml(_load("inline_mqtt_singleton.yaml"))
+    by_trigger = {p.location.trigger: p for p in parsed}
+    assert set(by_trigger) == {"on_message", "on_connect"}
+    assert by_trigger["on_message"].location.component_id == "mqtt"
+    assert by_trigger["on_message"].automation.trigger_params == {"topic": "my/topic"}
+
+
+def test_parse_flat_singleton_ignores_config_keys() -> None:
+    """Plain config keys (``latitude:`` / ``broker:``) aren't surfaced as automations."""
+    sun = parse_device_yaml(_load("inline_sun_on_sunrise.yaml"))
+    assert all(p.location.trigger.startswith("on_") for p in sun)
+    assert parse_device_yaml(_load("inline_sun_empty.yaml")) == []
+
+
 def test_parse_on_value_range_float_params_are_json_serialisable() -> None:
     """Decimal on_value_range thresholds round-trip as plain floats."""
     parsed = parse_device_yaml(_load("sensor_on_value_range_float.yaml"))

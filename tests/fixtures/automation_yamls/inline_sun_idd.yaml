@@ -1,0 +1,12 @@
+esphome:
+  name: x
+sun:
+  id: home_sun  # the declared id keys the location
+  latitude: 51.0
+  longitude: -0.1
+  on_sunrise:
+    then:
+      - logger.log: sunrise
+  on_sunset:
+    then:
+      - logger.log: sunset

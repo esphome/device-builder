@@ -612,6 +612,12 @@ def _component_domain_from_yaml(
     for domain in top_level_domains:
         if synthetic_instance_index(domain, target_id) is not None:
             return domain
+    # An id-less flat singleton (``sun:`` / ``mqtt:``) is keyed by the
+    # domain name itself; recover it before the catalog guess, which
+    # mis-attributes a shared trigger key (``mqtt.on_connect`` vs
+    # ``wifi.on_connect``).
+    if target_id in top_level_domains:
+        return target_id
     return _component_domain(location)
 
 

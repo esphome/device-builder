@@ -1,0 +1,11 @@
+esphome:
+  name: x
+mqtt:
+  broker: 192.168.1.10
+  on_message:
+    topic: my/topic
+    then:
+      - logger.log: got message
+  on_connect:
+    then:
+      - logger.log: connected

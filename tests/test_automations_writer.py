@@ -200,6 +200,145 @@ def test_idless_multidomain_trigger_resolves_configured_domain() -> None:
     assert reparsed[0].location == location
 
 
+# ---------------------------------------------------------------------------
+# Flat singleton components (sun:, mqtt:)
+# ---------------------------------------------------------------------------
+
+
+def test_round_trip_inline_sun_preserves_actions_and_siblings() -> None:
+    """An id-less ``sun:`` handler round-trips; sibling config keys survive."""
+    text = _load("inline_sun_on_sunrise.yaml")
+    parsed_first = parse_device_yaml(text)[0]
+    new_text, _diff = render_upsert(
+        text, tree=parsed_first.automation, location=parsed_first.location
+    )
+    assert "latitude: 51.0" in new_text
+    assert "longitude: -0.1" in new_text
+    reparsed = parse_device_yaml(new_text)
+    assert len(reparsed) == 1
+    assert reparsed[0].location == parsed_first.location
+
+
+def test_upsert_adds_second_handler_to_sun_block() -> None:
+    """A new ``on_sunset`` splices in beside the existing ``on_sunrise``."""
+    text = _load("inline_sun_on_sunrise.yaml")
+    new_text, diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id="sun.on_sunset",
+            actions=[ActionNode(action_id="logger.log", params={"format": "sunset"})],
+        ),
+        location=ComponentOnLocation(component_id="sun", trigger="on_sunset"),
+    )
+    assert "on_sunrise:" in new_text
+    assert "on_sunset:" in new_text
+    assert "latitude: 51.0" in new_text
+    # Pure-insert flags the empty replaced range.
+    assert diff.toLine == diff.fromLine - 1
+    assert {p.location.trigger for p in parse_device_yaml(new_text)} == {"on_sunrise", "on_sunset"}
+
+
+def test_upsert_replaces_existing_handler_on_sun_block() -> None:
+    """Re-upserting ``on_sunrise`` replaces it rather than duplicating."""
+    text = _load("inline_sun_on_sunrise.yaml")
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id="sun.on_sunrise",
+            actions=[ActionNode(action_id="logger.log", params={"format": "dawn"})],
+        ),
+        location=ComponentOnLocation(component_id="sun", trigger="on_sunrise"),
+    )
+    assert new_text.count("on_sunrise:") == 1
+    assert "dawn" in new_text
+
+
+def test_delete_inline_handler_on_sun_block() -> None:
+    """Deleting ``on_sunrise`` drops it but keeps the block's config keys."""
+    text = _load("inline_sun_on_sunrise.yaml")
+    location = parse_device_yaml(text)[0].location
+    new_text, diff = render_delete(text, location=location)
+    assert "on_sunrise:" not in new_text
+    assert "latitude: 51.0" in new_text
+    assert parse_device_yaml(new_text) == []
+    assert diff.replacement == ""
+
+
+def test_delete_one_handler_keeps_sibling_on_singleton() -> None:
+    """Deleting one handler on a multi-handler singleton leaves the sibling intact."""
+    text = _load("inline_sun_idd.yaml")
+    location = ComponentOnLocation(component_id="home_sun", trigger="on_sunrise")
+    new_text, diff = render_delete(text, location=location)
+    assert "on_sunrise:" not in new_text
+    assert "on_sunset:" in new_text
+    assert "id: home_sun" in new_text
+    assert "latitude: 51.0" in new_text
+    assert diff.replacement == ""
+    remaining = parse_device_yaml(new_text)
+    assert [(p.location.component_id, p.location.trigger) for p in remaining] == [
+        ("home_sun", "on_sunset"),
+    ]
+
+
+def test_round_trip_mqtt_singleton_resolves_mqtt_domain() -> None:
+    """``mqtt.on_message``/``on_connect`` are ambiguous keys but resolve to ``mqtt:``."""
+    text = _load("inline_mqtt_singleton.yaml")
+    on_connect = next(p for p in parse_device_yaml(text) if p.location.trigger == "on_connect")
+    new_text, _diff = render_upsert(text, tree=on_connect.automation, location=on_connect.location)
+    # Reattached under mqtt:, not mis-routed to ble_client/wifi/logger.
+    assert "broker: 192.168.1.10" in new_text
+    reparsed = {p.location.trigger: p.location.component_id for p in parse_device_yaml(new_text)}
+    assert reparsed == {"on_message": "mqtt", "on_connect": "mqtt"}
+
+
+def test_upsert_inline_handler_on_block_without_handlers() -> None:
+    """An ``on_*`` inserts under a singleton block that has only config keys."""
+    text = _load("inline_sun_empty.yaml")
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id="sun.on_sunrise",
+            actions=[ActionNode(action_id="logger.log", params={"format": "sunrise"})],
+        ),
+        location=ComponentOnLocation(component_id="home_sun", trigger="on_sunrise"),
+    )
+    assert "on_sunrise:" in new_text
+    assert "id: home_sun" in new_text
+    reparsed = parse_device_yaml(new_text)
+    assert len(reparsed) == 1
+    assert reparsed[0].location.component_id == "home_sun"
+
+
+def test_upsert_inline_handler_on_bodyless_singleton_block() -> None:
+    """An ``on_*`` inserts under an id-less singleton with an empty body."""
+    text = "esphome:\n  name: x\nsun:\n"
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id="sun.on_sunrise",
+            actions=[ActionNode(action_id="logger.log", params={"format": "sunrise"})],
+        ),
+        location=ComponentOnLocation(component_id="sun", trigger="on_sunrise"),
+    )
+    assert "on_sunrise:" in new_text
+    assert parse_device_yaml(new_text)[0].location.component_id == "sun"
+
+
+def test_upsert_flat_singleton_unknown_id_raises() -> None:
+    """A location whose id matches no singleton raises a clean error."""
+    text = _load("inline_sun_on_sunrise.yaml")
+    with pytest.raises(CommandError) as err:
+        render_upsert(
+            text,
+            tree=AutomationTree(
+                trigger_id="sun.on_sunrise",
+                actions=[ActionNode(action_id="logger.log", params={"format": "x"})],
+            ),
+            location=ComponentOnLocation(component_id="nonexistent", trigger="on_sunrise"),
+        )
+    assert err.value.code == ErrorCode.INVALID_ARGS
+
+
 def test_stale_positional_id_on_idd_instance_is_refused() -> None:
     """A ``<domain>_<idx>`` id pointing at an instance with a real id is refused."""
     text = "esphome:\n  name: x\nbinary_sensor:\n  - platform: gpio\n    id: real\n    pin: GPIO0\n"
