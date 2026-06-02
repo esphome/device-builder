@@ -33,6 +33,7 @@ from esphome_device_builder.models.automations import (
     IntervalLocation,
     LightEffectLocation,
     ScriptLocation,
+    YamlDiff,
 )
 
 _FIXTURES = Path(__file__).parent / "fixtures" / "automation_yamls"
@@ -40,6 +41,17 @@ _FIXTURES = Path(__file__).parent / "fixtures" / "automation_yamls"
 
 def _load(name: str) -> str:
     return (_FIXTURES / name).read_text(encoding="utf-8")
+
+
+def _apply_diff(text: str, diff: YamlDiff) -> str:
+    """Apply a :class:`YamlDiff` exactly as the frontend ``applyYamlDiff`` does."""
+    lines = text.split("\n")
+    start = diff.fromLine - 1
+    delete = max(0, diff.toLine - diff.fromLine + 1)
+    replacement = diff.replacement
+    replacement = replacement.removesuffix("\n")
+    rep_lines = [] if replacement == "" else replacement.split("\n")
+    return "\n".join([*lines[:start], *rep_lines, *lines[start + delete :]])
 
 
 # ---------------------------------------------------------------------------
@@ -423,6 +435,32 @@ def test_round_trip_script_with_parameters() -> None:
         "message": "string",
     }
     assert parsed_second.automation.trigger_params.get("mode") == "single"
+
+
+def test_append_diff_into_block_followed_by_others_does_not_duplicate_tail() -> None:
+    """Appending a second script returns a diff that applies cleanly.
+
+    The ``script:`` block is followed by ``ota:`` / ``web_server:``,
+    so the splice lands mid-document; the returned diff must replace
+    only the changed span, not re-emit the unchanged trailing blocks.
+    """
+    text = (
+        "esphome:\n  name: x\n"
+        "script:\n  - id: first\n    mode: single\n    then: []\n"
+        "ota:\n  - platform: esphome\n"
+        "web_server:\n  port: 80\n"
+    )
+    new_text, diff = render_upsert(
+        text,
+        tree=AutomationTree(trigger_id=None, trigger_params={"mode": "single"}, actions=[]),
+        location=ScriptLocation(id="second"),
+    )
+    # The diff the frontend applies must reproduce the backend's own
+    # post-splice text — the contract the editor relies on.
+    assert _apply_diff(text, diff) == new_text
+    assert new_text.count("ota:") == 1
+    assert new_text.count("web_server:") == 1
+    assert {s.location.id for s in parse_device_yaml(new_text)} == {"first", "second"}
 
 
 def test_round_trip_interval_lambda() -> None:

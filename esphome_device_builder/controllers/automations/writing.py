@@ -707,25 +707,32 @@ def _next_non_blank_at_col_zero(lines: list[str], start: int) -> bool:
 
 
 def _build_diff_for_append(old_yaml: str, new_yaml: str) -> YamlDiff:
-    """Build a diff describing the lines added by an append-style write.
+    """Build a diff describing the lines changed by an append-style write.
 
-    Walks both texts to find the first divergent line, then takes
-    everything after that on the new side as the inserted range.
-    Good enough for the append case where we always grow the file
-    at the end (or just after the matched top-level block).
+    Bounds the change to the region between the common leading and
+    trailing lines, so a splice into a block that isn't the last in
+    the file replaces only the changed span — without the suffix
+    match the unchanged tail would be re-emitted and duplicated.
     """
     old_lines = old_yaml.splitlines()
     new_lines = new_yaml.splitlines()
-    common = 0
+    prefix = 0
     while (
-        common < len(old_lines)
-        and common < len(new_lines)
-        and old_lines[common] == new_lines[common]
+        prefix < len(old_lines)
+        and prefix < len(new_lines)
+        and old_lines[prefix] == new_lines[prefix]
     ):
-        common += 1
-    from_line = common + 1
-    to_line = common  # exclusive; equal start ⇒ pure insert
-    replacement = "\n".join(new_lines[common:])
+        prefix += 1
+    suffix = 0
+    while (
+        suffix < len(old_lines) - prefix
+        and suffix < len(new_lines) - prefix
+        and old_lines[len(old_lines) - 1 - suffix] == new_lines[len(new_lines) - 1 - suffix]
+    ):
+        suffix += 1
+    from_line = prefix + 1
+    to_line = len(old_lines) - suffix  # == from_line - 1 ⇒ pure insert
+    replacement = "\n".join(new_lines[prefix : len(new_lines) - suffix])
     if replacement and not replacement.endswith("\n"):
         replacement += "\n"
     return YamlDiff(fromLine=from_line, toLine=to_line, replacement=replacement)
