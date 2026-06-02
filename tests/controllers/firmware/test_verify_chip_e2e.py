@@ -85,7 +85,7 @@ if TYPE_CHECKING:
 def _wire_real_queue(controller: FirmwareController) -> None:
     controller.state.queue = asyncio.Queue()
 
-    async def _supersede(_configuration: str, *, exclude_job_id: str) -> None:
+    async def _supersede(_configuration: str, *, exclude_job_ids: set[str]) -> None:
         return
 
     controller._supersede_active_jobs = _supersede  # type: ignore[assignment]
@@ -726,6 +726,7 @@ async def test_tracked_subprocess_registers_and_clears_current_process(
     assert controller.state.current_process is None
 
     async with controller._tracked_subprocess(
+        controller.state.compile_lane,
         sys.executable,
         "-c",
         "import sys\nsys.exit(0)\n",
@@ -761,6 +762,7 @@ async def test_tracked_subprocess_restores_prior_value_on_exit(
     controller.state.current_process = sentinel  # type: ignore[assignment]
 
     async with controller._tracked_subprocess(
+        controller.state.compile_lane,
         sys.executable,
         "-c",
         "import sys\nsys.exit(0)\n",
@@ -795,6 +797,7 @@ async def test_tracked_subprocess_restores_prior_value_on_exception(
 
     with pytest.raises(RuntimeError, match="boom"):
         async with controller._tracked_subprocess(
+            controller.state.compile_lane,
             sys.executable,
             "-c",
             "import sys\nsys.exit(0)\n",

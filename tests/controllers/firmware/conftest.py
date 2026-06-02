@@ -288,37 +288,50 @@ def capture_enqueue_order() -> Iterator[CaptureEnqueueOrderFactory]:
     teardown reinstates the original ``_queue`` and ``_db.bus`` so
     sibling tests in the same xdist worker don't see leaked stubs.
     """
-    swaps: list[tuple[FirmwareController, Any, Any]] = []
+    swaps: list[tuple[FirmwareController, Any, Any, Any]] = []
+
+    def _make_proxy(log: list[tuple[EnqueueStep, Any]]) -> MagicMock:
+        inner_queue: asyncio.Queue[FirmwareJob] = asyncio.Queue()
+
+        def _trace_put_nowait(item: FirmwareJob) -> None:
+            log.append((EnqueueStep.PUT, item))
+            inner_queue.put_nowait(item)
+
+        queue_proxy = MagicMock()
+        queue_proxy.put_nowait = _trace_put_nowait
+        queue_proxy.get = inner_queue.get
+        queue_proxy.qsize = inner_queue.qsize
+        return queue_proxy
 
     def _factory(
         controller: FirmwareController,
         *event_types: EventType,
     ) -> list[tuple[EnqueueStep, Any]]:
+        # Trace both lanes so an UPLOAD (upload lane) and a COMPILE
+        # (compile lane) land in one ordered log.
         log: list[tuple[EnqueueStep, Any]] = []
-        inner_queue: asyncio.Queue[FirmwareJob] = asyncio.Queue()
-
-        async def _trace_put(item: FirmwareJob) -> None:
-            log.append((EnqueueStep.PUT, item))
-            await inner_queue.put(item)
-
-        queue_proxy = MagicMock()
-        queue_proxy.put = _trace_put
-        queue_proxy.get = inner_queue.get
-        queue_proxy.qsize = inner_queue.qsize
-
         bus = EventBus()
         for event_type in event_types:
             bus.add_listener(event_type, lambda event: log.append((EnqueueStep.FIRE, event)))
 
-        swaps.append((controller, controller.state.queue, controller._db.bus))
-        controller.state.queue = queue_proxy
+        swaps.append(
+            (
+                controller,
+                controller.state.compile_lane.queue,
+                controller.state.upload_lane.queue,
+                controller._db.bus,
+            )
+        )
+        controller.state.compile_lane.queue = _make_proxy(log)
+        controller.state.upload_lane.queue = _make_proxy(log)
         controller._db.bus = bus
         return log
 
     yield _factory
 
-    for controller, original_queue, original_bus in swaps:
-        controller.state.queue = original_queue
+    for controller, compile_queue, upload_queue, original_bus in swaps:
+        controller.state.compile_lane.queue = compile_queue
+        controller.state.upload_lane.queue = upload_queue
         controller._db.bus = original_bus
 
 

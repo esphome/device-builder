@@ -69,7 +69,7 @@ def _wire_real_queue(controller: FirmwareController) -> None:
     """
     controller.state.queue = asyncio.Queue()
 
-    async def _supersede(_configuration: str, *, exclude_job_id: str) -> None:
+    async def _supersede(_configuration: str, *, exclude_job_ids: set[str]) -> None:
         return
 
     controller._supersede_active_jobs = _supersede  # type: ignore[assignment]

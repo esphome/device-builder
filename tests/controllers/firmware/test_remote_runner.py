@@ -1157,7 +1157,7 @@ async def test_execute_job_routes_remote_source_through_remote_runner(
     _, client = _wire_remote_build(controller)
     job = _make_remote_job()
 
-    runner = asyncio.create_task(controller._execute_job(job))
+    runner = asyncio.create_task(controller._execute_job(job, controller.state.compile_lane))
     await _wait_until_dispatched(client)
     _fire_state(controller, job_id=job.job_id, status="completed")
     await asyncio.wait_for(runner, timeout=2.0)
@@ -1712,7 +1712,7 @@ async def test_remote_install_cancel_during_local_upload_finalises_as_cancelled(
         await asyncio.sleep(0.01)
 
     _request_remote_cancel(controller, job)
-    await controller._terminate_current_process()
+    await controller._terminate_current_process(controller.state.compile_lane)
     await asyncio.wait_for(runner, timeout=5.0)
 
     assert job.status == JobStatus.CANCELLED

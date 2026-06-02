@@ -119,10 +119,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
                 detail,
             )
         await self._load_jobs()
-        self._runner_tasks = [
-            self._db.create_background_task(runner.run_lane(self, self.state.compile_lane)),
-            self._db.create_background_task(runner.run_lane(self, self.state.upload_lane)),
-        ]
+        self._runner_tasks = [self._db.create_background_task(self._run_queue())]
 
     # ------------------------------------------------------------------
     # API commands — job submission
@@ -356,6 +353,13 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     # ------------------------------------------------------------------
     # Internals — queue processing
     # ------------------------------------------------------------------
+
+    async def _run_queue(self) -> None:
+        """Run both lane consumers (compile + upload) concurrently."""
+        await asyncio.gather(
+            runner.run_lane(self, self.state.compile_lane),
+            runner.run_lane(self, self.state.upload_lane),
+        )
 
     async def _execute_job(self, job: FirmwareJob, lane: Lane) -> None:
         await runner.execute_job(self, job, lane)

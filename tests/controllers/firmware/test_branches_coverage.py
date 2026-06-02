@@ -217,7 +217,7 @@ async def test_terminate_current_process_no_op_when_no_process(
     controller.state.current_job = None
 
     # Should return without raising; no process to terminate.
-    await controller._terminate_current_process()
+    await controller._terminate_current_process(controller.state.compile_lane)
 
 
 # ---------------------------------------------------------------------------

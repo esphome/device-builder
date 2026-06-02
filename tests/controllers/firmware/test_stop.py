@@ -223,7 +223,7 @@ async def test_terminate_kills_grandchild_via_process_group(
         # Hit Stop. Both pids must die — SIGTERM is ignored, so the
         # controller's grace window expires and SIGKILL escalates to
         # the whole process group.
-        await controller._terminate_current_process()
+        await controller._terminate_current_process(controller.state.compile_lane)
         await proc.wait()
 
         assert await _wait_dead(parent_pid), f"parent pid {parent_pid} still alive after stop"
