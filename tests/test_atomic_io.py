@@ -137,6 +137,42 @@ def test_atomic_write_retries_replace_on_windows_handle_race(
     assert not list(tmp_path.glob("demo.bin.*.tmp"))
 
 
+def test_atomic_write_replace_backoff_grows_and_caps(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Windows replace backoff grows exponentially, capped per-sleep.
+
+    Pins the widened retry budget: a slow scanner under loaded CI
+    must get several seconds across all retries, not the old flat
+    0.5s, while each individual wait stays bounded by the cap.
+    """
+    monkeypatch.setattr("esphome_device_builder.helpers.atomic_io._IS_WINDOWS", True)
+    sleeps: list[float] = []
+
+    def _record_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    monkeypatch.setattr("esphome_device_builder.helpers.atomic_io.time.sleep", _record_sleep)
+    target = tmp_path / "demo.bin"
+    target.write_bytes(b"old")
+
+    real_replace = os.replace
+    calls = {"n": 0}
+
+    def _flaky(src: object, dst: object) -> None:
+        calls["n"] += 1
+        if calls["n"] < 6:
+            raise PermissionError(5, "Access is denied")
+        real_replace(src, dst)
+
+    monkeypatch.setattr("os.replace", _flaky)
+    atomic_write(target, b"new")
+
+    assert target.read_bytes() == b"new"
+    # Exponential growth (0.05 × 2**attempt) capped at 0.5s per wait.
+    assert sleeps == [0.05, 0.1, 0.2, 0.4, 0.5]
+
+
 def test_atomic_write_does_not_retry_replace_on_posix(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

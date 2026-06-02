@@ -22,11 +22,14 @@ from pathlib import Path
 # Windows raises ``PermissionError`` (WinError 5) from ``os.replace`` when a
 # transient handle holds the destination open (a concurrent reader, an
 # antivirus or the search indexer). POSIX rename is atomic and never hits
-# this, so the retry is Windows-only; a few short waits clear the typical
-# sub-second window.
+# this, so the retry is Windows-only. Backoff grows exponentially (capped)
+# so the common sub-second window still clears on the first short wait,
+# while a slow scanner under loaded CI gets several seconds before we give
+# up — far cheaper than losing a metadata / preferences write.
 _IS_WINDOWS = os.name == "nt"
-_REPLACE_RETRIES = 10
+_REPLACE_RETRIES = 15
 _REPLACE_RETRY_BACKOFF_S = 0.05
+_REPLACE_RETRY_BACKOFF_CAP_S = 0.5
 
 
 def atomic_write(
@@ -85,6 +88,6 @@ def _replace_with_retry(src: Path, dst: Path) -> None:
             # there is real; re-raise. On Windows, back off and retry.
             if not _IS_WINDOWS or attempt == _REPLACE_RETRIES - 1:
                 raise
-            time.sleep(_REPLACE_RETRY_BACKOFF_S)
+            time.sleep(min(_REPLACE_RETRY_BACKOFF_S * 2**attempt, _REPLACE_RETRY_BACKOFF_CAP_S))
         else:
             return
