@@ -92,6 +92,14 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         idle = not running and queue_depth == 0
         return QueueStatus(idle=idle, running=running, queue_depth=queue_depth)
 
+    def compile_queue_status(self) -> QueueStatus:
+        """Compile-lane status — what a remote offloader keys on (a receiver only compiles).
+
+        An uploading receiver still has a free compile lane, so it must keep
+        advertising idle for delegated compiles rather than the aggregate.
+        """
+        return self.lane_status(self.state.compile_lane)
+
     def queue_status_snapshot(self) -> QueueStatus:
         """Aggregate snapshot across both lanes; sync, no I/O. Idle only when both are."""
         compile_status = self.lane_status(self.state.compile_lane)
