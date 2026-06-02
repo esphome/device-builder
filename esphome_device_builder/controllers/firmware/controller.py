@@ -366,10 +366,13 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     async def _run_queue(self) -> None:
         """Run both lane consumers (compile + upload) concurrently.
 
-        On cancel (shutdown), cancel both lane tasks and *await their
-        cleanup* before re-raising — a bare ``gather`` resolves the moment
-        it's cancelled, leaving a lane mid-``CancelledError`` (subprocess
-        not yet terminated, job not yet finalised).
+        On any exit — shutdown cancel *or* one lane raising — cancel both
+        lane tasks and *await their cleanup* before the error propagates.
+        A bare ``gather`` resolves the moment it's cancelled (or the moment
+        one lane raises), leaving the sibling lane orphaned mid-flight
+        (subprocess not terminated, job not finalised). The ``finally``
+        covers both cases; ``return_exceptions=True`` lets the drain finish
+        without masking the original error.
         """
         lane_tasks = [
             asyncio.create_task(runner.run_lane(self, self.state.compile_lane)),
@@ -377,11 +380,10 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         ]
         try:
             await asyncio.gather(*lane_tasks)
-        except asyncio.CancelledError:
+        finally:
             for task in lane_tasks:
                 task.cancel()
             await asyncio.gather(*lane_tasks, return_exceptions=True)
-            raise
 
     async def _execute_job(self, job: FirmwareJob, lane: Lane) -> None:
         await runner.execute_job(self, job, lane)

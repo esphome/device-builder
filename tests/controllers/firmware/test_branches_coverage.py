@@ -32,6 +32,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from esphome_device_builder.controllers.firmware import FirmwareController, runner
+from esphome_device_builder.controllers.firmware._state import Lane
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import (
     ErrorCode,
@@ -198,6 +200,37 @@ async def test_run_queue_skips_cancelled_jobs_without_spawning(
         await runner
 
     assert spawned is False
+
+
+async def test_run_queue_cancels_sibling_lane_when_one_raises(
+    firmware_controller_factory: FirmwareControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A lane consumer raising a non-cancel error cancels and drains its sibling.
+
+    ``run_lane`` shouldn't normally raise — ``execute_job`` traps its own
+    failures — but if one consumer dies, ``_run_queue`` must cancel the other
+    lane (not leave it orphaned mid-flight) while surfacing the original error.
+    """
+    controller = firmware_controller_factory()
+    sibling_cancelled = asyncio.Event()
+
+    async def _fake_run_lane(_ctrl: FirmwareController, lane: Lane) -> None:
+        if lane is controller.state.compile_lane:
+            msg = "compile lane blew up"
+            raise RuntimeError(msg)
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            sibling_cancelled.set()
+            raise
+
+    monkeypatch.setattr(runner, "run_lane", _fake_run_lane)
+
+    with pytest.raises(RuntimeError, match="compile lane blew up"):
+        await controller._run_queue()
+
+    assert sibling_cancelled.is_set()
 
 
 async def test_terminate_current_process_no_op_when_no_process(

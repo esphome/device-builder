@@ -116,7 +116,7 @@ async def enqueue(
     if controller.state.dependency_satisfied(job):
         controller.state.lane_for(job).queue.put_nowait(job)
     # else: held off its lane queue until the prerequisite completes —
-    # ``lifecycle._release_dependents`` lands it then. It's still QUEUED in
+    # ``lifecycle.release_dependents`` lands it then. It's still QUEUED in
     # ``state.jobs`` and fires JOB_QUEUED below, so it renders as queued.
     queued_payload: JobLifecycleData = {"job": job}
     controller._db.bus.fire(EventType.JOB_QUEUED, queued_payload)
