@@ -3,9 +3,20 @@
 from __future__ import annotations
 
 import re
+from typing import NamedTuple
 
 from esphome import const
 from esphome.const import CONF_PACKAGES
+
+
+class EsphomeMeta(NamedTuple):
+    """The user-facing ``esphome:`` meta fields; ``None`` for any the YAML omits."""
+
+    name: str | None
+    friendly_name: str | None
+    comment: str | None
+    area: str | None
+
 
 _PLATFORM_KEYS = frozenset({"esp32", "esp8266", "rp2040", "bk72xx", "rtl87xx", "ln882x", "nrf52"})
 
@@ -252,7 +263,7 @@ def extract_directly_referenced_integrations(
 def parse_esphome_meta(
     yaml_content: str,
     extra_substitutions: dict[str, str] | None = None,
-) -> tuple[str | None, str | None, str | None, str | None]:
+) -> EsphomeMeta:
     """
     Parse the top-level ``esphome:`` block for ``(name, friendly_name, comment, area)``.
 
@@ -316,13 +327,13 @@ def parse_esphome_meta(
         for field in _ESPHOME_META_FIELDS:
             meta[field] = _resolve_substitutions(meta[field], merged)
 
-    return meta["name"], meta["friendly_name"], meta["comment"], meta["area"]
+    return EsphomeMeta(meta["name"], meta["friendly_name"], meta["comment"], meta["area"])
 
 
 def extract_esphome_meta_from_config(
     config: dict | None,
     extra_substitutions: dict[str, str] | None = None,
-) -> tuple[str | None, str | None, str | None, str | None]:
+) -> EsphomeMeta:
     """
     Read ``(name, friendly_name, comment, area)`` from a resolved config's ``esphome:`` block.
 
@@ -335,16 +346,16 @@ def extract_esphome_meta_from_config(
     untouched for the caller to defer past.
     """
     if not isinstance(config, dict):
-        return (None, None, None, None)
+        return EsphomeMeta(None, None, None, None)
     esphome = config.get(const.CONF_ESPHOME)
     if not isinstance(esphome, dict):
-        return (None, None, None, None)
+        return EsphomeMeta(None, None, None, None)
     subs = extra_substitutions or {}
 
     def _resolved(value: str | None) -> str | None:
         return _resolve_substitutions(value, subs)
 
-    return (
+    return EsphomeMeta(
         _resolved(_str_or_none(esphome.get(const.CONF_NAME))),
         _resolved(_str_or_none(esphome.get(const.CONF_FRIENDLY_NAME))),
         _resolved(_str_or_none(esphome.get(const.CONF_COMMENT))),

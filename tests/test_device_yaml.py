@@ -25,14 +25,12 @@ from esphome_device_builder.helpers.device_yaml import (
     _select_wifi_helper,
     compute_has_pending_changes,
     configuration_stem,
+    extract_esphome_meta_from_config,
     generate_device_yaml,
     generate_minimal_stub_yaml,
     load_device_from_storage,
     parse_esphome_meta,
     parse_platform_from_yaml,
-)
-from esphome_device_builder.helpers.device_yaml._parsing import (
-    extract_esphome_meta_from_config,
 )
 from esphome_device_builder.models import (
     BoardCatalogEntry,
