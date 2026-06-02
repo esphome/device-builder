@@ -98,14 +98,70 @@ def test_missing_git_binary_disables_feature(
     repo.discover_or_init()
 
     assert not repo.enabled
-    assert repo.commit_paths([tmp_path / "x.yaml"], "msg") is None
-    assert repo.log_file(tmp_path / "x.yaml") == []
+    p = tmp_path / "x.yaml"
+    assert repo.commit_paths([p], "msg") is None
+    assert repo.log_file(p) == []
+    assert repo.file_at(p, "abc1234") is None
+    assert repo.diff_file(p, "abc1234") == ""
+    assert repo.deleted_files() == []
     assert not (tmp_path / ".git").exists()
+
+
+def test_discover_or_init_tolerates_oserror(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An OSError while probing / initialising leaves the feature disabled, not crashed."""
+
+    def _boom(*_args: object, **_kwargs: object) -> None:
+        raise OSError("git exec failed")
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.version_history.git_repo.subprocess.run",
+        _boom,
+    )
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+
+    assert not repo.enabled
 
 
 # ---------------------------------------------------------------------------
 # commits
 # ---------------------------------------------------------------------------
+
+
+def test_commit_paths_returns_none_on_git_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failing ``git commit`` is swallowed — commit_paths returns None, no raise."""
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+    yaml = tmp_path / "kitchen.yaml"
+    yaml.write_text("v1\n", encoding="utf-8")
+
+    real_run = subprocess.run
+
+    def _fail_commit(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if "commit" in cmd:
+            raise subprocess.CalledProcessError(1, cmd, stderr="commit blew up")
+        return real_run(cmd, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.version_history.git_repo.subprocess.run",
+        _fail_commit,
+    )
+    assert repo.commit_paths([yaml], "Create kitchen.yaml") is None
+
+
+def test_file_at_returns_none_for_unknown_commit(tmp_path: Path) -> None:
+    """Asking for a path at a commit that doesn't have it yields None, not a crash."""
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+    yaml = tmp_path / "kitchen.yaml"
+    yaml.write_text("v1\n", encoding="utf-8")
+    repo.commit_paths([yaml], "Create kitchen.yaml")
+
+    assert repo.file_at(yaml, "0" * 40) is None
 
 
 def test_commit_paths_records_new_and_edited_files(tmp_path: Path) -> None:
@@ -238,3 +294,24 @@ def test_deleted_files_lists_configs_absent_from_work_tree(tmp_path: Path) -> No
     deleted = repo.deleted_files()
     assert "gone.yaml" in deleted
     assert "live.yaml" not in deleted
+
+
+def test_deleted_files_ignores_nested_and_non_config(tmp_path: Path) -> None:
+    """Only top-level configs are restorable — not nested includes or stray files."""
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+    top = tmp_path / "dev.yaml"
+    nested = tmp_path / "pkg" / "inc.yaml"
+    nested.parent.mkdir()
+    other = tmp_path / "notes.txt"
+    for path, body in ((top, "d\n"), (nested, "n\n"), (other, "x\n")):
+        path.write_text(body, encoding="utf-8")
+        repo.commit_paths([path], f"Create {path.name}")
+    for path in (top, nested, other):
+        path.unlink()
+        repo.commit_paths([path], f"Delete {path.name}")
+
+    deleted = repo.deleted_files()
+    assert "dev.yaml" in deleted
+    assert "pkg/inc.yaml" not in deleted  # nested include, not a device
+    assert "notes.txt" not in deleted  # not a config
