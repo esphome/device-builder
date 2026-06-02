@@ -144,11 +144,11 @@ async def test_delete_tolerates_compiled_config_unlink_failure(
     validated.unlink()
     validated.mkdir()
 
-    with caplog.at_level(logging.WARNING):
+    with caplog.at_level(logging.DEBUG):
         await controller._delete_single("kitchen.yaml")
 
     assert not yaml_path.exists()
-    assert any("validated-config cache" in rec.message for rec in caplog.records)
+    assert any("_unlink_compiled_config" in rec.message for rec in caplog.records)
 
 
 @pytest.mark.usefixtures("redirect_storage_path")

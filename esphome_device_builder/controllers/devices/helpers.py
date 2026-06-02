@@ -174,8 +174,11 @@ def _unlink_compiled_config(configuration: str) -> None:
     compiled_path = resolve_compiled_config_path(configuration)
     try:
         compiled_path.unlink(missing_ok=True)
-    except OSError:
-        _LOGGER.warning("Could not remove validated-config cache for %s", configuration)
+    except OSError as exc:
+        # Same best-effort level + detail as the idedata wipe above:
+        # both are regenerable caches, debug-logged with the exception
+        # so a permissions vs FS failure is distinguishable.
+        _LOGGER.debug("_unlink_compiled_config: unlink(%s) failed: %s", compiled_path, exc)
 
 
 def _unlink_storage_sidecar(configuration: str) -> None:
