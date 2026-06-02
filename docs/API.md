@@ -117,7 +117,7 @@ Connections that arrive on the trusted ingress site (HA add-on supervisor proxy)
 | `devices/delete_archived` | `{configuration}` | — | Permanently delete an archived YAML and its sidecars. The companion to `unarchive` for "I really don't want this back". |
 | `devices/get_config` | `{configuration}` | `string` | Read device YAML config |
 | `devices/update_config` | `{configuration, content}` | — | Write device YAML config |
-| `devices/add_component` | `{configuration, component_id, fields?, sub_entities?}` | `AddComponentResponse` | Add component to device config |
+| `devices/add_component` | `{configuration, component_id, fields?, sub_entities?, yaml?}` | `AddComponentResponse` | Add component to device config. Optional `yaml` is the editor's unsaved draft — merge into it and return the result **without** persisting (the editor saves it, like `automations/upsert`); omit to merge the on-disk YAML and persist. |
 | `devices/import` | `{name, project_name?, package_import_url?, ...}` | `dict` | Import/adopt discovered device |
 | `devices/ignore` | `{name, ignore?}` | — | Toggle device visibility |
 | `devices/validate` | `{configuration}` | Streaming | Validate YAML config |
