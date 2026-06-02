@@ -127,6 +127,26 @@ def test_commit_paths_records_new_and_edited_files(tmp_path: Path) -> None:
     assert repo.file_at(yaml, sha2) == "v2\n"
 
 
+def test_commit_handles_flag_like_message_and_dashed_path(tmp_path: Path) -> None:
+    """A flag-like message / leading-dash filename can't smuggle git options.
+
+    Everything goes through argv (no shell): the message is the value of
+    ``-m`` and the path sits after ``--``, so neither is reparsed as a
+    git flag.
+    """
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+    dashed = tmp_path / "-weird.yaml"
+    dashed.write_text("x\n", encoding="utf-8")
+
+    sha = repo.commit_paths([dashed], "--amend is not actually a flag here")
+
+    assert sha
+    versions = repo.log_file(dashed)
+    assert versions[0].message == "--amend is not actually a flag here"
+    assert repo.file_at(dashed, sha) == "x\n"
+
+
 def test_commit_paths_no_change_returns_none(tmp_path: Path) -> None:
     """Re-committing an unchanged file is a no-op (no empty commit)."""
     repo = GitRepo(config_dir=tmp_path)
