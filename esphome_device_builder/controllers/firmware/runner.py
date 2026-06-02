@@ -74,7 +74,7 @@ async def execute_job(  # noqa: PLR0912, PLR0915, C901
 
         # Pre-flight: verify chip type for serial uploads
         if job.job_type in (JobType.UPLOAD, JobType.INSTALL):
-            await controller._verify_chip(job)
+            await controller._verify_chip(job, lane)
 
         # ``rel_path`` calls ``Path.resolve`` which does a sync
         # ``os.path.realpath`` — blocking the event loop. Push it

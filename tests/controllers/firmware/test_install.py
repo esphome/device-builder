@@ -27,11 +27,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.build_scheduler import BuildSchedulerInputs
 from esphome_device_builder.models import (
     ErrorCode,
     EventType,
+    FirmwareJob,
     JobSource,
     JobStatus,
     JobType,
@@ -46,7 +48,7 @@ from tests.controllers.firmware.conftest import (
 )
 
 
-def _upload_of(controller: Any, compile_job: Any) -> Any:
+def _upload_of(controller: FirmwareController, compile_job: FirmwareJob) -> FirmwareJob:
     """Return the UPLOAD job an install chained behind *compile_job*."""
     return next(
         j

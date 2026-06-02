@@ -355,11 +355,24 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     # ------------------------------------------------------------------
 
     async def _run_queue(self) -> None:
-        """Run both lane consumers (compile + upload) concurrently."""
-        await asyncio.gather(
-            runner.run_lane(self, self.state.compile_lane),
-            runner.run_lane(self, self.state.upload_lane),
-        )
+        """Run both lane consumers (compile + upload) concurrently.
+
+        On cancel (shutdown), cancel both lane tasks and *await their
+        cleanup* before re-raising — a bare ``gather`` resolves the moment
+        it's cancelled, leaving a lane mid-``CancelledError`` (subprocess
+        not yet terminated, job not yet finalised).
+        """
+        lane_tasks = [
+            asyncio.create_task(runner.run_lane(self, self.state.compile_lane)),
+            asyncio.create_task(runner.run_lane(self, self.state.upload_lane)),
+        ]
+        try:
+            await asyncio.gather(*lane_tasks)
+        except asyncio.CancelledError:
+            for task in lane_tasks:
+                task.cancel()
+            await asyncio.gather(*lane_tasks, return_exceptions=True)
+            raise
 
     async def _execute_job(self, job: FirmwareJob, lane: Lane) -> None:
         await runner.execute_job(self, job, lane)
@@ -384,8 +397,8 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     async def _terminate_current_process(self, lane: Lane) -> None:
         await lifecycle.terminate_current_process(self, lane)
 
-    async def _verify_chip(self, job: FirmwareJob) -> None:
-        await cli.verify_chip(self, job)
+    async def _verify_chip(self, job: FirmwareJob, lane: Lane) -> None:
+        await cli.verify_chip(self, job, lane)
 
     def _compose_subprocess_env(self, job: FirmwareJob) -> dict[str, str]:
         return cli.compose_subprocess_env(job)

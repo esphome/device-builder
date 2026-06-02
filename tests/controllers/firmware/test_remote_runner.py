@@ -30,6 +30,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from esphome_device_builder.controllers.firmware import remote_runner
+from esphome_device_builder.controllers.firmware._state import Lane
 from esphome_device_builder.controllers.remote_build.peer_link_client import (
     DownloadArtifactsError,
     DownloadArtifactsResult,
@@ -1696,9 +1697,9 @@ async def test_remote_install_cancel_during_local_upload_finalises_as_cancelled(
         "sys.stdout.flush(); time.sleep(30)",
     ]
 
-    async def _terminate() -> None:
-        assert controller.state.current_process is not None  # type narrowing
-        controller.state.current_process.terminate()
+    async def _terminate(lane: Lane) -> None:
+        assert lane.current_process is not None  # type narrowing
+        lane.current_process.terminate()
 
     controller._terminate_current_process = _terminate  # type: ignore[method-assign]
     job = _make_remote_install_job()
@@ -1753,7 +1754,7 @@ async def test_run_upload_subprocess_cancel_landing_between_pre_check_and_spawn_
 
     terminate_calls: list[None] = []
 
-    async def _terminate() -> None:
+    async def _terminate(_lane: Lane) -> None:
         terminate_calls.append(None)
 
     controller._terminate_current_process = _terminate  # type: ignore[method-assign]
