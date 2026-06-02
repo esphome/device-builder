@@ -46,6 +46,11 @@ _LOGGER = logging.getLogger(__name__)
 # HA File Editor) — a dashboard save makes the debounced commit a no-op.
 _DEBOUNCE_SECONDS = 2.0
 
+# Consecutive commit failures before the feature is flagged ``degraded``
+# — enough to tell a persistent breakage (corrupt repo, disk full) from a
+# one-off hiccup, which a future History pane can surface to the user.
+_DEGRADED_THRESHOLD = 3
+
 # Catch-all commit message per scanner change kind (external edits).
 _EXTERNAL_MESSAGE: dict[EventType, str] = {
     EventType.DEVICE_ADDED: "Add {configuration}",
@@ -65,11 +70,24 @@ class VersionHistoryController:
         # configuration → pending commit message; last write wins.
         self._pending: dict[str, str] = {}
         self._flush_task: asyncio.Task[None] | None = None
+        # Consecutive-failure tracking for the degraded signal.
+        self._consecutive_failures = 0
+        self._degraded = False
 
     @property
     def enabled(self) -> bool:
         """Whether git-backed history is active for this config dir."""
         return self._repo.enabled
+
+    @property
+    def degraded(self) -> bool:
+        """True when commits have failed repeatedly — history may be incomplete.
+
+        Distinguishes a persistent breakage from a one-off hiccup so a
+        future History pane can surface "version history is failing"
+        rather than silently presenting stale versions.
+        """
+        return self._degraded
 
     async def start(self) -> None:
         """Probe for git, adopt / init the repo, and watch for disk changes."""
@@ -114,7 +132,34 @@ class VersionHistoryController:
         if not self._repo.enabled or not paths:
             return None
         async with self._lock:
-            return await self._in_executor(self._repo.commit_paths, paths, message)
+            try:
+                sha = await self._in_executor(self._repo.commit_paths, paths, message)
+            except GIT_COMMIT_ERRORS:
+                self._note_commit_failure()
+                raise
+            self._note_commit_success()
+            return sha
+
+    def _note_commit_failure(self) -> None:
+        """Count a git failure; flag degraded once they stop looking one-off."""
+        self._consecutive_failures += 1
+        if not self._degraded and self._consecutive_failures >= _DEGRADED_THRESHOLD:
+            self._degraded = True
+            _LOGGER.error(
+                "Version history degraded: %d consecutive commit failures — recent "
+                "saves may not be recoverable until git is healthy",
+                self._consecutive_failures,
+            )
+
+    def _note_commit_success(self) -> None:
+        """Reset the failure run; log recovery if we were degraded."""
+        if self._degraded:
+            _LOGGER.info(
+                "Version history recovered after %d consecutive failures",
+                self._consecutive_failures,
+            )
+        self._consecutive_failures = 0
+        self._degraded = False
 
     async def record_configuration(self, configuration: str, message: str) -> str | None:
         """Commit one config by name; return the sha (``None`` no-op), raise on failure."""

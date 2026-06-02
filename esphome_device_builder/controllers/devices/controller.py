@@ -847,9 +847,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         A git/subprocess failure keeps a hiccup from breaking the user's
         save (recoverable history gap for this one save); a programming
         bug propagates rather than being mislabelled as a git failure.
-        Does **not** itself take the per-file ``_yaml_write_lock`` — the
-        editor-save path in ``_persist_yaml_mutation`` holds it across the
-        write + this call; other callers (delete / archive) run unserialised.
+        Does **not** itself take the per-file ``_yaml_write_lock``; callers
+        needing write+commit atomicity (editor save, delete, archive) hold
+        it across this call so same-config commits can't interleave.
         """
         version_history = self._db.version_history
         if version_history is None:

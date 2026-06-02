@@ -429,6 +429,45 @@ async def test_catch_all_flush_survives_a_failing_config(
     assert await controller.list_versions(configuration="good.yaml")
 
 
+async def test_degraded_flips_after_repeated_failures_and_recovers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Repeated git failures flag the feature degraded; a success clears it."""
+    controller = _make_controller(tmp_path)
+    await controller.start()
+    yaml = tmp_path / "kitchen.yaml"
+
+    real_run = subprocess.run
+    fail = True
+
+    def _maybe_fail(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if fail and "commit" in cmd:
+            raise subprocess.CalledProcessError(1, cmd, stderr="boom")
+        return real_run(cmd, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.version_history.git_repo.subprocess.run", _maybe_fail
+    )
+
+    # A one-off failure is not yet "degraded".
+    yaml.write_text("v1\n", encoding="utf-8")
+    with suppress(subprocess.CalledProcessError):
+        await controller.record_configuration("kitchen.yaml", "Create kitchen.yaml")
+    assert not controller.degraded
+
+    # Cross the threshold of consecutive failures.
+    for _ in range(2):
+        with suppress(subprocess.CalledProcessError):
+            await controller.record_configuration("kitchen.yaml", "Edit kitchen.yaml")
+    assert controller.degraded
+
+    # A subsequent successful commit clears the degraded flag.
+    fail = False
+    yaml.write_text("v2\n", encoding="utf-8")
+    await controller.record_configuration("kitchen.yaml", "Edit kitchen.yaml")
+    assert not controller.degraded
+
+
 async def test_catch_all_programming_bug_propagates_to_done_callback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
