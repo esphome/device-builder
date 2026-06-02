@@ -193,7 +193,13 @@ def firmware_controller_factory(
         controller.state.current_process = None
 
         if with_queue:
-            controller.state.queue = AsyncMock()
+            # ``put_nowait`` / ``qsize`` are sync on a real Queue; keep them
+            # sync here (the enqueue path uses ``put_nowait``) while ``get``
+            # stays awaitable for any test that drives the runner.
+            queue = AsyncMock()
+            queue.put_nowait = MagicMock()
+            queue.qsize = MagicMock(return_value=0)
+            controller.state.queue = queue
 
         if with_terminate:
             controller.state.cancel_requested = set()
