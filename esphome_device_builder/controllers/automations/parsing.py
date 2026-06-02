@@ -26,7 +26,7 @@ from functools import partial
 from io import StringIO
 from typing import Any
 
-from ruamel.yaml import YAML, YAMLError
+from ruamel.yaml import YAML
 from ruamel.yaml.comments import TaggedScalar
 from ruamel.yaml.scalarfloat import ScalarFloat
 from ruamel.yaml.scalarstring import LiteralScalarString
@@ -317,11 +317,8 @@ def resolve_component_domain(yaml_text: str, component_id: str) -> str | None:
     """
     yaml = make_yaml()
     try:
-        # Narrow to YAMLError: the text has already round-tripped through
-        # parse_device_yaml before the writer runs, so a non-YAMLError parse
-        # failure isn't reachable here (and a bare except trips ruff BLE001).
         root = yaml.load(yaml_text)
-    except YAMLError:
+    except Exception:  # noqa: BLE001 — any load failure falls back to the catalog guess
         return None
     if not isinstance(root, dict):
         return None
