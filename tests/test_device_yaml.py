@@ -1785,6 +1785,33 @@ def test_load_device_area_from_package_include(tmp_path: Path) -> None:
 
 
 @pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_unresolvable_area_in_include_is_blank_not_token(tmp_path: Path) -> None:
+    """A never-compiled dotted ``${device.area}`` in an include stays blank, not a raw token.
+
+    The key-value substitution the simple resolver can't expand lives
+    only in the included ``esphome:`` block, so neither the raw-text
+    reader nor StorageJSON (never compiled) carries it; the config
+    token must not leak into the area column.
+    """
+    (tmp_path / "common.yaml").write_text(
+        "esphome:\n  name: opener\n  area: ${device.area}\n",
+        encoding="utf-8",
+    )
+    yaml_path = tmp_path / "opener.yaml"
+    yaml_path.write_text(
+        "substitutions:\n"
+        "  device:\n"
+        '    area: "Garage"\n'
+        "packages:\n  common: !include common.yaml\n",
+        encoding="utf-8",
+    )
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.area == ""
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
 def test_load_device_resolved_yaml_meta_wins_over_storage(tmp_path: Path) -> None:
     """A fully resolved YAML value still beats StorageJSON (immediate edits)."""
     yaml_path = tmp_path / "lamp.yaml"

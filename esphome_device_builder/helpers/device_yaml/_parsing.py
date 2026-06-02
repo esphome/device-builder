@@ -398,13 +398,19 @@ def _pick_meta(
     the simple resolver can't expand) is skipped in favour of the next
     source; a literal ``$`` that isn't substitution-shaped counts as
     resolved.
+
+    When nothing resolves and StorageJSON is empty, the raw-text token
+    (or ``None``) is surfaced — never the *config* token: an unresolved
+    ``${device.area}`` carried only in an included ``esphome:`` block
+    would otherwise leak into the UI for never-compiled devices, where
+    the pre-resolved-config behaviour was an empty value.
     """
     for value in (yaml_value, config_value):
         if value is not None and not _UNRESOLVED_SUBSTITUTION_RE.search(value):
             return value
     if storage_value:
         return storage_value
-    return yaml_value if yaml_value is not None else config_value
+    return yaml_value
 
 
 def _match_top_level_key(line: str) -> str | None:
