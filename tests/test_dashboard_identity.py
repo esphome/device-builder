@@ -26,6 +26,10 @@ import json
 import threading
 from pathlib import Path
 
+from esphome_device_builder.controllers.config.remote_build_settings import (
+    remote_build_settings_transaction,
+    save_remote_build_settings,
+)
 from esphome_device_builder.helpers.dashboard_identity import (
     DASHBOARD_ID_MAX_CHARS,
     DASHBOARD_ID_PATTERN,
@@ -37,6 +41,7 @@ from esphome_device_builder.helpers.dashboard_identity import (
 from esphome_device_builder.helpers.peer_link_identity import (
     PeerLinkIdentityStore,
 )
+from esphome_device_builder.models import RemoteBuildSettings
 
 
 def _read_metadata(config_dir: Path) -> dict:
@@ -167,6 +172,39 @@ async def test_dashboard_id_survives_other_remote_build_mutations(tmp_path: Path
     # Re-read the identity; dashboard_id still there.
     second = await get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
     assert second.dashboard_id == identity.dashboard_id
+
+
+async def test_remote_build_settings_writes_preserve_foreign_keys(tmp_path: Path) -> None:
+    """
+    Both real settings writers merge into ``_remote_build``, never replace it (#1154).
+
+    ``dashboard_id`` co-owns the block with the receiver
+    settings; a wholesale overwrite re-minted it on every flip.
+    The arbitrary ``_sentinel`` pins the *general* invariant so a
+    future co-resident key is protected too, not just
+    ``dashboard_id``.
+    """
+    identity = await get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
+    metadata_path = tmp_path / ".device-builder.json"
+    data = json.loads(metadata_path.read_bytes())
+    data["_remote_build"]["_sentinel"] = "keep-me"
+    metadata_path.write_bytes(json.dumps(data).encode())
+
+    save_remote_build_settings(tmp_path, RemoteBuildSettings(enabled=False))
+    block = _read_metadata(tmp_path)["_remote_build"]
+    assert block["dashboard_id"] == identity.dashboard_id
+    assert block["_sentinel"] == "keep-me"
+    assert block["enabled"] is False
+
+    with remote_build_settings_transaction(tmp_path) as settings:
+        settings.enabled = True
+    block = _read_metadata(tmp_path)["_remote_build"]
+    assert block["dashboard_id"] == identity.dashboard_id
+    assert block["_sentinel"] == "keep-me"
+    assert block["enabled"] is True
+
+    again = await get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
+    assert again.dashboard_id == identity.dashboard_id
 
 
 async def test_init_after_id_only_mutation_preserves_other_fields(tmp_path: Path) -> None:
