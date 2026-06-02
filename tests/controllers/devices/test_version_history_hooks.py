@@ -63,7 +63,12 @@ async def test_concurrent_same_file_saves_each_get_committed(
 
     async def _record(configuration: str, _message: str) -> None:
         # Mirror commit_paths: capture whatever is on disk at commit time.
-        committed.append((tmp_path / configuration).read_text())
+        # Read off-loop — this runs from inside the (package-frame) commit
+        # path, so a blocking read here trips the blockbuster guard.
+        content = await asyncio.to_thread(
+            lambda: (tmp_path / configuration).read_text(encoding="utf-8")
+        )
+        committed.append(content)
 
     controller._db.version_history = SimpleNamespace(record_configuration=_record)
 
