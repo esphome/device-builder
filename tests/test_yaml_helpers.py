@@ -946,6 +946,19 @@ def test_merge_component_yaml_splice_handles_trailing_blank_lines() -> None:
     assert "- platform: dht" in sensor_block
 
 
+def test_merge_component_yaml_accepts_incomplete_draft() -> None:
+    """A syntactically broken draft is appended-merged, not rejected."""
+    component = _component(component_id="i2c", category=ComponentCategory.BUS)
+    fields: dict[str, Any] = {"sda": "GPIO21", "scl": "GPIO22"}
+
+    # Unterminated quote + dangling key — invalid YAML mid-edit.
+    broken = 'esphome:\n  name: "kitch\nsensor:\n  - platform:\n'
+    result = merge_component_yaml(broken, component, fields)
+
+    assert broken in result
+    assert "i2c:\n  sda: GPIO21\n  scl: GPIO22\n" in result
+
+
 @pytest.mark.parametrize("category", [ComponentCategory.OUTPUT, ComponentCategory.SWITCH])
 def test_merge_component_yaml_splices_other_platform_categories(
     category: ComponentCategory,
