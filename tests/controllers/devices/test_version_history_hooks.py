@@ -64,3 +64,17 @@ async def test_archive_records_removal(
     await controller._archive_single("kitchen.yaml")
 
     record.assert_awaited_once_with("kitchen.yaml", "Archive kitchen.yaml")
+
+
+async def test_apply_restored_yaml_writes_and_records_restore(
+    make_controller: MakeControllerFactory, tmp_path: Path
+) -> None:
+    """``apply_restored_yaml`` writes the content back and records a "Restore" commit."""
+    controller = make_controller(tmp_path)
+    (tmp_path / "kitchen.yaml").write_text("old\n", encoding="utf-8")
+    record = _attach_recorder(controller)
+
+    await controller.apply_restored_yaml("kitchen.yaml", "new\n", restored_from="abc1234")
+
+    assert (tmp_path / "kitchen.yaml").read_text() == "new\n"
+    record.assert_awaited_once_with("kitchen.yaml", "Restore kitchen.yaml to abc1234")
