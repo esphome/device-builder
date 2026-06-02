@@ -38,6 +38,8 @@ from esphome_device_builder.helpers.build_size import BuildDirSignal, BuildSizeR
 from esphome_device_builder.helpers.event_bus import Event
 from esphome_device_builder.models import (
     AdoptableDevice,
+    ComponentCatalogEntry,
+    ComponentCategory,
     ConfigEntry,
     ConfigEntryType,
     Device,
@@ -552,12 +554,7 @@ async def test_add_component_with_draft_merges_draft_and_skips_persist(
     make_controller: MakeControllerFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A passed ``yaml`` draft is the merge base and disk is untouched.
-
-    The wizard hands the editor's unsaved draft so the merge lands on
-    top of it; persisting here would discard the user's other unsaved
-    edits and write a possibly mid-edit config.
-    """
+    """A passed ``yaml`` draft is the merge base and disk is left untouched."""
     controller = make_controller(tmp_path)
     _stub_components(controller)
     monkeypatch.setattr(
@@ -604,6 +601,34 @@ async def test_add_component_without_draft_reads_disk_and_persists(
 
     assert resp.yaml == "DISK\n# added\n"
     persist.assert_awaited_once_with("kitchen.yaml", "DISK\n# added\n")
+
+
+async def test_add_component_into_broken_draft_appends_through_real_merge(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A broken draft survives the real (un-stubbed) command merge, no persist."""
+    controller = make_controller(tmp_path)
+    component = ComponentCatalogEntry(
+        id="i2c", name="i2c", description="", category=ComponentCategory.BUS
+    )
+    controller._db.components = MagicMock()
+    controller._db.components.get_component = AsyncMock(return_value=component)
+    persist = AsyncMock()
+    monkeypatch.setattr(controller, "_persist_yaml_mutation", persist)
+
+    broken = 'esphome:\n  name: "kitch\nsensor:\n  - platform:\n'
+    resp = await controller.add_component(
+        configuration="kitchen.yaml",
+        component_id="i2c",
+        fields={"sda": "GPIO21", "scl": "GPIO22"},
+        yaml=broken,
+    )
+
+    assert broken in resp.yaml
+    assert "i2c:\n  sda: GPIO21\n  scl: GPIO22\n" in resp.yaml
+    persist.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------

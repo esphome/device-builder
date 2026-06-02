@@ -947,13 +947,7 @@ def test_merge_component_yaml_splice_handles_trailing_blank_lines() -> None:
 
 
 def test_merge_component_yaml_accepts_incomplete_draft() -> None:
-    """A mid-edit / syntactically broken draft is merged, not rejected.
-
-    The wizard now merges into the editor's unsaved draft, which may
-    be incomplete while the user is typing. The merge is a line-based
-    text splice, so it appends the new block and leaves the user's
-    in-progress (even invalid) content untouched for them to repair.
-    """
+    """A syntactically broken draft is appended-merged, not rejected."""
     component = _component(component_id="i2c", category=ComponentCategory.BUS)
     fields: dict[str, Any] = {"sda": "GPIO21", "scl": "GPIO22"}
 
