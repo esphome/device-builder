@@ -226,11 +226,9 @@ async def supersede_active_jobs(
 async def cancel_all_active_jobs(
     controller: FirmwareController, *, exclude_job_ids: set[str]
 ) -> None:
-    """Cancel every queued/running job across all configurations, except *exclude_job_ids*.
+    """Cancel every queued/running job on either lane, except *exclude_job_ids*.
 
-    Used by ``reset_build_env`` (clean-all): it wipes the whole build tree, so
-    a compile or upload on either lane must be cancelled first or it races the
-    wipe.
+    For ``reset_build_env`` (clean-all), which wipes the whole build tree.
     """
     await _cancel_active_jobs(controller, exclude_job_ids=exclude_job_ids)
 

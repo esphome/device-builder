@@ -655,7 +655,8 @@ async def _run_upload_subprocess(
     ``firmware/cancel`` lands SIGTERM on the upload chain
     just like it does for the local-only path.
     """
-    # Remote jobs run on the compile lane; register the local flash there.
+    # Register the local flash on the job's own lane (``lane_for``); a remote
+    # install is an INSTALL job, so that resolves to the compile lane.
     lane = controller.state.lane_for(job)
     async with controller._tracked_subprocess(
         lane,

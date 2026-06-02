@@ -100,7 +100,10 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         return self.lane_status(self.state.compile_lane)
 
     def queue_status_snapshot(self) -> QueueStatus:
-        """Aggregate snapshot across both lanes; sync, no I/O. Idle only when both are."""
+        """Aggregate both lanes; sync, no I/O. Idle only when both are.
+
+        ``queue_depth`` excludes a held dependent upload (not yet on a lane).
+        """
         compile_status = self.lane_status(self.state.compile_lane)
         upload_status = self.lane_status(self.state.upload_lane)
         return QueueStatus(
@@ -188,9 +191,8 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         the blast radius inside the data dir. The next compile
         re-fetches everything from scratch (slow but thorough).
 
-        Cancels every other in-flight job first: the wipe trashes the whole
-        build tree, and with the compile + upload lanes running concurrently a
-        live compile or upload on either lane would otherwise race it.
+        Cancels every other in-flight job first so the wipe can't race a live
+        compile or upload running concurrently on either lane.
         """
         job = self._create_job("", JobType.RESET_BUILD_ENV)
         await factories.cancel_all_active_jobs(self, exclude_job_ids={job.job_id})

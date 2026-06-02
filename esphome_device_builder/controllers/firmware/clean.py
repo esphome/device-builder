@@ -20,12 +20,10 @@ async def clean(controller: FirmwareController, *, configuration: str) -> Firmwa
     """
     Queue a clean job + one per connected paired receiver; return the LOCAL job.
 
-    Per-peer REMOTE clean jobs surface through the firmware-jobs
-    ``subscribe_events`` stream, not the WS reply. The LOCAL clean enqueues
-    with the default supersede, so any in-flight compile / upload / install /
-    rename for the same configuration is cancelled first (a clean is the user
-    asking for a fresh build of that device); two clean jobs supersede each
-    other too.
+    The LOCAL clean's default supersede cancels any in-flight build for the
+    same configuration (a clean is the user asking for a fresh build). Per-peer
+    REMOTE clean jobs surface through the firmware-jobs ``subscribe_events``
+    stream, not the WS reply.
     """
     await controller._validate_configuration_boundary(configuration)
     local_job = controller._create_job(configuration, JobType.CLEAN)
