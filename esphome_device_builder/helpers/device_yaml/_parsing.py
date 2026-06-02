@@ -319,21 +319,81 @@ def parse_esphome_meta(
     return meta["name"], meta["friendly_name"], meta["comment"], meta["area"]
 
 
-def _effective_meta(yaml_value: str | None, storage_value: str | None) -> str | None:
+def extract_esphome_meta_from_config(
+    config: dict | None,
+    extra_substitutions: dict[str, str] | None = None,
+) -> tuple[str | None, str | None, str | None, str | None]:
     """
-    Pick the metadata to display, preferring a resolved value.
+    Read ``(name, friendly_name, comment, area)`` from a resolved config's ``esphome:`` block.
 
-    The raw-text YAML read reflects unsaved edits immediately, so it
-    wins when fully resolved. A value still holding a substitution token
-    (a nested ``${device.area}`` the raw reader can't expand) defers to
-    StorageJSON, which esphome resolved at build time. A literal ``$``
-    that isn't substitution-shaped doesn't count as unresolved.
+    The block sees what the loader merged in via ``!include`` / merge-key
+    (``<<:``) / ``packages:``, so this surfaces meta the raw-text reader
+    misses when the ``esphome:`` block lives in an included file (#1153).
+    ``None`` for any field the block doesn't carry. ``$var`` / ``${var}``
+    references resolve against *extra_substitutions* (typically the merged
+    ``substitutions:`` off the same config); unresolved tokens are left
+    untouched for the caller to defer past.
     """
-    if yaml_value is not None and not _UNRESOLVED_SUBSTITUTION_RE.search(yaml_value):
-        return yaml_value
+    if not isinstance(config, dict):
+        return (None, None, None, None)
+    esphome = config.get(const.CONF_ESPHOME)
+    if not isinstance(esphome, dict):
+        return (None, None, None, None)
+    subs = extra_substitutions or {}
+
+    def _resolved(value: str | None) -> str | None:
+        return _resolve_substitutions(value, subs)
+
+    return (
+        _resolved(_str_or_none(esphome.get(const.CONF_NAME))),
+        _resolved(_str_or_none(esphome.get(const.CONF_FRIENDLY_NAME))),
+        _resolved(_str_or_none(esphome.get(const.CONF_COMMENT))),
+        _resolved(_area_name_from_config(esphome.get(const.CONF_AREA))),
+    )
+
+
+def _str_or_none(value: object) -> str | None:
+    """Return *value* when it's a string, else ``None``."""
+    return value if isinstance(value, str) else None
+
+
+def _area_name_from_config(value: object) -> str | None:
+    """
+    Extract the area label from a config ``area`` value.
+
+    String form is the label itself; the ``{id, name}`` mapping form
+    surfaces its ``name``. ``None`` for any other shape.
+    """
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        return _str_or_none(value.get(const.CONF_NAME))
+    return None
+
+
+def _pick_meta(
+    yaml_value: str | None,
+    config_value: str | None,
+    storage_value: str | None,
+) -> str | None:
+    """
+    Pick the metadata to display, preferring a fully-resolved value.
+
+    Source order: the raw-text YAML read (reflects unsaved edits, and
+    survives a draft too broken for the loader), then the resolved-config
+    read (sees ``esphome:`` pulled in via ``!include`` / merge-key /
+    ``packages:``), then StorageJSON (esphome resolved it at build time).
+    A value still holding a substitution token (a nested ``${device.area}``
+    the simple resolver can't expand) is skipped in favour of the next
+    source; a literal ``$`` that isn't substitution-shaped counts as
+    resolved.
+    """
+    for value in (yaml_value, config_value):
+        if value is not None and not _UNRESOLVED_SUBSTITUTION_RE.search(value):
+            return value
     if storage_value:
         return storage_value
-    return yaml_value
+    return yaml_value if yaml_value is not None else config_value
 
 
 def _match_top_level_key(line: str) -> str | None:
