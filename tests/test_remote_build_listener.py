@@ -23,7 +23,10 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import make_mocked_request
 
-from esphome_device_builder._remote_build_lifecycle import _strip_server_header_middleware
+from esphome_device_builder._remote_build_lifecycle import (
+    RemoteBuildLifecycle,
+    _strip_server_header_middleware,
+)
 from esphome_device_builder.controllers.config import (
     DashboardSettings,
     remote_build_settings_transaction,
@@ -256,6 +259,90 @@ async def test_strip_server_header_middleware_overrides_to_empty(tmp_path: Path)
     request = make_mocked_request("GET", "/remote-build/peer-link", client_max_size=0)
     response = await _strip_server_header_middleware(request, _handler)
     assert response.headers["Server"] == ""
+
+
+@pytest.mark.parametrize(
+    ("server", "expected_call"),
+    [
+        pytest.param(None, False, id="server_none"),
+        pytest.param("empty_sockets", False, id="empty_sockets"),
+        pytest.param("port_zero", True, id="port_zero"),
+    ],
+)
+def test_resolve_ephemeral_port_raises_when_unresolvable(
+    server: str | None, expected_call: bool
+) -> None:
+    """
+    An ephemeral bind whose port can't be read raises rather than returning 0.
+
+    Refusing here is what keeps the fail-soft caller from
+    advertising port 0 — an unreachable port peers would dial
+    forever.
+    """
+    site = MagicMock()
+    if server is None:
+        site._server = None
+    elif server == "empty_sockets":
+        site._server = MagicMock(sockets=[])
+    else:
+        sock = MagicMock()
+        sock.getsockname.return_value = ("0.0.0.0", 0)
+        site._server = MagicMock(sockets=[sock])
+
+    with pytest.raises(RuntimeError, match="could not be resolved"):
+        RemoteBuildLifecycle._resolve_ephemeral_port(site)
+    # The port-zero branch must actually read the socket back.
+    if expected_call:
+        site._server.sockets[0].getsockname.assert_called_once()
+
+
+async def test_cleanup_runner_swallows_and_logs_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """
+    A failed ``runner.cleanup()`` is swallowed but logged with a traceback.
+
+    Teardown stays fail-soft so a wedged socket can't crash
+    ``shutdown`` / rotate, but the leak must be observable
+    instead of silent.
+    """
+    runner = MagicMock()
+    runner.cleanup = AsyncMock(side_effect=OSError("socket not released (test stub)"))
+
+    with caplog.at_level("WARNING", logger="esphome_device_builder._remote_build_lifecycle"):
+        # Must not raise.
+        await RemoteBuildLifecycle._cleanup_runner(runner)
+
+    runner.cleanup.assert_awaited_once()
+    leak_logged = any(
+        rec.levelname == "WARNING" and "cleanup failed" in rec.message and rec.exc_info is not None
+        for rec in caplog.records
+    )
+    assert leak_logged, "expected a WARNING with exc_info when cleanup raises"
+
+
+async def test_is_listener_bound_tracks_runner_and_teardown_is_noop_when_unbound(
+    tmp_path: Path,
+) -> None:
+    """``is_listener_bound`` mirrors the runner slot; teardown no-ops when unbound."""
+    settings = DashboardSettings(config_dir=tmp_path)
+    db = DeviceBuilder(settings)
+    lifecycle = db._remote_build_lifecycle
+
+    assert lifecycle.is_listener_bound is False
+    assert db.is_remote_build_listener_bound is False
+
+    # Teardown with no runner bound is a no-op and never touches mDNS.
+    advertiser = MagicMock()
+    advertiser.refresh = AsyncMock()
+    db._dashboard_advertiser = advertiser
+    await lifecycle._teardown_runner()
+    advertiser.set_pin_sha256.assert_not_called()
+    advertiser.set_remote_build_port.assert_not_called()
+
+    lifecycle._runner = MagicMock()
+    assert lifecycle.is_listener_bound is True
+    assert db.is_remote_build_listener_bound is True
 
 
 async def test_maybe_start_remote_build_site_updates_advertiser_on_success(
