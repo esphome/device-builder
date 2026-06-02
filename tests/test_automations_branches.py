@@ -399,6 +399,20 @@ def test_decompose_condition_combinator_with_children() -> None:
     assert [c.condition_id for c in node.children] == ["switch.is_on", "switch.is_on"]
 
 
+def test_decompose_condition_not_single_child() -> None:
+    """``not`` decomposes a single-mapping body into one child."""
+    node = _decompose_condition({"not": {"switch.is_on": "r"}})
+    assert node.condition_id == "not"
+    assert [c.condition_id for c in node.children] == ["switch.is_on"]
+
+
+def test_decompose_condition_not_with_list() -> None:
+    """``not`` decomposes a condition list into ``children``."""
+    node = _decompose_condition({"not": [{"switch.is_on": "r1"}, {"switch.is_on": "r2"}]})
+    assert node.condition_id == "not"
+    assert [c.condition_id for c in node.children] == ["switch.is_on", "switch.is_on"]
+
+
 def test_decompose_condition_leaf_with_dict_params() -> None:
     """A leaf condition with a mapping value surfaces the keys as params."""
     node = _decompose_condition({"for": {"time": "5s", "condition": {"switch.is_on": "r"}}})
@@ -521,6 +535,32 @@ def test_emit_condition_node_combinator_with_children() -> None:
     )
     assert "and" in out
     assert out["and"] is not None
+
+
+def test_emit_condition_node_not_single_child_collapses() -> None:
+    """A ``not`` with one child collapses to ``{not: <mapping>}``."""
+    out = emit_condition_node(
+        ConditionNode(
+            condition_id="not",
+            children=[ConditionNode(condition_id="switch.is_on", params={"id": "r"})],
+        ),
+    )
+    assert "switch.is_on" in out["not"]
+
+
+def test_emit_condition_node_not_multiple_children_emits_seq() -> None:
+    """A ``not`` with multiple children emits a nested condition sequence."""
+    out = emit_condition_node(
+        ConditionNode(
+            condition_id="not",
+            children=[
+                ConditionNode(condition_id="switch.is_on", params={"id": "r1"}),
+                ConditionNode(condition_id="switch.is_on", params={"id": "r2"}),
+            ],
+        ),
+    )
+    assert isinstance(out["not"], list)
+    assert len(out["not"]) == 2
 
 
 def test_emit_condition_node_bare_condition() -> None:

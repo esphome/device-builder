@@ -4695,6 +4695,13 @@ _AutomationRegistries = dict[str, dict[str, dict]]
 _ACTION_LIST_KEYS: frozenset[str] = frozenset({"then", "else"})
 _CONDITION_GATE_KEYS: frozenset[str] = frozenset({"condition", "all", "any"})
 
+# ESPHome registers ``not`` with ``validate_potentially_and_condition``
+# (a single condition or a list wrapped in an implicit ``and``), so its
+# schema body carries ``registry: condition`` but lacks the ``is_list``
+# flag the other combinators have. Treat it as list-accepting so the
+# editor renders its nested condition tree.
+_LIST_CONDITIONS_WITHOUT_IS_LIST: frozenset[str] = frozenset({"not"})
+
 
 # Pretty labels for the small set of esphome.json ``core`` registry
 # entries — the schema doesn't carry human names for those. Anything
@@ -4927,10 +4934,13 @@ def _convert_automation_condition(
     config_entries, _accepts_action_list, _has_condition_gate = _extract_automation_param_schema(
         schema, schema_dir
     )
+    qualified = f"{top_key}.{name}" if top_key != "core" else name
     # Boolean combinators have ``is_list: true`` + ``registry:
     # condition`` directly on the body, not inside a ``schema``.
-    accepts_condition_list = bool(body.get("is_list") and body.get("registry") == "condition")
-    qualified = f"{top_key}.{name}" if top_key != "core" else name
+    is_condition = body.get("registry") == "condition"
+    accepts_condition_list = is_condition and (
+        bool(body.get("is_list")) or qualified in _LIST_CONDITIONS_WITHOUT_IS_LIST
+    )
     config_entries, scalar_shorthand_key = _resolve_automation_lambda(
         top_key=top_key,
         name=name,

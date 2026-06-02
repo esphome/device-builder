@@ -186,6 +186,29 @@ def test_build_automations_extracts_condition_combinator(tmp_path: Path) -> None
     assert and_cond["domain"] == "core"
 
 
+def test_build_automations_not_accepts_condition_list_without_is_list(tmp_path: Path) -> None:
+    """``not`` is list-accepting even though its schema body lacks ``is_list``."""
+    schema_dir = _write_schema(
+        tmp_path,
+        "esphome.json",
+        {
+            "core": {
+                "action": {},
+                "condition": {
+                    "not": {
+                        "registry": "condition",
+                        "type": "registry",
+                        "docs": "The sub-condition must be false.",
+                    },
+                },
+            },
+        },
+    )
+    result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
+    not_cond = next(c for c in result["conditions"] if c["id"] == "not")
+    assert not_cond["accepts_condition_list"] is True
+
+
 def test_build_automations_extracts_component_trigger_with_nested_params(
     tmp_path: Path,
 ) -> None:

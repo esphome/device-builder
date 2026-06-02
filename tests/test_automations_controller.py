@@ -84,6 +84,9 @@ async def test_get_conditions_returns_full_catalog() -> None:
     ids = {c["id"] for c in result}
     for required in ("and", "or", "not", "lambda", "switch.is_on", "binary_sensor.is_on"):
         assert required in ids, f"{required} missing from condition catalog"
+    by_id = {c["id"]: c for c in result}
+    # ``not`` is a boolean combinator — it must carry a nested condition tree.
+    assert by_id["not"]["accepts_condition_list"] is True
 
 
 async def test_get_light_effects_returns_full_catalog() -> None:
