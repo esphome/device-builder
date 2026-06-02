@@ -234,6 +234,19 @@ class GitRepo:
             )
         return commits
 
+    def latest_content(self, path: Path) -> tuple[str, str] | None:
+        """Return ``(sha, content)`` of the newest commit where *path* existed.
+
+        Used to restore a deleted file without the caller having to
+        know which commit last held it (the deletion commit itself has
+        no content). ``None`` if the path has no recoverable version.
+        """
+        for commit in self.log_file(path):
+            content = self.file_at(path, commit.sha)
+            if content is not None:
+                return commit.sha, content
+        return None
+
     def file_at(self, path: Path, sha: str) -> str | None:
         """Return *path*'s content at commit *sha*, or ``None`` if absent there."""
         if not self.enabled:

@@ -306,6 +306,24 @@ User-defined chips (name + optional `#rrggbb` color) that can be assigned to dev
 
 Renaming or recoloring a label leaves device assignments untouched — devices reference labels by id, not by name. The frontend is expected to subscribe to `subscribe_events`, fetch the catalog once via `labels/list`, then resolve ids → name + color at render time.
 
+### Version History
+
+> Controller: [`VersionHistoryController`](../esphome_device_builder/controllers/version_history/controller.py)
+
+Git-backed history of the config directory. On startup the backend adopts an existing git work tree (covering `/config/esphome` already being a repo, or sitting inside one such as `/config`) or initializes a fresh one. Every dashboard YAML mutation is committed with a descriptive message; edits made outside the dashboard (VS Code, the HA File Editor) are picked up by a debounced, scanner-driven catch-all. Deleting or archiving a config commits the removal so its pre-deletion content stays restorable. The whole feature self-disables when the `git` binary is absent — these commands then return empty lists, and the mutators raise `not_found`.
+
+Commits are pathspec-scoped and never touch the user's git config (commit identity is passed per-invocation), so an automatic commit can't sweep a user's unrelated staged edits into history.
+
+| Command | Args | Response | Description |
+|---------|------|----------|-------------|
+| `version_history/list_versions` | `{configuration}` | `[{sha, short_sha, author, timestamp, message}]` | Commit history for a config, newest first. `[]` when disabled. |
+| `version_history/get_version` | `{configuration, sha}` | `{configuration, sha, content}` | The config's YAML content at a commit. `not_found` if the file didn't exist there. |
+| `version_history/get_diff` | `{configuration, sha}` | `{configuration, sha, diff}` | Unified diff of the config between `sha` and the working copy. |
+| `version_history/list_deleted` | — | `[{configuration}]` | Configs present in history but absent from the working tree (restorable deletions). |
+| `version_history/restore` | `{configuration, sha?}` | `{configuration, restored_from, content}` | Restore a config to `sha` (or its latest surviving version when omitted). Recreates a deleted file; the write goes through the normal persist path, so the device row updates via `device_added` / `device_updated` and the restore is itself committed. |
+
+`sha` is validated as plain hex before reaching git. Reads are transient git queries — like `remote_build/list_hosts`, they're `list_*`-style commands rather than `subscribe_events` state.
+
 ### Remote Build
 
 > Controller: [`RemoteBuildController`](../esphome_device_builder/controllers/remote_build.py)

@@ -13,10 +13,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from ...models import EventType
+from ...helpers.api import CommandError, api_command
+from ...models import ErrorCode, EventType
 from .git_repo import GitRepo
 
 if TYPE_CHECKING:
@@ -25,6 +27,11 @@ if TYPE_CHECKING:
     from ...device_builder import DeviceBuilder
     from ...helpers.event_bus import Event
     from ...models import DeviceEventData
+
+# A commit id from list_versions — full or abbreviated hex. Validated
+# before reaching git so a crafted ``configuration``/``sha`` can't smuggle
+# extra argv into the read commands.
+_SHA_RE = re.compile(r"^[0-9a-fA-F]{4,40}$")
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -104,6 +111,103 @@ class VersionHistoryController:
         """Commit a single config YAML by its dashboard *configuration* name."""
         path = self._db.settings.rel_path(configuration)
         return await self.commit([path], message)
+
+    # ------------------------------------------------------------------
+    # WS commands
+    # ------------------------------------------------------------------
+
+    @api_command("version_history/list_versions")
+    async def list_versions(self, *, configuration: str, **kwargs: Any) -> list[dict[str, Any]]:
+        """Return the commit history for *configuration*, newest first."""
+        if not self._repo.enabled:
+            return []
+        path = self._db.settings.rel_path(configuration)
+        loop = asyncio.get_running_loop()
+        commits = await loop.run_in_executor(None, self._repo.log_file, path)
+        return [
+            {
+                "sha": c.sha,
+                "short_sha": c.short_sha,
+                "author": c.author,
+                "timestamp": c.timestamp,
+                "message": c.message,
+            }
+            for c in commits
+        ]
+
+    @api_command("version_history/get_version")
+    async def get_version(self, *, configuration: str, sha: str, **kwargs: Any) -> dict[str, Any]:
+        """Return *configuration*'s content at commit *sha*."""
+        self._require_enabled()
+        self._validate_sha(sha)
+        path = self._db.settings.rel_path(configuration)
+        loop = asyncio.get_running_loop()
+        content = await loop.run_in_executor(None, self._repo.file_at, path, sha)
+        if content is None:
+            raise CommandError(ErrorCode.NOT_FOUND, f"{configuration} not found at {sha}")
+        return {"configuration": configuration, "sha": sha, "content": content}
+
+    @api_command("version_history/get_diff")
+    async def get_diff(self, *, configuration: str, sha: str, **kwargs: Any) -> dict[str, Any]:
+        """Return a unified diff of *configuration* between *sha* and the working copy."""
+        self._require_enabled()
+        self._validate_sha(sha)
+        path = self._db.settings.rel_path(configuration)
+        loop = asyncio.get_running_loop()
+        diff = await loop.run_in_executor(None, self._repo.diff_file, path, sha)
+        return {"configuration": configuration, "sha": sha, "diff": diff}
+
+    @api_command("version_history/list_deleted")
+    async def list_deleted(self, **kwargs: Any) -> list[dict[str, Any]]:
+        """Return configs that have history but no working-tree copy (restorable)."""
+        if not self._repo.enabled:
+            return []
+        loop = asyncio.get_running_loop()
+        deleted = await loop.run_in_executor(None, self._repo.deleted_files)
+        return [{"configuration": name} for name in deleted]
+
+    @api_command("version_history/restore")
+    async def restore(
+        self, *, configuration: str, sha: str | None = None, **kwargs: Any
+    ) -> dict[str, Any]:
+        """Restore *configuration* to commit *sha* (or its latest version if omitted).
+
+        Recreates a deleted file as well as reverting an edit; the
+        write goes through the normal persist path so the device row
+        updates via events and the restore itself is committed.
+        """
+        self._require_enabled()
+        path = self._db.settings.rel_path(configuration)
+        loop = asyncio.get_running_loop()
+        if sha is not None:
+            self._validate_sha(sha)
+            content = await loop.run_in_executor(None, self._repo.file_at, path, sha)
+            if content is None:
+                raise CommandError(ErrorCode.NOT_FOUND, f"{configuration} not found at {sha}")
+            restored_from = sha
+        else:
+            result = await loop.run_in_executor(None, self._repo.latest_content, path)
+            if result is None:
+                raise CommandError(ErrorCode.NOT_FOUND, f"no history for {configuration}")
+            restored_from, content = result
+        devices = self._db.devices
+        if devices is None:  # pragma: no cover — devices is always up post-start
+            raise CommandError(ErrorCode.INTERNAL_ERROR, "devices controller unavailable")
+        await devices.apply_restored_yaml(configuration, content, restored_from=restored_from[:7])
+        return {"configuration": configuration, "restored_from": restored_from, "content": content}
+
+    def _require_enabled(self) -> None:
+        """Raise if version history isn't available for this config dir."""
+        if not self._repo.enabled:
+            raise CommandError(
+                ErrorCode.NOT_FOUND,
+                "version history is not available for this config directory",
+            )
+
+    def _validate_sha(self, sha: Any) -> None:
+        """Reject anything that isn't a plain hex commit id."""
+        if not isinstance(sha, str) or not _SHA_RE.match(sha):
+            raise CommandError(ErrorCode.INVALID_ARGS, f"invalid commit id: {sha!r}")
 
     # ------------------------------------------------------------------
     # scanner-driven catch-all for external edits

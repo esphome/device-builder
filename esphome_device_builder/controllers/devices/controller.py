@@ -618,6 +618,18 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             )
         await self._persist_yaml_mutation(configuration, content, message=f"Edit {configuration}")
 
+    async def apply_restored_yaml(
+        self, configuration: str, content: str, *, restored_from: str
+    ) -> None:
+        """Write a version-history-restored YAML back to disk and re-scan.
+
+        Recreates the file if it had been deleted; the scanner reload
+        then re-adds the device row through the normal event path.
+        """
+        await self._persist_yaml_mutation(
+            configuration, content, message=f"Restore {configuration} to {restored_from}"
+        )
+
     def _schedule_storage_regenerate(self, configuration: str) -> None:
         storage_regen.schedule(self, configuration)
 

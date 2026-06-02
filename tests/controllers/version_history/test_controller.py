@@ -5,21 +5,33 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
 from esphome_device_builder.controllers.version_history import VersionHistoryController
+from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.event_bus import EventBus
-from esphome_device_builder.models import Device, DeviceEventData, EventType
+from esphome_device_builder.models import Device, DeviceEventData, ErrorCode, EventType
+
+
+def _rel_path(config_dir: Path):
+    def _resolve(configuration: str) -> Path:
+        if "/" in configuration or ".." in configuration:
+            raise CommandError(ErrorCode.INVALID_ARGS, "bad configuration")
+        return config_dir / configuration
+
+    return _resolve
 
 
 def _make_controller(config_dir: Path) -> VersionHistoryController:
     """Build a controller against a stub DeviceBuilder rooted at *config_dir*."""
     db = SimpleNamespace(
         bus=EventBus(),
+        devices=SimpleNamespace(apply_restored_yaml=AsyncMock()),
         settings=SimpleNamespace(
             config_dir=config_dir,
-            rel_path=lambda configuration: config_dir / configuration,
+            rel_path=_rel_path(config_dir),
         ),
     )
     return VersionHistoryController(db)  # type: ignore[arg-type]
@@ -95,6 +107,100 @@ async def test_dashboard_commit_makes_catch_all_a_noop(
     versions = controller._repo.log_file(tmp_path / "kitchen.yaml")
     # Only the dashboard commit — the catch-all found nothing to commit.
     assert [c.message for c in versions] == ["Edit kitchen.yaml via editor"]
+
+
+async def test_list_and_get_version_round_trip(tmp_path: Path) -> None:
+    """list_versions surfaces commits; get_version returns content at a sha."""
+    controller = _make_controller(tmp_path)
+    await controller.start()
+    yaml = tmp_path / "kitchen.yaml"
+    yaml.write_text("v1\n", encoding="utf-8")
+    await controller.record_configuration("kitchen.yaml", "Create kitchen.yaml")
+    yaml.write_text("v2\n", encoding="utf-8")
+    await controller.record_configuration("kitchen.yaml", "Edit kitchen.yaml")
+
+    versions = await controller.list_versions(configuration="kitchen.yaml")
+    assert [v["message"] for v in versions] == ["Edit kitchen.yaml", "Create kitchen.yaml"]
+
+    first_sha = versions[1]["sha"]
+    got = await controller.get_version(configuration="kitchen.yaml", sha=first_sha)
+    assert got["content"] == "v1\n"
+
+
+async def test_get_diff_returns_unified_diff(tmp_path: Path) -> None:
+    """get_diff compares a commit against the working copy."""
+    controller = _make_controller(tmp_path)
+    await controller.start()
+    yaml = tmp_path / "kitchen.yaml"
+    yaml.write_text("v1\n", encoding="utf-8")
+    sha = await controller.record_configuration("kitchen.yaml", "Create kitchen.yaml")
+    yaml.write_text("v2\n", encoding="utf-8")
+
+    result = await controller.get_diff(configuration="kitchen.yaml", sha=sha)
+    assert "-v1" in result["diff"] and "+v2" in result["diff"]
+
+
+async def test_restore_specific_sha_writes_through_devices(tmp_path: Path) -> None:
+    """Restore fetches the old content and writes it via the devices persist path."""
+    controller = _make_controller(tmp_path)
+    await controller.start()
+    yaml = tmp_path / "kitchen.yaml"
+    yaml.write_text("v1\n", encoding="utf-8")
+    sha = await controller.record_configuration("kitchen.yaml", "Create kitchen.yaml")
+    yaml.write_text("v2\n", encoding="utf-8")
+    await controller.record_configuration("kitchen.yaml", "Edit kitchen.yaml")
+
+    result = await controller.restore(configuration="kitchen.yaml", sha=sha)
+
+    assert result["content"] == "v1\n"
+    controller._db.devices.apply_restored_yaml.assert_awaited_once()
+    _, kwargs = controller._db.devices.apply_restored_yaml.call_args
+    assert kwargs["restored_from"] == sha[:7]
+
+
+async def test_restore_deleted_uses_latest_available_version(tmp_path: Path) -> None:
+    """With no sha, a deleted config is restored from its last surviving version."""
+    controller = _make_controller(tmp_path)
+    await controller.start()
+    yaml = tmp_path / "kitchen.yaml"
+    yaml.write_text("final\n", encoding="utf-8")
+    await controller.record_configuration("kitchen.yaml", "Create kitchen.yaml")
+    yaml.unlink()
+    await controller.record_configuration("kitchen.yaml", "Delete kitchen.yaml")
+
+    # It now shows up as deletable and restores its last content.
+    deleted = await controller.list_deleted()
+    assert {"configuration": "kitchen.yaml"} in deleted
+
+    result = await controller.restore(configuration="kitchen.yaml")
+    assert result["content"] == "final\n"
+    args, _ = controller._db.devices.apply_restored_yaml.call_args
+    assert args[0] == "kitchen.yaml"
+    assert args[1] == "final\n"
+
+
+async def test_history_commands_raise_when_disabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With git unavailable, reads return empty and mutators raise NOT_FOUND."""
+    monkeypatch.setattr(shutil, "which", lambda _name: None)
+    controller = _make_controller(tmp_path)
+    await controller.start()
+
+    assert await controller.list_versions(configuration="kitchen.yaml") == []
+    assert await controller.list_deleted() == []
+    with pytest.raises(CommandError) as exc:
+        await controller.restore(configuration="kitchen.yaml", sha="abc1234")
+    assert exc.value.code == ErrorCode.NOT_FOUND
+
+
+async def test_get_version_rejects_bad_sha(tmp_path: Path) -> None:
+    """A non-hex sha is refused before reaching git."""
+    controller = _make_controller(tmp_path)
+    await controller.start()
+    with pytest.raises(CommandError) as exc:
+        await controller.get_version(configuration="kitchen.yaml", sha="; rm -rf /")
+    assert exc.value.code == ErrorCode.INVALID_ARGS
 
 
 async def test_commit_swallows_unexpected_errors(
