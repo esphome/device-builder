@@ -47,8 +47,8 @@ async def test_start_enables_and_commits(tmp_path: Path) -> None:
     sha = await controller.record_configuration("kitchen.yaml", "Create kitchen.yaml")
 
     assert sha
-    versions = controller._repo.log_file(tmp_path / "kitchen.yaml")
-    assert versions[0].message == "Create kitchen.yaml"
+    versions = await controller.list_versions(configuration="kitchen.yaml")
+    assert versions[0]["message"] == "Create kitchen.yaml"
 
 
 async def test_disabled_when_no_git(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -80,8 +80,8 @@ async def test_external_edit_committed_via_scanner_catch_all(
     assert controller._flush_task is not None
     await controller._flush_task
 
-    versions = controller._repo.log_file(tmp_path / "kitchen.yaml")
-    assert [c.message for c in versions] == ["Edit kitchen.yaml"]
+    versions = await controller.list_versions(configuration="kitchen.yaml")
+    assert [v["message"] for v in versions] == ["Edit kitchen.yaml"]
 
 
 async def test_dashboard_commit_makes_catch_all_a_noop(
@@ -104,9 +104,9 @@ async def test_dashboard_commit_makes_catch_all_a_noop(
     assert controller._flush_task is not None
     await controller._flush_task
 
-    versions = controller._repo.log_file(tmp_path / "kitchen.yaml")
+    versions = await controller.list_versions(configuration="kitchen.yaml")
     # Only the dashboard commit — the catch-all found nothing to commit.
-    assert [c.message for c in versions] == ["Edit kitchen.yaml via editor"]
+    assert [v["message"] for v in versions] == ["Edit kitchen.yaml via editor"]
 
 
 async def test_list_and_get_version_round_trip(tmp_path: Path) -> None:
