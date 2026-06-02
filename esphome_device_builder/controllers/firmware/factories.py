@@ -236,20 +236,28 @@ async def _cancel_active_jobs(
     exclude_job_ids: set[str],
     configuration: str | None = None,
 ) -> None:
-    """Cancel active jobs (optionally scoped to *configuration*), swallowing benign races."""
+    """Cancel active jobs (optionally scoped to *configuration*), swallowing benign races.
+
+    A ``RuntimeError`` means cancel couldn't terminate a RUNNING job (state out
+    of sync). Benign for a per-configuration supersede, but for a *global*
+    cancel (``configuration is None``, used by ``reset_build_env``) it means a
+    job is still running that the clean-all wipe would race — so re-raise there
+    rather than wipe over it.
+    """
+    is_global = configuration is None
     to_cancel = [
         j.job_id
         for j in controller.state.active_jobs()
-        if j.job_id not in exclude_job_ids
-        and (configuration is None or j.configuration == configuration)
+        if j.job_id not in exclude_job_ids and (is_global or j.configuration == configuration)
     ]
     for job_id in to_cancel:
         try:
             await controller.cancel(job_id=job_id)
         except (ValueError, RuntimeError):
             # Status flipped under us — the runner finalised the job
-            # mid-iteration, or state is out of sync. Benign here.
-            pass
+            # mid-iteration, or state is out of sync.
+            if is_global:
+                raise
         except CommandError as exc:
             # Already terminal (INVALID_ARGS) or already gone (NOT_FOUND) —
             # e.g. a chain's compile cascade-cancelled its held upload before

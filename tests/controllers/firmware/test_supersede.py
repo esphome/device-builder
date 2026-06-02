@@ -264,3 +264,29 @@ async def test_supersede_swallows_runtime_error_from_cancel(
 
     # Must not raise.
     await factories.supersede_active_jobs(controller, "kitchen.yaml", exclude_job_ids=set())
+
+
+async def test_cancel_all_active_jobs_reraises_runtime_error(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """The global cancel (clean-all) re-raises a RuntimeError from cancel.
+
+    A RuntimeError means a RUNNING job couldn't be terminated; wiping the build
+    tree while it runs would corrupt it, so reset must fail loudly rather than
+    swallow it the way a per-configuration supersede does.
+    """
+    victim = FirmwareJob(
+        job_id="v1",
+        configuration="kitchen.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.RUNNING,
+    )
+    controller = firmware_controller_factory(victim, with_queue=True)
+
+    async def _boom(*, job_id: str) -> None:
+        raise RuntimeError("state out of sync")
+
+    controller.cancel = _boom  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError):
+        await factories.cancel_all_active_jobs(controller, exclude_job_ids=set())
