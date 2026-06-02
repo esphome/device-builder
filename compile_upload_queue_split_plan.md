@@ -3,6 +3,28 @@
 Design note for splitting the firmware job queue so a network-bound
 upload runs concurrently with a CPU-bound compile.
 
+## Status
+
+Implemented and open as **PR #1131** (`firmware-queue-pipeline`, draft,
+`enhancement`). Full unit suite green (4089 passed); lint/format/pre-commit
+clean. CLAUDE.md, `docs/ARCHITECTURE.md`, `docs/API.md`, and the controller
+docstrings are updated. Everything in this note's "Concrete changes" is
+landed, including the unified remote-via-chain path and the receiver
+compile-lane-idle broadcast.
+
+Remaining follow-ups (tracked on the PR, not in scope here):
+- **Parallel remote build servers** — see the new bullet under Scope
+  boundaries; the compile lane is single-worker so multiple receivers run
+  one at a time today.
+- **Per-port/per-device parallel uploads** (Scope boundaries).
+- **DRY + simplification audit** of the diff (e.g. hoist the duplicated
+  `_wire_real_queue` / `_upload_of` test helpers into the firmware
+  conftest); one benign `put_nowait`-on-`AsyncMock` warning in a
+  `test_rename_lock` bulk case.
+- **Companion frontend PR** — install now yields two job rows (compile +
+  dependent upload), two jobs can be RUNNING at once, new
+  `FirmwareJob.depends_on` field.
+
 ## Context
 
 ESPHome org discussion #3702 ("Separate build steps to allow pipelining
@@ -203,6 +225,16 @@ prerequisite COMPLETED).
 - **One upload at a time.** Per-port/per-device parallel uploads (multiple
   concurrent OTA flashes on WiFi/Ethernet) are a documented future seam on
   the upload-lane consumer, not built now.
+- **One compile at a time — multiple remote build servers are NOT used
+  concurrently.** The compile lane is a single worker, and a REMOTE compile
+  occupies it for its whole duration (it awaits the receiver's compile +
+  artifact download). So with N paired servers and N installs, the servers
+  are used one at a time; the scheduler picks one receiver per job
+  (oldest-idle, then oldest-otherwise), it doesn't fan out. **Follow-up:**
+  let the compile lane dispatch multiple *remote* compiles in parallel
+  (bounded by idle receivers) — sound because remote compiles are I/O-bound
+  waits, not local CPU — via a small remote-dispatch pool or a dedicated
+  remote lane keyed on idle receivers. Composes on top of this lane model.
 - **`JobType.INSTALL` is retired for new jobs** (the `firmware/install`
   command now creates a COMPILE + UPLOAD chain) but stays in the enum +
   `cli` mapping so a persisted in-flight INSTALL re-runs as the fused
