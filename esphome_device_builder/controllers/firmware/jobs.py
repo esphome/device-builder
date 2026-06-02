@@ -15,6 +15,7 @@ from ...models import (
     JobLifecycleData,
     JobStatus,
 )
+from . import lifecycle
 from .constants import _ACTIVE_JOB_STATUSES
 from .helpers import _mark_job_terminal
 
@@ -124,6 +125,9 @@ async def cancel(controller: FirmwareController, *, job_id: str) -> None:
         await controller._persist_jobs()
         cancelled_payload: JobLifecycleData = {"job": job}
         controller._db.bus.fire(EventType.JOB_CANCELLED, cancelled_payload)
+        # Cancel anything held on this job (an install's upload waits on its
+        # compile) so a cancelled compile never goes on to flash the device.
+        lifecycle.release_dependents(controller, job)
         return
 
     if job.status == JobStatus.RUNNING:

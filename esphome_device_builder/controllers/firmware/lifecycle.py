@@ -41,7 +41,7 @@ def finalize_terminal(controller: FirmwareController, job: FirmwareJob, status: 
     _release_lane_slot(controller, job)
     payload: JobLifecycleData = {"job": job}
     controller._db.bus.fire(_STATUS_TO_TERMINAL_EVENT[status], payload)
-    _release_dependents(controller, job)
+    release_dependents(controller, job)
 
 
 def _release_lane_slot(controller: FirmwareController, job: FirmwareJob) -> None:
@@ -53,7 +53,7 @@ def _release_lane_slot(controller: FirmwareController, job: FirmwareJob) -> None
             return
 
 
-def _release_dependents(controller: FirmwareController, job: FirmwareJob) -> None:
+def release_dependents(controller: FirmwareController, job: FirmwareJob) -> None:
     """Enqueue jobs held on *job* once it succeeds; cancel them if it didn't.
 
     A chained UPLOAD sits QUEUED but off its lane queue until its prerequisite
