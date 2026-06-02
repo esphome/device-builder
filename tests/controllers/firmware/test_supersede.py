@@ -192,30 +192,23 @@ async def test_resubmit_does_not_cancel_terminal_jobs_for_same_config(
     assert jobs[fresh.job_id].status == JobStatus.QUEUED
 
 
-async def test_supersede_does_not_run_for_empty_configuration(
+async def test_second_reset_build_env_cancels_the_first(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
-    """``reset_build_env`` (empty configuration) skips the supersede path.
+    """A second clean-all cancels the first still-pending reset.
 
-    ``_enqueue`` only runs supersede when ``job.configuration``
-    is truthy. ``reset_build_env`` is the only handler that
-    queues with an empty configuration — without the guard,
-    ``_supersede_active_jobs`` would iterate every job whose
-    configuration matches ``""`` (i.e. only other reset jobs)
-    and cancel them, which is fine in isolation but the guard
-    makes the intent explicit.
-
-    Pin that two consecutive reset_build_env calls don't
-    supersede each other (since both have ``configuration=""``
-    AND the guard skips the call entirely, neither path can
-    cancel the other).
+    ``reset_build_env`` cancels every active job before queueing (the wipe
+    trashes the whole build tree); an earlier queued reset is one of them, so
+    only the latest survives. The cancellation comes from the explicit
+    ``cancel_all_active_jobs`` call, not ``_enqueue``'s supersede — which still
+    skips the empty ``configuration`` reset jobs queue with.
     """
     controller = firmware_controller_factory(with_queue=True)
     first = await controller.reset_build_env()
     second = await controller.reset_build_env()
 
     jobs = {j.job_id: j for j in await controller.get_jobs()}
-    assert jobs[first.job_id].status == JobStatus.QUEUED
+    assert jobs[first.job_id].status == JobStatus.CANCELLED
     assert jobs[second.job_id].status == JobStatus.QUEUED
 
 

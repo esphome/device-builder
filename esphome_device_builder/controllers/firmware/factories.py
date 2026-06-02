@@ -216,11 +216,37 @@ async def supersede_active_jobs(
     Takes a set so an install chain (COMPILE + dependent UPLOAD) can exclude
     both halves and not cancel its own sibling.
     """
+    await _cancel_active_jobs(
+        controller,
+        exclude_job_ids=exclude_job_ids,
+        configuration=configuration,
+    )
+
+
+async def cancel_all_active_jobs(
+    controller: FirmwareController, *, exclude_job_ids: set[str]
+) -> None:
+    """Cancel every queued/running job across all configurations, except *exclude_job_ids*.
+
+    Used by ``reset_build_env`` (clean-all): it wipes the whole build tree, so
+    a compile or upload on either lane must be cancelled first or it races the
+    wipe.
+    """
+    await _cancel_active_jobs(controller, exclude_job_ids=exclude_job_ids)
+
+
+async def _cancel_active_jobs(
+    controller: FirmwareController,
+    *,
+    exclude_job_ids: set[str],
+    configuration: str | None = None,
+) -> None:
+    """Cancel active jobs (optionally scoped to *configuration*), swallowing benign races."""
     to_cancel = [
         j.job_id
         for j in controller.state.jobs.values()
         if j.job_id not in exclude_job_ids
-        and j.configuration == configuration
+        and (configuration is None or j.configuration == configuration)
         and j.status in _ACTIVE_JOB_STATUSES
     ]
     for job_id in to_cancel:

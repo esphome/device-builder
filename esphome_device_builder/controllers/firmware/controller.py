@@ -187,9 +187,13 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         ``~/.platformio/`` tree; the addon / docker images contain
         the blast radius inside the data dir. The next compile
         re-fetches everything from scratch (slow but thorough).
-        Runs through the single-job queue so it can't race a build.
+
+        Cancels every other in-flight job first: the wipe trashes the whole
+        build tree, and with the compile + upload lanes running concurrently a
+        live compile or upload on either lane would otherwise race it.
         """
         job = self._create_job("", JobType.RESET_BUILD_ENV)
+        await factories.cancel_all_active_jobs(self, exclude_job_ids={job.job_id})
         return await self._enqueue(job)
 
     @api_command("firmware/install")
