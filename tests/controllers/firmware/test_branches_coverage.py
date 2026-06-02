@@ -404,3 +404,46 @@ async def test_upload_lane_holds_upload_until_build_gate_clears(
         runner_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await runner_task
+
+
+async def test_upload_lane_skips_an_upload_cancelled_while_held(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """An upload cancelled while held by the build gate is skipped, not flashed."""
+    controller = firmware_controller_factory(with_settings=False)
+    reset = _job("r", "", JobType.RESET_BUILD_ENV, status=JobStatus.RUNNING)
+    held = _job("u1", "kitchen.yaml", JobType.UPLOAD, status=JobStatus.QUEUED)
+    controller.state.jobs[reset.job_id] = reset
+    controller.state.jobs[held.job_id] = held
+    controller.state.upload_lane.queue.put_nowait(held)
+
+    executed: list[str] = []
+    fresh_ran = asyncio.Event()
+
+    async def _spy_execute(job: FirmwareJob, _lane: Lane) -> None:
+        executed.append(job.job_id)
+        if job.job_id == "u2":
+            fresh_ran.set()
+
+    controller._execute_job = _spy_execute  # type: ignore[method-assign]
+
+    runner_task = asyncio.create_task(runner.run_lane(controller, controller.state.upload_lane))
+    try:
+        for _ in range(20):
+            await asyncio.sleep(0)
+        assert executed == []  # held by the active reset
+
+        # Cancel the held upload, finish the reset, queue a fresh upload, wake.
+        held.status = JobStatus.CANCELLED
+        reset.status = JobStatus.COMPLETED
+        fresh = _job("u2", "garage.yaml", JobType.UPLOAD, status=JobStatus.QUEUED)
+        controller.state.jobs[fresh.job_id] = fresh
+        controller.state.upload_lane.queue.put_nowait(fresh)
+        controller.state.build_gate.set()
+
+        await asyncio.wait_for(fresh_ran.wait(), timeout=1.0)
+        assert "u1" not in executed  # the cancelled held upload was skipped
+    finally:
+        runner_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await runner_task
