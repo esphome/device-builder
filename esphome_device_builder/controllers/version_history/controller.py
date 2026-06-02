@@ -106,23 +106,25 @@ class VersionHistoryController:
         await self._flush_pending()
 
     async def commit(self, paths: list[Path], message: str) -> str | None:
-        """Commit *paths* under *message*; best-effort, never raises.
+        """Commit *paths* under *message*; return the sha, or ``None`` for a no-op.
 
-        Returns the new commit sha, or ``None`` when nothing changed
-        for those paths or the feature is disabled. Safe to ``await``
-        from any mutation site — a git failure is swallowed and logged.
+        ``None`` means nothing changed for those paths (or the feature
+        is disabled). A genuine git failure **raises** — the distinction
+        between "nothing to commit" and "the commit failed" is what lets
+        the scanner catch-all warn on a persistently broken recorder.
+        Callers that must not break a user's save (the mutation path)
+        wrap this; see :meth:`DevicesController._commit_history`.
         """
         if not self._repo.enabled or not paths:
             return None
         async with self._lock:
-            try:
-                return await self._in_executor(self._repo.commit_paths, paths, message)
-            except Exception:
-                _LOGGER.exception("Version-history commit failed for %s", message)
-                return None
+            return await self._in_executor(self._repo.commit_paths, paths, message)
 
     async def record_configuration(self, configuration: str, message: str) -> str | None:
-        """Commit a single config YAML by its dashboard *configuration* name."""
+        """Commit a single config YAML by its dashboard *configuration* name.
+
+        Returns the sha (or ``None`` for a no-op); raises on a git failure.
+        """
         path = self._db.settings.rel_path(configuration)
         return await self.commit([path], message)
 
@@ -275,10 +277,10 @@ class VersionHistoryController:
                 try:
                     await self.record_configuration(configuration, message)
                 except Exception:
-                    # A git failure inside commit() is already logged there
-                    # and returns None; this guard isolates the rarer case of
-                    # a bad configuration (rel_path raising) so one bad entry
-                    # can't strand the rest of the batch.
+                    # Reachable on a genuine git failure (record_configuration
+                    # now raises) — this is the only recorder for external
+                    # edits, so warn rather than let it pass silently, and
+                    # keep going so one bad entry can't strand the batch.
                     _LOGGER.warning(
                         "Version-history catch-all failed for %s", configuration, exc_info=True
                     )

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import shutil
+import subprocess
 from contextlib import suppress
 from pathlib import Path
 from types import SimpleNamespace
@@ -416,21 +417,52 @@ async def test_catch_all_flush_survives_a_failing_config(
     assert await controller.list_versions(configuration="good.yaml")
 
 
-async def test_commit_swallows_unexpected_errors(
+async def test_commit_propagates_git_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A blow-up inside the git layer never propagates to the caller."""
+    """commit() raises on a real git error so callers can tell it from a no-op."""
     controller = _make_controller(tmp_path)
     await controller.start()
 
     def _boom(*_args: object, **_kwargs: object) -> None:
         raise RuntimeError("git exploded")
 
-    # An unexpected (non-CalledProcessError) blow-up in the git layer.
     monkeypatch.setattr(
         "esphome_device_builder.controllers.version_history.git_repo.subprocess.run",
         _boom,
     )
     (tmp_path / "kitchen.yaml").write_text("v1\n", encoding="utf-8")
-    # Must return None, not raise — history can't break a save.
-    assert await controller.commit([tmp_path / "kitchen.yaml"], "msg") is None
+    with pytest.raises(RuntimeError):
+        await controller.commit([tmp_path / "kitchen.yaml"], "msg")
+
+
+async def test_catch_all_warns_on_real_commit_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A genuine git failure in the catch-all now reaches the WARNING (not dead code)."""
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.version_history.controller._DEBOUNCE_SECONDS",
+        0.0,
+    )
+    controller = _make_controller(tmp_path)
+    await controller.start()
+    (tmp_path / "kitchen.yaml").write_text("v1\n", encoding="utf-8")
+
+    real_run = subprocess.run
+
+    def _fail_commit(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if "commit" in cmd:
+            raise subprocess.CalledProcessError(1, cmd, stderr="boom")
+        return real_run(cmd, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.version_history.git_repo.subprocess.run",
+        _fail_commit,
+    )
+    device = Device(name="kitchen", friendly_name="Kitchen", configuration="kitchen.yaml")
+    with caplog.at_level(logging.WARNING):
+        controller._db.bus.fire(EventType.DEVICE_UPDATED, DeviceEventData(device=device))
+        assert controller._flush_task is not None
+        await controller._flush_task
+
+    assert any("catch-all failed for kitchen.yaml" in rec.message for rec in caplog.records)

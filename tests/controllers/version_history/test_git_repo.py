@@ -312,10 +312,8 @@ def test_discover_or_init_tolerates_oserror(
 # ---------------------------------------------------------------------------
 
 
-def test_commit_paths_returns_none_on_git_error(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A failing ``git commit`` is swallowed — commit_paths returns None, no raise."""
+def test_commit_paths_raises_on_git_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A failing ``git commit`` raises so the controller can tell it from a no-op."""
     repo = GitRepo(config_dir=tmp_path)
     repo.discover_or_init()
     yaml = tmp_path / "kitchen.yaml"
@@ -332,7 +330,8 @@ def test_commit_paths_returns_none_on_git_error(
         "esphome_device_builder.controllers.version_history.git_repo.subprocess.run",
         _fail_commit,
     )
-    assert repo.commit_paths([yaml], "Create kitchen.yaml") is None
+    with pytest.raises(subprocess.CalledProcessError):
+        repo.commit_paths([yaml], "Create kitchen.yaml")
 
 
 def test_file_at_returns_none_for_unknown_commit(tmp_path: Path) -> None:

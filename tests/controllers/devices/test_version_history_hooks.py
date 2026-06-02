@@ -33,6 +33,20 @@ async def test_disabled_version_history_is_a_noop(
     assert (tmp_path / "kitchen.yaml").read_text() == "esphome:\n  name: k\n"
 
 
+async def test_commit_failure_does_not_break_the_save(
+    make_controller: MakeControllerFactory, tmp_path: Path
+) -> None:
+    """A version-history commit error is swallowed — the save still lands on disk."""
+    controller = make_controller(tmp_path)
+    record = AsyncMock(side_effect=RuntimeError("git exploded"))
+    controller._db.version_history = type("VH", (), {"record_configuration": record})()
+
+    await controller.update_config(configuration="kitchen.yaml", content="esphome:\n  name: k\n")
+
+    record.assert_awaited_once()
+    assert (tmp_path / "kitchen.yaml").read_text() == "esphome:\n  name: k\n"
+
+
 def _attach_recorder(controller: object) -> AsyncMock:
     """Attach a recordable version_history stub; return its record mock."""
     record = AsyncMock(return_value="sha")

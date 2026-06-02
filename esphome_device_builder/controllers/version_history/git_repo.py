@@ -252,25 +252,20 @@ class GitRepo:
         """Stage and commit exactly *paths*; return the new sha or ``None``.
 
         ``None`` means nothing changed for those paths (or the feature
-        is disabled). The commit is pathspec-scoped, so the user's
-        unrelated staged changes are never folded in. Picks up
+        is disabled). A genuine git error raises ``CalledProcessError``
+        rather than being swallowed, so the controller can tell a no-op
+        from a failure. The commit is pathspec-scoped, so the user's
+        unrelated staged changes are never folded in, and picks up
         creations, edits, and deletions uniformly (``git add -A``).
         """
         if not self.enabled or not paths:
             return None
         spec = [str(p) for p in paths]
-        try:
-            self._run(["add", "-A", "--", *spec], check=True)
-            staged = self._run(
-                ["diff", "--cached", "--quiet", "--", *spec],
-                check=False,
-            )
-            if staged.returncode == 0:
-                return None  # nothing staged for these paths
-            self._run(self._commit_argv(message, tuple(spec)), check=True)
-        except subprocess.CalledProcessError as exc:
-            _LOGGER.warning("git commit failed for %s: %s", message, exc.stderr or exc)
-            return None
+        self._run(["add", "-A", "--", *spec], check=True)
+        staged = self._run(["diff", "--cached", "--quiet", "--", *spec], check=False)
+        if staged.returncode == 0:
+            return None  # nothing staged for these paths
+        self._run(self._commit_argv(message, tuple(spec)), check=True)
         head = self._run(["rev-parse", "HEAD"], check=False)
         return head.stdout.strip() if head.returncode == 0 else None
 

@@ -834,10 +834,20 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         self._schedule_storage_regenerate(configuration)
 
     async def _commit_history(self, configuration: str, message: str) -> None:
-        """Record *configuration* in version history; no-op when disabled."""
+        """Record *configuration* in version history; best-effort, never raises.
+
+        This is the boundary that keeps a git failure from breaking a
+        user's save: ``record_configuration`` raises on a genuine git
+        error, and we swallow + log it here. The cost is a recoverable
+        history gap for this one save, never a lost save.
+        """
         version_history = self._db.version_history
-        if version_history is not None:
+        if version_history is None:
+            return
+        try:
             await version_history.record_configuration(configuration, message)
+        except Exception:
+            _LOGGER.exception("Version-history commit failed for %s", configuration)
 
     @staticmethod
     async def _read_yaml_async(path: Path) -> str:
