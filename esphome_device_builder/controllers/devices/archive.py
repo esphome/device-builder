@@ -69,6 +69,9 @@ async def archive_single(controller: DevicesController, configuration: str) -> N
     # Identity fields (board_id / friendly_name / comment / labels)
     # survive so unarchive restores user-visible state.
     await controller._clear_volatile_device_metadata(configuration)
+    # The active YAML left the config dir; record it as a removal so
+    # the pre-archive content is restorable from history.
+    await controller._commit_history(configuration, f"Archive {configuration}")
 
 
 async def unarchive_single(controller: DevicesController, configuration: str) -> None:
@@ -182,6 +185,9 @@ async def delete_single(controller: DevicesController, configuration: str) -> No
 
     await loop.run_in_executor(None, _delete_all)
     await controller._delete_device_metadata(configuration)
+    # Record the removal in git so the YAML stays restorable from
+    # history even though its (regenerable) build artifacts are gone.
+    await controller._commit_history(configuration, f"Delete {configuration}")
 
 
 async def run_bulk_per_device(

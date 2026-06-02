@@ -31,3 +31,36 @@ async def test_disabled_version_history_is_a_noop(
     await controller.update_config(configuration="kitchen.yaml", content="esphome:\n  name: k\n")
 
     assert (tmp_path / "kitchen.yaml").read_text() == "esphome:\n  name: k\n"
+
+
+def _attach_recorder(controller: object) -> AsyncMock:
+    """Attach a recordable version_history stub; return its record mock."""
+    record = AsyncMock(return_value="sha")
+    controller._db.version_history = type("VH", (), {"record_configuration": record})()  # type: ignore[attr-defined]
+    return record
+
+
+async def test_delete_records_removal(
+    make_controller: MakeControllerFactory, tmp_path: Path
+) -> None:
+    """``_delete_single`` records a "Delete <file>" commit so it stays restorable."""
+    controller = make_controller(tmp_path)
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: k\n", encoding="utf-8")
+    record = _attach_recorder(controller)
+
+    await controller._delete_single("kitchen.yaml")
+
+    record.assert_awaited_once_with("kitchen.yaml", "Delete kitchen.yaml")
+
+
+async def test_archive_records_removal(
+    make_controller: MakeControllerFactory, tmp_path: Path
+) -> None:
+    """``_archive_single`` records an "Archive <file>" commit."""
+    controller = make_controller(tmp_path)
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: k\n", encoding="utf-8")
+    record = _attach_recorder(controller)
+
+    await controller._archive_single("kitchen.yaml")
+
+    record.assert_awaited_once_with("kitchen.yaml", "Archive kitchen.yaml")
