@@ -345,3 +345,62 @@ def test_prune_history_keeps_compile_and_upload_for_same_configuration(
     controller._prune_history()
 
     assert set(controller.state.jobs.keys()) == {"c", "u"}
+
+
+async def test_upload_blocked_by_active_reset_or_same_config_clean(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """An UPLOAD is gated while a reset (any) or a same-config clean is active."""
+    controller = firmware_controller_factory(with_settings=False)
+    upload = _job("u", "kitchen.yaml", JobType.UPLOAD, status=JobStatus.QUEUED)
+    assert controller.state.upload_blocked(upload) is False
+
+    reset = _job("r", "", JobType.RESET_BUILD_ENV, status=JobStatus.RUNNING)
+    controller.state.jobs[reset.job_id] = reset
+    assert controller.state.upload_blocked(upload) is True
+    reset.status = JobStatus.COMPLETED  # terminal — no longer blocks
+    assert controller.state.upload_blocked(upload) is False
+
+    same = _job("c1", "kitchen.yaml", JobType.CLEAN, status=JobStatus.QUEUED)
+    other = _job("c2", "garage.yaml", JobType.CLEAN, status=JobStatus.RUNNING)
+    controller.state.jobs[same.job_id] = same
+    controller.state.jobs[other.job_id] = other
+    assert controller.state.upload_blocked(upload) is True  # same-config clean blocks
+    same.status = JobStatus.CANCELLED
+    assert controller.state.upload_blocked(upload) is False  # only other-config clean left
+    # A compile is never gated — compile-lane ops serialize behind the clean/reset.
+    compile_job = _job("c", "kitchen.yaml", JobType.COMPILE, status=JobStatus.QUEUED)
+    assert controller.state.upload_blocked(compile_job) is False
+
+
+async def test_upload_lane_holds_upload_until_build_gate_clears(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """The upload lane holds an upload while a reset is active, then runs it once cleared."""
+    controller = firmware_controller_factory(with_settings=False)
+    reset = _job("r", "", JobType.RESET_BUILD_ENV, status=JobStatus.RUNNING)
+    upload = _job("u", "kitchen.yaml", JobType.UPLOAD, status=JobStatus.QUEUED)
+    controller.state.jobs[reset.job_id] = reset
+    controller.state.jobs[upload.job_id] = upload
+    controller.state.upload_lane.queue.put_nowait(upload)
+
+    executed = asyncio.Event()
+
+    async def _spy_execute(_job: FirmwareJob, _lane: Lane) -> None:
+        executed.set()
+
+    controller._execute_job = _spy_execute  # type: ignore[method-assign]
+
+    runner_task = asyncio.create_task(runner.run_lane(controller, controller.state.upload_lane))
+    try:
+        for _ in range(20):
+            await asyncio.sleep(0)
+        assert not executed.is_set()  # held by the active reset
+
+        reset.status = JobStatus.COMPLETED
+        controller.state.build_gate.set()
+        await asyncio.wait_for(executed.wait(), timeout=1.0)  # released, now runs
+    finally:
+        runner_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await runner_task

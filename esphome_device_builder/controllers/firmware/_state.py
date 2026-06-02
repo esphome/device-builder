@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 
 from ...models import FirmwareJob, JobStatus, JobType
+from .constants import _ACTIVE_JOB_STATUSES
 
 
 @dataclass
@@ -55,6 +57,10 @@ class FirmwareState:
     # SIGTERM instead and doesn't register here.
     cancel_events: dict[str, asyncio.Event] = field(default_factory=dict)
 
+    # Set on every job terminal to wake the upload lane's build-tree gate
+    # (see ``upload_blocked`` / ``runner._await_build_gate``).
+    build_gate: asyncio.Event = field(default_factory=asyncio.Event)
+
     def lane_for(self, job: FirmwareJob) -> Lane:
         """Return the lane *job* runs on: UPLOAD on the network lane, else the compile lane."""
         return self.upload_lane if job.job_type is JobType.UPLOAD else self.compile_lane
@@ -63,9 +69,30 @@ class FirmwareState:
         """Put *job* onto the lane its type maps to, ready for that lane's consumer."""
         self.lane_for(job).queue.put_nowait(job)
 
+    def active_jobs(self) -> Iterator[FirmwareJob]:
+        """Yield the queued or running jobs (skips terminal history)."""
+        return (j for j in self.jobs.values() if j.status in _ACTIVE_JOB_STATUSES)
+
     def dependency_satisfied(self, job: FirmwareJob) -> bool:
         """Return whether *job* has no prerequisite, or its prerequisite has completed."""
         if not job.depends_on:
             return True
         prereq = self.jobs.get(job.depends_on)
         return prereq is not None and prereq.status is JobStatus.COMPLETED
+
+    def upload_blocked(self, job: FirmwareJob) -> bool:
+        """Whether an UPLOAD must wait for an in-flight clean/reset to finish first.
+
+        A clean/reset rmtree's build artifacts that ``esphome upload`` reads;
+        since they run on separate lanes, an unguarded upload could flash a
+        truncated binary mid-wipe. RESET_BUILD_ENV (whole tree) blocks every
+        upload; a CLEAN blocks only its own configuration's upload.
+        """
+        if job.job_type is not JobType.UPLOAD:
+            return False
+        for other in self.active_jobs():
+            if other.job_type is JobType.RESET_BUILD_ENV:
+                return True
+            if other.job_type is JobType.CLEAN and other.configuration == job.configuration:
+                return True
+        return False

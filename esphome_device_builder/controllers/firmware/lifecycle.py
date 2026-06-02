@@ -42,6 +42,8 @@ def finalize_terminal(controller: FirmwareController, job: FirmwareJob, status: 
     payload: JobLifecycleData = {"job": job}
     controller._db.bus.fire(_STATUS_TO_TERMINAL_EVENT[status], payload)
     release_dependents(controller, job)
+    # Wake an upload lane held behind a now-finished clean/reset (build gate).
+    controller.state.build_gate.set()
 
 
 def _release_lane_slot(controller: FirmwareController, job: FirmwareJob) -> None:

@@ -18,7 +18,6 @@ from ...models import (
     JobSource,
     JobType,
 )
-from .constants import _ACTIVE_JOB_STATUSES
 from .helpers import _names_touched_by_job
 
 if TYPE_CHECKING:
@@ -187,10 +186,8 @@ def check_rename_lock(controller: FirmwareController, job: FirmwareJob) -> None:
     new_touches = _names_touched_by_job(job)
     if not new_touches:
         return
-    for active in controller.state.jobs.values():
+    for active in controller.state.active_jobs():
         if active.job_type != JobType.RENAME:
-            continue
-        if active.status not in _ACTIVE_JOB_STATUSES:
             continue
         # Same-old-config rename retry: let supersede do its thing.
         if job.job_type == JobType.RENAME and job.configuration == active.configuration:
@@ -242,10 +239,9 @@ async def _cancel_active_jobs(
     """Cancel active jobs (optionally scoped to *configuration*), swallowing benign races."""
     to_cancel = [
         j.job_id
-        for j in controller.state.jobs.values()
+        for j in controller.state.active_jobs()
         if j.job_id not in exclude_job_ids
         and (configuration is None or j.configuration == configuration)
-        and j.status in _ACTIVE_JOB_STATUSES
     ]
     for job_id in to_cancel:
         try:

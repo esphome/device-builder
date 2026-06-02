@@ -132,6 +132,8 @@ async def cancel(controller: FirmwareController, *, job_id: str) -> None:
         if lifecycle.release_dependents(controller, job):
             controller._prune_history()
             await controller._persist_jobs()
+        # Wake an upload lane held behind this job if it was a clean/reset.
+        controller.state.build_gate.set()
         return
 
     if job.status == JobStatus.RUNNING:

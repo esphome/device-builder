@@ -40,7 +40,26 @@ async def run_lane(controller: FirmwareController, lane: Lane) -> None:
         job = await lane.queue.get()
         if job.status == JobStatus.CANCELLED:
             continue
+        await _await_build_gate(controller, job)
+        if job.status == JobStatus.CANCELLED:
+            continue
         await controller._execute_job(job, lane)
+
+
+async def _await_build_gate(controller: FirmwareController, job: FirmwareJob) -> None:
+    """Hold an UPLOAD until any in-flight clean/reset that could wipe its build dir clears.
+
+    Clear-then-check-then-wait so a terminal that fires between the check and
+    the wait can't be missed (the upload lane is the only waiter). Every job
+    terminal sets ``build_gate``; we re-check ``upload_blocked`` on each wake.
+    """
+    if job.job_type is not JobType.UPLOAD:
+        return
+    while True:
+        controller.state.build_gate.clear()
+        if job.status == JobStatus.CANCELLED or not controller.state.upload_blocked(job):
+            return
+        await controller.state.build_gate.wait()
 
 
 async def execute_job(  # noqa: PLR0912, PLR0915, C901
