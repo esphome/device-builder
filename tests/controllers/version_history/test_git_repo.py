@@ -135,6 +135,30 @@ def test_init_seed_never_commits_keys_or_state(tmp_path: Path) -> None:
         assert name not in tracked, f"{name} must not be committed"
 
 
+def test_init_seed_is_yaml_only_not_logs_or_binaries(tmp_path: Path) -> None:
+    """The seed captures YAML configs but never large non-config files.
+
+    A config dir often also holds logs / databases / media; ``git add -A``
+    would bake those into history forever. The seed is YAML-scoped instead.
+    """
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    (tmp_path / "home-assistant.log").write_text("X" * 5_000_000, encoding="utf-8")
+    (tmp_path / "home-assistant_v2.db").write_bytes(b"\x00" * 1024)
+    (tmp_path / "secrets.yaml").write_text("wifi_password: hunter2\n", encoding="utf-8")
+    (tmp_path / "snapshot.jpg").write_bytes(b"\xff\xd8\xff")
+
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+
+    tracked = _git(tmp_path, "ls-files").split()
+    assert "kitchen.yaml" in tracked
+    assert ".gitignore" in tracked
+    assert "home-assistant.log" not in tracked
+    assert "home-assistant_v2.db" not in tracked
+    assert "snapshot.jpg" not in tracked
+    assert "secrets.yaml" not in tracked  # credentials stay out of history
+
+
 def test_adopt_writes_local_excludes_for_state(tmp_path: Path) -> None:
     """Adopting a repo installs local excludes so our key can't be staged later."""
     _make_repo(tmp_path)  # pre-existing repo, no device-builder ignores

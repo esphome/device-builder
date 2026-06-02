@@ -58,6 +58,14 @@ _MANAGED_EXCLUDES = (
 _EXCLUDE_MARKER = "# >>> ESPHome Device Builder (managed) >>>"
 _EXCLUDE_END = "# <<< ESPHome Device Builder (managed) <<<"
 
+# YAMLs the seed must never capture: the user's secrets, and the
+# dashboard's CORE sentinel (see controllers/config/settings.py).
+_SECRETS_FILENAME = "secrets.yaml"
+_SENTINEL_FILENAME = "___DASHBOARD_SENTINEL___.yaml"
+
+# Glob patterns for the YAML configs this feature versions.
+_YAML_GLOBS = ("*.yaml", "*.yml")
+
 # Written only when *we* create the repo and no ``.gitignore`` exists; a
 # pre-existing one is left untouched (the local exclude is what actually
 # protects the secrets above). ``secrets.yaml`` is ignored here — not in
@@ -135,26 +143,43 @@ class GitRepo:
         return Path(root) if root else None
 
     def _init_repo(self) -> None:
-        """Create a fresh repo in ``config_dir`` and seed the initial snapshot.
+        """Create a fresh repo in ``config_dir`` and seed the existing configs.
 
-        Because the repo is brand new there's no user work-in-progress
-        to protect, so the seed commit stages everything not ignored
-        (the existing configs) — giving each device a first version in
-        history immediately rather than only once it's first edited.
+        Seeds only the top-level YAML configs (plus our ``.gitignore``) —
+        the same unit the dashboard versions — so each device starts with
+        a first version in history immediately. Deliberately **not**
+        ``git add -A``: the config dir may also hold large non-config
+        files (logs, databases, media) that have no business in git
+        history, and git history is forever.
         """
         self._run(["init", str(self.config_dir)], cwd=self.config_dir, check=True)
         self.toplevel = self.config_dir
         self.enabled = True
-        # Local excludes BEFORE the seed ``git add -A`` so our identity
-        # key / machine state / OS noise can never land in the snapshot,
-        # even when the dir already had a (stock or foreign) ``.gitignore``
-        # that doesn't cover them.
         self._ensure_local_excludes()
         gitignore = self.config_dir / ".gitignore"
         if not gitignore.exists():
             gitignore.write_text(_DEFAULT_GITIGNORE, encoding="utf-8")
-        self._run(["add", "-A"], check=False)
+        # ``.gitignore`` always exists here (just written or pre-existing),
+        # so the seed is never empty.
+        self._run(["add", "--", *self._seed_paths()], check=False)
         self._commit_index("Initialize version history")
+
+    def _seed_paths(self) -> list[str]:
+        """Top-level YAML configs (+ our ``.gitignore``) to stage on first init.
+
+        Top-level only and YAML-only by design: matches the dashboard's
+        unit of versioning and keeps logs / databases / images out of
+        history. ``secrets.yaml`` is left out — credentials don't belong
+        in a repo that may later be pushed to a remote.
+        """
+        names = [".gitignore"]
+        for pattern in _YAML_GLOBS:
+            names += [
+                path.name
+                for path in sorted(self.config_dir.glob(pattern))
+                if path.name not in (_SECRETS_FILENAME, _SENTINEL_FILENAME)
+            ]
+        return [name for name in names if (self.config_dir / name).exists()]
 
     def _ensure_local_excludes(self) -> None:
         """Append our managed patterns to ``.git/info/exclude`` (idempotent).
