@@ -264,3 +264,22 @@ def test_remote_runner_terminal_helpers_release_slot_before_fire(
         assert job.error == "remote build: boom"
     else:
         assert job.error is None
+
+
+def test_compile_queue_status_ignores_a_busy_upload_lane() -> None:
+    """A receiver uploading still advertises compile-lane idle to offloaders.
+
+    The aggregate snapshot reports busy while either lane runs, but the
+    offloader keys on ``compile_queue_status`` precisely so an upload in
+    flight doesn't read as a fully-loaded receiver (the frozen-running
+    silent-LOCAL-fallback bug).
+    """
+    controller = _make_controller()
+    controller.state.upload_lane.current_job = _job("uploading")
+
+    assert controller.queue_status_snapshot().running is True
+
+    compile_status = controller.compile_queue_status()
+    assert compile_status.idle is True
+    assert compile_status.running is False
+    assert compile_status.queue_depth == 0

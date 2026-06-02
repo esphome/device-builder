@@ -62,7 +62,6 @@ from __future__ import annotations
 import asyncio
 import sys
 from contextlib import suppress
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -80,6 +79,9 @@ from tests.controllers.firmware.conftest import (
 )
 from tests.controllers.firmware.conftest import (
     upload_of as _upload_of,
+)
+from tests.controllers.firmware.conftest import (
+    wire_devices as _wire_devices,
 )
 from tests.controllers.firmware.conftest import (
     wire_real_queue as _wire_real_queue,
@@ -127,31 +129,6 @@ _BUILD_SCRIPT_OK = "import sys\nsys.exit(0)\n"
 # the runner wires it in via ``_esphome_cmd`` so we use the same
 # script. ``--no-logs`` is passed by ``_build_command`` so the
 # script doesn't need to handle anything special.
-
-
-@dataclass
-class _StubDevices:
-    """Narrow ``DevicesController`` stand-in.
-
-    ``_verify_chip`` no longer reads from the devices controller —
-    chip variant comes from ``StorageJSON`` directly — but the
-    runner's ``_build_cache_args`` still calls
-    ``get_address_cache_args`` / ``get_ota_address_cache_args`` on
-    the install/upload/rename paths. Returning ``[]`` for both
-    keeps the build command shape minimal — orthogonal to the
-    chip-id branches these tests exercise.
-    """
-
-    def get_address_cache_args(self, _configuration: str) -> list[str]:
-        return []
-
-    def get_ota_address_cache_args(self, _configuration: str, _port: str) -> list[str]:
-        return []
-
-
-def _wire_devices(controller: FirmwareController) -> None:
-    """Attach a no-op ``DevicesController`` stub for ``_build_cache_args``."""
-    controller._db.devices = _StubDevices()  # type: ignore[attr-defined]
 
 
 def _is_esptool_spawn(args: tuple[Any, ...]) -> bool:

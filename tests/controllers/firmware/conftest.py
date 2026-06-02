@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable, Iterator
 from contextlib import suppress
+from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol
@@ -392,6 +393,27 @@ def upload_of(controller: FirmwareController, compile_job: FirmwareJob) -> Firmw
         for j in controller.state.jobs.values()
         if j.job_type is JobType.UPLOAD and j.depends_on == compile_job.job_id
     )
+
+
+@dataclass
+class StubDevices:
+    """Narrow ``DevicesController`` stand-in returning empty cache args.
+
+    The runner's ``_build_cache_args`` calls ``get_address_cache_args`` /
+    ``get_ota_address_cache_args`` on the install / upload / rename paths;
+    returning ``[]`` keeps the build command shape minimal.
+    """
+
+    def get_address_cache_args(self, _configuration: str) -> list[str]:
+        return []
+
+    def get_ota_address_cache_args(self, _configuration: str, _port: str) -> list[str]:
+        return []
+
+
+def wire_devices(controller: FirmwareController) -> None:
+    """Attach a no-op ``DevicesController`` stub for ``_build_cache_args``."""
+    controller._db.devices = StubDevices()  # type: ignore[attr-defined]
 
 
 async def run_until_terminal(
