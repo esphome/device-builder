@@ -15,13 +15,10 @@ round-trips deterministic. Lambdas render as ruamel
 
 from __future__ import annotations
 
-import re
-
 from ...helpers.api import CommandError
 from ...helpers.yaml import (
     _splice_into_domain_block,
     remove_inline_handler,
-    synthetic_instance_index,
     upsert_inline_handler,
 )
 from ...models.api import ErrorCode
@@ -43,7 +40,7 @@ from .emitter import (
     render_script_item,
     render_trigger_handler,
 )
-from .parsing import make_yaml
+from .parsing import make_yaml, resolve_component_domain
 from .writing_lists import (
     delete_light_effect,
     delete_list_entry,
@@ -580,44 +577,17 @@ def _component_domain_from_yaml(
     the writer then fails with "instance id='relay' not found
     under 'fan'".
 
-    Walk the YAML and find the top-level key whose subtree contains
-    ``id: <component_id>``. That's the domain the user actually
-    configured. Falls back to the catalog guess when the id can't
-    be located in the YAML (which also means the upsert won't find
-    a splice destination — the user will see a clearer
-    "id not found" error from ``upsert_inline_handler``).
+    Resolve structurally against the parsed config — id-less and flat
+    singletons included — so only a declared instance id matches, never
+    an action *reference* to that id nested in another component's
+    handler. Falls back to the catalog guess when the id can't be
+    located (which also means the upsert won't find a splice
+    destination — the user gets a clearer "id not found" error from
+    ``upsert_inline_handler``).
     """
-    target_id = location.component_id
-    id_re = re.compile(
-        r"^\s+(?:-\s+)?id:\s*[\"']?(\S+?)[\"']?\s*(?:#.*)?$",
-    )
-    top_re = re.compile(r"^([a-zA-Z_][\w]*)\s*:")
-    current_domain: str | None = None
-    top_level_domains: list[str] = []
-    for line in yaml_text.splitlines():
-        if line and not line[0].isspace():
-            m = top_re.match(line)
-            current_domain = m.group(1) if m else None
-            if current_domain is not None:
-                top_level_domains.append(current_domain)
-            continue
-        if current_domain is None:
-            continue
-        m = id_re.match(line)
-        if m and m.group(1) == target_id:
-            return current_domain
-    # No literal ``id:`` match — the parser labels id-less instances
-    # ``<domain>_<idx>``, so recover the domain from that prefix before
-    # falling back to the ambiguous catalog guess.
-    for domain in top_level_domains:
-        if synthetic_instance_index(domain, target_id) is not None:
-            return domain
-    # An id-less flat singleton (``sun:`` / ``mqtt:``) is keyed by the
-    # domain name itself; recover it before the catalog guess, which
-    # mis-attributes a shared trigger key (``mqtt.on_connect`` vs
-    # ``wifi.on_connect``).
-    if target_id in top_level_domains:
-        return target_id
+    domain = resolve_component_domain(yaml_text, location.component_id)
+    if domain is not None:
+        return domain
     return _component_domain(location)
 
 

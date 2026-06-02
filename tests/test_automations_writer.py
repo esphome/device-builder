@@ -1174,6 +1174,44 @@ def test_upsert_component_on_resolves_domain_from_yaml_when_trigger_key_is_ambig
     assert "fan:" not in new_text
 
 
+def test_upsert_component_on_ignores_action_reference_to_target_id() -> None:
+    """An earlier handler that *references* the id must not steal the domain.
+
+    A shared trigger key (``on_turn_on``) plus a decoy ``id: relay``
+    reference nested in an earlier component's action body used to make
+    the writer attribute ``relay`` to the decoy's domain (``light``)
+    and fail with "instance id='relay' not found under 'light'". Only
+    the declared ``switch`` instance owns the id.
+    """
+    text = (
+        "light:\n"
+        "  - platform: binary\n"
+        "    id: lamp\n"
+        "    output: out\n"
+        "    on_turn_on:\n"
+        "      then:\n"
+        "        - switch.turn_off:\n"
+        "            id: relay\n"
+        "switch:\n"
+        "  - platform: gpio\n"
+        "    id: relay\n"
+        "    pin: GPIO5\n"
+    )
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id="switch.on_turn_on",
+            actions=[ActionNode(action_id="delay", params={"seconds": "1"})],
+        ),
+        location=ComponentOnLocation(component_id="relay", trigger="on_turn_on"),
+    )
+    # The new handler landed under the switch instance, beside its
+    # existing pin — the light block's decoy reference is untouched.
+    switch_block = new_text.split("switch:", 1)[1]
+    assert "on_turn_on:" in switch_block
+    assert "pin: GPIO5" in switch_block
+
+
 def test_delete_component_on_missing_instance_raises_not_found() -> None:
     """Deleting on_press on an instance id that doesn't exist raises NOT_FOUND."""
     text = "binary_sensor:\n  - platform: gpio\n    id: btn\n    pin: GPIO0\n"
