@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 from ...helpers.api import CommandError, api_command
 from ...models import ErrorCode, EventType
-from .git_repo import GitRepo
+from .git_repo import GIT_COMMIT_ERRORS, GitRepo
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -275,11 +275,11 @@ class VersionHistoryController:
             for configuration, message in pending.items():
                 try:
                     await self.record_configuration(configuration, message)
-                except Exception:
-                    # Reachable on a genuine git failure (record_configuration
-                    # now raises) — this is the only recorder for external
-                    # edits, so warn rather than let it pass silently, and
-                    # keep going so one bad entry can't strand the batch.
+                except GIT_COMMIT_ERRORS:
+                    # A genuine git failure for one entry: warn and keep
+                    # going so it can't strand the batch. A programming bug
+                    # is *not* caught — it propagates to the task's
+                    # done-callback rather than being masked here.
                     _LOGGER.warning(
                         "Version-history catch-all failed for %s", configuration, exc_info=True
                     )

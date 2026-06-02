@@ -3,5 +3,6 @@
 from __future__ import annotations
 
 from .controller import VersionHistoryController
+from .git_repo import GIT_COMMIT_ERRORS
 
-__all__ = ["VersionHistoryController"]
+__all__ = ["GIT_COMMIT_ERRORS", "VersionHistoryController"]

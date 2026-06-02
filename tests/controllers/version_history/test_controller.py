@@ -402,7 +402,7 @@ async def test_get_version_unknown_sha_raises_not_found(tmp_path: Path) -> None:
 async def test_catch_all_flush_survives_a_failing_config(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """One config that fails to commit doesn't strand the rest of the flush batch."""
+    """A git failure on one config doesn't strand the rest of the flush batch."""
     monkeypatch.setattr(
         "esphome_device_builder.controllers.version_history.controller._DEBOUNCE_SECONDS",
         0.0,
@@ -415,7 +415,7 @@ async def test_catch_all_flush_survives_a_failing_config(
 
     async def _maybe_fail(configuration: str, message: str) -> str | None:
         if configuration == "bad.yaml":
-            raise RuntimeError("boom")
+            raise subprocess.CalledProcessError(1, "git commit")
         return await original(configuration, message)
 
     monkeypatch.setattr(controller, "record_configuration", _maybe_fail)
@@ -425,8 +425,36 @@ async def test_catch_all_flush_survives_a_failing_config(
     assert controller._flush_task is not None
     await controller._flush_task
 
-    # The good config still committed despite bad.yaml raising.
+    # The good config still committed despite bad.yaml's git failure.
     assert await controller.list_versions(configuration="good.yaml")
+
+
+async def test_catch_all_programming_bug_propagates_to_done_callback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A non-git bug in the catch-all isn't masked — it reaches the done-callback."""
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.version_history.controller._DEBOUNCE_SECONDS",
+        0.0,
+    )
+    controller = _make_controller(tmp_path)
+    await controller.start()
+
+    async def _bug(_configuration: str, _message: str) -> str | None:
+        raise AttributeError("real bug")
+
+    monkeypatch.setattr(controller, "record_configuration", _bug)
+    device = Device(name="kitchen", friendly_name="Kitchen", configuration="kitchen.yaml")
+    with caplog.at_level(logging.WARNING):
+        controller._db.bus.fire(EventType.DEVICE_UPDATED, DeviceEventData(device=device))
+        task = controller._flush_task
+        assert task is not None
+        with suppress(AttributeError):
+            await task
+        await asyncio.sleep(0)  # let the done-callback run
+
+    # Surfaced as a task failure, not swallowed as a routine "catch-all failed".
+    assert any("flush task failed" in rec.message for rec in caplog.records)
 
 
 async def test_commit_propagates_git_failure(

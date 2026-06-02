@@ -32,6 +32,12 @@ from pathlib import Path
 
 _LOGGER = logging.getLogger(__name__)
 
+# Errors a commit attempt raises for genuine git / environment reasons
+# (a failed ``git`` invocation, the binary vanishing) as opposed to a
+# programming bug. Callers swallow these as best-effort and let anything
+# else propagate so real bugs surface instead of being mislabelled.
+GIT_COMMIT_ERRORS: tuple[type[Exception], ...] = (OSError, subprocess.CalledProcessError)
+
 # Identity stamped on every automatic commit. Passed per-invocation
 # with ``git -c`` so we never touch the user's global/repo config.
 _COMMIT_NAME = "ESPHome Device Builder"

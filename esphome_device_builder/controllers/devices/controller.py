@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import subprocess
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -45,6 +44,7 @@ from .._device_scanner import DeviceScanner, ScanChange
 from .._device_state_monitor import DeviceStateMonitor
 from .._reachability_tracker import ReachabilityTracker
 from ..firmware.helpers import _find_esphome_cmd
+from ..version_history import GIT_COMMIT_ERRORS
 from . import (
     add_component,
     api_key,
@@ -856,7 +856,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             return
         try:
             await version_history.record_configuration(configuration, message)
-        except (OSError, subprocess.CalledProcessError):
+        except GIT_COMMIT_ERRORS:
             # Leave any queued catch-all entry in place so the debounced
             # flush still records this save's content (generic message).
             _LOGGER.exception("Version-history commit failed for %s", configuration)
