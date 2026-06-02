@@ -115,9 +115,11 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         self._shared_sidecar = SharedSidecarClient(self._db.settings.config_dir)
 
         # Per-file locks serialising a YAML write with its version-history
-        # commit (see ``_persist_yaml_mutation``). One ``asyncio.Lock`` is
-        # retained per configuration ever written — bounded by device count
-        # (tens), so the lack of eviction is deliberate, not a leak.
+        # commit (see ``_persist_yaml_mutation``). One ``asyncio.Lock`` per
+        # distinct filename written this process lifetime; never evicted —
+        # popping on delete could desync a lock a concurrent save is
+        # awaiting. Negligible in practice (a real fleet reuses filenames);
+        # only churn through many unique names grows it.
         self._yaml_write_locks: dict[str, asyncio.Lock] = {}
 
         # Background ``--only-generate`` bookkeeping. ``--only-generate``
