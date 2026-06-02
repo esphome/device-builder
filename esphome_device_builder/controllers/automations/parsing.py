@@ -317,6 +317,9 @@ def resolve_component_domain(yaml_text: str, component_id: str) -> str | None:
     """
     yaml = make_yaml()
     try:
+        # Narrow to YAMLError: the text has already round-tripped through
+        # parse_device_yaml before the writer runs, so a non-YAMLError parse
+        # failure isn't reachable here (and a bare except trips ruff BLE001).
         root = yaml.load(yaml_text)
     except YAMLError:
         return None

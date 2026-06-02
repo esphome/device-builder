@@ -16,7 +16,10 @@ from pathlib import Path
 import orjson
 import pytest
 
-from esphome_device_builder.controllers.automations.parsing import parse_device_yaml
+from esphome_device_builder.controllers.automations.parsing import (
+    parse_device_yaml,
+    resolve_component_domain,
+)
 from esphome_device_builder.helpers.api import CommandError
 
 _FIXTURES = Path(__file__).parent / "fixtures" / "automation_yamls"
@@ -543,3 +546,65 @@ def test_parsed_entries_carry_valid_line_ranges() -> None:
     for item in parsed:
         assert item.from_line >= 1
         assert item.to_line >= item.from_line
+
+
+# ---------------------------------------------------------------------------
+# resolve_component_domain
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_domain_matches_declared_list_instance_id() -> None:
+    """A declared list-instance id resolves to its top-level domain."""
+    text = "switch:\n  - platform: gpio\n    id: relay\n    pin: GPIO5\n"
+    assert resolve_component_domain(text, "relay") == "switch"
+
+
+def test_resolve_domain_matches_idless_synthetic_index() -> None:
+    """An id-less list instance resolves via its synthetic ``<domain>_<idx>`` key."""
+    text = "switch:\n  - platform: gpio\n    pin: GPIO5\n"
+    assert resolve_component_domain(text, "switch_0") == "switch"
+
+
+def test_resolve_domain_matches_flat_singleton_on_domain() -> None:
+    """An id-less flat singleton resolves on the domain name itself."""
+    text = "sun:\n  latitude: 1.0\n  longitude: 2.0\n"
+    assert resolve_component_domain(text, "sun") == "sun"
+
+
+def test_resolve_domain_ignores_nested_action_reference() -> None:
+    """An ``id:`` reference nested in an action body never owns the domain."""
+    text = (
+        "light:\n"
+        "  - platform: binary\n"
+        "    id: lamp\n"
+        "    on_turn_on:\n"
+        "      then:\n"
+        "        - switch.turn_off:\n"
+        "            id: relay\n"
+        "switch:\n"
+        "  - platform: gpio\n"
+        "    id: relay\n"
+    )
+    assert resolve_component_domain(text, "relay") == "switch"
+
+
+def test_resolve_domain_returns_none_for_unknown_id() -> None:
+    """A component id that no instance declares resolves to ``None``."""
+    text = "switch:\n  - platform: gpio\n    id: relay\n"
+    assert resolve_component_domain(text, "missing") is None
+
+
+def test_resolve_domain_returns_none_for_non_dict_root() -> None:
+    """A document whose root isn't a mapping resolves to ``None``."""
+    assert resolve_component_domain("- a\n- b\n", "relay") is None
+
+
+def test_resolve_domain_returns_none_for_unparseable_yaml() -> None:
+    """Malformed YAML falls back to ``None`` instead of raising."""
+    assert resolve_component_domain(":\n  - [\n", "relay") is None
+
+
+def test_resolve_domain_skips_non_dict_list_entry() -> None:
+    """A non-mapping entry inside a domain list is skipped, not matched."""
+    text = "switch:\n  - just-a-string\n  - platform: gpio\n    id: relay\n"
+    assert resolve_component_domain(text, "relay") == "switch"
