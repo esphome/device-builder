@@ -1864,12 +1864,12 @@ async def test_rotate_identity_changes_pin_sha256(tmp_path: Path) -> None:
     assert rotated.dashboard_id == pre.dashboard_id
 
 
-async def test_rotate_identity_calls_reload_hook_with_new_pin(tmp_path: Path) -> None:
-    """The rotate hands the new pin off to the dashboard for listener rebuild."""
+async def test_rotate_identity_calls_reload_hook(tmp_path: Path) -> None:
+    """The rotate triggers the dashboard's listener rebuild hook."""
     controller = _make_controller(config_dir=tmp_path)
     reload_mock = _stub_identity_db(controller)
-    rotated = await controller.receiver.rotate_identity()
-    reload_mock.assert_awaited_once_with(pin_sha256=rotated.pin_sha256)
+    await controller.receiver.rotate_identity()
+    reload_mock.assert_awaited_once_with()
 
 
 async def test_rotate_identity_persists_to_disk(tmp_path: Path) -> None:
@@ -1931,7 +1931,7 @@ async def test_rotate_identity_concurrent_call_rejected(tmp_path: Path) -> None:
     gate = asyncio.Event()
     release = asyncio.Event()
 
-    async def _slow_reload(*, pin_sha256: str) -> bool:
+    async def _slow_reload() -> bool:
         gate.set()
         await release.wait()
         return True
@@ -1962,7 +1962,7 @@ async def test_rotate_identity_in_flight_flag_tracks_shielded_work(tmp_path: Pat
     release = asyncio.Event()
     reload_calls = 0
 
-    async def _slow_reload(*, pin_sha256: str) -> bool:
+    async def _slow_reload() -> bool:
         nonlocal reload_calls
         reload_calls += 1
         gate.set()

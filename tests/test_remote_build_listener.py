@@ -38,10 +38,7 @@ from esphome_device_builder.controllers.remote_build import (
 )
 from esphome_device_builder.device_builder import DeviceBuilder
 from esphome_device_builder.helpers.dashboard_advertise import DashboardAdvertiser
-from esphome_device_builder.helpers.dashboard_identity import (
-    get_or_create_identity,
-    rotate_identity,
-)
+from esphome_device_builder.helpers.dashboard_identity import rotate_identity
 from esphome_device_builder.helpers.event_bus import EventBus
 
 from .conftest import MakeSettingsFactory
@@ -667,9 +664,7 @@ async def test_reload_remote_build_identity_no_op_when_listener_unbound(
     db._dashboard_advertiser = advertiser
     db._remote_build_lifecycle._runner = None
 
-    identity = await get_or_create_identity(tmp_path, db.peer_link_identity_store)
-
-    listener_bound = await db.reload_remote_build_identity(pin_sha256=identity.pin_sha256)
+    listener_bound = await db.reload_remote_build_identity()
 
     advertiser.set_pin_sha256.assert_not_called()
     advertiser.set_remote_build_port.assert_not_called()
@@ -710,10 +705,8 @@ async def test_reload_remote_build_identity_rebuilds_listener(tmp_path: Path) ->
 
         # Rotate the X25519 peer-link key on disk so the
         # rebuild loads the new identity.
-        new_identity = await rotate_identity(tmp_path, db.peer_link_identity_store)
-        listener_bound = await db.reload_remote_build_identity(
-            pin_sha256=new_identity.pin_sha256,
-        )
+        await rotate_identity(tmp_path, db.peer_link_identity_store)
+        listener_bound = await db.reload_remote_build_identity()
 
         # Listener was rebuilt — different ``AppRunner`` instance.
         assert db._remote_build_lifecycle._runner is not None
@@ -778,9 +771,7 @@ async def test_reload_remote_build_identity_clears_advertiser_when_rebuild_fails
 
         monkeypatch.setattr(web.TCPSite, "start", _failing_start)
 
-        listener_bound = await db.reload_remote_build_identity(
-            pin_sha256="newpin" * 10 + "abcd",  # 64 chars; value irrelevant
-        )
+        listener_bound = await db.reload_remote_build_identity()
 
         # No listener after failed rebuild.
         assert listener_bound is False
@@ -823,7 +814,7 @@ async def test_reload_remote_build_identity_advertiser_refresh_failure_is_swallo
     monkeypatch.setattr(web.TCPSite, "start", _failing_start)
 
     # Must not raise — fail-soft contract on the refresh tick.
-    listener_bound = await db.reload_remote_build_identity(pin_sha256="x" * 64)
+    listener_bound = await db.reload_remote_build_identity()
     # Both fields were cleared (ignoring the flaky refresh).
     advertiser.set_pin_sha256.assert_called_once_with(None)
     advertiser.set_remote_build_port.assert_called_once_with(None)

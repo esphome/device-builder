@@ -263,9 +263,9 @@ class DeviceBuilder:
         """Converge the peer-link listener to the on-disk ``enabled`` flag."""
         return await self._remote_build_lifecycle.apply_enabled()
 
-    async def reload_remote_build_identity(self, *, pin_sha256: str) -> bool:
+    async def reload_remote_build_identity(self) -> bool:
         """Rebuild the peer-link listener after an X25519 identity rotation."""
-        return await self._remote_build_lifecycle.reload_identity(pin_sha256=pin_sha256)
+        return await self._remote_build_lifecycle.reload_identity()
 
     def _install_default_executor(self) -> None:
         """Register the dashboard's executor as the loop's default.

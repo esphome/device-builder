@@ -1,19 +1,4 @@
-"""
-Remote-build peer-link listener lifecycle.
-
-:class:`RemoteBuildLifecycle` carries the bind / teardown / rebuild of
-the Noise-XX peer-link receiver listener and its mDNS advertise. It is
-a composed collaborator of
-:class:`~esphome_device_builder.device_builder.DeviceBuilder` — held as
-``DeviceBuilder._remote_build_lifecycle`` and constructed with a
-back-reference to its owner — rather than a mixin, so the dashboard
-state it reads (``settings``, ``loop``, ``remote_build_receiver``,
-``peer_link_identity_store``, ``dashboard_advertiser``) has real types
-and IDE navigation works. The bound runner and the lifecycle lock are
-owned by this collaborator; ``DeviceBuilder`` drives the lifecycle
-through the public methods (``maybe_start``, ``apply_enabled``,
-``reload_identity``, ``shutdown``, ``is_listener_bound``).
-"""
+"""Bind / teardown / rebuild of the remote-build peer-link Noise-XX listener."""
 
 from __future__ import annotations
 
@@ -266,55 +251,18 @@ class RemoteBuildLifecycle:
                 await self._teardown_runner()
             return self._runner is not None
 
-    async def reload_identity(self, *, pin_sha256: str) -> bool:
+    async def reload_identity(self) -> bool:
         """
         Rebuild the peer-link listener after an X25519 identity rotation.
 
-        Wired up to ``ReceiverController.rotate_identity`` right
-        after :meth:`PeerLinkIdentityStore.async_rotate` writes
-        the new X25519 keypair to disk. The new ``pin_sha256`` is what
-        every paired offloader pins against on the next Noise
-        handshake — the rotation invalidates every existing
-        pairing, peers see a fingerprint mismatch and surface the
-        re-pair wizard.
-
-        When the listener is bound, three side effects in order:
-
-        * Listener teardown — the bound runner is still holding
-          the old X25519 peer-link identity in its handler closure.
-          Without a rebuild, the next session would still drive
-          the handshake against the old key.
-        * mDNS clear — both ``pin_sha256`` and ``remote_build_port``
-          drop out of TXT immediately. The TXT contract is
-          "these fields appear iff the listener is currently
-          bound", so peers re-browsing during the rebuild window
-          (or after a rebuild failure) don't try to connect to
-          a port that's no longer serving traffic. Sequencing
-          matters: clear comes BEFORE rebuild so that on rebuild
-          failure the cleared state is the steady state.
-        * Listener rebuild — re-runs the same path
-          :meth:`maybe_start` does at startup, which loads the new
-          X25519 identity from disk and (on success) re-pushes the
-          new pin + port to mDNS. Fail-soft: a rebuild failure
-          leaves the dashboard running without a receiver listener
-          (same contract as the initial bind), and the return value
-          reflects that so the rotater can surface the failure to
-          the operator.
-
-        When the listener is NOT bound, this method is a no-op:
-        no mDNS push (there's no listener for peers to connect
-        to anyway, and pushing a pin without a port would
-        contradict the TXT contract). The new X25519 key is
-        already on disk by the time this method runs; the next
-        bind picks it up.
-
-        Returns whether the receiver listener is currently bound
-        after this call. ``True`` means the rebind landed; ``False``
-        means rotation landed on disk but no listener is serving
-        (rebuild fail-softed, or listener wasn't bound to begin
-        with).
+        No-op when the listener isn't bound: the rotated key is
+        already on disk and the next bind picks it up. When bound,
+        tears the runner down — clearing pin + port from mDNS — then
+        rebuilds via :meth:`maybe_start`, which loads the new key and
+        re-pushes pin + port. Clear runs BEFORE rebuild so a rebuild
+        failure leaves the cleared TXT as the steady state. Fail-soft;
+        returns whether the listener is bound after this call.
         """
-        del pin_sha256  # currently unused on this side; see docstring
         async with self._get_lock():
             if self._runner is None:
                 return False
