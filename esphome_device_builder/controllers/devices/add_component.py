@@ -18,9 +18,10 @@ async def add_component(
     configuration: str,
     component_id: str,
     fields: dict[str, Any] | None,
+    yaml: str | None = None,
 ) -> AddComponentResponse:
     """
-    Add a component block to an existing device YAML.
+    Add a component block to a device YAML.
 
     ``fields`` is a flat mapping of config-entry key → value;
     nested entries map to nested dicts. Featured ids
@@ -29,6 +30,12 @@ async def add_component(
     ``locked`` / ``suggestions`` constraints, and merge the
     manifest's preset values into ``fields`` before the regular
     merge.
+
+    When ``yaml`` is given it is the caller's unsaved editor draft:
+    the merge runs against it and the result is returned without
+    touching disk, so the user's unsaved edits survive (the editor
+    saves later). Without it the merge runs against the on-disk YAML
+    and is persisted immediately.
     """
     assert controller._db.components is not None  # type narrowing
 
@@ -64,8 +71,11 @@ async def add_component(
             msg = f"Missing required field: {entry.key}"
             raise ValueError(msg)
 
-    config_path = controller._db.settings.rel_path(configuration)
-    existing = await controller._read_yaml_async(config_path)
+    if yaml is None:
+        config_path = controller._db.settings.rel_path(configuration)
+        existing = await controller._read_yaml_async(config_path)
+    else:
+        existing = yaml
     # Honour each field's ``depends_on_component`` gate against
     # what's actually in the device YAML; drops MQTT-only options
     # (``availability:``, ``state_topic:``, ...) when the device
@@ -73,8 +83,9 @@ async def add_component(
     # does field-by-field on the input form.
     fields = _drop_unconfigured_dependent_fields(fields, component, existing)
     new_yaml = merge_component_yaml(existing, component, fields)
-    # Atomic write; wizard-driven add-component should not be able
-    # to corrupt the source YAML on a mid-write crash.
-    await controller._persist_yaml_mutation(configuration, new_yaml)
+    if yaml is None:
+        # Atomic write; wizard-driven add-component should not be able
+        # to corrupt the source YAML on a mid-write crash.
+        await controller._persist_yaml_mutation(configuration, new_yaml)
 
     return AddComponentResponse(yaml=new_yaml)

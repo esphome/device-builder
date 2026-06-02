@@ -535,6 +535,78 @@ async def test_add_component_missing_required_field_raises(
 
 
 # ---------------------------------------------------------------------------
+# add_component draft vs disk
+# ---------------------------------------------------------------------------
+
+
+def _stub_components(controller: object) -> None:
+    """Wire ``_db.components`` to a no-required-fields component."""
+    component = MagicMock()
+    component.config_entries = []
+    controller._db.components = MagicMock()
+    controller._db.components.get_component = AsyncMock(return_value=component)
+
+
+async def test_add_component_with_draft_merges_draft_and_skips_persist(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A passed ``yaml`` draft is the merge base and disk is untouched.
+
+    The wizard hands the editor's unsaved draft so the merge lands on
+    top of it; persisting here would discard the user's other unsaved
+    edits and write a possibly mid-edit config.
+    """
+    controller = make_controller(tmp_path)
+    _stub_components(controller)
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.add_component.merge_component_yaml",
+        lambda existing, component, fields: f"{existing}# added\n",
+    )
+    persist = AsyncMock()
+    monkeypatch.setattr(controller, "_persist_yaml_mutation", persist)
+    (tmp_path / "kitchen.yaml").write_text("DISK\n", encoding="utf-8")
+
+    resp = await controller.add_component(
+        configuration="kitchen.yaml",
+        component_id="i2c",
+        fields={},
+        yaml="DRAFT\n",
+    )
+
+    assert resp.yaml == "DRAFT\n# added\n"
+    persist.assert_not_awaited()
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == "DISK\n"
+
+
+async def test_add_component_without_draft_reads_disk_and_persists(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Omitting ``yaml`` keeps the legacy disk-read + persist behaviour."""
+    controller = make_controller(tmp_path)
+    _stub_components(controller)
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.add_component.merge_component_yaml",
+        lambda existing, component, fields: f"{existing}# added\n",
+    )
+    persist = AsyncMock()
+    monkeypatch.setattr(controller, "_persist_yaml_mutation", persist)
+    (tmp_path / "kitchen.yaml").write_text("DISK\n", encoding="utf-8")
+
+    resp = await controller.add_component(
+        configuration="kitchen.yaml",
+        component_id="i2c",
+        fields={},
+    )
+
+    assert resp.yaml == "DISK\n# added\n"
+    persist.assert_awaited_once_with("kitchen.yaml", "DISK\n# added\n")
+
+
+# ---------------------------------------------------------------------------
 # _on_ip_change short-circuit
 # ---------------------------------------------------------------------------
 

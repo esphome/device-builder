@@ -648,14 +648,21 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         configuration: str,
         component_id: str,
         fields: dict[str, Any] | None = None,
+        yaml: str | None = None,
         **kwargs: Any,
     ) -> AddComponentResponse:
-        """Add a component block to an existing device YAML."""
+        """Add a component block to a device YAML.
+
+        Pass ``yaml`` to merge into the caller's unsaved editor draft and
+        return the result without writing disk; the editor saves it later.
+        Omit it to merge into the on-disk YAML and persist.
+        """
         return await add_component.add_component(
             self,
             configuration=configuration,
             component_id=component_id,
             fields=fields,
+            yaml=yaml,
         )
 
     @api_command("devices/import")
