@@ -60,6 +60,15 @@ from esphome_device_builder.helpers.origin import (
         ("[::1]:6052", "::1"),
         ("[FE80::1]:6052", "fe80::1"),
         ("[2001:db8::1]:443", "2001:db8::1"),
+        # IP literals canonicalise: expanded / zero-padded spellings
+        # collapse to the same compressed form as the allowlist entry.
+        ("[2001:0db8:0:0:0:0:0:1]:6052", "2001:db8::1"),
+        ("2001:0db8::1", "2001:db8::1"),
+        ("[2001:0DB8::0001]:443", "2001:db8::1"),
+        # RFC-1123 numeric hostname stays a hostname — the str form of
+        # ipaddress.ip_address rejects integer notation, so it is not
+        # coerced to a dotted-quad int-IP.
+        ("1234", "1234"),
     ],
 )
 def test_normalize_host_strips_port_and_brackets(raw: str, expected: str) -> None:
@@ -129,6 +138,10 @@ def test_host_in_allowlist_wildcard_match_anything() -> None:
         ("[::1]:6052", ["::1"]),
         ("[::1]:6052", ["[::1]"]),
         ("[fe80::1]:6052", ["FE80::1"]),
+        # Request Host and allowlist entry spell the same IPv6
+        # address differently — canonicalisation makes them match.
+        ("[2001:0db8::1]:6052", ["2001:db8::1"]),
+        ("[2001:db8::1]:6052", ["2001:0db8:0:0:0:0:0:1"]),
     ],
 )
 def test_host_in_allowlist_match(host: str, allowlist: list[str]) -> None:
@@ -195,6 +208,7 @@ def test_origin_in_allowlist_wildcard_accepts_any() -> None:
         ("https://dashboard.example.com:8443", ["dashboard.example.com"]),
         ("http://192.168.1.10:6052", ["192.168.1.10"]),
         ("http://[::1]:6052", ["::1"]),
+        ("http://[2001:0db8::1]:6052", ["2001:db8::1"]),
     ],
 )
 def test_origin_in_allowlist_match(origin: str, allowlist: list[str]) -> None:
