@@ -89,6 +89,46 @@ def test_adopts_repo_when_config_dir_is_subdir(tmp_path: Path) -> None:
     assert repo.toplevel == tmp_path
 
 
+def test_init_keeps_a_preexisting_gitignore(tmp_path: Path) -> None:
+    """A .gitignore already sitting in a non-repo dir is committed, not overwritten."""
+    (tmp_path / ".gitignore").write_text("user-rules/\n", encoding="utf-8")
+
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+
+    assert repo.enabled
+    assert (tmp_path / ".gitignore").read_text() == "user-rules/\n"
+
+
+def test_commit_index_noop_when_nothing_staged(tmp_path: Path) -> None:
+    """The seed-commit helper is a no-op when there's nothing staged."""
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+    before = _git(tmp_path, "rev-list", "--count", "HEAD").strip()
+
+    repo._commit_index("nothing to do")
+
+    assert _git(tmp_path, "rev-list", "--count", "HEAD").strip() == before
+
+
+def test_deleted_files_empty_on_repo_without_commits(tmp_path: Path) -> None:
+    """An adopted repo with no commits yet yields no deletable configs (git log fails)."""
+    _git(tmp_path, "init")  # bare repo, no commits
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+
+    assert repo.enabled
+    assert repo.deleted_files() == []
+
+
+def test_file_at_path_outside_toplevel_falls_back_to_name(tmp_path: Path) -> None:
+    """A path outside the work tree doesn't crash _rel_to_toplevel; returns None."""
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+
+    assert repo.file_at(Path("/nonexistent/elsewhere.yaml"), "0" * 40) is None
+
+
 def test_missing_git_binary_disables_feature(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -51,6 +51,10 @@ async def test_start_enables_and_commits(tmp_path: Path) -> None:
     versions = await controller.list_versions(configuration="kitchen.yaml")
     assert versions[0]["message"] == "Create kitchen.yaml"
 
+    # stop() with no debounce flush pending is a clean no-op.
+    await controller.stop()
+    assert controller._flush_task is None
+
 
 async def test_disabled_when_no_git(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """No git binary → controller disabled, commit is a quiet no-op."""
