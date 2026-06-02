@@ -20,6 +20,7 @@ from contextlib import AbstractAsyncContextManager
 from typing import TYPE_CHECKING, Any
 
 from ...helpers.api import CommandError, api_command
+from ...helpers.async_ import create_eager_task
 from ...models import (
     LOCAL_JOB_BUILD_SOURCE,
     ErrorCode,
@@ -371,8 +372,8 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         mid-flight (subprocess not terminated, job not finalised).
         """
         lane_tasks = [
-            asyncio.create_task(runner.run_lane(self, self.state.compile_lane)),
-            asyncio.create_task(runner.run_lane(self, self.state.upload_lane)),
+            create_eager_task(runner.run_lane(self, self.state.compile_lane)),
+            create_eager_task(runner.run_lane(self, self.state.upload_lane)),
         ]
         try:
             await asyncio.gather(*lane_tasks)
