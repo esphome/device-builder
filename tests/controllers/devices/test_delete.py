@@ -13,6 +13,7 @@ retry.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -94,6 +95,60 @@ async def test_delete_wipes_build_directory(
     # recycled name doesn't pick up stale idedata / validated YAML.
     assert not idedata.exists()
     assert not validated.exists()
+
+
+@pytest.mark.usefixtures("redirect_storage_path")
+async def test_delete_wipes_idedata_when_no_build_path(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A never-built device (build_path None) still has its idedata cache wiped."""
+    controller = make_controller(tmp_path)
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    idedata, _ = _cache_paths(tmp_path, "kitchen.yaml")
+    idedata.parent.mkdir(parents=True, exist_ok=True)
+    idedata.write_text("{}", encoding="utf-8")
+    write_storage_json(tmp_path, "kitchen.yaml", overrides={"build_path": None})
+
+    await controller._delete_single("kitchen.yaml")
+
+    assert not yaml_path.exists()
+    assert not idedata.exists()
+
+
+@pytest.mark.usefixtures("redirect_storage_path")
+async def test_delete_tolerates_idedata_unlink_failure(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """An OSError unlinking the idedata cache doesn't unwind the delete."""
+    controller = make_controller(tmp_path)
+    yaml_path, _ = _seed_device(tmp_path, "kitchen.yaml")
+    idedata, _ = _cache_paths(tmp_path, "kitchen.yaml")
+    # Swap the cache file for a directory so unlink() raises OSError.
+    idedata.unlink()
+    idedata.mkdir()
+
+    await controller._delete_single("kitchen.yaml")
+
+    assert not yaml_path.exists()
+
+
+@pytest.mark.usefixtures("redirect_storage_path")
+async def test_delete_tolerates_compiled_config_unlink_failure(
+    tmp_path: Path, make_controller: MakeControllerFactory, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An OSError unlinking the validated-config cache is logged, not raised."""
+    controller = make_controller(tmp_path)
+    yaml_path, _ = _seed_device(tmp_path, "kitchen.yaml")
+    _, validated = _cache_paths(tmp_path, "kitchen.yaml")
+    validated.unlink()
+    validated.mkdir()
+
+    with caplog.at_level(logging.WARNING):
+        await controller._delete_single("kitchen.yaml")
+
+    assert not yaml_path.exists()
+    assert any("validated-config cache" in rec.message for rec in caplog.records)
 
 
 @pytest.mark.usefixtures("redirect_storage_path")
