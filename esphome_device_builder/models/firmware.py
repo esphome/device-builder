@@ -45,10 +45,10 @@ class JobType(StrEnum):
 
     COMPILE = "compile"
     UPLOAD = "upload"
-    # Retained for deserialising older persisted jobs. ``firmware/install``
-    # now enqueues a COMPILE job + a dependent UPLOAD job (two lanes) rather
-    # than one fused job; a persisted in-flight INSTALL is migrated to that
-    # chain on load, so the runner never executes this type.
+    # Retained so older persisted INSTALL jobs still deserialise and run: the
+    # runner + CLI execute it as a fused ``esphome run``. New installs no
+    # longer create it — ``firmware/install`` enqueues a COMPILE job + a
+    # dependent UPLOAD job (two lanes) instead.
     INSTALL = "install"
     CLEAN = "clean"
     # Wipes ``.esphome/build/``, ``external_components/``, and

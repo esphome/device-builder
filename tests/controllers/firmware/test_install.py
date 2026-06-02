@@ -232,6 +232,30 @@ async def test_successful_compile_releases_upload_to_upload_lane(
     assert controller.state.upload_lane.queue.qsize() == 1
 
 
+async def test_reinstalling_supersedes_prior_chain_without_raising(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """Re-installing a config supersedes the prior chain without re-raising.
+
+    Supersede cancels the prior COMPILE, which cascades to cancel its held
+    UPLOAD; when the loop then reaches that already-CANCELLED upload,
+    ``cancel`` raises ``CommandError`` ("Cannot cancel a cancelled job").
+    Supersede must swallow it rather than fail the new install.
+    """
+    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
+    (tmp_path / "kitchen.yaml").write_text("")
+    first = await controller.install(configuration="kitchen.yaml")
+    first_upload = _upload_of(controller, first)
+
+    second = await controller.install(configuration="kitchen.yaml")
+
+    assert first.status == JobStatus.CANCELLED
+    assert first_upload.status == JobStatus.CANCELLED
+    assert second.status == JobStatus.QUEUED
+    assert _upload_of(controller, second).status == JobStatus.QUEUED
+
+
 async def test_install_registers_job_in_jobs_map(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:

@@ -286,20 +286,21 @@ def capture_firmware_events() -> Iterator[CaptureEventsFactory]:
 
 @pytest.fixture
 def capture_enqueue_order() -> Iterator[CaptureEnqueueOrderFactory]:
-    """Yield a factory that traces ``_queue.put`` + ``bus.fire`` into one ordered log.
+    """Yield a factory that traces lane ``queue.put_nowait`` + ``bus.fire`` into one ordered log.
 
-    Each ``await self.state.compile_lane.queue.put(job)`` appends ``(EnqueueStep.PUT, job)``
-    and each broadcast for a subscribed ``EventType`` appends
-    ``(EnqueueStep.FIRE, Event)``. Tests assert the put-then-fire
-    ordering by index in the returned list — the previous shape
-    spread the same contract across a parent ``MagicMock`` whose
+    Each ``self.state.compile_lane.queue.put_nowait(job)`` appends
+    ``(EnqueueStep.PUT, job)`` and each broadcast for a subscribed
+    ``EventType`` appends ``(EnqueueStep.FIRE, Event)``. Tests assert the
+    put-then-fire ordering by index in the returned list — the previous
+    shape spread the same contract across a parent ``MagicMock`` whose
     ``method_calls`` log was walked with two ``.index()`` calls and
     a ``parent.bus.fire.assert_any_call(...)`` follow-up.
 
-    The internal queue is a real ``asyncio.Queue`` so a runner can
-    still dequeue if the test exercises that path. Auto-restore on
-    teardown reinstates the original ``_queue`` and ``_db.bus`` so
-    sibling tests in the same xdist worker don't see leaked stubs.
+    Each proxy wraps a real ``asyncio.Queue`` (``get`` / ``qsize`` delegate
+    to it) so a runner can still dequeue if the test exercises that path.
+    Auto-restore on teardown reinstates the original lane queues and
+    ``_db.bus`` so sibling tests in the same xdist worker don't see leaked
+    stubs.
     """
     swaps: list[tuple[FirmwareController, Any, Any, Any]] = []
 

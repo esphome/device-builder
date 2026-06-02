@@ -204,8 +204,11 @@ async def supersede_active_jobs(
         and j.status in _ACTIVE_JOB_STATUSES
     ]
     for job_id in to_cancel:
-        # Status may flip under us if the runner finalises the
-        # job mid-iteration; cancel() raises in that window and
-        # we don't care.
-        with suppress(ValueError, RuntimeError):
+        # The job may already be terminal by the time we reach it: the runner
+        # can finalise it mid-iteration, or cancelling an earlier entry
+        # cascaded to a dependent later in the list (an install chain's
+        # compile cancels its held upload). ``cancel`` then raises
+        # ``CommandError`` ("Cannot cancel a … job") / ValueError / RuntimeError
+        # — the job is already in the state we wanted, so ignore it.
+        with suppress(ValueError, RuntimeError, CommandError):
             await controller.cancel(job_id=job_id)
