@@ -562,13 +562,13 @@ def wire_receiver_firmware_recorder(instances: PairedInstances) -> list[Firmware
     wire_firmware_remote_peer_api_mocks(firmware, receiver_jobs)
     # ``_on_firmware_queue_transition`` (registered on every
     # JOB_QUEUED / JOB_STARTED / terminal event) reads
-    # ``queue_status_snapshot()`` and tuple-unpacks the result.
+    # ``compile_queue_status()`` and tuple-unpacks the result.
     # The harness's ``MagicMock`` firmware controller returns a
     # MagicMock by default — unpacks as zero values and trips a
     # ValueError. Pin a sane tuple so the listener runs cleanly
     # rather than spamming the test log with swallowed
     # exceptions on every fire().
-    firmware.queue_status_snapshot = MagicMock(
+    firmware.compile_queue_status = MagicMock(
         return_value=QueueStatus(idle=True, running=False, queue_depth=0)
     )
     return created_jobs

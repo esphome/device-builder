@@ -673,7 +673,7 @@ def _drive_receiver_lifecycle(
     """Fire one queue lifecycle (QUEUED → STARTED → terminal) on the receiver bus.
 
     Models the receiver-side firmware queue's three-event
-    transition for a single job. ``queue_status_snapshot`` is
+    transition for a single job. ``compile_queue_status`` is
     pinned ahead of each fire so the
     :meth:`ReceiverController._on_firmware_queue_transition`
     listener captures the matching ``(idle, running, depth)``
@@ -691,13 +691,13 @@ def _drive_receiver_lifecycle(
     bus = paired_instances.receiver_bus
 
     # JOB_QUEUED: queue_depth bumped, runner not yet picking up.
-    firmware.queue_status_snapshot = MagicMock(
+    firmware.compile_queue_status = MagicMock(
         return_value=QueueStatus(idle=False, running=False, queue_depth=1)
     )
     bus.fire(EventType.JOB_QUEUED, JobLifecycleData(job=job))
 
     # JOB_STARTED: runner picked up, queue_depth back to 0.
-    firmware.queue_status_snapshot = MagicMock(
+    firmware.compile_queue_status = MagicMock(
         return_value=QueueStatus(idle=False, running=True, queue_depth=0)
     )
     bus.fire(EventType.JOB_STARTED, JobLifecycleData(job=job))
@@ -705,7 +705,7 @@ def _drive_receiver_lifecycle(
     # Terminal: post-``_finalize_terminal`` state — slot
     # released, nothing queued. The fix this test pins is that
     # this snapshot is what the broadcast carries.
-    firmware.queue_status_snapshot = MagicMock(
+    firmware.compile_queue_status = MagicMock(
         return_value=QueueStatus(idle=True, running=False, queue_depth=0)
     )
     bus.fire(terminal, JobLifecycleData(job=job))

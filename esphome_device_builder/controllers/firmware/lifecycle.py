@@ -28,7 +28,7 @@ def finalize_terminal(controller: FirmwareController, job: FirmwareJob, status: 
 
     Step ordering matters: runner-slot release lands *before* the
     ``bus.fire`` so the ``queue_status`` broadcaster's sync
-    :meth:`queue_status_snapshot` read sees the post-terminal
+    :meth:`compile_queue_status` read sees the post-terminal
     idle state. Reversing them froze the offloader's
     ``_peer_queue_status`` cache at ``running=True`` after the
     first remote build, silently falling back to LOCAL on every

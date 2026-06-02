@@ -1658,11 +1658,11 @@ async def test_register_peer_link_session_skips_initial_queue_status_when_firmwa
 
 
 async def test_register_peer_link_session_swallows_snapshot_exception(tmp_path: Path) -> None:
-    """A ``queue_status_snapshot`` raise mustn't poison session registration.
+    """A ``compile_queue_status`` raise mustn't poison session registration.
 
     Best-effort contract: the initial push is a cold-connect
     optimisation, not a load-bearing step. A raise from
-    ``firmware.queue_status_snapshot`` (mock contract drift,
+    ``firmware.compile_queue_status`` (mock contract drift,
     unexpected internal error, etc.) gets logged and swallowed
     so the session still registers cleanly; the transition-
     driven broadcast catches the offloader up on the next

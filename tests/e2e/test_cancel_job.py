@@ -91,7 +91,7 @@ def receiver_firmware_cancel(paired_instances: PairedInstances) -> _FirmwareCanc
     cancel = AsyncMock(side_effect=_record_call)
     firmware = MagicMock()
     firmware.cancel = cancel
-    firmware.queue_status_snapshot = MagicMock(
+    firmware.compile_queue_status = MagicMock(
         return_value=QueueStatus(idle=True, running=False, queue_depth=0)
     )
     paired_instances.receiver._db.firmware = firmware

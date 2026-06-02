@@ -12,17 +12,16 @@ from .common import EventType
 
 
 class QueueStatus(NamedTuple):
-    """Snapshot of one firmware lane's RAM state (or the aggregate).
+    """Snapshot of one firmware lane's RAM state.
 
     A tuple subclass so the existing
     ``idle, running, queue_depth = ...`` unpacking on the
     receiver-side broadcast paths keeps working, plus named
     access (``snapshot.idle``) for test stubs.
 
-    :meth:`FirmwareController.queue_status_snapshot` returns the
-    aggregate across both lanes (compile + upload); per-lane
-    snapshots (e.g. compile-lane idleness for the remote-build
-    scheduler) come from :meth:`FirmwareController.lane_status`.
+    :meth:`FirmwareController.lane_status` returns one lane's
+    snapshot; :meth:`FirmwareController.compile_queue_status` is
+    the compile lane's, which the remote-build scheduler keys on.
     """
 
     idle: bool

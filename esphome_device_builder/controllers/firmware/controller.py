@@ -99,19 +99,6 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         """
         return self.lane_status(self.state.compile_lane)
 
-    def queue_status_snapshot(self) -> QueueStatus:
-        """Aggregate both lanes; sync, no I/O. Idle only when both are.
-
-        ``queue_depth`` excludes a held dependent upload (not yet on a lane).
-        """
-        compile_status = self.lane_status(self.state.compile_lane)
-        upload_status = self.lane_status(self.state.upload_lane)
-        return QueueStatus(
-            idle=compile_status.idle and upload_status.idle,
-            running=compile_status.running or upload_status.running,
-            queue_depth=compile_status.queue_depth + upload_status.queue_depth,
-        )
-
     async def start(self) -> None:
         """Start the queue processor and restore persisted jobs."""
         self.state.esphome_cmd = _find_esphome_cmd()
