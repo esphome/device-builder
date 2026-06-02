@@ -58,6 +58,7 @@ from typing import Any
 import pytest
 
 from esphome_device_builder.controllers.firmware import FirmwareController
+from esphome_device_builder.controllers.firmware._state import Lane
 from esphome_device_builder.controllers.firmware.persistence import read_job_output
 from esphome_device_builder.models import FirmwareJob, JobStatus
 from tests.controllers.firmware.conftest import FirmwareControllerFactory
@@ -272,7 +273,7 @@ async def test_resumed_running_job_completes_on_next_run(
     # Replace _execute_job with a fast COMPLETED transition so we
     # don't actually spawn ``esphome``. The runner's loop calls
     # this, awaits it, then loops back for the next item.
-    async def _fake_execute(job: FirmwareJob, _lane: Any) -> None:
+    async def _fake_execute(job: FirmwareJob, _lane: Lane) -> None:
         job.status = JobStatus.COMPLETED
         job.exit_code = 0
         job.completed_at = "2026-01-01T01:00:00+00:00"
