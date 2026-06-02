@@ -206,12 +206,7 @@ async def test_run_queue_cancels_sibling_lane_when_one_raises(
     firmware_controller_factory: FirmwareControllerFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A lane consumer raising a non-cancel error cancels and drains its sibling.
-
-    ``run_lane`` shouldn't normally raise — ``execute_job`` traps its own
-    failures — but if one consumer dies, ``_run_queue`` must cancel the other
-    lane (not leave it orphaned mid-flight) while surfacing the original error.
-    """
+    """A lane consumer raising cancels and drains its sibling, not orphans it."""
     controller = firmware_controller_factory()
     sibling_cancelled = asyncio.Event()
 

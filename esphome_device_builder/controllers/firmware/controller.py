@@ -364,15 +364,11 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     # ------------------------------------------------------------------
 
     async def _run_queue(self) -> None:
-        """Run both lane consumers (compile + upload) concurrently.
+        """Run both lane consumers concurrently; drain both on any exit.
 
-        On any exit — shutdown cancel *or* one lane raising — cancel both
-        lane tasks and *await their cleanup* before the error propagates.
-        A bare ``gather`` resolves the moment it's cancelled (or the moment
-        one lane raises), leaving the sibling lane orphaned mid-flight
-        (subprocess not terminated, job not finalised). The ``finally``
-        covers both cases; ``return_exceptions=True`` lets the drain finish
-        without masking the original error.
+        On shutdown-cancel or one lane raising, cancel and await both lane
+        tasks before the error propagates — else the sibling is left orphaned
+        mid-flight (subprocess not terminated, job not finalised).
         """
         lane_tasks = [
             asyncio.create_task(runner.run_lane(self, self.state.compile_lane)),

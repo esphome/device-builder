@@ -238,10 +238,8 @@ async def test_reinstalling_supersedes_prior_chain_without_raising(
 ) -> None:
     """Re-installing a config supersedes the prior chain without re-raising.
 
-    Supersede cancels the prior COMPILE, which cascades to cancel its held
-    UPLOAD; when the loop then reaches that already-CANCELLED upload,
-    ``cancel`` raises ``CommandError`` ("Cannot cancel a cancelled job").
-    Supersede must swallow it rather than fail the new install.
+    The cascade cancels the held upload, so the supersede loop later hits an
+    already-cancelled job; ``cancel``'s ``CommandError`` must be swallowed.
     """
     controller = firmware_controller_factory(with_queue=True, with_terminate=True)
     (tmp_path / "kitchen.yaml").write_text("")
