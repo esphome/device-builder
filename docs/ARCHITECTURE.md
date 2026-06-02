@@ -196,7 +196,12 @@ firmware/install {configuration} → QUEUED → RUNNING → output... → COMPLE
                                      └──── persisted to disk ─────────────┘
 ```
 
-- One job runs at a time, others wait in queue
+- Two concurrent lanes — a compile lane (CPU) and an upload lane (network).
+  Each runs one job at a time, but the lanes run in parallel so a slow
+  network flash doesn't block the next device's compile (#3702). `install`
+  splits into a COMPILE job + a dependent local UPLOAD job (`depends_on`):
+  the upload is held until the compile succeeds, then runs on the upload
+  lane; a cancelled/failed compile cascades to cancel the held upload.
 - Output buffered in `FirmwareJob.output` — survives disconnect
 - `firmware/follow_job` sends history then streams live
 - Error detection scans output for failure patterns (not just exit code)

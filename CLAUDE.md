@@ -281,8 +281,19 @@ against legacy behaviour before assuming the simpler version suffices.
   emitter and walks `models.*` to assert coverage. New events ship with a
   TypedDict from day one and a row in `_PAYLOAD_FACTORIES`. Full
   rationale in `docs/ARCHITECTURE.md` "Event bus → Typing event payloads".
-- **Persistent firmware queue.** One job runs at a time; queue + output
-  buffers survive restarts. See `controllers/firmware.py`.
+- **Persistent firmware queue — two concurrent lanes.** A CPU/compile lane
+  and a network/upload lane each run one job at a time, but run
+  concurrently, so a slow upload doesn't block the next compile (#3702).
+  `FirmwareState.compile_lane` / `upload_lane` (`controllers/firmware/
+  _state.py`); `lane_for(job)` routes UPLOAD to the upload lane, everything
+  else to compile. `firmware/install` enqueues a COMPILE job + a dependent
+  local UPLOAD job (`FirmwareJob.depends_on`); the upload is held off its
+  lane until the compile succeeds (`lifecycle.release_dependents`), and a
+  cancelled/failed compile cascades to cancel the held upload (so a
+  cancelled build never flashes). Remote install uses the same chain — a
+  remote compile materialises artifacts locally, then the local upload lane
+  flashes. Queue + output buffers survive restarts. See
+  `controllers/firmware/`.
 - **Component catalog is generated**, not hand-edited. Source is
   ESPHome's pre-built schema bundle (https://schema.esphome.io) plus
   narrow live `esphome` introspection for what the schema doesn't carry

@@ -1,8 +1,9 @@
 """
 Firmware build queue + WS command surface.
 
-Owns the persistent single-job queue and the lifecycle event
-broadcasts; the bulk of each concern lives in sibling submodules
+Owns the persistent two-lane queue (a compile lane + an upload lane that
+run concurrently) and the lifecycle event broadcasts; the bulk of each
+concern lives in sibling submodules
 (``runner`` / ``factories`` / ``jobs`` / ``follow`` / ``clean`` /
 ``download`` / ``bulk`` / ``cli`` / ``persistence`` / ``lifecycle``).
 Public API is the ``@api_command``-decorated methods; everything
@@ -47,11 +48,13 @@ _LOGGER = logging.getLogger(__name__)
 
 class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods need a refactor first)
     """
-    Manage firmware build jobs with a persistent queue.
+    Manage firmware build jobs with a persistent two-lane queue.
 
-    Only one job runs at a time. Jobs are persisted to disk so they
-    survive page refreshes and server restarts. Progress is broadcast
-    via the event bus to all connected clients.
+    A compile lane (CPU) and an upload lane (network) each run one job at a
+    time but run concurrently, so a slow upload doesn't block the next
+    compile. Jobs are persisted to disk so they survive page refreshes and
+    server restarts. Progress is broadcast via the event bus to all
+    connected clients.
     """
 
     def __init__(self, device_builder: DeviceBuilder) -> None:
