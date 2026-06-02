@@ -37,18 +37,41 @@ _LOGGER = logging.getLogger(__name__)
 _COMMIT_NAME = "ESPHome Device Builder"
 _COMMIT_EMAIL = "device-builder@esphome.io"
 
-# Written only when *we* create the repo; a pre-existing repo keeps the
-# user's own ignore rules untouched. Build artifacts under ``.esphome``
-# and the machine-state sidecars are noise; ``secrets.yaml`` is ignored
-# by default so credentials don't land in local history (or a remote the
-# user later adds) — they can un-ignore it deliberately.
-_DEFAULT_GITIGNORE = """\
-# Managed by ESPHome Device Builder — created because this directory
-# was not already a git repository. Edit freely; it won't be regenerated.
-.esphome/
-.device-builder*.json
-secrets.yaml
-"""
+# Files Device Builder must never let into git history: its own
+# machine state (sidecars, locks), identity key, and remote-build peer
+# credentials, plus ESPHome build artifacts and OS noise. None of these
+# are user config. They're forced into the repo's *local* exclude
+# (``.git/info/exclude``) on both init and adopt — see
+# ``_ensure_local_excludes`` — so a key can't be committed even when the
+# user's own ``.gitignore`` (or a stock ESPHome one) doesn't cover it,
+# and without ever modifying that tracked ``.gitignore``.
+_MANAGED_EXCLUDES = (
+    ".esphome/",
+    ".device-builder*",
+    ".receiver_peers.json",
+    ".offloader_pairings.json",
+    ".DS_Store",
+)
+
+# Markers delimiting our block in ``.git/info/exclude`` so the write is
+# idempotent across restarts.
+_EXCLUDE_MARKER = "# >>> ESPHome Device Builder (managed) >>>"
+_EXCLUDE_END = "# <<< ESPHome Device Builder (managed) <<<"
+
+# Written only when *we* create the repo and no ``.gitignore`` exists; a
+# pre-existing one is left untouched (the local exclude is what actually
+# protects the secrets above). ``secrets.yaml`` is ignored here — not in
+# the forced local exclude — because whether to version it is the user's
+# call, but the safe default keeps credentials out of a repo that may
+# later be pushed to a remote.
+_DEFAULT_GITIGNORE = "".join(
+    [
+        "# Managed by ESPHome Device Builder — created because this directory\n",
+        "# was not already a git repository. Edit freely; it won't be regenerated.\n",
+        *(f"{pattern}\n" for pattern in _MANAGED_EXCLUDES),
+        "secrets.yaml\n",
+    ]
+)
 
 
 @dataclass(slots=True)
@@ -92,6 +115,7 @@ class GitRepo:
             if toplevel is not None:
                 self.toplevel = toplevel
                 self.enabled = True
+                self._ensure_local_excludes()
                 _LOGGER.debug("Adopted existing git work tree at %s", toplevel)
                 return
             self._init_repo()
@@ -121,11 +145,42 @@ class GitRepo:
         self._run(["init", str(self.config_dir)], cwd=self.config_dir, check=True)
         self.toplevel = self.config_dir
         self.enabled = True
+        # Local excludes BEFORE the seed ``git add -A`` so our identity
+        # key / machine state / OS noise can never land in the snapshot,
+        # even when the dir already had a (stock or foreign) ``.gitignore``
+        # that doesn't cover them.
+        self._ensure_local_excludes()
         gitignore = self.config_dir / ".gitignore"
         if not gitignore.exists():
             gitignore.write_text(_DEFAULT_GITIGNORE, encoding="utf-8")
         self._run(["add", "-A"], check=False)
         self._commit_index("Initialize version history")
+
+    def _ensure_local_excludes(self) -> None:
+        """Append our managed patterns to ``.git/info/exclude`` (idempotent).
+
+        ``info/exclude`` is git's repo-local ignore: never committed,
+        invisible to the user's tracked ``.gitignore``, and applied on
+        top of it. Writing here guarantees our secrets / state are never
+        staged, regardless of how the user configured their repo, without
+        mutating anything they track.
+        """
+        result = self._run(["rev-parse", "--git-path", "info/exclude"], check=False)
+        if result.returncode != 0 or not result.stdout.strip():
+            return
+        exclude_path = Path(result.stdout.strip())
+        if not exclude_path.is_absolute():
+            exclude_path = (self.toplevel or self.config_dir) / exclude_path
+        try:
+            existing = exclude_path.read_text(encoding="utf-8") if exclude_path.exists() else ""
+            if _EXCLUDE_MARKER in existing:
+                return
+            exclude_path.parent.mkdir(parents=True, exist_ok=True)
+            block = "\n".join(["", _EXCLUDE_MARKER, *_MANAGED_EXCLUDES, _EXCLUDE_END, ""])
+            with exclude_path.open("a", encoding="utf-8") as handle:
+                handle.write(block)
+        except OSError as exc:
+            _LOGGER.debug("Could not write git info/exclude: %s", exc)
 
     def _commit_index(self, message: str) -> None:
         """Commit whatever is currently staged (no pathspec); skip if empty.

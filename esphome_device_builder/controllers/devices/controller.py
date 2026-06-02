@@ -811,12 +811,19 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     async def _persist_yaml_mutation(
         self, configuration: str, content: str, *, message: str | None = None
     ) -> None:
-        """Atomic write + fire-and-forget background reload + StorageJSON regen.
+        """Atomic write + inline version-history commit + background reload.
 
-        Returns once the bytes are on disk; the scanner reload
-        runs on its worker, so callers don't see the post-reload
-        device row before the next event tick. *message* labels the
-        version-history commit; defaults to a generic "Update".
+        Returns once the bytes are on disk *and* committed to version
+        history; the scanner reload runs on its worker, so callers don't
+        see the post-reload device row before the next event tick.
+
+        The git commit is awaited inline (not fire-and-forget) so the
+        pre-clobber content is captured before the next save can
+        overwrite it — the load-bearing recovery guarantee. It's a
+        lock-serialised ``git add``/``commit`` on the executor, so this
+        adds that latency to the save round-trip and is a no-op when
+        version history is disabled. *message* labels the commit;
+        defaults to a generic "Update".
         """
         await self._write_yaml_atomic_async(self._db.settings.rel_path(configuration), content)
         await self._commit_history(configuration, message or f"Update {configuration}")

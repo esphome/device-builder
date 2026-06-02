@@ -100,6 +100,124 @@ def test_init_keeps_a_preexisting_gitignore(tmp_path: Path) -> None:
     assert (tmp_path / ".gitignore").read_text() == "user-rules/\n"
 
 
+# Machine state / secrets that must never reach git history, mirroring
+# what Device Builder writes into a real config dir.
+_SECRET_STATE_FILES = (
+    ".device-builder-peer-link-key.bin",
+    ".device-builder.json",
+    ".device-builder.lock",
+    ".receiver_peers.json",
+    ".offloader_pairings.json",
+    ".DS_Store",
+)
+
+
+def test_init_seed_never_commits_keys_or_state(tmp_path: Path) -> None:
+    """The fresh-init seed commits configs but never our keys / state / OS noise.
+
+    Even when a stock ESPHome ``.gitignore`` (which doesn't know about
+    Device Builder's files) is already present, the seed must not sweep
+    the peer-link key, receiver/offloader credentials, sidecars, or
+    ``.DS_Store`` into the initial snapshot.
+    """
+    # A stock-style .gitignore that covers neither our state nor .DS_Store.
+    (tmp_path / ".gitignore").write_text("/.esphome/\n/secrets.yaml\n", encoding="utf-8")
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    for name in _SECRET_STATE_FILES:
+        (tmp_path / name).write_text("secret\n", encoding="utf-8")
+
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+
+    tracked = _git(tmp_path, "ls-files").split()
+    assert "kitchen.yaml" in tracked
+    for name in _SECRET_STATE_FILES:
+        assert name not in tracked, f"{name} must not be committed"
+
+
+def test_adopt_writes_local_excludes_for_state(tmp_path: Path) -> None:
+    """Adopting a repo installs local excludes so our key can't be staged later."""
+    _make_repo(tmp_path)  # pre-existing repo, no device-builder ignores
+    (tmp_path / ".device-builder-peer-link-key.bin").write_text("key\n", encoding="utf-8")
+
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+
+    # git now treats the key as ignored (via .git/info/exclude), so a
+    # later ``git add -A`` can't stage it.
+    ignored = _git(tmp_path, "status", "--porcelain", "--ignored").splitlines()
+    assert any(
+        line.startswith("!!") and "device-builder-peer-link-key.bin" in line for line in ignored
+    )
+
+
+def test_local_excludes_are_idempotent(tmp_path: Path) -> None:
+    """Re-running discovery doesn't duplicate our managed exclude block."""
+    _make_repo(tmp_path)
+    GitRepo(config_dir=tmp_path).discover_or_init()
+    GitRepo(config_dir=tmp_path).discover_or_init()
+
+    exclude = (tmp_path / ".git" / "info" / "exclude").read_text(encoding="utf-8")
+    assert exclude.count("ESPHome Device Builder (managed)") == 2  # one start + one end marker
+
+
+def _patch_git_path(monkeypatch: pytest.MonkeyPatch, handler: object) -> None:
+    """Intercept ``git rev-parse --git-path`` calls; pass everything else through."""
+    real_run = subprocess.run
+
+    def _fake(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if "--git-path" in cmd:
+            return handler(cmd)  # type: ignore[operator]
+        return real_run(cmd, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.version_history.git_repo.subprocess.run", _fake
+    )
+
+
+def test_local_excludes_noop_when_git_path_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failing ``rev-parse --git-path`` leaves discovery working, just no excludes."""
+    _make_repo(tmp_path)
+    _patch_git_path(monkeypatch, lambda cmd: subprocess.CompletedProcess(cmd, 1, "", ""))
+
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+
+    assert repo.enabled  # adoption still succeeded
+
+
+def test_local_excludes_honor_absolute_git_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An absolute path from ``rev-parse --git-path`` is used as-is."""
+    _make_repo(tmp_path)
+    abs_exclude = tmp_path / "abs_exclude"
+    _patch_git_path(
+        monkeypatch, lambda cmd: subprocess.CompletedProcess(cmd, 0, f"{abs_exclude}\n", "")
+    )
+
+    GitRepo(config_dir=tmp_path).discover_or_init()
+
+    assert "ESPHome Device Builder (managed)" in abs_exclude.read_text(encoding="utf-8")
+
+
+def test_local_excludes_tolerate_write_error(tmp_path: Path) -> None:
+    """An unwritable info/exclude is logged, not fatal to discovery."""
+    _make_repo(tmp_path)
+    # Replace the exclude file with a directory so the read/append raises.
+    exclude = tmp_path / ".git" / "info" / "exclude"
+    if exclude.exists():
+        exclude.unlink()
+    exclude.mkdir()
+
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+
+    assert repo.enabled
+
+
 def test_commit_index_noop_when_nothing_staged(tmp_path: Path) -> None:
     """The seed-commit helper is a no-op when there's nothing staged."""
     repo = GitRepo(config_dir=tmp_path)
