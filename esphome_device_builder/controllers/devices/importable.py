@@ -100,6 +100,8 @@ async def import_device(
         configuration, content, action="import", on_error_cleanup=_cleanup
     )
 
+    await controller._commit_history(configuration, f"Import {configuration}")
+
     # Post-write scan is best-effort; the next periodic scan
     # will catch the new YAML and failing here would mislead the
     # user into a retry that trips ``FileExistsError``.

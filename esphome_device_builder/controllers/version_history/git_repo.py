@@ -111,14 +111,46 @@ class GitRepo:
         return Path(root) if root else None
 
     def _init_repo(self) -> None:
-        """Create a fresh repo in ``config_dir`` and commit a ``.gitignore``."""
+        """Create a fresh repo in ``config_dir`` and seed the initial snapshot.
+
+        Because the repo is brand new there's no user work-in-progress
+        to protect, so the seed commit stages everything not ignored
+        (the existing configs) — giving each device a first version in
+        history immediately rather than only once it's first edited.
+        """
         self._run(["init", str(self.config_dir)], cwd=self.config_dir, check=True)
         self.toplevel = self.config_dir
         self.enabled = True
         gitignore = self.config_dir / ".gitignore"
         if not gitignore.exists():
             gitignore.write_text(_DEFAULT_GITIGNORE, encoding="utf-8")
-            self.commit_paths([gitignore], "Initialize version history")
+        self._run(["add", "-A"], check=False)
+        self._commit_index("Initialize version history")
+
+    def _commit_index(self, message: str) -> None:
+        """Commit whatever is currently staged (no pathspec); skip if empty.
+
+        Only used for the fresh-init seed — every other commit is
+        pathspec-scoped via :meth:`commit_paths` so it can't sweep the
+        user's staged work.
+        """
+        if self._run(["diff", "--cached", "--quiet"], check=False).returncode == 0:
+            return
+        self._run(
+            [
+                "-c",
+                f"user.name={_COMMIT_NAME}",
+                "-c",
+                f"user.email={_COMMIT_EMAIL}",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "--no-verify",
+                "-m",
+                message,
+            ],
+            check=False,
+        )
 
     # ------------------------------------------------------------------
     # writes

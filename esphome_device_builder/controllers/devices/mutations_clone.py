@@ -153,6 +153,7 @@ async def clone_device(  # noqa: C901
         raise CommandError(ErrorCode.INVALID_ARGS, msg) from exc
     if carry_board_id:
         await controller._persist_device_metadata_async(new_filename, board_id=carry_board_id)
+    await controller._commit_history(new_filename, f"Clone {configuration} to {new_filename}")
     # Rescan so the scanner indexes the new YAML and fires the
     # ADDED event WS subscribers expect; ``probe_device`` runs
     # from the scan-change handler so no double-probe here.

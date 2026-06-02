@@ -616,7 +616,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
                 f"refusing to write empty content to {configuration!r} to prevent "
                 "accidental data loss; use the delete action to remove a file",
             )
-        await self._persist_yaml_mutation(configuration, content)
+        await self._persist_yaml_mutation(configuration, content, message=f"Edit {configuration}")
 
     def _schedule_storage_regenerate(self, configuration: str) -> None:
         storage_regen.schedule(self, configuration)
@@ -789,19 +789,29 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, atomic_write_file, path, content)
 
-    async def _persist_yaml_mutation(self, configuration: str, content: str) -> None:
+    async def _persist_yaml_mutation(
+        self, configuration: str, content: str, *, message: str | None = None
+    ) -> None:
         """Atomic write + fire-and-forget background reload + StorageJSON regen.
 
         Returns once the bytes are on disk; the scanner reload
         runs on its worker, so callers don't see the post-reload
-        device row before the next event tick.
+        device row before the next event tick. *message* labels the
+        version-history commit; defaults to a generic "Update".
         """
         await self._write_yaml_atomic_async(self._db.settings.rel_path(configuration), content)
+        await self._commit_history(configuration, message or f"Update {configuration}")
         self._scanner.request(configuration)
         # Mirrors the upstream dashboard's
         # ``async_schedule_storage_json_update``; without it
         # ``loaded_integrations`` stays at its pre-write state.
         self._schedule_storage_regenerate(configuration)
+
+    async def _commit_history(self, configuration: str, message: str) -> None:
+        """Record *configuration* in version history; no-op when disabled."""
+        version_history = self._db.version_history
+        if version_history is not None:
+            await version_history.record_configuration(configuration, message)
 
     @staticmethod
     async def _read_yaml_async(path: Path) -> str:

@@ -300,5 +300,7 @@ async def edit_friendly_name(
     await controller._validate_rewritten_yaml_or_raise(
         configuration, new_content, action="update friendly name"
     )
-    await controller._persist_yaml_mutation(configuration, new_content)
+    await controller._persist_yaml_mutation(
+        configuration, new_content, message=f"Update friendly name in {configuration}"
+    )
     return {"configuration": configuration, "rewritten": True}
