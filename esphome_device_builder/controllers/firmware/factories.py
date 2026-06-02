@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from contextlib import suppress
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -146,8 +145,16 @@ async def enqueue_install_chain(
     upload_job = create_job(
         controller, configuration, JobType.UPLOAD, port=port, depends_on=compile_job.job_id
     )
-    await enqueue(controller, upload_job, supersede=False)
-    await enqueue(controller, compile_job, supersede=False)
+    try:
+        await enqueue(controller, upload_job, supersede=False)
+        await enqueue(controller, compile_job, supersede=False)
+    except CommandError:
+        # A rename lock (``enqueue``'s first check) or any enqueue rejection
+        # must not strand the just-created pair in ``state.jobs`` — restart
+        # would re-queue a compile whose enqueue was refused. Roll it back.
+        controller.state.jobs.pop(upload_job.job_id, None)
+        controller.state.jobs.pop(compile_job.job_id, None)
+        raise
     await controller._supersede_active_jobs(
         configuration, exclude_job_ids={compile_job.job_id, upload_job.job_id}
     )
@@ -204,8 +211,15 @@ async def supersede_active_jobs(
         and j.status in _ACTIVE_JOB_STATUSES
     ]
     for job_id in to_cancel:
-        # Already terminal by the time we reach it — the runner finalised it
-        # mid-iteration, or cancelling an earlier entry cascaded to it (a
-        # chain's compile cancels its held upload). Ignore cancel's raise.
-        with suppress(ValueError, RuntimeError, CommandError):
+        try:
             await controller.cancel(job_id=job_id)
+        except (ValueError, RuntimeError):
+            # Status flipped under us — the runner finalised the job
+            # mid-iteration, or state is out of sync. Benign here.
+            pass
+        except CommandError as exc:
+            # Already terminal (INVALID_ARGS) or already gone (NOT_FOUND) —
+            # e.g. a chain's compile cascade-cancelled its held upload before
+            # we reached it. Re-raise anything else so a real failure surfaces.
+            if exc.code not in (ErrorCode.INVALID_ARGS, ErrorCode.NOT_FOUND):
+                raise

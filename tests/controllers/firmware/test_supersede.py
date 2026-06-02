@@ -29,7 +29,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from esphome_device_builder.models import FirmwareJob, JobStatus, JobType
+import pytest
+
+from esphome_device_builder.controllers.firmware import factories
+from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.models import ErrorCode, FirmwareJob, JobStatus, JobType
 from tests.controllers.firmware.conftest import FirmwareControllerFactory
 
 
@@ -213,3 +217,31 @@ async def test_supersede_does_not_run_for_empty_configuration(
     jobs = {j.job_id: j for j in await controller.get_jobs()}
     assert jobs[first.job_id].status == JobStatus.QUEUED
     assert jobs[second.job_id].status == JobStatus.QUEUED
+
+
+async def test_supersede_reraises_unexpected_cancel_error(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A non-benign CommandError from cancel propagates out of supersede.
+
+    Supersede swallows only the already-terminal / already-gone cases
+    (INVALID_ARGS / NOT_FOUND); any other typed failure must surface rather
+    than silently leave a superseded job active.
+    """
+    victim = FirmwareJob(
+        job_id="v1",
+        configuration="kitchen.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.QUEUED,
+    )
+    controller = firmware_controller_factory(victim, with_queue=True)
+
+    async def _boom(*, job_id: str) -> None:
+        raise CommandError(ErrorCode.INTERNAL_ERROR, "boom")
+
+    controller.cancel = _boom  # type: ignore[method-assign]
+
+    with pytest.raises(CommandError) as exc:
+        await factories.supersede_active_jobs(controller, "kitchen.yaml", exclude_job_ids=set())
+
+    assert exc.value.code == ErrorCode.INTERNAL_ERROR
