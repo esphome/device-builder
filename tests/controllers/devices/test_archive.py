@@ -129,6 +129,31 @@ async def test_archive_wipes_storage_sidecar(
     assert not storage_path.exists()
 
 
+async def test_archive_wipes_build_caches(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    seed_device: SeedDeviceFactory,
+) -> None:
+    """Regenerable build caches (idedata, validated YAML) go with the build dir.
+
+    Same rationale as wiping the build tree: a future device that
+    recycles the filename mustn't inherit the archived device's
+    stale idedata / validated-config cache.
+    """
+    controller = make_controller(tmp_path)
+    await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
+    idedata = tmp_path / ".esphome" / "idedata" / "kitchen.json"
+    idedata.parent.mkdir(parents=True, exist_ok=True)
+    idedata.write_text("{}", encoding="utf-8")
+    validated = tmp_path / ".esphome" / "storage" / "kitchen.yaml.validated.yaml"
+    validated.write_text("esphome: {}\n", encoding="utf-8")
+
+    await controller._archive_single("kitchen.yaml")
+
+    assert not idedata.exists()
+    assert not validated.exists()
+
+
 async def test_archive_clears_volatile_metadata_keeps_identity(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -566,12 +591,15 @@ async def test_delete_archived_removes_yaml_and_sidecars(
     storage_dir.mkdir(parents=True, exist_ok=True)
     storage_path = storage_dir / "kitchen.yaml.json"
     storage_path.write_text("{}", encoding="utf-8")
+    validated_path = storage_dir / "kitchen.yaml.validated.yaml"
+    validated_path.write_text("esphome: {}\n", encoding="utf-8")
 
     controller = make_controller(tmp_path)
     await controller._delete_archived_single("kitchen.yaml")
 
     assert not (archive_dir / "kitchen.yaml").exists()
     assert not storage_path.exists()
+    assert not validated_path.exists()
 
 
 async def test_delete_archived_preserves_active_sidecars(

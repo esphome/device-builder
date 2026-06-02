@@ -14,6 +14,7 @@ from ...helpers.device_yaml import parse_esphome_meta
 from ...helpers.storage_path import resolve_storage_path
 from ...models import ErrorCode
 from .helpers import (
+    _unlink_compiled_config,
     _unlink_storage_sidecar,
     _wipe_device_build_dir,
 )
@@ -57,6 +58,7 @@ async def archive_single(controller: DevicesController, configuration: str) -> N
         _wipe_device_build_dir(configuration)
         shutil.move(str(config_path), str(target))
         _unlink_storage_sidecar(configuration)
+        _unlink_compiled_config(configuration)
 
     try:
         await loop.run_in_executor(None, _archive_sync)
@@ -148,6 +150,7 @@ async def delete_archived_single(controller: DevicesController, configuration: s
             # sidecars now; leave them alone.
             return False
         _unlink_storage_sidecar(configuration)
+        _unlink_compiled_config(configuration)
         return True
 
     sidecars_purged = await loop.run_in_executor(None, _delete_all)
@@ -179,6 +182,7 @@ async def delete_single(controller: DevicesController, configuration: str) -> No
         (config_dir / ".trash" / configuration).unlink(missing_ok=True)
         (config_dir / ".archive" / f"{configuration}.json").unlink(missing_ok=True)
         _unlink_storage_sidecar(configuration)
+        _unlink_compiled_config(configuration)
 
     await loop.run_in_executor(None, _delete_all)
     await controller._delete_device_metadata(configuration)

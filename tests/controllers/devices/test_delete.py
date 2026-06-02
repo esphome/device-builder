@@ -22,13 +22,27 @@ from tests._storage_fixtures import write_storage_json
 from .conftest import MakeControllerFactory
 
 
+def _cache_paths(config_dir: Path, configuration: str) -> tuple[Path, Path]:
+    """Return ``(idedata_cache, validated_config_cache)`` for *configuration*.
+
+    The idedata cache is keyed on the device ``name`` (the YAML
+    stem here); the validated-config cache is keyed on the YAML
+    filename — matching esphome's own layout under ``.esphome``.
+    """
+    stem = Path(configuration).stem
+    idedata = config_dir / ".esphome" / "idedata" / f"{stem}.json"
+    validated = config_dir / ".esphome" / "storage" / f"{configuration}.validated.yaml"
+    return idedata, validated
+
+
 def _seed_device(
     config_dir: Path, configuration: str, *, with_build_dir: bool = True
 ) -> tuple[Path, Path]:
-    """Lay out a YAML, StorageJSON sidecar, and (optionally) the build tree.
+    """Lay out a YAML, StorageJSON sidecar, build tree, and build caches.
 
     Returns ``(yaml_path, build_path)`` so the test can assert the
-    rmtree happened on the right directory.
+    rmtree happened on the right directory. The idedata + validated-
+    config caches are seeded too (see :func:`_cache_paths`).
     """
     yaml_path = config_dir / configuration
     yaml_path.write_text(f"esphome:\n  name: {Path(configuration).stem}\n", encoding="utf-8")
@@ -42,6 +56,12 @@ def _seed_device(
         (build_path / "firmware.bin").write_bytes(b"\x00" * 16)
         (build_path / "src").mkdir()
         (build_path / "src" / "main.cpp").write_text("// fake\n", encoding="utf-8")
+
+    idedata, validated = _cache_paths(config_dir, configuration)
+    idedata.parent.mkdir(parents=True, exist_ok=True)
+    idedata.write_text("{}", encoding="utf-8")
+    validated.parent.mkdir(parents=True, exist_ok=True)
+    validated.write_text("esphome: {}\n", encoding="utf-8")
 
     write_storage_json(
         config_dir,
@@ -63,12 +83,17 @@ async def test_delete_wipes_build_directory(
     """
     controller = make_controller(tmp_path)
     yaml_path, build_path = _seed_device(tmp_path, "kitchen.yaml")
+    idedata, validated = _cache_paths(tmp_path, "kitchen.yaml")
 
     await controller._delete_single("kitchen.yaml")
 
     assert not yaml_path.exists()
     assert not build_path.exists()
     assert not (tmp_path / ".esphome" / "storage" / "kitchen.yaml.json").exists()
+    # Regenerable build caches keyed off the device go too, so a
+    # recycled name doesn't pick up stale idedata / validated YAML.
+    assert not idedata.exists()
+    assert not validated.exists()
 
 
 @pytest.mark.usefixtures("redirect_storage_path")
