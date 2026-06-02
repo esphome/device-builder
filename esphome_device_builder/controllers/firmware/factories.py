@@ -38,13 +38,15 @@ def create_job(
     build_source: JobBuildSource = LOCAL_JOB_BUILD_SOURCE,
     device_name: str = "",
     device_friendly_name: str = "",
+    depends_on: str = "",
 ) -> FirmwareJob:
     """Create a new job and add it to the in-memory map; *sync*, no I/O.
 
     Caller validates ``configuration`` via
     ``_validate_configuration_boundary`` first. The ``remote_*``
     fields identify receiver-side jobs from peer-link ``submit_job``
-    — empty for local-origin jobs.
+    — empty for local-origin jobs. ``depends_on`` chains a job behind
+    a prerequisite (the UPLOAD half of an install).
     """
     job = FirmwareJob(
         job_id=uuid4().hex[:12],
@@ -53,6 +55,7 @@ def create_job(
         created_at=datetime.now(UTC).isoformat(),
         port=port,
         new_name=new_name,
+        depends_on=depends_on,
         remote_peer=remote_peer,
         remote_peer_label=remote_peer_label,
         remote_job_id=remote_job_id,
@@ -110,13 +113,46 @@ async def enqueue(
     RENAME has *job*'s configuration locked.
     """
     controller._check_rename_lock(job)
-    await controller.state.queue.put(job)
+    if controller.state.dependency_satisfied(job):
+        controller.state.lane_for(job).queue.put_nowait(job)
+    # else: held off its lane queue until the prerequisite completes —
+    # ``lifecycle._release_dependents`` lands it then. It's still QUEUED in
+    # ``state.jobs`` and fires JOB_QUEUED below, so it renders as queued.
     queued_payload: JobLifecycleData = {"job": job}
     controller._db.bus.fire(EventType.JOB_QUEUED, queued_payload)
     if supersede and job.configuration:
-        await controller._supersede_active_jobs(job.configuration, exclude_job_id=job.job_id)
+        await controller._supersede_active_jobs(job.configuration, exclude_job_ids={job.job_id})
     await controller._persist_jobs()
     return job
+
+
+async def enqueue_install_chain(
+    controller: FirmwareController,
+    *,
+    configuration: str,
+    port: str,
+    build_source: JobBuildSource,
+) -> FirmwareJob:
+    """Enqueue an install as a COMPILE job + a dependent local UPLOAD job.
+
+    Returns the COMPILE job (the chain head). The UPLOAD is held until the
+    compile succeeds, then runs on the upload lane — so the network flash
+    doesn't block the next device's compile. Both are created before either
+    enqueues so a fast compile can't finish before the dependent exists; the
+    upload enqueues *held* first so the compile completing can't double-add
+    it.
+    """
+    compile_job = create_job(controller, configuration, JobType.COMPILE, build_source=build_source)
+    upload_job = create_job(
+        controller, configuration, JobType.UPLOAD, port=port, depends_on=compile_job.job_id
+    )
+    await enqueue(controller, upload_job, supersede=False)
+    await enqueue(controller, compile_job, supersede=False)
+    await controller._supersede_active_jobs(
+        configuration, exclude_job_ids={compile_job.job_id, upload_job.job_id}
+    )
+    await controller._persist_jobs()
+    return compile_job
 
 
 def check_rename_lock(controller: FirmwareController, job: FirmwareJob) -> None:
@@ -153,13 +189,17 @@ def check_rename_lock(controller: FirmwareController, job: FirmwareJob) -> None:
 
 
 async def supersede_active_jobs(
-    controller: FirmwareController, configuration: str, *, exclude_job_id: str
+    controller: FirmwareController, configuration: str, *, exclude_job_ids: set[str]
 ) -> None:
-    """Cancel queued/running jobs for ``configuration``."""
+    """Cancel queued/running jobs for ``configuration``, except *exclude_job_ids*.
+
+    Takes a set so an install chain (COMPILE + dependent UPLOAD) can exclude
+    both halves and not cancel its own sibling.
+    """
     to_cancel = [
         j.job_id
         for j in controller.state.jobs.values()
-        if j.job_id != exclude_job_id
+        if j.job_id not in exclude_job_ids
         and j.configuration == configuration
         and j.status in _ACTIVE_JOB_STATUSES
     ]

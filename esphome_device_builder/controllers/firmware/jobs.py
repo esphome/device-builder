@@ -19,7 +19,16 @@ from .constants import _ACTIVE_JOB_STATUSES
 from .helpers import _mark_job_terminal
 
 if TYPE_CHECKING:
+    from ._state import Lane
     from .controller import FirmwareController
+
+
+def _running_lane(controller: FirmwareController, job_id: str) -> Lane | None:
+    """Return the lane currently running *job_id*, or None if neither lane is."""
+    for lane in (controller.state.compile_lane, controller.state.upload_lane):
+        if lane.current_job is not None and lane.current_job.job_id == job_id:
+            return lane
+    return None
 
 
 async def get_jobs(
@@ -118,7 +127,8 @@ async def cancel(controller: FirmwareController, *, job_id: str) -> None:
         return
 
     if job.status == JobStatus.RUNNING:
-        if controller.state.current_job is None or controller.state.current_job.job_id != job_id:
+        lane = _running_lane(controller, job_id)
+        if lane is None:
             msg = "Running job is not the active subprocess (state out of sync)"
             raise RuntimeError(msg)
         controller.state.cancel_requested.add(job_id)
@@ -128,7 +138,8 @@ async def cancel(controller: FirmwareController, *, job_id: str) -> None:
         cancel_event = controller.state.cancel_events.get(job_id)
         if cancel_event is not None:
             cancel_event.set()
-        await controller._terminate_current_process()
+        # Lane-scoped so cancelling an upload doesn't signal a concurrent compile.
+        await controller._terminate_current_process(lane)
         return
 
     msg = f"Cannot cancel a {job.status.value} job"

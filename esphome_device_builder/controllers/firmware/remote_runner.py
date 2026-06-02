@@ -655,7 +655,10 @@ async def _run_upload_subprocess(
     ``firmware/cancel`` lands SIGTERM on the upload chain
     just like it does for the local-only path.
     """
+    # Remote jobs run on the compile lane; register the local flash there.
+    lane = controller.state.lane_for(job)
     async with controller._tracked_subprocess(
+        lane,
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
@@ -670,7 +673,7 @@ async def _run_upload_subprocess(
         # this check, the subprocess gets started for a job
         # the user already aborted.
         if job.job_id in controller.state.cancel_requested:
-            await controller._terminate_current_process()
+            await controller._terminate_current_process(lane)
 
         assert proc.stdout is not None  # type narrowing
         async for line in iter_lines_with_progress(proc.stdout):

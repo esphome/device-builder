@@ -32,6 +32,7 @@ from .constants import (
     _MAX_PRIMARY_TERMINAL_JOBS,
     _PRIMARY_JOB_TYPES,
 )
+from .helpers import _mark_job_terminal
 
 if TYPE_CHECKING:
     from .controller import FirmwareController
@@ -91,6 +92,60 @@ def prune_history(controller: FirmwareController) -> None:
     controller.state.jobs = {j.job_id: j for j in (*active, *deduped_primary, *aux)}
 
 
+def _restore_job_entry(
+    controller: FirmwareController,
+    job_data: object,
+    active: list[FirmwareJob],
+    to_migrate: list[FirmwareJob],
+) -> None:
+    """Deserialise one persisted entry into ``state.jobs``; classify it.
+
+    Active (QUEUED/RUNNING) jobs flip to QUEUED (RUNNING via ``reset()``)
+    and collect into *active* for lane routing; a terminal job still
+    carrying inline ``output`` (legacy blob) collects into *to_migrate*
+    for sidecar migration. A corrupt entry is logged and skipped.
+    """
+    try:
+        job = FirmwareJob.from_dict(job_data)  # type: ignore[arg-type]
+        controller.state.jobs[job.job_id] = job
+        if job.status in _ACTIVE_JOB_STATUSES:
+            if job.status == JobStatus.RUNNING:
+                job.reset()
+            job.status = JobStatus.QUEUED
+            active.append(job)
+        elif job.output:
+            # Cleared from RAM only after the sidecar write lands, so a
+            # failed write leaves the output for the next persist flush.
+            to_migrate.append(job)
+    except Exception:
+        # A corrupt file could hold a primitive where a dict was expected;
+        # ``.get`` would raise, defeating skip-and-continue. Probe type.
+        identity = (
+            job_data.get("job_id", "?")
+            if isinstance(job_data, dict)
+            else f"<non-dict entry: {job_data!r}>"
+        )
+        _LOGGER.warning("Failed to restore job: %s", identity, exc_info=True)
+
+
+def _restore_to_lane(controller: FirmwareController, job: FirmwareJob) -> None:
+    """Route a restored active *job* to its lane, hold it, or cancel it.
+
+    No prerequisite (or one already completed) → onto its lane. A
+    prerequisite still pending → held; ``lifecycle._release_dependents``
+    lands it when the prerequisite finishes. A prerequisite that's gone or
+    didn't succeed → the dependent can't run, so cancel it.
+    """
+    if controller.state.dependency_satisfied(job):
+        controller.state.lane_for(job).queue.put_nowait(job)
+        return
+    prereq = controller.state.jobs.get(job.depends_on)
+    if prereq is not None and prereq.status in _ACTIVE_JOB_STATUSES:
+        return
+    _mark_job_terminal(job, JobStatus.CANCELLED)
+    job.error = "prerequisite job did not complete successfully"
+
+
 async def load_jobs(controller: FirmwareController) -> None:
     """
     Load persisted job metadata and re-queue any incomplete ones.
@@ -104,37 +159,15 @@ async def load_jobs(controller: FirmwareController) -> None:
     loop = asyncio.get_running_loop()
     data = await loop.run_in_executor(None, _load_metadata, controller._db.settings.config_dir)
     to_migrate: list[FirmwareJob] = []
+    # First pass restores every job into the map and flips active ones to
+    # QUEUED; the second pass routes them to a lane, so a dependent's
+    # prerequisite resolves regardless of on-disk order.
+    active: list[FirmwareJob] = []
     for job_data in data.get(_JOBS_KEY, []):
-        try:
-            job = FirmwareJob.from_dict(job_data)
-            controller.state.jobs[job.job_id] = job
-            if job.status in _ACTIVE_JOB_STATUSES:
-                if job.status == JobStatus.RUNNING:
-                    job.reset()
-                job.status = JobStatus.QUEUED
-                await controller.state.queue.put(job)
-            elif job.output:
-                # Legacy blob with inline output on a terminal job:
-                # migrate it to a sidecar. Cleared from RAM only after
-                # the write lands (in ``_migrate``), so a failed write
-                # leaves the output in RAM — where the next
-                # ``persist_jobs`` flush saves it — and the inline blob
-                # intact, rather than dropping the only copy.
-                to_migrate.append(job)
-        except Exception:
-            # ``job_data`` is normally a dict, but a corrupt
-            # persistence file could contain a primitive
-            # (string, int, ``None``) where a dict was expected.
-            # ``.get`` would raise ``AttributeError`` on those,
-            # defeating the "skip and continue" intent of this
-            # branch. Probe by isinstance and fall back to the
-            # raw repr.
-            identity = (
-                job_data.get("job_id", "?")
-                if isinstance(job_data, dict)
-                else f"<non-dict entry: {job_data!r}>"
-            )
-            _LOGGER.warning("Failed to restore job: %s", identity, exc_info=True)
+        _restore_job_entry(controller, job_data, active, to_migrate)
+
+    for job in active:
+        _restore_to_lane(controller, job)
 
     if to_migrate:
 

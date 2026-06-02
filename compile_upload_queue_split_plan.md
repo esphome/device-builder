@@ -72,16 +72,19 @@ This reuses `esphome compile` then `esphome upload` (already implemented),
 so no binary is recompiled at upload time, and `firmware_sync` already
 does the right per-type hash/flashed bookkeeping.
 
-**Remote builds use the upload lane too.** A REMOTE compile job dispatches
-to the receiver, streams output, and then downloads + materialises the
-artifacts into the local build dir — so after the compile job completes,
-the binary is on local disk exactly as a local compile would leave it. The
-dependent LOCAL `UPLOAD` job then flashes it on the upload lane, identical
-to the all-local case. This removes the bespoke "compile-remote then
-upload-local inside one INSTALL job" path in `remote_runner` (the receiver
-only ever compiles), unifies local and remote behind one upload lane, and
-lets a remote compile pipeline against a local upload just like the local
-case.
+**Remote builds use the upload lane too — and need no `remote_runner`
+rewrite.** Discovery: a remote COMPILE job *already* dispatches to the
+receiver and materialises the artifacts into the local build dir
+(`remote_runner._finalise_after_receiver_completed` does this for COMPILE
+today — it's what backs the frontend's "Download firmware binary" button).
+So `firmware/install` builds the *same* chain regardless of source: the
+COMPILE job leaves the binary on local disk (compiled locally, or fetched
+from the receiver), and the dependent LOCAL `UPLOAD` job flashes it on the
+upload lane. The receiver keeps compiling the next device while the local
+box uploads the current one — fully utilising the remote compile resource.
+The only `remote_runner` touch is threading the lane into its local-flash
+subprocess; its existing INSTALL/UPLOAD local-flash branch stays as a
+legacy fallback for any persisted fused INSTALL job.
 
 ## Concrete changes
 
@@ -91,13 +94,18 @@ hold `compile_lane` / `upload_lane` on `FirmwareState`. Keep `queue` /
 `current_job` / `current_process` as **backward-compat properties
 proxying to `compile_lane`** so the many tests/conftests that read
 `state.queue` / `state.current_job` keep working (they refer to the
-CPU/everything lane). Document the proxy as transitional.
+CPU/everything lane). Document the proxy as transitional. Two small
+methods live here as the single source of truth shared by factories /
+persistence / lifecycle (DRY): `lane_for(job)` (UPLOAD → upload lane, else
+compile lane) and `dependency_satisfied(job)` (no `depends_on`, or the
+prerequisite COMPLETED).
 
 ### `models/firmware.py`
-- `JobType.INSTALL` stays in the enum for deserialising older persisted
-  jobs but is no longer created or executed by new code (migrated to a
-  chain at load — see persistence). `cli.build_command` drops the
-  `INSTALL → run` mapping.
+- `JobType.INSTALL` stays in the enum and `cli.build_command` keeps its
+  `INSTALL → run` mapping, but new installs no longer create one
+  (`firmware/install` builds a chain). A persisted in-flight INSTALL job
+  just re-runs as the fused `esphome run` on the compile lane — a safe
+  legacy fallback, so no load-time migration is needed.
 - Add `depends_on: str = ""` to `FirmwareJob` (job_id of the prerequisite;
   empty = none). Rides in `JobLifecycleData` (whole-job payload) so the
   frontend can render the dependency; default keeps old persisted blobs
@@ -149,11 +157,14 @@ CPU/everything lane). Document the proxy as transitional.
   (the dependency hook on the COMPILE's CANCELLED terminal).
 
 ### `controllers/firmware/controller.py`
-- `firmware/install` (LOCAL): build the COMPILE+UPLOAD chain instead of one
-  INSTALL job. `firmware/install` (REMOTE) and `firmware/compile` /
-  `firmware/upload` unchanged in shape.
-- `queue_status_snapshot()` computes both lanes + aggregate.
-- `start()` spawns the two runner tasks; `stop()` cancels both.
+- `firmware/install` always builds the COMPILE+UPLOAD chain (local *and*
+  remote — `enqueue_install_chain`); no source branch. `firmware/compile`
+  / `firmware/upload` unchanged in shape.
+- `lane_status(lane)` (per-lane `QueueStatus`) + `queue_status_snapshot()`
+  (aggregate across both lanes).
+- `start()` spawns two runner tasks (`run_lane` per lane); delegates
+  (`_execute_job`, `_tracked_subprocess`, `_terminate_current_process`)
+  gain a `lane`.
 
 ### `controllers/firmware/persistence.py`
 - `load_jobs` re-queues by lane via `_lane_for` + `depends_on`: jobs with
@@ -162,22 +173,22 @@ CPU/everything lane). Document the proxy as transitional.
   is enqueued to its lane; one whose prerequisite is missing/FAILED is
   cancelled. RUNNING jobs `reset()`→re-queue to their own lane (a
   mid-flash UPLOAD re-flashes; idempotent — does not recompile).
-- **Legacy migration:** an active (QUEUED/RUNNING) persisted `INSTALL` job
-  is replaced on load with a fresh COMPILE+UPLOAD chain for the same
-  `(configuration, port, source)` and the stale INSTALL entry dropped —
-  so the runner never has to execute a fused `INSTALL`. Restarting a
-  mid-flight install from its compile is the safe behavior anyway
-  (`reset()` already re-runs RUNNING jobs from scratch).
+- **Legacy INSTALL:** a persisted active `INSTALL` job re-queues to the
+  compile lane and re-runs as the fused `esphome run` (no migration). New
+  installs are chains; this only ever applies to a job in flight across
+  the upgrade restart.
+- A restored dependent (`depends_on` set) whose prerequisite is gone or
+  didn't succeed is cancelled; one whose prerequisite is still active stays
+  held (`_release_dependents` lands it on completion). Routing happens in a
+  second pass so the prerequisite resolves regardless of on-disk order.
 
 ### `controllers/firmware/remote_runner.py`
-- The REMOTE `COMPILE` path dispatches to the receiver and, on success,
-  downloads + materialises the artifacts locally (generalising today's
-  remote-install download to every remote compile, so a remote compile
-  leaves a populated local build dir just like a local compile).
-- Its bespoke `UPLOAD`/`INSTALL` branch (compile-remote then upload-local
-  in one job) is removed: install is now a chain, and the LOCAL upload lane
-  flashes the materialised binary. `submit_job`'s "receiver only compiles"
-  contract is unchanged.
+- Minimal: thread the lane into the local-flash subprocess
+  (`_run_upload_subprocess` resolves it via `state.lane_for(job)` — remote
+  jobs run on the compile lane). No decomposition needed: remote COMPILE
+  already materialises locally, so the unified install chain works without
+  touching the dispatch/download logic. The existing INSTALL/UPLOAD
+  local-flash branch is left intact as a legacy fallback.
 
 ### `controllers/remote_build/peer_link_sessions.py`
 - The receiver advertises idleness so offloaders route **compiles** to it
@@ -193,10 +204,9 @@ CPU/everything lane). Document the proxy as transitional.
   concurrent OTA flashes on WiFi/Ethernet) are a documented future seam on
   the upload-lane consumer, not built now.
 - **`JobType.INSTALL` is retired for new jobs** (the `firmware/install`
-  command now creates a COMPILE + UPLOAD chain) but stays in the enum for
-  deserialising older persisted jobs. On restart, a persisted in-flight
-  INSTALL job is migrated to the chain (re-queue its compile; a held upload
-  is recreated) rather than re-running the fused `esphome run`.
+  command now creates a COMPILE + UPLOAD chain) but stays in the enum +
+  `cli` mapping so a persisted in-flight INSTALL re-runs as the fused
+  `esphome run` on the compile lane (legacy fallback, no migration).
 
 ## Verification
 

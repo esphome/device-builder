@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 
-from ...models import FirmwareJob
+from ...models import FirmwareJob, JobStatus, JobType
 
 
 @dataclass
@@ -54,6 +54,17 @@ class FirmwareState:
     # frame unblocks instantly. The local subprocess path uses
     # SIGTERM instead and doesn't register here.
     cancel_events: dict[str, asyncio.Event] = field(default_factory=dict)
+
+    def lane_for(self, job: FirmwareJob) -> Lane:
+        """Return the lane *job* runs on: UPLOAD on the network lane, else the compile lane."""
+        return self.upload_lane if job.job_type is JobType.UPLOAD else self.compile_lane
+
+    def dependency_satisfied(self, job: FirmwareJob) -> bool:
+        """Return whether *job* has no prerequisite, or its prerequisite has completed."""
+        if not job.depends_on:
+            return True
+        prereq = self.jobs.get(job.depends_on)
+        return prereq is not None and prereq.status is JobStatus.COMPLETED
 
     # Transitional back-compat shims: the legacy single-lane attribute
     # names proxy to the compile lane (historically the everything/CPU
