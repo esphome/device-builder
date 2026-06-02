@@ -23,6 +23,7 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import make_mocked_request
 
+from esphome_device_builder._remote_build_lifecycle import _strip_server_header_middleware
 from esphome_device_builder.controllers.config import (
     DashboardSettings,
     remote_build_settings_transaction,
@@ -32,10 +33,7 @@ from esphome_device_builder.controllers.remote_build import (
     OffloaderController,
     ReceiverController,
 )
-from esphome_device_builder.device_builder import (
-    DeviceBuilder,
-    _strip_server_header_middleware,
-)
+from esphome_device_builder.device_builder import DeviceBuilder
 from esphome_device_builder.helpers.dashboard_advertise import DashboardAdvertiser
 from esphome_device_builder.helpers.dashboard_identity import (
     get_or_create_identity,
@@ -213,7 +211,7 @@ async def test_maybe_start_remote_build_site_refuses_port_zero_with_multi_host(
     await loop.run_in_executor(None, _enable)
 
     monkeypatch.setattr(
-        "esphome_device_builder.device_builder.resolve_bind_host",
+        "esphome_device_builder._remote_build_lifecycle.resolve_bind_host",
         lambda _: ["192.168.1.10", "192.168.1.11"],
     )
 
@@ -225,7 +223,7 @@ async def test_maybe_start_remote_build_site_refuses_port_zero_with_multi_host(
     db.remote_build_receiver = MagicMock()
     db.remote_build_receiver._db.settings.config_dir = tmp_path
 
-    with caplog.at_level("ERROR", logger="esphome_device_builder.device_builder"):
+    with caplog.at_level("ERROR", logger="esphome_device_builder._remote_build_lifecycle"):
         await db._maybe_start_remote_build_site()
 
     assert db._remote_build_runner is None
