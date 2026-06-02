@@ -64,10 +64,11 @@ _MANAGED_EXCLUDES = (
 _EXCLUDE_MARKER = "# >>> ESPHome Device Builder (managed) >>>"
 _EXCLUDE_END = "# <<< ESPHome Device Builder (managed) <<<"
 
-# YAMLs the seed must never capture: the user's secrets, and the
-# dashboard's CORE sentinel (see controllers/config/settings.py).
+# The seed must never capture the user's secrets file (credentials don't
+# belong in a repo that may be pushed to a remote). The CORE sentinel
+# (``controllers/config/settings.py``) is a virtual ``CORE.config_path``
+# value, never written to disk, so it can't be globbed and needs no filter.
 _SECRETS_FILENAME = "secrets.yaml"
-_SENTINEL_FILENAME = "___DASHBOARD_SENTINEL___.yaml"
 
 # Glob patterns for the YAML configs this feature versions.
 _YAML_GLOBS = ("*.yaml", "*.yml")
@@ -183,7 +184,7 @@ class GitRepo:
             names += [
                 path.name
                 for path in sorted(self.config_dir.glob(pattern))
-                if path.name not in (_SECRETS_FILENAME, _SENTINEL_FILENAME)
+                if path.name != _SECRETS_FILENAME
             ]
         return [name for name in names if (self.config_dir / name).exists()]
 
