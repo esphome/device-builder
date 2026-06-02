@@ -20,7 +20,7 @@ from typing import Any
 from aiohttp import web
 from esphome.const import __version__ as esphome_version
 
-from ._remote_build_lifecycle import _RemoteBuildLifecycleMixin
+from ._remote_build_lifecycle import RemoteBuildLifecycle
 from .api.legacy import create_legacy_routes
 from .api.ws import create_ws_routes, init_ws_app
 from .constants import __version__ as server_version
@@ -184,7 +184,7 @@ def _resolve_base_href(request: web.Request, *, tail: str = "") -> str:
 _EXECUTOR_MAX_WORKERS = 64
 
 
-class DeviceBuilder(_RemoteBuildLifecycleMixin):
+class DeviceBuilder:
     """Core application singleton.
 
     Owns controllers, event bus, command registry, and web app.
@@ -243,17 +243,29 @@ class DeviceBuilder(_RemoteBuildLifecycleMixin):
         self._bg_task: asyncio.Task | None = None
 
         self._ingress_runner: web.AppRunner | None = None
-        # Peer-link Noise WS receiver site for
-        # ``/remote-build/peer-link`` (issue #106). Bound only when
-        # ``RemoteBuildSettings.enabled`` is true; ``None`` otherwise.
-        self._remote_build_runner: web.AppRunner | None = None
-        # Serialises listener-state mutations so two clients
-        # toggling ``set_settings`` (or a ``rotate_identity``
-        # racing a toggle) can't interleave their teardown +
-        # rebind sequences. Lazy-init at first acquire so the
-        # lock binds to the running event loop, not the loop
-        # that ran ``__init__``.
-        self._remote_build_lifecycle_lock: asyncio.Lock | None = None
+        # Remote-build peer-link listener lifecycle (issue #106) —
+        # bind / teardown / rebuild of the Noise-XX receiver site and
+        # its mDNS advertise. Owns the bound runner and the lifecycle
+        # lock; driven through its public methods below.
+        self._remote_build_lifecycle = RemoteBuildLifecycle(self)
+
+    @property
+    def dashboard_advertiser(self) -> DashboardAdvertiser | None:
+        """The dashboard mDNS advertiser, or ``None`` before start() / when zeroconf is down."""
+        return self._dashboard_advertiser
+
+    @property
+    def is_remote_build_listener_bound(self) -> bool:
+        """True iff the remote-build peer-link Noise WS listener is currently bound."""
+        return self._remote_build_lifecycle.is_listener_bound
+
+    async def apply_remote_build_enabled(self) -> bool:
+        """Converge the peer-link listener to the on-disk ``enabled`` flag."""
+        return await self._remote_build_lifecycle.apply_enabled()
+
+    async def reload_remote_build_identity(self, *, pin_sha256: str) -> bool:
+        """Rebuild the peer-link listener after an X25519 identity rotation."""
+        return await self._remote_build_lifecycle.reload_identity(pin_sha256=pin_sha256)
 
     def _install_default_executor(self) -> None:
         """Register the dashboard's executor as the loop's default.
@@ -349,7 +361,7 @@ class DeviceBuilder(_RemoteBuildLifecycleMixin):
         # and port land in the initial ServiceInfo; a post-register
         # ``async_update_service`` would race python-zeroconf's
         # initial announce and flap the wire-visible TXT keys.
-        await self._maybe_start_remote_build_site()
+        await self._remote_build_lifecycle.maybe_start()
 
         if self._dashboard_advertiser is not None and zeroconf is not None:
             await self._dashboard_advertiser.register(zeroconf)
@@ -407,23 +419,15 @@ class DeviceBuilder(_RemoteBuildLifecycleMixin):
             task.cancel()
         if self._background_tasks:
             await asyncio.gather(*self._background_tasks, return_exceptions=True)
-        # Tear down the remote-build HTTPS listener (if it was
-        # bound) before the controller it depends on. Order
-        # matters less here than for zeroconf, but doing it
-        # first keeps the listener from servicing a request
-        # that hits a torn-down controller mid-shutdown.
-        # Acquire ``_remote_build_lifecycle_lock`` so a
-        # concurrent ``apply_remote_build_enabled`` /
-        # ``reload_remote_build_identity`` can't interleave its
-        # rebind with this teardown — without the lock, an
-        # in-flight toggle could land a fresh runner *after*
-        # ``stop()`` has cleared the slot, leaking a listener
-        # past shutdown.
-        async with self._get_remote_build_lifecycle_lock():
-            if self._remote_build_runner is not None:
-                with contextlib.suppress(Exception):
-                    await self._remote_build_runner.cleanup()
-                self._remote_build_runner = None
+        # Tear down the remote-build listener (if it was bound)
+        # before the controller it depends on. Order matters less
+        # here than for zeroconf, but doing it first keeps the
+        # listener from servicing a request that hits a torn-down
+        # controller mid-shutdown. ``shutdown`` takes the lifecycle
+        # lock so a concurrent toggle / rotate can't land a fresh
+        # runner after this teardown and leak a listener past
+        # shutdown.
+        await self._remote_build_lifecycle.shutdown()
         # Cancel the remote-build browser BEFORE devices.stop()
         # closes the zeroconf socket the browser is using. Same
         # ordering rule as the dashboard advertise just below.

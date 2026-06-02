@@ -72,8 +72,8 @@ async def test_maybe_start_remote_build_site_skips_when_explicitly_disabled(
     db.remote_build_receiver = MagicMock()
     db.remote_build_receiver._db.settings.config_dir = tmp_path
 
-    await db._maybe_start_remote_build_site()
-    assert db._remote_build_runner is None
+    await db._remote_build_lifecycle.maybe_start()
+    assert db._remote_build_lifecycle._runner is None
 
 
 async def test_maybe_start_remote_build_site_binds_by_default_on_fresh_install(
@@ -97,14 +97,14 @@ async def test_maybe_start_remote_build_site_binds_by_default_on_fresh_install(
     db.loop = asyncio.get_running_loop()
     db.remote_build_receiver = MagicMock()
     db.remote_build_receiver._db.settings.config_dir = tmp_path
-    db._publish_remote_build_advertise = AsyncMock()
+    db._remote_build_lifecycle.publish_advertise = AsyncMock()
 
     try:
-        await db._maybe_start_remote_build_site()
-        assert db._remote_build_runner is not None
+        await db._remote_build_lifecycle.maybe_start()
+        assert db._remote_build_lifecycle._runner is not None
     finally:
-        if db._remote_build_runner is not None:
-            await db._remote_build_runner.cleanup()
+        if db._remote_build_lifecycle._runner is not None:
+            await db._remote_build_lifecycle._runner.cleanup()
 
 
 async def test_maybe_start_remote_build_site_binds_when_enabled(tmp_path: Path) -> None:
@@ -135,11 +135,11 @@ async def test_maybe_start_remote_build_site_binds_when_enabled(tmp_path: Path) 
     db.remote_build_receiver._db.settings.config_dir = tmp_path
 
     try:
-        await db._maybe_start_remote_build_site()
-        assert db._remote_build_runner is not None
+        await db._remote_build_lifecycle.maybe_start()
+        assert db._remote_build_lifecycle._runner is not None
     finally:
-        if db._remote_build_runner is not None:
-            await db._remote_build_runner.cleanup()
+        if db._remote_build_lifecycle._runner is not None:
+            await db._remote_build_lifecycle._runner.cleanup()
 
 
 async def test_maybe_start_remote_build_site_fails_soft_on_bind_error(
@@ -182,8 +182,8 @@ async def test_maybe_start_remote_build_site_fails_soft_on_bind_error(
     db.remote_build_receiver._db.settings.config_dir = tmp_path
 
     # Must not raise — the dashboard keeps running on bind failure.
-    await db._maybe_start_remote_build_site()
-    assert db._remote_build_runner is None
+    await db._remote_build_lifecycle.maybe_start()
+    assert db._remote_build_lifecycle._runner is None
 
     # Sanity: with the stub removed, a fresh call would succeed.
     monkeypatch.setattr(web.TCPSite, "start", real_start)
@@ -224,9 +224,9 @@ async def test_maybe_start_remote_build_site_refuses_port_zero_with_multi_host(
     db.remote_build_receiver._db.settings.config_dir = tmp_path
 
     with caplog.at_level("ERROR", logger="esphome_device_builder._remote_build_lifecycle"):
-        await db._maybe_start_remote_build_site()
+        await db._remote_build_lifecycle.maybe_start()
 
-    assert db._remote_build_runner is None
+    assert db._remote_build_lifecycle._runner is None
     # The fail-soft handler logs via ``logger.exception`` — the
     # RuntimeError text lives on the captured ``exc_info``, not the
     # main message. Check both so a refactor that swaps the log
@@ -291,8 +291,8 @@ async def test_maybe_start_remote_build_site_updates_advertiser_on_success(
     db._dashboard_advertiser = fake_advertiser
 
     try:
-        await db._maybe_start_remote_build_site()
-        assert db._remote_build_runner is not None
+        await db._remote_build_lifecycle.maybe_start()
+        assert db._remote_build_lifecycle._runner is not None
         # Pin and listener port both made it to the advertiser.
         assert fake_advertiser.set_pin_sha256.called
         assert fake_advertiser.set_remote_build_port.called
@@ -300,8 +300,8 @@ async def test_maybe_start_remote_build_site_updates_advertiser_on_success(
         # leaves the local cache.
         assert fake_advertiser.refresh.called
     finally:
-        if db._remote_build_runner is not None:
-            await db._remote_build_runner.cleanup()
+        if db._remote_build_lifecycle._runner is not None:
+            await db._remote_build_lifecycle._runner.cleanup()
 
 
 async def test_start_registers_advertiser_with_all_txt_keys_in_one_announce(
@@ -387,8 +387,8 @@ async def test_maybe_start_remote_build_site_against_unregistered_advertiser_sta
     db._dashboard_advertiser = advertiser
 
     try:
-        await db._maybe_start_remote_build_site()
-        assert db._remote_build_runner is not None
+        await db._remote_build_lifecycle.maybe_start()
+        assert db._remote_build_lifecycle._runner is not None
         # Pin + port were staged for the next ``build_service_info``.
         assert advertiser._pin_sha256
         assert advertiser._remote_build_port is not None
@@ -407,8 +407,8 @@ async def test_maybe_start_remote_build_site_against_unregistered_advertiser_sta
             "remote_build_port",
         }
     finally:
-        if db._remote_build_runner is not None:
-            await db._remote_build_runner.cleanup()
+        if db._remote_build_lifecycle._runner is not None:
+            await db._remote_build_lifecycle._runner.cleanup()
 
 
 async def test_maybe_start_remote_build_site_advertises_actual_port_for_ephemeral(
@@ -447,16 +447,16 @@ async def test_maybe_start_remote_build_site_advertises_actual_port_for_ephemera
     db._dashboard_advertiser = fake_advertiser
 
     try:
-        await db._maybe_start_remote_build_site()
-        assert db._remote_build_runner is not None
+        await db._remote_build_lifecycle.maybe_start()
+        assert db._remote_build_lifecycle._runner is not None
         # The advertiser receives the OS-assigned port, never 0.
         assert fake_advertiser.set_remote_build_port.called
         advertised = fake_advertiser.set_remote_build_port.call_args.args[0]
         assert advertised != 0
         assert 1024 <= advertised <= 65535
     finally:
-        if db._remote_build_runner is not None:
-            await db._remote_build_runner.cleanup()
+        if db._remote_build_lifecycle._runner is not None:
+            await db._remote_build_lifecycle._runner.cleanup()
 
 
 async def test_maybe_start_remote_build_site_skips_ha_addon_without_persisted_opt_in(
@@ -480,8 +480,8 @@ async def test_maybe_start_remote_build_site_skips_ha_addon_without_persisted_op
     db.remote_build_receiver = MagicMock()
     db.remote_build_receiver._db.settings.config_dir = tmp_path
 
-    await db._maybe_start_remote_build_site()
-    assert db._remote_build_runner is None
+    await db._remote_build_lifecycle.maybe_start()
+    assert db._remote_build_lifecycle._runner is None
 
 
 async def test_maybe_start_remote_build_site_binds_ha_addon_after_explicit_opt_in(
@@ -513,14 +513,14 @@ async def test_maybe_start_remote_build_site_binds_ha_addon_after_explicit_opt_i
     db.loop = loop
     db.remote_build_receiver = MagicMock()
     db.remote_build_receiver._db.settings.config_dir = tmp_path
-    db._publish_remote_build_advertise = AsyncMock()
+    db._remote_build_lifecycle.publish_advertise = AsyncMock()
 
     try:
-        await db._maybe_start_remote_build_site()
-        assert db._remote_build_runner is not None
+        await db._remote_build_lifecycle.maybe_start()
+        assert db._remote_build_lifecycle._runner is not None
     finally:
-        if db._remote_build_runner is not None:
-            await db._remote_build_runner.cleanup()
+        if db._remote_build_lifecycle._runner is not None:
+            await db._remote_build_lifecycle._runner.cleanup()
 
 
 async def test_maybe_start_remote_build_site_respects_ha_addon_explicit_disable(
@@ -554,8 +554,8 @@ async def test_maybe_start_remote_build_site_respects_ha_addon_explicit_disable(
     db.remote_build_receiver = MagicMock()
     db.remote_build_receiver._db.settings.config_dir = tmp_path
 
-    await db._maybe_start_remote_build_site()
-    assert db._remote_build_runner is None
+    await db._remote_build_lifecycle.maybe_start()
+    assert db._remote_build_lifecycle._runner is None
 
 
 async def test_reload_remote_build_identity_no_op_when_listener_unbound(
@@ -578,7 +578,7 @@ async def test_reload_remote_build_identity_no_op_when_listener_unbound(
     advertiser = MagicMock()
     advertiser.refresh = AsyncMock()
     db._dashboard_advertiser = advertiser
-    db._remote_build_runner = None
+    db._remote_build_lifecycle._runner = None
 
     identity = await get_or_create_identity(tmp_path, db.peer_link_identity_store)
 
@@ -587,7 +587,7 @@ async def test_reload_remote_build_identity_no_op_when_listener_unbound(
     advertiser.set_pin_sha256.assert_not_called()
     advertiser.set_remote_build_port.assert_not_called()
     advertiser.refresh.assert_not_awaited()
-    assert db._remote_build_runner is None
+    assert db._remote_build_lifecycle._runner is None
     # Reload returns ``False`` when there's no listener to rebuild.
     assert listener_bound is False
 
@@ -617,9 +617,9 @@ async def test_reload_remote_build_identity_rebuilds_listener(tmp_path: Path) ->
     db.remote_build_receiver._db.settings.config_dir = tmp_path
 
     try:
-        await db._maybe_start_remote_build_site()
-        assert db._remote_build_runner is not None
-        first_runner = db._remote_build_runner
+        await db._remote_build_lifecycle.maybe_start()
+        assert db._remote_build_lifecycle._runner is not None
+        first_runner = db._remote_build_lifecycle._runner
 
         # Rotate the X25519 peer-link key on disk so the
         # rebuild loads the new identity.
@@ -629,13 +629,13 @@ async def test_reload_remote_build_identity_rebuilds_listener(tmp_path: Path) ->
         )
 
         # Listener was rebuilt — different ``AppRunner`` instance.
-        assert db._remote_build_runner is not None
-        assert db._remote_build_runner is not first_runner
+        assert db._remote_build_lifecycle._runner is not None
+        assert db._remote_build_lifecycle._runner is not first_runner
         # Reload reports the post-rebuild state — listener is up.
         assert listener_bound is True
     finally:
-        if db._remote_build_runner is not None:
-            await db._remote_build_runner.cleanup()
+        if db._remote_build_lifecycle._runner is not None:
+            await db._remote_build_lifecycle._runner.cleanup()
 
 
 async def test_reload_remote_build_identity_clears_advertiser_when_rebuild_fails(
@@ -681,7 +681,7 @@ async def test_reload_remote_build_identity_clears_advertiser_when_rebuild_fails
         # not the initial bind.
         old_runner = MagicMock()
         old_runner.cleanup = AsyncMock()
-        db._remote_build_runner = old_runner
+        db._remote_build_lifecycle._runner = old_runner
 
         # Make the rebuild deterministically fail-soft. Stubbing
         # ``TCPSite.start`` matches the existing fail-soft test
@@ -697,7 +697,7 @@ async def test_reload_remote_build_identity_clears_advertiser_when_rebuild_fails
 
         # No listener after failed rebuild.
         assert listener_bound is False
-        assert db._remote_build_runner is None
+        assert db._remote_build_lifecycle._runner is None
         # Advertiser was cleared during teardown — pin AND port
         # both went to None. _maybe_start_remote_build_site's
         # post-bind push didn't run (rebuild failed before it),
@@ -705,8 +705,8 @@ async def test_reload_remote_build_identity_clears_advertiser_when_rebuild_fails
         assert advertiser.set_pin_sha256.call_args_list == [call(None)]
         assert advertiser.set_remote_build_port.call_args_list == [call(None)]
     finally:
-        if db._remote_build_runner is not None:
-            await db._remote_build_runner.cleanup()
+        if db._remote_build_lifecycle._runner is not None:
+            await db._remote_build_lifecycle._runner.cleanup()
 
 
 async def test_reload_remote_build_identity_advertiser_refresh_failure_is_swallowed(
@@ -726,7 +726,7 @@ async def test_reload_remote_build_identity_advertiser_refresh_failure_is_swallo
     # fail-soft.
     old_runner = MagicMock()
     old_runner.cleanup = AsyncMock()
-    db._remote_build_runner = old_runner
+    db._remote_build_lifecycle._runner = old_runner
 
     # Force the rebuild to also fail so the test doesn't have
     # to stand up a real listener.
@@ -771,10 +771,10 @@ async def test_apply_remote_build_enabled_binds_when_disk_says_true(tmp_path: Pa
     try:
         bound = await db.apply_remote_build_enabled()
         assert bound is True
-        assert db._remote_build_runner is not None
+        assert db._remote_build_lifecycle._runner is not None
     finally:
-        if db._remote_build_runner is not None:
-            await db._remote_build_runner.cleanup()
+        if db._remote_build_lifecycle._runner is not None:
+            await db._remote_build_lifecycle._runner.cleanup()
 
 
 async def test_apply_remote_build_enabled_tears_down_when_disk_says_false(
@@ -804,14 +804,14 @@ async def test_apply_remote_build_enabled_tears_down_when_disk_says_false(
     # Fake a bound runner without standing up a real socket.
     old_runner = MagicMock()
     old_runner.cleanup = AsyncMock()
-    db._remote_build_runner = old_runner
+    db._remote_build_lifecycle._runner = old_runner
 
     advertiser.unregister = AsyncMock()
 
     bound = await db.apply_remote_build_enabled()
 
     assert bound is False
-    assert db._remote_build_runner is None
+    assert db._remote_build_lifecycle._runner is None
     old_runner.cleanup.assert_awaited_once()
     # mDNS pin + port both cleared so peers re-browsing don't try
     # to connect to a port that's no longer serving traffic.
@@ -847,12 +847,12 @@ async def test_apply_remote_build_enabled_idempotent_when_already_off(tmp_path: 
     advertiser = MagicMock()
     advertiser.refresh = AsyncMock()
     db._dashboard_advertiser = advertiser
-    db._remote_build_runner = None
+    db._remote_build_lifecycle._runner = None
 
     bound = await db.apply_remote_build_enabled()
 
     assert bound is False
-    assert db._remote_build_runner is None
+    assert db._remote_build_lifecycle._runner is None
     advertiser.set_pin_sha256.assert_not_called()
     advertiser.set_remote_build_port.assert_not_called()
     advertiser.refresh.assert_not_awaited()
@@ -877,18 +877,18 @@ async def test_apply_remote_build_enabled_idempotent_when_already_on(tmp_path: P
     db.remote_build_receiver._db.settings.config_dir = tmp_path
 
     try:
-        await db._maybe_start_remote_build_site()
-        original_runner = db._remote_build_runner
+        await db._remote_build_lifecycle.maybe_start()
+        original_runner = db._remote_build_lifecycle._runner
         assert original_runner is not None
 
         bound = await db.apply_remote_build_enabled()
 
         assert bound is True
         # No rebind — the same runner instance is still serving.
-        assert db._remote_build_runner is original_runner
+        assert db._remote_build_lifecycle._runner is original_runner
     finally:
-        if db._remote_build_runner is not None:
-            await db._remote_build_runner.cleanup()
+        if db._remote_build_lifecycle._runner is not None:
+            await db._remote_build_lifecycle._runner.cleanup()
 
 
 async def test_set_settings_live_rebinds_listener(tmp_path: Path) -> None:
@@ -915,12 +915,12 @@ async def test_set_settings_live_rebinds_listener(tmp_path: Path) -> None:
         view = await controller.receiver.set_settings(enabled=True)
         assert view.enabled is True
         # Listener bound as a side effect of set_settings.
-        assert db._remote_build_runner is not None
+        assert db._remote_build_lifecycle._runner is not None
 
         view = await controller.receiver.set_settings(enabled=False)
         assert view.enabled is False
         # Listener torn down as a side effect.
-        assert db._remote_build_runner is None
+        assert db._remote_build_lifecycle._runner is None
     finally:
-        if db._remote_build_runner is not None:
-            await db._remote_build_runner.cleanup()
+        if db._remote_build_lifecycle._runner is not None:
+            await db._remote_build_lifecycle._runner.cleanup()

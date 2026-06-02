@@ -1,21 +1,23 @@
 """
 Remote-build peer-link listener lifecycle.
 
-The :class:`_RemoteBuildLifecycleMixin` carries the bind / teardown /
-rebuild of the Noise-XX peer-link receiver listener and its mDNS
-advertise, mixed into
-:class:`~esphome_device_builder.device_builder.DeviceBuilder` to keep
-that module under the file-size cap. The runner reference
-(``_remote_build_runner``) and lifecycle lock
-(``_remote_build_lifecycle_lock``) are owned by ``DeviceBuilder``'s
-``__init__``; this mixin is only ever mixed into ``DeviceBuilder`` and
-is never instantiated standalone.
+:class:`RemoteBuildLifecycle` carries the bind / teardown / rebuild of
+the Noise-XX peer-link receiver listener and its mDNS advertise. It is
+a composed collaborator of
+:class:`~esphome_device_builder.device_builder.DeviceBuilder` — held as
+``DeviceBuilder._remote_build_lifecycle`` and constructed with a
+back-reference to its owner — rather than a mixin, so the dashboard
+state it reads (``settings``, ``loop``, ``remote_build_receiver``,
+``peer_link_identity_store``, ``dashboard_advertiser``) has real types
+and IDE navigation works. The bound runner and the lifecycle lock are
+owned by this collaborator; ``DeviceBuilder`` drives the lifecycle
+through the public methods (``maybe_start``, ``apply_enabled``,
+``reload_identity``, ``shutdown``, ``is_listener_bound``).
 """
 
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, cast
@@ -31,10 +33,8 @@ from .controllers.remote_build.peer_link import PEER_LINK_PATH, make_peer_link_h
 from .helpers.network_interfaces import ensure_single_host_for_ephemeral_port, resolve_bind_host
 
 if TYPE_CHECKING:
-    from .controllers.config import DashboardSettings
-    from .controllers.remote_build import ReceiverController
-    from .helpers.dashboard_advertise import DashboardAdvertiser
-    from .helpers.peer_link_identity import PeerLinkIdentity, PeerLinkIdentityStore
+    from .device_builder import DeviceBuilder
+    from .helpers.peer_link_identity import PeerLinkIdentity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -64,22 +64,29 @@ async def _strip_server_header_middleware(
     return response
 
 
-class _RemoteBuildLifecycleMixin:
-    """Remote-build peer-link listener lifecycle, mixed into ``DeviceBuilder``."""
+class RemoteBuildLifecycle:
+    """Remote-build peer-link listener lifecycle, composed into ``DeviceBuilder``."""
 
-    # Provided by ``DeviceBuilder.__init__`` — declared here so the
-    # mixin type-checks in isolation. This mixin is never instantiated
-    # on its own.
-    if TYPE_CHECKING:
-        settings: DashboardSettings
-        loop: asyncio.AbstractEventLoop | None
-        remote_build_receiver: ReceiverController | None
-        peer_link_identity_store: PeerLinkIdentityStore
-        _dashboard_advertiser: DashboardAdvertiser | None
-        _remote_build_runner: web.AppRunner | None
-        _remote_build_lifecycle_lock: asyncio.Lock | None
+    def __init__(self, db: DeviceBuilder) -> None:
+        """Bind to the owning ``DeviceBuilder``; the listener starts unbound."""
+        self._db = db
+        # Peer-link Noise WS receiver site for
+        # ``/remote-build/peer-link`` (issue #106). Bound only when
+        # ``RemoteBuildSettings.enabled`` is true; ``None`` otherwise.
+        self._runner: web.AppRunner | None = None
+        # Serialises listener-state mutations so two clients
+        # toggling ``set_settings`` (or a ``rotate_identity`` racing a
+        # toggle) can't interleave their teardown + rebind sequences.
+        # Lazy-init at first acquire so the lock binds to the running
+        # event loop, not the loop that ran ``DeviceBuilder.__init__``.
+        self._lifecycle_lock: asyncio.Lock | None = None
 
-    async def _maybe_start_remote_build_site(self) -> None:
+    @property
+    def is_listener_bound(self) -> bool:
+        """True iff the remote-build peer-link Noise WS listener is currently bound."""
+        return self._runner is not None
+
+    async def maybe_start(self) -> None:
         """
         Bind the peer-link Noise WS listener if remote-build is enabled.
 
@@ -91,7 +98,7 @@ class _RemoteBuildLifecycleMixin:
         the Noise XX handshake fails without a matching pubkey, so
         binding the port grants nothing on its own. Loads the
         X25519 peer-link identity through
-        :attr:`peer_link_identity_store` — the sole
+        :attr:`DeviceBuilder.peer_link_identity_store` — the sole
         cryptographic identity used by this listener; the store
         caches the identity so repeated binds don't re-read the
         keypair file.
@@ -120,12 +127,13 @@ class _RemoteBuildLifecycleMixin:
         operator gets a warning and the listener is simply absent
         until the next restart with the issue resolved.
         """
-        if self.remote_build_receiver is None or self.loop is None:
+        if self._db.remote_build_receiver is None or self._db.loop is None:
             return
-        loop = self.loop
-        if self.settings.on_ha_addon:
+        loop = self._db.loop
+        settings = self._db.settings
+        if settings.on_ha_addon:
             persisted = await loop.run_in_executor(
-                None, has_remote_build_settings_persisted, self.settings.config_dir
+                None, has_remote_build_settings_persisted, settings.config_dir
             )
             if not persisted:
                 _LOGGER.debug(
@@ -136,7 +144,7 @@ class _RemoteBuildLifecycleMixin:
                 )
                 return
         rb_settings = await loop.run_in_executor(
-            None, load_remote_build_settings, self.settings.config_dir
+            None, load_remote_build_settings, settings.config_dir
         )
         if not rb_settings.enabled:
             _LOGGER.debug(
@@ -146,7 +154,7 @@ class _RemoteBuildLifecycleMixin:
             return
 
         try:
-            runner, identity, port = await self._build_and_start_remote_build_runner()
+            runner, identity, port = await self._build_and_start_runner()
         except Exception:
             _LOGGER.exception(
                 "Remote-build peer-link site failed to start; dashboard continues "
@@ -154,26 +162,26 @@ class _RemoteBuildLifecycleMixin:
                 "fix the underlying error and restart."
             )
             return
-        self._remote_build_runner = runner
+        self._runner = runner
 
         # Update the mDNS advertise AFTER the bind succeeds. If the
         # bind raised (port in use, permission denied, ...) the
         # advertiser stays at its pre-listener state instead of
         # broadcasting a pin + port that nothing's actually
         # listening on.
-        await self._publish_remote_build_advertise(
+        await self.publish_advertise(
             pin_sha256=identity.pin_sha256,
             remote_build_port=port,
         )
 
         _LOGGER.info(
             "Remote-build peer-link site listening on %s:%d (peer-link pin %s)",
-            self.settings.remote_build_host,
+            settings.remote_build_host,
             port,
             identity.pin_sha256_formatted,
         )
 
-    async def _publish_remote_build_advertise(
+    async def publish_advertise(
         self,
         *,
         pin_sha256: str | None,
@@ -183,107 +191,82 @@ class _RemoteBuildLifecycleMixin:
         Push pin / port updates to the mDNS advertise, fail-soft on refresh.
 
         Centralises the setter-then-refresh dance shared by
-        ``_maybe_start_remote_build_site`` (post-bind: real pin +
-        port) and ``reload_remote_build_identity`` (post-teardown:
-        ``None`` + ``None`` to clear both fields out of TXT until
-        the rebuild succeeds). Both fields are always updated;
-        the contract is "``pin_sha256`` and ``remote_build_port``
-        appear in TXT iff the listener is currently bound", so
-        peers re-browsing while the listener is down see neither
-        field and don't try to connect to a port that's no
-        longer serving traffic. The explicit ``refresh`` call
-        republishes the ServiceInfo if any TXT property changed;
-        without it the setter-driven update would only land on
-        the wire on the next periodic refresh tick (5 min). A
-        flaky zeroconf refresh is swallowed so caller paths
-        (bind, rotate) don't fail just because the responder is
-        wedged.
+        :meth:`maybe_start` (post-bind: real pin + port) and
+        :meth:`reload_identity` (post-teardown: ``None`` + ``None``
+        to clear both fields out of TXT until the rebuild
+        succeeds). Both fields are always updated; the contract is
+        "``pin_sha256`` and ``remote_build_port`` appear in TXT iff
+        the listener is currently bound", so peers re-browsing while
+        the listener is down see neither field and don't try to
+        connect to a port that's no longer serving traffic. The
+        explicit ``refresh`` call republishes the ServiceInfo if any
+        TXT property changed; without it the setter-driven update
+        would only land on the wire on the next periodic refresh
+        tick (5 min). A flaky zeroconf refresh is logged and
+        swallowed so caller paths (bind, rotate) don't fail just
+        because the responder is wedged.
 
         No-op when no advertiser is attached.
         """
-        advertiser = self._dashboard_advertiser
+        advertiser = self._db.dashboard_advertiser
         if advertiser is None:
             return
         advertiser.set_pin_sha256(pin_sha256)
         advertiser.set_remote_build_port(remote_build_port)
-        with contextlib.suppress(Exception):
+        try:
             await advertiser.refresh()
+        except Exception:
+            # Fail-soft: a wedged responder shouldn't take down the
+            # bind / rotate path. Log (with traceback) so a
+            # chronically failing refresh — peers stuck on stale or
+            # absent pin/port TXT — is diagnosable rather than silent.
+            _LOGGER.warning(
+                "Remote-build mDNS advertise refresh failed; the pin/port TXT "
+                "update may not have reached the wire until the next periodic "
+                "refresh tick",
+                exc_info=True,
+            )
 
-    @property
-    def is_remote_build_listener_bound(self) -> bool:
-        """True iff the remote-build peer-link Noise WS listener is currently bound."""
-        return self._remote_build_runner is not None
-
-    def _get_remote_build_lifecycle_lock(self) -> asyncio.Lock:
-        """Lazy-init the lock against the running loop on first acquire."""
-        if self._remote_build_lifecycle_lock is None:
-            self._remote_build_lifecycle_lock = asyncio.Lock()
-        return self._remote_build_lifecycle_lock
-
-    async def _teardown_remote_build_runner(self) -> None:
-        """
-        Stop the bound peer-link listener and clear its mDNS advertise.
-
-        Caller MUST hold :attr:`_remote_build_lifecycle_lock`. No-op
-        when the listener isn't bound. Sequencing matters: the
-        runner reference is cleared *before* awaiting cleanup so a
-        concurrent listener-state observer sees the steady "absent"
-        state from the moment we commit to teardown, and the mDNS
-        clear runs *after* cleanup so peers re-browsing during the
-        window get a TXT without ``pin_sha256`` / ``remote_build_port``
-        the moment the port stops serving traffic.
-        """
-        if self._remote_build_runner is None:
-            return
-        old_runner = self._remote_build_runner
-        self._remote_build_runner = None
-        with contextlib.suppress(Exception):
-            await old_runner.cleanup()
-        await self._publish_remote_build_advertise(
-            pin_sha256=None,
-            remote_build_port=None,
-        )
-
-    async def apply_remote_build_enabled(self) -> bool:
+    async def apply_enabled(self) -> bool:
         """
         Converge the peer-link listener to the on-disk ``enabled`` flag.
 
         Called by ``ReceiverController.set_settings`` after the
         new ``enabled`` value lands on disk. Reads back from disk
-        under :attr:`_remote_build_lifecycle_lock` so the
-        last-writer-wins persisted value is always what the
-        listener converges to — two clients flipping ``enabled``
-        concurrently can't desync disk from listener state.
+        under the lifecycle lock so the last-writer-wins persisted
+        value is always what the listener converges to — two
+        clients flipping ``enabled`` concurrently can't desync disk
+        from listener state.
 
         On disk ``enabled=True`` with the listener absent, runs the
-        same path :meth:`_maybe_start_remote_build_site` does at
-        startup (load X25519 peer-link identity, bind plain-TCP
-        TCPSite, push pin + port to mDNS). Fail-soft on bind error
-        — the dashboard keeps running without a listener, and a
-        subsequent ``set_settings`` retry can clear a transient
-        port conflict without a restart.
+        same path :meth:`maybe_start` does at startup (load X25519
+        peer-link identity, bind plain-TCP TCPSite, push pin + port
+        to mDNS). Fail-soft on bind error — the dashboard keeps
+        running without a listener, and a subsequent
+        ``set_settings`` retry can clear a transient port conflict
+        without a restart.
 
         On disk ``enabled=False`` with the listener bound, tears
         down the runner and clears ``pin_sha256`` + ``remote_build_port``
-        from mDNS via :meth:`_teardown_remote_build_runner`.
+        from mDNS via :meth:`_teardown_runner`.
 
         Returns whether the listener is bound after this call.
         """
-        if self.loop is None:
-            return self._remote_build_runner is not None
-        loop = self.loop
-        async with self._get_remote_build_lifecycle_lock():
+        if self._db.loop is None:
+            return self._runner is not None
+        loop = self._db.loop
+        async with self._get_lock():
             rb_settings = await loop.run_in_executor(
-                None, load_remote_build_settings, self.settings.config_dir
+                None, load_remote_build_settings, self._db.settings.config_dir
             )
             if rb_settings.enabled:
-                if self._remote_build_runner is None:
-                    await self._maybe_start_remote_build_site()
+                if self._runner is None:
+                    await self.maybe_start()
             else:
-                await self._teardown_remote_build_runner()
-            return self._remote_build_runner is not None
+                await self._teardown_runner()
+            return self._runner is not None
 
-    async def reload_remote_build_identity(self, *, pin_sha256: str) -> bool:
+    async def reload_identity(self, *, pin_sha256: str) -> bool:
         """
         Rebuild the peer-link listener after an X25519 identity rotation.
 
@@ -310,13 +293,13 @@ class _RemoteBuildLifecycleMixin:
           matters: clear comes BEFORE rebuild so that on rebuild
           failure the cleared state is the steady state.
         * Listener rebuild — re-runs the same path
-          ``_maybe_start_remote_build_site`` does at startup, which
-          loads the new X25519 identity from disk and (on success)
-          re-pushes the new pin + port to mDNS. Fail-soft: a
-          rebuild failure leaves the dashboard running without a
-          receiver listener (same contract as the initial bind),
-          and the return value reflects that so the rotater can
-          surface the failure to the operator.
+          :meth:`maybe_start` does at startup, which loads the new
+          X25519 identity from disk and (on success) re-pushes the
+          new pin + port to mDNS. Fail-soft: a rebuild failure
+          leaves the dashboard running without a receiver listener
+          (same contract as the initial bind), and the return value
+          reflects that so the rotater can surface the failure to
+          the operator.
 
         When the listener is NOT bound, this method is a no-op:
         no mDNS push (there's no listener for peers to connect
@@ -332,20 +315,90 @@ class _RemoteBuildLifecycleMixin:
         with).
         """
         del pin_sha256  # currently unused on this side; see docstring
-        async with self._get_remote_build_lifecycle_lock():
-            if self._remote_build_runner is None:
+        async with self._get_lock():
+            if self._runner is None:
                 return False
-            # ``_teardown_remote_build_runner`` clears the advertise
-            # too, so peers re-browsing during the rebuild window —
-            # or after a rebuild failure — don't see stale pin +
-            # port pointing at a listener that isn't there.
-            # ``_maybe_start_remote_build_site`` re-pushes both on
-            # a successful rebuild.
-            await self._teardown_remote_build_runner()
-            await self._maybe_start_remote_build_site()
-            return self._remote_build_runner is not None
+            # ``_teardown_runner`` clears the advertise too, so peers
+            # re-browsing during the rebuild window — or after a
+            # rebuild failure — don't see stale pin + port pointing at
+            # a listener that isn't there. ``maybe_start`` re-pushes
+            # both on a successful rebuild.
+            await self._teardown_runner()
+            await self.maybe_start()
+            return self._runner is not None
 
-    async def _build_and_start_remote_build_runner(
+    async def shutdown(self) -> None:
+        """
+        Tear down the listener at dashboard stop.
+
+        Acquires the lifecycle lock so a concurrent
+        :meth:`apply_enabled` / :meth:`reload_identity` can't
+        interleave its rebind with this teardown — without the
+        lock, an in-flight toggle could land a fresh runner *after*
+        ``stop()`` has cleared the slot, leaking a listener past
+        shutdown. Does NOT clear the mDNS advertise: the caller
+        (``DeviceBuilder.stop``) unregisters the whole advertiser
+        immediately after, so a TXT-only clear would be wasted work
+        racing the unregister.
+        """
+        async with self._get_lock():
+            if self._runner is None:
+                return
+            old_runner = self._runner
+            self._runner = None
+            await self._cleanup_runner(old_runner)
+
+    def _get_lock(self) -> asyncio.Lock:
+        """Lazy-init the lock against the running loop on first acquire."""
+        if self._lifecycle_lock is None:
+            self._lifecycle_lock = asyncio.Lock()
+        return self._lifecycle_lock
+
+    async def _teardown_runner(self) -> None:
+        """
+        Stop the bound peer-link listener and clear its mDNS advertise.
+
+        Caller MUST hold the lifecycle lock. No-op when the listener
+        isn't bound. Sequencing matters: the runner reference is
+        cleared *before* awaiting cleanup so a concurrent
+        listener-state observer sees the steady "absent" state from
+        the moment we commit to teardown, and the mDNS clear runs
+        *after* cleanup so peers re-browsing during the window get a
+        TXT without ``pin_sha256`` / ``remote_build_port`` the moment
+        the port stops serving traffic.
+        """
+        if self._runner is None:
+            return
+        old_runner = self._runner
+        self._runner = None
+        await self._cleanup_runner(old_runner)
+        await self.publish_advertise(
+            pin_sha256=None,
+            remote_build_port=None,
+        )
+
+    @staticmethod
+    async def _cleanup_runner(runner: web.AppRunner) -> None:
+        """
+        Clean up a runner, logging (not raising) on failure.
+
+        A failed ``AppRunner.cleanup`` (socket not released,
+        lingering connections) would otherwise leak the listener
+        socket and block the next bind on a fixed port. Swallow the
+        exception so teardown stays fail-soft, but log it with a
+        traceback so the leak is observable in production instead of
+        invisible.
+        """
+        try:
+            await runner.cleanup()
+        except Exception:
+            _LOGGER.warning(
+                "Remote-build peer-link listener cleanup failed; a leaked "
+                "socket may block the next bind on the configured port",
+                exc_info=True,
+            )
+
+    async def _build_and_start_runner(
         self,
     ) -> tuple[web.AppRunner, PeerLinkIdentity, int]:
         """
@@ -365,7 +418,10 @@ class _RemoteBuildLifecycleMixin:
         ``bound_port`` is the OS-assigned port when the operator
         passed ``--remote-build-port 0`` (ephemeral); otherwise the
         configured value verbatim. Reading the real port off the
-        socket prevents mDNS / log lines from claiming port 0.
+        socket prevents mDNS / log lines from claiming port 0; if an
+        ephemeral bind can't be resolved to a real port, this raises
+        rather than returning 0 so the failure surfaces instead of
+        advertising an unusable port.
 
         Bind address comes from
         :attr:`DashboardSettings.remote_build_host` (``0.0.0.0`` by
@@ -381,21 +437,23 @@ class _RemoteBuildLifecycleMixin:
         to a specific NIC can override via ``--remote-build-host`` /
         ``$ESPHOME_REMOTE_BUILD_HOST``.
         """
-        loop = self.loop
+        loop = self._db.loop
         assert loop is not None  # caller-checked
-        assert self.remote_build_receiver is not None  # caller-checked
+        receiver = self._db.remote_build_receiver
+        assert receiver is not None  # caller-checked
+        settings = self._db.settings
 
         # Validate before acquiring resources so the caller's
         # fail-soft handler logs cleanly. The mDNS ``remote_build_port``
         # TXT field only carries one port, so a multi-host expansion
         # combined with an ephemeral port has no safe answer.
-        configured_port = self.settings.remote_build_port
-        hosts = resolve_bind_host(self.settings.remote_build_host)
+        configured_port = settings.remote_build_port
+        hosts = resolve_bind_host(settings.remote_build_host)
         ensure_single_host_for_ephemeral_port(hosts, configured_port, "--remote-build-port")
 
         runner: web.AppRunner | None = None
         try:
-            identity = await self.peer_link_identity_store.async_load()
+            identity = await self._db.peer_link_identity_store.async_load()
             app = web.Application(middlewares=[_strip_server_header_middleware])
             # Same WS init shape as the main /ws app: seed the
             # active-WS registry + the shutdown closer so an idle
@@ -403,7 +461,7 @@ class _RemoteBuildLifecycleMixin:
             # to aiohttp's 60s ``shutdown_timeout`` while its
             # handler sits in ``async for msg in session.ws``.
             init_ws_app(app)
-            handler = make_peer_link_handler(self.remote_build_receiver, identity)
+            handler = make_peer_link_handler(receiver, identity)
             app.router.add_get(PEER_LINK_PATH, handler)
 
             runner = web.AppRunner(app)
@@ -411,11 +469,11 @@ class _RemoteBuildLifecycleMixin:
             # ``reuse_address=True`` is the asyncio default on POSIX
             # but defaults to False on Windows; pin it explicitly so
             # the rotation rebuild path
-            # (``reload_remote_build_identity`` → teardown → re-bind)
-            # doesn't TIME_WAIT-block on a fixed configured port
-            # (default 6055) cross-platform. The ephemeral-port test
-            # path masks this risk because the OS picks a fresh port
-            # each rebuild; production deploys with a fixed port.
+            # (``reload_identity`` → teardown → re-bind) doesn't
+            # TIME_WAIT-block on a fixed configured port (default
+            # 6055) cross-platform. The ephemeral-port test path
+            # masks this risk because the OS picks a fresh port each
+            # rebuild; production deploys with a fixed port.
             for host in hosts:
                 site = web.TCPSite(
                     runner,
@@ -424,21 +482,38 @@ class _RemoteBuildLifecycleMixin:
                     reuse_address=True,
                 )
                 await site.start()
+
+            # Resolve the actually-bound port. ``configured_port=0``
+            # tells the OS to pick an ephemeral port; the bound port
+            # lives on the started server socket.
+            port = configured_port
+            if configured_port == 0:
+                port = self._resolve_ephemeral_port(site)
         except Exception:
             if runner is not None:
-                with contextlib.suppress(Exception):
-                    await runner.cleanup()
+                await self._cleanup_runner(runner)
             raise
 
-        # Resolve the actually-bound port. ``configured_port=0``
-        # tells the OS to pick an ephemeral port; the bound port
-        # lives on the started server socket.
-        port = configured_port
+        return runner, identity, port
+
+    @staticmethod
+    def _resolve_ephemeral_port(site: web.TCPSite) -> int:
+        """
+        Read the OS-assigned port off an ephemeral (``port=0``) bind.
+
+        Raises ``RuntimeError`` rather than returning 0 if the bound
+        port can't be read, so an unresolvable ephemeral bind fails
+        loudly in the caller's fail-soft handler instead of silently
+        advertising port 0 — the exact outcome this read exists to
+        prevent.
+        """
         # ``site._server`` is genuinely aiohttp-private — there's no
         # public way to get the bound port off a ``TCPSite`` after an
         # ephemeral-port (configured_port=0) bind. We reach in; if
         # aiohttp ever renames it the cast below crashes loudly.
-        if configured_port == 0 and site._server is not None:  # noqa: SLF001
+        server = site._server  # noqa: SLF001
+        sockets = None
+        if server is not None:
             # typeshed's ``asyncio.AbstractServer`` doesn't expose
             # ``sockets`` even though the concrete ``base_events.Server``
             # does — the asyncio docs list it as part of the public
@@ -446,7 +521,13 @@ class _RemoteBuildLifecycleMixin:
             # access boundary; the alternative (``getattr`` + None
             # checks) would obscure what's actually a stable
             # documented attribute.
-            sockets = cast("asyncio.base_events.Server", site._server).sockets  # noqa: SLF001
-            if sockets:
-                port = sockets[0].getsockname()[1]
-        return runner, identity, port
+            sockets = cast("asyncio.base_events.Server", server).sockets
+        port = sockets[0].getsockname()[1] if sockets else 0
+        if not port:
+            msg = (
+                "Remote-build peer-link bound on an ephemeral port "
+                "(--remote-build-port 0) but the OS-assigned port could not be "
+                "resolved off the listening socket; refusing to advertise port 0"
+            )
+            raise RuntimeError(msg)
+        return port
