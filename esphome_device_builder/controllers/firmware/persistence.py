@@ -146,6 +146,16 @@ def _restore_to_lane(controller: FirmwareController, job: FirmwareJob) -> None:
     prereq = controller.state.jobs.get(job.depends_on)
     if prereq is not None and prereq.status in _ACTIVE_JOB_STATUSES:
         return
+    # Prerequisite is gone (pruned from history) or terminal-but-not-completed:
+    # the dependent can't run, so cancel it rather than hold it forever. Log so
+    # a prereq that was pruned despite succeeding is diagnosable (not silent).
+    prereq_status = prereq.status.value if prereq is not None else "missing"
+    _LOGGER.info(
+        "Cancelling restored job %s: prerequisite %s is %s",
+        job.job_id,
+        job.depends_on,
+        prereq_status,
+    )
     _mark_job_terminal(job, JobStatus.CANCELLED)
     job.error = "prerequisite job did not complete successfully"
 
