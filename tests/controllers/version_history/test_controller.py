@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import shutil
+from contextlib import suppress
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -305,6 +308,60 @@ async def test_restore_unknown_sha_raises_not_found(tmp_path: Path) -> None:
         await controller.restore(configuration="other.yaml", sha=sha)
     assert exc.value.code == ErrorCode.NOT_FOUND
     controller._db.devices.apply_restored_yaml.assert_not_awaited()
+
+
+async def test_restore_commits_pending_external_edit_first(tmp_path: Path) -> None:
+    """A restore captures a queued external edit before overwriting it.
+
+    Otherwise restoring over an edit that's still in the debounce window
+    would drop that version from history entirely.
+    """
+    controller = _make_controller(tmp_path)
+    await controller.start()
+    yaml = tmp_path / "kitchen.yaml"
+    yaml.write_text("v1\n", encoding="utf-8")
+    create_sha = await controller.record_configuration("kitchen.yaml", "Create kitchen.yaml")
+    assert create_sha
+    # External edit detected by the scanner but not yet flushed.
+    yaml.write_text("v2-external\n", encoding="utf-8")
+    controller._pending["kitchen.yaml"] = "Edit kitchen.yaml"
+
+    result = await controller.restore(configuration="kitchen.yaml", sha=create_sha)
+
+    assert result["content"] == "v1\n"
+    # The just-overwritten external edit is now in history (committed
+    # before the restore wrote the old content back).
+    versions = await controller.list_versions(configuration="kitchen.yaml")
+    assert [v["message"] for v in versions] == ["Edit kitchen.yaml", "Create kitchen.yaml"]
+    captured = await controller.get_version(configuration="kitchen.yaml", sha=versions[0]["sha"])
+    assert captured["content"] == "v2-external\n"
+
+
+async def test_flush_task_failure_is_surfaced(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An error escaping the per-config guard is logged via the done-callback."""
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.version_history.controller._DEBOUNCE_SECONDS",
+        0.0,
+    )
+    controller = _make_controller(tmp_path)
+    await controller.start()
+
+    async def _boom() -> None:
+        raise RuntimeError("drain bug")
+
+    monkeypatch.setattr(controller, "_flush_pending", _boom)
+    device = Device(name="kitchen", friendly_name="Kitchen", configuration="kitchen.yaml")
+    with caplog.at_level(logging.WARNING):
+        controller._db.bus.fire(EventType.DEVICE_UPDATED, DeviceEventData(device=device))
+        task = controller._flush_task
+        assert task is not None
+        with suppress(RuntimeError):
+            await task
+        await asyncio.sleep(0)  # let the done-callback run
+
+    assert any("flush task failed" in rec.message for rec in caplog.records)
 
 
 async def test_restore_without_history_raises_not_found(tmp_path: Path) -> None:

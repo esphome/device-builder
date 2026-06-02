@@ -188,6 +188,9 @@ class VersionHistoryController:
         """
         self._require_enabled()
         path = self._db.settings.rel_path(configuration)
+        # Commit any queued external edit first, so restoring over it
+        # still leaves that just-overwritten version recoverable.
+        await self._flush_pending()
         if sha is not None:
             self._validate_sha(sha)
             content = await self._in_executor(self._repo.file_at, path, sha)
@@ -234,7 +237,21 @@ class VersionHistoryController:
             configuration=configuration
         )
         if self._flush_task is None or self._flush_task.done():
-            self._flush_task = asyncio.create_task(self._flush_after_delay())
+            task = asyncio.create_task(self._flush_after_delay())
+            # The catch-all is the only recorder for external edits; a
+            # done-callback surfaces any failure that escapes the
+            # per-config guard so the watcher can't die silently.
+            task.add_done_callback(self._on_flush_done)
+            self._flush_task = task
+
+    @staticmethod
+    def _on_flush_done(task: asyncio.Task[None]) -> None:
+        """Log an unexpected flush-task failure (cancellation is normal)."""
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            _LOGGER.warning("Version-history flush task failed unexpectedly", exc_info=exc)
 
     async def _flush_after_delay(self) -> None:
         """Wait out the debounce window, then flush the queued configs."""
@@ -258,8 +275,10 @@ class VersionHistoryController:
                 try:
                     await self.record_configuration(configuration, message)
                 except Exception:
-                    # Warning, not debug: a persistently failing catch-all
-                    # means external edits silently stop being recorded.
+                    # A git failure inside commit() is already logged there
+                    # and returns None; this guard isolates the rarer case of
+                    # a bad configuration (rel_path raising) so one bad entry
+                    # can't strand the rest of the batch.
                     _LOGGER.warning(
                         "Version-history catch-all failed for %s", configuration, exc_info=True
                     )
