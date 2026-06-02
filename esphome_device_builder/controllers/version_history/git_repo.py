@@ -316,10 +316,15 @@ class GitRepo:
         # git_bin is a resolved absolute path from shutil.which and the
         # args are a fixed argv (never shell-interpreted), so the only
         # external input is the pathspec — safe.
+        # close_fds=False mirrors helpers.subprocess: the default
+        # close_fds=True makes the child iterate the fd table before
+        # exec, which is pure overhead on memory-pressured systems; our
+        # spawns don't rely on inherited fds being closed at the boundary.
         return subprocess.run(  # noqa: S603
             [self.git_bin, *args],
             cwd=str(cwd or self.toplevel or self.config_dir),
             capture_output=True,
             text=True,
             check=check,
+            close_fds=False,
         )
