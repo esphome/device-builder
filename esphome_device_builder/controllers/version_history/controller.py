@@ -99,10 +99,9 @@ class VersionHistoryController:
         """
         if not self._repo.enabled or not paths:
             return None
-        loop = asyncio.get_running_loop()
         async with self._lock:
             try:
-                return await loop.run_in_executor(None, self._repo.commit_paths, paths, message)
+                return await self._in_executor(self._repo.commit_paths, paths, message)
             except Exception:
                 _LOGGER.exception("Version-history commit failed for %s", message)
                 return None
@@ -122,8 +121,7 @@ class VersionHistoryController:
         if not self._repo.enabled:
             return []
         path = self._db.settings.rel_path(configuration)
-        loop = asyncio.get_running_loop()
-        commits = await loop.run_in_executor(None, self._repo.log_file, path)
+        commits = await self._in_executor(self._repo.log_file, path)
         return [
             {
                 "sha": c.sha,
@@ -141,8 +139,7 @@ class VersionHistoryController:
         self._require_enabled()
         self._validate_sha(sha)
         path = self._db.settings.rel_path(configuration)
-        loop = asyncio.get_running_loop()
-        content = await loop.run_in_executor(None, self._repo.file_at, path, sha)
+        content = await self._in_executor(self._repo.file_at, path, sha)
         if content is None:
             raise CommandError(ErrorCode.NOT_FOUND, f"{configuration} not found at {sha}")
         return {"configuration": configuration, "sha": sha, "content": content}
@@ -153,8 +150,7 @@ class VersionHistoryController:
         self._require_enabled()
         self._validate_sha(sha)
         path = self._db.settings.rel_path(configuration)
-        loop = asyncio.get_running_loop()
-        diff = await loop.run_in_executor(None, self._repo.diff_file, path, sha)
+        diff = await self._in_executor(self._repo.diff_file, path, sha)
         return {"configuration": configuration, "sha": sha, "diff": diff}
 
     @api_command("version_history/list_deleted")
@@ -162,8 +158,7 @@ class VersionHistoryController:
         """Return configs that have history but no working-tree copy (restorable)."""
         if not self._repo.enabled:
             return []
-        loop = asyncio.get_running_loop()
-        deleted = await loop.run_in_executor(None, self._repo.deleted_files)
+        deleted = await self._in_executor(self._repo.deleted_files)
         return [{"configuration": name} for name in deleted]
 
     @api_command("version_history/restore")
@@ -178,15 +173,14 @@ class VersionHistoryController:
         """
         self._require_enabled()
         path = self._db.settings.rel_path(configuration)
-        loop = asyncio.get_running_loop()
         if sha is not None:
             self._validate_sha(sha)
-            content = await loop.run_in_executor(None, self._repo.file_at, path, sha)
+            content = await self._in_executor(self._repo.file_at, path, sha)
             if content is None:
                 raise CommandError(ErrorCode.NOT_FOUND, f"{configuration} not found at {sha}")
             restored_from = sha
         else:
-            result = await loop.run_in_executor(None, self._repo.latest_content, path)
+            result = await self._in_executor(self._repo.latest_content, path)
             if result is None:
                 raise CommandError(ErrorCode.NOT_FOUND, f"no history for {configuration}")
             restored_from, content = result
@@ -195,6 +189,11 @@ class VersionHistoryController:
             raise CommandError(ErrorCode.INTERNAL_ERROR, "devices controller unavailable")
         await devices.apply_restored_yaml(configuration, content, restored_from=restored_from[:7])
         return {"configuration": configuration, "restored_from": restored_from, "content": content}
+
+    async def _in_executor[T](self, fn: Callable[..., T], *args: Any) -> T:
+        """Run a synchronous GitRepo call off the event loop."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, fn, *args)
 
     def _require_enabled(self) -> None:
         """Raise if version history isn't available for this config dir."""
@@ -223,12 +222,22 @@ class VersionHistoryController:
             self._flush_task = asyncio.create_task(self._flush_after_delay())
 
     async def _flush_after_delay(self) -> None:
-        """Wait out the debounce window, then commit each pending config once."""
+        """Wait out the debounce window, then commit every pending config.
+
+        Drains in a loop: an external edit that lands while we're
+        committing (the per-config commit awaits) is picked up on the
+        next pass instead of waiting for the next scanner event. The
+        final empty-check and the coroutine return happen without an
+        await between them, so no event can slip in and be stranded —
+        ``_on_disk_change`` then sees the task done and schedules a
+        fresh flush.
+        """
         await asyncio.sleep(_DEBOUNCE_SECONDS)
-        pending = self._pending
-        self._pending = {}
-        for configuration, message in pending.items():
-            try:
-                await self.record_configuration(configuration, message)
-            except Exception:  # noqa: BLE001 — one bad path can't kill the watcher
-                _LOGGER.debug("Version-history catch-all failed for %s", configuration)
+        while self._pending:
+            pending = self._pending
+            self._pending = {}
+            for configuration, message in pending.items():
+                try:
+                    await self.record_configuration(configuration, message)
+                except Exception:  # noqa: BLE001 — one bad path can't kill the watcher
+                    _LOGGER.debug("Version-history catch-all failed for %s", configuration)

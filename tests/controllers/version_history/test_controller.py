@@ -109,6 +109,47 @@ async def test_dashboard_commit_makes_catch_all_a_noop(
     assert [v["message"] for v in versions] == ["Edit kitchen.yaml via editor"]
 
 
+async def test_flush_picks_up_edit_arriving_during_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An external edit that lands while the flush is committing isn't stranded.
+
+    Without the drain loop, a change queued during a per-config commit
+    would wait for the next scanner event (potentially forever).
+    """
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.version_history.controller._DEBOUNCE_SECONDS",
+        0.0,
+    )
+    controller = _make_controller(tmp_path)
+    await controller.start()
+    (tmp_path / "a.yaml").write_text("a\n", encoding="utf-8")
+    (tmp_path / "b.yaml").write_text("b\n", encoding="utf-8")
+
+    original = controller.record_configuration
+    injected = False
+
+    async def _wrapper(configuration: str, message: str) -> str | None:
+        nonlocal injected
+        result = await original(configuration, message)
+        if configuration == "a.yaml" and not injected:
+            injected = True
+            # Simulate b.yaml being edited externally mid-flush.
+            device = Device(name="b", friendly_name="b", configuration="b.yaml")
+            controller._db.bus.fire(EventType.DEVICE_UPDATED, DeviceEventData(device=device))
+        return result
+
+    monkeypatch.setattr(controller, "record_configuration", _wrapper)
+    device = Device(name="a", friendly_name="a", configuration="a.yaml")
+    controller._db.bus.fire(EventType.DEVICE_UPDATED, DeviceEventData(device=device))
+    assert controller._flush_task is not None
+    await controller._flush_task
+
+    # Both got committed by the one flush task — b on the second drain pass.
+    assert await controller.list_versions(configuration="a.yaml")
+    assert await controller.list_versions(configuration="b.yaml")
+
+
 async def test_list_and_get_version_round_trip(tmp_path: Path) -> None:
     """list_versions surfaces commits; get_version returns content at a sha."""
     controller = _make_controller(tmp_path)

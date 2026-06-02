@@ -136,21 +136,33 @@ class GitRepo:
         """
         if self._run(["diff", "--cached", "--quiet"], check=False).returncode == 0:
             return
-        self._run(
-            [
-                "-c",
-                f"user.name={_COMMIT_NAME}",
-                "-c",
-                f"user.email={_COMMIT_EMAIL}",
-                "-c",
-                "commit.gpgsign=false",
-                "commit",
-                "--no-verify",
-                "-m",
-                message,
-            ],
-            check=False,
-        )
+        self._run(self._commit_argv(message, ()), check=False)
+
+    @staticmethod
+    def _commit_argv(message: str, pathspec: tuple[str, ...]) -> list[str]:
+        """Build a ``git commit`` argv: our identity, no hooks, no signing.
+
+        Identity is passed per-invocation with ``-c`` so we never write
+        ``user.*`` into the user's config; ``--no-verify`` /
+        ``commit.gpgsign=false`` keep automatic commits from tripping a
+        hook or a signing prompt. A non-empty *pathspec* scopes the
+        commit to exactly those paths.
+        """
+        argv = [
+            "-c",
+            f"user.name={_COMMIT_NAME}",
+            "-c",
+            f"user.email={_COMMIT_EMAIL}",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--no-verify",
+            "-m",
+            message,
+        ]
+        if pathspec:
+            argv += ["--", *pathspec]
+        return argv
 
     # ------------------------------------------------------------------
     # writes
@@ -175,23 +187,7 @@ class GitRepo:
             )
             if staged.returncode == 0:
                 return None  # nothing staged for these paths
-            self._run(
-                [
-                    "-c",
-                    f"user.name={_COMMIT_NAME}",
-                    "-c",
-                    f"user.email={_COMMIT_EMAIL}",
-                    "-c",
-                    "commit.gpgsign=false",
-                    "commit",
-                    "--no-verify",
-                    "-m",
-                    message,
-                    "--",
-                    *spec,
-                ],
-                check=True,
-            )
+            self._run(self._commit_argv(message, tuple(spec)), check=True)
         except subprocess.CalledProcessError as exc:
             _LOGGER.warning("git commit failed for %s: %s", message, exc.stderr or exc)
             return None
