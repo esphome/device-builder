@@ -66,6 +66,21 @@ def _job(
     )
 
 
+def _spy_upload_blocked(controller: FirmwareController) -> asyncio.Event:
+    """Signal the returned Event the first time the gate finds an upload blocked."""
+    parked = asyncio.Event()
+    real = controller.state.upload_blocked
+
+    def _wrapped(job: FirmwareJob) -> bool:
+        blocked = real(job)
+        if blocked:
+            parked.set()
+        return blocked
+
+    controller.state.upload_blocked = _wrapped  # type: ignore[method-assign]
+    return parked
+
+
 # ---------------------------------------------------------------------------
 # firmware/rename — public submission
 # ---------------------------------------------------------------------------
@@ -384,6 +399,7 @@ async def test_upload_lane_holds_upload_until_build_gate_clears(
     controller.state.jobs[upload.job_id] = upload
     controller.state.upload_lane.queue.put_nowait(upload)
 
+    held_at_gate = _spy_upload_blocked(controller)
     executed = asyncio.Event()
 
     async def _spy_execute(_job: FirmwareJob, _lane: Lane) -> None:
@@ -393,8 +409,7 @@ async def test_upload_lane_holds_upload_until_build_gate_clears(
 
     runner_task = asyncio.create_task(runner.run_lane(controller, controller.state.upload_lane))
     try:
-        for _ in range(20):
-            await asyncio.sleep(0)
+        await asyncio.wait_for(held_at_gate.wait(), timeout=1.0)  # parked at the gate
         assert not executed.is_set()  # held by the active reset
 
         reset.status = JobStatus.COMPLETED
@@ -417,6 +432,7 @@ async def test_upload_lane_skips_an_upload_cancelled_while_held(
     controller.state.jobs[held.job_id] = held
     controller.state.upload_lane.queue.put_nowait(held)
 
+    held_at_gate = _spy_upload_blocked(controller)
     executed: list[str] = []
     fresh_ran = asyncio.Event()
 
@@ -429,8 +445,7 @@ async def test_upload_lane_skips_an_upload_cancelled_while_held(
 
     runner_task = asyncio.create_task(runner.run_lane(controller, controller.state.upload_lane))
     try:
-        for _ in range(20):
-            await asyncio.sleep(0)
+        await asyncio.wait_for(held_at_gate.wait(), timeout=1.0)  # parked at the gate
         assert executed == []  # held by the active reset
 
         # Cancel the held upload, finish the reset, queue a fresh upload, wake.
