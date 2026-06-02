@@ -650,8 +650,8 @@ async def _run_upload_subprocess(
     Mirrors the local subprocess path's per-line bookkeeping
     (``_ingest_output_line``) so the firmware-tasks UI sees
     one event stream regardless of which CPU produced the
-    bytes. ``_tracked_subprocess`` registers the spawn with
-    ``controller.state.current_process`` so a concurrent
+    bytes. ``_tracked_subprocess`` registers the spawn on the
+    compile lane's ``current_process`` so a concurrent
     ``firmware/cancel`` lands SIGTERM on the upload chain
     just like it does for the local-only path.
     """

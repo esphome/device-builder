@@ -65,31 +65,3 @@ class FirmwareState:
             return True
         prereq = self.jobs.get(job.depends_on)
         return prereq is not None and prereq.status is JobStatus.COMPLETED
-
-    # Transitional back-compat shims: the legacy single-lane attribute
-    # names proxy to the compile lane (historically the everything/CPU
-    # lane). Lets call sites and tests that predate lanes keep reading
-    # ``state.queue`` / ``state.current_job`` / ``state.current_process``.
-    @property
-    def queue(self) -> asyncio.Queue[FirmwareJob]:
-        return self.compile_lane.queue
-
-    @queue.setter
-    def queue(self, value: asyncio.Queue[FirmwareJob]) -> None:
-        self.compile_lane.queue = value
-
-    @property
-    def current_job(self) -> FirmwareJob | None:
-        return self.compile_lane.current_job
-
-    @current_job.setter
-    def current_job(self, value: FirmwareJob | None) -> None:
-        self.compile_lane.current_job = value
-
-    @property
-    def current_process(self) -> asyncio.subprocess.Process | None:
-        return self.compile_lane.current_process
-
-    @current_process.setter
-    def current_process(self, value: asyncio.subprocess.Process | None) -> None:
-        self.compile_lane.current_process = value

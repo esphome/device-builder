@@ -149,7 +149,7 @@ async def test_cancel_queued_does_not_touch_terminate_current_process(
     """The QUEUED branch never reaches the subprocess terminator.
 
     Belt-and-braces: ``_terminate_current_process`` walks
-    ``self.state.current_process`` and signals it. For a queued job
+    ``self.state.compile_lane.current_process`` and signals it. For a queued job
     there is no subprocess (and ``_current_process`` is ``None``),
     so calling it here is at best a no-op; at worst a future
     refactor of the terminator that doesn't gracefully handle the
@@ -182,7 +182,7 @@ async def test_cancel_running_job_records_intent_and_terminates(
     """
     job = _job("j-r", status=JobStatus.RUNNING)
     controller = firmware_controller_factory(job, with_settings=False, with_terminate=True)
-    controller.state.current_job = job
+    controller.state.compile_lane.current_job = job
 
     await controller.cancel(job_id="j-r")
 
@@ -204,7 +204,7 @@ async def test_cancel_running_job_does_not_fire_event_directly(
     """
     job = _job("j-r", status=JobStatus.RUNNING)
     controller = firmware_controller_factory(job, with_settings=False, with_terminate=True)
-    controller.state.current_job = job
+    controller.state.compile_lane.current_job = job
     captured = capture_firmware_events(controller, EventType.JOB_CANCELLED)
 
     await controller.cancel(job_id="j-r")
@@ -246,7 +246,7 @@ async def test_cancel_running_job_with_mismatched_current_job_raises(
     job = _job("j-r", status=JobStatus.RUNNING)
     other = _job("j-other", status=JobStatus.RUNNING)
     controller = firmware_controller_factory(job, other, with_settings=False, with_terminate=True)
-    controller.state.current_job = other  # somebody else is running
+    controller.state.compile_lane.current_job = other  # somebody else is running
 
     with pytest.raises(RuntimeError, match="state out of sync"):
         await controller.cancel(job_id="j-r")

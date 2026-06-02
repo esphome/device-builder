@@ -62,9 +62,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         self.state = FirmwareState()
         # Short-lived capability tokens for the HTTP artifact-download route.
         self.download_tokens = download_mod.DownloadTokens()
-        # One consumer task per lane (compile + upload) so a network-bound
-        # upload runs concurrently with a CPU-bound compile.
-        self._runner_tasks: list[asyncio.Task] = []
+        self._runner_task: asyncio.Task | None = None
         # Serializes ``persist_jobs`` so a slow executor write can't be
         # overtaken by a newer one (which would let a stale snapshot
         # overwrite fresher state on disk).
@@ -130,7 +128,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
                 detail,
             )
         await self._load_jobs()
-        self._runner_tasks = [self._db.create_background_task(self._run_queue())]
+        self._runner_task = self._db.create_background_task(self._run_queue())
 
     # ------------------------------------------------------------------
     # API commands — job submission

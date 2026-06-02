@@ -198,7 +198,7 @@ async def test_terminate_kills_grandchild_via_process_group(
         stderr=asyncio.subprocess.STDOUT,
         start_new_session=True,
     )
-    controller.state.current_process = proc  # type: ignore[attr-defined]
+    controller.state.compile_lane.current_process = proc  # type: ignore[attr-defined]
 
     try:
         # Read the two pid lines from stdout so we know what to verify.

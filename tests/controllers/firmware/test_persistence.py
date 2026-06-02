@@ -148,9 +148,9 @@ async def test_queued_job_survives_dashboard_restart(
     # Confirm the load path actually put the job back on the queue,
     # not just into ``self.state.jobs``. ``get_jobs`` reads the in-memory
     # map, which would still pass if ``_load_jobs`` forgot to
-    # ``await self.state.queue.put(...)``.
-    reader.state.queue.put_nowait.assert_called_once()
-    queued_arg = reader.state.queue.put_nowait.call_args.args[0]
+    # ``await self.state.compile_lane.queue.put(...)``.
+    reader.state.compile_lane.queue.put_nowait.assert_called_once()
+    queued_arg = reader.state.compile_lane.queue.put_nowait.call_args.args[0]
     assert queued_arg.job_id == queued.job_id
 
 
@@ -226,7 +226,9 @@ async def test_running_job_re_queues_with_clean_state_after_restart(
     # follow-up queued sibling) onto the queue — confirms the
     # carryover will actually run, not just sit ``QUEUED`` in
     # ``self.state.jobs`` forever.
-    queued_ids = {call.args[0].job_id for call in reader.state.queue.put_nowait.call_args_list}
+    queued_ids = {
+        call.args[0].job_id for call in reader.state.compile_lane.queue.put_nowait.call_args_list
+    }
     assert queued.job_id in queued_ids
 
 
@@ -268,7 +270,7 @@ async def test_resumed_running_job_completes_on_next_run(
     # that just assert on calls, but the runner needs a real
     # ``asyncio.Queue`` so ``_load_jobs``'s ``put`` and
     # ``_run_queue``'s ``get`` actually exchange jobs.
-    reader.state.queue = asyncio.Queue()
+    reader.state.compile_lane.queue = asyncio.Queue()
 
     # Replace _execute_job with a fast COMPLETED transition so we
     # don't actually spawn ``esphome``. The runner's loop calls
@@ -349,7 +351,7 @@ async def test_cancelled_job_survives_restart_without_being_requeued(
     # job at status ``CANCELLED`` would pass even if the loader
     # accidentally put it on the queue too — assert the queue
     # interaction explicitly.
-    reader.state.queue.put_nowait.assert_not_called()
+    reader.state.compile_lane.queue.put_nowait.assert_not_called()
 
 
 async def test_cold_start_with_no_metadata_file_is_empty(

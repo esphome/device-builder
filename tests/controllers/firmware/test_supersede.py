@@ -128,7 +128,7 @@ async def test_resubmit_cancels_running_predecessor(
     # justified seam as ``test_persistence.py``'s RUNNING-carryover
     # test).
     first.status = JobStatus.RUNNING
-    controller.state.current_job = first
+    controller.state.compile_lane.current_job = first
 
     second = await controller.compile(configuration="kitchen.yaml")
 

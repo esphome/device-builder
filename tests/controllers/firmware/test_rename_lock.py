@@ -159,8 +159,7 @@ async def test_install_bulk_skips_locked_configs_and_queues_the_rest(
         new_name="livingroom",
         status=JobStatus.RUNNING,
     )
-    controller = firmware_controller_factory(rename, with_settings=False)
-    controller.state.queue = AsyncMock()
+    controller = firmware_controller_factory(rename, with_settings=False, with_queue=True)
     controller._db = type(
         "DB",
         (),

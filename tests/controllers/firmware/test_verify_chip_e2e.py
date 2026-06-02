@@ -72,13 +72,18 @@ from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.controllers.firmware import runner as runner_module
 from esphome_device_builder.controllers.firmware._state import Lane
 from esphome_device_builder.models import (
-    TERMINAL_JOB_STATUSES,
-    EventType,
-    FirmwareJob,
     JobStatus,
-    JobType,
 )
 from tests._storage_fixtures import write_storage_json
+from tests.controllers.firmware.conftest import (
+    run_until_terminal as _run_until_terminal,
+)
+from tests.controllers.firmware.conftest import (
+    upload_of as _upload_of,
+)
+from tests.controllers.firmware.conftest import (
+    wire_real_queue as _wire_real_queue,
+)
 
 if TYPE_CHECKING:
     from .conftest import FirmwareControllerFactory
@@ -87,28 +92,6 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # Test scaffolding (mirrors test_execute_job_e2e — same runner pattern)
 # ---------------------------------------------------------------------------
-
-
-def _upload_of(controller: FirmwareController, compile_job: FirmwareJob) -> FirmwareJob:
-    """Return the UPLOAD job an install chained behind *compile_job*."""
-    return next(
-        j
-        for j in controller.state.jobs.values()
-        if j.job_type is JobType.UPLOAD and j.depends_on == compile_job.job_id
-    )
-
-
-def _wire_real_queue(controller: FirmwareController) -> None:
-    controller.state.queue = asyncio.Queue()
-
-    async def _supersede(_configuration: str, *, exclude_job_ids: set[str]) -> None:
-        return
-
-    controller._supersede_active_jobs = _supersede  # type: ignore[assignment]
-    controller.state.current_job = None
-    controller.state.current_process = None
-    controller.state.cancel_requested = set()
-    controller.state.cancel_events = {}
 
 
 def _seed_yaml(tmp_path: Path, name: str = "kitchen.yaml") -> None:
@@ -229,44 +212,6 @@ def _patch_subprocess(
 
     monkeypatch.setattr(runner_module, "create_subprocess_exec", _wrapper)
     return record
-
-
-async def _run_until_terminal(
-    controller: FirmwareController, *, timeout: float = 10.0
-) -> dict[str, list]:
-    captured: dict[str, list] = {
-        "job_started": [],
-        "job_output": [],
-        "job_completed": [],
-        "job_failed": [],
-        "job_cancelled": [],
-    }
-    bus = controller._db.bus
-    real_fire = bus.fire
-    settled = asyncio.Event()
-
-    def _capture(event_type: EventType, data: dict) -> None:
-        key = event_type.value
-        if key in captured:
-            captured[key].append(data)
-        real_fire(event_type, data)
-        # Settle when the whole chain is terminal, not just the first job:
-        # an install is a COMPILE then a dependent UPLOAD, so the released
-        # upload runs after the compile completes.
-        jobs = list(controller.state.jobs.values())
-        if jobs and all(j.status in TERMINAL_JOB_STATUSES for j in jobs):
-            settled.set()
-
-    bus.fire = _capture
-    runner = asyncio.create_task(controller._run_queue())
-    try:
-        async with asyncio.timeout(timeout):
-            await settled.wait()
-    finally:
-        runner.cancel()
-        with suppress(asyncio.CancelledError):
-            await runner
-    return captured
 
 
 def _set_esphome_cmd(controller: FirmwareController) -> None:
@@ -749,7 +694,7 @@ async def test_tracked_subprocess_registers_and_clears_current_process(
     # is unused by this test (we never trip the CancelledError or
     # post-spawn cancel paths) but is harmless.
     controller = firmware_controller_factory(with_settings=False, with_terminate=True)
-    assert controller.state.current_process is None
+    assert controller.state.compile_lane.current_process is None
 
     async with controller._tracked_subprocess(
         controller.state.compile_lane,
@@ -759,11 +704,11 @@ async def test_tracked_subprocess_registers_and_clears_current_process(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     ) as proc:
-        assert controller.state.current_process is proc
+        assert controller.state.compile_lane.current_process is proc
         await proc.wait()
 
     # Restored on exit.
-    assert controller.state.current_process is None
+    assert controller.state.compile_lane.current_process is None
 
 
 async def test_tracked_subprocess_restores_prior_value_on_exit(
@@ -785,7 +730,7 @@ async def test_tracked_subprocess_restores_prior_value_on_exit(
     # post-spawn cancel paths) but is harmless.
     controller = firmware_controller_factory(with_settings=False, with_terminate=True)
     sentinel = object()
-    controller.state.current_process = sentinel  # type: ignore[assignment]
+    controller.state.compile_lane.current_process = sentinel  # type: ignore[assignment]
 
     async with controller._tracked_subprocess(
         controller.state.compile_lane,
@@ -795,10 +740,10 @@ async def test_tracked_subprocess_restores_prior_value_on_exit(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     ) as proc:
-        assert controller.state.current_process is proc  # registered for the duration
+        assert controller.state.compile_lane.current_process is proc  # registered for the duration
         await proc.wait()
 
-    assert controller.state.current_process is sentinel  # restored
+    assert controller.state.compile_lane.current_process is sentinel  # restored
 
 
 async def test_tracked_subprocess_restores_prior_value_on_exception(
@@ -819,7 +764,7 @@ async def test_tracked_subprocess_restores_prior_value_on_exception(
     # is unused by this test (we never trip the CancelledError or
     # post-spawn cancel paths) but is harmless.
     controller = firmware_controller_factory(with_settings=False, with_terminate=True)
-    assert controller.state.current_process is None
+    assert controller.state.compile_lane.current_process is None
 
     with pytest.raises(RuntimeError, match="boom"):
         async with controller._tracked_subprocess(
@@ -840,7 +785,7 @@ async def test_tracked_subprocess_restores_prior_value_on_exception(
             msg = "boom"
             raise RuntimeError(msg)
 
-    assert controller.state.current_process is None
+    assert controller.state.compile_lane.current_process is None
 
 
 async def test_cancel_in_gap_between_verify_and_main_spawn_terminates(
@@ -904,8 +849,8 @@ async def test_cancel_in_gap_between_verify_and_main_spawn_terminates(
         # returning the proc — this is the "cancel arrived in
         # the verify→main-spawn gap" scenario the post-spawn
         # check guards.
-        if controller.state.current_job is not None:
-            controller.state.cancel_requested.add(controller.state.current_job.job_id)
+        if controller.state.compile_lane.current_job is not None:
+            controller.state.cancel_requested.add(controller.state.compile_lane.current_job.job_id)
         return await real(sys.executable, "-c", _BUILD_SCRIPT_OK, **kwargs)
 
     monkeypatch.setattr(runner_module, "create_subprocess_exec", _wrapper)

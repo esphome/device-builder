@@ -53,7 +53,7 @@ async def test_terminate_kills_subprocess_via_taskkill(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )
-    controller.state.current_process = proc  # type: ignore[attr-defined]
+    controller.state.compile_lane.current_process = proc  # type: ignore[attr-defined]
 
     try:
         await controller._terminate_current_process(controller.state.compile_lane)

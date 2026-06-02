@@ -58,7 +58,7 @@ def test_queue_status_snapshot_idle() -> None:
 def test_queue_status_snapshot_running_only() -> None:
     """Runner busy with no backlog: idle=False, running=True, depth=0."""
     controller = _make_controller()
-    controller.state.current_job = _job()
+    controller.state.compile_lane.current_job = _job()
     idle, running, queue_depth = controller.queue_status_snapshot()
     assert idle is False
     assert running is True
@@ -76,8 +76,8 @@ def test_queue_status_snapshot_queued_but_not_running() -> None:
     up the next item.
     """
     controller = _make_controller()
-    controller.state.queue.put_nowait(_job("a"))
-    controller.state.queue.put_nowait(_job("b"))
+    controller.state.compile_lane.queue.put_nowait(_job("a"))
+    controller.state.compile_lane.queue.put_nowait(_job("b"))
     idle, running, queue_depth = controller.queue_status_snapshot()
     assert idle is False
     assert running is False
@@ -87,8 +87,8 @@ def test_queue_status_snapshot_queued_but_not_running() -> None:
 def test_queue_status_snapshot_running_and_queued() -> None:
     """Runner busy AND backlog: idle=False, running=True, depth>0."""
     controller = _make_controller()
-    controller.state.current_job = _job("active")
-    controller.state.queue.put_nowait(_job("waiting"))
+    controller.state.compile_lane.current_job = _job("active")
+    controller.state.compile_lane.queue.put_nowait(_job("waiting"))
     idle, running, queue_depth = controller.queue_status_snapshot()
     assert idle is False
     assert running is True
@@ -118,9 +118,9 @@ def _make_controller_with_real_bus() -> FirmwareController:
     controller.state = FirmwareState()
     controller._db = db
     controller.state.jobs = {}
-    controller.state.queue = asyncio.Queue()
-    controller.state.current_job = None
-    controller.state.current_process = None
+    controller.state.compile_lane.queue = asyncio.Queue()
+    controller.state.compile_lane.current_job = None
+    controller.state.compile_lane.current_process = None
     controller.state.cancel_requested = set()
     controller.state.cancel_events = {}
     return controller
@@ -167,16 +167,16 @@ def test_finalize_terminal_releases_slot_before_listener_fires(
     every subsequent install to LOCAL.
     """
     controller = _make_controller_with_real_bus()
-    controller.state.current_job = _job()
-    controller.state.current_process = MagicMock()
+    controller.state.compile_lane.current_job = _job()
+    controller.state.compile_lane.current_process = MagicMock()
     captured = _capture_snapshot_in_listener(controller, event_type)
 
-    controller._finalize_terminal(controller.state.current_job, status)
+    controller._finalize_terminal(controller.state.compile_lane.current_job, status)
 
     assert captured == [(True, False, 0)]
     # And the slot stays released after the fire returns.
-    assert controller.state.current_job is None
-    assert controller.state.current_process is None
+    assert controller.state.compile_lane.current_job is None
+    assert controller.state.compile_lane.current_process is None
 
 
 def test_finalize_terminal_skips_release_when_job_not_current() -> None:
@@ -192,13 +192,13 @@ def test_finalize_terminal_skips_release_when_job_not_current() -> None:
     controller = _make_controller_with_real_bus()
     running = _job("running")
     other = _job("other")
-    controller.state.current_job = running
+    controller.state.compile_lane.current_job = running
     captured = _capture_snapshot_in_listener(controller, EventType.JOB_FAILED)
 
     controller._finalize_terminal(other, JobStatus.FAILED)
 
     assert captured == [(False, True, 0)]
-    assert controller.state.current_job is running
+    assert controller.state.compile_lane.current_job is running
 
 
 def test_finalize_terminal_rejects_non_terminal_status() -> None:
@@ -211,12 +211,12 @@ def test_finalize_terminal_rejects_non_terminal_status() -> None:
     would crash later with a less-actionable ``KeyError``).
     """
     controller = _make_controller_with_real_bus()
-    controller.state.current_job = _job()
+    controller.state.compile_lane.current_job = _job()
 
     with pytest.raises(ValueError, match="non-terminal status"):
-        controller._finalize_terminal(controller.state.current_job, JobStatus.RUNNING)
+        controller._finalize_terminal(controller.state.compile_lane.current_job, JobStatus.RUNNING)
     # Slot intact — we raised before the release.
-    assert controller.state.current_job is not None
+    assert controller.state.compile_lane.current_job is not None
 
 
 @pytest.mark.parametrize(
@@ -244,8 +244,8 @@ def test_remote_runner_terminal_helpers_release_slot_before_fire(
     # to inspect the same FirmwareJob instance the helpers
     # operated on.
     job = _job()
-    controller.state.current_job = job
-    controller.state.current_process = MagicMock()
+    controller.state.compile_lane.current_job = job
+    controller.state.compile_lane.current_process = MagicMock()
     captured = _capture_snapshot_in_listener(controller, event_type)
 
     if fn_name == "_finalize_success":
@@ -254,8 +254,8 @@ def test_remote_runner_terminal_helpers_release_slot_before_fire(
         remote_runner._fail_locally(controller, job, reason="boom")
 
     assert captured == [(True, False, 0)]
-    assert controller.state.current_job is None
-    assert controller.state.current_process is None
+    assert controller.state.compile_lane.current_job is None
+    assert controller.state.compile_lane.current_process is None
     assert job.status is status
     if status is JobStatus.FAILED:
         # ``_fail_locally`` stamps ``job.error`` before

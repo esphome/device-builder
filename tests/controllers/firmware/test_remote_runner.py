@@ -1331,7 +1331,7 @@ async def test_firmware_cancel_handler_wakes_remote_runner_via_event(
     # the handler's ``RUNNING`` branch runs.
     controller.state.jobs[job.job_id] = job
     job.status = JobStatus.RUNNING
-    controller.state.current_job = job
+    controller.state.compile_lane.current_job = job
 
     runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
@@ -1666,7 +1666,7 @@ async def test_remote_install_cancel_during_local_upload_finalises_as_cancelled(
     User Stop during the ``esphome upload`` subprocess finalises as CANCELLED.
 
     The runner's ``_tracked_subprocess`` registers the
-    upload spawn with ``controller.state.current_process``, and
+    upload spawn with ``controller.state.compile_lane.current_process``, and
     ``FirmwareController.cancel``'s
     ``_terminate_current_process`` lands SIGTERM on the
     spawned tree. The subprocess exits non-zero (terminated
@@ -1709,7 +1709,7 @@ async def test_remote_install_cancel_during_local_upload_finalises_as_cancelled(
     _fire_state(controller, job_id=job.job_id, status="completed")
 
     # Wait until the subprocess is up.
-    while controller.state.current_process is None:
+    while controller.state.compile_lane.current_process is None:
         await asyncio.sleep(0.01)
 
     _request_remote_cancel(controller, job)

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Iterator
+from contextlib import suppress
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol
@@ -36,7 +37,12 @@ from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.controllers.firmware._state import FirmwareState
 from esphome_device_builder.controllers.firmware.download import DownloadTokens
 from esphome_device_builder.helpers.event_bus import Event, EventBus
-from esphome_device_builder.models import EventType, FirmwareJob
+from esphome_device_builder.models import (
+    TERMINAL_JOB_STATUSES,
+    EventType,
+    FirmwareJob,
+    JobType,
+)
 
 
 class EnqueueStep(StrEnum):
@@ -189,8 +195,8 @@ def firmware_controller_factory(
         # don't drive the runner. Without this, cancel-queued /
         # supersede tests that fire JOB_CANCELLED through the
         # helper crash on ``AttributeError``.
-        controller.state.current_job = None
-        controller.state.current_process = None
+        controller.state.compile_lane.current_job = None
+        controller.state.compile_lane.current_process = None
 
         if with_queue:
             # ``put_nowait`` / ``qsize`` are sync on a real Queue; keep them
@@ -199,7 +205,7 @@ def firmware_controller_factory(
             queue = AsyncMock()
             queue.put_nowait = MagicMock()
             queue.qsize = MagicMock(return_value=0)
-            controller.state.queue = queue
+            controller.state.compile_lane.queue = queue
 
         if with_terminate:
             controller.state.cancel_requested = set()
@@ -230,7 +236,7 @@ def bare_firmware_controller_factory() -> BareFirmwareControllerFactory:
         if esphome_cmd is not None:
             controller.state.esphome_cmd = esphome_cmd
         if current_job is not None:
-            controller.state.current_job = current_job
+            controller.state.compile_lane.current_job = current_job
         if with_mock_db:
             controller._db = MagicMock()
             controller._db.devices = None
@@ -281,7 +287,7 @@ def capture_firmware_events() -> Iterator[CaptureEventsFactory]:
 def capture_enqueue_order() -> Iterator[CaptureEnqueueOrderFactory]:
     """Yield a factory that traces ``_queue.put`` + ``bus.fire`` into one ordered log.
 
-    Each ``await self.state.queue.put(job)`` appends ``(EnqueueStep.PUT, job)``
+    Each ``await self.state.compile_lane.queue.put(job)`` appends ``(EnqueueStep.PUT, job)``
     and each broadcast for a subscribed ``EventType`` appends
     ``(EnqueueStep.FIRE, Event)``. Tests assert the put-then-fire
     ordering by index in the returned list — the previous shape
@@ -352,3 +358,85 @@ def make_follow_race_controller(
     and ``with_settings=False`` skips the unused config-dir wiring.
     """
     return factory(*jobs, with_real_bus=True, with_settings=False)
+
+
+# ---------------------------------------------------------------------------
+# e2e helpers: drive the real runner against a real queue
+# ---------------------------------------------------------------------------
+
+
+def wire_real_queue(controller: FirmwareController) -> None:
+    """Swap the conftest's ``AsyncMock`` queue for a real ``asyncio.Queue``.
+
+    The runner does ``await lane.queue.get()``; an ``AsyncMock`` returns its
+    default sentinel immediately and the runner would spin instead of
+    waiting for a real submission. Pair the queue swap with the supersede
+    stub (passthrough) and the cancel-tracking surface ``_execute_job`` reads.
+    """
+    controller.state.compile_lane.queue = asyncio.Queue()
+
+    async def _supersede(_configuration: str, *, exclude_job_ids: set[str]) -> None:
+        return
+
+    controller._supersede_active_jobs = _supersede  # type: ignore[assignment]
+    controller.state.compile_lane.current_job = None
+    controller.state.compile_lane.current_process = None
+    controller.state.cancel_requested = set()
+    controller.state.cancel_events = {}
+
+
+def upload_of(controller: FirmwareController, compile_job: FirmwareJob) -> FirmwareJob:
+    """Return the UPLOAD job an install chained behind *compile_job*."""
+    return next(
+        j
+        for j in controller.state.jobs.values()
+        if j.job_type is JobType.UPLOAD and j.depends_on == compile_job.job_id
+    )
+
+
+async def run_until_terminal(
+    controller: FirmwareController, *, timeout: float = 10.0
+) -> dict[str, list]:
+    """Run both lane runners until every job in ``state.jobs`` is terminal.
+
+    Subscribes to the JOB_* lifecycle events and returns the captured
+    records keyed by event-type value. Settles on the whole chain being
+    terminal, not just the first job — an install is a COMPILE then a
+    dependent UPLOAD, so the released upload runs after the compile
+    completes. Falls back to a hard timeout so a runner regression that
+    never delivers a terminal event surfaces as a clean failure rather
+    than a hung pytest run.
+    """
+    captured: dict[str, list] = {
+        "job_started": [],
+        "job_output": [],
+        "job_progress": [],
+        "job_completed": [],
+        "job_failed": [],
+        "job_cancelled": [],
+    }
+    settled = asyncio.Event()
+    bus = controller._db.bus
+    real_fire = bus.fire
+
+    def _capture(event_type: EventType, data: dict) -> None:
+        key = event_type.value
+        if key in captured:
+            captured[key].append(data)
+        # Forward to the original mock so call-count assertions still work.
+        real_fire(event_type, data)
+        jobs = list(controller.state.jobs.values())
+        if jobs and all(j.status in TERMINAL_JOB_STATUSES for j in jobs):
+            settled.set()
+
+    bus.fire = _capture
+    runner_task = asyncio.create_task(controller._run_queue())
+    try:
+        async with asyncio.timeout(timeout):
+            await settled.wait()
+    finally:
+        runner_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await runner_task
+
+    return captured

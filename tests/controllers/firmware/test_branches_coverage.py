@@ -175,9 +175,9 @@ async def test_run_queue_skips_cancelled_jobs_without_spawning(
     spawn a real subprocess for a job the user already gave up on.
     """
     controller = firmware_controller_factory()
-    controller.state.queue = asyncio.Queue()
+    controller.state.compile_lane.queue = asyncio.Queue()
     cancelled = _job("j1", "kitchen.yaml", JobType.COMPILE, status=JobStatus.CANCELLED)
-    await controller.state.queue.put(cancelled)
+    await controller.state.compile_lane.queue.put(cancelled)
 
     spawned = False
 
@@ -191,7 +191,7 @@ async def test_run_queue_skips_cancelled_jobs_without_spawning(
     # Give the runner a chance to dequeue + skip + return for next get.
     for _ in range(20):
         await asyncio.sleep(0)
-        if controller.state.queue.empty():
+        if controller.state.compile_lane.queue.empty():
             break
     runner.cancel()
     with contextlib.suppress(asyncio.CancelledError):
@@ -213,8 +213,8 @@ async def test_terminate_current_process_no_op_when_no_process(
     against ``None`` would surface as a hard error here.
     """
     controller = firmware_controller_factory()
-    controller.state.current_process = None
-    controller.state.current_job = None
+    controller.state.compile_lane.current_process = None
+    controller.state.compile_lane.current_job = None
 
     # Should return without raising; no process to terminate.
     await controller._terminate_current_process(controller.state.compile_lane)
