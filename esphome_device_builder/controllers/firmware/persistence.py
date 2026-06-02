@@ -141,7 +141,7 @@ def _restore_to_lane(controller: FirmwareController, job: FirmwareJob) -> None:
     didn't succeed → the dependent can't run, so cancel it.
     """
     if controller.state.dependency_satisfied(job):
-        controller.state.lane_for(job).queue.put_nowait(job)
+        controller.state.place_on_lane(job)
         return
     prereq = controller.state.jobs.get(job.depends_on)
     if prereq is not None and prereq.status in _ACTIVE_JOB_STATUSES:

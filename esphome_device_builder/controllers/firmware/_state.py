@@ -59,6 +59,10 @@ class FirmwareState:
         """Return the lane *job* runs on: UPLOAD on the network lane, else the compile lane."""
         return self.upload_lane if job.job_type is JobType.UPLOAD else self.compile_lane
 
+    def place_on_lane(self, job: FirmwareJob) -> None:
+        """Put *job* onto the lane its type maps to, ready for that lane's consumer."""
+        self.lane_for(job).queue.put_nowait(job)
+
     def dependency_satisfied(self, job: FirmwareJob) -> bool:
         """Return whether *job* has no prerequisite, or its prerequisite has completed."""
         if not job.depends_on:

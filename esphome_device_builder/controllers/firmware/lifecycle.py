@@ -63,7 +63,7 @@ def release_dependents(controller: FirmwareController, job: FirmwareJob) -> None
         if dep.depends_on != job.job_id or dep.status is not JobStatus.QUEUED:
             continue
         if job.status is JobStatus.COMPLETED:
-            controller.state.lane_for(dep).queue.put_nowait(dep)
+            controller.state.place_on_lane(dep)
         else:
             dep.error = "prerequisite job did not complete successfully"
             controller._finalize_terminal(dep, JobStatus.CANCELLED)

@@ -112,17 +112,25 @@ async def enqueue(
     RENAME has *job*'s configuration locked.
     """
     controller._check_rename_lock(job)
-    if controller.state.dependency_satisfied(job):
-        controller.state.lane_for(job).queue.put_nowait(job)
-    # else: held off its lane queue until the prerequisite completes —
-    # ``lifecycle.release_dependents`` lands it then. It's still QUEUED in
-    # ``state.jobs`` and fires JOB_QUEUED below, so it renders as queued.
-    queued_payload: JobLifecycleData = {"job": job}
-    controller._db.bus.fire(EventType.JOB_QUEUED, queued_payload)
+    _place_and_announce(controller, job)
     if supersede and job.configuration:
         await controller._supersede_active_jobs(job.configuration, exclude_job_ids={job.job_id})
     await controller._persist_jobs()
     return job
+
+
+def _place_and_announce(controller: FirmwareController, job: FirmwareJob) -> None:
+    """Put *job* on its lane (when its prerequisite is met) and fire JOB_QUEUED.
+
+    A job with an unmet ``depends_on`` is held off its lane —
+    ``lifecycle.release_dependents`` lands it when the prerequisite finishes —
+    but still fires JOB_QUEUED so it renders as queued. Synchronous so a caller
+    can commit several jobs atomically before its first ``await``.
+    """
+    if controller.state.dependency_satisfied(job):
+        controller.state.place_on_lane(job)
+    queued_payload: JobLifecycleData = {"job": job}
+    controller._db.bus.fire(EventType.JOB_QUEUED, queued_payload)
 
 
 async def enqueue_install_chain(
@@ -145,24 +153,21 @@ async def enqueue_install_chain(
     upload_job = create_job(
         controller, configuration, JobType.UPLOAD, port=port, depends_on=compile_job.job_id
     )
-    # Commit the pair atomically. The rename-lock check, the lane put, and both
-    # JOB_QUEUED fires are synchronous, so no concurrent rename can take the
-    # lock mid-chain and strand a half-queued pair on disk — the failure the
-    # two-await shape allowed (a rename acquired during the first enqueue's
-    # persist-await). Both jobs share a configuration, so one check covers both.
+    # Commit the pair atomically: one rename-lock check, then place + announce
+    # both synchronously (no await between), one supersede + one persist below.
+    # That closes the window the two-await shape left, where a rename acquired
+    # during the first enqueue's persist-await stranded a half-queued pair on
+    # disk. Both jobs share a configuration, so one check covers both. The
+    # upload (unmet prerequisite) is held off its lane until the compile lands
+    # it via ``release_dependents``.
     try:
         controller._check_rename_lock(compile_job)
     except CommandError:
         controller.state.jobs.pop(upload_job.job_id, None)
         controller.state.jobs.pop(compile_job.job_id, None)
         raise
-    # Compile runs now; the upload is held off its lane until the compile
-    # completes (``release_dependents`` lands it), but still fires JOB_QUEUED
-    # so it renders as queued.
-    controller.state.lane_for(compile_job).queue.put_nowait(compile_job)
-    for job in (upload_job, compile_job):
-        queued_payload: JobLifecycleData = {"job": job}
-        controller._db.bus.fire(EventType.JOB_QUEUED, queued_payload)
+    _place_and_announce(controller, upload_job)
+    _place_and_announce(controller, compile_job)
     await controller._supersede_active_jobs(
         configuration, exclude_job_ids={compile_job.job_id, upload_job.job_id}
     )
