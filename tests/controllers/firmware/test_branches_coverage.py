@@ -421,6 +421,43 @@ async def test_upload_lane_holds_upload_until_build_gate_clears(
             await runner_task
 
 
+async def test_upload_lane_holds_upload_behind_same_config_clean(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """The upload lane parks an upload behind a same-config CLEAN, not just a reset.
+
+    Supersede normally cancels a same-config upload before it coexists with a
+    clean, so this gate branch is otherwise hard to reach live.
+    """
+    controller = firmware_controller_factory(with_settings=False)
+    clean = _job("c", "kitchen.yaml", JobType.CLEAN, status=JobStatus.RUNNING)
+    upload = _job("u", "kitchen.yaml", JobType.UPLOAD, status=JobStatus.QUEUED)
+    controller.state.jobs[clean.job_id] = clean
+    controller.state.jobs[upload.job_id] = upload
+    controller.state.upload_lane.queue.put_nowait(upload)
+
+    held_at_gate = _spy_upload_blocked(controller)
+    executed = asyncio.Event()
+
+    async def _spy_execute(_job: FirmwareJob, _lane: Lane) -> None:
+        executed.set()
+
+    controller._execute_job = _spy_execute  # type: ignore[method-assign]
+
+    runner_task = asyncio.create_task(runner.run_lane(controller, controller.state.upload_lane))
+    try:
+        await asyncio.wait_for(held_at_gate.wait(), timeout=1.0)  # parked behind the clean
+        assert not executed.is_set()
+
+        clean.status = JobStatus.COMPLETED
+        controller.state.build_gate.set()
+        await asyncio.wait_for(executed.wait(), timeout=1.0)  # released, now runs
+    finally:
+        runner_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await runner_task
+
+
 async def test_upload_lane_skips_an_upload_cancelled_while_held(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
