@@ -12,15 +12,17 @@ from .common import EventType
 
 
 class QueueStatus(NamedTuple):
-    """Snapshot of the firmware queue's RAM state.
+    """Snapshot of one firmware lane's RAM state (or the aggregate).
 
-    Returned by :meth:`FirmwareController.queue_status_snapshot` —
-    a tuple subclass so the existing
+    A tuple subclass so the existing
     ``idle, running, queue_depth = ...`` unpacking on the
     receiver-side broadcast paths keeps working, plus named
-    access (``snapshot.idle``) for test stubs and any future
-    caller that wants to read one field without unpacking the
-    rest.
+    access (``snapshot.idle``) for test stubs.
+
+    :meth:`FirmwareController.queue_status_snapshot` returns the
+    aggregate across both lanes (compile + upload); per-lane
+    snapshots (e.g. compile-lane idleness for the remote-build
+    scheduler) come from :meth:`FirmwareController.lane_status`.
     """
 
     idle: bool
@@ -43,7 +45,11 @@ class JobType(StrEnum):
 
     COMPILE = "compile"
     UPLOAD = "upload"
-    INSTALL = "install"  # compile + upload in one step
+    # Retained for deserialising older persisted jobs. ``firmware/install``
+    # now enqueues a COMPILE job + a dependent UPLOAD job (two lanes) rather
+    # than one fused job; a persisted in-flight INSTALL is migrated to that
+    # chain on load, so the runner never executes this type.
+    INSTALL = "install"
     CLEAN = "clean"
     # Wipes ``.esphome/build/``, ``external_components/``, and
     # ``platformio_cache/`` — forces the next compile to re-download
@@ -123,6 +129,13 @@ class FirmwareJob(DataClassORJSONMixin):
     # New device name for ``rename`` jobs. Plumbed through to the
     # ``esphome rename`` CLI. Empty for every other job type.
     new_name: str = ""
+    # job_id of a prerequisite job that must complete successfully before
+    # this one runs; empty for independent jobs. Set on the UPLOAD half of
+    # an install chain (``depends_on`` the COMPILE job): the upload is held
+    # off its lane queue until the compile succeeds, and cancelled if the
+    # compile fails/cancels. Rides through ``JobLifecycleData`` so the
+    # frontend can render the dependency.
+    depends_on: str = ""
     # Coarse progress estimate parsed from PlatformIO/esptool output
     # (0-100). Monotonically non-decreasing *within a phase* — the
     # streaming ingest only latches a higher parsed percent. At
@@ -253,7 +266,7 @@ class FirmwareJob(DataClassORJSONMixin):
           ``QUEUED``; future callers might want a different
           target).
         - **Preserves identity** — ``configuration`` /
-          ``job_type`` / ``port`` / ``new_name`` / ``created_at``
+          ``job_type`` / ``port`` / ``new_name`` / ``depends_on`` / ``created_at``
           / ``job_id`` / ``source`` / ``source_pin_sha256`` /
           ``source_label`` / ``source_esphome_version`` /
           ``remote_peer`` / ``remote_peer_label`` /

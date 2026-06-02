@@ -9,6 +9,20 @@ from ...models import FirmwareJob
 
 
 @dataclass
+class Lane:
+    """One serial work lane: its FIFO queue + the job/subprocess on it now.
+
+    Two lanes run concurrently — a compile lane (CPU) and an upload lane
+    (network) — so a slow network flash doesn't block the next compile.
+    Within a lane work stays serialized (``current_job`` is the single slot).
+    """
+
+    queue: asyncio.Queue[FirmwareJob] = field(default_factory=asyncio.Queue)
+    current_job: FirmwareJob | None = None
+    current_process: asyncio.subprocess.Process | None = None
+
+
+@dataclass
 class FirmwareState:
     """Mutable state for :class:`FirmwareController`."""
 
@@ -18,10 +32,11 @@ class FirmwareState:
     # picks first. ``cli`` reads it to build the subprocess argv.
     esphome_cmd: list[str] = field(default_factory=list)
 
-    # Persistent single-job queue. Producer is ``_enqueue``;
-    # consumer is the runner loop. Survives restarts via the
-    # on-disk persistence layer.
-    queue: asyncio.Queue[FirmwareJob] = field(default_factory=asyncio.Queue)
+    # The two concurrent lanes. Producers enqueue onto the lane a job's
+    # type maps to (``_lane_for``); each lane has its own consumer task.
+    # Both survive restarts via the on-disk persistence layer.
+    compile_lane: Lane = field(default_factory=Lane)
+    upload_lane: Lane = field(default_factory=Lane)
 
     # Active + recent jobs keyed by ``job_id``. ``persistence``
     # reads / writes on every state transition; ``clean``,
@@ -29,12 +44,6 @@ class FirmwareState:
     # for lookup. Trimmed to history limits by
     # ``persistence._prune_history``.
     jobs: dict[str, FirmwareJob] = field(default_factory=dict)
-
-    # Single-job runner slot — ``None`` when idle. ``runner``
-    # reads / writes as the job lifecycle transitions through
-    # the queue.
-    current_job: FirmwareJob | None = None
-    current_process: asyncio.subprocess.Process | None = None
 
     # Job ids the user asked to cancel; the runner consults this
     # on subprocess exit to mark CANCELLED instead of FAILED.
@@ -45,3 +54,31 @@ class FirmwareState:
     # frame unblocks instantly. The local subprocess path uses
     # SIGTERM instead and doesn't register here.
     cancel_events: dict[str, asyncio.Event] = field(default_factory=dict)
+
+    # Transitional back-compat shims: the legacy single-lane attribute
+    # names proxy to the compile lane (historically the everything/CPU
+    # lane). Lets call sites and tests that predate lanes keep reading
+    # ``state.queue`` / ``state.current_job`` / ``state.current_process``.
+    @property
+    def queue(self) -> asyncio.Queue[FirmwareJob]:
+        return self.compile_lane.queue
+
+    @queue.setter
+    def queue(self, value: asyncio.Queue[FirmwareJob]) -> None:
+        self.compile_lane.queue = value
+
+    @property
+    def current_job(self) -> FirmwareJob | None:
+        return self.compile_lane.current_job
+
+    @current_job.setter
+    def current_job(self, value: FirmwareJob | None) -> None:
+        self.compile_lane.current_job = value
+
+    @property
+    def current_process(self) -> asyncio.subprocess.Process | None:
+        return self.compile_lane.current_process
+
+    @current_process.setter
+    def current_process(self, value: asyncio.subprocess.Process | None) -> None:
+        self.compile_lane.current_process = value
