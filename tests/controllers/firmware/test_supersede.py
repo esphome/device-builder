@@ -245,3 +245,29 @@ async def test_supersede_reraises_unexpected_cancel_error(
         await factories.supersede_active_jobs(controller, "kitchen.yaml", exclude_job_ids=set())
 
     assert exc.value.code == ErrorCode.INTERNAL_ERROR
+
+
+async def test_supersede_swallows_runtime_error_from_cancel(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A state-out-of-sync RuntimeError from cancel is swallowed, not propagated.
+
+    cancel raises RuntimeError when a RUNNING job isn't the active subprocess;
+    supersede treats that (and ValueError) as a benign mid-iteration flip and
+    keeps going rather than aborting the new submission.
+    """
+    victim = FirmwareJob(
+        job_id="v1",
+        configuration="kitchen.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.QUEUED,
+    )
+    controller = firmware_controller_factory(victim, with_queue=True)
+
+    async def _boom(*, job_id: str) -> None:
+        raise RuntimeError("state out of sync")
+
+    controller.cancel = _boom  # type: ignore[method-assign]
+
+    # Must not raise.
+    await factories.supersede_active_jobs(controller, "kitchen.yaml", exclude_job_ids=set())

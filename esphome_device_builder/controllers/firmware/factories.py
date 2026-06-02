@@ -145,16 +145,24 @@ async def enqueue_install_chain(
     upload_job = create_job(
         controller, configuration, JobType.UPLOAD, port=port, depends_on=compile_job.job_id
     )
+    # Commit the pair atomically. The rename-lock check, the lane put, and both
+    # JOB_QUEUED fires are synchronous, so no concurrent rename can take the
+    # lock mid-chain and strand a half-queued pair on disk — the failure the
+    # two-await shape allowed (a rename acquired during the first enqueue's
+    # persist-await). Both jobs share a configuration, so one check covers both.
     try:
-        await enqueue(controller, upload_job, supersede=False)
-        await enqueue(controller, compile_job, supersede=False)
+        controller._check_rename_lock(compile_job)
     except CommandError:
-        # A rename lock (``enqueue``'s first check) or any enqueue rejection
-        # must not strand the just-created pair in ``state.jobs`` — restart
-        # would re-queue a compile whose enqueue was refused. Roll it back.
         controller.state.jobs.pop(upload_job.job_id, None)
         controller.state.jobs.pop(compile_job.job_id, None)
         raise
+    # Compile runs now; the upload is held off its lane until the compile
+    # completes (``release_dependents`` lands it), but still fires JOB_QUEUED
+    # so it renders as queued.
+    controller.state.lane_for(compile_job).queue.put_nowait(compile_job)
+    for job in (upload_job, compile_job):
+        queued_payload: JobLifecycleData = {"job": job}
+        controller._db.bus.fire(EventType.JOB_QUEUED, queued_payload)
     await controller._supersede_active_jobs(
         configuration, exclude_job_ids={compile_job.job_id, upload_job.job_id}
     )

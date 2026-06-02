@@ -75,7 +75,9 @@ async def test_install_bulk_queues_stale_devices_before_pending_changes(
         "current.yaml",
         "unknown.yaml",
     ]
-    assert [job.job_type for job in jobs] == [JobType.INSTALL] * 5
+    # install_bulk now queues a chain per device; the returned jobs are the
+    # COMPILE heads (each with a dependent UPLOAD held behind it).
+    assert [job.job_type for job in jobs] == [JobType.COMPILE] * 5
 
 
 async def test_bulk_order_preserves_tail_input_order(
