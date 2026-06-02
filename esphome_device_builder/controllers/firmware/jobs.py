@@ -127,7 +127,11 @@ async def cancel(controller: FirmwareController, *, job_id: str) -> None:
         controller._db.bus.fire(EventType.JOB_CANCELLED, cancelled_payload)
         # Cancel anything held on this job (an install's upload waits on its
         # compile) so a cancelled compile never goes on to flash the device.
-        lifecycle.release_dependents(controller, job)
+        # Persist again when the cascade fired so the dependents' CANCELLED
+        # status reaches disk (the persist above was before release_dependents).
+        if lifecycle.release_dependents(controller, job):
+            controller._prune_history()
+            await controller._persist_jobs()
         return
 
     if job.status == JobStatus.RUNNING:

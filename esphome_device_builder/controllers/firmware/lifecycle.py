@@ -53,20 +53,25 @@ def _release_lane_slot(controller: FirmwareController, job: FirmwareJob) -> None
             return
 
 
-def release_dependents(controller: FirmwareController, job: FirmwareJob) -> None:
+def release_dependents(controller: FirmwareController, job: FirmwareJob) -> bool:
     """Enqueue jobs held on *job* once it succeeds; cancel them if it didn't.
 
     A chained UPLOAD sits QUEUED but off its lane queue until its prerequisite
     COMPILE finishes (see ``factories.enqueue``); this is where it lands.
+    Returns whether any dependent was acted on, so a caller that persisted
+    before calling can re-persist when the cascade actually changed state.
     """
+    acted = False
     for dep in list(controller.state.jobs.values()):
         if dep.depends_on != job.job_id or dep.status is not JobStatus.QUEUED:
             continue
+        acted = True
         if job.status is JobStatus.COMPLETED:
             controller.state.place_on_lane(dep)
         else:
             dep.error = "prerequisite job did not complete successfully"
             controller._finalize_terminal(dep, JobStatus.CANCELLED)
+    return acted
 
 
 def finalize_cancelled(controller: FirmwareController, job: FirmwareJob) -> None:

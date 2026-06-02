@@ -200,6 +200,27 @@ async def test_cancelling_queued_compile_cancels_held_upload(
     assert upload.status == JobStatus.CANCELLED
 
 
+async def test_cancelling_queued_compile_persists_the_cascade(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """The cascade-cancel of the held upload is persisted, not left QUEUED on disk.
+
+    The QUEUED-cancel path persists the compile before cascading; without a
+    second persist the upload's CANCELLED status never reaches disk and a
+    restart would re-cancel it every boot.
+    """
+    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
+    (tmp_path / "kitchen.yaml").write_text("")
+    compile_job = await controller.install(configuration="kitchen.yaml")
+    controller._persist_jobs.reset_mock()
+
+    await controller.cancel(job_id=compile_job.job_id)
+
+    # Two persists: the cancelled compile (before fire) + the cascaded upload.
+    assert controller._persist_jobs.await_count == 2
+
+
 async def test_failed_compile_cancels_held_upload(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
