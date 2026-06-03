@@ -19,7 +19,6 @@ reference passed to both at construction.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -90,13 +89,6 @@ _LOGGER = logging.getLogger(__name__)
 _PAIRINGS_SAVE_DELAY_SECONDS = 1.0
 
 
-# Capped backoff for retrying a failed identity reload during a
-# rotation refresh, so a transient store / metadata read can't
-# strand the peer-link clients on the pre-rotation key.
-_IDENTITY_REFRESH_RETRY_INITIAL_SECONDS = 1.0
-_IDENTITY_REFRESH_RETRY_MAX_SECONDS = 30.0
-
-
 class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
     """Outbound side of remote-build: pair, peer-link, submit/cancel/download."""
 
@@ -110,11 +102,6 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
             shutdown_register=self._shutdown_callbacks.append,
             name="offloader_pairings",
         )
-        # Single-flight handle for the identity-rotation respawn so
-        # overlapping events coalesce instead of cancelling each
-        # other's freshly-spawned clients.
-        self._identity_refresh_task: asyncio.Task[None] | None = None
-        self._identity_refresh_again = False
 
     async def start(self) -> None:
         """Seed pairings from disk, cache identities, spawn peer-link clients."""
@@ -246,49 +233,19 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         self, event: Event[RemoteBuildIdentityRotatedData]
     ) -> None:
         """Refresh the cached identity + respawn live peer-link clients on rotation."""
-        if self._identity_refresh_task is not None and not self._identity_refresh_task.done():
-            # A refresh is mid-flight; have it loop once more rather
-            # than racing a second pass against the clients it spawns.
-            self._identity_refresh_again = True
-            return
-        self._identity_refresh_task = self._track_task(
+        self._track_task(
             self._refresh_identity_and_respawn_clients(), name="offloader-identity-refresh"
         )
 
     async def _refresh_identity_and_respawn_clients(self) -> None:
-        """
-        Reload the identity snapshot and respawn every APPROVED peer-link client.
-
-        Loops until no rotation arrived during the pass; the
-        ``_identity_refresh_again`` re-check is synchronous, so a
-        mid-pass rotation is always retried. A failed identity load
-        backs off and retries rather than leaving clients pinned to
-        the pre-rotation key.
-        """
-        backoff = _IDENTITY_REFRESH_RETRY_INITIAL_SECONDS
-        try:
-            while True:
-                self._identity_refresh_again = False
-                try:
-                    await self._load_offloader_identities_async()
-                except Exception:
-                    _LOGGER.exception(
-                        "Offloader identity refresh failed to load identities; retrying"
-                    )
-                    await asyncio.sleep(backoff)
-                    backoff = min(backoff * 2, _IDENTITY_REFRESH_RETRY_MAX_SECONDS)
-                    continue
-                backoff = _IDENTITY_REFRESH_RETRY_INITIAL_SECONDS
-                for pin_sha256 in list(self.state.peer_link_clients):
-                    pairing = self.state.pairings.get(pin_sha256)
-                    if pairing is None or pairing.status is not PeerStatus.APPROVED:
-                        continue
-                    self._cancel_peer_link_client(pin_sha256)
-                    self._spawn_peer_link_client(pairing)
-                if not self._identity_refresh_again:
-                    return
-        finally:
-            self._identity_refresh_task = None
+        """Reload the identity snapshot and respawn every APPROVED peer-link client."""
+        await self._load_offloader_identities_async()
+        for pin_sha256 in list(self.state.peer_link_clients):
+            pairing = self.state.pairings.get(pin_sha256)
+            if pairing is None or pairing.status is not PeerStatus.APPROVED:
+                continue
+            self._cancel_peer_link_client(pin_sha256)
+            self._spawn_peer_link_client(pairing)
 
     def _on_offloader_queue_status_changed(
         self, event: Event[OffloaderQueueStatusChangedData]
