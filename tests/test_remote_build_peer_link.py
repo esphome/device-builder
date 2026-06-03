@@ -1146,13 +1146,7 @@ async def test_e2e_receiver_settings_write_preserves_offloader_pairing(
     peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
     tmp_path: Path,
 ) -> None:
-    """
-    A remote-build settings write keeps an existing pairing accepted (#1154).
-
-    A settings write that re-minted the offloader's
-    ``dashboard_id`` left the long-lived ``peer_link`` keyed on
-    an id the receiver never approved (``no_approved_peer``).
-    """
+    """A receiver settings write keeps an existing pairing's ``peer_link`` accepted."""
     client, controller, _ = peer_link_app
     offloader_dir = tmp_path / "offloader"
     offloader_dir.mkdir()
@@ -1185,14 +1179,7 @@ async def test_e2e_peer_link_recovers_after_identity_rotation(
     peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
     tmp_path: Path,
 ) -> None:
-    """
-    Rotating the offloader key breaks the link until re-pair, then recovers (#1154).
-
-    ``dashboard_id`` is preserved across a rotation, so the
-    receiver pins the stale key (``rejected``) until the operator
-    re-pairs the rotated identity, after which ``peer_link`` is
-    accepted again.
-    """
+    """A rotated offloader key is rejected until re-pair, then ``peer_link`` is accepted."""
     client, controller, _ = peer_link_app
     offloader_dir = tmp_path / "offloader"
     offloader_dir.mkdir()

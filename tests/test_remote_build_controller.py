@@ -1928,7 +1928,7 @@ async def test_rotate_identity_fires_event_on_bus(tmp_path: Path) -> None:
 async def test_identity_rotation_refreshes_snapshot_and_respawns_approved_clients(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Rotation re-snapshots the identity and reconnects only APPROVED peer-link clients (#1154)."""
+    """Rotation re-snapshots the identity and reconnects only APPROVED peer-link clients."""
     controller = _make_controller(config_dir=tmp_path)
     controller.offloader._db.bus = MagicMock()
     # Stale start()-time snapshot the live peer-link client would

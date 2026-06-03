@@ -1,14 +1,9 @@
 """
-End-to-end: offloader peer-link identity rotation + recovery (#1154).
+End-to-end: offloader peer-link identity rotation + recovery.
 
-Rotating the offloader's X25519 peer-link key must respawn its
-long-lived :class:`PeerLinkClient` off the *current* identity, not
-the start()-time snapshot. The bug presented the stale key on the
-long-lived link after a rotation, so the receiver rejected it
-(``pin_mismatch`` / ``no_approved_peer``) even though the GUI
-showed a successful pair. This drives the real two-instance wire:
-rotate, watch the old session drop, re-pair, and confirm the
-session comes back pinned to the rotated key.
+Rotate the offloader's key over the real two-instance wire, watch
+the session drop, re-pair, and confirm it recovers pinned to the
+rotated key.
 """
 
 from __future__ import annotations
@@ -45,12 +40,7 @@ async def _repair(instances: PairedInstances) -> None:
 async def test_offloader_identity_rotation_recovers_session(
     paired_instances: PairedInstances,
 ) -> None:
-    """A rotated offloader identity drops the link, then re-pair recovers under the new key.
-
-    On the pre-fix tree the respawned client keeps presenting the
-    start()-time key, so the re-paired session never reopens — this
-    times out at the recovery wait.
-    """
+    """A rotated offloader identity drops the link; re-pair recovers it under the new key."""
     await paired_instances.wait_until_session_opened()
     dashboard_id = paired_instances.offloader_dashboard_id
     receiver_pin = paired_instances.pin_sha256

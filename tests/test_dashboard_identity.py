@@ -168,14 +168,7 @@ async def test_dashboard_id_survives_other_remote_build_mutations(tmp_path: Path
 
 
 async def test_remote_build_settings_writes_preserve_foreign_keys(tmp_path: Path) -> None:
-    """
-    Both real settings writers merge into ``_remote_build``, never replace it (#1154).
-
-    The arbitrary ``_sentinel`` pins the *general* invariant so a
-    co-resident key (e.g. a legacy ``dashboard_id`` mid-migration)
-    survives a settings flip rather than being wiped by a wholesale
-    overwrite.
-    """
+    """Both settings writers merge into ``_remote_build``, preserving a foreign key."""
     metadata_path = tmp_path / ".device-builder.json"
     metadata_path.write_bytes(json.dumps({"_remote_build": {"_sentinel": "keep-me"}}).encode())
 
@@ -199,12 +192,7 @@ async def test_remote_build_settings_writes_preserve_foreign_keys(tmp_path: Path
 
 
 async def test_legacy_dashboard_id_migrates_out_of_remote_build(tmp_path: Path) -> None:
-    """
-    A pre-#1154 ``_remote_build.dashboard_id`` moves to its own block, same value.
-
-    No re-mint (so paired peers keep matching); the settings keys
-    in ``_remote_build`` are left intact.
-    """
+    """A legacy ``_remote_build.dashboard_id`` migrates to its own block with the same value."""
     metadata_path = tmp_path / ".device-builder.json"
     metadata_path.write_bytes(
         json.dumps({"_remote_build": {"dashboard_id": "legacy-id", "enabled": True}}).encode()
@@ -239,21 +227,14 @@ async def test_legacy_dashboard_id_swept_even_when_new_block_wins(tmp_path: Path
 
 
 async def test_minting_dashboard_id_does_not_trip_settings_persisted_gate(tmp_path: Path) -> None:
-    """
-    Identity creation alone must not flip the HA-addon "settings persisted" signal (#1154).
-
-    The id used to be minted into ``_remote_build``, which made
-    ``has_remote_build_settings_persisted`` read ``True`` on the
-    next boot and bind the receiver on a fresh addon install that
-    never touched the toggle.
-    """
+    """Minting the identity doesn't flip ``has_remote_build_settings_persisted``."""
     await get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
     persisted = await asyncio.to_thread(has_remote_build_settings_persisted, tmp_path)
     assert persisted is False
 
 
 async def test_legacy_dashboard_id_only_block_removed_on_migration(tmp_path: Path) -> None:
-    """A ``_remote_build`` holding only a legacy id is dropped, restoring the gate signal."""
+    """A ``_remote_build`` holding only a legacy id is dropped after migration."""
     metadata_path = tmp_path / ".device-builder.json"
     metadata_path.write_bytes(json.dumps({"_remote_build": {"dashboard_id": "legacy-id"}}).encode())
 

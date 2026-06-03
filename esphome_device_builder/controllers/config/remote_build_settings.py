@@ -121,13 +121,7 @@ def has_remote_build_settings_persisted(config_dir: Path) -> bool:
 
 
 def _merge_settings_into_block(data: dict[str, Any], settings: RemoteBuildSettings) -> None:
-    """
-    Overlay *settings* onto the existing ``_remote_build`` block in place.
-
-    Merges rather than replaces so a co-resident key the settings
-    model doesn't own survives the write — notably a legacy
-    ``dashboard_id`` awaiting migration out of this block (#1154).
-    """
+    """Merge *settings* into the existing ``_remote_build`` block, preserving foreign keys."""
     rb = data.get(_REMOTE_BUILD_KEY)
     if not isinstance(rb, dict):
         rb = {}

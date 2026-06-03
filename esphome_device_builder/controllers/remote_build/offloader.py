@@ -166,16 +166,7 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
     async def _load_offloader_identities_async(
         self,
     ) -> tuple[PeerLinkIdentity, DashboardIdentity]:
-        """
-        Return both offloader-side identities, refreshing the cached snapshot.
-
-        The peer-link client + rebind probe read
-        ``state.offloader_peer_link_priv`` / ``offloader_dashboard_id``
-        synchronously; writing the freshly-loaded values back here
-        keeps the long-lived client's presented identity in lockstep
-        with what the pairing handshake just pinned, so a rotation
-        between ``start`` and a re-pair can't drift them apart.
-        """
+        """Load both offloader identities and refresh the cached ``state`` snapshot."""
         peer_link_identity, dashboard_identity = await get_or_create_identities(
             self._db.settings.config_dir,
             self._db.peer_link_identity_store,
@@ -247,14 +238,7 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         )
 
     async def _refresh_identity_and_respawn_clients(self) -> None:
-        """
-        Re-snapshot the rotated identity and reconnect every APPROVED peer-link client.
-
-        Each :class:`PeerLinkClient` captures the private key at
-        construction and never reloads it, so a rotation only
-        reaches the wire by tearing the client down and spawning a
-        fresh one off the refreshed snapshot.
-        """
+        """Reload the identity snapshot and respawn every APPROVED peer-link client."""
         await self._load_offloader_identities_async()
         for pin_sha256 in list(self.state.peer_link_clients):
             pairing = self.state.pairings.get(pin_sha256)

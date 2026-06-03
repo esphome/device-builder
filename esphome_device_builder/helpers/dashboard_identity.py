@@ -11,10 +11,8 @@ dashboard installation to peer dashboards:
   lives in :mod:`helpers.peer_link_identity`; this module
   composes its fingerprint with the dashboard_id below.
 * ``dashboard_id`` — a stable random base64url string stored
-  in the metadata sidecar's own ``_dashboard_identity`` block,
-  disjoint from the receiver-settings ``_remote_build`` block so
-  a settings write can't evict it. Purely a
-  correlation token (it appears in mDNS TXT, peer-link
+  in the metadata sidecar's own ``_dashboard_identity`` block.
+  Purely a correlation token (it appears in mDNS TXT, peer-link
   handshakes, audit logs, and pair-request records so a peer
   can recognise which dashboard it's talking to across
   rotations of the underlying cryptographic identity). NOT
@@ -47,8 +45,8 @@ from .peer_link_identity import PeerLinkIdentity, PeerLinkIdentityStore
 _DASHBOARD_ID_BYTES = 24
 _DASHBOARD_IDENTITY_KEY = "_dashboard_identity"
 _DASHBOARD_ID_KEY = "dashboard_id"
-# Pre-#1154 the id co-lived here with the receiver settings; read
-# once for migration, then it moves to ``_dashboard_identity``.
+# Legacy location the id co-lived in with the receiver settings;
+# read once to migrate it into ``_dashboard_identity``.
 _LEGACY_REMOTE_BUILD_KEY = "_remote_build"
 
 # Public validation contract for ``dashboard_id`` strings on the
@@ -139,15 +137,7 @@ async def rotate_identity(
 
 
 def _get_or_create_dashboard_id(config_dir: Path) -> str:
-    """
-    Return the persistent ``dashboard_id``, generating one if absent.
-
-    Owns the ``_dashboard_identity`` block exclusively so the
-    receiver-settings writer (``_remote_build``) can't clobber the
-    id. A value at the legacy ``_remote_build.dashboard_id``
-    location is migrated in place (same id, no re-pair). The
-    read-modify-write runs under the metadata-sidecar lock.
-    """
+    """Return the persistent ``dashboard_id``, migrating a legacy copy or minting one."""
     with metadata_transaction(config_dir) as data:
         # Sweep any legacy co-tenant first so a stale copy can't
         # linger even when the new block already answers the read.
@@ -166,14 +156,7 @@ def _get_or_create_dashboard_id(config_dir: Path) -> str:
 
 
 def _migrate_legacy_dashboard_id(data: dict[str, Any]) -> str | None:
-    """
-    Pop a legacy ``_remote_build.dashboard_id`` value, returning it if found.
-
-    Drops a ``_remote_build`` block left empty by the pop so the
-    HA-addon "settings persisted" gate
-    (:func:`controllers.config.remote_build_settings.has_remote_build_settings_persisted`)
-    isn't tripped by identity creation alone.
-    """
+    """Pop a legacy ``_remote_build.dashboard_id``, dropping a block left empty by the pop."""
     legacy = data.get(_LEGACY_REMOTE_BUILD_KEY)
     if not isinstance(legacy, dict):
         return None
