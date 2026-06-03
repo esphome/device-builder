@@ -251,21 +251,24 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
     async def _refresh_identity_and_respawn_clients(self) -> None:
         """Reload the identity snapshot and respawn every APPROVED peer-link client.
 
-        Loops until no rotation arrived during the pass — the only
-        await is the identity load, so a single-loop event can't be
+        Loops until no rotation arrived during the pass; the only
+        await is the identity load, so a mid-pass event can't be
         lost between the re-check and the return.
         """
-        while True:
-            self._identity_refresh_again = False
-            await self._load_offloader_identities_async()
-            for pin_sha256 in list(self.state.peer_link_clients):
-                pairing = self.state.pairings.get(pin_sha256)
-                if pairing is None or pairing.status is not PeerStatus.APPROVED:
-                    continue
-                self._cancel_peer_link_client(pin_sha256)
-                self._spawn_peer_link_client(pairing)
-            if not self._identity_refresh_again:
-                return
+        try:
+            while True:
+                self._identity_refresh_again = False
+                await self._load_offloader_identities_async()
+                for pin_sha256 in list(self.state.peer_link_clients):
+                    pairing = self.state.pairings.get(pin_sha256)
+                    if pairing is None or pairing.status is not PeerStatus.APPROVED:
+                        continue
+                    self._cancel_peer_link_client(pin_sha256)
+                    self._spawn_peer_link_client(pairing)
+                if not self._identity_refresh_again:
+                    return
+        finally:
+            self._identity_refresh_task = None
 
     def _on_offloader_queue_status_changed(
         self, event: Event[OffloaderQueueStatusChangedData]

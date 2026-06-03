@@ -2047,6 +2047,8 @@ async def test_identity_rotation_coalesces_overlapping_refreshes(
     # One refresh task, but two passes (the coalesced rerun).
     assert load_calls == 2
     assert spawn.call_count == 2
+    # Handle is cleared once the pass settles.
+    assert off._identity_refresh_task is None
 
 
 async def test_rotate_identity_concurrent_call_rejected(tmp_path: Path) -> None:
