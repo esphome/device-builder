@@ -37,6 +37,9 @@ from noise.exceptions import NoiseInvalidMessage
 from noise.exceptions import NoiseInvalidMessage as _NoiseInvalidMessage
 
 from esphome_device_builder.api.ws import init_ws_app
+from esphome_device_builder.controllers.config.remote_build_settings import (
+    save_remote_build_settings,
+)
 from esphome_device_builder.controllers.remote_build import (
     ReceiverController,
 )
@@ -75,6 +78,9 @@ from esphome_device_builder.controllers.remote_build.submit_job import (
 )
 from esphome_device_builder.helpers import json as _json
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.dashboard_identity import (
+    get_or_create_identities,
+)
 from esphome_device_builder.helpers.peer_link_identity import (
     PeerLinkIdentityStore,
 )
@@ -89,6 +95,7 @@ from esphome_device_builder.models import (
     PeerLinkIntent,
     QueueStatus,
     RejectReason,
+    RemoteBuildSettings,
     StoredPeer,
 )
 
@@ -831,9 +838,12 @@ async def _drive_initiator_handshake(
     client: TestClient,
     msg1_payload: dict[str, Any],
     msg3_payload: dict[str, Any],
+    *,
+    initiator_priv: bytes | None = None,
 ) -> _InitiatorRoundTrip:
     """Drive the 3 XX messages from the initiator side."""
-    initiator_priv = X25519PrivateKey.generate().private_bytes_raw()
+    if initiator_priv is None:
+        initiator_priv = X25519PrivateKey.generate().private_bytes_raw()
     initiator_pub = (
         X25519PrivateKey.from_private_bytes(initiator_priv).public_key().public_bytes_raw()
     )
@@ -1117,6 +1127,88 @@ def _decode_app_frame(session: PeerLinkNoiseSession, encrypted: bytes) -> dict[s
     parsed = _json.loads(session.decrypt(encrypted))
     assert isinstance(parsed, dict)
     return parsed
+
+
+async def _peer_link_intent_response(
+    client: TestClient, *, dashboard_id: str, initiator_priv: bytes
+) -> str:
+    """Drive one ``intent="peer_link"`` round-trip; return the decoded intent_response."""
+    round_trip = await _drive_initiator_handshake(
+        client,
+        msg1_payload={"intent": "peer_link"},
+        msg3_payload={"dashboard_id": dashboard_id},
+        initiator_priv=initiator_priv,
+    )
+    return _decode_intent_response(round_trip.session, round_trip.intent_response_ciphertext)
+
+
+async def test_e2e_receiver_settings_write_preserves_offloader_pairing(
+    peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
+    tmp_path: Path,
+) -> None:
+    """A receiver settings write keeps an existing pairing's ``peer_link`` accepted."""
+    client, controller, _ = peer_link_app
+    offloader_dir = tmp_path / "offloader"
+    offloader_dir.mkdir()
+    store = PeerLinkIdentityStore(offloader_dir)
+    identity, dashboard = await get_or_create_identities(offloader_dir, store)
+    # The receiver approved this offloader at pair time.
+    await _seed_approved_offloader(
+        controller, dashboard_id=dashboard.dashboard_id, pubkey=identity.public_bytes
+    )
+
+    # The offloader host writes its own receiver-side settings
+    # (flipping the master enable is the operator's trigger). Hop to
+    # a thread: the writer does sync metadata I/O that blockbuster
+    # (Linux CI) flags on the event loop.
+    await asyncio.to_thread(
+        save_remote_build_settings, offloader_dir, RemoteBuildSettings(enabled=True)
+    )
+
+    _, dashboard_after = await get_or_create_identities(offloader_dir, store)
+    assert dashboard_after.dashboard_id == dashboard.dashboard_id
+    response = await _peer_link_intent_response(
+        client,
+        dashboard_id=dashboard_after.dashboard_id,
+        initiator_priv=identity.private_bytes,
+    )
+    assert response == IntentResponse.OK
+
+
+async def test_e2e_peer_link_recovers_after_identity_rotation(
+    peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
+    tmp_path: Path,
+) -> None:
+    """A rotated offloader key is rejected until re-pair, then ``peer_link`` is accepted."""
+    client, controller, _ = peer_link_app
+    offloader_dir = tmp_path / "offloader"
+    offloader_dir.mkdir()
+    store = PeerLinkIdentityStore(offloader_dir)
+    id0, dashboard = await get_or_create_identities(offloader_dir, store)
+    did = dashboard.dashboard_id
+
+    # Pair + connect with the original identity.
+    await _seed_approved_offloader(controller, dashboard_id=did, pubkey=id0.public_bytes)
+    assert (
+        await _peer_link_intent_response(client, dashboard_id=did, initiator_priv=id0.private_bytes)
+        == IntentResponse.OK
+    )
+
+    # Operator rotates the offloader's peer-link key; dashboard_id survives.
+    id1 = await store.async_rotate()
+    assert id1.public_bytes != id0.public_bytes
+    # Receiver still pins the old key, so the rotated identity is rejected.
+    assert (
+        await _peer_link_intent_response(client, dashboard_id=did, initiator_priv=id1.private_bytes)
+        == IntentResponse.REJECTED
+    )
+
+    # Re-pair the rotated identity under the same dashboard_id; the link recovers.
+    await _seed_approved_offloader(controller, dashboard_id=did, pubkey=id1.public_bytes)
+    assert (
+        await _peer_link_intent_response(client, dashboard_id=did, initiator_priv=id1.private_bytes)
+        == IntentResponse.OK
+    )
 
 
 async def test_e2e_peer_link_session_stays_open_after_intent_response(

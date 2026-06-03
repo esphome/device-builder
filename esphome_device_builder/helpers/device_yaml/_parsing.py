@@ -3,9 +3,20 @@
 from __future__ import annotations
 
 import re
+from typing import NamedTuple
 
 from esphome import const
 from esphome.const import CONF_PACKAGES
+
+
+class EsphomeMeta(NamedTuple):
+    """The user-facing ``esphome:`` meta fields; ``None`` for any the YAML omits."""
+
+    name: str | None
+    friendly_name: str | None
+    comment: str | None
+    area: str | None
+
 
 _PLATFORM_KEYS = frozenset({"esp32", "esp8266", "rp2040", "bk72xx", "rtl87xx", "ln882x", "nrf52"})
 
@@ -252,7 +263,7 @@ def extract_directly_referenced_integrations(
 def parse_esphome_meta(
     yaml_content: str,
     extra_substitutions: dict[str, str] | None = None,
-) -> tuple[str | None, str | None, str | None, str | None]:
+) -> EsphomeMeta:
     """
     Parse the top-level ``esphome:`` block for ``(name, friendly_name, comment, area)``.
 
@@ -316,21 +327,71 @@ def parse_esphome_meta(
         for field in _ESPHOME_META_FIELDS:
             meta[field] = _resolve_substitutions(meta[field], merged)
 
-    return meta["name"], meta["friendly_name"], meta["comment"], meta["area"]
+    return EsphomeMeta(meta["name"], meta["friendly_name"], meta["comment"], meta["area"])
 
 
-def _effective_meta(yaml_value: str | None, storage_value: str | None) -> str | None:
+def extract_esphome_meta_from_config(
+    config: dict | None,
+    extra_substitutions: dict[str, str] | None = None,
+) -> EsphomeMeta:
     """
-    Pick the metadata to display, preferring a resolved value.
+    Read ``(name, friendly_name, comment, area)`` off a resolved config's ``esphome:`` block.
 
-    The raw-text YAML read reflects unsaved edits immediately, so it
-    wins when fully resolved. A value still holding a substitution token
-    (a nested ``${device.area}`` the raw reader can't expand) defers to
-    StorageJSON, which esphome resolved at build time. A literal ``$``
-    that isn't substitution-shaped doesn't count as unresolved.
+    ``None`` for any field absent. ``$var`` / ``${var}`` resolve against
+    *extra_substitutions*; tokens the resolver can't expand are left intact.
     """
-    if yaml_value is not None and not _UNRESOLVED_SUBSTITUTION_RE.search(yaml_value):
-        return yaml_value
+    if not isinstance(config, dict):
+        return EsphomeMeta(None, None, None, None)
+    esphome = config.get(const.CONF_ESPHOME)
+    if not isinstance(esphome, dict):
+        return EsphomeMeta(None, None, None, None)
+    subs = extra_substitutions or {}
+
+    def _resolved(value: str | None) -> str | None:
+        return _resolve_substitutions(value, subs)
+
+    return EsphomeMeta(
+        _resolved(_str_or_none(esphome.get(const.CONF_NAME))),
+        _resolved(_str_or_none(esphome.get(const.CONF_FRIENDLY_NAME))),
+        _resolved(_str_or_none(esphome.get(const.CONF_COMMENT))),
+        _resolved(_area_name_from_config(esphome.get(const.CONF_AREA))),
+    )
+
+
+def _str_or_none(value: object) -> str | None:
+    """Return *value* when it's a string, else ``None``."""
+    return value if isinstance(value, str) else None
+
+
+def _area_name_from_config(value: object) -> str | None:
+    """
+    Extract the area label from a config ``area`` value.
+
+    String form is the label itself; the ``{id, name}`` mapping form
+    surfaces its ``name``. ``None`` for any other shape.
+    """
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        return _str_or_none(value.get(const.CONF_NAME))
+    return None
+
+
+def _pick_meta(
+    yaml_value: str | None,
+    config_value: str | None,
+    storage_value: str | None,
+) -> str | None:
+    """
+    Pick the value to display: first fully-resolved of yaml → config → storage.
+
+    A value still holding a substitution token (``${device.area}``) is
+    skipped for the next source. The final fallback surfaces only the
+    raw-text token or ``None`` — never an unresolved config token.
+    """
+    for value in (yaml_value, config_value):
+        if value is not None and not _UNRESOLVED_SUBSTITUTION_RE.search(value):
+            return value
     if storage_value:
         return storage_value
     return yaml_value

@@ -50,6 +50,7 @@ from ...models import (
     PairingSummary,
     PeerQueueStatusSnapshotEntry,
     PeerStatus,
+    RemoteBuildIdentityRotatedData,
     RemoteBuildPeer,
     StoredPairing,
 )
@@ -110,9 +111,9 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
                 state.pairings[pairing.pin_sha256] = pairing
             state.remote_builds_enabled = settings.remote_builds_enabled
             state.version_match_policy = settings.version_match_policy
-        peer_link_identity, dashboard_identity = await self._load_offloader_identities_async()
-        state.offloader_peer_link_priv = peer_link_identity.private_bytes
-        state.offloader_dashboard_id = dashboard_identity.dashboard_id
+        # Populates ``state.offloader_peer_link_priv`` /
+        # ``offloader_dashboard_id`` so the spawns below see them.
+        await self._load_offloader_identities_async()
         # Wire the resolver before spawning clients so each picks
         # it up at construction; stays None when zeroconf is down
         # and outbound connects fall back to the OS resolver.
@@ -128,6 +129,9 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         self._subscribe(EventType.OFFLOADER_PAIR_PEER_REVOKED, self._on_offloader_pair_peer_revoked)
         self._subscribe(EventType.OFFLOADER_PEER_LINK_OPENED, self._on_offloader_peer_link_opened)
         self._subscribe(EventType.OFFLOADER_PEER_LINK_CLOSED, self._on_offloader_peer_link_closed)
+        self._subscribe(
+            EventType.REMOTE_BUILD_IDENTITY_ROTATED, self._on_remote_build_identity_rotated
+        )
         self._start_discovery()
 
     async def stop(self) -> None:
@@ -162,11 +166,14 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
     async def _load_offloader_identities_async(
         self,
     ) -> tuple[PeerLinkIdentity, DashboardIdentity]:
-        """Return both offloader-side identities, hitting the store cache."""
-        return await get_or_create_identities(
+        """Load both offloader identities and refresh the cached ``state`` snapshot."""
+        peer_link_identity, dashboard_identity = await get_or_create_identities(
             self._db.settings.config_dir,
             self._db.peer_link_identity_store,
         )
+        self.state.offloader_peer_link_priv = peer_link_identity.private_bytes
+        self.state.offloader_dashboard_id = dashboard_identity.dashboard_id
+        return peer_link_identity, dashboard_identity
 
     def _setup_peer_link_resolver(self) -> None:
         """
@@ -221,6 +228,24 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
     def _on_offloader_peer_link_closed(self, event: Event[OffloaderPeerLinkClosedData]) -> None:
         """Discard ``pin_sha256`` from ``_open_peer_links`` on session close."""
         bus_handlers.on_offloader_peer_link_closed(self, event)
+
+    def _on_remote_build_identity_rotated(
+        self, event: Event[RemoteBuildIdentityRotatedData]
+    ) -> None:
+        """Refresh the cached identity + respawn live peer-link clients on rotation."""
+        self._track_task(
+            self._refresh_identity_and_respawn_clients(), name="offloader-identity-refresh"
+        )
+
+    async def _refresh_identity_and_respawn_clients(self) -> None:
+        """Reload the identity snapshot and respawn every APPROVED peer-link client."""
+        await self._load_offloader_identities_async()
+        for pin_sha256 in list(self.state.peer_link_clients):
+            pairing = self.state.pairings.get(pin_sha256)
+            if pairing is None or pairing.status is not PeerStatus.APPROVED:
+                continue
+            self._cancel_peer_link_client(pin_sha256)
+            self._spawn_peer_link_client(pairing)
 
     def _on_offloader_queue_status_changed(
         self, event: Event[OffloaderQueueStatusChangedData]

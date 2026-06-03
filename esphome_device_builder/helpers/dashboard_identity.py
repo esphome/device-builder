@@ -11,8 +11,8 @@ dashboard installation to peer dashboards:
   lives in :mod:`helpers.peer_link_identity`; this module
   composes its fingerprint with the dashboard_id below.
 * ``dashboard_id`` — a stable random base64url string stored
-  in the metadata sidecar's ``_remote_build`` block. Purely a
-  correlation token (it appears in mDNS TXT, peer-link
+  in the metadata sidecar's own ``_dashboard_identity`` block.
+  Purely a correlation token (it appears in mDNS TXT, peer-link
   handshakes, audit logs, and pair-request records so a peer
   can recognise which dashboard it's talking to across
   rotations of the underlying cryptographic identity). NOT
@@ -37,13 +37,17 @@ import re
 import secrets
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from ..controllers.config import metadata_transaction
 from .peer_link_identity import PeerLinkIdentity, PeerLinkIdentityStore
 
 _DASHBOARD_ID_BYTES = 24
-_REMOTE_BUILD_KEY = "_remote_build"
+_DASHBOARD_IDENTITY_KEY = "_dashboard_identity"
 _DASHBOARD_ID_KEY = "dashboard_id"
+# Legacy location the id co-lived in with the receiver settings;
+# read once to migrate it into ``_dashboard_identity``.
+_LEGACY_REMOTE_BUILD_KEY = "_remote_build"
 
 # Public validation contract for ``dashboard_id`` strings on the
 # wire. ``dashboard_id`` is generated via
@@ -133,22 +137,30 @@ async def rotate_identity(
 
 
 def _get_or_create_dashboard_id(config_dir: Path) -> str:
-    """
-    Return the persistent ``dashboard_id``, generating one if absent.
-
-    The read-modify-write runs under the metadata-sidecar lock
-    so the "exists?" check and the "generate + persist" step
-    are atomic against any concurrent ``_remote_build``
-    mutation.
-    """
+    """Return the persistent ``dashboard_id``, migrating a legacy copy or minting one."""
     with metadata_transaction(config_dir) as data:
-        rb = data.get(_REMOTE_BUILD_KEY)
-        if not isinstance(rb, dict):
-            rb = {}
-            data[_REMOTE_BUILD_KEY] = rb
-        existing = rb.get(_DASHBOARD_ID_KEY)
-        if isinstance(existing, str) and existing:
-            return existing
-        new_id = secrets.token_urlsafe(_DASHBOARD_ID_BYTES)
-        rb[_DASHBOARD_ID_KEY] = new_id
+        # Sweep any legacy co-tenant first so a stale copy can't
+        # linger even when the new block already answers the read.
+        legacy_id = _migrate_legacy_dashboard_id(data)
+        block = data.get(_DASHBOARD_IDENTITY_KEY)
+        if isinstance(block, dict):
+            existing = block.get(_DASHBOARD_ID_KEY)
+            if isinstance(existing, str) and existing:
+                return existing
+        else:
+            block = {}
+            data[_DASHBOARD_IDENTITY_KEY] = block
+        new_id = legacy_id or secrets.token_urlsafe(_DASHBOARD_ID_BYTES)
+        block[_DASHBOARD_ID_KEY] = new_id
         return new_id
+
+
+def _migrate_legacy_dashboard_id(data: dict[str, Any]) -> str | None:
+    """Pop a legacy ``_remote_build.dashboard_id``, dropping a block left empty by the pop."""
+    legacy = data.get(_LEGACY_REMOTE_BUILD_KEY)
+    if not isinstance(legacy, dict):
+        return None
+    value = legacy.pop(_DASHBOARD_ID_KEY, None)
+    if not legacy:
+        del data[_LEGACY_REMOTE_BUILD_KEY]
+    return value if isinstance(value, str) and value else None

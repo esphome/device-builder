@@ -39,6 +39,7 @@ from .controllers.firmware.download import http_download as firmware_http_downlo
 from .controllers.labels import LabelsController
 from .controllers.onboarding import OnboardingController
 from .controllers.remote_build import OffloaderController, ReceiverController
+from .controllers.version_history import VersionHistoryController
 from .helpers.api import CommandHandler, collect_api_commands
 from .helpers.async_ import create_eager_task
 from .helpers.auth import auth_middleware
@@ -227,6 +228,7 @@ class DeviceBuilder:
         self.onboarding: OnboardingController | None = None
         self.remote_build_offloader: OffloaderController | None = None
         self.remote_build_receiver: ReceiverController | None = None
+        self.version_history: VersionHistoryController | None = None
 
         # mDNS advertise — populated in start() once we know zeroconf
         # is up. Optional: a zeroconf-bind failure leaves this None
@@ -311,9 +313,11 @@ class DeviceBuilder:
         self.onboarding = OnboardingController(self)
         self.remote_build_offloader = OffloaderController(self)
         self.remote_build_receiver = ReceiverController(self)
+        self.version_history = VersionHistoryController(self)
         await self.devices.start()
         await self.firmware.start()
         await self.editor.start()
+        await self.version_history.start()
 
         # Advertise this dashboard on mDNS so peer dashboards (and
         # the future ESPHome Desktop welcome screen) can discover it.
@@ -390,6 +394,7 @@ class DeviceBuilder:
             self.onboarding,
             self.remote_build_offloader,
             self.remote_build_receiver,
+            self.version_history,
         ):
             self.command_handlers.update(collect_api_commands(controller))
 
@@ -444,6 +449,8 @@ class DeviceBuilder:
             await self.devices.stop()
         if self.editor is not None:
             await self.editor.stop()
+        if self.version_history is not None:
+            await self.version_history.stop()
         # Cleanly drain the pool once nothing else can hand it work.
         # Two paths because the pool is created eagerly in ``__init__``
         # — calling ``stop()`` on an instance that never ran

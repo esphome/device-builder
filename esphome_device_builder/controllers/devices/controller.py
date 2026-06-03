@@ -44,6 +44,7 @@ from .._device_scanner import DeviceScanner, ScanChange
 from .._device_state_monitor import DeviceStateMonitor
 from .._reachability_tracker import ReachabilityTracker
 from ..firmware.helpers import _find_esphome_cmd
+from ..version_history import GIT_COMMIT_ERRORS
 from . import (
     add_component,
     api_key,
@@ -112,6 +113,14 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             shutdown_register=self._shutdown_callbacks.append,
         )
         self._shared_sidecar = SharedSidecarClient(self._db.settings.config_dir)
+
+        # Per-file locks serialising a YAML write with its version-history
+        # commit (see ``_persist_yaml_mutation``). One ``asyncio.Lock`` per
+        # distinct filename written this process lifetime; never evicted —
+        # popping on delete could desync a lock a concurrent save is
+        # awaiting. Negligible in practice (a real fleet reuses filenames);
+        # only churn through many unique names grows it.
+        self._yaml_write_locks: dict[str, asyncio.Lock] = {}
 
         # Background ``--only-generate`` bookkeeping. ``--only-generate``
         # validates a YAML and writes its ``StorageJSON`` without doing
@@ -616,7 +625,15 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
                 f"refusing to write empty content to {configuration!r} to prevent "
                 "accidental data loss; use the delete action to remove a file",
             )
-        await self._persist_yaml_mutation(configuration, content)
+        await self._persist_yaml_mutation(configuration, content, message=f"Edit {configuration}")
+
+    async def apply_restored_yaml(
+        self, configuration: str, content: str, *, restored_from: str
+    ) -> None:
+        """Write a version-history-restored YAML back to disk; recreates a deleted file."""
+        await self._persist_yaml_mutation(
+            configuration, content, message=f"Restore {configuration} to {restored_from}"
+        )
 
     def _schedule_storage_regenerate(self, configuration: str) -> None:
         storage_regen.schedule(self, configuration)
@@ -796,19 +813,59 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, atomic_write_file, path, content)
 
-    async def _persist_yaml_mutation(self, configuration: str, content: str) -> None:
-        """Atomic write + fire-and-forget background reload + StorageJSON regen.
-
-        Returns once the bytes are on disk; the scanner reload
-        runs on its worker, so callers don't see the post-reload
-        device row before the next event tick.
+    async def _persist_yaml_mutation(
+        self, configuration: str, content: str, *, message: str | None = None
+    ) -> None:
         """
-        await self._write_yaml_atomic_async(self._db.settings.rel_path(configuration), content)
+        Atomically write *content*, commit it to history, then reload.
+
+        The write and the inline version-history commit are serialised
+        per file: ``commit_paths`` stages whatever is on disk, so a
+        concurrent writer to the same *configuration* must not slip
+        between this write and its commit and win the history slot. The
+        commit is awaited (not fire-and-forget) so the content is
+        captured before the next save can overwrite it.
+        """
+        async with self._yaml_write_lock(configuration):
+            await self._write_yaml_atomic_async(self._db.settings.rel_path(configuration), content)
+            await self._commit_history(configuration, message or f"Update {configuration}")
         self._scanner.request(configuration)
         # Mirrors the upstream dashboard's
         # ``async_schedule_storage_json_update``; without it
         # ``loaded_integrations`` stays at its pre-write state.
         self._schedule_storage_regenerate(configuration)
+
+    def _yaml_write_lock(self, configuration: str) -> asyncio.Lock:
+        """Return the per-file lock guarding a YAML write + its history commit."""
+        lock = self._yaml_write_locks.get(configuration)
+        if lock is None:
+            lock = self._yaml_write_locks[configuration] = asyncio.Lock()
+        return lock
+
+    async def _commit_history(self, configuration: str, message: str) -> None:
+        """
+        Record *configuration* in version history; swallow genuine git errors.
+
+        A git/subprocess failure keeps a hiccup from breaking the user's
+        save (recoverable history gap for this one save); a programming
+        bug propagates rather than being mislabelled as a git failure.
+        Does **not** itself take the per-file ``_yaml_write_lock``; callers
+        needing write+commit atomicity (editor save, delete, archive) hold
+        it across this call so same-config commits can't interleave.
+        """
+        version_history = self._db.version_history
+        if version_history is None:
+            return
+        try:
+            await version_history.record_configuration(configuration, message)
+        except GIT_COMMIT_ERRORS:
+            # Leave any queued catch-all entry in place so the debounced
+            # flush still records this save's content (generic message).
+            _LOGGER.exception("Version-history commit failed for %s", configuration)
+            return
+        # Committed with the rich message; drop a now-redundant queued
+        # catch-all entry so its generic message can't supersede it.
+        version_history.discard_pending(configuration)
 
     @staticmethod
     async def _read_yaml_async(path: Path) -> str:

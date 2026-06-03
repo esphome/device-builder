@@ -15,13 +15,14 @@ from ...models import Device, DeviceState
 from ..mac_addresses import derive_interface_macs
 from ..storage_path import resolve_storage_path
 from ._parsing import (
-    _effective_meta,
     _extract_resolved_substitutions,
     _is_valid_esphome_name,
+    _pick_meta,
     config_has_top_level_block,
     configuration_stem,
     detect_platform_from_yaml,
     extract_directly_referenced_integrations,
+    extract_esphome_meta_from_config,
     get_api_encryption_block,
     parse_esphome_meta,
     yaml_has_api_encryption,
@@ -138,13 +139,15 @@ def load_device_from_storage(
     # ``api_encrypted`` falls back to False.
     resolved_config = load_device_yaml(path)
     # Feed the merged ``substitutions:`` from the resolved config back
-    # into the meta reader so ``esphome.friendly_name: $room`` resolves
+    # into the meta readers so ``esphome.friendly_name: $room`` resolves
     # against substitutions contributed by ``packages:`` / ``!include``
     # — not just the ones inline in this file (#917).
-    yaml_name, yaml_friendly, yaml_comment, yaml_area = parse_esphome_meta(
-        yaml_content,
-        extra_substitutions=_extract_resolved_substitutions(resolved_config),
-    )
+    extra_subs = _extract_resolved_substitutions(resolved_config)
+    yaml_meta = parse_esphome_meta(yaml_content, extra_substitutions=extra_subs)
+    # The resolved config carries the ``esphome:`` block the raw-text
+    # reader can't see when it lives in a merge-key / ``!include`` /
+    # ``packages:`` file, so this fills meta the main file omits (#1153).
+    cfg_meta = extract_esphome_meta_from_config(resolved_config, extra_subs)
 
     fallback_name = configuration_stem(filename)
     storage_name = storage.name if storage else None
@@ -159,22 +162,26 @@ def load_device_from_storage(
     # Falling back to the filename when the parsed name is invalid
     # keeps the catalog key unique.
     name = next(
-        (n for n in (yaml_name, storage_name) if n and _is_valid_esphome_name(n)),
+        (
+            n
+            for n in (yaml_meta.name, cfg_meta.name, storage_name)
+            if n and _is_valid_esphome_name(n)
+        ),
         fallback_name,
     )
 
     storage_friendly = storage.friendly_name if storage else None
-    ef_friendly = _effective_meta(yaml_friendly, storage_friendly)
+    ef_friendly = _pick_meta(yaml_meta.friendly_name, cfg_meta.friendly_name, storage_friendly)
     friendly_name = ef_friendly if ef_friendly is not None else name
 
     storage_comment = storage.comment if storage else None
-    comment = _effective_meta(yaml_comment, storage_comment)
+    comment = _pick_meta(yaml_meta.comment, cfg_meta.comment, storage_comment)
 
     # ``StorageJSON`` carries ``area`` on esphome builds that persist it
-    # (resolved post-compile); ``getattr`` falls through to the raw YAML
-    # token on older builds and never-compiled devices.
+    # (resolved post-compile); the resolved-config and raw-YAML tokens
+    # cover older builds and never-compiled devices.
     storage_area = getattr(storage, "area", None) if storage else None
-    area = _effective_meta(yaml_area, storage_area) or ""
+    area = _pick_meta(yaml_meta.area, cfg_meta.area, storage_area) or ""
 
     yaml_mtime = path.stat().st_mtime if path.exists() else None
     bin_mtime: float | None = None

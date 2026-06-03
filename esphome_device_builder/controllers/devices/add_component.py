@@ -86,6 +86,8 @@ async def add_component(
     if yaml is None:
         # Atomic write; wizard-driven add-component should not be able
         # to corrupt the source YAML on a mid-write crash.
-        await controller._persist_yaml_mutation(configuration, new_yaml)
+        await controller._persist_yaml_mutation(
+            configuration, new_yaml, message=f"Add {component.id} to {configuration}"
+        )
 
     return AddComponentResponse(yaml=new_yaml)

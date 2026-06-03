@@ -1925,6 +1925,81 @@ async def test_rotate_identity_fires_event_on_bus(tmp_path: Path) -> None:
     }
 
 
+async def test_identity_rotation_refreshes_snapshot_and_respawns_approved_clients(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Rotation re-snapshots the identity and reconnects only APPROVED peer-link clients."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller.offloader._db.bus = MagicMock()
+    # Stale start()-time snapshot the live peer-link client would
+    # otherwise keep presenting after a rotation.
+    controller.offloader.state.offloader_peer_link_priv = b"\x11" * 32
+    controller.offloader.state.offloader_dashboard_id = "stale-id"
+    approved = StoredPairing(
+        receiver_hostname="r",
+        receiver_port=6055,
+        pin_sha256="a" * 64,
+        static_x25519_pub=b"\x01" * 32,
+        label="r",
+        paired_at=1.0,
+        status=PeerStatus.APPROVED,
+    )
+    pending = StoredPairing(
+        receiver_hostname="p",
+        receiver_port=6055,
+        pin_sha256="b" * 64,
+        static_x25519_pub=b"\x02" * 32,
+        label="p",
+        paired_at=1.0,
+        status=PeerStatus.PENDING,
+    )
+    controller.offloader.state.pairings["a" * 64] = approved
+    controller.offloader.state.pairings["b" * 64] = pending
+    controller.offloader.state.peer_link_clients["a" * 64] = MagicMock()
+    controller.offloader.state.peer_link_clients["b" * 64] = MagicMock()
+    cancel = MagicMock()
+    spawn = MagicMock()
+    monkeypatch.setattr(controller.offloader, "_cancel_peer_link_client", cancel)
+    monkeypatch.setattr(controller.offloader, "_spawn_peer_link_client", spawn)
+
+    rotated = await controller.offloader._db.peer_link_identity_store.async_rotate()
+    await controller.offloader._refresh_identity_and_respawn_clients()
+
+    assert controller.offloader.state.offloader_peer_link_priv == rotated.private_bytes
+    cancel.assert_called_once_with("a" * 64)
+    spawn.assert_called_once_with(approved)
+
+
+async def test_load_offloader_identities_refreshes_snapshot(tmp_path: Path) -> None:
+    """Loading identities writes the values back to the synchronously-read snapshot."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller.offloader.state.offloader_peer_link_priv = b"\x00" * 32
+    controller.offloader.state.offloader_dashboard_id = "old"
+
+    peer_link, dashboard = await controller.offloader._load_offloader_identities_async()
+
+    assert controller.offloader.state.offloader_peer_link_priv == peer_link.private_bytes
+    assert controller.offloader.state.offloader_dashboard_id == dashboard.dashboard_id
+
+
+async def test_identity_rotation_handler_schedules_refresh(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The bus handler schedules the refresh as a tracked task."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller.offloader._db.bus = MagicMock()
+    called = asyncio.Event()
+
+    async def _fake_refresh() -> None:
+        called.set()
+
+    monkeypatch.setattr(
+        controller.offloader, "_refresh_identity_and_respawn_clients", _fake_refresh
+    )
+    controller.offloader._on_remote_build_identity_rotated(MagicMock())
+    await asyncio.wait_for(called.wait(), timeout=2.0)
+
+
 async def test_rotate_identity_concurrent_call_rejected(tmp_path: Path) -> None:
     """A second concurrent ``rotate_identity`` raises ``ALREADY_EXISTS``."""
     controller = _make_controller(config_dir=tmp_path)

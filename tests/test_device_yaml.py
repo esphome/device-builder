@@ -25,6 +25,7 @@ from esphome_device_builder.helpers.device_yaml import (
     _select_wifi_helper,
     compute_has_pending_changes,
     configuration_stem,
+    extract_esphome_meta_from_config,
     generate_device_yaml,
     generate_minimal_stub_yaml,
     load_device_from_storage,
@@ -694,6 +695,27 @@ esphome:
     assert name == "lamp"
     assert area == "Kitchen"
     assert comment == "real comment"
+
+
+def test_extract_meta_from_config_string_area() -> None:
+    """String-form ``area`` resolves against the supplied substitutions."""
+    config = {"esphome": {"name": "lamp", "area": "${room}"}}
+    name, _, _, area = extract_esphome_meta_from_config(config, {"room": "Kitchen"})
+    assert name == "lamp"
+    assert area == "Kitchen"
+
+
+def test_extract_meta_from_config_dict_area_uses_name() -> None:
+    """The ``{id, name}`` mapping form surfaces its ``name``, resolved."""
+    config = {"esphome": {"area": {"id": "${aid}", "name": "${room}"}}}
+    *_, area = extract_esphome_meta_from_config(config, {"aid": "k", "room": "Kitchen"})
+    assert area == "Kitchen"
+
+
+@pytest.mark.parametrize("config", [None, {}, {"esphome": "not-a-dict"}, "nope"])
+def test_extract_meta_from_config_no_esphome_block(config: Any) -> None:
+    """Missing / malformed config or ``esphome:`` block yields all-``None``."""
+    assert extract_esphome_meta_from_config(config) == (None, None, None, None)
 
 
 def test_parse_meta_top_level_comment_does_not_close_esphome_block() -> None:
@@ -1695,6 +1717,86 @@ def test_load_device_area_from_storage(tmp_path: Path, monkeypatch: pytest.Monke
     device = load_device_from_storage(yaml_path)
 
     assert device.area == "Living Room"
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_area_from_merge_key_include(tmp_path: Path) -> None:
+    """A ``<<: !include`` template's esphome meta resolves before any compile."""
+    templates = tmp_path / "templates"
+    templates.mkdir()
+    (templates / "s31.yaml").write_text(
+        "esphome:\n"
+        '  name: "${devicename}"\n'
+        '  comment: "${device_description}"\n'
+        '  friendly_name: "${friendly_devicename}"\n'
+        "  area:\n"
+        "    id: ${device_area_id}\n"
+        '    name: "${device_area}"\n'
+        "esp8266:\n"
+        "  board: esp12e\n",
+        encoding="utf-8",
+    )
+    yaml_path = tmp_path / "powermon-dryer.yaml"
+    yaml_path.write_text(
+        "substitutions:\n"
+        '  devicename: "powermon-dryer"\n'
+        '  friendly_devicename: "Power Monitor - Dryer"\n'
+        '  device_description: "Sonoff S31"\n'
+        '  device_area: "Laundry Room"\n'
+        '  device_area_id: "laundry_room"\n'
+        "<<: !include templates/s31.yaml\n",
+        encoding="utf-8",
+    )
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.area == "Laundry Room"
+    assert device.name == "powermon-dryer"
+    assert device.friendly_name == "Power Monitor - Dryer"
+    assert device.comment == "Sonoff S31"
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_area_from_package_include(tmp_path: Path) -> None:
+    """``esphome.area`` contributed via ``packages:`` resolves without a compile."""
+    (tmp_path / "common.yaml").write_text(
+        "substitutions:\n"
+        '  device_area: "Garage"\n'
+        "esphome:\n"
+        "  name: opener\n"
+        "  area: ${device_area}\n",
+        encoding="utf-8",
+    )
+    yaml_path = tmp_path / "opener.yaml"
+    yaml_path.write_text(
+        "packages:\n  common: !include common.yaml\n",
+        encoding="utf-8",
+    )
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.area == "Garage"
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_unresolvable_area_in_include_is_blank_not_token(tmp_path: Path) -> None:
+    """A never-compiled dotted ``${device.area}`` in an include stays blank, not a raw token."""
+    (tmp_path / "common.yaml").write_text(
+        "esphome:\n  name: opener\n  area: ${device.area}\n",
+        encoding="utf-8",
+    )
+    yaml_path = tmp_path / "opener.yaml"
+    yaml_path.write_text(
+        "substitutions:\n"
+        "  device:\n"
+        '    area: "Garage"\n'
+        "packages:\n  common: !include common.yaml\n",
+        encoding="utf-8",
+    )
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.area == ""
 
 
 @pytest.mark.usefixtures("_redirect_ext_storage")

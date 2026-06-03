@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import ANY, AsyncMock, MagicMock
 
 import pytest
 
@@ -600,7 +600,7 @@ async def test_add_component_without_draft_reads_disk_and_persists(
     )
 
     assert resp.yaml == "DISK\n# added\n"
-    persist.assert_awaited_once_with("kitchen.yaml", "DISK\n# added\n")
+    persist.assert_awaited_once_with("kitchen.yaml", "DISK\n# added\n", message=ANY)
 
 
 async def test_add_component_into_broken_draft_appends_through_real_merge(

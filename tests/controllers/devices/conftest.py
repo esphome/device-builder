@@ -451,8 +451,14 @@ def make_controller() -> MakeControllerFactory:
         controller = DevicesController.__new__(DevicesController)
         controller._db = MagicMock()
         controller.state = DevicesState()
+        controller._yaml_write_locks = {}
         controller._db.settings.config_dir = config_dir
         controller._db.settings.rel_path = lambda configuration: config_dir / configuration
+        # Version history off by default — a MagicMock's
+        # ``record_configuration`` isn't awaitable, and the YAML-write
+        # tests don't care about commits. The version_history suite
+        # exercises the commit path directly.
+        controller._db.version_history = None
         # ``data_dir`` collapsed onto ``config_dir`` for tmp_path
         # cleanup; real stores so round-trips hit disk.
         controller._shutdown_callbacks = []
