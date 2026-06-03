@@ -29,6 +29,7 @@ from esphome_device_builder.controllers.remote_build import (
     OffloaderController,
     ReceiverController,
 )
+from esphome_device_builder.controllers.remote_build import offloader as rb_offloader
 from esphome_device_builder.controllers.remote_build import (
     pairing_window as rb_pairing_window,
 )
@@ -2051,10 +2052,12 @@ async def test_identity_rotation_coalesces_overlapping_refreshes(
     assert off._identity_refresh_task is None
 
 
-async def test_identity_refresh_retries_queued_event_after_load_failure(
+async def test_identity_refresh_retries_after_load_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A load failure mid-pass is logged, not propagated, and the queued rerun still respawns."""
+    """A failed identity load backs off and retries instead of leaving clients stale."""
+    monkeypatch.setattr(rb_offloader, "_IDENTITY_REFRESH_RETRY_INITIAL_SECONDS", 0.0)
+    monkeypatch.setattr(rb_offloader, "_IDENTITY_REFRESH_RETRY_MAX_SECONDS", 0.0)
     controller = _make_controller(config_dir=tmp_path)
     off = controller.offloader
     off._db.bus = MagicMock()
@@ -2073,29 +2076,19 @@ async def test_identity_refresh_retries_queued_event_after_load_failure(
     monkeypatch.setattr(off, "_cancel_peer_link_client", MagicMock())
     monkeypatch.setattr(off, "_spawn_peer_link_client", spawn)
 
-    gate = asyncio.Event()
     load_calls = 0
 
     async def _load() -> None:
         nonlocal load_calls
         load_calls += 1
         if load_calls == 1:
-            await gate.wait()
             raise RuntimeError("boom")
 
     monkeypatch.setattr(off, "_load_offloader_identities_async", _load)
 
     off._on_remote_build_identity_rotated(MagicMock())
-    await asyncio.sleep(0)
-    task = off._identity_refresh_task
-    assert task is not None
-    # Queue a rerun while the first (about-to-fail) load is parked.
-    off._on_remote_build_identity_rotated(MagicMock())
-    assert off._identity_refresh_again is True
-
-    gate.set()
-    await asyncio.wait_for(task, timeout=2.0)
-    # First pass's load raised (no respawn); the queued rerun's load
+    await asyncio.wait_for(off._identity_refresh_task, timeout=2.0)
+    # First load raised (no respawn); the backoff retry's load
     # succeeded and respawned.
     assert load_calls == 2
     assert spawn.call_count == 1
