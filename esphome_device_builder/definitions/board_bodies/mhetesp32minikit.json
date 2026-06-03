@@ -1,0 +1,1 @@
+{"description":"","esphome":{"board":"mhetesp32minikit","platform":"esp32","variant":"esp32"},"id":"mhetesp32minikit","manufacturer":"","name":"MH ET LIVE ESP32MiniKit","pins":[{"gpio":2,"label":"GPIO2"}]}

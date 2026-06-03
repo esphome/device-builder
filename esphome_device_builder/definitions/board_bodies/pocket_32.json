@@ -1,0 +1,1 @@
+{"description":"","esphome":{"board":"pocket_32","platform":"esp32","variant":"esp32"},"id":"pocket_32","manufacturer":"","name":"Dongsen Tech Pocket 32","pins":[{"gpio":16,"label":"GPIO16"}]}

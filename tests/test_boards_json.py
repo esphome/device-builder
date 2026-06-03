@@ -71,7 +71,7 @@ def test_split_artefacts_match_manifests() -> None:
     """
     from_yaml = build_board_catalog_from_manifests(strict=True)
     from_disk = load_board_catalog()
-    generated = set(_LIBRETINY_FAMILIES) | {_RP2040_PLATFORM}
+    generated = set(_LIBRETINY_FAMILIES) | {_RP2040_PLATFORM, "esp32"}
     esphome_filled = set(_LIBRETINY_FAMILIES)
     manifest_ids = {b.id for b in from_yaml.boards}
     disk_by_id = {b.id: b for b in from_disk.boards}
@@ -80,7 +80,8 @@ def test_split_artefacts_match_manifests() -> None:
     # nothing else should appear out of thin air.
     extra = [b for b in from_disk.boards if b.id not in manifest_ids]
     assert all(b.esphome.platform.value in generated for b in extra), (
-        f"Unexpected boards on disk from no manifest: {[b.id for b in extra]}"
+        f"Unexpected boards on disk from no manifest: "
+        f"{[b.id for b in extra if b.esphome.platform.value not in generated]}"
     )
 
     for board in from_yaml.boards:
@@ -120,6 +121,26 @@ def test_boards_index_omits_default_fields() -> None:
     # than an accidentally-empty regeneration.
     payload = orjson.loads(raw)
     assert len(payload["boards"]) > 100
+
+
+def test_usb_pin_features_match_notes() -> None:
+    """A pin noting USB ``D+`` carries ``usb_dp``; ``D-`` carries ``usb_dm``.
+
+    The two are easy to transpose when hand-curating manifests, and the slip
+    silently mis-filters the USB pin pickers in the editor.
+    """
+    offenders: list[str] = []
+    for board in load_board_catalog().boards:
+        for pin in board.pins:
+            notes = pin.notes or ""
+            feats = {f.value for f in pin.features}
+            if "D+" in notes and "usb_dp" not in feats:
+                offenders.append(f"{board.id} GPIO{pin.gpio}: {notes!r} lacks usb_dp")
+            if "D-" in notes and "usb_dm" not in feats:
+                offenders.append(f"{board.id} GPIO{pin.gpio}: {notes!r} lacks usb_dm")
+    assert not offenders, "USB D+/D- pins disagree with their feature flag:\n" + "\n".join(
+        offenders
+    )
 
 
 def test_board_body_round_trips_standalone() -> None:

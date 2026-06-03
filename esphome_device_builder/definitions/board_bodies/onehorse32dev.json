@@ -1,0 +1,1 @@
+{"description":"","esphome":{"board":"onehorse32dev","platform":"esp32","variant":"esp32"},"id":"onehorse32dev","manufacturer":"","name":"Onehorse ESP32 Dev Module","pins":[{"gpio":0,"label":"GPIO0"},{"gpio":5,"label":"GPIO5"},{"features":["adc"],"gpio":37,"label":"GPIO37","notes":"ADC"},{"features":["adc"],"gpio":38,"label":"GPIO38","notes":"ADC"}]}

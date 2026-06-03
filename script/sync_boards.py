@@ -35,6 +35,7 @@ import importlib
 import logging
 import re
 import sys
+from dataclasses import replace
 from operator import attrgetter
 from pathlib import Path
 from typing import Any
@@ -60,6 +61,7 @@ from esphome_device_builder.models import (  # noqa: E402
     BoardCatalogResponse,
     BoardEsphomeConfig,
     BoardPin,
+    Esp32Variant,
     PinFeature,
     Platform,
 )
@@ -92,6 +94,14 @@ _LIBRETINY_FAMILIES: dict[str, tuple[str, str]] = {
 # ``BOARDS`` carries ``max_pin`` (full GPIO range), ``RP2040_BOARD_PINS`` only the
 # conventional default-bus pins.
 _RP2040_PLATFORM = "rp2040"
+
+# ESPHome's ``components/esp32/boards.py`` carries ``BOARDS`` (board ->
+# {name, variant}) and ``ESP32_BOARD_PINS`` (board -> {alias: gpio}). The
+# manifests cover ~50 boards by ``esphome.board``; the rest of the catalog is
+# generated from here so every ESPHome esp32 board resolves in the picker.
+_ESP32_BOARDS_MODULE = "esphome.components.esp32.boards"
+_ESP32_BOARDS_ATTR = "BOARDS"
+_ESP32_BOARD_PINS_ATTR = "ESP32_BOARD_PINS"
 
 # Fixed-function pin aliases -> (feature, human signal). First match wins. The
 # trailing ``$`` excludes LibreTiny's flexible-mux variants (``WIRE0_SCL_5``
@@ -305,6 +315,22 @@ def _generated_rp2040_board(
     )
 
 
+def _generated_esp32_board(
+    name: str, meta: dict[str, Any], pins: list[BoardPin], variant: Esp32Variant
+) -> BoardCatalogEntry:
+    """Build a minimal catalog entry (name + variant + pins) for an unmanifested board."""
+    return BoardCatalogEntry(
+        id=name,
+        name=meta.get("name", name),
+        description="",
+        manufacturer="",
+        esphome=BoardEsphomeConfig(
+            platform=Platform("esp32"), board=name, variant=variant, framework=None
+        ),
+        pins=pins,
+    )
+
+
 def _augment_rp2040_boards(boards: list[BoardCatalogEntry]) -> None:
     """
     Add catalog entries for RP2040/RP2350 boards no manifest id covers.
@@ -325,9 +351,51 @@ def _augment_rp2040_boards(boards: list[BoardCatalogEntry]) -> None:
         ids.add(name)
 
 
+def _esp32_generic_pins_by_variant(
+    boards: list[BoardCatalogEntry],
+) -> dict[Esp32Variant, list[BoardPin]]:
+    """Index the loaded ``generic-<variant>`` manifests' pins by variant."""
+    return {
+        b.esphome.variant: b.pins
+        for b in boards
+        if b.is_generic and b.esphome.platform.value == "esp32" and b.esphome.variant
+    }
+
+
+def _augment_esp32_boards(boards: list[BoardCatalogEntry]) -> None:
+    """
+    Generate ESP32 entries for the boards manifests don't cover.
+
+    ``BOARDS`` lists every esp32 board ESPHome knows; the manifests cover only a
+    curated subset. For each uncovered board, derive pins from
+    ``ESP32_BOARD_PINS`` when present, else fall back to the chip's
+    ``generic-<variant>`` pinout (GPIO capability is variant-defined). Dedup is
+    on board ``id`` — the unique key — so a board referenced only by vendor
+    manifests still gets its own canonical entry.
+    """
+    ids = {b.id for b in boards}
+    generic_pins = _esp32_generic_pins_by_variant(boards)
+    module = importlib.import_module(_ESP32_BOARDS_MODULE)
+    # No getattr default: an upstream rename should fail the sync loudly.
+    board_list: dict[str, Any] = getattr(module, _ESP32_BOARDS_ATTR)
+    pin_map: dict[str, Any] = getattr(module, _ESP32_BOARD_PINS_ATTR)
+    for name, meta in board_list.items():
+        if name in ids:
+            continue
+        variant = Esp32Variant(meta["variant"].lower())
+        pins = _resolve_board_pins(pin_map, name)
+        derived = (
+            _derive_pins_from_aliases(pins)
+            if pins
+            else [replace(p, features=list(p.features)) for p in generic_pins.get(variant, [])]
+        )
+        boards.append(_generated_esp32_board(name, meta, derived, variant))
+        ids.add(name)
+
+
 def build_catalog() -> BoardCatalogResponse:
     """
-    Build the catalog as emitted: manifests + ESPHome-derived LibreTiny/RP2040 pins.
+    Build the catalog as emitted: manifests + ESPHome-derived LibreTiny/RP2040/ESP32 pins.
 
     Id-sorted so the order matches the split index. Shared by ``main`` and the
     drift test so the committed artefacts stay reproducible.
@@ -335,6 +403,7 @@ def build_catalog() -> BoardCatalogResponse:
     catalog = build_board_catalog_from_manifests(strict=True)
     _augment_libretiny_boards(catalog.boards)
     _augment_rp2040_boards(catalog.boards)
+    _augment_esp32_boards(catalog.boards)
     catalog.boards.sort(key=attrgetter("id"))
     return catalog
 

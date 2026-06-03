@@ -1,0 +1,1 @@
+{"description":"","esphome":{"board":"hornbill32dev","platform":"esp32","variant":"esp32"},"id":"hornbill32dev","manufacturer":"","name":"Hornbill ESP32 Dev","pins":[{"gpio":0,"label":"GPIO0"},{"gpio":13,"label":"GPIO13"}]}

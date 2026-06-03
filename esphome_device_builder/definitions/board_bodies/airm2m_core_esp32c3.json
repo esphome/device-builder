@@ -1,0 +1,1 @@
+{"description":"","esphome":{"board":"airm2m_core_esp32c3","platform":"esp32","variant":"esp32c3"},"id":"airm2m_core_esp32c3","manufacturer":"","name":"AirM2M CORE ESP32C3","pins":[{"gpio":12,"label":"GPIO12"},{"gpio":13,"label":"GPIO13"}]}

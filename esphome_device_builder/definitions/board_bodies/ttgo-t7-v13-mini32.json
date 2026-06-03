@@ -1,0 +1,1 @@
+{"description":"","esphome":{"board":"ttgo-t7-v13-mini32","platform":"esp32","variant":"esp32"},"id":"ttgo-t7-v13-mini32","manufacturer":"","name":"TTGO T7 V1.3 Mini32","pins":[{"gpio":22,"label":"GPIO22"}]}

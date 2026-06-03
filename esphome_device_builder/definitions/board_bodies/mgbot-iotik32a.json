@@ -1,0 +1,1 @@
+{"description":"","esphome":{"board":"mgbot-iotik32a","platform":"esp32","variant":"esp32"},"id":"mgbot-iotik32a","manufacturer":"","name":"MGBOT IOTIK 32A","pins":[{"gpio":4,"label":"GPIO4"},{"features":["uart_rx"],"gpio":16,"label":"GPIO16","notes":"UART2 RX"},{"features":["uart_tx"],"gpio":17,"label":"GPIO17","notes":"UART2 TX"}]}

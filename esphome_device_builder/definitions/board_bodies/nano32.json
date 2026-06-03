@@ -1,0 +1,1 @@
+{"description":"","esphome":{"board":"nano32","platform":"esp32","variant":"esp32"},"id":"nano32","manufacturer":"","name":"MakerAsia Nano32","pins":[{"gpio":0,"label":"GPIO0"},{"gpio":16,"label":"GPIO16"}]}
