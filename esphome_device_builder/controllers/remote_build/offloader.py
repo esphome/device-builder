@@ -252,19 +252,25 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         """Reload the identity snapshot and respawn every APPROVED peer-link client.
 
         Loops until no rotation arrived during the pass; the only
-        await is the identity load, so a mid-pass event can't be
-        lost between the re-check and the return.
+        await is the identity load, so a mid-pass event sets
+        ``_identity_refresh_again`` and is retried before return. A
+        failed load is logged and skipped rather than propagated,
+        so a queued rotation still gets its rerun.
         """
         try:
             while True:
                 self._identity_refresh_again = False
-                await self._load_offloader_identities_async()
-                for pin_sha256 in list(self.state.peer_link_clients):
-                    pairing = self.state.pairings.get(pin_sha256)
-                    if pairing is None or pairing.status is not PeerStatus.APPROVED:
-                        continue
-                    self._cancel_peer_link_client(pin_sha256)
-                    self._spawn_peer_link_client(pairing)
+                try:
+                    await self._load_offloader_identities_async()
+                except Exception:
+                    _LOGGER.exception("Offloader identity refresh failed to load identities")
+                else:
+                    for pin_sha256 in list(self.state.peer_link_clients):
+                        pairing = self.state.pairings.get(pin_sha256)
+                        if pairing is None or pairing.status is not PeerStatus.APPROVED:
+                            continue
+                        self._cancel_peer_link_client(pin_sha256)
+                        self._spawn_peer_link_client(pairing)
                 if not self._identity_refresh_again:
                     return
         finally:

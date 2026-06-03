@@ -2051,6 +2051,57 @@ async def test_identity_rotation_coalesces_overlapping_refreshes(
     assert off._identity_refresh_task is None
 
 
+async def test_identity_refresh_retries_queued_event_after_load_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A load failure mid-pass is logged, not propagated, and the queued rerun still respawns."""
+    controller = _make_controller(config_dir=tmp_path)
+    off = controller.offloader
+    off._db.bus = MagicMock()
+    approved = StoredPairing(
+        receiver_hostname="r",
+        receiver_port=6055,
+        pin_sha256="a" * 64,
+        static_x25519_pub=b"\x01" * 32,
+        label="r",
+        paired_at=1.0,
+        status=PeerStatus.APPROVED,
+    )
+    off.state.pairings["a" * 64] = approved
+    off.state.peer_link_clients["a" * 64] = MagicMock()
+    spawn = MagicMock()
+    monkeypatch.setattr(off, "_cancel_peer_link_client", MagicMock())
+    monkeypatch.setattr(off, "_spawn_peer_link_client", spawn)
+
+    gate = asyncio.Event()
+    load_calls = 0
+
+    async def _load() -> None:
+        nonlocal load_calls
+        load_calls += 1
+        if load_calls == 1:
+            await gate.wait()
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(off, "_load_offloader_identities_async", _load)
+
+    off._on_remote_build_identity_rotated(MagicMock())
+    await asyncio.sleep(0)
+    task = off._identity_refresh_task
+    assert task is not None
+    # Queue a rerun while the first (about-to-fail) load is parked.
+    off._on_remote_build_identity_rotated(MagicMock())
+    assert off._identity_refresh_again is True
+
+    gate.set()
+    await asyncio.wait_for(task, timeout=2.0)
+    # First pass's load raised (no respawn); the queued rerun's load
+    # succeeded and respawned.
+    assert load_calls == 2
+    assert spawn.call_count == 1
+    assert off._identity_refresh_task is None
+
+
 async def test_rotate_identity_concurrent_call_rejected(tmp_path: Path) -> None:
     """A second concurrent ``rotate_identity`` raises ``ALREADY_EXISTS``."""
     controller = _make_controller(config_dir=tmp_path)
