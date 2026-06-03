@@ -44,7 +44,7 @@ from esphome_device_builder.models.boards import (
     Platform,
 )
 from esphome_device_builder.models.common import FieldPreset, PinFeature
-from script.sync_boards import _LIBRETINY_FAMILIES, _RP2040_PLATFORM
+from script.sync_boards import _LIBRETINY_FAMILIES, _NRF52_PLATFORM, _RP2040_PLATFORM
 
 _DEFINITIONS_DIR = Path(__file__).parent.parent / "esphome_device_builder" / "definitions"
 _BOARDS_INDEX_JSON = _DEFINITIONS_DIR / "boards.index.json"
@@ -72,7 +72,7 @@ def test_split_artefacts_match_manifests() -> None:
     """
     from_yaml = build_board_catalog_from_manifests(strict=True)
     from_disk = load_board_catalog()
-    generated = set(_LIBRETINY_FAMILIES) | {_RP2040_PLATFORM, "esp32", "esp8266"}
+    generated = set(_LIBRETINY_FAMILIES) | {_RP2040_PLATFORM, _NRF52_PLATFORM, "esp32", "esp8266"}
     esphome_filled = set(_LIBRETINY_FAMILIES)
     manifest_ids = {b.id for b in from_yaml.boards}
     disk_by_id = {b.id: b for b in from_disk.boards}
