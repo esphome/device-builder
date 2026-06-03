@@ -2000,6 +2000,55 @@ async def test_identity_rotation_handler_schedules_refresh(
     await asyncio.wait_for(called.wait(), timeout=2.0)
 
 
+async def test_identity_rotation_coalesces_overlapping_refreshes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A rotation event mid-refresh reruns the pass instead of spawning a second task."""
+    controller = _make_controller(config_dir=tmp_path)
+    off = controller.offloader
+    off._db.bus = MagicMock()
+    approved = StoredPairing(
+        receiver_hostname="r",
+        receiver_port=6055,
+        pin_sha256="a" * 64,
+        static_x25519_pub=b"\x01" * 32,
+        label="r",
+        paired_at=1.0,
+        status=PeerStatus.APPROVED,
+    )
+    off.state.pairings["a" * 64] = approved
+    off.state.peer_link_clients["a" * 64] = MagicMock()
+    spawn = MagicMock()
+    monkeypatch.setattr(off, "_cancel_peer_link_client", MagicMock())
+    monkeypatch.setattr(off, "_spawn_peer_link_client", spawn)
+
+    gate = asyncio.Event()
+    load_calls = 0
+
+    async def _blocking_load() -> None:
+        nonlocal load_calls
+        load_calls += 1
+        await gate.wait()
+
+    monkeypatch.setattr(off, "_load_offloader_identities_async", _blocking_load)
+
+    off._on_remote_build_identity_rotated(MagicMock())
+    await asyncio.sleep(0)
+    task = off._identity_refresh_task
+    assert task is not None and not task.done()
+
+    # Second event while the first pass is parked on the load gate.
+    off._on_remote_build_identity_rotated(MagicMock())
+    assert off._identity_refresh_task is task
+    assert off._identity_refresh_again is True
+
+    gate.set()
+    await asyncio.wait_for(task, timeout=2.0)
+    # One refresh task, but two passes (the coalesced rerun).
+    assert load_calls == 2
+    assert spawn.call_count == 2
+
+
 async def test_rotate_identity_concurrent_call_rejected(tmp_path: Path) -> None:
     """A second concurrent ``rotate_identity`` raises ``ALREADY_EXISTS``."""
     controller = _make_controller(config_dir=tmp_path)
