@@ -1158,9 +1158,9 @@ async def test_e2e_receiver_settings_write_preserves_offloader_pairing(
     )
 
     # The offloader host writes its own receiver-side settings
-    # (flipping the master enable is the operator's trigger). Hop
-    # to a thread: the writer does sync I/O blockbuster flags on
-    # the event loop.
+    # (flipping the master enable is the operator's trigger). Hop to
+    # a thread: the writer does sync metadata I/O that blockbuster
+    # (Linux CI) flags on the event loop.
     await asyncio.to_thread(
         save_remote_build_settings, offloader_dir, RemoteBuildSettings(enabled=True)
     )
