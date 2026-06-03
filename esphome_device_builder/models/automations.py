@@ -307,16 +307,10 @@ class ApiActionLocation(DataClassORJSONMixin):
 
 @dataclass
 class ComponentActionFieldLocation(DataClassORJSONMixin):
-    """
-    An action-list config field on a component instance.
+    """A ``type: trigger`` action-list config field (cover ``open_action`` …).
 
-    Cover ``feedback``'s ``open_action:`` / ``close_action:`` /
-    ``stop_action:`` are the canonical examples. These fields are
-    ``type: trigger`` in the ESPHome schema: a bare
-    action list that is part of the component's config, not an ``on_*:``
-    trigger handler. Distinct from ``ComponentOnLocation`` in that the
-    body is keyed on the literal ``field`` name (not a catalog trigger)
-    and carries no trigger/params — only an action list.
+    Keyed on the literal ``field`` name (not a catalog trigger); carries a
+    bare action list with no trigger/params, unlike ``ComponentOnLocation``.
     """
 
     component_id: str

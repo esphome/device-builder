@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 
+from esphome_device_builder.controllers.automations import writing
 from esphome_device_builder.controllers.automations.parsing import parse_device_yaml
 from esphome_device_builder.controllers.automations.writing import (
     render_delete,
@@ -604,6 +605,33 @@ def test_upsert_component_action_field_unknown_id_raises() -> None:
 def test_delete_component_action_field_unknown_id_raises() -> None:
     """Deleting an action field on a non-existent instance is NOT_FOUND."""
     loc = ComponentActionFieldLocation(component_id="nope", field="open_action")
+    with pytest.raises(CommandError) as exc:
+        render_delete(_load("cover_feedback_actions.yaml"), location=loc)
+    assert exc.value.code == ErrorCode.NOT_FOUND
+
+
+def test_upsert_component_action_field_splice_miss_raises(monkeypatch) -> None:
+    """Domain resolves but the splice can't locate the instance → NOT_FOUND.
+
+    Force a domain that doesn't host the instance (``my_gate`` is under
+    ``cover``, not ``switch``); ``upsert_inline_handler`` then returns
+    None and the guard raises.
+    """
+    monkeypatch.setattr(writing, "resolve_component_domain", lambda *_a, **_k: "switch")
+    loc = ComponentActionFieldLocation(component_id="my_gate", field="open_action")
+    tree = AutomationTree(
+        trigger_id=None,
+        actions=[ActionNode(action_id="switch.turn_on", params={"id": "r"})],
+    )
+    with pytest.raises(CommandError) as exc:
+        render_upsert(_load("cover_feedback_actions.yaml"), tree=tree, location=loc)
+    assert exc.value.code == ErrorCode.NOT_FOUND
+
+
+def test_delete_component_action_field_splice_miss_raises(monkeypatch) -> None:
+    """Domain resolves but the splice can't locate the instance → NOT_FOUND."""
+    monkeypatch.setattr(writing, "resolve_component_domain", lambda *_a, **_k: "switch")
+    loc = ComponentActionFieldLocation(component_id="my_gate", field="open_action")
     with pytest.raises(CommandError) as exc:
         render_delete(_load("cover_feedback_actions.yaml"), location=loc)
     assert exc.value.code == ErrorCode.NOT_FOUND

@@ -196,6 +196,18 @@ def test_parse_component_action_field_on_hub_component() -> None:
     assert actions[0].automation.trigger_id is None
 
 
+def test_parse_component_action_field_without_shipped_body_emits_nothing() -> None:
+    """A component with no shipped body can't have action fields resolved.
+
+    Exercises the "body absent" read path: an unknown ``<domain>.<platform>``
+    has no catalog JSON, so the field-key lookup returns empty and the
+    ``*_action`` key is not surfaced as an automation.
+    """
+    yaml = "madeup:\n  - platform: nope\n    open_action:\n      - logger.log: x\n"
+    actions = [p for p in parse_device_yaml(yaml) if p.location.kind == "component_action"]
+    assert actions == []
+
+
 def test_parse_on_value_range_float_params_are_json_serialisable() -> None:
     """Decimal on_value_range thresholds round-trip as plain floats."""
     parsed = parse_device_yaml(_load("sensor_on_value_range_float.yaml"))
