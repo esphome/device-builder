@@ -390,11 +390,12 @@ def _component_action_fields(catalog_id: str) -> frozenset[str]:
     if not is_unsafe_catalog_id(catalog_id):
         try:
             raw = resources.files(_COMPONENTS_PACKAGE).joinpath(f"{catalog_id}.json").read_bytes()
-        except (FileNotFoundError, ModuleNotFoundError):
+        except FileNotFoundError:
             # Absent body — the expected "component has no shipped catalog
-            # entry" case. A real read error (permissions, truncated read)
-            # is NOT swallowed: it would otherwise be miscached as "no
-            # action fields" for the rest of the process.
+            # entry" case. Only this is swallowed: a real read error or a
+            # missing definitions package (ModuleNotFoundError — a packaging
+            # defect that would otherwise silently disable the whole feature
+            # process-wide via the empty-set cache) propagates instead.
             raw = b""
         if raw:
             body = json_loads(raw)
