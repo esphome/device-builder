@@ -874,3 +874,32 @@ def test_materialise_entry_keeps_default_when_platform_absent() -> None:
 
     assert resolved.default_value == 9600
     assert resolved.platform_defaults is None
+
+
+def test_get_pin_registry_modes_returns_cached_map() -> None:
+    """The endpoint returns the loaded ``{registry: [modes]}`` map verbatim."""
+    cat = ComponentCatalog()
+    cat._pin_registry_modes = {"pca9554": ["input", "output"]}
+
+    assert asyncio.run(cat.get_pin_registry_modes()) == {"pca9554": ["input", "output"]}
+
+
+def test_load_populates_pin_registry_modes(tmp_path: Path) -> None:
+    """``load()`` caches the per-registry mode map from the loader."""
+    index_path = tmp_path / "components.index.json"
+    index_path.write_text(json.dumps({"components": []}))
+    cat = ComponentCatalog()
+    with (
+        patch(
+            "esphome_device_builder.controllers.components.controller._COMPONENTS_INDEX_JSON",
+            index_path,
+        ),
+        patch(
+            "esphome_device_builder.controllers.components.controller."
+            "load_pin_registry_modes_index",
+            return_value={"esp32": ["input", "output", "pullup"]},
+        ),
+    ):
+        cat.load()
+
+    assert cat._pin_registry_modes == {"esp32": ["input", "output", "pullup"]}

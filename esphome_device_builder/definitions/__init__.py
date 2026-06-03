@@ -53,6 +53,7 @@ _BOARDS_DIR = _DEFINITIONS_DIR / "boards"
 _BOARDS_INDEX_JSON = _DEFINITIONS_DIR / "boards.index.json"
 _BOARDS_BODIES_DIR = _DEFINITIONS_DIR / "board_bodies"
 _FEATURED_COMPONENTS_INDEX_JSON = _DEFINITIONS_DIR / "featured_components.index.json"
+_PIN_REGISTRY_MODES_INDEX_JSON = _DEFINITIONS_DIR / "pin_registry_modes.index.json"
 
 _IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".svg", ".webp")
 _GENERIC_DIR = _BOARDS_DIR / "_generic"
@@ -384,6 +385,30 @@ def load_featured_components_index() -> dict[str, list[FeaturedComponent]]:
         board_id: [FeaturedComponent.from_dict(fc) for fc in entries]
         for board_id, entries in payload.items()
     }
+
+
+def load_pin_registry_modes_index() -> dict[str, list[str]]:
+    """Load the aggregated ``{registry_key: [allowed_modes]}`` map.
+
+    Read once at startup by the components controller so the frontend can
+    scope the long-form pin Mode checkboxes per registry. Missing / malformed
+    artefact yields an empty map; the frontend then shows every mode flag (the
+    pre-scoping behaviour).
+    """
+    if not _PIN_REGISTRY_MODES_INDEX_JSON.exists():
+        _LOGGER.warning(
+            "pin_registry_modes.index.json missing — pin Mode flags won't be "
+            "scoped per registry. Run script/sync_components.py to generate it.",
+        )
+        return {}
+    try:
+        payload = orjson.loads(_PIN_REGISTRY_MODES_INDEX_JSON.read_bytes())
+    except Exception:
+        _LOGGER.exception(
+            "Failed to load pin_registry_modes.index.json — pin Mode flags won't be scoped."
+        )
+        return {}
+    return {str(key): [str(m) for m in modes] for key, modes in payload.items()}
 
 
 def load_board_catalog() -> BoardCatalogResponse:

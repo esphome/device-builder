@@ -5,7 +5,10 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from ...definitions import load_featured_components_index
+from ...definitions import (
+    load_featured_components_index,
+    load_pin_registry_modes_index,
+)
 from ...helpers.api import api_command
 from ...helpers.json import loads
 from ...helpers.lazy_catalog import LazyBodyStore
@@ -51,6 +54,12 @@ class ComponentCatalog:
         # board's recommendations rather than the whole catalog.
         self._featured_by_id: dict[str, _FeaturedRecord] = {}
         self._featured_by_board: dict[str, list[str]] = {}
+        # ``{provider_key: [allowed_mode_flags]}`` — lets the frontend scope
+        # the long-form pin Mode checkboxes for external pin providers (an
+        # expander like pca9554 allows only input/output). Loaded in ``load()``;
+        # empty (or a native pin with no provider key) leaves the frontend
+        # showing every flag (the pre-scoping behaviour).
+        self._pin_registry_modes: dict[str, list[str]] = {}
         self._body_store: LazyBodyStore[ComponentCatalogEntry] = LazyBodyStore(
             load_one=_load_body_from_disk,
             cache_maxsize=_BODY_CACHE_MAXSIZE,
@@ -86,10 +95,12 @@ class ComponentCatalog:
         ]
         self._by_id = {c.id: c for c in self._components}
         self._build_featured_registry()
+        self._pin_registry_modes = load_pin_registry_modes_index()
         _LOGGER.info(
-            "Component catalog loaded: %d components (slim index), %d featured",
+            "Component catalog loaded: %d components (slim index), %d featured, %d pin registries",
             len(self._components),
             len(self._featured_by_id),
+            len(self._pin_registry_modes),
         )
 
     @property
@@ -117,6 +128,19 @@ class ComponentCatalog:
         for that board (omitted entirely when the board has none).
         """
         return self._categories_for_board(board_id)
+
+    @api_command("components/get_pin_registry_modes")
+    async def get_pin_registry_modes(self, **kwargs: Any) -> dict[str, list[str]]:
+        """
+        Return ``{provider_key: [allowed_mode_flags]}`` for pin Mode scoping.
+
+        The long-form pin Mode checkboxes an external pin provider supports are
+        a subset of the five flags (an I2C expander like ``pca9554`` allows only
+        input/output), keyed on the provider key that appears in the pin value.
+        Native pins (no provider key) and a missing artefact both fall back to
+        every flag.
+        """
+        return self._pin_registry_modes
 
     @api_command("components/get_integration_docs")
     async def get_integration_docs(self, **kwargs: Any) -> dict[str, str]:

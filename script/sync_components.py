@@ -33,6 +33,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+import contextlib
 import copy
 import inspect
 import json
@@ -50,6 +51,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, NamedTuple
 
+import orjson
 import voluptuous as vol
 
 # ---------------------------------------------------------------------------
@@ -64,6 +66,7 @@ _OUTPUT_INDEX_FILE = _DEFINITIONS_DIR / "components.index.json"
 _OUTPUT_BODIES_DIR = _DEFINITIONS_DIR / "components"
 _AUTOMATIONS_INDEX_FILE = _DEFINITIONS_DIR / "automations.index.json"
 _AUTOMATIONS_BODIES_DIR = _DEFINITIONS_DIR / "automations"
+_PIN_REGISTRY_MODES_INDEX_FILE = _DEFINITIONS_DIR / "pin_registry_modes.index.json"
 _CACHE_ROOT = _REPO_ROOT / ".cache"
 
 # Fields stripped from index entries — they belong on the per-id body
@@ -833,6 +836,29 @@ def main() -> int:
         len(automations["light_effects"]),
     )
     _emit_split_automations_catalog(automations, version)
+
+    # Per-registry pin mode flags: the long-form Mode checkboxes a given pin
+    # supports depend on its registry (an I2C expander like pca9554 allows
+    # only input/output), which is value-keyed, not field-keyed, so it ships
+    # as one global map the frontend consults at render time. Skipped on a
+    # ``--limit-component`` debug run, whose partial registry would clobber
+    # the committed artifact.
+    if not args.limit_component:
+        stems = {cid.split(".")[-1] for cid in component_ids}
+        registry_modes = _build_pin_registry_modes(stems)
+        if registry_modes:
+            _emit_pin_registry_modes_index(registry_modes)
+            _LOGGER.info(
+                "Wrote pin registry modes: %d registries -> %s",
+                len(registry_modes),
+                _PIN_REGISTRY_MODES_INDEX_FILE,
+            )
+        else:
+            _LOGGER.warning(
+                "Derived no pin registry modes — PIN_SCHEMA_REGISTRY empty or "
+                "esphome not importable; %s left untouched",
+                _PIN_REGISTRY_MODES_INDEX_FILE,
+            )
     return 0
 
 
@@ -2386,6 +2412,106 @@ def _pin_long_form_extras(schema_dir: Path) -> tuple[dict, ...]:
             )
         )
     return tuple(extras)
+
+
+def _pin_schema_mode_mapping(node: Any) -> dict | None:
+    """Return the underlying mapping of a pin-schema node, or ``None``.
+
+    Unwraps voluptuous ``All`` wrappers (the native-platform pin schema is
+    ``All(Schema(...), validate, finalize)``) and ``Schema`` objects down to
+    the first ``dict`` so a flag mapping can be read off it regardless of how
+    deeply ESPHome nests it.
+    """
+    if isinstance(node, dict):
+        return node
+    inner = getattr(node, "schema", None)
+    if isinstance(inner, dict):
+        return inner
+    for sub in getattr(node, "validators", ()) or ():
+        found = _pin_schema_mode_mapping(sub)
+        if found is not None:
+            return found
+    return None
+
+
+def _pin_registry_allowed_modes(schema: Any) -> list[str] | None:
+    """Return the sorted ``mode`` flag keys a pin-registry schema permits.
+
+    ``gpio_base_schema`` builds the ``mode`` value as a mapping of one
+    ``Optional(flag): boolean`` per allowed flag; this walks to that mapping
+    and reads the flag names. ``None`` when the schema exposes no parseable
+    ``mode`` mapping (so the caller drops the registry rather than emitting a
+    bogus empty allow-list).
+    """
+    top = _pin_schema_mode_mapping(schema)
+    if top is None:
+        return None
+    for marker, value in top.items():
+        if str(getattr(marker, "schema", marker)) != "mode":
+            continue
+        flags = _pin_schema_mode_mapping(value)
+        if flags is None:
+            return None
+        return sorted(str(getattr(m, "schema", m)) for m in flags)
+    return None
+
+
+def _build_pin_registry_modes(component_stems: Iterable[str]) -> dict[str, list[str]]:
+    """Map each external pin provider to the ``mode`` flags it allows.
+
+    Pin providers register into ESPHome's ``PIN_SCHEMA_REGISTRY`` on import,
+    so every component is imported first to populate it, then each registered
+    schema is introspected for its allowed ``mode`` flags. Native target
+    platforms (the ``Platform``-keyed entries) allow every checkbox flag and
+    are skipped — only external providers (``pca9554``, ``sn74hc595``, …),
+    keyed on the provider key that appears in a pin value, restrict the set.
+    Returns ``{}`` when esphome isn't importable.
+    """
+    loader = _get_esphome_loader()
+    if loader is None:
+        return {}
+    try:
+        from esphome import pins
+        from esphome.const import Platform
+    except Exception:
+        return {}
+    for stem in component_stems:
+        # Best-effort: most stems aren't pin providers and many don't import
+        # standalone; we only need the ones that register a pin schema.
+        with contextlib.suppress(Exception):
+            loader.get_component(stem)
+    out: dict[str, list[str]] = {}
+    platform_names = {p.value for p in Platform}
+    registry = pins.PIN_SCHEMA_REGISTRY
+    for key in registry:
+        # Native target platforms allow every checkbox flag, so scoping a native
+        # pin would be a no-op; emit only the external providers (pca9554,
+        # sn74hc595, …) that actually restrict, matched against the provider key
+        # in the pin value. Natives register under both the ``Platform`` enum
+        # and bare platform-name strings (rp2040, bk72xx, …), so filter on the
+        # name rather than the key type.
+        if str(key) in platform_names:
+            continue
+        entry = registry[key]
+        schema = entry[1] if isinstance(entry, (tuple, list)) and len(entry) > 1 else entry
+        modes = _pin_registry_allowed_modes(schema)
+        if modes:
+            out[str(key)] = modes
+    return out
+
+
+def _emit_pin_registry_modes_index(registry_modes: dict[str, list[str]]) -> None:
+    """Write the aggregated ``{registry_key: [allowed_modes]}`` map.
+
+    The components controller reads this once at startup so the frontend can
+    scope the long-form pin Mode checkboxes per registry (an I2C expander like
+    ``pca9554`` allows only ``input`` / ``output``). Atomic temp-then-replace.
+    """
+    next_path = _PIN_REGISTRY_MODES_INDEX_FILE.with_suffix(".json.next")
+    next_path.write_bytes(
+        orjson.dumps(registry_modes, option=orjson.OPT_SORT_KEYS | orjson.OPT_APPEND_NEWLINE)
+    )
+    next_path.replace(_PIN_REGISTRY_MODES_INDEX_FILE)
 
 
 def _synthesise_long_form_extra(

@@ -26,6 +26,7 @@ from esphome_device_builder.definitions import (
     load_board_catalog,
     load_board_index,
     load_featured_components_index,
+    load_pin_registry_modes_index,
 )
 from esphome_device_builder.models import (
     BoardCatalogIndex,
@@ -249,6 +250,44 @@ def test_load_board_index_handles_corrupt_json(
         for rec in caplog.records
         if rec.levelname == "ERROR"
     )
+
+
+def test_load_pin_registry_modes_warns_when_json_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Missing artefact returns an empty map (frontend then shows every flag)."""
+    monkeypatch.setattr(defs, "_PIN_REGISTRY_MODES_INDEX_JSON", tmp_path / "missing.index.json")
+
+    with caplog.at_level(logging.WARNING):
+        result = load_pin_registry_modes_index()
+
+    assert result == {}
+    assert any("pin_registry_modes.index.json" in rec.getMessage() for rec in caplog.records)
+
+
+def test_load_pin_registry_modes_reads_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``load_pin_registry_modes_index`` deserialises the registry -> modes map."""
+    json_path = tmp_path / "pin_registry_modes.index.json"
+    json_path.write_bytes(orjson.dumps({"pca9554": ["input", "output"]}))
+    monkeypatch.setattr(defs, "_PIN_REGISTRY_MODES_INDEX_JSON", json_path)
+
+    assert load_pin_registry_modes_index() == {"pca9554": ["input", "output"]}
+
+
+def test_load_pin_registry_modes_handles_corrupt_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Malformed artefact returns an empty map instead of crashing startup."""
+    json_path = tmp_path / "pin_registry_modes.index.json"
+    json_path.write_bytes(b"{not valid json")
+    monkeypatch.setattr(defs, "_PIN_REGISTRY_MODES_INDEX_JSON", json_path)
+
+    with caplog.at_level(logging.ERROR):
+        result = load_pin_registry_modes_index()
+
+    assert result == {}
 
 
 def test_load_board_body_refuses_traversal_id(caplog: pytest.LogCaptureFixture) -> None:
