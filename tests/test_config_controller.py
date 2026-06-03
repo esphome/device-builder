@@ -1684,9 +1684,16 @@ def test_set_device_metadata_labels_empty_clears(tmp_path: Path) -> None:
     assert "labels" not in entry
 
 
+def _seed_label_yaml(tmp_path: Path, *filenames: str) -> None:
+    """Write backing YAMLs so ``set_device_labels`` won't reject them as deleted."""
+    for filename in filenames:
+        (tmp_path / filename).write_text("esphome:\n  name: stub\n", encoding="utf-8")
+
+
 def test_set_device_labels_validates_against_catalog(tmp_path: Path) -> None:
     """An ID not in the catalog raises ``ValueError`` and skips the write."""
     save_labels(tmp_path, [Label(id="known", name="Known")])
+    _seed_label_yaml(tmp_path, "kitchen.yaml")
 
     with pytest.raises(ValueError, match="Unknown label id"):
         set_device_labels(tmp_path, "kitchen.yaml", ["known", "ghost"])
@@ -1700,6 +1707,7 @@ def test_set_device_labels_validates_against_catalog(tmp_path: Path) -> None:
 def test_set_device_labels_dedupes_and_preserves_order(tmp_path: Path) -> None:
     """Duplicate IDs in input are dropped; first-seen order wins."""
     save_labels(tmp_path, [Label(id="a", name="A"), Label(id="b", name="B")])
+    _seed_label_yaml(tmp_path, "kitchen.yaml")
 
     set_device_labels(tmp_path, "kitchen.yaml", ["a", "b", "a", "b", "a"])
 
@@ -1710,6 +1718,7 @@ def test_set_device_labels_dedupes_and_preserves_order(tmp_path: Path) -> None:
 def test_set_device_labels_empty_clears(tmp_path: Path) -> None:
     """Passing ``[]`` removes all assignments without leaving the empty key."""
     save_labels(tmp_path, [Label(id="a", name="A")])
+    _seed_label_yaml(tmp_path, "kitchen.yaml")
     set_device_labels(tmp_path, "kitchen.yaml", ["a"])
     set_device_labels(tmp_path, "kitchen.yaml", [])
 
@@ -1728,6 +1737,7 @@ def test_delete_label_cascade_drops_label_and_returns_affected(tmp_path: Path) -
         tmp_path,
         [Label(id="x", name="X"), Label(id="y", name="Y")],
     )
+    _seed_label_yaml(tmp_path, "kitchen.yaml", "garage.yaml", "office.yaml")
     set_device_labels(tmp_path, "kitchen.yaml", ["x", "y"])
     set_device_labels(tmp_path, "garage.yaml", ["x"])
     set_device_labels(tmp_path, "office.yaml", ["y"])
@@ -1813,6 +1823,21 @@ def test_set_device_labels_rejects_non_string_items(tmp_path: Path) -> None:
     assert "kitchen.yaml" not in _load_metadata(tmp_path)
 
 
+def test_set_device_labels_refuses_when_yaml_gone(tmp_path: Path) -> None:
+    """A configuration whose YAML is absent raises ``FileNotFoundError``, no orphan entry.
+
+    The existence guard runs inside the metadata transaction so a
+    label write that lost a race with ``devices/delete`` (YAML
+    already unlinked) can't re-materialise an orphan sidecar entry.
+    """
+    save_labels(tmp_path, [Label(id="a", name="A")])
+
+    with pytest.raises(FileNotFoundError):
+        set_device_labels(tmp_path, "ghost.yaml", ["a"])
+
+    assert "ghost.yaml" not in _load_metadata(tmp_path)
+
+
 # ---------------------------------------------------------------------------
 # Coverage fillers exposed by the package split
 # ---------------------------------------------------------------------------
@@ -1873,6 +1898,7 @@ def test_set_device_labels_treats_non_list_catalog_as_empty(tmp_path: Path) -> N
     (tmp_path / ".device-builder.json").write_bytes(
         json.dumps({"_labels": {"corrupt": "mapping"}}).encode()
     )
+    _seed_label_yaml(tmp_path, "kitchen.yaml")
 
     # Empty assignment has nothing to validate, so it succeeds; no labels are written.
     set_device_labels(tmp_path, "kitchen.yaml", [])
@@ -1888,6 +1914,7 @@ def test_set_device_labels_overwrites_non_dict_entry(tmp_path: Path) -> None:
     (tmp_path / ".device-builder.json").write_bytes(
         json.dumps({"_labels": [{"id": "a", "name": "A"}], "kitchen.yaml": "corrupt"}).encode()
     )
+    _seed_label_yaml(tmp_path, "kitchen.yaml")
 
     set_device_labels(tmp_path, "kitchen.yaml", ["a"])
 

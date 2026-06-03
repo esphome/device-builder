@@ -77,9 +77,7 @@ async def _rotate_and_reload(controller: ReceiverController) -> IdentityView:
             controller._db.settings.config_dir,
             controller._db.peer_link_identity_store,
         )
-        listener_bound = await controller._db.reload_remote_build_identity(
-            pin_sha256=identity.pin_sha256,
-        )
+        listener_bound = await controller._db.reload_remote_build_identity()
         controller._db.bus.fire(
             EventType.REMOTE_BUILD_IDENTITY_ROTATED,
             RemoteBuildIdentityRotatedData(

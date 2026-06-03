@@ -12,7 +12,7 @@ classifiers = [
   "Topic :: Home Automation",
 ]
 dependencies = [
-  "esphome-device-builder-frontend==0.1.107",
+  "esphome-device-builder-frontend==0.1.119",
   "aiohttp>=3.9.0",
   # Provides an ``aiohttp.AsyncResolver`` that resolves ``.local``
   # hostnames through an injected ``AsyncZeroconf`` (the same
@@ -96,6 +96,7 @@ esphome_device_builder = [
   "definitions/boards.index.json",
   "definitions/board_bodies/*.json",
   "definitions/featured_components.index.json",
+  "definitions/pin_registry_modes.index.json",
   "definitions/components.index.json",
   "definitions/components/*.json",
   "definitions/automations.index.json",

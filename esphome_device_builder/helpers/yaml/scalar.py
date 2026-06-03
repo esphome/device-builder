@@ -18,6 +18,16 @@ if TYPE_CHECKING:
 ESPHOME_YAML_INDENT = "  "
 
 
+def block_body_is_list(lines: list[str], header_idx: int, end_idx: int) -> bool:
+    """Return True when a block body — lines ``(header_idx, end_idx)`` — is a YAML list."""
+    for idx in range(header_idx + 1, end_idx):
+        stripped = lines[idx].strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        return stripped.startswith("- ") or stripped == "-"
+    return False
+
+
 class YamlUpsertNotSupportedError(ValueError):
     """The YAML's existing shape can't be safely upserted line-by-line.
 

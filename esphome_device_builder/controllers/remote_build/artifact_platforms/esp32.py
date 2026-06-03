@@ -22,7 +22,9 @@ BUILD_FILES: tuple[str, ...] = (
     ".pioenvs/{name}/ota_data_initial.bin",
     # Native ESP-IDF (non-PIO) layout — only present when the
     # build went through ``KEY_NATIVE_IDF``; harmlessly skipped
-    # otherwise.
+    # otherwise. ``build/firmware.elf`` is the native-IDF ELF; the
+    # ``.pioenvs`` copy above wins the basename dedupe when both exist.
     "build/firmware.factory.bin",
     "build/{name}.bin",
+    "build/firmware.elf",
 )

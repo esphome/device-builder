@@ -304,11 +304,12 @@ def create_legacy_routes() -> web.RouteTableDef:
         await devices_ctrl.poll()
 
         configured = [d.to_dict() for d in devices_ctrl.get_devices()]
+        configured_names = {d.get("name") for d in configured}
 
         importable = [
             imp.to_dict()
             for name, imp in devices_ctrl.state.import_result.items()
-            if name not in devices_ctrl.state.ignored_devices
+            if name not in devices_ctrl.state.ignored_devices and name not in configured_names
         ]
 
         return json_response({"configured": configured, "importable": importable})

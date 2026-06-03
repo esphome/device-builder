@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, NamedTuple
 
 from ...helpers.api import CommandError
 from ...models import ErrorCode, FirmwareJob, JobType
+from . import factories
 from .helpers import _validate_port
 
 if TYPE_CHECKING:
@@ -140,13 +141,12 @@ async def install_bulk(
     for config in _configuration_order(controller, configurations):
         try:
             build_source = controller._resolve_install_source()
-            job = controller._create_job(
-                config,
-                JobType.INSTALL,
-                port=port,
-                build_source=build_source,
+            # A chain (COMPILE + dependent UPLOAD) per device, same as single
+            # install — so device B's compile pipelines against device A's
+            # upload instead of a fused job pinning both to the compile lane.
+            job = await factories.enqueue_install_chain(
+                controller, configuration=config, port=port, build_source=build_source
             )
-            await controller._enqueue(job)
         except CommandError as exc:
             if exc.code is ErrorCode.NO_COMPATIBLE_PEER:
                 raise

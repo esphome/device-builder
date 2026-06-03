@@ -40,7 +40,7 @@ def on_firmware_queue_transition(controller: ReceiverController, event: Event[An
     """
     if controller._db.firmware is None:
         return
-    idle, running, queue_depth = controller._db.firmware.queue_status_snapshot()
+    idle, running, queue_depth = controller._db.firmware.compile_queue_status()
     if not controller.state.peer_link_sessions:
         return
     controller._db.create_background_task(
@@ -101,12 +101,12 @@ async def register_peer_link_session(
         await existing.terminate(TerminateReason.SUPERSEDED)
     if controller._db.firmware is not None:
         try:
-            idle, running, queue_depth = controller._db.firmware.queue_status_snapshot()
+            idle, running, queue_depth = controller._db.firmware.compile_queue_status()
         except Exception:
             # Best-effort: the transition-driven broadcast
             # catches up the offloader on the next change.
             _LOGGER.exception(
-                "firmware.queue_status_snapshot() raised on session register; "
+                "firmware.compile_queue_status() raised on session register; "
                 "skipping initial queue_status push to %s",
                 session.dashboard_id,
             )

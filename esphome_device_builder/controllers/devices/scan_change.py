@@ -34,6 +34,10 @@ def on_scan_change(controller: DevicesController, kind: ScanChange, device: Devi
         # broadcast ``_esphomelib._tcp``; the bootstrap-window
         # guard inside the monitor wrapper skips it on cold start.
         controller._state_monitor.probe_device_ping(device.name)
+        # Drop the stale importable row so connected subscribe_events
+        # clients stop showing the adopt banner once the device is
+        # configured. Idempotent: fires REMOVED only if a row existed.
+        controller._on_importable_removed(device.name)
     if kind in (ScanChange.UPDATED, ScanChange.REMOVED):
         # YAML cache key changed; clear any prior failure
         # marker so the next edit gets a fresh chance at

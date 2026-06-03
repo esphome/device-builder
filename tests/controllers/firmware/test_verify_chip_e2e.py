@@ -62,7 +62,6 @@ from __future__ import annotations
 import asyncio
 import sys
 from contextlib import suppress
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -70,8 +69,23 @@ import pytest
 
 from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.controllers.firmware import runner as runner_module
-from esphome_device_builder.models import EventType, JobStatus
+from esphome_device_builder.controllers.firmware._state import Lane
+from esphome_device_builder.models import (
+    JobStatus,
+)
 from tests._storage_fixtures import write_storage_json
+from tests.controllers.firmware.conftest import (
+    run_until_terminal as _run_until_terminal,
+)
+from tests.controllers.firmware.conftest import (
+    upload_of as _upload_of,
+)
+from tests.controllers.firmware.conftest import (
+    wire_devices as _wire_devices,
+)
+from tests.controllers.firmware.conftest import (
+    wire_real_queue as _wire_real_queue,
+)
 
 if TYPE_CHECKING:
     from .conftest import FirmwareControllerFactory
@@ -80,19 +94,6 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # Test scaffolding (mirrors test_execute_job_e2e — same runner pattern)
 # ---------------------------------------------------------------------------
-
-
-def _wire_real_queue(controller: FirmwareController) -> None:
-    controller.state.queue = asyncio.Queue()
-
-    async def _supersede(_configuration: str, *, exclude_job_id: str) -> None:
-        return
-
-    controller._supersede_active_jobs = _supersede  # type: ignore[assignment]
-    controller.state.current_job = None
-    controller.state.current_process = None
-    controller.state.cancel_requested = set()
-    controller.state.cancel_events = {}
 
 
 def _seed_yaml(tmp_path: Path, name: str = "kitchen.yaml") -> None:
@@ -128,31 +129,6 @@ _BUILD_SCRIPT_OK = "import sys\nsys.exit(0)\n"
 # the runner wires it in via ``_esphome_cmd`` so we use the same
 # script. ``--no-logs`` is passed by ``_build_command`` so the
 # script doesn't need to handle anything special.
-
-
-@dataclass
-class _StubDevices:
-    """Narrow ``DevicesController`` stand-in.
-
-    ``_verify_chip`` no longer reads from the devices controller —
-    chip variant comes from ``StorageJSON`` directly — but the
-    runner's ``_build_cache_args`` still calls
-    ``get_address_cache_args`` / ``get_ota_address_cache_args`` on
-    the install/upload/rename paths. Returning ``[]`` for both
-    keeps the build command shape minimal — orthogonal to the
-    chip-id branches these tests exercise.
-    """
-
-    def get_address_cache_args(self, _configuration: str) -> list[str]:
-        return []
-
-    def get_ota_address_cache_args(self, _configuration: str, _port: str) -> list[str]:
-        return []
-
-
-def _wire_devices(controller: FirmwareController) -> None:
-    """Attach a no-op ``DevicesController`` stub for ``_build_cache_args``."""
-    controller._db.devices = _StubDevices()  # type: ignore[attr-defined]
 
 
 def _is_esptool_spawn(args: tuple[Any, ...]) -> bool:
@@ -213,39 +189,6 @@ def _patch_subprocess(
 
     monkeypatch.setattr(runner_module, "create_subprocess_exec", _wrapper)
     return record
-
-
-async def _run_until_terminal(
-    controller: FirmwareController, *, timeout: float = 10.0
-) -> dict[str, list]:
-    captured: dict[str, list] = {
-        "job_started": [],
-        "job_output": [],
-        "job_completed": [],
-        "job_failed": [],
-        "job_cancelled": [],
-    }
-    terminal = asyncio.Event()
-    bus = controller._db.bus
-    real_fire = bus.fire
-
-    def _capture(event_type: EventType, data: dict) -> None:
-        key = event_type.value
-        if key in captured:
-            captured[key].append(data)
-        if key in ("job_completed", "job_failed", "job_cancelled"):
-            terminal.set()
-        real_fire(event_type, data)
-
-    bus.fire = _capture
-    runner = asyncio.create_task(controller._run_queue())
-    try:
-        await asyncio.wait_for(terminal.wait(), timeout=timeout)
-    finally:
-        runner.cancel()
-        with suppress(asyncio.CancelledError):
-            await runner
-    return captured
 
 
 def _set_esphome_cmd(controller: FirmwareController) -> None:
@@ -339,17 +282,18 @@ async def test_serial_chip_mismatch_marks_failed_with_message(
     job = await handler(configuration="kitchen.yaml", port="/dev/ttyUSB0")
     captured = await _run_until_terminal(controller)
 
+    # The chip check runs on the job that flashes: a bare upload is itself
+    # that job; an install chains a compile then the upload that verifies.
+    verify_job = job if submit_command == "upload" else _upload_of(controller, job)
     assert len(record["esptool_calls"]) == 1
-    # Build did NOT run — chip check raised before the spawn.
-    assert record["build_calls"] == []
-    assert job.status == JobStatus.FAILED
-    assert job.error is not None
-    assert "esp32c3" in job.error.lower().replace("-", "")
-    assert "esp32s3" in job.error.lower().replace("-", "")
-    assert "wrong board" in job.error.lower()
-    assert captured["job_failed"]
-    assert captured["job_failed"][0]["job"] is job
-    assert captured["job_completed"] == []
+    assert verify_job.status == JobStatus.FAILED
+    assert verify_job.error is not None
+    assert "esp32c3" in verify_job.error.lower().replace("-", "")
+    assert "esp32s3" in verify_job.error.lower().replace("-", "")
+    assert "wrong board" in verify_job.error.lower()
+    assert any(d["job"] is verify_job for d in captured["job_failed"])
+    # The wrong-chip flash never ran (verify raised before the upload spawn).
+    assert all("chip-id" in " ".join(map(str, c)) for c in record["esptool_calls"])
 
 
 async def test_install_serial_no_chip_detected_proceeds_to_completed(
@@ -593,7 +537,9 @@ async def test_cancel_during_hanging_verify_chip_terminates_subprocess(
 
     monkeypatch.setattr(runner_module, "create_subprocess_exec", _wrapper)
 
-    job = await controller.install(configuration="kitchen.yaml", port="/dev/ttyUSB0")
+    # A bare upload runs verify-chip directly on the upload lane (no compile
+    # phase first), which is the path the chip check + its cancel live on.
+    job = await controller.upload(configuration="kitchen.yaml", port="/dev/ttyUSB0")
 
     # Run the queue and, in parallel, fire the cancel as soon as
     # the verify subprocess has spawned. ``_run_until_terminal``
@@ -609,7 +555,7 @@ async def test_cancel_during_hanging_verify_chip_terminates_subprocess(
         # ``_terminate_current_process`` no-ops). The poll proves the
         # registration happens BEFORE the runner waits on the proc,
         # which is the contract that makes mid-verify cancel work.
-        while controller.state.current_process is None:
+        while controller.state.upload_lane.current_process is None:
             await asyncio.sleep(0.01)
         await controller.cancel(job_id=job.job_id)
 
@@ -661,8 +607,9 @@ async def test_cancel_during_verify_chip_marks_job_cancelled(
             # before the verify subprocess returns. The fake exits
             # quickly (no real hang) so the runner reaches the post-
             # wait cancel check inside ``_verify_chip`` and raises.
-            if controller.state.current_job is not None:
-                controller.state.cancel_requested.add(controller.state.current_job.job_id)
+            upload_job = controller.state.upload_lane.current_job
+            if upload_job is not None:
+                controller.state.cancel_requested.add(upload_job.job_id)
                 cancel_armed = True
             return await real(
                 sys.executable,
@@ -677,7 +624,8 @@ async def test_cancel_during_verify_chip_marks_job_cancelled(
 
     monkeypatch.setattr(runner_module, "create_subprocess_exec", _wrapper)
 
-    job = await controller.install(configuration="kitchen.yaml", port="/dev/ttyUSB0")
+    # Bare upload: verify-chip runs directly on the upload lane.
+    job = await controller.upload(configuration="kitchen.yaml", port="/dev/ttyUSB0")
     captured = await _run_until_terminal(controller)
 
     assert cancel_armed, "test bug: cancel flag was never set"
@@ -723,20 +671,21 @@ async def test_tracked_subprocess_registers_and_clears_current_process(
     # is unused by this test (we never trip the CancelledError or
     # post-spawn cancel paths) but is harmless.
     controller = firmware_controller_factory(with_settings=False, with_terminate=True)
-    assert controller.state.current_process is None
+    assert controller.state.compile_lane.current_process is None
 
     async with controller._tracked_subprocess(
+        controller.state.compile_lane,
         sys.executable,
         "-c",
         "import sys\nsys.exit(0)\n",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     ) as proc:
-        assert controller.state.current_process is proc
+        assert controller.state.compile_lane.current_process is proc
         await proc.wait()
 
     # Restored on exit.
-    assert controller.state.current_process is None
+    assert controller.state.compile_lane.current_process is None
 
 
 async def test_tracked_subprocess_restores_prior_value_on_exit(
@@ -758,19 +707,20 @@ async def test_tracked_subprocess_restores_prior_value_on_exit(
     # post-spawn cancel paths) but is harmless.
     controller = firmware_controller_factory(with_settings=False, with_terminate=True)
     sentinel = object()
-    controller.state.current_process = sentinel  # type: ignore[assignment]
+    controller.state.compile_lane.current_process = sentinel  # type: ignore[assignment]
 
     async with controller._tracked_subprocess(
+        controller.state.compile_lane,
         sys.executable,
         "-c",
         "import sys\nsys.exit(0)\n",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     ) as proc:
-        assert controller.state.current_process is proc  # registered for the duration
+        assert controller.state.compile_lane.current_process is proc  # registered for the duration
         await proc.wait()
 
-    assert controller.state.current_process is sentinel  # restored
+    assert controller.state.compile_lane.current_process is sentinel  # restored
 
 
 async def test_tracked_subprocess_restores_prior_value_on_exception(
@@ -791,10 +741,11 @@ async def test_tracked_subprocess_restores_prior_value_on_exception(
     # is unused by this test (we never trip the CancelledError or
     # post-spawn cancel paths) but is harmless.
     controller = firmware_controller_factory(with_settings=False, with_terminate=True)
-    assert controller.state.current_process is None
+    assert controller.state.compile_lane.current_process is None
 
     with pytest.raises(RuntimeError, match="boom"):
         async with controller._tracked_subprocess(
+            controller.state.compile_lane,
             sys.executable,
             "-c",
             "import sys\nsys.exit(0)\n",
@@ -811,7 +762,7 @@ async def test_tracked_subprocess_restores_prior_value_on_exception(
             msg = "boom"
             raise RuntimeError(msg)
 
-    assert controller.state.current_process is None
+    assert controller.state.compile_lane.current_process is None
 
 
 async def test_cancel_in_gap_between_verify_and_main_spawn_terminates(
@@ -862,9 +813,9 @@ async def test_cancel_in_gap_between_verify_and_main_spawn_terminates(
     terminate_calls: list[asyncio.subprocess.Process | None] = []
     real_terminate = controller._terminate_current_process
 
-    async def _spy_terminate() -> None:
-        terminate_calls.append(controller.state.current_process)
-        await real_terminate()
+    async def _spy_terminate(lane: Lane) -> None:
+        terminate_calls.append(lane.current_process)
+        await real_terminate(lane)
 
     monkeypatch.setattr(controller, "_terminate_current_process", _spy_terminate)
 
@@ -875,8 +826,8 @@ async def test_cancel_in_gap_between_verify_and_main_spawn_terminates(
         # returning the proc — this is the "cancel arrived in
         # the verify→main-spawn gap" scenario the post-spawn
         # check guards.
-        if controller.state.current_job is not None:
-            controller.state.cancel_requested.add(controller.state.current_job.job_id)
+        if controller.state.compile_lane.current_job is not None:
+            controller.state.cancel_requested.add(controller.state.compile_lane.current_job.job_id)
         return await real(sys.executable, "-c", _BUILD_SCRIPT_OK, **kwargs)
 
     monkeypatch.setattr(runner_module, "create_subprocess_exec", _wrapper)
@@ -896,3 +847,63 @@ async def test_cancel_in_gap_between_verify_and_main_spawn_terminates(
     assert job.status == JobStatus.CANCELLED
     assert captured["job_cancelled"]
     assert captured["job_failed"] == []
+
+
+# ---------------------------------------------------------------------------
+# Install chain: cancelling the compile must not flash the device (#3702)
+# ---------------------------------------------------------------------------
+
+
+async def test_cancel_compile_mid_build_does_not_run_upload(
+    firmware_controller_factory: FirmwareControllerFactory,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cancelling a running compile cancels its held upload — the device is never flashed.
+
+    The #3702 guard end-to-end: install chains a compile then an upload;
+    if the user clicks Stop while the compile is building, the held upload
+    must cascade to CANCELLED and never spawn its flash subprocess.
+    """
+    controller = firmware_controller_factory(with_queue=True, with_terminate=False)
+    _wire_real_queue(controller)
+    _wire_devices(controller)
+    _set_esphome_cmd(controller)
+    _seed_yaml(tmp_path)
+    _seed_storage(tmp_path, target_platform="ESP32C3")
+
+    real = runner_module.create_subprocess_exec
+    build_spawned = asyncio.Event()
+    esptool_calls: list[tuple] = []
+
+    async def _wrapper(*args: Any, **kwargs: Any) -> Any:
+        if _is_esptool_spawn(args):
+            esptool_calls.append(args)
+            return await real(sys.executable, "-c", "pass", **kwargs)
+        # The compile's build subprocess: signal then hang so the cancel
+        # lands mid-build. The runner's post-spawn check terminates it.
+        build_spawned.set()
+        return await real(sys.executable, "-c", "import time\ntime.sleep(30)\n", **kwargs)
+
+    monkeypatch.setattr(runner_module, "create_subprocess_exec", _wrapper)
+
+    compile_job = await controller.install(configuration="kitchen.yaml", port="/dev/ttyUSB0")
+    upload_job = _upload_of(controller, compile_job)
+
+    async def _cancel_when_build_starts() -> None:
+        await build_spawned.wait()
+        await controller.cancel(job_id=compile_job.job_id)
+
+    canceller = asyncio.create_task(_cancel_when_build_starts())
+    try:
+        await _run_until_terminal(controller, timeout=5.0)
+    finally:
+        canceller.cancel()
+        with suppress(asyncio.CancelledError):
+            await canceller
+
+    assert compile_job.status == JobStatus.CANCELLED
+    assert upload_job.status == JobStatus.CANCELLED
+    assert esptool_calls == [], (
+        "upload must not run (no chip-id spawn) after the compile is cancelled"
+    )

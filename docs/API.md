@@ -12,8 +12,10 @@ The primary API. A single multiplexed WebSocket handles all 44 commands.
 
 On connect, the server sends a [`ServerInfoMessage`](../esphome_device_builder/models/api.py):
 ```json
-{"server_version": "0.0.0", "esphome_version": "2026.3.1", "port": 6052, "ha_addon": false, "requires_auth": false}
+{"server_version": "0.0.0", "esphome_version": "2026.3.1", "port": 6052, "ha_addon": false, "ha_ingress": false, "requires_auth": false}
 ```
+
+`ha_ingress` is `true` only when the connection is proxied through the HA Supervisor ingress (the `X-Ingress-Path` header is present); the frontend slims its header in that case so HA's own panel bar isn't doubled up. An add-on reached directly on its exposed port reports `ha_addon: true` but `ha_ingress: false`.
 
 **Send a [`CommandMessage`](../esphome_device_builder/models/api.py):**
 ```json
@@ -115,7 +117,7 @@ Connections that arrive on the trusted ingress site (HA add-on supervisor proxy)
 | `devices/delete_archived` | `{configuration}` | — | Permanently delete an archived YAML and its sidecars. The companion to `unarchive` for "I really don't want this back". |
 | `devices/get_config` | `{configuration}` | `string` | Read device YAML config |
 | `devices/update_config` | `{configuration, content}` | — | Write device YAML config |
-| `devices/add_component` | `{configuration, component_id, fields?, sub_entities?}` | `AddComponentResponse` | Add component to device config |
+| `devices/add_component` | `{configuration, component_id, fields?, sub_entities?, yaml?}` | `AddComponentResponse` | Add component to device config. Optional `yaml` is the editor's unsaved draft — merge into it and return the result **without** persisting (the editor saves it, like `automations/upsert`); omit to merge the on-disk YAML and persist. |
 | `devices/import` | `{name, project_name?, package_import_url?, ...}` | `dict` | Import/adopt discovered device |
 | `devices/ignore` | `{name, ignore?}` | — | Toggle device visibility |
 | `devices/validate` | `{configuration}` | Streaming | Validate YAML config |
@@ -135,9 +137,9 @@ Connections that arrive on the trusted ingress site (HA add-on supervisor proxy)
 |---------|------|----------|-------------|
 | `firmware/compile` | `{configuration}` | `FirmwareJob` | Queue compile job |
 | `firmware/upload` | `{configuration, port?: ""}` | `FirmwareJob` | Queue upload of existing binary. `port` defaults to `""` (no `--device` arg — CLI auto-detects). Also accepts `"OTA"`, a serial path (`/dev/ttyUSB0`, `COM3`), or an explicit IP / hostname for "install to a specific address" — the address-cache shortcut is bypassed when a target is named directly. |
-| `firmware/install` | `{configuration, port?: "OTA" \| serial \| ip \| hostname, force_local?: bool}` | `FirmwareJob` | Queue compile + upload. `port` defaults to `"OTA"` (let the CLI resolve the configured host). Same `port` semantics as `firmware/upload` for non-default values. `force_local` defaults to `false`; when `true` the scheduler decision is bypassed and the install runs LOCAL regardless of paired build servers — used by the install dialog's "Build locally instead" override link to opt out of REMOTE routing for a single install. |
-| `firmware/clean` | `{configuration}` | `FirmwareJob` | Queue build clean for one device |
-| `firmware/reset_build_env` | — | `FirmwareJob` | Queue full reset of `.esphome/` build dirs and PIO cache |
+| `firmware/install` | `{configuration, port?: "OTA" \| serial \| ip \| hostname, force_local?: bool}` | `FirmwareJob` (the COMPILE job) | Queue an install as a **two-job chain**: a `COMPILE` job + a dependent `UPLOAD` job (`FirmwareJob.depends_on` = the compile's `job_id`). Returns the COMPILE job; the UPLOAD renders as queued and starts only after the compile succeeds, on the **upload lane** so it doesn't block the next device's compile. A cancelled/failed compile cascades to cancel the held upload (a cancelled build never flashes). `port` (defaults `"OTA"`) lands on the UPLOAD job. `force_local=true` bypasses the scheduler (compile runs LOCAL). Remote installs use the same chain — the remote compile materialises artifacts locally, then the local upload lane flashes. |
+| `firmware/clean` | `{configuration}` | `FirmwareJob` | Queue build clean for one device. **Cancels any in-flight build (compile/upload/install) for that configuration first** — a clean is the user asking for a fresh build, and the two lanes mean the upload could otherwise read artifacts the clean is wiping. The cancelled jobs fire `JOB_CANCELLED`. |
+| `firmware/reset_build_env` | — | `FirmwareJob` | Queue full reset of `.esphome/` build dirs and PIO cache. **Cancels every in-flight job on both lanes first** (the wipe trashes the whole tree, which a concurrent compile or upload would race). |
 | `firmware/compile_bulk` | `{configurations: string[]}` | `[FirmwareJob]` | Queue multiple compiles |
 | `firmware/install_bulk` | `{configurations: string[], port?: "OTA" \| serial \| ip \| hostname}` | `[FirmwareJob]` | Queue multiple installs. `port` defaults to `"OTA"` and is shared across every queued job — almost always callers want that default rather than a single explicit target across the fleet. Same `port` validation as `firmware/install`. |
 | `firmware/get_jobs` | `{status?, configuration?}` | `[FirmwareJob]` | List jobs with filters |
@@ -155,13 +157,13 @@ Connections that arrive on the trusted ingress site (HA add-on supervisor proxy)
 
 The token is the route's authorization (so a navigation needs no `Authorization` header): it is minted only over the authenticated WebSocket, is unguessable, expires within ~60 s, is single-use, and is bound to one `(configuration, file)` — so the query string can't repoint it at another artifact. `configuration` and `file` are traversal-validated server-side and the served filename is sanitized for the header. Every download path (the save-to-disk picker and the in-browser Web Serial flash) uses this route, so there is no WebSocket download command.
 
-**Job queue**: one job runs at a time, others wait. Jobs persist across server restarts. Output buffered in `FirmwareJob.output` — clients can reconnect via `firmware/follow_job`.
+**Job queue**: two concurrent single-worker lanes — a **compile lane** (CPU: compile, clean, reset, rename) and an **upload lane** (network) — so a slow upload doesn't block the next device's compile. One job runs at a time *per lane*. `firmware/install` is a `COMPILE` + dependent `UPLOAD` chain across the two. Jobs persist across server restarts. Output buffered in `FirmwareJob.output` — clients can reconnect via `firmware/follow_job`.
 
-**One active job per device**: queuing a new job for a device cancels any existing queued or running job with the same `configuration` first. The cancelled job fires `JOB_CANCELLED` as usual, then the new job fires `JOB_QUEUED` — frontends following lifecycle events stay consistent with the "show the latest result" UX. `firmware/reset_build_env` is global (empty `configuration`) and is exempt from this rule.
+**One active job per device**: queuing a new job for a device cancels any existing queued or running job with the same `configuration` first. The cancelled job fires `JOB_CANCELLED` as usual, then the new job fires `JOB_QUEUED` — frontends following lifecycle events stay consistent with the "show the latest result" UX. `firmware/clean` for a device follows the same rule (it cancels that device's in-flight build before cleaning). `firmware/reset_build_env` is global (empty `configuration`): rather than being exempt, it cancels **every** in-flight job on both lanes before wiping.
 
-**History retention**: terminal `compile`/`upload`/`install` jobs are kept in a global pool capped at 50, deduplicated to one entry per `configuration` (newest wins). Terminal `clean`/`reset_build_env` jobs sit in a separate pool capped at 5 so they don't crowd device history. Active (queued/running) jobs are exempt from pruning. Each retained job's `output` is trimmed to the last 2000 lines on terminal transition; a synthetic first line `... [output trimmed: N earlier line(s) elided]` indicates how many lines were dropped. `firmware/clear` still wipes terminal jobs on demand.
+**History retention**: terminal `compile`/`upload`/`install` jobs are kept in a global pool capped at 50, deduplicated to one entry per `(configuration, job type)` (newest wins) — so an install's `compile` and its `upload` both survive rather than the upload evicting the compile. Terminal `clean`/`reset_build_env` jobs sit in a separate pool capped at 5 so they don't crowd device history. Active (queued/running) jobs are exempt from pruning. Each retained job's `output` is trimmed to the last 2000 lines on terminal transition; a synthetic first line `... [output trimmed: N earlier line(s) elided]` indicates how many lines were dropped. `firmware/clear` still wipes terminal jobs on demand.
 
-**`firmware/reset_build_env`**: wipes `.esphome/build/`, `.esphome/external_components/`, and `.esphome/platformio_cache/` so the next compile re-fetches external components and re-downloads PlatformIO toolchains. Returns a `FirmwareJob` with empty `configuration` and `job_type: "reset_build_env"`. Streams progress through the same `JOB_OUTPUT` event as compile jobs. Mid-run cancellation is honoured between the three target directories, not during a single removal.
+**`firmware/reset_build_env`**: cancels every in-flight job on both lanes (the wipe would otherwise race a concurrent compile or upload), then wipes `.esphome/build/`, `.esphome/external_components/`, and `.esphome/platformio_cache/` so the next compile re-fetches external components and re-downloads PlatformIO toolchains. Returns a `FirmwareJob` with empty `configuration` and `job_type: "reset_build_env"`. Streams progress through the same `JOB_OUTPUT` event as compile jobs. Mid-run cancellation is honoured between the three target directories, not during a single removal.
 
 **Cancel semantics**:
 - Queued jobs flip to `cancelled` immediately.
@@ -215,10 +217,13 @@ Board catalog dataclasses (`BoardCatalogIndex`, `BoardCatalogEntry`, `BoardHardw
 | `components/get_categories` | `{board_id?}` | `[{id, name, count}]` | List categories with counts |
 | `components/get_components` | `{query?, category?, exclude_category?, platform?, board_id?, offset?, limit?}` | `PagedComponentsResponse` | Search/list components |
 | `components/get_component_bodies` | `{component_ids, platform?, board_id?}` | `{component_id: ComponentCatalogEntry}` | Hydrate one or many bodies; missing ids omitted |
+| `components/get_pin_registry_modes` | _none_ | `{provider_key: [mode_flag, …]}` | Allowed long-form pin `mode` flags per external pin provider; empty when the artefact is missing |
 
 `platform` filters to components compatible with the given target platform; components with an empty `supported_platforms` list are platform-agnostic and always included. `board_id` is a convenience — the boards catalog resolves it to a platform; `platform` wins when both are passed. The platform is also used to materialise each entry's `platform_defaults` into `default_value`.
 
 `category` / `exclude_category` accept either a single category or a list. Use `exclude_category` for the regular catalog selector to hide entries that belong to the dedicated "Add core configuration" dialog.
+
+**Pin registry modes.** A long-form pin on an external provider accepts only a subset of `mode` flags: an I2C expander like `pca9554` permits `input` / `output`, a shift register `sn74hc595` only `output`. `get_pin_registry_modes` returns the `{provider_key: [mode_flag, …]}` map (derived from ESPHome's `PIN_SCHEMA_REGISTRY` at sync time, excluding native target platforms which allow every flag) so the visual editor can hide the unsupported flag checkboxes. The key is the provider key that appears in the pin value (`pca9554`). Native pins (no provider key) and a missing artefact both fall back to showing every flag.
 
 **Featured components.** The board catalog's `featured_components` are surfaced through this same API under the synthetic category `featured` and ID prefix `featured.<board_id>.<local_id>`. They are **only** returned when `category` explicitly includes `featured` and `board_id` is supplied — the regular catalog listing never mixes them in. `get_categories` adds a `featured` entry with the board's recommended-count when `board_id` is set. A featured `ComponentCatalogEntry` carries the board overrides baked into its `config_entries`: `default_value` reflects the preset, and the new `locked: bool` and `suggestions: list[ConfigPrimitive] | None` fields tell the frontend to disable the input or render a picker. `devices/add_component` recognises `featured.*` ids — the wire shape doesn't change, but the backend resolves the underlying component, validates user input against the locked/suggestion constraints, and merges presets before delegating to the regular merge logic.
 
@@ -240,12 +245,13 @@ Parsing and writing live on the backend: the frontend exchanges structured `Auto
 {kind: "script",        id: string}
 {kind: "interval",      index: int}
 {kind: "component_on",  component_id: string, trigger: string, index?: int}
+{kind: "component_action", component_id: string, field: string}
 {kind: "device_on",     trigger: string}
 {kind: "light_effect",  component_id: string, index: int}
 {kind: "api_action",    action_name: string}
 ```
 
-`upsert` / `delete` consume the same shape so the writer knows the exact YAML range to splice. On `component_on`, `index` is omitted for a single-handler mapping (`on_press: {then: [...]}`) and set for one entry of a list-shaped trigger such as `time.on_time` (a YAML list of cron schedules); `index == <entry count>` on `upsert` appends a new entry. `api_action` covers user-defined actions under `api.actions:` — structurally a callable (named, typed `variables:`, `then:` action list, no trigger) so the editor reuses the script pipeline. The deprecated `service:` discriminator is accepted on read; the writer emits `action:`.
+`upsert` / `delete` consume the same shape so the writer knows the exact YAML range to splice. On `component_on`, `index` is omitted for a single-handler mapping (`on_press: {then: [...]}`) and set for one entry of a list-shaped trigger such as `time.on_time` (a YAML list of cron schedules); `index == <entry count>` on `upsert` appends a new entry. `api_action` covers user-defined actions under `api.actions:` — structurally a callable (named, typed `variables:`, `then:` action list, no trigger) so the editor reuses the script pipeline. The deprecated `service:` discriminator is accepted on read; the writer emits `action:`. `component_action` is a `type: trigger` config field on a component instance (cover `open_action` / `close_action` / `stop_action`, hub `opentherm.before_send`, …) — a bare action list keyed on `field`, with no trigger or `then:` wrapper.
 
 | Command | Args | Response | Description |
 |---------|------|----------|-------------|
@@ -303,6 +309,24 @@ User-defined chips (name + optional `#rrggbb` color) that can be assigned to dev
 | `labels/delete` | `{label_id}` | `{deleted: true}` | Delete a label and cascade — every device entry with this id has it removed in the same transaction, then each affected device fires `device_updated`; finally `label_deleted` fires. |
 
 Renaming or recoloring a label leaves device assignments untouched — devices reference labels by id, not by name. The frontend is expected to subscribe to `subscribe_events`, fetch the catalog once via `labels/list`, then resolve ids → name + color at render time.
+
+### Version History
+
+> Controller: [`VersionHistoryController`](../esphome_device_builder/controllers/version_history/controller.py)
+
+Git-backed history of the config directory. On startup the backend adopts an existing git work tree (covering `/config/esphome` already being a repo, or sitting inside one such as `/config`) or initializes a fresh one. Every dashboard YAML mutation is committed with a descriptive message; edits made outside the dashboard (VS Code, the HA File Editor) are picked up by a debounced, scanner-driven catch-all. Deleting or archiving a config commits the removal so its pre-deletion content stays restorable. The whole feature self-disables when the `git` binary is absent — these commands then return empty lists, and the mutators raise `not_found`.
+
+Commits are pathspec-scoped and never touch the user's git config (commit identity is passed per-invocation), so an automatic commit can't sweep a user's unrelated staged edits into history.
+
+| Command | Args | Response | Description |
+|---------|------|----------|-------------|
+| `version_history/list_versions` | `{configuration}` | `[{sha, short_sha, author, timestamp, message}]` | Commit history for a config, newest first. `[]` when disabled. |
+| `version_history/get_version` | `{configuration, sha}` | `{configuration, sha, content}` | The config's YAML content at a commit. `not_found` if the file didn't exist there. |
+| `version_history/get_diff` | `{configuration, sha}` | `{configuration, sha, diff}` | Unified diff of the config between `sha` and the working copy. |
+| `version_history/list_deleted` | — | `[{configuration}]` | Configs present in history but absent from the working tree (restorable deletions). |
+| `version_history/restore` | `{configuration, sha?}` | `{configuration, restored_from, content}` | Restore a config to `sha` (or its latest surviving version when omitted). Recreates a deleted file; the write goes through the normal persist path, so the device row updates via `device_added` / `device_updated` and the restore is itself committed. |
+
+`sha` is validated as plain hex before reaching git. Reads are transient git queries — like `remote_build/list_hosts`, they're `list_*`-style commands rather than `subscribe_events` state.
 
 ### Remote Build
 

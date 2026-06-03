@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 
+from esphome_device_builder.controllers.automations import writing
 from esphome_device_builder.controllers.automations.parsing import parse_device_yaml
 from esphome_device_builder.controllers.automations.writing import (
     render_delete,
@@ -28,11 +29,13 @@ from esphome_device_builder.models.automations import (
     ActionNode,
     ApiActionLocation,
     AutomationTree,
+    ComponentActionFieldLocation,
     ComponentOnLocation,
     DeviceOnLocation,
     IntervalLocation,
     LightEffectLocation,
     ScriptLocation,
+    YamlDiff,
 )
 
 _FIXTURES = Path(__file__).parent / "fixtures" / "automation_yamls"
@@ -40,6 +43,17 @@ _FIXTURES = Path(__file__).parent / "fixtures" / "automation_yamls"
 
 def _load(name: str) -> str:
     return (_FIXTURES / name).read_text(encoding="utf-8")
+
+
+def _apply_diff(text: str, diff: YamlDiff) -> str:
+    """Apply a :class:`YamlDiff` exactly as the frontend ``applyYamlDiff`` does."""
+    lines = text.split("\n")
+    start = diff.fromLine - 1
+    delete = max(0, diff.toLine - diff.fromLine + 1)
+    replacement = diff.replacement
+    replacement = replacement.removesuffix("\n")
+    rep_lines = [] if replacement == "" else replacement.split("\n")
+    return "\n".join([*lines[:start], *rep_lines, *lines[start + delete :]])
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +214,145 @@ def test_idless_multidomain_trigger_resolves_configured_domain() -> None:
     assert reparsed[0].location == location
 
 
+# ---------------------------------------------------------------------------
+# Flat singleton components (sun:, mqtt:)
+# ---------------------------------------------------------------------------
+
+
+def test_round_trip_inline_sun_preserves_actions_and_siblings() -> None:
+    """An id-less ``sun:`` handler round-trips; sibling config keys survive."""
+    text = _load("inline_sun_on_sunrise.yaml")
+    parsed_first = parse_device_yaml(text)[0]
+    new_text, _diff = render_upsert(
+        text, tree=parsed_first.automation, location=parsed_first.location
+    )
+    assert "latitude: 51.0" in new_text
+    assert "longitude: -0.1" in new_text
+    reparsed = parse_device_yaml(new_text)
+    assert len(reparsed) == 1
+    assert reparsed[0].location == parsed_first.location
+
+
+def test_upsert_adds_second_handler_to_sun_block() -> None:
+    """A new ``on_sunset`` splices in beside the existing ``on_sunrise``."""
+    text = _load("inline_sun_on_sunrise.yaml")
+    new_text, diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id="sun.on_sunset",
+            actions=[ActionNode(action_id="logger.log", params={"format": "sunset"})],
+        ),
+        location=ComponentOnLocation(component_id="sun", trigger="on_sunset"),
+    )
+    assert "on_sunrise:" in new_text
+    assert "on_sunset:" in new_text
+    assert "latitude: 51.0" in new_text
+    # Pure-insert flags the empty replaced range.
+    assert diff.toLine == diff.fromLine - 1
+    assert {p.location.trigger for p in parse_device_yaml(new_text)} == {"on_sunrise", "on_sunset"}
+
+
+def test_upsert_replaces_existing_handler_on_sun_block() -> None:
+    """Re-upserting ``on_sunrise`` replaces it rather than duplicating."""
+    text = _load("inline_sun_on_sunrise.yaml")
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id="sun.on_sunrise",
+            actions=[ActionNode(action_id="logger.log", params={"format": "dawn"})],
+        ),
+        location=ComponentOnLocation(component_id="sun", trigger="on_sunrise"),
+    )
+    assert new_text.count("on_sunrise:") == 1
+    assert "dawn" in new_text
+
+
+def test_delete_inline_handler_on_sun_block() -> None:
+    """Deleting ``on_sunrise`` drops it but keeps the block's config keys."""
+    text = _load("inline_sun_on_sunrise.yaml")
+    location = parse_device_yaml(text)[0].location
+    new_text, diff = render_delete(text, location=location)
+    assert "on_sunrise:" not in new_text
+    assert "latitude: 51.0" in new_text
+    assert parse_device_yaml(new_text) == []
+    assert diff.replacement == ""
+
+
+def test_delete_one_handler_keeps_sibling_on_singleton() -> None:
+    """Deleting one handler on a multi-handler singleton leaves the sibling intact."""
+    text = _load("inline_sun_idd.yaml")
+    location = ComponentOnLocation(component_id="home_sun", trigger="on_sunrise")
+    new_text, diff = render_delete(text, location=location)
+    assert "on_sunrise:" not in new_text
+    assert "on_sunset:" in new_text
+    assert "id: home_sun" in new_text
+    assert "latitude: 51.0" in new_text
+    assert diff.replacement == ""
+    remaining = parse_device_yaml(new_text)
+    assert [(p.location.component_id, p.location.trigger) for p in remaining] == [
+        ("home_sun", "on_sunset"),
+    ]
+
+
+def test_round_trip_mqtt_singleton_resolves_mqtt_domain() -> None:
+    """``mqtt.on_message``/``on_connect`` are ambiguous keys but resolve to ``mqtt:``."""
+    text = _load("inline_mqtt_singleton.yaml")
+    on_connect = next(p for p in parse_device_yaml(text) if p.location.trigger == "on_connect")
+    new_text, _diff = render_upsert(text, tree=on_connect.automation, location=on_connect.location)
+    # Reattached under mqtt:, not mis-routed to ble_client/wifi/logger.
+    assert "broker: 192.168.1.10" in new_text
+    reparsed = {p.location.trigger: p.location.component_id for p in parse_device_yaml(new_text)}
+    assert reparsed == {"on_message": "mqtt", "on_connect": "mqtt"}
+
+
+def test_upsert_inline_handler_on_block_without_handlers() -> None:
+    """An ``on_*`` inserts under a singleton block that has only config keys."""
+    text = _load("inline_sun_empty.yaml")
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id="sun.on_sunrise",
+            actions=[ActionNode(action_id="logger.log", params={"format": "sunrise"})],
+        ),
+        location=ComponentOnLocation(component_id="home_sun", trigger="on_sunrise"),
+    )
+    assert "on_sunrise:" in new_text
+    assert "id: home_sun" in new_text
+    reparsed = parse_device_yaml(new_text)
+    assert len(reparsed) == 1
+    assert reparsed[0].location.component_id == "home_sun"
+
+
+def test_upsert_inline_handler_on_bodyless_singleton_block() -> None:
+    """An ``on_*`` inserts under an id-less singleton with an empty body."""
+    text = "esphome:\n  name: x\nsun:\n"
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id="sun.on_sunrise",
+            actions=[ActionNode(action_id="logger.log", params={"format": "sunrise"})],
+        ),
+        location=ComponentOnLocation(component_id="sun", trigger="on_sunrise"),
+    )
+    assert "on_sunrise:" in new_text
+    assert parse_device_yaml(new_text)[0].location.component_id == "sun"
+
+
+def test_upsert_flat_singleton_unknown_id_raises() -> None:
+    """A location whose id matches no singleton raises a clean error."""
+    text = _load("inline_sun_on_sunrise.yaml")
+    with pytest.raises(CommandError) as err:
+        render_upsert(
+            text,
+            tree=AutomationTree(
+                trigger_id="sun.on_sunrise",
+                actions=[ActionNode(action_id="logger.log", params={"format": "x"})],
+            ),
+            location=ComponentOnLocation(component_id="nonexistent", trigger="on_sunrise"),
+        )
+    assert err.value.code == ErrorCode.INVALID_ARGS
+
+
 def test_stale_positional_id_on_idd_instance_is_refused() -> None:
     """A ``<domain>_<idx>`` id pointing at an instance with a real id is refused."""
     text = "esphome:\n  name: x\nbinary_sensor:\n  - platform: gpio\n    id: real\n    pin: GPIO0\n"
@@ -286,6 +439,27 @@ def test_round_trip_script_with_parameters() -> None:
     assert parsed_second.automation.trigger_params.get("mode") == "single"
 
 
+def test_append_diff_into_block_followed_by_others_does_not_duplicate_tail() -> None:
+    """A mid-file append's diff reproduces new_text without duplicating trailing blocks."""
+    text = (
+        "esphome:\n  name: x\n"
+        "script:\n  - id: first\n    mode: single\n    then: []\n"
+        "ota:\n  - platform: esphome\n"
+        "web_server:\n  port: 80\n"
+    )
+    new_text, diff = render_upsert(
+        text,
+        tree=AutomationTree(trigger_id=None, trigger_params={"mode": "single"}, actions=[]),
+        location=ScriptLocation(id="second"),
+    )
+    # The diff the frontend applies must reproduce the backend's own
+    # post-splice text — the contract the editor relies on.
+    assert _apply_diff(text, diff) == new_text
+    assert new_text.count("ota:") == 1
+    assert new_text.count("web_server:") == 1
+    assert {s.location.id for s in parse_device_yaml(new_text)} == {"first", "second"}
+
+
 def test_round_trip_interval_lambda() -> None:
     """An interval with a lambda body round-trips the sentinel intact."""
     text = _load("interval.yaml")
@@ -298,9 +472,10 @@ def test_round_trip_interval_lambda() -> None:
     parsed_second = parse_device_yaml(new_text)[0]
     body_first = parsed_first.automation.actions[0].params
     body_second = parsed_second.automation.actions[0].params
-    # The lambda survives as a dict under ``id`` (single-arg shortcut).
-    src_first = body_first["id"]["_lambda"] if "id" in body_first else body_first["_lambda"]
-    src_second = body_second["id"]["_lambda"] if "id" in body_second else body_second["_lambda"]
+    # The lambda survives as a dict under the lambda action's ``lambda``
+    # shorthand key (its config-entry key).
+    src_first = body_first["lambda"]["_lambda"]
+    src_second = body_second["lambda"]["_lambda"]
     assert "ESP_LOGI" in src_first
     assert src_first.strip() == src_second.strip()
 
@@ -350,6 +525,135 @@ def test_delete_light_effect_removes_one_list_item() -> None:
     # ``flicker`` is gone, ``pulse`` remains.
     assert "flicker" not in new_text
     assert "pulse" in new_text
+
+
+# ---------------------------------------------------------------------------
+# Component action-list config fields (``open_action:`` etc.)
+# ---------------------------------------------------------------------------
+
+
+def test_round_trip_component_action_field_preserves_actions() -> None:
+    """Parse → upsert with the same tree → parse keeps the action field stable."""
+    text = _load("cover_feedback_actions.yaml")
+    first = next(
+        p
+        for p in parse_device_yaml(text)
+        if p.location.kind == "component_action" and p.location.field == "open_action"
+    )
+    new_text, _diff = render_upsert(text, tree=first.automation, location=first.location)
+    second = next(
+        p
+        for p in parse_device_yaml(new_text)
+        if p.location.kind == "component_action" and p.location.field == "open_action"
+    )
+    assert second.location == first.location
+    assert [a.action_id for a in second.automation.actions] == [
+        a.action_id for a in first.automation.actions
+    ]
+    # Bare action list — no ``then:`` wrapper introduced.
+    assert "then:" not in new_text
+
+
+def test_upsert_component_action_field_leaves_siblings_untouched() -> None:
+    """Rewriting open_action doesn't disturb close_action / stop_action."""
+    text = _load("cover_feedback_actions.yaml")
+    loc = ComponentActionFieldLocation(component_id="driveway_gate", field="open_action")
+    tree = AutomationTree(
+        trigger_id=None,
+        actions=[ActionNode(action_id="switch.turn_on", params={"id": "gate_open"})],
+    )
+    new_text, _diff = render_upsert(text, tree=tree, location=loc)
+    assert "close_action:" in new_text
+    assert "stop_action:" in new_text
+    assert new_text.count("open_action:") == 1
+
+
+def test_upsert_component_action_field_creates_field_when_absent() -> None:
+    """A platform instance with no such field yet gets it spliced in."""
+    text = "cover:\n  - platform: feedback\n    id: g\n    device_class: gate\n"
+    loc = ComponentActionFieldLocation(component_id="g", field="open_action")
+    tree = AutomationTree(
+        trigger_id=None,
+        actions=[ActionNode(action_id="switch.turn_on", params={"id": "relay"})],
+    )
+    new_text, _diff = render_upsert(text, tree=tree, location=loc)
+    reparsed = next(p for p in parse_device_yaml(new_text) if p.location.kind == "component_action")
+    assert reparsed.location == loc
+    assert [a.action_id for a in reparsed.automation.actions] == ["switch.turn_on"]
+
+
+def test_delete_component_action_field_drops_only_that_field() -> None:
+    """Deleting close_action keeps open_action / stop_action."""
+    text = _load("cover_feedback_actions.yaml")
+    loc = ComponentActionFieldLocation(component_id="driveway_gate", field="close_action")
+    new_text, diff = render_delete(text, location=loc)
+    assert "close_action:" not in new_text
+    assert "open_action:" in new_text
+    assert "stop_action:" in new_text
+    assert diff.replacement == ""
+
+
+def test_upsert_component_action_field_unknown_id_raises() -> None:
+    """An id that matches no component instance is a NOT_FOUND error."""
+    loc = ComponentActionFieldLocation(component_id="nope", field="open_action")
+    tree = AutomationTree(trigger_id=None, actions=[])
+    with pytest.raises(CommandError) as exc:
+        render_upsert(_load("cover_feedback_actions.yaml"), tree=tree, location=loc)
+    assert exc.value.code == ErrorCode.NOT_FOUND
+
+
+def test_delete_component_action_field_unknown_id_raises() -> None:
+    """Deleting an action field on a non-existent instance is NOT_FOUND."""
+    loc = ComponentActionFieldLocation(component_id="nope", field="open_action")
+    with pytest.raises(CommandError) as exc:
+        render_delete(_load("cover_feedback_actions.yaml"), location=loc)
+    assert exc.value.code == ErrorCode.NOT_FOUND
+
+
+def test_round_trip_component_action_field_on_singleton_hub() -> None:
+    """A hub (``opentherm:``, no ``platform:``/``id:``) action field round-trips.
+
+    The id-less singleton resolves on ``component_id == domain`` through
+    both the parser and the writer's ``_locate_singleton_instance`` path.
+    """
+    text = "opentherm:\n  in_pin: 4\n  before_send:\n    - logger.log: sending\n"
+    first = next(p for p in parse_device_yaml(text) if p.location.kind == "component_action")
+    assert first.location.component_id == "opentherm"
+    new_text, _diff = render_upsert(text, tree=first.automation, location=first.location)
+    second = next(p for p in parse_device_yaml(new_text) if p.location.kind == "component_action")
+    assert second.location == first.location
+    assert "then:" not in new_text
+    # Deleting it drops the field but keeps the rest of the hub config.
+    deleted, _d = render_delete(text, location=first.location)
+    assert "before_send" not in deleted
+    assert "in_pin: 4" in deleted
+
+
+def test_upsert_component_action_field_splice_miss_raises(monkeypatch) -> None:
+    """Domain resolves but the splice can't locate the instance → NOT_FOUND.
+
+    Force a domain that doesn't host the instance (``my_gate`` is under
+    ``cover``, not ``switch``); ``upsert_inline_handler`` then returns
+    None and the guard raises.
+    """
+    monkeypatch.setattr(writing, "resolve_component_domain", lambda *_a, **_k: "switch")
+    loc = ComponentActionFieldLocation(component_id="my_gate", field="open_action")
+    tree = AutomationTree(
+        trigger_id=None,
+        actions=[ActionNode(action_id="switch.turn_on", params={"id": "r"})],
+    )
+    with pytest.raises(CommandError) as exc:
+        render_upsert(_load("cover_feedback_actions.yaml"), tree=tree, location=loc)
+    assert exc.value.code == ErrorCode.NOT_FOUND
+
+
+def test_delete_component_action_field_splice_miss_raises(monkeypatch) -> None:
+    """Domain resolves but the splice can't locate the instance → NOT_FOUND."""
+    monkeypatch.setattr(writing, "resolve_component_domain", lambda *_a, **_k: "switch")
+    loc = ComponentActionFieldLocation(component_id="my_gate", field="open_action")
+    with pytest.raises(CommandError) as exc:
+        render_delete(_load("cover_feedback_actions.yaml"), location=loc)
+    assert exc.value.code == ErrorCode.NOT_FOUND
 
 
 # ---------------------------------------------------------------------------
@@ -596,7 +900,7 @@ def test_upsert_api_action_preserves_blank_lines_in_lambda_block_scalar() -> Non
         tree=AutomationTree(
             trigger_id=None,
             actions=[
-                ActionNode(action_id="lambda", params={"id": {"_lambda": body}}),
+                ActionNode(action_id="lambda", params={"lambda": {"_lambda": body}}),
             ],
         ),
         location=ApiActionLocation(action_name="logme"),
@@ -609,7 +913,7 @@ def test_upsert_api_action_preserves_blank_lines_in_lambda_block_scalar() -> Non
     api_entries = [p for p in parsed if p.location.kind == "api_action"]
     assert len(api_entries) == 1
     params = api_entries[0].automation.actions[0].params
-    src = params["id"]["_lambda"] if "id" in params else params["_lambda"]
+    src = params["lambda"]["_lambda"]
     assert "before" in src
     assert "after" in src
     assert "\n\n" in src
@@ -1032,6 +1336,44 @@ def test_upsert_component_on_resolves_domain_from_yaml_when_trigger_key_is_ambig
     # The handler must land under the existing switch block — not
     # a fabricated ``fan:`` block.
     assert "fan:" not in new_text
+
+
+def test_upsert_component_on_ignores_action_reference_to_target_id() -> None:
+    """An earlier handler that *references* the id must not steal the domain.
+
+    A shared trigger key (``on_turn_on``) plus a decoy ``id: relay``
+    reference nested in an earlier component's action body used to make
+    the writer attribute ``relay`` to the decoy's domain (``light``)
+    and fail with "instance id='relay' not found under 'light'". Only
+    the declared ``switch`` instance owns the id.
+    """
+    text = (
+        "light:\n"
+        "  - platform: binary\n"
+        "    id: lamp\n"
+        "    output: out\n"
+        "    on_turn_on:\n"
+        "      then:\n"
+        "        - switch.turn_off:\n"
+        "            id: relay\n"
+        "switch:\n"
+        "  - platform: gpio\n"
+        "    id: relay\n"
+        "    pin: GPIO5\n"
+    )
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id="switch.on_turn_on",
+            actions=[ActionNode(action_id="delay", params={"seconds": "1"})],
+        ),
+        location=ComponentOnLocation(component_id="relay", trigger="on_turn_on"),
+    )
+    # The new handler landed under the switch instance, beside its
+    # existing pin — the light block's decoy reference is untouched.
+    switch_block = new_text.split("switch:", 1)[1]
+    assert "on_turn_on:" in switch_block
+    assert "pin: GPIO5" in switch_block
 
 
 def test_delete_component_on_missing_instance_raises_not_found() -> None:

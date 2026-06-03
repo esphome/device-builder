@@ -31,12 +31,14 @@ from ._loading import (
     load_device_yaml,
 )
 from ._parsing import (
+    EsphomeMeta,
     _parse_inline_value,
     config_has_top_level_block,
     configuration_stem,
     detect_platform_from_yaml,
     device_uses_mqtt,
     extract_directly_referenced_integrations,
+    extract_esphome_meta_from_config,
     get_api_encryption_block,
     get_api_encryption_key,
     parse_esphome_meta,
@@ -46,6 +48,7 @@ from ._parsing import (
 )
 
 __all__ = [
+    "EsphomeMeta",
     "StorageJSON",
     "_esphome_has_native_wifi",
     "_fallback_has_native_wifi",
@@ -59,6 +62,7 @@ __all__ = [
     "detect_platform_from_yaml",
     "device_uses_mqtt",
     "extract_directly_referenced_integrations",
+    "extract_esphome_meta_from_config",
     "generate_device_yaml",
     "generate_minimal_stub_yaml",
     "get_api_encryption_block",

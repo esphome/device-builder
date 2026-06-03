@@ -99,5 +99,5 @@ source:
   type: esphome-devices
   remote_id: LUTEC-Origo
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/LUTEC-Origo/index.md
-  upstream_revision: 7b98102863a3093e1d3c00c8bb77e71eeb43ad6e
+  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 6e00543b296353a46731dbb399887a0a351007bf08f4dee4965f07651b038e9b

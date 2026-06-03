@@ -120,10 +120,19 @@ def has_remote_build_settings_persisted(config_dir: Path) -> bool:
     return isinstance(_load_metadata(config_dir).get(_REMOTE_BUILD_KEY), dict)
 
 
+def _merge_settings_into_block(data: dict[str, Any], settings: RemoteBuildSettings) -> None:
+    """Merge *settings* into the existing ``_remote_build`` block, preserving foreign keys."""
+    rb = data.get(_REMOTE_BUILD_KEY)
+    if not isinstance(rb, dict):
+        rb = {}
+        data[_REMOTE_BUILD_KEY] = rb
+    rb.update(settings.to_dict())
+
+
 def save_remote_build_settings(config_dir: Path, settings: RemoteBuildSettings) -> None:
     """Persist the receiver-side remote-build settings."""
     with metadata_transaction(config_dir) as data:
-        data[_REMOTE_BUILD_KEY] = settings.to_dict()
+        _merge_settings_into_block(data, settings)
 
 
 @contextmanager
@@ -150,4 +159,4 @@ def remote_build_settings_transaction(
     with metadata_transaction(config_dir) as data:
         settings = _settings_from_raw(data.get(_REMOTE_BUILD_KEY, {}))
         yield settings
-        data[_REMOTE_BUILD_KEY] = settings.to_dict()
+        _merge_settings_into_block(data, settings)

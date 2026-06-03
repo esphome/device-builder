@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ...helpers.config_hash import compute_yaml_config_hash
@@ -37,8 +38,23 @@ def on_job_completed(controller: DevicesController, event: Event[JobLifecycleDat
     if job_type == JobType.RENAME:
         # ``esphome rename`` deletes the old YAML and writes a
         # new one with a different filename; full scan is the
-        # simplest way to pick up both transitions.
-        controller._db.create_background_task(controller._scanner.scan())
+        # simplest way to pick up both transitions. First migrate
+        # the device's filename-keyed metadata (labels / comment /
+        # board_id live in the sidecar) so the scan rebuilds it
+        # under the new name instead of starting fresh and dropping
+        # the user's labels.
+        new_name = job.new_name
+        old_configuration = job.configuration
+        if new_name and old_configuration:
+            # ``new_name`` is a bare stem today; strip a stray
+            # extension defensively so the key can't become
+            # ``livingroom.yaml.yaml`` and target the wrong entry.
+            new_configuration = f"{Path(new_name).stem}.yaml"
+            controller._db.create_background_task(
+                _migrate_metadata_then_scan(controller, old_configuration, new_configuration)
+            )
+        else:
+            controller._db.create_background_task(controller._scanner.scan())
         return
     configuration = job.configuration
     if not configuration:
@@ -145,3 +161,20 @@ def sync_deployed_hash_after_flash(controller: DevicesController, configuration:
     if device is None or not device.expected_config_hash:
         return
     controller._state_monitor.apply_config_hash(device.name, device.expected_config_hash)
+
+
+async def _migrate_metadata_then_scan(
+    controller: DevicesController, old_configuration: str, new_configuration: str
+) -> None:
+    """Move the renamed device's metadata before the scan rebuilds it."""
+    try:
+        await controller._migrate_device_metadata(old_configuration, new_configuration)
+    except Exception:
+        # A migration failure must not skip the scan — the renamed
+        # device's ONLINE/OFFLINE transitions still need picking up.
+        _LOGGER.exception(
+            "Failed to migrate metadata from %s to %s on rename; scanning anyway",
+            old_configuration,
+            new_configuration,
+        )
+    await controller._scanner.scan()

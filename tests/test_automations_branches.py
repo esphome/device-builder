@@ -67,6 +67,7 @@ from esphome_device_builder.models.api import ErrorCode
 from esphome_device_builder.models.automations import (
     ActionNode,
     AutomationTree,
+    ComponentActionFieldLocation,
     ComponentOnLocation,
     ConditionNode,
     DeviceOnLocation,
@@ -160,6 +161,10 @@ def test_scope_skips_component_instance_without_id() -> None:
         ({"kind": "script", "id": "alarm"}, ScriptLocation),
         ({"kind": "interval", "index": 0}, IntervalLocation),
         ({"kind": "component_on", "component_id": "b", "trigger": "on_press"}, ComponentOnLocation),
+        (
+            {"kind": "component_action", "component_id": "g", "field": "open_action"},
+            ComponentActionFieldLocation,
+        ),
         ({"kind": "device_on", "trigger": "on_boot"}, DeviceOnLocation),
         ({"kind": "light_effect", "component_id": "l", "index": 0}, LightEffectLocation),
     ],
@@ -183,6 +188,19 @@ def test_decode_location_component_on_carries_index() -> None:
     )
     assert isinstance(loc, ComponentOnLocation)
     assert loc.index == 2
+
+
+def test_component_on_single_form_omits_index_on_the_wire() -> None:
+    """The single-handler form serializes without an ``index`` key."""
+    wire = ComponentOnLocation(component_id="b", trigger="on_state").to_dict()
+    assert "index" not in wire
+    assert wire == {"kind": "component_on", "component_id": "b", "trigger": "on_state"}
+
+
+def test_component_on_list_form_keeps_index_on_the_wire() -> None:
+    """A list-shaped handler keeps its integer ``index`` on the wire."""
+    wire = ComponentOnLocation(component_id="my_time", trigger="on_time", index=0).to_dict()
+    assert wire["index"] == 0
 
 
 def test_is_list_form_trigger_discriminates_cron_vs_bare_actions() -> None:
@@ -386,6 +404,20 @@ def test_decompose_condition_combinator_with_children() -> None:
     assert [c.condition_id for c in node.children] == ["switch.is_on", "switch.is_on"]
 
 
+def test_decompose_condition_not_single_child() -> None:
+    """``not`` decomposes a single-mapping body into one child."""
+    node = _decompose_condition({"not": {"switch.is_on": "r"}})
+    assert node.condition_id == "not"
+    assert [c.condition_id for c in node.children] == ["switch.is_on"]
+
+
+def test_decompose_condition_not_with_list() -> None:
+    """``not`` decomposes a condition list into ``children``."""
+    node = _decompose_condition({"not": [{"switch.is_on": "r1"}, {"switch.is_on": "r2"}]})
+    assert node.condition_id == "not"
+    assert [c.condition_id for c in node.children] == ["switch.is_on", "switch.is_on"]
+
+
 def test_decompose_condition_leaf_with_dict_params() -> None:
     """A leaf condition with a mapping value surfaces the keys as params."""
     node = _decompose_condition({"for": {"time": "5s", "condition": {"switch.is_on": "r"}}})
@@ -508,6 +540,32 @@ def test_emit_condition_node_combinator_with_children() -> None:
     )
     assert "and" in out
     assert out["and"] is not None
+
+
+def test_emit_condition_node_not_single_child_collapses() -> None:
+    """A ``not`` with one child collapses to ``{not: <mapping>}``."""
+    out = emit_condition_node(
+        ConditionNode(
+            condition_id="not",
+            children=[ConditionNode(condition_id="switch.is_on", params={"id": "r"})],
+        ),
+    )
+    assert "switch.is_on" in out["not"]
+
+
+def test_emit_condition_node_not_multiple_children_emits_seq() -> None:
+    """A ``not`` with multiple children emits a nested condition sequence."""
+    out = emit_condition_node(
+        ConditionNode(
+            condition_id="not",
+            children=[
+                ConditionNode(condition_id="switch.is_on", params={"id": "r1"}),
+                ConditionNode(condition_id="switch.is_on", params={"id": "r2"}),
+            ],
+        ),
+    )
+    assert isinstance(out["not"], list)
+    assert len(out["not"]) == 2
 
 
 def test_emit_condition_node_bare_condition() -> None:
@@ -767,6 +825,61 @@ def test_upsert_inline_handler_replace_with_sibling_below() -> None:
     assert "delay: 99s" in new_text
     # Sibling ``on_release`` survived.
     assert "on_release:" in new_text
+
+
+@pytest.mark.parametrize("quote", ['"', "'"], ids=["double", "single"])
+def test_upsert_inline_handler_locates_quoted_id(quote: str) -> None:
+    """A quoted ``id:`` resolves against the unquoted parsed component_id."""
+    text = (
+        f"binary_sensor:\n  - platform: gpio\n    id: {quote}btn{quote}\n    pin: GPIO0\n"
+        "    on_press:\n      then:\n        - delay: 1s\n"
+    )
+    res = upsert_inline_handler(
+        text,
+        component_domain="binary_sensor",
+        component_id="btn",
+        handler_key="on_press",
+        rendered_yaml="on_press:\n  then:\n    - delay: 99s\n",
+    )
+    assert res is not None
+    new_text, _from, _to, _repl = res
+    assert "delay: 99s" in new_text
+
+
+@pytest.mark.parametrize("quote", ['"', "'"], ids=["double", "single"])
+def test_upsert_inline_handler_locates_quoted_dash_line_id(quote: str) -> None:
+    """A quoted ``id:`` on the dash line resolves against the parsed component_id."""
+    text = (
+        f"binary_sensor:\n  - id: {quote}btn{quote}\n    platform: gpio\n    pin: GPIO0\n"
+        "    on_press:\n      then:\n        - delay: 1s\n"
+    )
+    res = upsert_inline_handler(
+        text,
+        component_domain="binary_sensor",
+        component_id="btn",
+        handler_key="on_press",
+        rendered_yaml="on_press:\n  then:\n    - delay: 99s\n",
+    )
+    assert res is not None
+    new_text, _from, _to, _repl = res
+    assert "delay: 99s" in new_text
+
+
+def test_remove_inline_handler_locates_quoted_id() -> None:
+    """``remove_inline_handler`` finds an instance whose ``id:`` is quoted."""
+    text = (
+        'binary_sensor:\n  - platform: gpio\n    id: "btn"\n    pin: GPIO0\n'
+        "    on_press:\n      then:\n        - delay: 1s\n"
+    )
+    res = remove_inline_handler(
+        text,
+        component_domain="binary_sensor",
+        component_id="btn",
+        handler_key="on_press",
+    )
+    assert res is not None
+    new_text, _from, _to = res
+    assert "on_press" not in new_text
 
 
 def test_upsert_inline_handler_insert_with_trailing_blanks_in_instance() -> None:

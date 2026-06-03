@@ -201,21 +201,27 @@ def _collect_pack_members(  # noqa: C901
         raise RuntimeError(msg)
 
     idedata_cache_path = resolve_idedata_path(configuration, name=storage.name)
-    platformio_ini = build_path / "platformio.ini"
-    if not idedata_cache_path.is_file():
-        msg = f"idedata cache missing for {configuration}: {idedata_cache_path}"
-        raise FileNotFoundError(msg)
-    if not platformio_ini.is_file():
-        msg = f"platformio.ini missing for {configuration}: {platformio_ini}"
-        raise FileNotFoundError(msg)
+    platformio_ini = build_path / PLATFORMIO_INI_MEMBER_NAME
+    # A native ESP-IDF build (CMake/ninja) emits neither platformio.ini nor
+    # an idedata cache; a PlatformIO build always emits both, so their
+    # absence on a PIO build is a real failure that must surface here rather
+    # than ship a silently-incomplete tarball. Detect native-IDF positively
+    # off the build toolchain, never off file absence.
+    if getattr(storage, "toolchain", None) != "esp-idf":
+        if not platformio_ini.is_file():
+            msg = f"platformio.ini missing for {configuration}: {platformio_ini}"
+            raise FileNotFoundError(msg)
+        if not idedata_cache_path.is_file():
+            msg = f"idedata cache missing for {configuration}: {idedata_cache_path}"
+            raise FileNotFoundError(msg)
 
     build_info_path = build_path / BUILD_INFO_MEMBER_NAME
     validated_yaml_path = resolve_compiled_config_path(configuration)
-    members: list[tuple[str, Path]] = [
-        (STORAGE_MEMBER_NAME, storage_path),
-        (IDEDATA_MEMBER_NAME, idedata_cache_path),
-        (PLATFORMIO_INI_MEMBER_NAME, platformio_ini),
-    ]
+    members: list[tuple[str, Path]] = [(STORAGE_MEMBER_NAME, storage_path)]
+    if idedata_cache_path.is_file():
+        members.append((IDEDATA_MEMBER_NAME, idedata_cache_path))
+    if platformio_ini.is_file():
+        members.append((PLATFORMIO_INI_MEMBER_NAME, platformio_ini))
     if build_info_path.is_file():
         members.append((BUILD_INFO_MEMBER_NAME, build_info_path))
     if _validated_yaml_is_fresh(validated_yaml_path, storage_path):

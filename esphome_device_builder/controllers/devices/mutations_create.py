@@ -167,6 +167,7 @@ async def create_device(  # noqa: PLR0912, PLR0915, C901
     await controller._delete_device_metadata(filename)
     if board_id:
         await controller._persist_device_metadata_async(filename, board_id=board_id)
+    await controller._commit_history(filename, f"Create {filename}")
     # _scanner.scan fires _on_scan_change(ADDED) for the new
     # YAML and that already runs probe_device; don't double-probe.
     # file_content may carry an esphome.name that differs from

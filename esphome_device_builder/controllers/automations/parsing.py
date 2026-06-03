@@ -21,22 +21,27 @@ one whole-document failure that still raises.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from functools import partial
+from importlib import resources
 from io import StringIO
 from typing import Any
 
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import TaggedScalar
+from ruamel.yaml.scalarfloat import ScalarFloat
 from ruamel.yaml.scalarstring import LiteralScalarString
 
 from ...helpers.api import CommandError
+from ...helpers.json import loads as json_loads
+from ...helpers.lazy_catalog import is_unsafe_catalog_id
 from ...models.api import ErrorCode
 from ...models.automations import (
     ActionNode,
     ApiActionLocation,
     AutomationTree,
     AutomationTrigger,
+    ComponentActionFieldLocation,
     ComponentOnLocation,
     ConditionNode,
     DeviceOnLocation,
@@ -46,6 +51,9 @@ from ...models.automations import (
     ScriptLocation,
 )
 from . import catalog
+
+# Package holding the per-component body JSON (``config_entries`` trees).
+_COMPONENTS_PACKAGE = "esphome_device_builder.definitions.components"
 
 # Device-level trigger keys under the ``esphome:`` block.
 _DEVICE_TRIGGER_KEYS: tuple[str, ...] = ("on_boot", "on_loop", "on_shutdown")
@@ -97,6 +105,7 @@ def parse_device_yaml(yaml_text: str) -> list[ParsedAutomation]:
     out.extend(_parse_top_level_intervals(data))
     out.extend(_parse_api_actions(data))
     out.extend(_parse_inline_component_triggers(data))
+    out.extend(_parse_component_action_fields(data))
     out.extend(_parse_light_effects(data))
     return out
 
@@ -297,43 +306,181 @@ def _parse_api_actions(root: Any) -> list[ParsedAutomation]:
     return out
 
 
-def _parse_inline_component_triggers(root: Any) -> list[ParsedAutomation]:
-    """Walk configured component instances for inline ``on_*:`` handlers."""
+def singleton_component_id(section: dict, domain: str) -> str:
+    """Identity of a flat singleton component — its ``id:`` or the domain when id-less."""
+    return str(section.get("id") or domain)
+
+
+def resolve_component_domain(yaml_text: str, component_id: str) -> str | None:
+    """
+    Return the top-level domain whose instance declares *component_id*.
+
+    Shares the :func:`_iter_component_instances` walk so the writer
+    attributes an id to the same domain/instance the parser did — list
+    instances on ``id`` (or the synthetic ``<domain>_<idx>``), flat
+    singletons on :func:`singleton_component_id`. Resolves any component
+    domain (not only trigger-hosting ones), so component action-list
+    fields on e.g. ``cover`` resolve too. Only declared instance ids
+    match; an action *reference* (``id:`` nested in a handler body)
+    never does. ``None`` when no instance matches or the YAML won't load.
+    """
+    yaml = make_yaml()
+    try:
+        root = yaml.load(yaml_text)
+    except Exception:  # noqa: BLE001 — any load failure falls back to the catalog guess
+        return None
+    for domain, _instance, comp_id in _iter_component_instances(root):
+        if comp_id == component_id:
+            return domain
+    return None
+
+
+def _iter_component_instances(
+    root: Any,
+) -> Iterator[tuple[str, dict, str]]:
+    """
+    Yield ``(domain, instance, comp_id)`` for every configured component.
+
+    Handles list-domain instances (``switch:`` is a list) and flat
+    singleton components (``sun:`` / ``mqtt:`` are a single mapping).
+    The id matches what :func:`resolve_component_domain` reconstructs,
+    so the parser and writer attribute the same id to the same instance.
+    Shared by the inline-``on_*`` and component-action-field passes so
+    the instance-walk lives in one place.
+    """
     if not isinstance(root, dict):
-        return []
-    out: list[ParsedAutomation] = []
+        return
     for domain, section in root.items():
-        if domain not in _component_trigger_domains():
+        if isinstance(section, list):
+            for idx, instance in enumerate(section):
+                if isinstance(instance, dict):
+                    yield str(domain), instance, str(instance.get("id") or f"{domain}_{idx}")
+        elif isinstance(section, dict):
+            yield str(domain), section, singleton_component_id(section, str(domain))
+
+
+def _parse_inline_component_triggers(root: Any) -> list[ParsedAutomation]:
+    """Walk component instances for inline ``on_*:`` handlers."""
+    trigger_domains = _component_trigger_domains()
+    out: list[ParsedAutomation] = []
+    for domain, instance, comp_id in _iter_component_instances(root):
+        if domain not in trigger_domains:
             continue
-        if not isinstance(section, list):
+        out.extend(_parse_instance_triggers(domain, instance, comp_id))
+    return out
+
+
+# Per-``<domain>.<platform>`` set of ``type: trigger`` action-list field
+# keys, read from the component bodies on first use (process cache).
+_ACTION_FIELD_INDEX: dict[str, frozenset[str]] = {}
+
+
+def _component_action_fields(catalog_id: str) -> frozenset[str]:
+    """
+    Return the ``type: trigger`` action-list field keys for *catalog_id*.
+
+    Reads the component body's top-level ``config_entries`` (the same
+    JSON the components controller serves) once per id. Empty when the
+    body is absent or carries no such field.
+    """
+    cached = _ACTION_FIELD_INDEX.get(catalog_id)
+    if cached is not None:
+        return cached
+    fields: set[str] = set()
+    if not is_unsafe_catalog_id(catalog_id):
+        try:
+            raw = resources.files(_COMPONENTS_PACKAGE).joinpath(f"{catalog_id}.json").read_bytes()
+        except FileNotFoundError:
+            # Absent body — the expected "component has no shipped catalog
+            # entry" case. Only this is swallowed: a real read error or a
+            # missing definitions package (ModuleNotFoundError — a packaging
+            # defect that would otherwise silently disable the whole feature
+            # process-wide via the empty-set cache) propagates instead.
+            raw = b""
+        if raw:
+            body = json_loads(raw)
+            for entry in body.get("config_entries") or []:
+                if isinstance(entry, dict) and entry.get("type") == "trigger":
+                    key = entry.get("key")
+                    if isinstance(key, str):
+                        fields.add(key)
+    frozen = frozenset(fields)
+    _ACTION_FIELD_INDEX[catalog_id] = frozen
+    return frozen
+
+
+def _parse_component_action_fields(root: Any) -> list[ParsedAutomation]:
+    """
+    Emit each ``type: trigger`` action-list config field on a component.
+
+    Cover ``open_action`` / ``close_action`` / ``stop_action``, climate
+    ``*_action``, … are bare action lists keyed on the field name — a
+    trigger-less automation parallel to ``script:`` / ``api.actions:``.
+    Reuses the shared instance walk and the same body decomposition as
+    inline ``on_*`` handlers (``trigger_id`` is ``None`` — no trigger).
+    """
+    out: list[ParsedAutomation] = []
+    for domain, instance, comp_id in _iter_component_instances(root):
+        # Catalog id mirrors the sync's: ``<domain>.<platform>`` for a
+        # platform component (``cover: - platform: feedback``), the bare
+        # ``<domain>`` for a single-mapping hub (``opentherm:``).
+        platform = instance.get("platform")
+        catalog_id = f"{domain}.{platform}" if platform else domain
+        fields = _component_action_fields(catalog_id)
+        if not fields:
             continue
-        for idx, instance in enumerate(section):
-            if not isinstance(instance, dict):
+        comp_name = str(instance.get("name") or comp_id)
+        for key, body in list(instance.items()):
+            if key not in fields:
                 continue
-            comp_id = instance.get("id") or f"{domain}_{idx}"
-            comp_name = instance.get("name") or comp_id
-            for key, body in list(instance.items()):
-                if not key.startswith("on_"):
-                    continue
-                trigger = catalog.trigger_by_id(f"{domain}.{key}")
-                if trigger is None:
-                    # Not a known component trigger — skip rather
-                    # than surface as a parse error. Component
-                    # schemas occasionally carry ``on_*`` keys that
-                    # are config values rather than automations
-                    # (e.g. legacy aliases). The catalog is the
-                    # source of truth.
-                    continue
-                out.extend(
-                    _parse_one_inline_trigger(
-                        instance,
-                        comp_id=str(comp_id),
-                        comp_name=str(comp_name),
-                        key=key,
-                        body=body,
-                        trigger=trigger,
-                    )
+            from_line, to_line = _key_range(instance, key)
+            tree, error = _safe_tree(
+                partial(_decompose_trigger_body, body, trigger_id=None),
+                trigger_id=None,
+            )
+            out.append(
+                ParsedAutomation(
+                    location=ComponentActionFieldLocation(component_id=comp_id, field=key),
+                    label=f"{comp_name} → {_pretty_name(key)}",
+                    automation=tree,
+                    from_line=from_line,
+                    to_line=to_line,
+                    raw_yaml=_dump_slice({key: body}),
+                    error=error,
                 )
+            )
+    return out
+
+
+def _parse_instance_triggers(
+    domain: str,
+    instance: dict,
+    comp_id: str,
+) -> list[ParsedAutomation]:
+    """Emit every recognised inline ``on_*:`` handler on one component instance."""
+    comp_name = str(instance.get("name") or comp_id)
+    out: list[ParsedAutomation] = []
+    for key, body in list(instance.items()):
+        if not key.startswith("on_"):
+            continue
+        trigger = catalog.trigger_by_id(f"{domain}.{key}")
+        if trigger is None:
+            # Not a known component trigger — skip rather than surface
+            # as a parse error. Component schemas occasionally carry
+            # ``on_*`` keys that are config values rather than
+            # automations (e.g. legacy aliases). The catalog is the
+            # source of truth.
+            continue
+        out.extend(
+            _parse_one_inline_trigger(
+                instance,
+                comp_id=comp_id,
+                comp_name=comp_name,
+                key=key,
+                body=body,
+                trigger=trigger,
+            )
+        )
     return out
 
 
@@ -481,13 +628,16 @@ def _parse_light_effects(root: Any) -> list[ParsedAutomation]:
     return out
 
 
-def _decompose_trigger_body(body: Any, *, trigger_id: str) -> AutomationTree:
+def _decompose_trigger_body(body: Any, *, trigger_id: str | None) -> AutomationTree:
     """
     Build an :class:`AutomationTree` from a trigger handler's body.
 
     Accepts three YAML shortcut forms that all collapse to the same
     tree: bare action list (``on_press: - action: ...``), single
     bare action (``on_press: action: ...``), explicit ``then:``.
+
+    ``trigger_id`` is ``None`` for trigger-less action-list config
+    fields (cover ``open_action`` …); the tree then carries no trigger.
     """
     if isinstance(body, dict):
         return _decompose_trigger_mapping(body, trigger_id=trigger_id)
@@ -495,7 +645,7 @@ def _decompose_trigger_body(body: Any, *, trigger_id: str) -> AutomationTree:
     return AutomationTree(trigger_id=trigger_id, trigger_params={}, actions=actions)
 
 
-def _decompose_trigger_mapping(body: dict[str, Any], *, trigger_id: str) -> AutomationTree:
+def _decompose_trigger_mapping(body: dict[str, Any], *, trigger_id: str | None) -> AutomationTree:
     """
     Decompose one mapping-form trigger handler (params + ``then:``).
 
@@ -669,7 +819,10 @@ def _render_value(value: Any) -> Any:
         return {k: _render_value(v) for k, v in value.items()}
     if isinstance(value, list):
         return [_render_value(v) for v in value]
-    return value
+    # ruamel round-trip mode wraps floats in ScalarFloat (a float subclass);
+    # orjson serialises int/bool subclasses but refuses float subclasses, so
+    # coerce to a plain float for the wire.
+    return float(value) if isinstance(value, ScalarFloat) else value
 
 
 def _render_params(value: Any) -> Any:

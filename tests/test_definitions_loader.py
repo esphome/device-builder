@@ -26,6 +26,7 @@ from esphome_device_builder.definitions import (
     load_board_catalog,
     load_board_index,
     load_featured_components_index,
+    load_pin_registry_modes_index,
 )
 from esphome_device_builder.models import (
     BoardCatalogIndex,
@@ -180,6 +181,23 @@ def test_build_from_manifests_strict_raises_on_broken(
         build_board_catalog_from_manifests(strict=True)
 
 
+def test_build_from_manifests_strict_raises_on_missing_description(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A manifest omitting the required ``description`` fails the strict build."""
+    fake_boards = tmp_path / "boards"
+    (fake_boards / "no-desc").mkdir(parents=True)
+    (fake_boards / "no-desc" / "manifest.yaml").write_text(
+        "id: no-desc\nname: No Description\nesphome:\n  platform: esp32\n  board: esp32dev\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(defs, "_BOARDS_DIR", fake_boards)
+    monkeypatch.setattr(defs, "_GENERIC_DIR", fake_boards / "_generic")
+
+    with pytest.raises(KeyError):
+        build_board_catalog_from_manifests(strict=True)
+
+
 def test_load_board_index_warns_when_json_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -232,6 +250,58 @@ def test_load_board_index_handles_corrupt_json(
         for rec in caplog.records
         if rec.levelname == "ERROR"
     )
+
+
+def test_load_pin_registry_modes_warns_when_json_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Missing artefact returns an empty map (frontend then shows every flag)."""
+    monkeypatch.setattr(defs, "_PIN_REGISTRY_MODES_INDEX_JSON", tmp_path / "missing.index.json")
+
+    with caplog.at_level(logging.WARNING):
+        result = load_pin_registry_modes_index()
+
+    assert result == {}
+    assert any("pin_registry_modes.index.json" in rec.getMessage() for rec in caplog.records)
+
+
+def test_load_pin_registry_modes_reads_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``load_pin_registry_modes_index`` deserialises the registry -> modes map."""
+    json_path = tmp_path / "pin_registry_modes.index.json"
+    json_path.write_bytes(orjson.dumps({"pca9554": ["input", "output"]}))
+    monkeypatch.setattr(defs, "_PIN_REGISTRY_MODES_INDEX_JSON", json_path)
+
+    assert load_pin_registry_modes_index() == {"pca9554": ["input", "output"]}
+
+
+def test_load_pin_registry_modes_handles_corrupt_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Malformed artefact returns an empty map instead of crashing startup."""
+    json_path = tmp_path / "pin_registry_modes.index.json"
+    json_path.write_bytes(b"{not valid json")
+    monkeypatch.setattr(defs, "_PIN_REGISTRY_MODES_INDEX_JSON", json_path)
+
+    with caplog.at_level(logging.ERROR):
+        result = load_pin_registry_modes_index()
+
+    assert result == {}
+
+
+def test_load_pin_registry_modes_tolerates_unexpected_shapes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-mapping payload yields {}; entries with non-list values are dropped."""
+    json_path = tmp_path / "pin_registry_modes.index.json"
+    monkeypatch.setattr(defs, "_PIN_REGISTRY_MODES_INDEX_JSON", json_path)
+
+    json_path.write_bytes(orjson.dumps([1, 2, 3]))
+    assert load_pin_registry_modes_index() == {}
+
+    json_path.write_bytes(orjson.dumps({"pca9554": ["input", 5], "bad": "nope"}))
+    assert load_pin_registry_modes_index() == {"pca9554": ["input"]}
 
 
 def test_load_board_body_refuses_traversal_id(caplog: pytest.LogCaptureFixture) -> None:

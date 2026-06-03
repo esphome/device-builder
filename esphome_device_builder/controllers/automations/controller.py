@@ -25,6 +25,7 @@ from ...models.automations import (
     AvailableComponentInstance,
     AvailableScript,
     AvailableScriptParameter,
+    ComponentActionFieldLocation,
     ComponentOnLocation,
     DeviceOnLocation,
     IntervalLocation,
@@ -312,11 +313,12 @@ def _scope_from_yaml(text: str) -> _ScopedYaml:
         scripts = _scope_scripts(data["script"])
     for domain in set(data.keys()):
         section = data.get(domain)
-        if not isinstance(section, list):
-            continue
-        domains.update(_qualified_domains(domain, section))
-        if domain in component_domains:
-            devices.extend(_scope_component_instances(domain, section))
+        if isinstance(section, list):
+            domains.update(_qualified_domains(domain, section))
+            if domain in component_domains:
+                devices.extend(_scope_component_instances(domain, section))
+        elif isinstance(section, dict) and domain in component_domains:
+            devices.extend(_scope_singleton_instance(domain, section))
     return _ScopedYaml(domains=domains, scripts=scripts, devices=devices)
 
 
@@ -373,17 +375,32 @@ def _scope_component_instances(
             continue
         platform = item.get("platform")
         catalog_id = f"{domain}.{platform}" if platform else domain
-        out.append(
-            AvailableComponentInstance(
-                component_id=catalog_id,
-                id=str(comp_id),
-                name=str(item["name"]) if "name" in item else None,
-            ),
-        )
+        out.append(_component_instance(catalog_id, str(comp_id), item))
     return out
 
 
-def _decode_location(raw: dict) -> AutomationLocation:
+def _scope_singleton_instance(
+    domain: str,
+    section: dict,
+) -> list[AvailableComponentInstance]:
+    """Surface a flat singleton component (``sun:`` / ``mqtt:``) as a targetable instance."""
+    return [_component_instance(domain, parsing.singleton_component_id(section, domain), section)]
+
+
+def _component_instance(
+    component_id: str,
+    id_: str,
+    section: dict,
+) -> AvailableComponentInstance:
+    """Build one ``AvailableComponentInstance``, carrying ``name:`` only when declared."""
+    return AvailableComponentInstance(
+        component_id=component_id,
+        id=id_,
+        name=str(section["name"]) if "name" in section else None,
+    )
+
+
+def _decode_location(raw: dict) -> AutomationLocation:  # noqa: PLR0911 — one return per kind
     """Convert a wire-shape ``{kind: ...}`` dict into a typed location."""
     if not isinstance(raw, dict) or "kind" not in raw:
         msg = f"location must carry a 'kind' discriminator; got {raw!r}"
@@ -398,6 +415,8 @@ def _decode_location(raw: dict) -> AutomationLocation:
         return IntervalLocation.from_dict(raw)
     if kind == "component_on":
         return ComponentOnLocation.from_dict(raw)
+    if kind == "component_action":
+        return ComponentActionFieldLocation.from_dict(raw)
     if kind == "device_on":
         return DeviceOnLocation.from_dict(raw)
     if kind == "light_effect":

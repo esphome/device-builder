@@ -656,6 +656,8 @@ def _make_controller(catalog: ComponentCatalog, tmp_path: Any) -> DevicesControl
     ctrl = DevicesController.__new__(DevicesController)
     ctrl._db = MagicMock()
     ctrl.state = DevicesState()
+    ctrl._yaml_write_locks = {}
+    ctrl._db.version_history = None
     ctrl._db.settings.rel_path = lambda name: tmp_path / name
     ctrl._db.components = catalog
     ctrl._scanner = MagicMock()

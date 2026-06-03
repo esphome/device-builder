@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import ANY, AsyncMock, MagicMock
 
 import pytest
 
@@ -37,6 +37,9 @@ from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.helpers.build_size import BuildDirSignal, BuildSizeRefreshResult
 from esphome_device_builder.helpers.event_bus import Event
 from esphome_device_builder.models import (
+    AdoptableDevice,
+    ComponentCatalogEntry,
+    ComponentCategory,
     ConfigEntry,
     ConfigEntryType,
     Device,
@@ -534,6 +537,101 @@ async def test_add_component_missing_required_field_raises(
 
 
 # ---------------------------------------------------------------------------
+# add_component draft vs disk
+# ---------------------------------------------------------------------------
+
+
+def _stub_components(controller: object) -> None:
+    """Wire ``_db.components`` to a no-required-fields component."""
+    component = MagicMock()
+    component.config_entries = []
+    controller._db.components = MagicMock()
+    controller._db.components.get_component = AsyncMock(return_value=component)
+
+
+async def test_add_component_with_draft_merges_draft_and_skips_persist(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A passed ``yaml`` draft is the merge base and disk is left untouched."""
+    controller = make_controller(tmp_path)
+    _stub_components(controller)
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.add_component.merge_component_yaml",
+        lambda existing, component, fields: f"{existing}# added\n",
+    )
+    persist = AsyncMock()
+    monkeypatch.setattr(controller, "_persist_yaml_mutation", persist)
+    (tmp_path / "kitchen.yaml").write_text("DISK\n", encoding="utf-8")
+
+    resp = await controller.add_component(
+        configuration="kitchen.yaml",
+        component_id="i2c",
+        fields={},
+        yaml="DRAFT\n",
+    )
+
+    assert resp.yaml == "DRAFT\n# added\n"
+    persist.assert_not_awaited()
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == "DISK\n"
+
+
+async def test_add_component_without_draft_reads_disk_and_persists(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Omitting ``yaml`` keeps the legacy disk-read + persist behaviour."""
+    controller = make_controller(tmp_path)
+    _stub_components(controller)
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.add_component.merge_component_yaml",
+        lambda existing, component, fields: f"{existing}# added\n",
+    )
+    persist = AsyncMock()
+    monkeypatch.setattr(controller, "_persist_yaml_mutation", persist)
+    (tmp_path / "kitchen.yaml").write_text("DISK\n", encoding="utf-8")
+
+    resp = await controller.add_component(
+        configuration="kitchen.yaml",
+        component_id="i2c",
+        fields={},
+    )
+
+    assert resp.yaml == "DISK\n# added\n"
+    persist.assert_awaited_once_with("kitchen.yaml", "DISK\n# added\n", message=ANY)
+
+
+async def test_add_component_into_broken_draft_appends_through_real_merge(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A broken draft survives the real (un-stubbed) command merge, no persist."""
+    controller = make_controller(tmp_path)
+    component = ComponentCatalogEntry(
+        id="i2c", name="i2c", description="", category=ComponentCategory.BUS
+    )
+    controller._db.components = MagicMock()
+    controller._db.components.get_component = AsyncMock(return_value=component)
+    persist = AsyncMock()
+    monkeypatch.setattr(controller, "_persist_yaml_mutation", persist)
+
+    broken = 'esphome:\n  name: "kitch\nsensor:\n  - platform:\n'
+    resp = await controller.add_component(
+        configuration="kitchen.yaml",
+        component_id="i2c",
+        fields={"sda": "GPIO21", "scl": "GPIO22"},
+        yaml=broken,
+    )
+
+    assert broken in resp.yaml
+    assert "i2c:\n  sda: GPIO21\n  scl: GPIO22\n" in resp.yaml
+    persist.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
 # _on_ip_change short-circuit
 # ---------------------------------------------------------------------------
 
@@ -801,6 +899,48 @@ def test_on_scan_change_removed_revisits_importables(
     controller._on_scan_change(ScanChange.REMOVED, device)
 
     assert ("revisit_all_importables",) in controller._state_monitor.calls
+
+
+def _adoptable(name: str) -> AdoptableDevice:
+    return AdoptableDevice(
+        name=name,
+        friendly_name=name,
+        package_import_url="github://foo/bar.yaml",
+        project_name="foo.bar",
+        project_version="1.0",
+        network="wifi",
+        ignored=False,
+    )
+
+
+def test_on_scan_change_added_prunes_stale_importable_row(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    capture_devices_events: CaptureDevicesEventsFactory,
+) -> None:
+    """A discovered device becoming configured drops its importable row and fires REMOVED."""
+    controller = make_controller(tmp_path, with_state_monitor=True)
+    controller.state.import_result["kitchen"] = _adoptable("kitchen")
+    captured = capture_devices_events(controller, EventType.IMPORTABLE_DEVICE_REMOVED)
+
+    controller._on_scan_change(ScanChange.ADDED, _device("kitchen"))
+
+    assert "kitchen" not in controller.state.import_result
+    assert [e.data["name"] for e in captured] == ["kitchen"]
+
+
+def test_on_scan_change_added_without_importable_row_is_silent(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    capture_devices_events: CaptureDevicesEventsFactory,
+) -> None:
+    """ADDED for a device with no importable row fires no spurious REMOVED."""
+    controller = make_controller(tmp_path, with_state_monitor=True)
+    captured = capture_devices_events(controller, EventType.IMPORTABLE_DEVICE_REMOVED)
+
+    controller._on_scan_change(ScanChange.ADDED, _device("kitchen"))
+
+    assert captured == []
 
 
 # ---------------------------------------------------------------------------

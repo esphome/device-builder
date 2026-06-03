@@ -36,15 +36,21 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import os
+import subprocess
+import sys
 import tarfile
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestServer
+from esphome.core import CORE
 
 from esphome_device_builder.api.ws import init_ws_app
 from esphome_device_builder.controllers.remote_build import (
@@ -57,12 +63,17 @@ from esphome_device_builder.controllers.remote_build.peer_link import (
 )
 from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.helpers.peer_link_identity import PeerLinkIdentityStore
+from esphome_device_builder.helpers.remote_artifacts_materialise import (
+    materialise_remote_artifacts,
+)
+from esphome_device_builder.helpers.remote_build_layout import parse_from_configuration
 from esphome_device_builder.models import (
     EventType,
     FirmwareJob,
     JobLifecycleData,
     JobStatus,
     JobType,
+    QueueStatus,
 )
 
 from ..conftest import (
@@ -70,6 +81,7 @@ from ..conftest import (
     _CapturedEvents,
     capture_events,
     make_remote_build_controller,
+    wire_firmware_remote_peer_api_mocks,
 )
 
 
@@ -376,19 +388,24 @@ def make_remote_peer_job(
     )
 
 
-def make_real_bundle(*, configuration_filename: str = "kitchen.yaml") -> bytes:
+def make_real_bundle(
+    *,
+    configuration_filename: str = "kitchen.yaml",
+    yaml_body: bytes = b"esphome:\n  name: kitchen\n",
+) -> bytes:
     """
     Build a minimal-but-valid esphome bundle the upstream extractor accepts.
 
     Emits a ``manifest.json`` + the referenced YAML member; skips
     :class:`BundleBuilder` so the test doesn't need a real
-    ``CORE.config_dir`` / ``CORE.config_path`` setup.
+    ``CORE.config_dir`` / ``CORE.config_path`` setup. Pass *yaml_body*
+    to drive a real ``esphome compile`` against a platform-specific
+    config (the LibreTiny e2e ships a ``bk72xx`` board here).
     """
     manifest = {
         "manifest_version": 1,
         "config_filename": configuration_filename,
     }
-    yaml_body = b"esphome:\n  name: kitchen\n"
     members: list[tuple[str, bytes]] = [
         ("manifest.json", json.dumps(manifest).encode("utf-8")),
         (configuration_filename, yaml_body),
@@ -400,6 +417,70 @@ def make_real_bundle(*, configuration_filename: str = "kitchen.yaml") -> bytes:
             info.size = len(data)
             tar.addfile(info, io.BytesIO(data))
     return buf.getvalue()
+
+
+def run_esphome_compile(
+    yaml_path: Path, *, env: dict[str, str]
+) -> subprocess.CompletedProcess[str]:
+    """Run ``esphome compile`` on *yaml_path* with *env*'s ESPHOME_DATA_DIR override."""
+    return subprocess.run(  # noqa: S603 — fixed argv list, no shell, test-only invocation
+        [sys.executable, "-m", "esphome", "compile", str(yaml_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+        close_fds=False,
+        env=env,
+    )
+
+
+async def run_offload_compile_round_trip(
+    instances: PairedInstances,
+    *,
+    job_id: str,
+    configuration_filename: str,
+    yaml_body: bytes,
+) -> tuple[Path, Path]:
+    """Submit + real-compile *yaml_body* on the receiver, download + materialise on the offloader.
+
+    Returns ``(receiver_data_dir, offloader_build_path)``. Owns the
+    submit -> compile -> lifecycle -> download -> materialise
+    orchestration the platform-specific compile e2es share; callers
+    assert on the produced artifacts. The compile + materialise run via
+    ``asyncio.to_thread`` so their blocking I/O stays off the loop.
+    """
+    await instances.wait_until_session_opened()
+    created_jobs = wire_receiver_firmware_recorder(instances)
+    state_changes = capture_events(instances.offloader_bus, EventType.OFFLOADER_JOB_STATE_CHANGED)
+
+    handle = instances.offloader.state.peer_link_clients[instances.pin_sha256]
+    ack = await handle.client.submit_job(
+        job_id=job_id,
+        configuration_filename=configuration_filename,
+        target="compile",
+        bundle_bytes=make_real_bundle(
+            configuration_filename=configuration_filename, yaml_body=yaml_body
+        ),
+    )
+    assert ack["accepted"] is True
+    receiver_job = created_jobs[0]
+
+    remote_build_path = parse_from_configuration(receiver_job.configuration)
+    assert remote_build_path is not None
+    data_dir = remote_build_path.data_dir(Path(CORE.data_dir))
+    yaml_path = Path(instances.receiver._db.settings.config_dir) / receiver_job.configuration
+    result = await asyncio.to_thread(
+        run_esphome_compile, yaml_path, env={**os.environ, "ESPHOME_DATA_DIR": str(data_dir)}
+    )
+    assert result.returncode == 0, (
+        f"compile failed:\nstdout:\n{result.stdout[-4000:]}\nstderr:\n{result.stderr[-2000:]}"
+    )
+
+    await drive_remote_job_to_completed(instances, receiver_job, state_changes)
+    packed = await handle.client.download_artifacts(job_id=job_id)
+    build_path = await asyncio.to_thread(
+        materialise_remote_artifacts, packed.tarball, configuration_filename
+    )
+    return data_dir, build_path
 
 
 async def make_and_seed_remote_peer_job(
@@ -434,3 +515,81 @@ async def make_and_seed_remote_peer_job(
     # before the test fires the next event.
     await asyncio.sleep(0)
     return job
+
+
+def wire_receiver_firmware_recorder(instances: PairedInstances) -> list[FirmwareJob]:
+    """Wire receiver's ``db.firmware`` to record submitted jobs.
+
+    The receiver-side ``_create_job`` builds a :class:`FirmwareJob`
+    carrying every field the production controller's dispatch
+    sets (configuration / job_type / remote_peer / remote_job_id);
+    ``_enqueue`` resolves with ``accepted=True`` so the
+    ``submit_job_ack`` lands on the success branch. The recorded
+    list lets the test mutate the job's ``status`` from
+    ``QUEUED`` → ``COMPLETED`` after firing the lifecycle events
+    so the download-side ``_find_remote_job`` accepts it.
+
+    ``firmware.state.jobs`` is a real dict (not a mock) so the
+    receiver-side download path's ``firmware.state.jobs.values()``
+    iteration finds the recorded job.
+    """
+    created_jobs: list[FirmwareJob] = []
+    receiver_jobs: dict[str, FirmwareJob] = {}
+
+    def _create_job(
+        configuration: str,
+        job_type: JobType,
+        *,
+        remote_peer: str = "",
+        remote_job_id: str = "",
+        **_: Any,
+    ) -> FirmwareJob:
+        job = FirmwareJob(
+            job_id=f"rcv-{len(created_jobs)}",
+            configuration=configuration,
+            job_type=job_type,
+            status=JobStatus.QUEUED,
+            remote_peer=remote_peer,
+            remote_job_id=remote_job_id,
+        )
+        created_jobs.append(job)
+        receiver_jobs[job.job_id] = job
+        return job
+
+    firmware = instances.receiver._db.firmware
+    firmware._create_job = MagicMock(side_effect=_create_job)
+    firmware._enqueue = AsyncMock(side_effect=lambda job: job)
+    wire_firmware_remote_peer_api_mocks(firmware, receiver_jobs)
+    # ``_on_firmware_queue_transition`` (registered on every
+    # JOB_QUEUED / JOB_STARTED / terminal event) reads
+    # ``compile_queue_status()`` and tuple-unpacks the result.
+    # The harness's ``MagicMock`` firmware controller returns a
+    # MagicMock by default — unpacks as zero values and trips a
+    # ValueError. Pin a sane tuple so the listener runs cleanly
+    # rather than spamming the test log with swallowed
+    # exceptions on every fire().
+    firmware.compile_queue_status = MagicMock(
+        return_value=QueueStatus(idle=True, running=False, queue_depth=0)
+    )
+    return created_jobs
+
+
+async def drive_remote_job_to_completed(
+    instances: PairedInstances,
+    job: FirmwareJob,
+    state_changes: _CapturedEvents,
+) -> None:
+    """Drive *job* QUEUED → STARTED → COMPLETED on the receiver bus and flip it COMPLETED.
+
+    Awaits the offloader's ``running`` then ``completed``
+    ``OFFLOADER_JOB_STATE_CHANGED`` via *state_changes* (a
+    :func:`capture_events` handle), then sets ``job.status`` so the
+    download side's ``_find_remote_job`` accepts it for
+    ``download_artifacts``.
+    """
+    instances.receiver_bus.fire(EventType.JOB_QUEUED, JobLifecycleData(job=job))
+    instances.receiver_bus.fire(EventType.JOB_STARTED, JobLifecycleData(job=job))
+    await state_changes.wait_for_status("running")
+    instances.receiver_bus.fire(EventType.JOB_COMPLETED, JobLifecycleData(job=job))
+    await state_changes.wait_for_status("completed")
+    job.status = JobStatus.COMPLETED

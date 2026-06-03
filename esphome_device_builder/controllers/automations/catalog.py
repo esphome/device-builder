@@ -114,6 +114,12 @@ def _slim_actions() -> list[AutomationActionIndex]:
 
 
 @cache
+def _editable_actions() -> list[AutomationActionIndex]:
+    """Slim actions with ``form_editable`` set; feeds the picker + ``_ACTION_IDS``."""
+    return [a for a in _slim_actions() if a.form_editable]
+
+
+@cache
 def _slim_conditions() -> list[AutomationConditionIndex]:
     return _build_slim("conditions", AutomationConditionIndex)
 
@@ -132,7 +138,7 @@ def _slim_filters() -> list[FilterIndex]:
 # ``frozenset.__contains__`` so the hot path is one C-level
 # dispatch rather than a lambda + cached function call.
 _TRIGGER_IDS: frozenset[str] = frozenset(t.id for t in _slim_triggers())
-_ACTION_IDS: frozenset[str] = frozenset(a.id for a in _slim_actions())
+_ACTION_IDS: frozenset[str] = frozenset(a.id for a in _editable_actions())
 _CONDITION_IDS: frozenset[str] = frozenset(c.id for c in _slim_conditions())
 _LIGHT_EFFECT_IDS: frozenset[str] = frozenset(e.id for e in _slim_light_effects())
 _FILTER_IDS: frozenset[str] = frozenset(f.id for f in _slim_filters())
@@ -192,7 +198,7 @@ def all_triggers() -> list[AutomationTriggerIndex]:
 
 def all_actions() -> list[AutomationActionIndex]:
     """Return the slim action catalog (picker fields, no config_entries)."""
-    return list(_slim_actions())
+    return list(_editable_actions())
 
 
 def all_conditions() -> list[AutomationConditionIndex]:
@@ -321,7 +327,7 @@ def triggers_for_domains(domains: Iterable[str]) -> list[AutomationTriggerIndex]
 
 def actions_for_domains(domains: Iterable[str]) -> list[AutomationActionIndex]:
     """``core`` actions + every action whose ``domain`` is in *domains*."""
-    return _filter_by_domain_slim(_slim_actions(), set(domains))
+    return _filter_by_domain_slim(_editable_actions(), set(domains))
 
 
 def conditions_for_domains(domains: Iterable[str]) -> list[AutomationConditionIndex]:

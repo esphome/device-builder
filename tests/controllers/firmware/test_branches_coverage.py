@@ -32,6 +32,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from esphome_device_builder.controllers.firmware import FirmwareController, runner
+from esphome_device_builder.controllers.firmware._state import Lane
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import (
     ErrorCode,
@@ -62,6 +64,21 @@ def _job(
         new_name=new_name,
         created_at=created_at,
     )
+
+
+def _spy_upload_blocked(controller: FirmwareController) -> asyncio.Event:
+    """Signal the returned Event the first time the gate finds an upload blocked."""
+    parked = asyncio.Event()
+    real = controller.state.upload_blocked
+
+    def _wrapped(job: FirmwareJob) -> bool:
+        blocked = real(job)
+        if blocked:
+            parked.set()
+        return blocked
+
+    controller.state.upload_blocked = _wrapped  # type: ignore[method-assign]
+    return parked
 
 
 # ---------------------------------------------------------------------------
@@ -175,9 +192,9 @@ async def test_run_queue_skips_cancelled_jobs_without_spawning(
     spawn a real subprocess for a job the user already gave up on.
     """
     controller = firmware_controller_factory()
-    controller.state.queue = asyncio.Queue()
+    controller.state.compile_lane.queue = asyncio.Queue()
     cancelled = _job("j1", "kitchen.yaml", JobType.COMPILE, status=JobStatus.CANCELLED)
-    await controller.state.queue.put(cancelled)
+    await controller.state.compile_lane.queue.put(cancelled)
 
     spawned = False
 
@@ -191,13 +208,39 @@ async def test_run_queue_skips_cancelled_jobs_without_spawning(
     # Give the runner a chance to dequeue + skip + return for next get.
     for _ in range(20):
         await asyncio.sleep(0)
-        if controller.state.queue.empty():
+        if controller.state.compile_lane.queue.empty():
             break
     runner.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await runner
 
     assert spawned is False
+
+
+async def test_run_queue_cancels_sibling_lane_when_one_raises(
+    firmware_controller_factory: FirmwareControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A lane consumer raising cancels and drains its sibling, not orphans it."""
+    controller = firmware_controller_factory()
+    sibling_cancelled = asyncio.Event()
+
+    async def _fake_run_lane(_ctrl: FirmwareController, lane: Lane) -> None:
+        if lane is controller.state.compile_lane:
+            msg = "compile lane blew up"
+            raise RuntimeError(msg)
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            sibling_cancelled.set()
+            raise
+
+    monkeypatch.setattr(runner, "run_lane", _fake_run_lane)
+
+    with pytest.raises(RuntimeError, match="compile lane blew up"):
+        await controller._run_queue()
+
+    assert sibling_cancelled.is_set()
 
 
 async def test_terminate_current_process_no_op_when_no_process(
@@ -213,11 +256,11 @@ async def test_terminate_current_process_no_op_when_no_process(
     against ``None`` would surface as a hard error here.
     """
     controller = firmware_controller_factory()
-    controller.state.current_process = None
-    controller.state.current_job = None
+    controller.state.compile_lane.current_process = None
+    controller.state.compile_lane.current_job = None
 
     # Should return without raising; no process to terminate.
-    await controller._terminate_current_process()
+    await controller._terminate_current_process(controller.state.compile_lane)
 
 
 # ---------------------------------------------------------------------------
@@ -286,3 +329,173 @@ def test_prune_history_collapses_primary_jobs_to_newest_per_configuration(
 
     surviving_ids = set(controller.state.jobs.keys())
     assert surviving_ids == {"new"}
+
+
+def test_prune_history_keeps_compile_and_upload_for_same_configuration(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """An install's COMPILE and UPLOAD share a config but both survive prune.
+
+    Dedup keys on (configuration, type), so the build log (COMPILE) stays in
+    history alongside the flash log (UPLOAD); collapsing per-config alone
+    would drop whichever finished first.
+    """
+    base = datetime(2026, 5, 1, tzinfo=UTC)
+    compile_job = _job(
+        "c",
+        "kitchen.yaml",
+        JobType.COMPILE,
+        status=JobStatus.COMPLETED,
+        created_at=base.isoformat(),
+    )
+    upload_job = _job(
+        "u",
+        "kitchen.yaml",
+        JobType.UPLOAD,
+        status=JobStatus.COMPLETED,
+        created_at=(base + timedelta(minutes=1)).isoformat(),
+    )
+    controller = firmware_controller_factory(compile_job, upload_job, with_settings=False)
+
+    controller._prune_history()
+
+    assert set(controller.state.jobs.keys()) == {"c", "u"}
+
+
+async def test_upload_blocked_by_active_reset_or_same_config_clean(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """An UPLOAD is gated while a reset (any) or a same-config clean is active."""
+    controller = firmware_controller_factory(with_settings=False)
+    upload = _job("u", "kitchen.yaml", JobType.UPLOAD, status=JobStatus.QUEUED)
+    assert controller.state.upload_blocked(upload) is False
+
+    reset = _job("r", "", JobType.RESET_BUILD_ENV, status=JobStatus.RUNNING)
+    controller.state.jobs[reset.job_id] = reset
+    assert controller.state.upload_blocked(upload) is True
+    reset.status = JobStatus.COMPLETED  # terminal — no longer blocks
+    assert controller.state.upload_blocked(upload) is False
+
+    same = _job("c1", "kitchen.yaml", JobType.CLEAN, status=JobStatus.QUEUED)
+    other = _job("c2", "garage.yaml", JobType.CLEAN, status=JobStatus.RUNNING)
+    controller.state.jobs[same.job_id] = same
+    controller.state.jobs[other.job_id] = other
+    assert controller.state.upload_blocked(upload) is True  # same-config clean blocks
+    same.status = JobStatus.CANCELLED
+    assert controller.state.upload_blocked(upload) is False  # only other-config clean left
+    # A compile is never gated — compile-lane ops serialize behind the clean/reset.
+    compile_job = _job("c", "kitchen.yaml", JobType.COMPILE, status=JobStatus.QUEUED)
+    assert controller.state.upload_blocked(compile_job) is False
+
+
+async def test_upload_lane_holds_upload_until_build_gate_clears(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """The upload lane holds an upload while a reset is active, then runs it once cleared."""
+    controller = firmware_controller_factory(with_settings=False)
+    reset = _job("r", "", JobType.RESET_BUILD_ENV, status=JobStatus.RUNNING)
+    upload = _job("u", "kitchen.yaml", JobType.UPLOAD, status=JobStatus.QUEUED)
+    controller.state.jobs[reset.job_id] = reset
+    controller.state.jobs[upload.job_id] = upload
+    controller.state.upload_lane.queue.put_nowait(upload)
+
+    held_at_gate = _spy_upload_blocked(controller)
+    executed = asyncio.Event()
+
+    async def _spy_execute(_job: FirmwareJob, _lane: Lane) -> None:
+        executed.set()
+
+    controller._execute_job = _spy_execute  # type: ignore[method-assign]
+
+    runner_task = asyncio.create_task(runner.run_lane(controller, controller.state.upload_lane))
+    try:
+        await asyncio.wait_for(held_at_gate.wait(), timeout=1.0)  # parked at the gate
+        assert not executed.is_set()  # held by the active reset
+
+        reset.status = JobStatus.COMPLETED
+        controller.state.build_gate.set()
+        await asyncio.wait_for(executed.wait(), timeout=1.0)  # released, now runs
+    finally:
+        runner_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await runner_task
+
+
+async def test_upload_lane_holds_upload_behind_same_config_clean(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """The upload lane parks an upload behind a same-config CLEAN, not just a reset.
+
+    Supersede normally cancels a same-config upload before it coexists with a
+    clean, so this gate branch is otherwise hard to reach live.
+    """
+    controller = firmware_controller_factory(with_settings=False)
+    clean = _job("c", "kitchen.yaml", JobType.CLEAN, status=JobStatus.RUNNING)
+    upload = _job("u", "kitchen.yaml", JobType.UPLOAD, status=JobStatus.QUEUED)
+    controller.state.jobs[clean.job_id] = clean
+    controller.state.jobs[upload.job_id] = upload
+    controller.state.upload_lane.queue.put_nowait(upload)
+
+    held_at_gate = _spy_upload_blocked(controller)
+    executed = asyncio.Event()
+
+    async def _spy_execute(_job: FirmwareJob, _lane: Lane) -> None:
+        executed.set()
+
+    controller._execute_job = _spy_execute  # type: ignore[method-assign]
+
+    runner_task = asyncio.create_task(runner.run_lane(controller, controller.state.upload_lane))
+    try:
+        await asyncio.wait_for(held_at_gate.wait(), timeout=1.0)  # parked behind the clean
+        assert not executed.is_set()
+
+        clean.status = JobStatus.COMPLETED
+        controller.state.build_gate.set()
+        await asyncio.wait_for(executed.wait(), timeout=1.0)  # released, now runs
+    finally:
+        runner_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await runner_task
+
+
+async def test_upload_lane_skips_an_upload_cancelled_while_held(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """An upload cancelled while held by the build gate is skipped, not flashed."""
+    controller = firmware_controller_factory(with_settings=False)
+    reset = _job("r", "", JobType.RESET_BUILD_ENV, status=JobStatus.RUNNING)
+    held = _job("u1", "kitchen.yaml", JobType.UPLOAD, status=JobStatus.QUEUED)
+    controller.state.jobs[reset.job_id] = reset
+    controller.state.jobs[held.job_id] = held
+    controller.state.upload_lane.queue.put_nowait(held)
+
+    held_at_gate = _spy_upload_blocked(controller)
+    executed: list[str] = []
+    fresh_ran = asyncio.Event()
+
+    async def _spy_execute(job: FirmwareJob, _lane: Lane) -> None:
+        executed.append(job.job_id)
+        if job.job_id == "u2":
+            fresh_ran.set()
+
+    controller._execute_job = _spy_execute  # type: ignore[method-assign]
+
+    runner_task = asyncio.create_task(runner.run_lane(controller, controller.state.upload_lane))
+    try:
+        await asyncio.wait_for(held_at_gate.wait(), timeout=1.0)  # parked at the gate
+        assert executed == []  # held by the active reset
+
+        # Cancel the held upload, finish the reset, queue a fresh upload, wake.
+        held.status = JobStatus.CANCELLED
+        reset.status = JobStatus.COMPLETED
+        fresh = _job("u2", "garage.yaml", JobType.UPLOAD, status=JobStatus.QUEUED)
+        controller.state.jobs[fresh.job_id] = fresh
+        controller.state.upload_lane.queue.put_nowait(fresh)
+        controller.state.build_gate.set()
+
+        await asyncio.wait_for(fresh_ran.wait(), timeout=1.0)
+        assert "u1" not in executed  # the cancelled held upload was skipped
+    finally:
+        runner_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await runner_task

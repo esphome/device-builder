@@ -79,6 +79,9 @@ async def set_labels(
     def _persist() -> None:
         try:
             set_device_labels(config_dir, configuration, label_ids)
+        except FileNotFoundError as err:
+            # YAML vanished mid-write (racing ``devices/delete``) — surface NOT_FOUND.
+            raise CommandError(ErrorCode.NOT_FOUND, f"Device {configuration!r} not found") from err
         except (TypeError, ValueError) as err:
             # ``set_device_labels`` raises ``TypeError`` for non-string
             # items and ``ValueError`` for unknown label ids; both
@@ -297,5 +300,7 @@ async def edit_friendly_name(
     await controller._validate_rewritten_yaml_or_raise(
         configuration, new_content, action="update friendly name"
     )
-    await controller._persist_yaml_mutation(configuration, new_content)
+    await controller._persist_yaml_mutation(
+        configuration, new_content, message=f"Update friendly name in {configuration}"
+    )
     return {"configuration": configuration, "rewritten": True}

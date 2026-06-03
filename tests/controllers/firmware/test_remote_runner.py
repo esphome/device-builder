@@ -30,6 +30,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from esphome_device_builder.controllers.firmware import remote_runner
+from esphome_device_builder.controllers.firmware._state import Lane
 from esphome_device_builder.controllers.remote_build.peer_link_client import (
     DownloadArtifactsError,
     DownloadArtifactsResult,
@@ -1157,7 +1158,7 @@ async def test_execute_job_routes_remote_source_through_remote_runner(
     _, client = _wire_remote_build(controller)
     job = _make_remote_job()
 
-    runner = asyncio.create_task(controller._execute_job(job))
+    runner = asyncio.create_task(controller._execute_job(job, controller.state.compile_lane))
     await _wait_until_dispatched(client)
     _fire_state(controller, job_id=job.job_id, status="completed")
     await asyncio.wait_for(runner, timeout=2.0)
@@ -1330,7 +1331,7 @@ async def test_firmware_cancel_handler_wakes_remote_runner_via_event(
     # the handler's ``RUNNING`` branch runs.
     controller.state.jobs[job.job_id] = job
     job.status = JobStatus.RUNNING
-    controller.state.current_job = job
+    controller.state.compile_lane.current_job = job
 
     runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
@@ -1665,7 +1666,7 @@ async def test_remote_install_cancel_during_local_upload_finalises_as_cancelled(
     User Stop during the ``esphome upload`` subprocess finalises as CANCELLED.
 
     The runner's ``_tracked_subprocess`` registers the
-    upload spawn with ``controller.state.current_process``, and
+    upload spawn with ``controller.state.compile_lane.current_process``, and
     ``FirmwareController.cancel``'s
     ``_terminate_current_process`` lands SIGTERM on the
     spawned tree. The subprocess exits non-zero (terminated
@@ -1696,9 +1697,9 @@ async def test_remote_install_cancel_during_local_upload_finalises_as_cancelled(
         "sys.stdout.flush(); time.sleep(30)",
     ]
 
-    async def _terminate() -> None:
-        assert controller.state.current_process is not None  # type narrowing
-        controller.state.current_process.terminate()
+    async def _terminate(lane: Lane) -> None:
+        assert lane.current_process is not None  # type narrowing
+        lane.current_process.terminate()
 
     controller._terminate_current_process = _terminate  # type: ignore[method-assign]
     job = _make_remote_install_job()
@@ -1708,11 +1709,11 @@ async def test_remote_install_cancel_during_local_upload_finalises_as_cancelled(
     _fire_state(controller, job_id=job.job_id, status="completed")
 
     # Wait until the subprocess is up.
-    while controller.state.current_process is None:
+    while controller.state.compile_lane.current_process is None:
         await asyncio.sleep(0.01)
 
     _request_remote_cancel(controller, job)
-    await controller._terminate_current_process()
+    await controller._terminate_current_process(controller.state.compile_lane)
     await asyncio.wait_for(runner, timeout=5.0)
 
     assert job.status == JobStatus.CANCELLED
@@ -1753,7 +1754,7 @@ async def test_run_upload_subprocess_cancel_landing_between_pre_check_and_spawn_
 
     terminate_calls: list[None] = []
 
-    async def _terminate() -> None:
+    async def _terminate(_lane: Lane) -> None:
         terminate_calls.append(None)
 
     controller._terminate_current_process = _terminate  # type: ignore[method-assign]

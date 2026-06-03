@@ -135,6 +135,21 @@ class DeviceMetadataStore:
         if self._commit_entry(filename, {}, delay=0.0):
             await self._store.async_save_now()
 
+    async def rename(self, old_filename: str, new_filename: str) -> None:
+        """Move *old_filename*'s entry to *new_filename*; flush immediately.
+
+        Pre-existing *new_filename* fields win on conflict, mirroring
+        the shared sidecar's rename so the two stores agree.
+        """
+        if old_filename == new_filename:
+            return
+        old_entry = self._state.get(old_filename)
+        if not old_entry:
+            return
+        merged = {**old_entry, **self._state.get(new_filename, {})}
+        self._commit_rename(old_filename, new_filename, merged)
+        await self._store.async_save_now()
+
     def clear_volatile(self, filename: str) -> None:
         """Drop every store-owned field for *filename*."""
         current = self._state.get(filename)
@@ -165,6 +180,19 @@ class DeviceMetadataStore:
             self._state.pop(filename, None)
         self._store.async_delay_save(self._snapshot, delay=delay)
         return True
+
+    def _commit_rename(self, old_filename: str, new_filename: str, merged: dict[str, Any]) -> None:
+        """Drop *old_filename* and land *merged* on *new_filename* in one step.
+
+        Both dict mutations run before the single ``async_delay_save``
+        so no save snapshot ever observes the half-renamed state (an
+        executor encode racing a second ``_commit_entry`` could see
+        both keys or trip ``dict changed size during iteration``).
+        Callers gate on a truthy *merged* and a present *old_filename*.
+        """
+        self._state[new_filename] = merged
+        self._state.pop(old_filename, None)
+        self._store.async_delay_save(self._snapshot, delay=0.0)
 
     def _snapshot(self) -> dict[str, dict[str, Any]]:
         """Top-level copy of the RAM dict for ``Store``'s executor-thread encode.

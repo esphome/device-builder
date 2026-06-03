@@ -28,27 +28,47 @@ from .helpers import (
 from .remote_runner import run_remote_job
 
 if TYPE_CHECKING:
+    from ._state import Lane
     from .controller import FirmwareController
 
 _LOGGER = logging.getLogger(__name__)
 
 
-async def run_queue(controller: FirmwareController) -> None:
-    """Background loop: process one job at a time."""
+async def run_lane(controller: FirmwareController, lane: Lane) -> None:
+    """Background loop: process one job at a time on *lane* (concurrent with the other lane)."""
     while True:
-        job = await controller.state.queue.get()
+        job = await lane.queue.get()
         if job.status == JobStatus.CANCELLED:
             continue
-        await controller._execute_job(job)
+        await _await_build_gate(controller, job)
+        if job.status == JobStatus.CANCELLED:
+            continue
+        await controller._execute_job(job, lane)
+
+
+async def _await_build_gate(controller: FirmwareController, job: FirmwareJob) -> None:
+    """Hold an UPLOAD until any in-flight clean/reset that could wipe its build dir clears.
+
+    Clear-then-check-then-wait so a terminal that fires between the check and
+    the wait can't be missed (the upload lane is the only waiter). Every job
+    terminal sets ``build_gate``; we re-check ``upload_blocked`` on each wake.
+    """
+    if job.job_type is not JobType.UPLOAD:
+        return
+    while True:
+        controller.state.build_gate.clear()
+        if job.status == JobStatus.CANCELLED or not controller.state.upload_blocked(job):
+            return
+        await controller.state.build_gate.wait()
 
 
 async def execute_job(  # noqa: PLR0912, PLR0915, C901
-    controller: FirmwareController, job: FirmwareJob
+    controller: FirmwareController, job: FirmwareJob, lane: Lane
 ) -> None:
-    """Execute a single firmware job."""
+    """Execute a single firmware job on *lane*."""
     job.status = JobStatus.RUNNING
     job.started_at = datetime.now(UTC).isoformat()
-    controller.state.current_job = job
+    lane.current_job = job
     _LOGGER.info(
         "Starting job %s: %s %s",
         job.job_id,
@@ -73,7 +93,7 @@ async def execute_job(  # noqa: PLR0912, PLR0915, C901
 
         # Pre-flight: verify chip type for serial uploads
         if job.job_type in (JobType.UPLOAD, JobType.INSTALL):
-            await controller._verify_chip(job)
+            await controller._verify_chip(job, lane)
 
         # ``rel_path`` calls ``Path.resolve`` which does a sync
         # ``os.path.realpath`` — blocking the event loop. Push it
@@ -113,6 +133,7 @@ async def execute_job(  # noqa: PLR0912, PLR0915, C901
                     return
 
         async with controller._tracked_subprocess(
+            lane,
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
@@ -133,7 +154,7 @@ async def execute_job(  # noqa: PLR0912, PLR0915, C901
             # ``None`` lets the install run to completion before the
             # post-``proc.wait()`` cancel check sees the flag.
             if job.job_id in controller.state.cancel_requested:
-                await controller._terminate_current_process()
+                await controller._terminate_current_process(lane)
 
             assert proc.stdout is not None  # type narrowing
 
@@ -221,8 +242,8 @@ async def execute_job(  # noqa: PLR0912, PLR0915, C901
             controller._finalize_terminal(job, JobStatus.FAILED)
             _LOGGER.exception("Job %s failed", job.job_id)
     finally:
-        controller.state.current_job = None
-        controller.state.current_process = None
+        lane.current_job = None
+        lane.current_process = None
         if job.status in (
             JobStatus.COMPLETED,
             JobStatus.FAILED,
@@ -282,7 +303,7 @@ async def execute_remote_job(controller: FirmwareController, job: FirmwareJob) -
 
 @asynccontextmanager
 async def tracked_subprocess(
-    controller: FirmwareController, *args: Any, **kwargs: Any
+    controller: FirmwareController, lane: Lane, *args: Any, **kwargs: Any
 ) -> AsyncIterator[asyncio.subprocess.Process]:
     """
     Spawn a subprocess that's visible to ``firmware/cancel``.
@@ -317,8 +338,8 @@ async def tracked_subprocess(
     between this subprocess and the next one.
     """
     proc = await create_subprocess_exec(*args, **kwargs)
-    prev = controller.state.current_process
-    controller.state.current_process = proc
+    prev = lane.current_process
+    lane.current_process = proc
     try:
         yield proc
     except asyncio.CancelledError:
@@ -332,7 +353,7 @@ async def tracked_subprocess(
         # parent — on POSIX with ``start_new_session=True``
         # that orphans the child tree and the build keeps
         # running until the children finish on their own.
-        await controller._terminate_current_process()
+        await controller._terminate_current_process(lane)
         raise
     finally:
-        controller.state.current_process = prev
+        lane.current_process = prev

@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Iterator
+from contextlib import suppress
+from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol
@@ -36,7 +38,12 @@ from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.controllers.firmware._state import FirmwareState
 from esphome_device_builder.controllers.firmware.download import DownloadTokens
 from esphome_device_builder.helpers.event_bus import Event, EventBus
-from esphome_device_builder.models import EventType, FirmwareJob
+from esphome_device_builder.models import (
+    TERMINAL_JOB_STATUSES,
+    EventType,
+    FirmwareJob,
+    JobType,
+)
 
 
 class EnqueueStep(StrEnum):
@@ -189,11 +196,17 @@ def firmware_controller_factory(
         # don't drive the runner. Without this, cancel-queued /
         # supersede tests that fire JOB_CANCELLED through the
         # helper crash on ``AttributeError``.
-        controller.state.current_job = None
-        controller.state.current_process = None
+        controller.state.compile_lane.current_job = None
+        controller.state.compile_lane.current_process = None
 
         if with_queue:
-            controller.state.queue = AsyncMock()
+            # ``put_nowait`` / ``qsize`` are sync on a real Queue; keep them
+            # sync here (the enqueue path uses ``put_nowait``) while ``get``
+            # stays awaitable for any test that drives the runner.
+            queue = AsyncMock()
+            queue.put_nowait = MagicMock()
+            queue.qsize = MagicMock(return_value=0)
+            controller.state.compile_lane.queue = queue
 
         if with_terminate:
             controller.state.cancel_requested = set()
@@ -224,7 +237,7 @@ def bare_firmware_controller_factory() -> BareFirmwareControllerFactory:
         if esphome_cmd is not None:
             controller.state.esphome_cmd = esphome_cmd
         if current_job is not None:
-            controller.state.current_job = current_job
+            controller.state.compile_lane.current_job = current_job
         if with_mock_db:
             controller._db = MagicMock()
             controller._db.devices = None
@@ -273,52 +286,66 @@ def capture_firmware_events() -> Iterator[CaptureEventsFactory]:
 
 @pytest.fixture
 def capture_enqueue_order() -> Iterator[CaptureEnqueueOrderFactory]:
-    """Yield a factory that traces ``_queue.put`` + ``bus.fire`` into one ordered log.
+    """Yield a factory that traces lane ``queue.put_nowait`` + ``bus.fire`` into one ordered log.
 
-    Each ``await self.state.queue.put(job)`` appends ``(EnqueueStep.PUT, job)``
-    and each broadcast for a subscribed ``EventType`` appends
-    ``(EnqueueStep.FIRE, Event)``. Tests assert the put-then-fire
-    ordering by index in the returned list — the previous shape
-    spread the same contract across a parent ``MagicMock`` whose
+    Each ``self.state.compile_lane.queue.put_nowait(job)`` appends
+    ``(EnqueueStep.PUT, job)`` and each broadcast for a subscribed
+    ``EventType`` appends ``(EnqueueStep.FIRE, Event)``. Tests assert the
+    put-then-fire ordering by index in the returned list — the previous
+    shape spread the same contract across a parent ``MagicMock`` whose
     ``method_calls`` log was walked with two ``.index()`` calls and
     a ``parent.bus.fire.assert_any_call(...)`` follow-up.
 
-    The internal queue is a real ``asyncio.Queue`` so a runner can
-    still dequeue if the test exercises that path. Auto-restore on
-    teardown reinstates the original ``_queue`` and ``_db.bus`` so
-    sibling tests in the same xdist worker don't see leaked stubs.
+    Each proxy wraps a real ``asyncio.Queue`` (``get`` / ``qsize`` delegate
+    to it) so a runner can still dequeue if the test exercises that path.
+    Auto-restore on teardown reinstates the original lane queues and
+    ``_db.bus`` so sibling tests in the same xdist worker don't see leaked
+    stubs.
     """
-    swaps: list[tuple[FirmwareController, Any, Any]] = []
+    swaps: list[tuple[FirmwareController, Any, Any, Any]] = []
+
+    def _make_proxy(log: list[tuple[EnqueueStep, Any]]) -> MagicMock:
+        inner_queue: asyncio.Queue[FirmwareJob] = asyncio.Queue()
+
+        def _trace_put_nowait(item: FirmwareJob) -> None:
+            log.append((EnqueueStep.PUT, item))
+            inner_queue.put_nowait(item)
+
+        queue_proxy = MagicMock()
+        queue_proxy.put_nowait = _trace_put_nowait
+        queue_proxy.get = inner_queue.get
+        queue_proxy.qsize = inner_queue.qsize
+        return queue_proxy
 
     def _factory(
         controller: FirmwareController,
         *event_types: EventType,
     ) -> list[tuple[EnqueueStep, Any]]:
+        # Trace both lanes so an UPLOAD (upload lane) and a COMPILE
+        # (compile lane) land in one ordered log.
         log: list[tuple[EnqueueStep, Any]] = []
-        inner_queue: asyncio.Queue[FirmwareJob] = asyncio.Queue()
-
-        async def _trace_put(item: FirmwareJob) -> None:
-            log.append((EnqueueStep.PUT, item))
-            await inner_queue.put(item)
-
-        queue_proxy = MagicMock()
-        queue_proxy.put = _trace_put
-        queue_proxy.get = inner_queue.get
-        queue_proxy.qsize = inner_queue.qsize
-
         bus = EventBus()
         for event_type in event_types:
             bus.add_listener(event_type, lambda event: log.append((EnqueueStep.FIRE, event)))
 
-        swaps.append((controller, controller.state.queue, controller._db.bus))
-        controller.state.queue = queue_proxy
+        swaps.append(
+            (
+                controller,
+                controller.state.compile_lane.queue,
+                controller.state.upload_lane.queue,
+                controller._db.bus,
+            )
+        )
+        controller.state.compile_lane.queue = _make_proxy(log)
+        controller.state.upload_lane.queue = _make_proxy(log)
         controller._db.bus = bus
         return log
 
     yield _factory
 
-    for controller, original_queue, original_bus in swaps:
-        controller.state.queue = original_queue
+    for controller, compile_queue, upload_queue, original_bus in swaps:
+        controller.state.compile_lane.queue = compile_queue
+        controller.state.upload_lane.queue = upload_queue
         controller._db.bus = original_bus
 
 
@@ -333,3 +360,106 @@ def make_follow_race_controller(
     and ``with_settings=False`` skips the unused config-dir wiring.
     """
     return factory(*jobs, with_real_bus=True, with_settings=False)
+
+
+# ---------------------------------------------------------------------------
+# e2e helpers: drive the real runner against a real queue
+# ---------------------------------------------------------------------------
+
+
+def wire_real_queue(controller: FirmwareController) -> None:
+    """Swap the conftest's ``AsyncMock`` queue for a real ``asyncio.Queue``.
+
+    The runner does ``await lane.queue.get()``; an ``AsyncMock`` returns its
+    default sentinel immediately and the runner would spin instead of
+    waiting for a real submission. Pair the queue swap with the supersede
+    stub (passthrough) and the cancel-tracking surface ``_execute_job`` reads.
+    """
+    controller.state.compile_lane.queue = asyncio.Queue()
+
+    async def _supersede(_configuration: str, *, exclude_job_ids: set[str]) -> None:
+        return
+
+    controller._supersede_active_jobs = _supersede  # type: ignore[assignment]
+    controller.state.compile_lane.current_job = None
+    controller.state.compile_lane.current_process = None
+    controller.state.cancel_requested = set()
+    controller.state.cancel_events = {}
+
+
+def upload_of(controller: FirmwareController, compile_job: FirmwareJob) -> FirmwareJob:
+    """Return the UPLOAD job an install chained behind *compile_job*."""
+    return next(
+        j
+        for j in controller.state.jobs.values()
+        if j.job_type is JobType.UPLOAD and j.depends_on == compile_job.job_id
+    )
+
+
+@dataclass
+class StubDevices:
+    """Narrow ``DevicesController`` stand-in returning empty cache args.
+
+    The runner's ``_build_cache_args`` calls ``get_address_cache_args`` /
+    ``get_ota_address_cache_args`` on the install / upload / rename paths;
+    returning ``[]`` keeps the build command shape minimal.
+    """
+
+    def get_address_cache_args(self, _configuration: str) -> list[str]:
+        return []
+
+    def get_ota_address_cache_args(self, _configuration: str, _port: str) -> list[str]:
+        return []
+
+
+def wire_devices(controller: FirmwareController) -> None:
+    """Attach a no-op ``DevicesController`` stub for ``_build_cache_args``."""
+    controller._db.devices = StubDevices()  # type: ignore[attr-defined]
+
+
+async def run_until_terminal(
+    controller: FirmwareController, *, timeout: float = 10.0
+) -> dict[str, list]:
+    """Run both lane runners until every job in ``state.jobs`` is terminal.
+
+    Subscribes to the JOB_* lifecycle events and returns the captured
+    records keyed by event-type value. Settles on the whole chain being
+    terminal, not just the first job — an install is a COMPILE then a
+    dependent UPLOAD, so the released upload runs after the compile
+    completes. Falls back to a hard timeout so a runner regression that
+    never delivers a terminal event surfaces as a clean failure rather
+    than a hung pytest run.
+    """
+    captured: dict[str, list] = {
+        "job_started": [],
+        "job_output": [],
+        "job_progress": [],
+        "job_completed": [],
+        "job_failed": [],
+        "job_cancelled": [],
+    }
+    settled = asyncio.Event()
+    bus = controller._db.bus
+    real_fire = bus.fire
+
+    def _capture(event_type: EventType, data: dict) -> None:
+        key = event_type.value
+        if key in captured:
+            captured[key].append(data)
+        # Forward to the original mock so call-count assertions still work.
+        real_fire(event_type, data)
+        jobs = list(controller.state.jobs.values())
+        if jobs and all(j.status in TERMINAL_JOB_STATUSES for j in jobs):
+            settled.set()
+
+    bus.fire = _capture
+    runner_task = asyncio.create_task(controller._run_queue())
+    try:
+        async with asyncio.timeout(timeout):
+            await settled.wait()
+    finally:
+        runner_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await runner_task
+
+    return captured

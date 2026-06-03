@@ -58,8 +58,9 @@ from typing import Any
 import pytest
 
 from esphome_device_builder.controllers.firmware import FirmwareController
+from esphome_device_builder.controllers.firmware._state import Lane
 from esphome_device_builder.controllers.firmware.persistence import read_job_output
-from esphome_device_builder.models import FirmwareJob, JobStatus
+from esphome_device_builder.models import FirmwareJob, JobStatus, JobType
 from tests.controllers.firmware.conftest import FirmwareControllerFactory
 
 
@@ -147,9 +148,9 @@ async def test_queued_job_survives_dashboard_restart(
     # Confirm the load path actually put the job back on the queue,
     # not just into ``self.state.jobs``. ``get_jobs`` reads the in-memory
     # map, which would still pass if ``_load_jobs`` forgot to
-    # ``await self.state.queue.put(...)``.
-    reader.state.queue.put.assert_awaited_once()
-    queued_arg = reader.state.queue.put.await_args.args[0]
+    # ``await self.state.compile_lane.queue.put(...)``.
+    reader.state.compile_lane.queue.put_nowait.assert_called_once()
+    queued_arg = reader.state.compile_lane.queue.put_nowait.call_args.args[0]
     assert queued_arg.job_id == queued.job_id
 
 
@@ -225,7 +226,9 @@ async def test_running_job_re_queues_with_clean_state_after_restart(
     # follow-up queued sibling) onto the queue — confirms the
     # carryover will actually run, not just sit ``QUEUED`` in
     # ``self.state.jobs`` forever.
-    queued_ids = {call.args[0].job_id for call in reader.state.queue.put.await_args_list}
+    queued_ids = {
+        call.args[0].job_id for call in reader.state.compile_lane.queue.put_nowait.call_args_list
+    }
     assert queued.job_id in queued_ids
 
 
@@ -267,12 +270,12 @@ async def test_resumed_running_job_completes_on_next_run(
     # that just assert on calls, but the runner needs a real
     # ``asyncio.Queue`` so ``_load_jobs``'s ``put`` and
     # ``_run_queue``'s ``get`` actually exchange jobs.
-    reader.state.queue = asyncio.Queue()
+    reader.state.compile_lane.queue = asyncio.Queue()
 
     # Replace _execute_job with a fast COMPLETED transition so we
     # don't actually spawn ``esphome``. The runner's loop calls
     # this, awaits it, then loops back for the next item.
-    async def _fake_execute(job: FirmwareJob) -> None:
+    async def _fake_execute(job: FirmwareJob, _lane: Lane) -> None:
         job.status = JobStatus.COMPLETED
         job.exit_code = 0
         job.completed_at = "2026-01-01T01:00:00+00:00"
@@ -348,7 +351,7 @@ async def test_cancelled_job_survives_restart_without_being_requeued(
     # job at status ``CANCELLED`` would pass even if the loader
     # accidentally put it on the queue too — assert the queue
     # interaction explicitly.
-    reader.state.queue.put.assert_not_awaited()
+    reader.state.compile_lane.queue.put_nowait.assert_not_called()
 
 
 async def test_cold_start_with_no_metadata_file_is_empty(
@@ -503,3 +506,83 @@ async def test_start_logs_error_when_esphome_cli_sanity_check_fails(
     msg = failures[0].getMessage()
     assert "No module named esphome" in msg
     assert "pip install" in msg
+
+
+def _inject_job(tmp_path: Path, job: FirmwareJob) -> None:
+    """Append a serialised *job* to the on-disk metadata file."""
+    metadata_path = tmp_path / ".device-builder.json"
+    raw = json.loads(metadata_path.read_text())
+    jobs_key = next(k for k in raw if k.endswith("firmware_jobs"))
+    raw[jobs_key].append(job.to_dict())
+    metadata_path.write_text(json.dumps(raw))
+
+
+async def test_held_upload_stays_queued_when_prerequisite_still_pending(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_runtime: None,
+) -> None:
+    """A persisted UPLOAD whose COMPILE is still QUEUED resumes held, not on its lane.
+
+    The install chain's upload waits off the upload lane until the compile
+    succeeds; a restart in that window must keep it held (the compile's
+    completion hook lands it) rather than flashing from a build that never
+    finished.
+    """
+    (tmp_path / "kitchen.yaml").write_text("")
+    writer = _persistent_controller(firmware_controller_factory)
+    compile_job = await writer.compile(configuration="kitchen.yaml")
+    _inject_job(
+        tmp_path,
+        FirmwareJob(
+            job_id="upload01",
+            configuration="kitchen.yaml",
+            job_type=JobType.UPLOAD,
+            status=JobStatus.QUEUED,
+            port="OTA",
+            depends_on=compile_job.job_id,
+        ),
+    )
+
+    reader = await _restart(firmware_controller_factory)
+
+    restored = {j.job_id: j for j in await reader.get_jobs()}
+    assert restored["upload01"].status == JobStatus.QUEUED
+    # Held: the compile re-queued onto the compile lane, the upload did not
+    # land on the upload lane (its prerequisite hasn't completed).
+    assert reader.state.upload_lane.queue.empty()
+    reader.state.compile_lane.queue.put_nowait.assert_called_once()
+
+
+async def test_held_upload_cancels_when_prerequisite_is_gone(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_runtime: None,
+) -> None:
+    """A persisted UPLOAD whose prerequisite is missing resumes CANCELLED.
+
+    If the compile it depended on never made it to disk (or landed
+    terminal-but-not-COMPLETED), the upload can never run, so the loader
+    cancels it instead of stranding it QUEUED forever.
+    """
+    (tmp_path / "kitchen.yaml").write_text("")
+    writer = _persistent_controller(firmware_controller_factory)
+    await writer.compile(configuration="kitchen.yaml")
+    _inject_job(
+        tmp_path,
+        FirmwareJob(
+            job_id="orphan01",
+            configuration="kitchen.yaml",
+            job_type=JobType.UPLOAD,
+            status=JobStatus.QUEUED,
+            port="OTA",
+            depends_on="does-not-exist",
+        ),
+    )
+
+    reader = await _restart(firmware_controller_factory)
+
+    restored = {j.job_id: j for j in await reader.get_jobs()}
+    assert restored["orphan01"].status == JobStatus.CANCELLED
+    assert restored["orphan01"].error
+    assert reader.state.upload_lane.queue.empty()

@@ -224,6 +224,32 @@ async def test_devices_filters_ignored_importable_entries(
     assert importable_names == ["kitchen"]
 
 
+async def test_devices_filters_already_configured_importable_entries(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """An importable entry whose name is already configured is dropped.
+
+    A stale ``import_result`` row (YAML dropped on disk out-of-band,
+    or the scan-vs-callback race) must not surface a device that the
+    ``configured`` list already carries — otherwise HA offers to
+    import an already-configured device. Mirrors the WS surface's
+    ``not in configured_names`` guard.
+    """
+    devices = _make_devices_mock(
+        configured=[_StubDevice({"name": "kitchen", "configuration": "kitchen.yaml"})],
+        importable={
+            "kitchen": _StubDevice({"name": "kitchen"}),
+            "garage": _StubDevice({"name": "garage"}),
+        },
+    )
+    client = await aiohttp_client(_make_app(tmp_path, devices=devices))
+
+    body = await (await client.get("/devices")).json()
+
+    importable_names = [d["name"] for d in body["importable"]]
+    assert importable_names == ["garage"]
+
+
 async def test_devices_returns_empty_lists_on_cold_start(
     tmp_path: Path, aiohttp_client: AiohttpClient
 ) -> None:

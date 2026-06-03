@@ -650,12 +650,16 @@ async def _run_upload_subprocess(
     Mirrors the local subprocess path's per-line bookkeeping
     (``_ingest_output_line``) so the firmware-tasks UI sees
     one event stream regardless of which CPU produced the
-    bytes. ``_tracked_subprocess`` registers the spawn with
-    ``controller.state.current_process`` so a concurrent
+    bytes. ``_tracked_subprocess`` registers the spawn on the
+    compile lane's ``current_process`` so a concurrent
     ``firmware/cancel`` lands SIGTERM on the upload chain
     just like it does for the local-only path.
     """
+    # Register the local flash on the job's own lane (``lane_for``); a remote
+    # install is an INSTALL job, so that resolves to the compile lane.
+    lane = controller.state.lane_for(job)
     async with controller._tracked_subprocess(
+        lane,
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
@@ -670,7 +674,7 @@ async def _run_upload_subprocess(
         # this check, the subprocess gets started for a job
         # the user already aborted.
         if job.job_id in controller.state.cancel_requested:
-            await controller._terminate_current_process()
+            await controller._terminate_current_process(lane)
 
         assert proc.stdout is not None  # type narrowing
         async for line in iter_lines_with_progress(proc.stdout):

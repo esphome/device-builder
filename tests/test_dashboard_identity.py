@@ -4,7 +4,7 @@ Tests for the dashboard identity helper.
 The helper bundles two persistent values: the X25519 peer-link
 key's ``pin_sha256`` (which paired offloaders pin against during
 the Noise handshake) and the stable ``dashboard_id`` correlation
-token in the metadata sidecar's ``_remote_build`` block. The
+token in the metadata sidecar's ``_dashboard_identity`` block. The
 X25519 key drives both the actual peer-link authentication AND
 the displayed fingerprint. Coverage here pins that:
 
@@ -12,8 +12,9 @@ the displayed fingerprint. Coverage here pins that:
   the X25519 peer-link helper's output (i.e. no divergence
   between what the UI shows and what offloaders observe).
 * ``dashboard_id`` is generated once on first read, persisted
-  under ``_remote_build.dashboard_id``, idempotent across calls,
-  preserved across rotations.
+  under ``_dashboard_identity.dashboard_id``, idempotent across
+  calls, preserved across rotations, and migrated out of the
+  legacy ``_remote_build`` co-tenancy without a re-mint.
 * The metadata sidecar's fail-safe paths (missing key, non-dict
   block, corrupt JSON) all land on a fresh dashboard_id without
   crashing.
@@ -26,6 +27,11 @@ import json
 import threading
 from pathlib import Path
 
+from esphome_device_builder.controllers.config.remote_build_settings import (
+    has_remote_build_settings_persisted,
+    remote_build_settings_transaction,
+    save_remote_build_settings,
+)
 from esphome_device_builder.helpers.dashboard_identity import (
     DASHBOARD_ID_MAX_CHARS,
     DASHBOARD_ID_PATTERN,
@@ -37,6 +43,7 @@ from esphome_device_builder.helpers.dashboard_identity import (
 from esphome_device_builder.helpers.peer_link_identity import (
     PeerLinkIdentityStore,
 )
+from esphome_device_builder.models import RemoteBuildSettings
 
 
 def _read_metadata(config_dir: Path) -> dict:
@@ -53,9 +60,9 @@ async def test_first_call_generates_and_persists_identity(tmp_path: Path) -> Non
     # Noise handshake; verify it landed on disk so a subsequent
     # bind picks it up.
     assert (tmp_path / ".device-builder-peer-link-key.bin").exists()
-    # ``dashboard_id`` lands in ``_remote_build.dashboard_id``.
+    # ``dashboard_id`` lands in its own ``_dashboard_identity`` block.
     metadata = _read_metadata(tmp_path)
-    assert metadata["_remote_build"]["dashboard_id"] == identity.dashboard_id
+    assert metadata["_dashboard_identity"]["dashboard_id"] == identity.dashboard_id
 
 
 async def test_pin_sha256_matches_peer_link_identity(tmp_path: Path) -> None:
@@ -147,26 +154,95 @@ async def test_rotate_identity_persists_to_disk(tmp_path: Path) -> None:
 
 
 async def test_dashboard_id_survives_other_remote_build_mutations(tmp_path: Path) -> None:
-    """
-    Writing other ``_remote_build`` keys doesn't drop ``dashboard_id``.
-
-    Pin the read-modify-write semantics of the dashboard_id
-    persistence path — a bare overwrite of the ``_remote_build``
-    blob would silently reset every other field; equally, an
-    external mutation that follows the same RMW shape must
-    preserve ``dashboard_id``.
-    """
+    """Writing the disjoint ``_remote_build`` block doesn't disturb ``dashboard_id``."""
     identity = await get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
 
-    # Simulate another phase writing other fields under the same key.
+    # Another phase writes the settings block (a separate key now).
     metadata_path = tmp_path / ".device-builder.json"
     data = json.loads(metadata_path.read_bytes())
-    data["_remote_build"]["enabled"] = True
+    data["_remote_build"] = {"enabled": True}
     metadata_path.write_bytes(json.dumps(data).encode())
 
-    # Re-read the identity; dashboard_id still there.
     second = await get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
     assert second.dashboard_id == identity.dashboard_id
+
+
+async def test_remote_build_settings_writes_preserve_foreign_keys(tmp_path: Path) -> None:
+    """Both settings writers merge into ``_remote_build``, preserving a foreign key."""
+    metadata_path = tmp_path / ".device-builder.json"
+    metadata_path.write_bytes(json.dumps({"_remote_build": {"_sentinel": "keep-me"}}).encode())
+
+    # Hop to a thread: the writers do sync metadata I/O that
+    # blockbuster (Linux CI) flags when called on the event loop.
+    await asyncio.to_thread(
+        save_remote_build_settings, tmp_path, RemoteBuildSettings(enabled=False)
+    )
+    block = _read_metadata(tmp_path)["_remote_build"]
+    assert block["_sentinel"] == "keep-me"
+    assert block["enabled"] is False
+
+    def _enable() -> None:
+        with remote_build_settings_transaction(tmp_path) as settings:
+            settings.enabled = True
+
+    await asyncio.to_thread(_enable)
+    block = _read_metadata(tmp_path)["_remote_build"]
+    assert block["_sentinel"] == "keep-me"
+    assert block["enabled"] is True
+
+
+async def test_legacy_dashboard_id_migrates_out_of_remote_build(tmp_path: Path) -> None:
+    """A legacy ``_remote_build.dashboard_id`` migrates to its own block with the same value."""
+    metadata_path = tmp_path / ".device-builder.json"
+    metadata_path.write_bytes(
+        json.dumps({"_remote_build": {"dashboard_id": "legacy-id", "enabled": True}}).encode()
+    )
+
+    identity = await get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
+    assert identity.dashboard_id == "legacy-id"
+
+    metadata = _read_metadata(tmp_path)
+    assert metadata["_dashboard_identity"]["dashboard_id"] == "legacy-id"
+    assert "dashboard_id" not in metadata["_remote_build"]
+    assert metadata["_remote_build"]["enabled"] is True
+
+
+async def test_legacy_dashboard_id_swept_even_when_new_block_wins(tmp_path: Path) -> None:
+    """A stale legacy id is removed even if ``_dashboard_identity`` already answers."""
+    metadata_path = tmp_path / ".device-builder.json"
+    metadata_path.write_bytes(
+        json.dumps(
+            {
+                "_dashboard_identity": {"dashboard_id": "current-id"},
+                "_remote_build": {"dashboard_id": "stale-id", "enabled": True},
+            }
+        ).encode()
+    )
+
+    identity = await get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
+    assert identity.dashboard_id == "current-id"
+    block = _read_metadata(tmp_path)["_remote_build"]
+    assert "dashboard_id" not in block
+    assert block["enabled"] is True
+
+
+async def test_minting_dashboard_id_does_not_trip_settings_persisted_gate(tmp_path: Path) -> None:
+    """Minting the identity doesn't flip ``has_remote_build_settings_persisted``."""
+    await get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
+    persisted = await asyncio.to_thread(has_remote_build_settings_persisted, tmp_path)
+    assert persisted is False
+
+
+async def test_legacy_dashboard_id_only_block_removed_on_migration(tmp_path: Path) -> None:
+    """A ``_remote_build`` holding only a legacy id is dropped after migration."""
+    metadata_path = tmp_path / ".device-builder.json"
+    metadata_path.write_bytes(json.dumps({"_remote_build": {"dashboard_id": "legacy-id"}}).encode())
+
+    identity = await get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
+    assert identity.dashboard_id == "legacy-id"
+    assert "_remote_build" not in _read_metadata(tmp_path)
+    persisted = await asyncio.to_thread(has_remote_build_settings_persisted, tmp_path)
+    assert persisted is False
 
 
 async def test_init_after_id_only_mutation_preserves_other_fields(tmp_path: Path) -> None:
@@ -175,15 +251,15 @@ async def test_init_after_id_only_mutation_preserves_other_fields(tmp_path: Path
 
     Real-world path: a user flips the Settings toggle before the
     identity helper has ever run. The metadata sidecar already
-    has ``_remote_build.enabled`` set; the identity init must
-    merge into that rather than replacing the whole key.
+    has ``_remote_build.enabled`` set; the identity init writes
+    its own ``_dashboard_identity`` block and leaves that alone.
     """
     metadata_path = tmp_path / ".device-builder.json"
     metadata_path.write_bytes(b'{"_remote_build": {"enabled": true}}')
 
     identity = await get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
     metadata = _read_metadata(tmp_path)
-    assert metadata["_remote_build"]["dashboard_id"] == identity.dashboard_id
+    assert metadata["_dashboard_identity"]["dashboard_id"] == identity.dashboard_id
     assert metadata["_remote_build"]["enabled"] is True
 
 
@@ -203,7 +279,7 @@ async def test_corrupt_metadata_does_not_block_generation(tmp_path: Path) -> Non
     identity = await get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
     assert identity.dashboard_id  # generated fresh
     metadata = _read_metadata(tmp_path)
-    assert metadata["_remote_build"]["dashboard_id"] == identity.dashboard_id
+    assert metadata["_dashboard_identity"]["dashboard_id"] == identity.dashboard_id
 
 
 async def test_non_dict_metadata_root_falls_back(tmp_path: Path) -> None:

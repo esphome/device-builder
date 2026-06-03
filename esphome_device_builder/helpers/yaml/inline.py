@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from .scalar import ESPHOME_YAML_INDENT
+from .scalar import ESPHOME_YAML_INDENT, block_body_is_list
 
 
 def synthetic_instance_index(domain: str, component_id: str) -> int | None:
@@ -170,6 +170,11 @@ def _locate_component_instance(  # noqa: C901
             domain_end = idx
             break
 
+    if not block_body_is_list(lines, domain_start, domain_end):
+        # Flat singleton mapping (``sun:`` / ``mqtt:``) — its only ``- ``
+        # lines (if any) are inner action lists, never instance items.
+        return _locate_singleton_instance(lines, domain, component_id, domain_start, domain_end)
+
     # Walk the domain body looking for a list item whose first child
     # line carries ``id: <component_id>``. Only column-2 dashes count
     # as instance starts — deeper dashes are inner action lists.
@@ -236,6 +241,27 @@ def _locate_idless_instance(
     return start, end, child_indent
 
 
+def _locate_singleton_instance(
+    lines: list[str],
+    domain: str,
+    component_id: str,
+    domain_start: int,
+    domain_end: int,
+) -> tuple[int, int, str] | None:
+    """
+    Locate a flat singleton component block (``sun:`` / ``mqtt:``) as one span.
+
+    The ``<domain>:`` header is the instance start, the next top-level
+    key is the end, and child fields sit one indent in. Matches when
+    *component_id* is the block's declared ``id:`` or — when id-less —
+    the domain name itself.
+    """
+    declared = _instance_declared_id(lines, domain_start, domain_end, ESPHOME_YAML_INDENT)
+    if component_id == declared or (declared is None and component_id == domain):
+        return domain_start, domain_end, ESPHOME_YAML_INDENT
+    return None
+
+
 def _instance_declared_id(
     lines: list[str],
     start: int,
@@ -252,13 +278,25 @@ def _instance_declared_id(
     first_line = lines[start].rstrip("\n\r")
     inline_match = re.match(r"^\s*-\s*id:\s*(?P<id>\S+)", first_line)
     if inline_match:
-        return inline_match.group("id")
+        return _unquote_id(inline_match.group("id"))
     child_re = re.compile(rf"^{re.escape(child_indent)}id:\s*(?P<id>\S+)")
     for jdx in range(start, end):
         m = child_re.match(lines[jdx].rstrip("\n\r"))
         if m:
-            return m.group("id")
+            return _unquote_id(m.group("id"))
     return None
+
+
+def _unquote_id(raw: str) -> str:
+    """
+    Strip a surrounding matching quote pair from a captured ``id:`` token.
+
+    ESPHome identifiers never contain quote characters, so a matching
+    surrounding pair is always wrapper syntax.
+    """
+    if len(raw) >= 2 and raw[0] in "\"'" and raw[-1] == raw[0]:
+        return raw[1:-1]
+    return raw
 
 
 def _indent_block(block_text: str, indent: str) -> list[str]:

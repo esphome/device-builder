@@ -69,5 +69,5 @@ source:
   type: esphome-devices
   remote_id: Bauhn-ASPU-1019-Plug
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Bauhn-ASPU-1019-Plug/index.md
-  upstream_revision: 7b98102863a3093e1d3c00c8bb77e71eeb43ad6e
+  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: d509d061811ea5ed6e8e85090656d1c536afe09d319b76712936d09ac1579b18

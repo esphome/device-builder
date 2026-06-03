@@ -16,7 +16,10 @@ from pathlib import Path
 import orjson
 import pytest
 
-from esphome_device_builder.controllers.automations.parsing import parse_device_yaml
+from esphome_device_builder.controllers.automations.parsing import (
+    parse_device_yaml,
+    resolve_component_domain,
+)
 from esphome_device_builder.helpers.api import CommandError
 
 _FIXTURES = Path(__file__).parent / "fixtures" / "automation_yamls"
@@ -110,6 +113,134 @@ def test_parse_inline_on_click_surfaces_trigger_params() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Inline triggers on flat singleton components (sun:, mqtt:)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_flat_singleton_idless_keys_on_domain() -> None:
+    """An id-less ``sun:`` block keys its handler on the domain name."""
+    parsed = parse_device_yaml(_load("inline_sun_on_sunrise.yaml"))
+    assert len(parsed) == 1
+    item = parsed[0]
+    assert item.location.kind == "component_on"
+    assert item.location.component_id == "sun"
+    assert item.location.trigger == "on_sunrise"
+    assert item.location.index is None
+    assert [a.action_id for a in item.automation.actions] == ["logger.log"]
+
+
+def test_parse_flat_singleton_uses_declared_id() -> None:
+    """An id'd ``sun:`` block keys both handlers on its declared id."""
+    parsed = parse_device_yaml(_load("inline_sun_idd.yaml"))
+    assert {p.location.component_id for p in parsed} == {"home_sun"}
+    assert {p.location.trigger for p in parsed} == {"on_sunrise", "on_sunset"}
+
+
+def test_parse_flat_singleton_mqtt_surfaces_trigger_params() -> None:
+    """``mqtt:`` is a singleton; ``on_message.topic`` is a trigger param, not an action."""
+    parsed = parse_device_yaml(_load("inline_mqtt_singleton.yaml"))
+    by_trigger = {p.location.trigger: p for p in parsed}
+    assert set(by_trigger) == {"on_message", "on_connect"}
+    assert by_trigger["on_message"].location.component_id == "mqtt"
+    assert by_trigger["on_message"].automation.trigger_params == {"topic": "my/topic"}
+
+
+def test_parse_flat_singleton_ignores_config_keys() -> None:
+    """Plain config keys (``latitude:`` / ``broker:``) aren't surfaced as automations."""
+    sun = parse_device_yaml(_load("inline_sun_on_sunrise.yaml"))
+    assert all(p.location.trigger.startswith("on_") for p in sun)
+    assert parse_device_yaml(_load("inline_sun_empty.yaml")) == []
+
+
+# ---------------------------------------------------------------------------
+# Component action-list config fields (``open_action:`` etc.) — ``type: trigger``
+# ---------------------------------------------------------------------------
+
+
+def test_parse_component_action_fields_emits_trigger_less_automations() -> None:
+    """A cover feedback platform's ``*_action`` fields surface as automations."""
+    parsed = parse_device_yaml(_load("cover_feedback_actions.yaml"))
+    actions = [p for p in parsed if p.location.kind == "component_action"]
+    by_field = {p.location.field: p for p in actions}
+    assert set(by_field) == {"open_action", "close_action", "stop_action"}
+    for item in actions:
+        assert item.location.component_id == "driveway_gate"
+        # No trigger — only the action list is editable.
+        assert item.automation.trigger_id is None
+        assert item.automation.trigger_params == {}
+    assert [a.action_id for a in by_field["open_action"].automation.actions] == [
+        "switch.turn_off",
+        "switch.turn_on",
+        "delay",
+    ]
+    # JSON-serialisable for the WS layer.
+    orjson.dumps([p.to_dict() for p in actions])
+
+
+def test_parse_component_action_field_idless_uses_positional_id() -> None:
+    """An id-less platform instance keys on the synthetic ``<domain>_<idx>``."""
+    parsed = parse_device_yaml(_load("cover_feedback_actions_idless.yaml"))
+    actions = [p for p in parsed if p.location.kind == "component_action"]
+    assert len(actions) == 1
+    assert actions[0].location.component_id == "cover_0"
+    assert actions[0].location.field == "open_action"
+
+
+def test_parse_component_action_field_on_hub_component() -> None:
+    """A single-mapping hub (``opentherm:``, no ``platform:``) is keyed on the bare domain."""
+    yaml = "opentherm:\n  in_pin: 4\n  before_send:\n    - logger.log: sending\n"
+    actions = [p for p in parse_device_yaml(yaml) if p.location.kind == "component_action"]
+    assert len(actions) == 1
+    assert actions[0].location.component_id == "opentherm"
+    assert actions[0].location.field == "before_send"
+    assert actions[0].automation.trigger_id is None
+
+
+def test_parse_component_action_field_without_shipped_body_emits_nothing() -> None:
+    """A component with no shipped body can't have action fields resolved.
+
+    Exercises the "body absent" read path: an unknown ``<domain>.<platform>``
+    has no catalog JSON, so the field-key lookup returns empty and the
+    ``*_action`` key is not surfaced as an automation.
+    """
+    yaml = "madeup:\n  - platform: nope\n    open_action:\n      - logger.log: x\n"
+    actions = [p for p in parse_device_yaml(yaml) if p.location.kind == "component_action"]
+    assert actions == []
+
+
+def test_parse_on_value_range_float_params_are_json_serialisable() -> None:
+    """Decimal on_value_range thresholds round-trip as plain floats."""
+    parsed = parse_device_yaml(_load("sensor_on_value_range_float.yaml"))
+    tree = parsed[0].automation
+    assert tree.trigger_id == "sensor.on_value_range"
+    assert tree.trigger_params == {"above": 3.14, "below": 25.5}
+    assert type(tree.trigger_params["above"]) is float  # not ScalarFloat
+    # The real regression: the WS layer must be able to serialise the result.
+    orjson.dumps([p.to_dict() for p in parsed])
+
+
+# ---------------------------------------------------------------------------
+# LVGL actions — oversized forms fall back to raw-YAML editing
+# ---------------------------------------------------------------------------
+
+
+def test_parse_oversized_lvgl_action_falls_back_to_raw_yaml() -> None:
+    """An oversized LVGL action parses as an unknown id (raw-YAML fallback)."""
+    parsed = parse_device_yaml(_load("lvgl_action_unsupported.yaml"))
+    assert len(parsed) == 1
+    assert parsed[0].error is not None
+    assert parsed[0].automation.actions == []
+
+
+def test_parse_small_lvgl_action_stays_editable() -> None:
+    """A small LVGL action (``lvgl.pause``) still decomposes normally."""
+    parsed = parse_device_yaml(_load("lvgl_action_small_editable.yaml"))
+    assert len(parsed) == 1
+    assert parsed[0].error is None
+    assert [a.action_id for a in parsed[0].automation.actions] == ["lvgl.pause"]
+
+
+# ---------------------------------------------------------------------------
 # Top-level blocks
 # ---------------------------------------------------------------------------
 
@@ -139,8 +270,9 @@ def test_parse_interval_block() -> None:
     assert item.location.index == 0
     assert item.automation.trigger_params["interval"] == "60s"
     assert [a.action_id for a in item.automation.actions] == ["lambda"]
-    # Lambda body is surfaced as the {_lambda: source} sentinel.
-    lambda_body = item.automation.actions[0].params.get("id") or item.automation.actions[0].params
+    # Lambda body is surfaced as the {_lambda: source} sentinel under the
+    # lambda action's ``lambda`` shorthand key (its config-entry key).
+    lambda_body = item.automation.actions[0].params["lambda"]
     assert (
         isinstance(lambda_body, dict)
         and "_lambda" in lambda_body
@@ -296,9 +428,9 @@ def test_parse_lambda_action_surfaces_lambda_sentinel() -> None:
     actions = parsed[0].automation.actions
     assert len(actions) == 1
     assert actions[0].action_id == "lambda"
-    # The single-arg shortcut surfaces under the ``id`` key; the
-    # value carries the lambda sentinel.
-    body = actions[0].params.get("id") or actions[0].params
+    # The bare scalar surfaces under the lambda action's ``lambda``
+    # shorthand key (its config-entry key); the value carries the sentinel.
+    body = actions[0].params["lambda"]
     assert isinstance(body, dict)
     assert "_lambda" in body
     assert "ESP_LOGI" in body["_lambda"]
@@ -314,10 +446,10 @@ def test_parse_tagged_lambda_scalars_render_as_sentinel() -> None:
     assert [a.action_id for a in script_actions] == ["delay"]
     assert script_actions[0].params == {"id": {"_lambda": "return 0;"}}
 
-    # Interval: ``- lambda: !lambda |`` block → params={"id": {"_lambda": "<body>"}}.
+    # Interval: ``- lambda: !lambda |`` block → params={"lambda": {"_lambda": "<body>"}}.
     interval_actions = by_kind["interval"].automation.actions
     assert [a.action_id for a in interval_actions] == ["lambda"]
-    interval_body = interval_actions[0].params.get("id") or interval_actions[0].params
+    interval_body = interval_actions[0].params["lambda"]
     assert isinstance(interval_body, dict)
     assert interval_body.get("_lambda", "").strip().endswith("return;")
 
@@ -470,3 +602,65 @@ def test_parsed_entries_carry_valid_line_ranges() -> None:
     for item in parsed:
         assert item.from_line >= 1
         assert item.to_line >= item.from_line
+
+
+# ---------------------------------------------------------------------------
+# resolve_component_domain
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_domain_matches_declared_list_instance_id() -> None:
+    """A declared list-instance id resolves to its top-level domain."""
+    text = "switch:\n  - platform: gpio\n    id: relay\n    pin: GPIO5\n"
+    assert resolve_component_domain(text, "relay") == "switch"
+
+
+def test_resolve_domain_matches_idless_synthetic_index() -> None:
+    """An id-less list instance resolves via its synthetic ``<domain>_<idx>`` key."""
+    text = "switch:\n  - platform: gpio\n    pin: GPIO5\n"
+    assert resolve_component_domain(text, "switch_0") == "switch"
+
+
+def test_resolve_domain_matches_flat_singleton_on_domain() -> None:
+    """An id-less flat singleton resolves on the domain name itself."""
+    text = "sun:\n  latitude: 1.0\n  longitude: 2.0\n"
+    assert resolve_component_domain(text, "sun") == "sun"
+
+
+def test_resolve_domain_ignores_nested_action_reference() -> None:
+    """An ``id:`` reference nested in an action body never owns the domain."""
+    text = (
+        "light:\n"
+        "  - platform: binary\n"
+        "    id: lamp\n"
+        "    on_turn_on:\n"
+        "      then:\n"
+        "        - switch.turn_off:\n"
+        "            id: relay\n"
+        "switch:\n"
+        "  - platform: gpio\n"
+        "    id: relay\n"
+    )
+    assert resolve_component_domain(text, "relay") == "switch"
+
+
+def test_resolve_domain_returns_none_for_unknown_id() -> None:
+    """A component id that no instance declares resolves to ``None``."""
+    text = "switch:\n  - platform: gpio\n    id: relay\n"
+    assert resolve_component_domain(text, "missing") is None
+
+
+def test_resolve_domain_returns_none_for_non_dict_root() -> None:
+    """A document whose root isn't a mapping resolves to ``None``."""
+    assert resolve_component_domain("- a\n- b\n", "relay") is None
+
+
+def test_resolve_domain_returns_none_for_unparseable_yaml() -> None:
+    """Malformed YAML falls back to ``None`` instead of raising."""
+    assert resolve_component_domain(":\n  - [\n", "relay") is None
+
+
+def test_resolve_domain_skips_non_dict_list_entry() -> None:
+    """A non-mapping entry inside a domain list is skipped, not matched."""
+    text = "switch:\n  - just-a-string\n  - platform: gpio\n    id: relay\n"
+    assert resolve_component_domain(text, "relay") == "switch"

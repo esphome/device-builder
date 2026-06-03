@@ -1,8 +1,9 @@
 """
 Firmware build queue + WS command surface.
 
-Owns the persistent single-job queue and the lifecycle event
-broadcasts; the bulk of each concern lives in sibling submodules
+Owns the persistent two-lane queue (a compile lane + an upload lane that
+run concurrently) and the lifecycle event broadcasts; the bulk of each
+concern lives in sibling submodules
 (``runner`` / ``factories`` / ``jobs`` / ``follow`` / ``clean`` /
 ``download`` / ``bulk`` / ``cli`` / ``persistence`` / ``lifecycle``).
 Public API is the ``@api_command``-decorated methods; everything
@@ -19,6 +20,7 @@ from contextlib import AbstractAsyncContextManager
 from typing import TYPE_CHECKING, Any
 
 from ...helpers.api import CommandError, api_command
+from ...helpers.async_ import create_eager_task
 from ...models import (
     LOCAL_JOB_BUILD_SOURCE,
     ErrorCode,
@@ -31,7 +33,7 @@ from ...models import (
 from . import bulk, cli, factories, follow, jobs, lifecycle, persistence, runner
 from . import clean as clean_mod
 from . import download as download_mod
-from ._state import FirmwareState
+from ._state import FirmwareState, Lane
 from .helpers import (
     _find_esphome_cmd,
     _validate_port,
@@ -47,11 +49,13 @@ _LOGGER = logging.getLogger(__name__)
 
 class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods need a refactor first)
     """
-    Manage firmware build jobs with a persistent queue.
+    Manage firmware build jobs with a persistent two-lane queue.
 
-    Only one job runs at a time. Jobs are persisted to disk so they
-    survive page refreshes and server restarts. Progress is broadcast
-    via the event bus to all connected clients.
+    A compile lane (CPU) and an upload lane (network) each run one job at a
+    time but run concurrently, so a slow upload doesn't block the next
+    compile. Jobs are persisted to disk so they survive page refreshes and
+    server restarts. Progress is broadcast via the event bus to all
+    connected clients.
     """
 
     def __init__(self, device_builder: DeviceBuilder) -> None:
@@ -74,19 +78,26 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     # Lifecycle
     # ------------------------------------------------------------------
 
-    def queue_status_snapshot(self) -> QueueStatus:
-        """Return a :class:`QueueStatus` snapshot of the firmware queue; sync, no I/O.
+    def lane_status(self, lane: Lane) -> QueueStatus:
+        """Return a :class:`QueueStatus` snapshot of one lane; sync, no I/O.
 
-        ``idle`` and ``running`` aren't redundant with each other:
-        ``running=False, queue_depth>0`` is the window between
-        ``_queue.put`` and the runner's ``_queue.get``, so a
-        scheduler reading only ``running`` would misclassify a
-        fully-loaded receiver as accepting more work.
+        ``idle`` and ``running`` aren't redundant: ``running=False,
+        queue_depth>0`` is the window between ``queue.put`` and the
+        runner's ``queue.get``, so a scheduler reading only ``running``
+        would misclassify a loaded lane as accepting more work.
         """
-        running = self.state.current_job is not None
-        queue_depth = self.state.queue.qsize()
+        running = lane.current_job is not None
+        queue_depth = lane.queue.qsize()
         idle = not running and queue_depth == 0
         return QueueStatus(idle=idle, running=running, queue_depth=queue_depth)
+
+    def compile_queue_status(self) -> QueueStatus:
+        """Compile-lane status — what a remote offloader keys on (a receiver only compiles).
+
+        An uploading receiver still has a free compile lane, so it must keep
+        advertising idle for delegated compiles rather than the aggregate.
+        """
+        return self.lane_status(self.state.compile_lane)
 
     async def start(self) -> None:
         """Start the queue processor and restore persisted jobs."""
@@ -166,9 +177,19 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         ``~/.platformio/`` tree; the addon / docker images contain
         the blast radius inside the data dir. The next compile
         re-fetches everything from scratch (slow but thorough).
-        Runs through the single-job queue so it can't race a build.
+
+        Cancels every other in-flight job first so the wipe can't race a live
+        compile or upload running concurrently on either lane.
         """
         job = self._create_job("", JobType.RESET_BUILD_ENV)
+        # The global sweep re-raises on a state-out-of-sync RuntimeError; roll the
+        # just-created RESET job back so the orphan can't wedge the upload lane
+        # (it counts as an active reset in ``upload_blocked``) or wipe on restart.
+        try:
+            await factories.cancel_all_active_jobs(self, exclude_job_ids={job.job_id})
+        except BaseException:
+            self.state.jobs.pop(job.job_id, None)
+            raise
         return await self._enqueue(job)
 
     @api_command("firmware/install")
@@ -193,13 +214,14 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         _validate_port(port)
         await self._validate_configuration_boundary(configuration)
         build_source = self._resolve_install_source(force_local=force_local)
-        job = self._create_job(
-            configuration,
-            JobType.INSTALL,
-            port=port,
-            build_source=build_source,
+        # Install is a compile + a dependent local upload. The compile (local
+        # or dispatched to a receiver) materialises the binary locally; the
+        # upload then flashes on the upload lane, freeing the compile lane to
+        # build the next device — so a slow flash never blocks a compile, and
+        # a remote receiver keeps compiling while we upload locally.
+        return await factories.enqueue_install_chain(
+            self, configuration=configuration, port=port, build_source=build_source
         )
-        return await self._enqueue(job)
 
     @api_command("firmware/rename")
     async def rename(self, *, configuration: str, new_name: str, **kwargs: Any) -> FirmwareJob:
@@ -343,18 +365,33 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     # ------------------------------------------------------------------
 
     async def _run_queue(self) -> None:
-        await runner.run_queue(self)
+        """Run both lane consumers concurrently; drain both on any exit.
 
-    async def _execute_job(self, job: FirmwareJob) -> None:
-        await runner.execute_job(self, job)
+        On shutdown-cancel or one lane raising, cancel and await both lane
+        tasks before the error propagates — else the sibling is left orphaned
+        mid-flight (subprocess not terminated, job not finalised).
+        """
+        lane_tasks = [
+            create_eager_task(runner.run_lane(self, self.state.compile_lane)),
+            create_eager_task(runner.run_lane(self, self.state.upload_lane)),
+        ]
+        try:
+            await asyncio.gather(*lane_tasks)
+        finally:
+            for task in lane_tasks:
+                task.cancel()
+            await asyncio.gather(*lane_tasks, return_exceptions=True)
+
+    async def _execute_job(self, job: FirmwareJob, lane: Lane) -> None:
+        await runner.execute_job(self, job, lane)
 
     async def _execute_remote_job(self, job: FirmwareJob) -> None:
         await runner.execute_remote_job(self, job)
 
     def _tracked_subprocess(
-        self, *args: Any, **kwargs: Any
+        self, lane: Lane, *args: Any, **kwargs: Any
     ) -> AbstractAsyncContextManager[asyncio.subprocess.Process]:
-        return runner.tracked_subprocess(self, *args, **kwargs)
+        return runner.tracked_subprocess(self, lane, *args, **kwargs)
 
     def _finalize_terminal(self, job: FirmwareJob, status: JobStatus) -> None:
         lifecycle.finalize_terminal(self, job, status)
@@ -365,11 +402,11 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     def _raise_if_cancelled(self, job: FirmwareJob, phase: str) -> None:
         lifecycle.raise_if_cancelled(self, job, phase)
 
-    async def _terminate_current_process(self) -> None:
-        await lifecycle.terminate_current_process(self)
+    async def _terminate_current_process(self, lane: Lane) -> None:
+        await lifecycle.terminate_current_process(self, lane)
 
-    async def _verify_chip(self, job: FirmwareJob) -> None:
-        await cli.verify_chip(self, job)
+    async def _verify_chip(self, job: FirmwareJob, lane: Lane) -> None:
+        await cli.verify_chip(self, job, lane)
 
     def _compose_subprocess_env(self, job: FirmwareJob) -> dict[str, str]:
         return cli.compose_subprocess_env(job)
@@ -465,8 +502,10 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     def _check_rename_lock(self, job: FirmwareJob) -> None:
         factories.check_rename_lock(self, job)
 
-    async def _supersede_active_jobs(self, configuration: str, *, exclude_job_id: str) -> None:
-        await factories.supersede_active_jobs(self, configuration, exclude_job_id=exclude_job_id)
+    async def _supersede_active_jobs(
+        self, configuration: str, *, exclude_job_ids: set[str]
+    ) -> None:
+        await factories.supersede_active_jobs(self, configuration, exclude_job_ids=exclude_job_ids)
 
     def _prune_history(self) -> None:
         persistence.prune_history(self)

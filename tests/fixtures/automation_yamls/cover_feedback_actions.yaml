@@ -1,0 +1,13 @@
+cover:
+  - platform: feedback
+    name: Driveway Gate
+    id: driveway_gate
+    device_class: gate
+    open_action:
+      - switch.turn_off: gate_stop
+      - switch.turn_on: gate_open
+      - delay: 200ms
+    close_action:
+      - switch.turn_on: gate_close
+    stop_action:
+      - switch.turn_on: gate_stop

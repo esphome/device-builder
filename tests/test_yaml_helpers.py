@@ -28,6 +28,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+import yaml
 
 from esphome_device_builder.helpers.yaml import (
     YamlUpsertNotSupportedError,
@@ -945,6 +946,19 @@ def test_merge_component_yaml_splice_handles_trailing_blank_lines() -> None:
     assert "- platform: dht" in sensor_block
 
 
+def test_merge_component_yaml_accepts_incomplete_draft() -> None:
+    """A syntactically broken draft is appended-merged, not rejected."""
+    component = _component(component_id="i2c", category=ComponentCategory.BUS)
+    fields: dict[str, Any] = {"sda": "GPIO21", "scl": "GPIO22"}
+
+    # Unterminated quote + dangling key — invalid YAML mid-edit.
+    broken = 'esphome:\n  name: "kitch\nsensor:\n  - platform:\n'
+    result = merge_component_yaml(broken, component, fields)
+
+    assert broken in result
+    assert "i2c:\n  sda: GPIO21\n  scl: GPIO22\n" in result
+
+
 @pytest.mark.parametrize("category", [ComponentCategory.OUTPUT, ComponentCategory.SWITCH])
 def test_merge_component_yaml_splices_other_platform_categories(
     category: ComponentCategory,
@@ -980,8 +994,8 @@ _RTTTL_LIST = "rtttl:\n  - id: rtttl_1\n    output: buzz\n  - id: rtttl_2\n    o
             "esphome:\n  name: kitchen\n",
             "rtttl_1",
             ["rtttl_1"],
-            "rtttl:\n  id: rtttl_1\n  output: buzz\n",
-            id="first_add_emits_mapping",
+            "rtttl:\n  - id: rtttl_1\n    output: buzz\n",
+            id="first_add_emits_list",
         ),
         pytest.param(
             f"esphome:\n  name: kitchen\n\n{_RTTTL_MAPPING}",
@@ -1090,6 +1104,22 @@ def test_mapping_body_to_list_item_preserves_blank_lines() -> None:
         "",
         "    output: buzz",
     ]
+
+
+def test_generate_component_yaml_multi_conf_emits_list_form() -> None:
+    """A ``multi_conf`` component's first entry renders as a ``- `` list item."""
+    component = _component(component_id="globals", category=ComponentCategory.MISC, multi_conf=True)
+    out = generate_component_yaml(component, {"id": "g1", "type": "int", "initial_value": "0"})
+    assert out.startswith("globals:\n  - id: g1\n")
+    assert "    type: int" in out
+    assert "    initial_value:" in out
+
+
+def test_generate_component_yaml_singleton_emits_mapping_form() -> None:
+    """A non-``multi_conf`` singleton stays a bare mapping (no ``- ``)."""
+    component = _component(component_id="wifi", category=ComponentCategory.MISC, multi_conf=False)
+    out = generate_component_yaml(component, {"ssid": "home"})
+    assert out == "wifi:\n  ssid: home"
 
 
 # ---------------------------------------------------------------------------
@@ -1209,6 +1239,30 @@ def test_generate_component_yaml_quotes_strings_that_reparse_as_non_string(
     component = _component(component_id="myc", category=ComponentCategory.MISC)
     out = generate_component_yaml(component, {"v": value})
     assert f'  v: "{value}"' in out
+
+
+@pytest.mark.parametrize(
+    "value",
+    ['"Hello"', "'single'", "with:colon", "has#hash", '"quote\\and\\slash"'],
+    ids=[
+        "cpp-literal",
+        "leading-squote",
+        "embedded-colon",
+        "embedded-hash",
+        "leading-quote-backslash",
+    ],
+)
+def test_generate_component_yaml_quote_bearing_string_round_trips(value: str) -> None:
+    r"""Quote/indicator-bearing scalar values survive a full re-parse (#1095).
+
+    A globals ``initial_value`` for a ``std::string`` is a C++ literal
+    (``'"Hello"'``); emitting it bare round-trips as plain ``Hello`` so
+    ESPHome compiles an undeclared symbol. Embedded ``"`` / ``\`` are
+    escaped via ``_quote`` rather than wrapped in invalid ``""..."``.
+    """
+    component = _component(component_id="myc", category=ComponentCategory.MISC)
+    out = generate_component_yaml(component, {"v": value})
+    assert yaml.safe_load(out)["myc"]["v"] == value
 
 
 # ---------------------------------------------------------------------------
@@ -1331,6 +1385,18 @@ def test_generate_component_yaml_quotes_flow_string_with_flow_indicator() -> Non
     component = _component(component_id="myc", category=ComponentCategory.MISC)
     out = generate_component_yaml(component, {"items": ["a,b", "c"]})
     assert '  items: ["a,b", c]' in out
+
+
+@pytest.mark.parametrize(
+    "value",
+    ['a,"b', "x,\\y", '{a},"q"'],
+    ids=["embedded-quote", "backslash", "brace-quote"],
+)
+def test_generate_component_yaml_flow_list_escapes_quote_bearing_element(value: str) -> None:
+    """A flow-list element carrying both a flow indicator and a quote/backslash escapes cleanly."""
+    component = _component(component_id="myc", category=ComponentCategory.MISC)
+    out = generate_component_yaml(component, {"items": [value, "c"]})
+    assert yaml.safe_load(out)["myc"]["items"] == [value, "c"]
 
 
 # ---------------------------------------------------------------------------

@@ -114,7 +114,7 @@ def make_peer_link_handler(
         # this handler instead of pinning ``runner.cleanup()`` to
         # aiohttp's 60s ``shutdown_timeout`` while an idle paired
         # offloader sits in ``async for msg in ws``. The set is
-        # seeded in :meth:`DeviceBuilder._build_and_start_remote_build_runner`
+        # seeded in :meth:`RemoteBuildLifecycle._build_and_start_runner`
         # at construction time; tests that build a hand-rolled
         # peer-link app are expected to seed it themselves.
         request.app[WEBSOCKETS_KEY].add(ws)

@@ -25,7 +25,7 @@ def origin_in_allowlist(origin: str, allowlist: list[str]) -> bool:
         parsed = urlparse(origin)
     except ValueError:
         return False
-    hostname = (parsed.hostname or "").lower()
+    hostname = normalize_host(parsed.hostname or "")
     if not hostname:
         return False
     return any(normalize_host(entry) == hostname for entry in allowlist)
@@ -43,25 +43,30 @@ def normalize_host(host: str) -> str:
     """
     Lower-case ``host``, stripping the port and IPv6 brackets if any.
 
-    Bare un-bracketed IPv6 addresses (``fe80::1``) need the
-    ``ipaddress`` short-circuit because ``urlsplit`` would parse
-    ``fe80`` as the host and ``:1`` as the port.
+    IP literals are canonicalised through ``ipaddress`` so two
+    spellings of one address (compressed ``2001:db8::1`` vs
+    expanded ``2001:0db8:0:0:0:0:0:1``) normalise equal — an
+    allowlist entry matches whatever spelling the Host header
+    carries. Bare un-bracketed IPv6 needs the short-circuit
+    because ``urlsplit`` would parse ``fe80`` as the host and
+    ``:1`` as the port.
     """
     stripped = host.strip()
     if not stripped.startswith("["):
         try:
-            ipaddress.ip_address(stripped)
+            return str(ipaddress.ip_address(stripped))
         except ValueError:
             pass
-        else:
-            return stripped.lower()
     try:
         hostname = urlsplit(f"//{stripped}").hostname
     except ValueError:
         hostname = None
     if hostname is None:
         return stripped.lower()
-    return hostname.lower()
+    try:
+        return str(ipaddress.ip_address(hostname))
+    except ValueError:
+        return hostname.lower()
 
 
 def request_origin_allowed(origin: str, request_host: str, trusted_domains: list[str]) -> bool:

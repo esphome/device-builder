@@ -14,6 +14,7 @@ from ...helpers.device_yaml import parse_esphome_meta
 from ...helpers.storage_path import resolve_storage_path
 from ...models import ErrorCode
 from .helpers import (
+    _unlink_compiled_config,
     _unlink_storage_sidecar,
     _wipe_device_build_dir,
 )
@@ -57,18 +58,26 @@ async def archive_single(controller: DevicesController, configuration: str) -> N
         _wipe_device_build_dir(configuration)
         shutil.move(str(config_path), str(target))
         _unlink_storage_sidecar(configuration)
+        _unlink_compiled_config(configuration)
 
-    try:
-        await loop.run_in_executor(None, _archive_sync)
-    except FileExistsError as exc:
-        raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
-    # Drop volatile fields across both stores: live mDNS state and
-    # build-dir caches in the data_dir store, plus ``mac_address``
-    # in the shared sidecar (intrinsic to the physical board, but
-    # volatile across YAML → board re-bindings on unarchive).
-    # Identity fields (board_id / friendly_name / comment / labels)
-    # survive so unarchive restores user-visible state.
-    await controller._clear_volatile_device_metadata(configuration)
+    # Hold the per-file write lock across the move + history commit so a
+    # concurrent editor save to the same config can't interleave with the
+    # archive's removal commit (same serialisation as ``_persist_yaml_mutation``).
+    async with controller._yaml_write_lock(configuration):
+        try:
+            await loop.run_in_executor(None, _archive_sync)
+        except FileExistsError as exc:
+            raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
+        # Drop volatile fields across both stores: live mDNS state and
+        # build-dir caches in the data_dir store, plus ``mac_address``
+        # in the shared sidecar (intrinsic to the physical board, but
+        # volatile across YAML → board re-bindings on unarchive).
+        # Identity fields (board_id / friendly_name / comment / labels)
+        # survive so unarchive restores user-visible state.
+        await controller._clear_volatile_device_metadata(configuration)
+        # The active YAML left the config dir; record it as a removal so
+        # the pre-archive content is restorable from history.
+        await controller._commit_history(configuration, f"Archive {configuration}")
 
 
 async def unarchive_single(controller: DevicesController, configuration: str) -> None:
@@ -148,6 +157,7 @@ async def delete_archived_single(controller: DevicesController, configuration: s
             # sidecars now; leave them alone.
             return False
         _unlink_storage_sidecar(configuration)
+        _unlink_compiled_config(configuration)
         return True
 
     sidecars_purged = await loop.run_in_executor(None, _delete_all)
@@ -179,9 +189,17 @@ async def delete_single(controller: DevicesController, configuration: str) -> No
         (config_dir / ".trash" / configuration).unlink(missing_ok=True)
         (config_dir / ".archive" / f"{configuration}.json").unlink(missing_ok=True)
         _unlink_storage_sidecar(configuration)
+        _unlink_compiled_config(configuration)
 
-    await loop.run_in_executor(None, _delete_all)
-    await controller._delete_device_metadata(configuration)
+    # Per-file write lock so the removal commit can't interleave with a
+    # concurrent editor save's commit on the same config (uniform with
+    # ``_persist_yaml_mutation``).
+    async with controller._yaml_write_lock(configuration):
+        await loop.run_in_executor(None, _delete_all)
+        await controller._delete_device_metadata(configuration)
+        # Record the removal in git so the YAML stays restorable from
+        # history even though its (regenerable) build artifacts are gone.
+        await controller._commit_history(configuration, f"Delete {configuration}")
 
 
 async def run_bulk_per_device(

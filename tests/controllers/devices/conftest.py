@@ -451,8 +451,14 @@ def make_controller() -> MakeControllerFactory:
         controller = DevicesController.__new__(DevicesController)
         controller._db = MagicMock()
         controller.state = DevicesState()
+        controller._yaml_write_locks = {}
         controller._db.settings.config_dir = config_dir
         controller._db.settings.rel_path = lambda configuration: config_dir / configuration
+        # Version history off by default — a MagicMock's
+        # ``record_configuration`` isn't awaitable, and the YAML-write
+        # tests don't care about commits. The version_history suite
+        # exercises the commit path directly.
+        controller._db.version_history = None
         # ``data_dir`` collapsed onto ``config_dir`` for tmp_path
         # cleanup; real stores so round-trips hit disk.
         controller._shutdown_callbacks = []
@@ -679,7 +685,20 @@ def make_label_test_device(
 def attach_reloading_scanner(
     controller: DevicesController, config_dir: Path, devices: list[Device]
 ) -> ReloadingScanner:
-    """Swap the default ``RecordingScanner`` for the reload-aware one seeded with N devices."""
+    """Swap the default ``RecordingScanner`` for the reload-aware one seeded with N devices.
+
+    Each seeded device gets a backing YAML on disk so the
+    "scanner has device X" / "X.yaml exists" invariant holds —
+    ``set_device_labels`` refuses to write a sidecar entry for a
+    configuration whose YAML is gone.
+    """
+    for device in devices:
+        yaml_path = config_dir / device.configuration
+        if not yaml_path.exists():
+            yaml_path.write_text(
+                f"esphome:\n  name: {configuration_stem(device.configuration)}\n",
+                encoding="utf-8",
+            )
     scanner = ReloadingScanner(config_dir, devices)
     controller._scanner = scanner
     return scanner

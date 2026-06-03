@@ -4,48 +4,28 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ...helpers.api import CommandError
 from ...models import (
-    ErrorCode,
     FirmwareJob,
     JobBuildSource,
     JobSource,
     JobType,
 )
 from ...models.remote_build import PeerStatus
-from .constants import _ACTIVE_JOB_STATUSES
 
 if TYPE_CHECKING:
     from .controller import FirmwareController
-
-
-# Job types that produce build artifacts a clean would destroy.
-# A clean is rejected loudly (not supersede-cancelled) while any
-# of these is in-flight for the same configuration.
-_BUILD_PRODUCING_JOB_TYPES: frozenset[JobType] = frozenset(
-    {JobType.COMPILE, JobType.UPLOAD, JobType.INSTALL, JobType.RENAME}
-)
 
 
 async def clean(controller: FirmwareController, *, configuration: str) -> FirmwareJob:
     """
     Queue a clean job + one per connected paired receiver; return the LOCAL job.
 
-    Per-peer REMOTE clean jobs surface through the firmware-jobs
-    ``subscribe_events`` stream, not the WS reply. Rejects with
-    ``CommandError(INVALID_ARGS)`` while a compile / upload /
-    install / rename is in flight for the same configuration —
-    supersede would silently abandon a build the user didn't
-    mean to cancel. Two clean jobs still supersede each other.
+    The LOCAL clean's default supersede cancels any in-flight build for the
+    same configuration (a clean is the user asking for a fresh build). Per-peer
+    REMOTE clean jobs surface through the firmware-jobs ``subscribe_events``
+    stream, not the WS reply.
     """
     await controller._validate_configuration_boundary(configuration)
-    if blocker := _active_build_for(controller, configuration):
-        raise CommandError(
-            ErrorCode.INVALID_ARGS,
-            f"{blocker.job_type.value} job already in progress "
-            f"for {configuration}; wait for it to finish or "
-            f"cancel it before cleaning.",
-        )
     local_job = controller._create_job(configuration, JobType.CLEAN)
     enqueued = await controller._enqueue(local_job)
     await _fan_out_clean_to_connected_peers(controller, configuration)
@@ -86,15 +66,3 @@ async def _fan_out_clean_to_connected_peers(
         # one ``configuration``; default supersede would leave only
         # the LAST peer's clean alive.
         await controller._enqueue(remote_job, supersede=False)
-
-
-def _active_build_for(controller: FirmwareController, configuration: str) -> FirmwareJob | None:
-    """Return any in-flight build-producing job on *configuration*, else None."""
-    for active in controller.state.jobs.values():
-        if active.configuration != configuration:
-            continue
-        if active.status not in _ACTIVE_JOB_STATUSES:
-            continue
-        if active.job_type in _BUILD_PRODUCING_JOB_TYPES:
-            return active
-    return None

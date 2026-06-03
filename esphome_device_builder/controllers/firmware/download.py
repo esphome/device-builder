@@ -69,40 +69,57 @@ async def get_binaries(controller: FirmwareController, *, configuration: str) ->
         storage = StorageJSON.load(resolve_storage_path(configuration))
         if storage is None:
             return []
-        try:
-            component = _resolve_download_component(storage.target_platform)
-            module = importlib.import_module(f"esphome.components.{component}")
-            types = list(module.get_download_types(storage))
-        except Exception:  # noqa: BLE001 — third-party regression: upstream ``get_download_types`` could raise anything
-            _LOGGER.warning("Could not determine download types for %s", configuration)
-            return []
-        # No build dir → can't confirm anything on disk → treat as not built.
-        if storage.firmware_bin_path is None:
-            return []
-        build_dir = storage.firmware_bin_path.parent
-        # Filter to files that exist so a cleaned build reads as "compile
-        # first" rather than offering a name ``firmware/download`` would 404 on.
-        downloads = [dict(t) for t in types if (build_dir / t["file"]).is_file()]
-        # firmware.elf sits beside firmware.bin on every platform
-        # (remote_build/artifact_platforms/*.py). The `not any` guards against a
-        # future get_download_types that lists it, so it can't appear twice.
-        if (build_dir / "firmware.elf").is_file() and not any(
-            t["file"] == "firmware.elf" for t in downloads
-        ):
-            downloads.append(
-                {
-                    "title": "ELF (for debugging)",
-                    "description": "Debug symbols for the ESP stack trace decoder.",
-                    "file": "firmware.elf",
-                }
-            )
-        for entry in downloads:
-            artifact_type = _ARTIFACT_TYPES.get(entry["file"])
-            if artifact_type:
-                entry["type"] = artifact_type
-        return downloads
+        return collect_download_entries(storage, label=configuration)
 
     return await loop.run_in_executor(None, _get_types)
+
+
+def collect_download_entries(storage: StorageJSON, *, label: str | None = None) -> list[dict]:
+    """Return the downloadable artifacts on disk for *storage* as ``[{title, file, ...}]``.
+
+    The platform's ``get_download_types`` entries that exist under
+    ``firmware_bin_path.parent`` (the build dir, ``.pioenvs/<name>/`` or
+    native-IDF ``build/``), plus ``firmware.elf`` when present. Empty
+    when nothing is built. The single source of truth for what a build
+    offers; ``get_binaries`` is its async wrapper. *label* identifies the
+    build in the failure log -- the caller's configuration filename when it
+    has one (more specific than ``storage.name`` across colliding device
+    names); defaults to ``storage.name``.
+    """
+    try:
+        component = _resolve_download_component(storage.target_platform)
+        module = importlib.import_module(f"esphome.components.{component}")
+        types = list(module.get_download_types(storage))
+    except Exception:  # a third-party get_download_types regression could raise anything
+        _LOGGER.warning(
+            "Could not determine download types for %s", label or storage.name, exc_info=True
+        )
+        return []
+    # No build dir → can't confirm anything on disk → treat as not built.
+    if storage.firmware_bin_path is None:
+        return []
+    build_dir = storage.firmware_bin_path.parent
+    # Filter to files that exist so a cleaned build reads as "compile
+    # first" rather than offering a name ``firmware/download`` would 404 on.
+    downloads = [dict(t) for t in types if (build_dir / t["file"]).is_file()]
+    # firmware.elf sits beside firmware.bin on every platform
+    # (remote_build/artifact_platforms/*.py). The `not any` guards against a
+    # future get_download_types that lists it, so it can't appear twice.
+    if (build_dir / "firmware.elf").is_file() and not any(
+        t["file"] == "firmware.elf" for t in downloads
+    ):
+        downloads.append(
+            {
+                "title": "ELF (for debugging)",
+                "description": "Debug symbols for the ESP stack trace decoder.",
+                "file": "firmware.elf",
+            }
+        )
+    for entry in downloads:
+        artifact_type = _ARTIFACT_TYPES.get(entry["file"])
+        if artifact_type:
+            entry["type"] = artifact_type
+    return downloads
 
 
 def _resolve_artifact_path(configuration: str, file: str) -> tuple[Path, str]:

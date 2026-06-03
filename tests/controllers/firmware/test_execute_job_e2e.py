@@ -48,6 +48,12 @@ from esphome_device_builder.controllers.firmware.constants import (
     _MAX_OUTPUT_LINES_INFLIGHT,
 )
 from esphome_device_builder.models import EventType, JobStatus
+from tests.controllers.firmware.conftest import (
+    run_until_terminal as _run_until_terminal,
+)
+from tests.controllers.firmware.conftest import (
+    wire_real_queue as _wire_real_queue,
+)
 
 if TYPE_CHECKING:
     from .conftest import FirmwareControllerFactory
@@ -56,27 +62,6 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # Fixture: a real runner task driving a real ``asyncio.Queue``
 # ---------------------------------------------------------------------------
-
-
-def _wire_real_queue(controller: FirmwareController) -> None:
-    """Swap the conftest's ``AsyncMock`` queue for a real ``asyncio.Queue``.
-
-    The runner does ``await self.state.queue.get()``; an ``AsyncMock``
-    returns its default sentinel immediately and the runner would
-    spin instead of waiting for a real submission. Pair the queue
-    swap with the supersede stub (passthrough) and the
-    cancel-tracking surface ``_execute_job`` reads.
-    """
-    controller.state.queue = asyncio.Queue()
-
-    async def _supersede(_configuration: str, *, exclude_job_id: str) -> None:
-        return
-
-    controller._supersede_active_jobs = _supersede  # type: ignore[assignment]
-    controller.state.current_job = None
-    controller.state.current_process = None
-    controller.state.cancel_requested = set()
-    controller.state.cancel_events = {}
 
 
 def _fake_esphome(controller: FirmwareController, script: str) -> None:
@@ -93,56 +78,6 @@ def _fake_esphome(controller: FirmwareController, script: str) -> None:
 
 def _seed_yaml(tmp_path: Path, name: str = "kitchen.yaml") -> None:
     (tmp_path / name).write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-
-
-async def _run_until_terminal(
-    controller: FirmwareController, *, timeout: float = 10.0
-) -> dict[str, list]:
-    """Run the queue runner until the next terminal event fires.
-
-    Subscribes to JOB_STARTED / JOB_OUTPUT / JOB_PROGRESS /
-    JOB_COMPLETED / JOB_FAILED / JOB_CANCELLED, returns the
-    captured records keyed by event-type value. Works for any
-    test that submits exactly one job — terminal events are
-    one-per-job so the first one delivered ends the wait.
-
-    Falls back to a hard timeout so a runner regression that
-    never delivers a terminal event surfaces as a clean test
-    failure rather than a hung pytest run.
-    """
-    captured: dict[str, list] = {
-        "job_started": [],
-        "job_output": [],
-        "job_progress": [],
-        "job_completed": [],
-        "job_failed": [],
-        "job_cancelled": [],
-    }
-    terminal_event = asyncio.Event()
-
-    bus = controller._db.bus
-    real_fire = bus.fire
-
-    def _capture(event_type: EventType, data: dict) -> None:
-        key = event_type.value
-        if key in captured:
-            captured[key].append(data)
-        if key in ("job_completed", "job_failed", "job_cancelled"):
-            terminal_event.set()
-        # Forward to the original mock so call-count assertions still work.
-        real_fire(event_type, data)
-
-    bus.fire = _capture
-
-    runner_task = asyncio.create_task(controller._run_queue())
-    try:
-        await asyncio.wait_for(terminal_event.wait(), timeout=timeout)
-    finally:
-        runner_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await runner_task
-
-    return captured
 
 
 # ---------------------------------------------------------------------------
@@ -383,7 +318,7 @@ async def test_compile_mid_run_cancel_marks_cancelled(
         captured.append({"type": event_type, "data": data})
         # First JOB_OUTPUT line means the subprocess is up,
         # streaming through ``iter_lines_with_progress``, and
-        # ``self.state.current_process`` has been assigned.
+        # ``self.state.compile_lane.current_process`` has been assigned.
         if event_type == EventType.JOB_OUTPUT:
             proc_alive.set()
         elif event_type == EventType.JOB_CANCELLED:
@@ -400,8 +335,8 @@ async def test_compile_mid_run_cancel_marks_cancelled(
         # up the cancel flag when it loops back to read the next
         # line and sees EOF.
         controller.state.cancel_requested.add(job.job_id)
-        assert controller.state.current_process is not None
-        controller.state.current_process.terminate()
+        assert controller.state.compile_lane.current_process is not None
+        controller.state.compile_lane.current_process.terminate()
 
         # Wait for the cancel event from the runner's natural
         # post-``proc.wait()`` path, NOT from ``runner_task.cancel()``
@@ -480,8 +415,8 @@ async def test_execute_job_runner_shutdown_terminates_and_marks_cancelled(
     runner_task = asyncio.create_task(controller._run_queue())
     try:
         await asyncio.wait_for(proc_alive.wait(), timeout=10.0)
-        assert controller.state.current_process is not None
-        proc = controller.state.current_process
+        assert controller.state.compile_lane.current_process is not None
+        proc = controller.state.compile_lane.current_process
 
         # Cancel the runner task itself — this is the shutdown shape,
         # not the user-cancel one. Nothing is added to

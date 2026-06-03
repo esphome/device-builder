@@ -80,6 +80,12 @@ def _make_controller(
     return controller, captured
 
 
+def _seed_device_yaml(tmp_path: Path, *filenames: str) -> None:
+    """Write backing YAMLs so ``set_device_labels`` won't reject them as deleted."""
+    for filename in filenames:
+        (tmp_path / filename).write_text("esphome:\n  name: stub\n", encoding="utf-8")
+
+
 # ---------------------------------------------------------------------------
 # create
 # ---------------------------------------------------------------------------
@@ -339,6 +345,7 @@ async def test_delete_label_cascades_through_assigned_devices(tmp_path: Path) ->
 
     a = await controller.create_label(name="Kitchen")
     b = await controller.create_label(name="Garage")
+    _seed_device_yaml(tmp_path, "kitchen.yaml", "garage.yaml", "office.yaml")
     await asyncio.to_thread(set_device_labels, tmp_path, "kitchen.yaml", [a.id, b.id])
     await asyncio.to_thread(set_device_labels, tmp_path, "garage.yaml", [a.id])
     await asyncio.to_thread(set_device_labels, tmp_path, "office.yaml", [b.id])
@@ -368,6 +375,7 @@ async def test_delete_label_tolerates_devices_controller_absent(tmp_path: Path) 
     controller, _ = _make_controller(tmp_path)  # devices=None
 
     created = await controller.create_label(name="Kitchen")
+    _seed_device_yaml(tmp_path, "kitchen.yaml")
     await asyncio.to_thread(set_device_labels, tmp_path, "kitchen.yaml", [created.id])
 
     await controller.delete_label(label_id=created.id)
@@ -403,6 +411,7 @@ async def test_delete_label_swallows_per_device_reload_failures(tmp_path: Path) 
     controller._db.devices.reload_configuration = _reload_raises
 
     created = await controller.create_label(name="Kitchen")
+    _seed_device_yaml(tmp_path, "kitchen.yaml")
     await asyncio.to_thread(set_device_labels, tmp_path, "kitchen.yaml", [created.id])
 
     # Cascade reaches the reload loop and swallows the exception;

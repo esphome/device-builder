@@ -17,6 +17,7 @@ regressions, not async hygiene.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import sys
 import tempfile as _tempfile
 from collections.abc import Callable, Iterator
@@ -28,6 +29,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from blockbuster import blockbuster_ctx
 from esphome.core import CORE
+from esphome.storage_json import StorageJSON
 
 from esphome_device_builder.controllers._device_mqtt_coordinator import (
     DeviceMqttCoordinator,
@@ -58,6 +60,15 @@ from esphome_device_builder.models import (
 
 if TYPE_CHECKING:
     from blockbuster import BlockBuster
+
+# True when the installed esphome's StorageJSON carries a ``toolchain``
+# field (>= 2026.5.0). That field is the exact dependency the offload path
+# keys native-IDF detection on (``toolchain == "esp-idf"``); older esphome
+# drops it on load, so tests that synthesize a native-IDF build skip there.
+# Probed off the StorageJSON signature directly rather than a correlated
+# const so the gate tracks the real runtime dependency. Mirrors the
+# native-IDF compile e2e gate.
+HAS_NATIVE_IDF_TOOLCHAIN = "toolchain" in inspect.signature(StorageJSON.__init__).parameters
 
 # Call sites known to do bounded blocking I/O during one-time server
 # startup, where the cost is paid once and not on the request path.
@@ -316,9 +327,9 @@ def make_remote_build_controller(
     db.settings.config_dir = config_dir
     db.peer_link_identity_store = PeerLinkIdentityStore(config_dir)
     db.create_background_task = asyncio.create_task
-    db.firmware.queue_status_snapshot = MagicMock(
-        return_value=QueueStatus(idle=True, running=False, queue_depth=0)
-    )
+    _idle = QueueStatus(idle=True, running=False, queue_depth=0)
+    # The receiver broadcasts compile-lane idleness to offloaders.
+    db.firmware.compile_queue_status = MagicMock(return_value=_idle)
     if bus is not None:
         db.bus = bus
     return RemoteBuildTestHandles(
@@ -337,7 +348,7 @@ def reset_offloader_firmware_stub(
     if reset_bus:
         handles.offloader._db.bus = MagicMock()
     firmware = handles.offloader._db.firmware = MagicMock()
-    firmware.queue_status_snapshot = MagicMock(**queue_status_kwargs)
+    firmware.compile_queue_status = MagicMock(**queue_status_kwargs)
     return firmware
 
 

@@ -1,0 +1,7 @@
+esphome:
+  name: x
+  on_boot:
+    then:
+      - lvgl.label.update:
+          id: my_label
+          text: hello

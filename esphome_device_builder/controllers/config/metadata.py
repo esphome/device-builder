@@ -237,6 +237,28 @@ def remove_device_metadata(config_dir: Path, filename: str) -> None:
         data.pop(filename, None)
 
 
+def rename_device_metadata(config_dir: Path, old_filename: str, new_filename: str) -> None:
+    """
+    Move *old_filename*'s sidecar entry to *new_filename* in one transaction.
+
+    Identity fields (``board_id`` / ``friendly_name`` / ``comment`` /
+    ``labels``) are keyed by filename; a rename would otherwise orphan
+    them and the renamed device would load with none. Pre-existing
+    *new_filename* fields win on conflict so a concurrent scan-derived
+    entry isn't clobbered.
+    """
+    if old_filename == new_filename:
+        return
+    with metadata_transaction(config_dir) as data:
+        old_entry = data.pop(old_filename, None)
+        if not isinstance(old_entry, dict) or not old_entry:
+            return
+        existing_new = data.get(new_filename)
+        data[new_filename] = (
+            {**old_entry, **existing_new} if isinstance(existing_new, dict) else old_entry
+        )
+
+
 # Per-device shared-sidecar fields that go stale on archive.
 # After the per-device live state moved into the data-dir store,
 # only ``mac_address`` remains in the shared sidecar with archive-

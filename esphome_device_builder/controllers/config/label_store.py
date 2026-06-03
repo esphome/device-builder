@@ -85,9 +85,11 @@ def set_device_labels(config_dir: Path, configuration: str, label_ids: list[str]
     dangling reference. ``label_ids`` is treated as a set in
     semantics — duplicate IDs in the input are deduplicated while
     preserving first-seen order. Pass ``[]`` to clear all
-    assignments. Raises :class:`ValueError` for non-string entries
-    in *label_ids* and for ids that aren't in the catalog (caller
-    translates to ``CommandError(INVALID_ARGS)`` at the API surface).
+    assignments. Raises :class:`TypeError` for non-string entries in
+    *label_ids* and :class:`ValueError` for ids that aren't in the
+    catalog (caller translates both to ``CommandError(INVALID_ARGS)``),
+    and :class:`FileNotFoundError` when *configuration*'s YAML is absent
+    (caller translates to ``NOT_FOUND``).
     """
     deduped: list[str] = []
     seen: set[str] = set()
@@ -103,6 +105,11 @@ def set_device_labels(config_dir: Path, configuration: str, label_ids: list[str]
         deduped.append(lid)
         seen.add(lid)
     with metadata_transaction(config_dir) as data:
+        # Re-check inside the lock: devices/delete unlinks the YAML before
+        # popping the sidecar entry, so a write that lost the race refuses
+        # here instead of re-materialising an orphan.
+        if not (config_dir / configuration).exists():
+            raise FileNotFoundError(configuration)
         catalog = data.get(_LABELS_KEY, [])
         if isinstance(catalog, list):
             known = {

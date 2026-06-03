@@ -33,6 +33,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+import contextlib
 import copy
 import inspect
 import json
@@ -50,6 +51,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, NamedTuple
 
+import orjson
 import voluptuous as vol
 
 # ---------------------------------------------------------------------------
@@ -64,12 +66,17 @@ _OUTPUT_INDEX_FILE = _DEFINITIONS_DIR / "components.index.json"
 _OUTPUT_BODIES_DIR = _DEFINITIONS_DIR / "components"
 _AUTOMATIONS_INDEX_FILE = _DEFINITIONS_DIR / "automations.index.json"
 _AUTOMATIONS_BODIES_DIR = _DEFINITIONS_DIR / "automations"
+_PIN_REGISTRY_MODES_INDEX_FILE = _DEFINITIONS_DIR / "pin_registry_modes.index.json"
 _CACHE_ROOT = _REPO_ROOT / ".cache"
 
 # Fields stripped from index entries — they belong on the per-id body
 # files only. Slim-index keeps the catalog UI's list / search /
 # filter paths off the per-field tree.
 _INDEX_DROP_FIELDS: frozenset[str] = frozenset({"config_entries", "required_groups"})
+
+# Actions with more top-level config entries than this are flagged
+# form_editable=False (LVGL *.update sits at 160+, every other action <= 30).
+_MAX_FORM_CONFIG_ENTRIES = 80
 
 _RELEASES_API = "https://api.github.com/repos/esphome/esphome-schema/releases"
 _SCHEMA_URL_TEMPLATE = "https://schema.esphome.io/{version}/schema.zip"
@@ -831,6 +838,29 @@ def main() -> int:
         len(automations["light_effects"]),
     )
     _emit_split_automations_catalog(automations, version)
+
+    # Per-registry pin mode flags: the long-form Mode checkboxes a given pin
+    # supports depend on its registry (an I2C expander like pca9554 allows
+    # only input/output), which is value-keyed, not field-keyed, so it ships
+    # as one global map the frontend consults at render time. Skipped on a
+    # ``--limit-component`` debug run, whose partial registry would clobber
+    # the committed artifact.
+    if not args.limit_component:
+        stems = {cid.split(".")[-1] for cid in component_ids}
+        registry_modes = _build_pin_registry_modes(stems)
+        if registry_modes:
+            _emit_pin_registry_modes_index(registry_modes)
+            _LOGGER.info(
+                "Wrote pin registry modes: %d registries -> %s",
+                len(registry_modes),
+                _PIN_REGISTRY_MODES_INDEX_FILE,
+            )
+        else:
+            _LOGGER.warning(
+                "Derived no pin registry modes — PIN_SCHEMA_REGISTRY empty or "
+                "esphome not importable; %s left untouched",
+                _PIN_REGISTRY_MODES_INDEX_FILE,
+            )
     return 0
 
 
@@ -1947,7 +1977,11 @@ def _convert_config_vars(  # noqa: C901
             continue
         if any(key.startswith(p) for p in _AUTOMATION_KEY_PREFIXES):
             continue
-        entry = _convert_field(key, raw or {}, schema_dir)
+        # ``component_id`` is set only for a component's own config_vars
+        # (the top-level build call), not the recursive nested calls — so
+        # it doubles as the "this is a direct component field" signal the
+        # action-list trigger override keys on.
+        entry = _convert_field(key, raw or {}, schema_dir, top_level=bool(component_id))
         if entry is None:
             continue
         # Per-(component, field) overrides patch up entries the schema
@@ -2018,8 +2052,15 @@ def _resolve_extends(ref: str, schema_dir: Path) -> dict[str, dict]:  # noqa: C9
     return inner
 
 
-def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noqa: PLR0912, PLR0915, C901
-    """Build a single ConfigEntry dict from a schema's config_var entry."""
+def _convert_field(  # noqa: PLR0912, PLR0915, C901
+    key: str, raw: dict, schema_dir: Path, *, top_level: bool = False
+) -> dict | None:
+    """Build a single ConfigEntry dict from a schema's config_var entry.
+
+    ``top_level`` is True only for a component's own (direct) config
+    vars; it gates the action-list ``type: trigger`` → TRIGGER override
+    so nested trigger fields stay ``nested`` (see below).
+    """
     if not isinstance(raw, dict):
         # Some schemas use bare ``{}``-shaped placeholders for fields
         # whose details live in an extends-referenced base. Treat as
@@ -2049,6 +2090,16 @@ def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noq
     entry_type = _TYPE_MAP.get(schema_type or "")
     if entry_type is None and data_type in _DATA_TYPE_PRIMITIVE:
         entry_type = _DATA_TYPE_PRIMITIVE[data_type]
+
+    # A top-level bare ``type: trigger`` field (cover ``open_action`` …) is
+    # an action list edited in the automation editor; the default
+    # ``trigger -> nested`` map yields an empty group the frontend drops, so
+    # surface it as TRIGGER. Scoped to ``top_level`` (the
+    # ``(component_id, field)`` location can't address a nested field, e.g.
+    # ``sprinkler`` ``set_action``) and to no-inner-config_vars (a trigger
+    # with params still wants ``nested``).
+    if top_level and schema_type == "trigger" and not (inner_schema or {}).get("config_vars"):
+        entry_type = "trigger"
 
     # Polymorphic registry list (#941). Two upstream shapes:
     #   1. Lights' ``effects:`` carries ``{filter: [<ids>], key:
@@ -2367,6 +2418,106 @@ def _pin_long_form_extras(schema_dir: Path) -> tuple[dict, ...]:
             )
         )
     return tuple(extras)
+
+
+def _pin_schema_mode_mapping(node: Any) -> dict | None:
+    """Return the underlying mapping of a pin-schema node, or ``None``.
+
+    Unwraps voluptuous ``All`` wrappers (the native-platform pin schema is
+    ``All(Schema(...), validate, finalize)``) and ``Schema`` objects down to
+    the first ``dict`` so a flag mapping can be read off it regardless of how
+    deeply ESPHome nests it.
+    """
+    if isinstance(node, dict):
+        return node
+    inner = getattr(node, "schema", None)
+    if isinstance(inner, dict):
+        return inner
+    for sub in getattr(node, "validators", ()) or ():
+        found = _pin_schema_mode_mapping(sub)
+        if found is not None:
+            return found
+    return None
+
+
+def _pin_registry_allowed_modes(schema: Any) -> list[str] | None:
+    """Return the sorted ``mode`` flag keys a pin-registry schema permits.
+
+    ``gpio_base_schema`` builds the ``mode`` value as a mapping of one
+    ``Optional(flag): boolean`` per allowed flag; this walks to that mapping
+    and reads the flag names. ``None`` when the schema exposes no parseable
+    ``mode`` mapping (so the caller drops the registry rather than emitting a
+    bogus empty allow-list).
+    """
+    top = _pin_schema_mode_mapping(schema)
+    if top is None:
+        return None
+    for marker, value in top.items():
+        if str(getattr(marker, "schema", marker)) != "mode":
+            continue
+        flags = _pin_schema_mode_mapping(value)
+        if flags is None:
+            return None
+        return sorted(str(getattr(m, "schema", m)) for m in flags)
+    return None
+
+
+def _build_pin_registry_modes(component_stems: Iterable[str]) -> dict[str, list[str]]:
+    """Map each external pin provider to the ``mode`` flags it allows.
+
+    Pin providers register into ESPHome's ``PIN_SCHEMA_REGISTRY`` on import,
+    so every component is imported first to populate it, then each registered
+    schema is introspected for its allowed ``mode`` flags. Native target
+    platforms (the ``Platform``-keyed entries) allow every checkbox flag and
+    are skipped — only external providers (``pca9554``, ``sn74hc595``, …),
+    keyed on the provider key that appears in a pin value, restrict the set.
+    Returns ``{}`` when esphome isn't importable.
+    """
+    loader = _get_esphome_loader()
+    if loader is None:
+        return {}
+    try:
+        from esphome import pins
+        from esphome.const import Platform
+    except Exception:
+        return {}
+    for stem in component_stems:
+        # Best-effort: most stems aren't pin providers and many don't import
+        # standalone; we only need the ones that register a pin schema.
+        with contextlib.suppress(Exception):
+            loader.get_component(stem)
+    out: dict[str, list[str]] = {}
+    platform_names = {p.value for p in Platform}
+    registry = pins.PIN_SCHEMA_REGISTRY
+    for key in registry:
+        # Native target platforms allow every checkbox flag, so scoping a native
+        # pin would be a no-op; emit only the external providers (pca9554,
+        # sn74hc595, …) that actually restrict, matched against the provider key
+        # in the pin value. Natives register under both the ``Platform`` enum
+        # and bare platform-name strings (rp2040, bk72xx, …), so filter on the
+        # name rather than the key type.
+        if str(key) in platform_names:
+            continue
+        entry = registry[key]
+        schema = entry[1] if isinstance(entry, (tuple, list)) and len(entry) > 1 else entry
+        modes = _pin_registry_allowed_modes(schema)
+        if modes:
+            out[str(key)] = modes
+    return out
+
+
+def _emit_pin_registry_modes_index(registry_modes: dict[str, list[str]]) -> None:
+    """Write the aggregated ``{registry_key: [allowed_modes]}`` map.
+
+    The components controller reads this once at startup so the frontend can
+    scope the long-form pin Mode checkboxes per registry (an I2C expander like
+    ``pca9554`` allows only ``input`` / ``output``). Atomic temp-then-replace.
+    """
+    next_path = _PIN_REGISTRY_MODES_INDEX_FILE.with_suffix(".json.next")
+    next_path.write_bytes(
+        orjson.dumps(registry_modes, option=orjson.OPT_SORT_KEYS | orjson.OPT_APPEND_NEWLINE)
+    )
+    next_path.replace(_PIN_REGISTRY_MODES_INDEX_FILE)
 
 
 def _synthesise_long_form_extra(
@@ -3436,7 +3587,22 @@ def _emit_split_automations_catalog(automations: dict[str, Any], version: str) -
             # the slim model — drops fields that aren't in the
             # slim picker shape and validates the slim contract
             # against the same source dict.
-            slim_entries.append(slim_cls.from_dict(entry).to_dict())
+            slim_src = entry
+            if type_key == "actions":
+                count = len(entry.get("config_entries") or [])
+                form_editable = count <= _MAX_FORM_CONFIG_ENTRIES
+                if not form_editable:
+                    _LOGGER.info(
+                        "Flagging action %s form_editable=False (%d config entries)",
+                        entry["id"],
+                        count,
+                    )
+                slim_src = {**entry, "form_editable": form_editable}
+            slim_dict = slim_cls.from_dict(slim_src).to_dict()
+            # Omit the flag when True so only non-editable actions carry it.
+            if type_key == "actions" and slim_dict.get("form_editable", True):
+                slim_dict.pop("form_editable", None)
+            slim_entries.append(slim_dict)
         index_payload[type_key] = slim_entries
 
     swap_split_catalog_in(
@@ -4853,6 +5019,13 @@ _AutomationRegistries = dict[str, dict[str, dict]]
 _ACTION_LIST_KEYS: frozenset[str] = frozenset({"then", "else"})
 _CONDITION_GATE_KEYS: frozenset[str] = frozenset({"condition", "all", "any"})
 
+# ESPHome registers ``not`` with ``validate_potentially_and_condition``
+# (a single condition or a list wrapped in an implicit ``and``), so its
+# schema body carries ``registry: condition`` but lacks the ``is_list``
+# flag the other combinators have. Treat it as list-accepting so the
+# editor renders its nested condition tree.
+_LIST_CONDITIONS_WITHOUT_IS_LIST: frozenset[str] = frozenset({"not"})
+
 
 # Pretty labels for the small set of esphome.json ``core`` registry
 # entries — the schema doesn't carry human names for those. Anything
@@ -5047,6 +5220,14 @@ def _convert_automation_action(
     is_control_flow = bool(accepts_action_list) or has_condition_gate
     has_else_branch = "else" in (accepts_action_list or [])
     qualified = f"{top_key}.{name}" if top_key != "core" else name
+    config_entries, scalar_shorthand_key = _resolve_automation_lambda(
+        top_key=top_key,
+        name=name,
+        schema=schema,
+        docs=docs,
+        config_entries=config_entries,
+        body=body,
+    )
     return {
         "id": qualified,
         "name": _automation_label(domain, name, docs.name),
@@ -5057,7 +5238,7 @@ def _convert_automation_action(
         "is_control_flow": is_control_flow,
         "has_else_branch": has_else_branch,
         "accepts_action_list": accepts_action_list,
-        "scalar_shorthand_key": _scalar_shorthand_key(body),
+        "scalar_shorthand_key": scalar_shorthand_key,
     }
 
 
@@ -5077,10 +5258,21 @@ def _convert_automation_condition(
     config_entries, _accepts_action_list, _has_condition_gate = _extract_automation_param_schema(
         schema, schema_dir
     )
+    qualified = f"{top_key}.{name}" if top_key != "core" else name
     # Boolean combinators have ``is_list: true`` + ``registry:
     # condition`` directly on the body, not inside a ``schema``.
-    accepts_condition_list = bool(body.get("is_list") and body.get("registry") == "condition")
-    qualified = f"{top_key}.{name}" if top_key != "core" else name
+    is_condition = body.get("registry") == "condition"
+    accepts_condition_list = is_condition and (
+        bool(body.get("is_list")) or qualified in _LIST_CONDITIONS_WITHOUT_IS_LIST
+    )
+    config_entries, scalar_shorthand_key = _resolve_automation_lambda(
+        top_key=top_key,
+        name=name,
+        schema=schema,
+        docs=docs,
+        config_entries=config_entries,
+        body=body,
+    )
     return {
         "id": qualified,
         "name": _automation_label(domain, name, docs.name),
@@ -5089,7 +5281,7 @@ def _convert_automation_condition(
         "domain": domain,
         "config_entries": [_strip_entry_defaults(e) for e in config_entries],
         "accepts_condition_list": accepts_condition_list,
-        "scalar_shorthand_key": _scalar_shorthand_key(body),
+        "scalar_shorthand_key": scalar_shorthand_key,
     }
 
 
@@ -5119,6 +5311,48 @@ def _is_scalar_extends_schema(schema: dict | None) -> bool:
 # can route to its lambda editor through the same dispatch table as
 # the other scalar types.
 _LAMBDA_REGISTRY_ID = "lambda"
+
+# Docs anchor for the lambda action / condition help link.
+_CORE_LAMBDA_DOCS = "https://esphome.io/automations/templates#config-lambda"
+
+
+def _resolve_automation_lambda(
+    *,
+    top_key: str,
+    name: str,
+    schema: dict | None,
+    docs: CleanedDocs,
+    config_entries: list[dict],
+    body: dict,
+) -> tuple[list[dict], str | None]:
+    """Resolve an action/condition's ``(config_entries, scalar_shorthand_key)``.
+
+    For the core ``lambda`` action and condition, substitute a synthesized
+    ``LAMBDA`` field; for everything else, pass the extracted entries through
+    with the body's ordinary scalar-shorthand key.
+
+    ESPHome's ``lambda`` action and condition take a single bare C++ block
+    (``- lambda: |- ...``) with no named params, so the schema bundle carries
+    no ``schema`` and the param extractor yields no ``config_entries`` —
+    leaving the visual editor with only the description and no field to edit
+    the body (#1119). Recognise it by id the same way the ``lambda`` filter /
+    effect does (see ``_LAMBDA_REGISTRY_ID``) and emit one ``LAMBDA`` entry
+    keyed ``lambda`` — the same shape the sensor's ``lambda:`` config var has
+    — so the existing form pipeline renders the lambda editor. Route the bare
+    scalar through that key via ``scalar_shorthand_key`` so the writer
+    collapses it back to ``lambda: |- ...`` on save.
+    """
+    if top_key == "core" and name == _LAMBDA_REGISTRY_ID and schema is None:
+        entry = {
+            "key": _LAMBDA_REGISTRY_ID,
+            "type": "lambda",
+            "label": "Lambda",
+            "description": docs.text or None,
+            "required": True,
+            "help_link": _CORE_LAMBDA_DOCS,
+        }
+        return [entry], _LAMBDA_REGISTRY_ID
+    return config_entries, _scalar_shorthand_key(body)
 
 
 def _scalar_value_type_for_schema(name: str, schema: dict | None) -> str | None:

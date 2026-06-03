@@ -15,13 +15,10 @@ round-trips deterministic. Lambdas render as ruamel
 
 from __future__ import annotations
 
-import re
-
 from ...helpers.api import CommandError
 from ...helpers.yaml import (
     _splice_into_domain_block,
     remove_inline_handler,
-    synthetic_instance_index,
     upsert_inline_handler,
 )
 from ...models.api import ErrorCode
@@ -29,6 +26,7 @@ from ...models.automations import (
     ApiActionLocation,
     AutomationLocation,
     AutomationTree,
+    ComponentActionFieldLocation,
     ComponentOnLocation,
     DeviceOnLocation,
     IntervalLocation,
@@ -38,12 +36,13 @@ from ...models.automations import (
 )
 from . import api_actions, catalog
 from .emitter import (
+    render_action_field,
     render_api_action_item,
     render_interval_item,
     render_script_item,
     render_trigger_handler,
 )
-from .parsing import make_yaml
+from .parsing import make_yaml, resolve_component_domain
 from .writing_lists import (
     delete_light_effect,
     delete_list_entry,
@@ -56,7 +55,7 @@ from .writing_lists import (
 # ---------------------------------------------------------------------------
 
 
-def render_upsert(
+def render_upsert(  # noqa: PLR0911 — one return per location kind; a dispatch table
     yaml_text: str,
     *,
     tree: AutomationTree,
@@ -77,6 +76,8 @@ def render_upsert(
         return _upsert_device_on(yaml_text, tree, location)
     if isinstance(location, ComponentOnLocation):
         return _upsert_component_on(yaml_text, tree, location)
+    if isinstance(location, ComponentActionFieldLocation):
+        return _upsert_component_action(yaml_text, tree, location)
     if isinstance(location, LightEffectLocation):
         return upsert_light_effect(yaml_text, tree, location)
     if isinstance(location, ApiActionLocation):
@@ -95,6 +96,8 @@ def render_delete(
         return _delete_top_level(yaml_text, location)
     if isinstance(location, ComponentOnLocation):
         return _delete_component_on(yaml_text, location)
+    if isinstance(location, ComponentActionFieldLocation):
+        return _delete_component_action(yaml_text, location)
     if isinstance(location, LightEffectLocation):
         return delete_light_effect(yaml_text, location)
     if isinstance(location, ApiActionLocation):
@@ -179,6 +182,42 @@ def _upsert_component_on(
         toLine=to_line,
         replacement=replacement,
     )
+
+
+def _upsert_component_action(
+    yaml_text: str,
+    tree: AutomationTree,
+    location: ComponentActionFieldLocation,
+) -> tuple[str, YamlDiff]:
+    """Splice an action-list config field (``open_action:`` …) on a component.
+
+    Reuses the same inline-handler splice as ``on_*`` handlers, keyed on
+    the literal ``field`` name; only the rendered body differs (a bare
+    action list, no ``then:`` wrapper).
+    """
+    domain = resolve_component_domain(yaml_text, location.component_id)
+    if domain is None:
+        msg = (
+            f"Component instance id={location.component_id!r} not found; "
+            f"can't splice action field {location.field!r}"
+        )
+        raise CommandError(ErrorCode.NOT_FOUND, msg)
+    rendered = render_action_field(tree, key=location.field)
+    res = upsert_inline_handler(
+        yaml_text,
+        component_domain=domain,
+        component_id=location.component_id,
+        handler_key=location.field,
+        rendered_yaml=rendered,
+    )
+    if res is None:
+        msg = (
+            f"Component instance id={location.component_id!r} not found "
+            f"under {domain!r}; can't splice action field {location.field!r}"
+        )
+        raise CommandError(ErrorCode.NOT_FOUND, msg)
+    new_text, from_line, to_line, replacement = res
+    return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement=replacement)
 
 
 def _upsert_api_action(
@@ -486,6 +525,34 @@ def _delete_component_on(
     return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement="")
 
 
+def _delete_component_action(
+    yaml_text: str,
+    location: ComponentActionFieldLocation,
+) -> tuple[str, YamlDiff]:
+    """Drop an action-list config field (``open_action:`` …) from a component."""
+    domain = resolve_component_domain(yaml_text, location.component_id)
+    if domain is None:
+        msg = (
+            f"Component instance id={location.component_id!r} not found; "
+            f"can't delete action field {location.field!r}"
+        )
+        raise CommandError(ErrorCode.NOT_FOUND, msg)
+    res = remove_inline_handler(
+        yaml_text,
+        component_domain=domain,
+        component_id=location.component_id,
+        handler_key=location.field,
+    )
+    if res is None:
+        msg = (
+            f"Component instance id={location.component_id!r} not found "
+            f"under {domain!r}; can't delete action field {location.field!r}"
+        )
+        raise CommandError(ErrorCode.NOT_FOUND, msg)
+    new_text, from_line, to_line = res
+    return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement="")
+
+
 def _delete_api_action(
     yaml_text: str,
     location: ApiActionLocation,
@@ -580,38 +647,17 @@ def _component_domain_from_yaml(
     the writer then fails with "instance id='relay' not found
     under 'fan'".
 
-    Walk the YAML and find the top-level key whose subtree contains
-    ``id: <component_id>``. That's the domain the user actually
-    configured. Falls back to the catalog guess when the id can't
-    be located in the YAML (which also means the upsert won't find
-    a splice destination — the user will see a clearer
-    "id not found" error from ``upsert_inline_handler``).
+    Resolve structurally against the parsed config — id-less and flat
+    singletons included — so only a declared instance id matches, never
+    an action *reference* to that id nested in another component's
+    handler. Falls back to the catalog guess when the id can't be
+    located (which also means the upsert won't find a splice
+    destination — the user gets a clearer "id not found" error from
+    ``upsert_inline_handler``).
     """
-    target_id = location.component_id
-    id_re = re.compile(
-        r"^\s+(?:-\s+)?id:\s*[\"']?(\S+?)[\"']?\s*(?:#.*)?$",
-    )
-    top_re = re.compile(r"^([a-zA-Z_][\w]*)\s*:")
-    current_domain: str | None = None
-    top_level_domains: list[str] = []
-    for line in yaml_text.splitlines():
-        if line and not line[0].isspace():
-            m = top_re.match(line)
-            current_domain = m.group(1) if m else None
-            if current_domain is not None:
-                top_level_domains.append(current_domain)
-            continue
-        if current_domain is None:
-            continue
-        m = id_re.match(line)
-        if m and m.group(1) == target_id:
-            return current_domain
-    # No literal ``id:`` match — the parser labels id-less instances
-    # ``<domain>_<idx>``, so recover the domain from that prefix before
-    # falling back to the ambiguous catalog guess.
-    for domain in top_level_domains:
-        if synthetic_instance_index(domain, target_id) is not None:
-            return domain
+    domain = resolve_component_domain(yaml_text, location.component_id)
+    if domain is not None:
+        return domain
     return _component_domain(location)
 
 
@@ -731,25 +777,33 @@ def _next_non_blank_at_col_zero(lines: list[str], start: int) -> bool:
 
 
 def _build_diff_for_append(old_yaml: str, new_yaml: str) -> YamlDiff:
-    """Build a diff describing the lines added by an append-style write.
+    """
+    Build a diff describing the lines changed by an append-style write.
 
-    Walks both texts to find the first divergent line, then takes
-    everything after that on the new side as the inserted range.
-    Good enough for the append case where we always grow the file
-    at the end (or just after the matched top-level block).
+    Bounds the change to the region between the common leading and
+    trailing lines, so a splice into a block that isn't the last in
+    the file replaces only the changed span — without the suffix
+    match the unchanged tail would be re-emitted and duplicated.
     """
     old_lines = old_yaml.splitlines()
     new_lines = new_yaml.splitlines()
-    common = 0
+    prefix = 0
     while (
-        common < len(old_lines)
-        and common < len(new_lines)
-        and old_lines[common] == new_lines[common]
+        prefix < len(old_lines)
+        and prefix < len(new_lines)
+        and old_lines[prefix] == new_lines[prefix]
     ):
-        common += 1
-    from_line = common + 1
-    to_line = common  # exclusive; equal start ⇒ pure insert
-    replacement = "\n".join(new_lines[common:])
+        prefix += 1
+    suffix = 0
+    while (
+        suffix < len(old_lines) - prefix
+        and suffix < len(new_lines) - prefix
+        and old_lines[len(old_lines) - 1 - suffix] == new_lines[len(new_lines) - 1 - suffix]
+    ):
+        suffix += 1
+    from_line = prefix + 1
+    to_line = len(old_lines) - suffix  # == from_line - 1 ⇒ pure insert
+    replacement = "\n".join(new_lines[prefix : len(new_lines) - suffix])
     if replacement and not replacement.endswith("\n"):
         replacement += "\n"
     return YamlDiff(fromLine=from_line, toLine=to_line, replacement=replacement)

@@ -123,7 +123,7 @@ class RemoteBuildSettings(DataClassORJSONMixin):
     ``ports:`` flip the toggle in Settings; the persisted block
     then carries explicit opt-in and subsequent boots respect
     ``enabled`` like every other mode. See
-    :meth:`device_builder.DeviceBuilder._maybe_start_remote_build_site`.
+    :meth:`_remote_build_lifecycle.RemoteBuildLifecycle.maybe_start`.
 
     ``cleanup_ttl_seconds`` is bounded between
     :data:`MIN_CLEANUP_TTL_SECONDS` and

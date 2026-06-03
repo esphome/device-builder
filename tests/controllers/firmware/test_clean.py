@@ -173,32 +173,19 @@ async def test_clean_registers_job_in_jobs_map(
 
 @pytest.mark.parametrize(
     "active_type",
-    ["compile", "upload", "install", "rename"],
+    ["compile", "upload", "install"],
 )
-@pytest.mark.parametrize(
-    "active_status",
-    [JobStatus.QUEUED, JobStatus.RUNNING],
-)
-async def test_clean_rejects_when_active_build_for_same_configuration(
+async def test_clean_cancels_active_build_for_same_configuration(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
     active_type: str,
-    active_status: JobStatus,
 ) -> None:
-    """``clean`` refuses to run while a build is in flight.
+    """``clean`` cancels an in-flight build for the same configuration.
 
-    Compile / upload / install / rename for the same configuration all block.
-    Other firmware commands rely on the ``_enqueue`` supersede
-    path to cancel-and-replace the running job — that's the right
-    shape for "user wants to retry the compile" — but a clean
-    wipes the build artifacts the running job is producing, so a
-    quietly-cancelled build that the user didn't intend to abandon
-    is the worse failure mode. Reject loudly with
-    ``CommandError(INVALID_ARGS)`` so the frontend can surface a
-    "wait for the build to finish" toast instead of silently
-    superseding. Both ``QUEUED`` (waiting in the queue) and
-    ``RUNNING`` (live) block — no point letting a clean overwrite
-    a build that's about to start either.
+    A clean is the user asking for a fresh build of that device, so the LOCAL
+    clean's supersede cancels any queued compile / upload / install for the
+    config rather than rejecting — and an install's COMPILE cascades to its
+    held UPLOAD, so both halves go.
     """
     (tmp_path / "kitchen.yaml").write_text("")
     controller = firmware_controller_factory(with_queue=True)
@@ -206,23 +193,48 @@ async def test_clean_rejects_when_active_build_for_same_configuration(
         active = await controller.compile(configuration="kitchen.yaml")
     elif active_type == "upload":
         active = await controller.upload(configuration="kitchen.yaml", port="/dev/ttyUSB0")
-    elif active_type == "install":
-        active = await controller.install(configuration="kitchen.yaml")
     else:
-        active = await controller.rename(configuration="kitchen.yaml", new_name="bedroom")
-    # Submission lands the job in ``QUEUED``; the ``RUNNING``
-    # variant promotes it (same justified seam as
-    # ``test_supersede.py``'s RUNNING-carryover test — there's no
-    # public API for putting a job into RUNNING without spawning
-    # a real ``esphome``).
-    active.status = active_status
+        active = await controller.install(configuration="kitchen.yaml")
 
-    with pytest.raises(CommandError) as excinfo:
-        await controller.clean(configuration="kitchen.yaml")
+    await controller.clean(configuration="kitchen.yaml")
 
-    assert excinfo.value.code == ErrorCode.INVALID_ARGS
-    # Predecessor is still in its original state — clean did NOT supersede it.
-    assert active.status == active_status
+    assert active.status == JobStatus.CANCELLED
+    if active_type == "install":
+        upload = next(
+            j
+            for j in controller.state.jobs.values()
+            if j.job_type is JobType.UPLOAD and j.depends_on == active.job_id
+        )
+        assert upload.status == JobStatus.CANCELLED
+
+
+async def test_reset_build_env_cancels_all_active_jobs(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """clean-all (reset_build_env) cancels every in-flight job across both lanes.
+
+    The wipe trashes the whole build tree, so a concurrent compile or upload on
+    either lane must be cancelled first — including an install's held upload.
+    """
+    (tmp_path / "alpha.yaml").write_text("")
+    (tmp_path / "beta.yaml").write_text("")
+    controller = firmware_controller_factory(with_queue=True)
+    compile_a = await controller.compile(configuration="alpha.yaml")
+    install_b = await controller.install(configuration="beta.yaml")
+    upload_b = next(
+        j
+        for j in controller.state.jobs.values()
+        if j.job_type is JobType.UPLOAD and j.depends_on == install_b.job_id
+    )
+
+    reset = await controller.reset_build_env()
+
+    assert compile_a.status == JobStatus.CANCELLED
+    assert install_b.status == JobStatus.CANCELLED
+    assert upload_b.status == JobStatus.CANCELLED
+    assert reset.job_type is JobType.RESET_BUILD_ENV
+    assert reset.status == JobStatus.QUEUED
 
 
 async def test_clean_succeeds_when_active_build_targets_different_configuration(
@@ -261,7 +273,7 @@ async def test_clean_supersedes_other_active_clean_on_same_configuration(
     controller = firmware_controller_factory(with_queue=True, with_terminate=True)
     first = await controller.clean(configuration="kitchen.yaml")
     first.status = JobStatus.RUNNING
-    controller.state.current_job = first
+    controller.state.compile_lane.current_job = first
 
     second = await controller.clean(configuration="kitchen.yaml")
 

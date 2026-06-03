@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 import yaml
 
 from ...models.common import ConfigEntryType
-from .scalar import ESPHOME_YAML_INDENT
+from .scalar import _PLAIN_SCALAR_INDICATOR_LEAD, ESPHOME_YAML_INDENT, _quote, block_body_is_list
 
 if TYPE_CHECKING:
     from ...models import ComponentCatalogEntry
@@ -93,7 +93,7 @@ def merge_component_yaml(
     return _append_block(existing, block)
 
 
-def generate_component_yaml(  # noqa: C901
+def generate_component_yaml(  # noqa: C901, PLR0912
     component: ComponentCatalogEntry,
     fields: dict[str, Any],
 ) -> str:
@@ -167,19 +167,26 @@ def generate_component_yaml(  # noqa: C901
         autofill.update(sub)
         fields[entry.key] = autofill
 
-    lines: list[str] = []
     if is_platform:
-        lines.append(f"{category}:")
-        lines.append(f"{ESPHOME_YAML_INDENT}- platform: {unqualified}")
+        lines = [f"{category}:", f"{ESPHOME_YAML_INDENT}- platform: {unqualified}"]
         indent = ESPHOME_YAML_INDENT * 2
-    else:
-        lines.append(f"{comp_id}:")
-        indent = ESPHOME_YAML_INDENT
+        for key, value in fields.items():
+            lines.extend(_emit_field(key, value, indent))
+        return "\n".join(lines)
 
+    body: list[str] = []
     for key, value in fields.items():
-        lines.extend(_emit_field(key, value, indent))
+        body.extend(_emit_field(key, value, ESPHOME_YAML_INDENT))
 
-    return "\n".join(lines)
+    # ``multi_conf`` components are YAML lists (``globals:`` a list of
+    # typed variables, ``i2c:`` a list of buses), so emit the first
+    # entry in ``- `` list form. A bare mapping only survives via
+    # ``cv.ensure_list`` and misleads the user about the block's shape;
+    # the next add normalises it to list form anyway.
+    if component.multi_conf:
+        return "\n".join([f"{comp_id}:", *_mapping_body_to_list_item(body)])
+
+    return "\n".join([f"{comp_id}:", *body])
 
 
 def _coerce_string_map_values(
@@ -283,19 +290,18 @@ def _splice_into_domain_block(existing: str, domain: str, block: str) -> str | N
 
 def _splice_into_multi_conf_block(existing: str, comp_id: str, block: str) -> str | None:
     """
-    Normalise ``<comp_id>:`` to list-form, then splice *block* in.
+    Normalise an existing ``<comp_id>:`` body to list-form, then splice *block* in.
 
-    Returns ``None`` when no such block exists so the caller can
-    fall back to a plain append.
+    *block* already arrives list-form from
+    :func:`generate_component_yaml`; this only has to rewrite a legacy
+    mapping-form body already on disk before appending the new item.
+    Returns ``None`` when no such block exists so the caller can fall
+    back to a plain append.
     """
     normalized = _normalize_multi_conf_block(existing, comp_id)
     if normalized is None:
         return None
-    block_lines = block.splitlines()
-    if len(block_lines) < 2 or block_lines[0].rstrip() != f"{comp_id}:":
-        return None
-    list_block = f"{comp_id}:\n" + "\n".join(_mapping_body_to_list_item(block_lines[1:]))
-    return _splice_into_domain_block(normalized, comp_id, list_block)
+    return _splice_into_domain_block(normalized, comp_id, block)
 
 
 def _normalize_multi_conf_block(existing: str, comp_id: str) -> str | None:
@@ -313,13 +319,8 @@ def _normalize_multi_conf_block(existing: str, comp_id: str) -> str | None:
         return None
     block_start, last_content = bounds
 
-    for idx in range(block_start + 1, last_content):
-        stripped = file_lines[idx].strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        if stripped.startswith("- ") or stripped == "-":
-            return existing
-        break
+    if block_body_is_list(file_lines, block_start, last_content):
+        return existing
 
     body_lines = [line.rstrip("\n\r") for line in file_lines[block_start + 1 : last_content]]
     rewritten = "\n".join(_mapping_body_to_list_item(body_lines)) + "\n"
@@ -359,7 +360,7 @@ def _format_yaml_value(value: Any) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, str):
-        return f'"{value}"' if _string_needs_quoting(value) else value
+        return _quote(value) if _string_needs_quoting(value) else value
     return str(value)
 
 
@@ -370,15 +371,19 @@ def _string_needs_quoting(value: str) -> bool:
     """Return True when *value* needs YAML quoting to round-trip as a string."""
     # YAML 1.1 recognises every case variant of the reserved words
     # (``true``/``True``/``TRUE`` etc.) as bool/null, so ``str(True)``
-    # from a JSON bool would otherwise re-parse as ``True``. ``%`` is
-    # a YAML directive indicator; ``~`` and empty string are YAML null
-    # shorthands; ``!`` opens a tag; ``:`` opens a mapping value;
-    # ``#`` opens a comment. Anything that survives those checks then
-    # gets the (cheap pre-filtered) ``yaml.safe_load`` round-trip test
-    # for numeric-looking strings — the original #901 case.
-    if value.lower() in _YAML_RESERVED_KEYWORDS or value in ("%", "~", ""):
+    # from a JSON bool would otherwise re-parse as ``True``. ``~`` and
+    # empty string are YAML null shorthands. A leading YAML indicator
+    # character (the ``_PLAIN_SCALAR_INDICATOR_LEAD`` set: ``! & * ? |
+    # > % @ ` # - , [ ] { } " '``) changes the scalar's shape — e.g. a
+    # globals ``initial_value`` C++ literal ``"Hello"`` emitted bare
+    # round-trips as the plain string ``Hello``, dropping the quotes
+    # ESPHome compiles against (#1095). ``:`` opens a mapping value and
+    # ``#`` opens a comment anywhere in the value. Survivors then take
+    # the (cheap pre-filtered) ``yaml.safe_load`` round-trip test for
+    # numeric-looking strings — the original #901 case.
+    if value.lower() in _YAML_RESERVED_KEYWORDS or value in ("~", ""):
         return True
-    if value.startswith("!") or ":" in value or "#" in value:
+    if value[0] in _PLAIN_SCALAR_INDICATOR_LEAD or ":" in value or "#" in value:
         return True
     return _yaml_reparses_as_non_string(value)
 
@@ -422,7 +427,7 @@ def _format_flow_yaml_value(value: Any) -> str:
         and not formatted.startswith('"')
         and any(c in value for c in ",[]{}")
     ):
-        return f'"{value}"'
+        return _quote(value)
     return formatted
 
 

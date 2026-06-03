@@ -23,8 +23,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from esphome_device_builder.controllers.firmware import factories
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import (
+    LOCAL_JOB_BUILD_SOURCE,
     ErrorCode,
     FirmwareJob,
     JobStatus,
@@ -159,8 +161,7 @@ async def test_install_bulk_skips_locked_configs_and_queues_the_rest(
         new_name="livingroom",
         status=JobStatus.RUNNING,
     )
-    controller = firmware_controller_factory(rename, with_settings=False)
-    controller.state.queue = AsyncMock()
+    controller = firmware_controller_factory(rename, with_settings=False, with_queue=True)
     controller._db = type(
         "DB",
         (),
@@ -195,3 +196,30 @@ async def test_install_bulk_skips_locked_configs_and_queues_the_rest(
     # other two queue normally.
     queued_configs = sorted(j.configuration for j in queued)
     assert queued_configs == ["garage.yaml", "office.yaml"]
+
+
+async def test_install_chain_rolls_back_when_rename_locked(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A rename-locked install enqueue leaves no orphaned chain jobs behind.
+
+    The chain creates the COMPILE + UPLOAD before enqueueing; the rename-lock
+    check then rejects them. Both must be rolled back out of ``state.jobs`` so
+    a restart doesn't re-queue a compile whose enqueue was refused.
+    """
+    rename = _job(
+        "rn1", "kitchen.yaml", JobType.RENAME, new_name="living", status=JobStatus.RUNNING
+    )
+    controller = firmware_controller_factory(rename, with_queue=True)
+    before = set(controller.state.jobs)
+
+    with pytest.raises(CommandError) as exc:
+        await factories.enqueue_install_chain(
+            controller,
+            configuration="kitchen.yaml",
+            port="OTA",
+            build_source=LOCAL_JOB_BUILD_SOURCE,
+        )
+
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+    assert set(controller.state.jobs) == before

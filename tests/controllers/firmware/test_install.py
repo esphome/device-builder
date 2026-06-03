@@ -44,67 +44,60 @@ from tests.controllers.firmware.conftest import (
     EnqueueStep,
     FirmwareControllerFactory,
 )
+from tests.controllers.firmware.conftest import (
+    upload_of as _upload_of,
+)
 
 
-async def test_install_returns_queued_job_with_install_type(
+async def test_install_creates_compile_then_dependent_upload(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
-    """Happy path: handler returns a ``QUEUED`` ``FirmwareJob`` of type ``INSTALL``.
+    """Install splits into a COMPILE job + a dependent UPLOAD job (the chain).
 
-    The frontend keys its "live tasks" panel off the ``status`` and
-    ``job_type`` fields; pin both so a future refactor that defaults
-    to ``COMPILE`` (the most common job type) shows up immediately.
+    The handler returns the COMPILE head; the UPLOAD is held (QUEUED but
+    off its lane) until the compile succeeds, so the network flash runs on
+    the upload lane without blocking the next compile.
     """
     controller = firmware_controller_factory(with_queue=True)
     (tmp_path / "kitchen.yaml").write_text("")
 
-    job = await controller.install(configuration="kitchen.yaml")
+    compile_job = await controller.install(configuration="kitchen.yaml")
 
-    assert job.status == JobStatus.QUEUED
-    assert job.job_type == JobType.INSTALL
-    assert job.configuration == "kitchen.yaml"
+    assert compile_job.job_type is JobType.COMPILE
+    assert compile_job.status == JobStatus.QUEUED
+    assert compile_job.depends_on == ""
+    upload = _upload_of(controller, compile_job)
+    assert upload.job_type is JobType.UPLOAD
+    assert upload.status == JobStatus.QUEUED
+    assert upload.configuration == "kitchen.yaml"
 
 
-async def test_install_defaults_port_to_ota(
+async def test_install_defaults_upload_port_to_ota(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
-    """``port`` defaults to ``"OTA"``, not the empty ``upload`` default.
-
-    The CLI treats ``"OTA"`` as a request to resolve the configured
-    device's address from the YAML. The ``upload`` handler keeps
-    the empty default for backward compat with the legacy spawn
-    protocol; ``install`` defaults to ``"OTA"`` so the common case
-    of "flash the device named in the YAML" doesn't need a port
-    arg from the caller.
-    """
+    """``port`` defaults to ``"OTA"`` and lands on the UPLOAD half of the chain."""
     controller = firmware_controller_factory(with_queue=True)
     (tmp_path / "kitchen.yaml").write_text("")
 
-    job = await controller.install(configuration="kitchen.yaml")
+    compile_job = await controller.install(configuration="kitchen.yaml")
 
-    assert job.port == "OTA"
+    assert _upload_of(controller, compile_job).port == "OTA"
 
 
 @pytest.mark.parametrize(
     "port",
     ["/dev/ttyUSB0", "192.168.1.5", "kitchen.local", "fe80::1"],
 )
-async def test_install_forwards_custom_port_to_job(
+async def test_install_forwards_custom_port_to_upload(
     tmp_path: Path, port: str, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
-    """Caller-supplied port shapes (serial / IP / hostname) round-trip onto the job.
-
-    ``_build_command`` reads ``job.port`` to render the
-    ``--device`` flag at compile time; if the handler dropped or
-    mutated the value here, the install would silently re-target
-    OTA instead of the user-named address.
-    """
+    """Caller-supplied port shapes round-trip onto the chain's UPLOAD job."""
     controller = firmware_controller_factory(with_queue=True)
     (tmp_path / "kitchen.yaml").write_text("")
 
-    job = await controller.install(configuration="kitchen.yaml", port=port)
+    compile_job = await controller.install(configuration="kitchen.yaml", port=port)
 
-    assert job.port == port
+    assert _upload_of(controller, compile_job).port == port
 
 
 async def test_install_validates_port_before_configuration(
@@ -155,38 +148,131 @@ async def test_install_rejects_traversal_configuration(
     assert exc.value.code == ErrorCode.INVALID_ARGS
 
 
-async def test_install_enqueues_before_firing_job_queued(
+async def test_install_compile_enqueued_before_firing_its_job_queued(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
     capture_enqueue_order: CaptureEnqueueOrderFactory,
 ) -> None:
-    """``_queue.put`` runs *before* the ``JOB_QUEUED`` broadcast.
+    """The compile lands on its lane *before* its ``JOB_QUEUED`` fires.
 
-    The all-jobs panel keys off ``JOB_QUEUED`` to add a row when a
-    new job lands; without this event the panel goes silent until
-    the first ``JOB_OUTPUT`` line arrives (sometimes a few seconds
-    later for cold-start compiles).
-
-    Ordering matters: ``_enqueue`` calls ``await self.state.queue.put``
-    *before* firing the bus event. A frontend that receives
-    ``JOB_QUEUED`` and immediately calls ``firmware/follow_job``
-    races the runner — if the event broadcast preceded the queue
-    insert, the follower could attach to a queue that hasn't seen
-    the job yet, producing a dropped first line. Verify both
-    halves: the event fires with the right payload, *and* the
-    queue had already received the job by the time the event
-    fired.
+    A follower attaching on ``JOB_QUEUED`` must find the job already
+    queued, else it races the runner and drops the first line. The
+    held UPLOAD has no PUT (it's off its lane until the compile
+    succeeds) but still fires ``JOB_QUEUED`` so it renders as queued.
     """
     controller = firmware_controller_factory(with_queue=True)
     log = capture_enqueue_order(controller, EventType.JOB_QUEUED)
     (tmp_path / "kitchen.yaml").write_text("")
 
-    job = await controller.install(configuration="kitchen.yaml")
+    compile_job = await controller.install(configuration="kitchen.yaml")
 
-    assert log[0] == (EnqueueStep.PUT, job)
-    assert log[1][0] is EnqueueStep.FIRE
-    assert log[1][1].event_type == EventType.JOB_QUEUED
-    assert log[1][1].data == {"job": job}
+    put_idx = next(
+        i for i, (step, item) in enumerate(log) if step is EnqueueStep.PUT and item is compile_job
+    )
+    fire_idx = next(
+        i
+        for i, (step, item) in enumerate(log)
+        if step is EnqueueStep.FIRE and item.data["job"] is compile_job
+    )
+    assert put_idx < fire_idx
+    fired = [item.data["job"] for step, item in log if step is EnqueueStep.FIRE]
+    assert _upload_of(controller, compile_job) in fired  # held upload still announced
+
+
+async def test_cancelling_queued_compile_cancels_held_upload(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """Cancelling the compile in the UI must not go on to upload (the key #3702 guard).
+
+    A queued install's compile is cancelled before it runs; the held
+    UPLOAD cascades to CANCELLED so the device is never flashed from a
+    build the user aborted.
+    """
+    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
+    (tmp_path / "kitchen.yaml").write_text("")
+    compile_job = await controller.install(configuration="kitchen.yaml")
+    upload = _upload_of(controller, compile_job)
+
+    await controller.cancel(job_id=compile_job.job_id)
+
+    assert compile_job.status == JobStatus.CANCELLED
+    assert upload.status == JobStatus.CANCELLED
+
+
+async def test_cancelling_queued_compile_persists_the_cascade(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """The cascade-cancel of the held upload is persisted, not left QUEUED on disk.
+
+    The QUEUED-cancel path persists the compile before cascading; without a
+    second persist the upload's CANCELLED status never reaches disk and a
+    restart would re-cancel it every boot.
+    """
+    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
+    (tmp_path / "kitchen.yaml").write_text("")
+    compile_job = await controller.install(configuration="kitchen.yaml")
+    controller._persist_jobs.reset_mock()
+
+    await controller.cancel(job_id=compile_job.job_id)
+
+    # Two persists: the cancelled compile (before fire) + the cascaded upload.
+    assert controller._persist_jobs.await_count == 2
+
+
+async def test_failed_compile_cancels_held_upload(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A compile that fails cancels its held upload — no flash after a broken build."""
+    controller = firmware_controller_factory(with_queue=True)
+    (tmp_path / "kitchen.yaml").write_text("")
+    compile_job = await controller.install(configuration="kitchen.yaml")
+    upload = _upload_of(controller, compile_job)
+
+    controller._finalize_terminal(compile_job, JobStatus.FAILED)
+
+    assert upload.status == JobStatus.CANCELLED
+
+
+async def test_successful_compile_releases_upload_to_upload_lane(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A successful compile releases its held upload onto the upload lane."""
+    controller = firmware_controller_factory(with_queue=True)
+    (tmp_path / "kitchen.yaml").write_text("")
+    compile_job = await controller.install(configuration="kitchen.yaml")
+    upload = _upload_of(controller, compile_job)
+    assert controller.state.upload_lane.queue.qsize() == 0  # held until compile done
+
+    controller._finalize_terminal(compile_job, JobStatus.COMPLETED)
+
+    assert upload.status == JobStatus.QUEUED
+    assert controller.state.upload_lane.queue.qsize() == 1
+
+
+async def test_reinstalling_supersedes_prior_chain_without_raising(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """Re-installing a config supersedes the prior chain without re-raising.
+
+    The cascade cancels the held upload, so the supersede loop later hits an
+    already-cancelled job; ``cancel``'s ``CommandError`` must be swallowed.
+    """
+    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
+    (tmp_path / "kitchen.yaml").write_text("")
+    first = await controller.install(configuration="kitchen.yaml")
+    first_upload = _upload_of(controller, first)
+
+    second = await controller.install(configuration="kitchen.yaml")
+
+    assert first.status == JobStatus.CANCELLED
+    assert first_upload.status == JobStatus.CANCELLED
+    assert second.status == JobStatus.QUEUED
+    assert _upload_of(controller, second).status == JobStatus.QUEUED
 
 
 async def test_install_registers_job_in_jobs_map(

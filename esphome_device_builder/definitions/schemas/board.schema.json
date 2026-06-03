@@ -4,7 +4,7 @@
   "title": "ESPHome Device Builder Board Definition",
   "description": "Schema for board manifest.yaml files in the ESPHome Device Builder.",
   "type": "object",
-  "required": ["id", "name", "esphome"],
+  "required": ["id", "name", "description", "esphome"],
   "additionalProperties": false,
   "properties": {
     "id": {

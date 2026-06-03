@@ -9,6 +9,7 @@ from ...models import EventType, FirmwareJob, JobLifecycleData, JobStatus
 from .helpers import _mark_job_terminal
 
 if TYPE_CHECKING:
+    from ._state import Lane
     from .controller import FirmwareController
 
 
@@ -27,7 +28,7 @@ def finalize_terminal(controller: FirmwareController, job: FirmwareJob, status: 
 
     Step ordering matters: runner-slot release lands *before* the
     ``bus.fire`` so the ``queue_status`` broadcaster's sync
-    :meth:`queue_status_snapshot` read sees the post-terminal
+    :meth:`compile_queue_status` read sees the post-terminal
     idle state. Reversing them froze the offloader's
     ``_peer_queue_status`` cache at ``running=True`` after the
     first remote build, silently falling back to LOCAL on every
@@ -37,11 +38,42 @@ def finalize_terminal(controller: FirmwareController, job: FirmwareJob, status: 
     must set it on the job before calling.
     """
     _mark_job_terminal(job, status)
-    if controller.state.current_job is job:
-        controller.state.current_job = None
-        controller.state.current_process = None
+    _release_lane_slot(controller, job)
     payload: JobLifecycleData = {"job": job}
     controller._db.bus.fire(_STATUS_TO_TERMINAL_EVENT[status], payload)
+    release_dependents(controller, job)
+    # Wake an upload lane held behind a now-finished clean/reset (build gate).
+    controller.state.build_gate.set()
+
+
+def _release_lane_slot(controller: FirmwareController, job: FirmwareJob) -> None:
+    """Clear whichever lane was running *job*."""
+    for lane in (controller.state.compile_lane, controller.state.upload_lane):
+        if lane.current_job is job:
+            lane.current_job = None
+            lane.current_process = None
+            return
+
+
+def release_dependents(controller: FirmwareController, job: FirmwareJob) -> bool:
+    """Enqueue jobs held on *job* once it succeeds; cancel them if it didn't.
+
+    A chained UPLOAD sits QUEUED but off its lane queue until its prerequisite
+    COMPILE finishes (see ``factories.enqueue``); this is where it lands.
+    Returns whether any dependent was acted on, so a caller that persisted
+    before calling can re-persist when the cascade actually changed state.
+    """
+    acted = False
+    for dep in list(controller.state.jobs.values()):
+        if dep.depends_on != job.job_id or dep.status is not JobStatus.QUEUED:
+            continue
+        acted = True
+        if job.status is JobStatus.COMPLETED:
+            controller.state.place_on_lane(dep)
+        else:
+            dep.error = "prerequisite job did not complete successfully"
+            controller._finalize_terminal(dep, JobStatus.CANCELLED)
+    return acted
 
 
 def finalize_cancelled(controller: FirmwareController, job: FirmwareJob) -> None:
@@ -69,21 +101,20 @@ def raise_if_cancelled(controller: FirmwareController, job: FirmwareJob, phase: 
         raise ValueError(msg)
 
 
-async def terminate_current_process(controller: FirmwareController) -> None:
-    """Signal the running subprocess + children; escalate if it lingers.
+async def terminate_current_process(controller: FirmwareController, lane: Lane) -> None:
+    """Signal *lane*'s running subprocess + children; escalate if it lingers.
 
     Walks the whole process group via
     :func:`terminate_subtree_with_grace` so SIGTERM reaches
     esphome → platformio → gcc / esptool on POSIX, ``taskkill /F
     /T`` on Windows. The runner loop is what actually finalises
-    the job on exit — this helper only nudges the process.
+    the job on exit — this helper only nudges the process. Lane-scoped
+    so cancelling an upload never signals a concurrent compile.
     """
-    proc = controller.state.current_process
+    proc = lane.current_process
     if proc is None:
         return
     await terminate_subtree_with_grace(
         proc,
-        job_label=f"job {controller.state.current_job.job_id}"
-        if controller.state.current_job
-        else "job ?",
+        job_label=f"job {lane.current_job.job_id}" if lane.current_job else "job ?",
     )

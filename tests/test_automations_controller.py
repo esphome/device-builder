@@ -61,6 +61,22 @@ async def test_get_actions_returns_full_catalog() -> None:
         assert required in ids, f"{required} missing from action catalog"
 
 
+async def test_get_actions_excludes_oversized_lvgl_update_forms() -> None:
+    """Oversized LVGL actions are dropped from the picker and the known-id set."""
+    controller = _make_controller(Path("/unused"))
+    ids = {a["id"] for a in await controller.get_actions()}
+    # Present in the unfiltered catalog but filtered out of the picker.
+    slim_ids = {a.id for a in catalog._slim_actions()}
+    for excluded in ("lvgl.label.update", "lvgl.widget.update"):
+        assert excluded in slim_ids
+        assert excluded not in ids
+    assert "lvgl.pause" in ids
+    assert "lvgl.page.show" in ids
+    # In-memory check (avoids a blocking body read); _ACTION_IDS gates is_known.
+    assert "lvgl.label.update" not in catalog._ACTION_IDS
+    assert "lvgl.pause" in catalog._ACTION_IDS
+
+
 async def test_get_conditions_returns_full_catalog() -> None:
     """``automations/get_conditions`` returns every catalog condition."""
     controller = _make_controller(Path("/unused"))
@@ -68,6 +84,9 @@ async def test_get_conditions_returns_full_catalog() -> None:
     ids = {c["id"] for c in result}
     for required in ("and", "or", "not", "lambda", "switch.is_on", "binary_sensor.is_on"):
         assert required in ids, f"{required} missing from condition catalog"
+    by_id = {c["id"]: c for c in result}
+    # ``not`` is a boolean combinator — it must carry a nested condition tree.
+    assert by_id["not"]["accepts_condition_list"] is True
 
 
 async def test_get_light_effects_returns_full_catalog() -> None:
@@ -204,6 +223,23 @@ async def test_get_available_lists_configured_component_instances(tmp_path: Path
     assert ("switch.gpio", "relay_one") in devices
     assert devices[("switch.gpio", "relay_one")]["name"] == "Relay 1"
     assert ("switch.gpio", "relay_two") in devices
+
+
+async def test_get_available_surfaces_flat_singleton_instances(tmp_path: Path) -> None:
+    """Flat singletons (``sun:`` / ``mqtt:``) are surfaced as targetable instances."""
+    config = tmp_path / "singleton.yaml"
+    config.write_text(
+        "esphome:\n  name: d\n"
+        "sun:\n  id: home_sun\n  latitude: 51.0\n  longitude: -0.1\n"
+        "mqtt:\n  broker: 192.168.1.10\n",
+        encoding="utf-8",
+    )
+    controller = _make_controller(tmp_path)
+    result = await controller.get_available(configuration="singleton.yaml")
+    devices = {(d["component_id"], d["id"]) for d in result["devices"]}
+    # id'd singleton keys on its declared id; id-less keys on the domain.
+    assert ("sun", "home_sun") in devices
+    assert ("mqtt", "mqtt") in devices
 
 
 async def test_get_available_scopes_actions_and_conditions_to_present_domains(

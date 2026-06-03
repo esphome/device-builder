@@ -64,7 +64,8 @@ class MaterialiseError(RuntimeError):
 
 class _ExtractedTarball(NamedTuple):
     storage_bytes: bytes
-    idedata_bytes: bytes
+    # None for a native ESP-IDF build, which emits no idedata cache.
+    idedata_bytes: bytes | None
     # ``PurePath``-flavoured per the receiver's OS so the path
     # remap works when receiver and offloader differ.
     receiver_build_path: PurePath
@@ -85,17 +86,20 @@ def materialise_remote_artifacts(tarball: bytes, configuration: str) -> Path:
     side-effects (the runner) can discard it.
     """
     extracted = _open_and_extract_build_tree(tarball, configuration)
-    cached_idedata_path = _stage_offloader_idedata(
-        configuration=configuration,
-        idedata_bytes=extracted.idedata_bytes,
-        device_name=extracted.build_path.name,
-        receiver_build_path=extracted.receiver_build_path,
-        offloader_build_path=extracted.build_path,
-    )
-    _force_idedata_cache_hit(
-        platformio_ini=extracted.build_path / PLATFORMIO_INI_MEMBER_NAME,
-        cached_idedata=cached_idedata_path,
-    )
+    # Native ESP-IDF ships no idedata cache; the offloader's esphome
+    # re-derives it from the CMake build at upload/logs time.
+    if extracted.idedata_bytes is not None:
+        cached_idedata_path = _stage_offloader_idedata(
+            configuration=configuration,
+            idedata_bytes=extracted.idedata_bytes,
+            device_name=extracted.build_path.name,
+            receiver_build_path=extracted.receiver_build_path,
+            offloader_build_path=extracted.build_path,
+        )
+        _force_idedata_cache_hit(
+            platformio_ini=extracted.build_path / PLATFORMIO_INI_MEMBER_NAME,
+            cached_idedata=cached_idedata_path,
+        )
     if extracted.validated_yaml_bytes is not None:
         _stage_offloader_validated_yaml(
             configuration=configuration,
@@ -120,7 +124,7 @@ def _open_and_extract_build_tree(tarball: bytes, configuration: str) -> _Extract
             storage_bytes, total_bytes = _read_member_required(
                 tar, STORAGE_MEMBER_NAME, total_so_far=total_bytes
             )
-            idedata_bytes, total_bytes = _read_member_required(
+            idedata_bytes, total_bytes = _read_member_optional(
                 tar, IDEDATA_MEMBER_NAME, total_so_far=total_bytes
             )
             validated_yaml_bytes, total_bytes = _read_member_optional(
@@ -168,8 +172,24 @@ def _open_and_extract_build_tree(tarball: bytes, configuration: str) -> _Extract
                 )
     except tarfile.TarError as err:
         raise MaterialiseError(f"tarball is malformed: {err}") from err
-    if not (build_path / PLATFORMIO_INI_MEMBER_NAME).is_file():
-        raise MaterialiseError(f"tarball missing required {PLATFORMIO_INI_MEMBER_NAME!r} member")
+    # A native ESP-IDF tarball (toolchain "esp-idf") ships neither
+    # platformio.ini nor idedata.json; a PlatformIO tarball ships both, so
+    # their absence there is wire drift. Detect native-IDF positively off
+    # the toolchain, never off file absence, so a corrupt PIO tarball that
+    # lost its metadata still raises rather than passing as native-IDF.
+    if receiver_storage.get("toolchain") != "esp-idf":
+        if not (build_path / PLATFORMIO_INI_MEMBER_NAME).is_file():
+            raise MaterialiseError(
+                f"tarball missing required {PLATFORMIO_INI_MEMBER_NAME!r} member"
+            )
+        if idedata_bytes is None:
+            raise MaterialiseError(f"tarball missing required {IDEDATA_MEMBER_NAME!r} member")
+    elif new_storage.firmware_bin_path is None or not new_storage.firmware_bin_path.is_file():
+        # Native ESP-IDF has no platformio.ini / idedata to validate against,
+        # so confirm its firmware binary actually landed -- a truncated
+        # tarball that kept storage.json but lost the build/ tree would
+        # otherwise materialise empty and surface only as a 404 download later.
+        raise MaterialiseError("native ESP-IDF tarball missing its firmware binary")
     return _ExtractedTarball(
         storage_bytes=storage_bytes,
         idedata_bytes=idedata_bytes,

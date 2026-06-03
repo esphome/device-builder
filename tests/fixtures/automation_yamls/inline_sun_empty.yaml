@@ -1,0 +1,6 @@
+esphome:
+  name: x
+sun:
+  id: home_sun
+  latitude: 51.0
+  longitude: -0.1

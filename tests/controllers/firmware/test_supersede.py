@@ -29,7 +29,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from esphome_device_builder.models import FirmwareJob, JobStatus, JobType
+import pytest
+
+from esphome_device_builder.controllers.firmware import factories
+from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.models import ErrorCode, FirmwareJob, JobStatus, JobType
 from tests.controllers.firmware.conftest import FirmwareControllerFactory
 
 
@@ -128,7 +132,7 @@ async def test_resubmit_cancels_running_predecessor(
     # justified seam as ``test_persistence.py``'s RUNNING-carryover
     # test).
     first.status = JobStatus.RUNNING
-    controller.state.current_job = first
+    controller.state.compile_lane.current_job = first
 
     second = await controller.compile(configuration="kitchen.yaml")
 
@@ -188,28 +192,130 @@ async def test_resubmit_does_not_cancel_terminal_jobs_for_same_config(
     assert jobs[fresh.job_id].status == JobStatus.QUEUED
 
 
-async def test_supersede_does_not_run_for_empty_configuration(
+async def test_second_reset_build_env_cancels_the_first(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
-    """``reset_build_env`` (empty configuration) skips the supersede path.
+    """A second clean-all cancels the first still-pending reset.
 
-    ``_enqueue`` only runs supersede when ``job.configuration``
-    is truthy. ``reset_build_env`` is the only handler that
-    queues with an empty configuration — without the guard,
-    ``_supersede_active_jobs`` would iterate every job whose
-    configuration matches ``""`` (i.e. only other reset jobs)
-    and cancel them, which is fine in isolation but the guard
-    makes the intent explicit.
-
-    Pin that two consecutive reset_build_env calls don't
-    supersede each other (since both have ``configuration=""``
-    AND the guard skips the call entirely, neither path can
-    cancel the other).
+    ``reset_build_env`` cancels every active job before queueing (the wipe
+    trashes the whole build tree); an earlier queued reset is one of them, so
+    only the latest survives. The cancellation comes from the explicit
+    ``cancel_all_active_jobs`` call, not ``_enqueue``'s supersede — which still
+    skips the empty ``configuration`` reset jobs queue with.
     """
     controller = firmware_controller_factory(with_queue=True)
     first = await controller.reset_build_env()
     second = await controller.reset_build_env()
 
     jobs = {j.job_id: j for j in await controller.get_jobs()}
-    assert jobs[first.job_id].status == JobStatus.QUEUED
+    assert jobs[first.job_id].status == JobStatus.CANCELLED
     assert jobs[second.job_id].status == JobStatus.QUEUED
+
+
+async def test_supersede_reraises_unexpected_cancel_error(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A non-benign CommandError from cancel propagates out of supersede.
+
+    Supersede swallows only the already-terminal / already-gone cases
+    (INVALID_ARGS / NOT_FOUND); any other typed failure must surface rather
+    than silently leave a superseded job active.
+    """
+    victim = FirmwareJob(
+        job_id="v1",
+        configuration="kitchen.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.QUEUED,
+    )
+    controller = firmware_controller_factory(victim, with_queue=True)
+
+    async def _boom(*, job_id: str) -> None:
+        raise CommandError(ErrorCode.INTERNAL_ERROR, "boom")
+
+    controller.cancel = _boom  # type: ignore[method-assign]
+
+    with pytest.raises(CommandError) as exc:
+        await factories.supersede_active_jobs(controller, "kitchen.yaml", exclude_job_ids=set())
+
+    assert exc.value.code == ErrorCode.INTERNAL_ERROR
+
+
+async def test_supersede_swallows_runtime_error_from_cancel(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A state-out-of-sync RuntimeError from cancel is swallowed, not propagated.
+
+    cancel raises RuntimeError when a RUNNING job isn't the active subprocess;
+    supersede treats that (and ValueError) as a benign mid-iteration flip and
+    keeps going rather than aborting the new submission.
+    """
+    victim = FirmwareJob(
+        job_id="v1",
+        configuration="kitchen.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.QUEUED,
+    )
+    controller = firmware_controller_factory(victim, with_queue=True)
+
+    async def _boom(*, job_id: str) -> None:
+        raise RuntimeError("state out of sync")
+
+    controller.cancel = _boom  # type: ignore[method-assign]
+
+    # Must not raise.
+    await factories.supersede_active_jobs(controller, "kitchen.yaml", exclude_job_ids=set())
+
+
+async def test_cancel_all_active_jobs_reraises_runtime_error(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """The global cancel (clean-all) re-raises a RuntimeError from cancel.
+
+    A RuntimeError means a RUNNING job couldn't be terminated; wiping the build
+    tree while it runs would corrupt it, so reset must fail loudly rather than
+    swallow it the way a per-configuration supersede does.
+    """
+    victim = FirmwareJob(
+        job_id="v1",
+        configuration="kitchen.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.RUNNING,
+    )
+    controller = firmware_controller_factory(victim, with_queue=True)
+
+    async def _boom(*, job_id: str) -> None:
+        raise RuntimeError("state out of sync")
+
+    controller.cancel = _boom  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError):
+        await factories.cancel_all_active_jobs(controller, exclude_job_ids=set())
+
+
+async def test_reset_build_env_rolls_back_its_job_when_cancel_reraises(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A re-raising global sweep leaves no orphaned RESET job behind.
+
+    An orphaned QUEUED reset is an active job: it wedges the upload lane via
+    ``upload_blocked`` and runs a clean-all on restart. Roll it back instead.
+    """
+    victim = FirmwareJob(
+        job_id="v1",
+        configuration="kitchen.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.RUNNING,
+    )
+    controller = firmware_controller_factory(victim, with_queue=True)
+
+    async def _boom(*, job_id: str) -> None:
+        raise RuntimeError("state out of sync")
+
+    controller.cancel = _boom  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError):
+        await controller.reset_build_env()
+
+    assert not any(
+        job.job_type is JobType.RESET_BUILD_ENV for job in controller.state.jobs.values()
+    )

@@ -1,1 +1,1 @@
-{"id":"not","name":"Not","description":"","docs_url":"https://esphome.io/automations/actions","domain":"core","config_entries":[],"accepts_condition_list":false,"scalar_shorthand_key":null}
+{"id":"not","name":"Not","description":"","docs_url":"https://esphome.io/automations/actions","domain":"core","config_entries":[],"accepts_condition_list":true,"scalar_shorthand_key":null}

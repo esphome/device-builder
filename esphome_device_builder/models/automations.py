@@ -19,6 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Annotated, Any, Literal
 
+from mashumaro.config import BaseConfig
 from mashumaro.mixins.orjson import DataClassORJSONMixin
 from mashumaro.types import Discriminator
 
@@ -184,6 +185,8 @@ class AutomationActionIndex(DataClassORJSONMixin):
     is_control_flow: bool = False
     has_else_branch: bool = False
     accepts_action_list: list[str] = field(default_factory=list)
+    # False when the editor should not render this action as a form.
+    form_editable: bool = True
 
 
 @dataclass
@@ -267,6 +270,15 @@ class ComponentOnLocation(DataClassORJSONMixin):
     index: int | None = None
     kind: Literal["component_on"] = "component_on"
 
+    class Config(BaseConfig):
+        """Drop ``index`` from the wire for the single-handler form."""
+
+        # The frontend keys a single handler with no ``index``; a trailing
+        # ``null`` would never match its un-indexed location key. omit_none
+        # only — omit_default would also drop the ``kind`` discriminator and
+        # break union decode.
+        omit_none = True
+
 
 @dataclass
 class DeviceOnLocation(DataClassORJSONMixin):
@@ -293,10 +305,24 @@ class ApiActionLocation(DataClassORJSONMixin):
     kind: Literal["api_action"] = "api_action"
 
 
+@dataclass
+class ComponentActionFieldLocation(DataClassORJSONMixin):
+    """A ``type: trigger`` action-list config field (cover ``open_action`` …).
+
+    Keyed on the literal ``field`` name (not a catalog trigger); carries a
+    bare action list with no trigger/params, unlike ``ComponentOnLocation``.
+    """
+
+    component_id: str
+    field: str
+    kind: Literal["component_action"] = "component_action"
+
+
 AutomationLocation = Annotated[
     ScriptLocation
     | IntervalLocation
     | ComponentOnLocation
+    | ComponentActionFieldLocation
     | DeviceOnLocation
     | LightEffectLocation
     | ApiActionLocation,

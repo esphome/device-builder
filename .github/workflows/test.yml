@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out code from GitHub
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           ref: ${{ inputs.ref || github.ref }}
 
@@ -126,7 +126,7 @@ jobs:
             python-version: "3.14"
     steps:
       - name: Check out code from GitHub
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           ref: ${{ inputs.ref || github.ref }}
 
@@ -171,7 +171,7 @@ jobs:
         #   at ~1-2 minutes; without the cap a single hung worker
         #   burns the runner's full 6h budget.
         timeout-minutes: 5
-        run: uv run pytest -q -n auto --maxfail=5 --durations=10 --timeout=120 --ignore=tests/benchmarks --ignore=tests/real_compile --cov=esphome_device_builder --cov-report=xml --cov-report=term
+        run: uv run pytest -q -n auto --maxfail=5 --durations=10 --timeout=120 --ignore=tests/benchmarks --ignore=tests/real_compile --ignore=tests/e2e --cov=esphome_device_builder --cov-report=xml --cov-report=term
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354  # v6.0.1
@@ -219,7 +219,7 @@ jobs:
     continue-on-error: ${{ matrix.allow_failure }}
     steps:
       - name: Check out code from GitHub
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           ref: ${{ inputs.ref || github.ref }}
 
@@ -252,7 +252,132 @@ jobs:
         # upstream beta/dev are exactly the case this protects
         # against.
         timeout-minutes: 5
-        run: uv run pytest -q -n auto --maxfail=5 --durations=10 --timeout=120 --ignore=tests/benchmarks --ignore=tests/real_compile
+        run: uv run pytest -q -n auto --maxfail=5 --durations=10 --timeout=120 --ignore=tests/benchmarks --ignore=tests/real_compile --ignore=tests/e2e
+
+  e2e:
+    name: E2E (esphome ${{ matrix.channel }})
+    runs-on: ubuntu-latest
+    # The remote-build offload e2e suite (``tests/e2e/``) stands up
+    # two real controllers over a live peer-link wire. It's split off
+    # the unit matrix so it can't slow the unit run or conflate signal
+    # (an e2e flake reading as a unit failure) as the suite grows.
+    # ``stable`` is a strict gate; ``dev`` is advisory because
+    # ESPHome's nightly can break mid-day — we want the signal without
+    # a permanent red on every device-builder PR.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - channel: stable
+            # No extra install — the ``[esphome]`` extra resolves the
+            # stable release the dashboard ships with.
+            install: ""
+            allow_failure: false
+          - channel: dev
+            install: uv pip install --upgrade git+https://github.com/esphome/esphome.git@dev
+            allow_failure: true
+    continue-on-error: ${{ matrix.allow_failure }}
+    steps:
+      - name: Check out code from GitHub
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Set up uv and Python 3.14
+        uses: ./.github/actions/setup-uv-python
+        with:
+          python-version: "3.14"
+
+      - name: Create venv + install package + test deps
+        run: |
+          uv venv
+          uv pip install -e '.[esphome,test]'
+
+      - name: Install esphome (${{ matrix.channel }} channel)
+        if: matrix.install != ''
+        run: ${{ matrix.install }}
+
+      - name: Show installed esphome version
+        run: uv pip show esphome | grep -E '^(Name|Version):'
+
+      - name: Cache PlatformIO core + per-platform toolchains
+        # The LibreTiny e2e (test_libretiny_compile_download.py) runs a real
+        # bk7231n compile, which clones the LibreTiny SDK from source on a
+        # cold runner. Cache ``~/.platformio`` per channel so stable/dev
+        # SDK downloads don't collide. The native-IDF e2e runs in its own
+        # job below (different toolchain tree), so it isn't cached here.
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.platformio
+          key: pio-e2e-libretiny-${{ runner.os }}-${{ matrix.channel }}-${{ hashFiles('tests/e2e/test_libretiny_compile_download.py') }}
+          restore-keys: |
+            pio-e2e-libretiny-${{ runner.os }}-${{ matrix.channel }}-
+
+      - name: Run e2e tests
+        # 20 min outer cap: a cold LibreTiny SDK clone plus compile runs
+        # minutes. Fast tests keep ``--timeout=120``; the LibreTiny test
+        # opts out via its own ``@pytest.mark.timeout(600)``. The native-IDF
+        # e2e is excluded here and runs in the dev-only job below.
+        timeout-minutes: 20
+        run: >-
+          uv run pytest -q -n auto tests/e2e --maxfail=5 --durations=10 --timeout=120 --no-cov
+          --ignore=tests/e2e/test_esp_idf_compile_download.py
+
+  e2e-native-idf:
+    name: E2E native ESP-IDF (esphome dev)
+    runs-on: ubuntu-latest
+    # The native ESP-IDF toolchain (esphome 2026.5.0+) is new and its cold
+    # compile installs the full IDF toolchain (minutes). It runs on its own
+    # runner, dev channel only and advisory (``continue-on-error``): it must
+    # neither slow the main e2e matrix nor gate a PR on an esphome nightly
+    # break. Fold it into the stable matrix once the toolchain has settled.
+    continue-on-error: true
+    steps:
+      - name: Check out code from GitHub
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Set up uv and Python 3.14
+        uses: ./.github/actions/setup-uv-python
+        with:
+          python-version: "3.14"
+
+      - name: Create venv + install package + test deps
+        run: |
+          uv venv
+          uv pip install -e '.[esphome,test]'
+
+      - name: Install esphome (dev channel)
+        run: uv pip install --upgrade git+https://github.com/esphome/esphome.git@dev
+
+      - name: Show installed esphome version
+        run: uv pip show esphome | grep -E '^(Name|Version):'
+
+      - name: Cache ESP-IDF toolchain
+        # Native IDF does NOT use PlatformIO; its toolchain installs under
+        # ``ESPHOME_ESP_IDF_PREFIX`` (set on the run step). Without the cache
+        # a cold IDF install + toolchain download runs on every PR. The
+        # installed IDF version is pinned by ``esphome@dev`` (reinstalled
+        # each run), not by the test file -- so use a rolling ``run_id`` key
+        # that saves a fresh cache every run (picking up dev IDF bumps) and
+        # ``restore-keys`` to warm from the most recent prior cache.
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.cache/esphome-idf
+          key: e2e-espidf-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            e2e-espidf-${{ runner.os }}-
+
+      - name: Run native ESP-IDF e2e
+        # A cold native-IDF compile installs the IDF toolchain then runs
+        # ninja; the test's own ``@pytest.mark.timeout(900)`` caps it.
+        # esphome ``expanduser()``s ESPHOME_ESP_IDF_PREFIX, so ``~`` matches
+        # the cache path above.
+        timeout-minutes: 25
+        env:
+          ESPHOME_ESP_IDF_PREFIX: ~/.cache/esphome-idf
+        run: uv run pytest -q tests/e2e/test_esp_idf_compile_download.py --durations=10 --timeout=900 --no-cov
 
   benchmarks:
     name: Run benchmarks (CodSpeed)
@@ -265,7 +390,7 @@ jobs:
     if: github.event_name != 'workflow_call'
     steps:
       - name: Check out code from GitHub
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
       - name: Set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0

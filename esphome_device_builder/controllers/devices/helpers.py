@@ -26,7 +26,11 @@ from esphome.storage_json import StorageJSON
 
 from ...helpers.api import CommandError
 from ...helpers.hostname import is_local_hostname, normalize_hostname
-from ...helpers.storage_path import resolve_storage_path
+from ...helpers.storage_path import (
+    resolve_compiled_config_path,
+    resolve_idedata_path,
+    resolve_storage_path,
+)
 from ...helpers.yaml import read_yaml_scalar, rewrite_name_or_substitution
 from ...models import ConfigEntryType, Device, ErrorCode
 from .constants import _CONCEALED_SECRET_RE
@@ -50,6 +54,7 @@ __all__ = [
     "_normalize_pin_value",
     "_redact_concealed_secrets",
     "_rewrite_required_yaml_leaf",
+    "_unlink_compiled_config",
     "_unlink_storage_sidecar",
     "_validate_archive_configuration",
     "_wipe_device_build_dir",
@@ -139,20 +144,41 @@ def _rewrite_required_yaml_leaf(
 
 def _wipe_device_build_dir(configuration: str) -> None:
     """
-    Remove the per-device build dir if one exists.
+    Remove the per-device build dir + idedata cache if they exist.
 
     No-op when the StorageJSON sidecar is gone or the device
     has never been built; rmtree failures debug-log + fall
     through so a partial failure doesn't block the delete flow.
+    The idedata cache is keyed on ``StorageJSON.name`` (not the
+    YAML filename), so it's purged here where that name is in hand.
     """
-    storage_path = resolve_storage_path(configuration)
-    storage = StorageJSON.load(storage_path)
-    if storage is None or not storage.build_path:
+    storage = StorageJSON.load(resolve_storage_path(configuration))
+    if storage is None:
+        return
+    if storage.name:
+        idedata_path = resolve_idedata_path(configuration, name=storage.name)
+        try:
+            idedata_path.unlink(missing_ok=True)
+        except OSError as exc:
+            _LOGGER.debug("_wipe_device_build_dir: unlink(%s) failed: %s", idedata_path, exc)
+    if not storage.build_path:
         return
     try:
         rmtree(storage.build_path)
     except OSError as exc:
         _LOGGER.debug("_wipe_device_build_dir: rmtree(%s) failed: %s", storage.build_path, exc)
+
+
+def _unlink_compiled_config(configuration: str) -> None:
+    """Remove the validated-config cache (``<file>.validated.yaml``); no-op if absent."""
+    compiled_path = resolve_compiled_config_path(configuration)
+    try:
+        compiled_path.unlink(missing_ok=True)
+    except OSError as exc:
+        # Same best-effort level + detail as the idedata wipe above:
+        # both are regenerable caches, debug-logged with the exception
+        # so a permissions vs FS failure is distinguishable.
+        _LOGGER.debug("_unlink_compiled_config: unlink(%s) failed: %s", compiled_path, exc)
 
 
 def _unlink_storage_sidecar(configuration: str) -> None:
