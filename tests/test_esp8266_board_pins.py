@@ -36,11 +36,10 @@ def test_catalog_generates_unmanifested_esp8266_board() -> None:
 
 
 def test_catalog_does_not_duplicate_manifested_esp8266_board() -> None:
-    # The d1-mini manifest is canonical for ``board: d1_mini`` (id normalises to
-    # the board), so no second ``d1_mini`` entry is generated.
+    # The curated d1_mini manifest uses the ESPHome board name as its id, so
+    # id-dedup suppresses generating a second d1_mini entry.
     ids = [b.id for b in build_catalog().boards if b.esphome.board == "d1_mini"]
-    assert "d1-mini" in ids
-    assert "d1_mini" not in ids
+    assert ids.count("d1_mini") == 1
 
 
 def test_catalog_generates_canonical_board_only_referenced_by_products() -> None:

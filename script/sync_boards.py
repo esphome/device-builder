@@ -400,12 +400,11 @@ def _augment_esp8266_boards(boards: list[BoardCatalogEntry]) -> None:
     Per-board ``ESP8266_BOARD_PINS`` carry only positional ``Dn``/``LED``
     aliases; the fixed-function bus pins (``TX``/``SDA``/``A0`` …) live in the
     shared ``ESP8266_BASE_PINS``, so derive from ``{**base, **board}`` — the
-    same merge ESPHome's pin resolver uses. Generation is blocked only by an
-    already-*canonical* manifest (its ``id`` normalises to the PlatformIO board,
-    e.g. id ``d1-mini`` for ``board: d1_mini``); a product manifest that merely
-    runs on a base board (``board: esp01_1m``) must not block it, or ``esp01_1m``
-    never gets a canonical entry and ``find_by_pio_board`` falls back to an
-    arbitrary product (issue #395).
+    same merge ESPHome's pin resolver uses. Dedup on board ``id`` (curated
+    esp8266 manifests use the ESPHome board name verbatim, so a base board
+    referenced only by vendor products still generates its own canonical entry,
+    e.g. ``esp01_1m``; otherwise ``find_by_pio_board`` falls back to an arbitrary
+    product — issue #395).
     """
     module = importlib.import_module("esphome.components.esp8266.boards")
     # Direct access (not getattr-with-default): an upstream rename of these
@@ -414,18 +413,12 @@ def _augment_esp8266_boards(boards: list[BoardCatalogEntry]) -> None:
     pin_map: dict[str, Any] = module.ESP8266_BOARD_PINS
     base: dict[str, int] = module.ESP8266_BASE_PINS
     ids = {b.id for b in boards}
-    canonical = {
-        b.esphome.board
-        for b in boards
-        if b.esphome.platform.value == "esp8266"
-        and b.id.replace("_", "-") == b.esphome.board.replace("_", "-")
-    }
     for board in boards:
         if board.esphome.platform.value == "esp8266" and not board.pins:
             pins = _resolve_board_pins(pin_map, board.esphome.board)
             board.pins = _derive_pins_from_aliases({**base, **(pins or {})})
     for name, meta in board_list.items():
-        if name in ids or name in canonical:
+        if name in ids:
             continue
         pins = _resolve_board_pins(pin_map, name)
         boards.append(_generated_board("esp8266", name, meta, {**base, **(pins or {})}))
