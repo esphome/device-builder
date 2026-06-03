@@ -67,11 +67,12 @@ def test_split_artefacts_match_manifests() -> None:
     *manifested* pins come from esphome (LibreTiny ships ``pins: []`` and gets
     filled), which are version-dependent (CI runs beta/dev) so they're excluded
     from the pin compare. RP2040 manifests keep their hand-curated pins, so those
-    stay checked; only its disk-only generated boards are exempt.
+    stay checked; only its disk-only generated boards are exempt. esp8266 is a
+    mix: curated manifests stay checked, empty product manifests get filled.
     """
     from_yaml = build_board_catalog_from_manifests(strict=True)
     from_disk = load_board_catalog()
-    generated = set(_LIBRETINY_FAMILIES) | {_RP2040_PLATFORM, "esp32"}
+    generated = set(_LIBRETINY_FAMILIES) | {_RP2040_PLATFORM, "esp32", "esp8266"}
     esphome_filled = set(_LIBRETINY_FAMILIES)
     manifest_ids = {b.id for b in from_yaml.boards}
     disk_by_id = {b.id: b for b in from_disk.boards}
@@ -87,8 +88,11 @@ def test_split_artefacts_match_manifests() -> None:
     for board in from_yaml.boards:
         expected = board.to_dict()
         actual = disk_by_id[board.id].to_dict()
-        if board.esphome.platform.value in esphome_filled:
-            # manifest ships no pins; they're esphome-filled at sync.
+        platform = board.esphome.platform.value
+        # esphome_filled manifests ship no pins; esp8266 product manifests ship
+        # empty pins filled at sync. Either way pins are esphome-derived and
+        # version-dependent here — curated esp8266 pins stay compared.
+        if platform in esphome_filled or (platform == "esp8266" and not board.pins):
             expected.pop("pins", None)
             actual.pop("pins", None)
         assert expected == actual, (
