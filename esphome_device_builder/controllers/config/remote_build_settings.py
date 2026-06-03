@@ -124,11 +124,9 @@ def _merge_settings_into_block(data: dict[str, Any], settings: RemoteBuildSettin
     """
     Overlay *settings* onto the existing ``_remote_build`` block in place.
 
-    The block is co-owned: ``dashboard_id`` lives here too
-    (:func:`helpers.dashboard_identity._get_or_create_dashboard_id`).
-    Replacing the whole block with ``settings.to_dict()`` would
-    drop ``dashboard_id`` on every write, re-minting the
-    dashboard's stable identity and breaking paired peers.
+    Merges rather than replaces so a co-resident key the settings
+    model doesn't own survives the write — notably a legacy
+    ``dashboard_id`` awaiting migration out of this block (#1154).
     """
     rb = data.get(_REMOTE_BUILD_KEY)
     if not isinstance(rb, dict):
