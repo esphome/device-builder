@@ -11,6 +11,7 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _collect_pin_constraints,
     _get_esphome_loader,
     _pin_constraint_from_validator,
+    _pin_feature_from_name,
     _PinConstraint,
     _resolve_pin_features,
 )
@@ -60,6 +61,23 @@ def test_pin_constraint_non_pin_validator_is_empty() -> None:
     assert constraint.features == ()
 
 
+# --- _pin_feature_from_name: bus capability from the ``{bus}_{role}`` convention ---
+
+
+@pytest.mark.parametrize(
+    ("component", "key", "expected"),
+    [
+        ("i2c", "sda", PinFeature.I2C_SDA),
+        ("uart", "tx_pin", PinFeature.UART_TX),  # ``_pin`` suffix stripped
+        ("spi", "clk_pin", PinFeature.SPI_CLK),
+        ("output", "pin", None),  # ``output_pin`` is not a feature
+        ("canbus", "tx_pin", None),  # only exact bus names resolve
+    ],
+)
+def test_pin_feature_from_name(component: str, key: str, expected: PinFeature | None) -> None:
+    assert _pin_feature_from_name(component, key) == expected
+
+
 # --- _collect_pin_constraints: derivation from the component's live schema.
 # These walk the installed esphome package, so they pin the contract against
 # ESPHome's real pin validators rather than a hand-maintained table. ---
@@ -89,12 +107,19 @@ def test_collect_derives_fixed_silicon_features(
     assert feature in constraints[("pin",)].features
 
 
-def test_collect_omits_matrix_routed_bus_capabilities() -> None:
-    """i2c sda/scl route through the GPIO matrix — emitting a feature would wrongly filter."""
-    constraints = _collect_pin_constraints(_get_esphome_loader(), None, "i2c", "i2c")
-    for constraint in constraints.values():
-        assert PinFeature.I2C_SDA not in constraint.features
-        assert PinFeature.I2C_SCL not in constraint.features
+@pytest.mark.parametrize(
+    ("top_key", "key", "feature"),
+    [
+        ("i2c", "sda", PinFeature.I2C_SDA),
+        ("i2c", "scl", PinFeature.I2C_SCL),
+        ("uart", "tx_pin", PinFeature.UART_TX),
+        ("uart", "rx_pin", PinFeature.UART_RX),
+    ],
+)
+def test_collect_derives_bus_features_by_name(top_key: str, key: str, feature: PinFeature) -> None:
+    """Bus pins have no validator; the feature comes from the enum-name match."""
+    constraints = _collect_pin_constraints(_get_esphome_loader(), None, top_key, top_key)
+    assert feature in constraints[(key,)].features
 
 
 def test_collect_returns_empty_without_loader() -> None:

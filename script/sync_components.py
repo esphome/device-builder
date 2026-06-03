@@ -4074,6 +4074,21 @@ _PIN_FEATURE_VALIDATORS: dict[str, PinFeature] = {
 }
 
 
+def _pin_feature_from_name(component: str, field_key: str) -> PinFeature | None:
+    """
+    Resolve a bus pin's capability by naming convention.
+
+    ``PinFeature`` members are ``{bus}_{role}`` (``i2c_sda``, ``uart_tx``);
+    bus pins have no silicon validator, so the exact ``{component}_{field}``
+    enum match is the only signal.
+    """
+    role = re.sub(r"_(pin|gpio)$", "", field_key)
+    try:
+        return PinFeature(f"{component}_{role}")
+    except ValueError:
+        return None
+
+
 class _PinConstraint(NamedTuple):
     """Direction + fixed-silicon capabilities derived for one pin field."""
 
@@ -4149,13 +4164,16 @@ def _collect_pin_constraints(
     """
     Walk the component's own live schema for per-pin direction + capability.
 
-    Scoped to the exact manifest for this component — platform
-    components resolve through ``get_platform(domain, stem)``, bus /
-    hub components through ``get_component(top_key)``. Deliberately NOT
-    routed through ``introspect_component``'s cross-platform merge: a
-    bare stem like ``gpio`` ships both ``binary_sensor.gpio`` (input)
-    and ``output.gpio`` (output), which collide at path ``("pin",)``
-    and would stamp one direction onto both.
+    Direction and fixed-silicon features come from the validator; bus
+    features (i2c/uart) have no validator and resolve by naming convention
+    against ``stem`` (see ``_pin_feature_from_name``). Scoped to
+    the exact manifest for this component — platform components resolve
+    through ``get_platform(domain, stem)``, bus / hub components through
+    ``get_component(top_key)``. Deliberately NOT routed through
+    ``introspect_component``'s cross-platform merge: a bare stem like
+    ``gpio`` ships both ``binary_sensor.gpio`` (input) and ``output.gpio``
+    (output), which collide at path ``("pin",)`` and would stamp one
+    direction onto both.
     """
     if loader is None:
         return {}
@@ -4178,6 +4196,9 @@ def _collect_pin_constraints(
 
     def visit(_key: Any, _key_name: str, val: Any, path: tuple[str, ...]) -> None:
         constraint = _pin_constraint_from_validator(val)
+        feature = _pin_feature_from_name(stem, _key_name)
+        if feature is not None and feature not in constraint.features:
+            constraint = constraint._replace(features=(*constraint.features, feature))
         if constraint.mode is not None or constraint.features:
             out[path] = constraint
 
