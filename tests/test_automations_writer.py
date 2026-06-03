@@ -610,6 +610,25 @@ def test_delete_component_action_field_unknown_id_raises() -> None:
     assert exc.value.code == ErrorCode.NOT_FOUND
 
 
+def test_round_trip_component_action_field_on_singleton_hub() -> None:
+    """A hub (``opentherm:``, no ``platform:``/``id:``) action field round-trips.
+
+    The id-less singleton resolves on ``component_id == domain`` through
+    both the parser and the writer's ``_locate_singleton_instance`` path.
+    """
+    text = "opentherm:\n  in_pin: 4\n  before_send:\n    - logger.log: sending\n"
+    first = next(p for p in parse_device_yaml(text) if p.location.kind == "component_action")
+    assert first.location.component_id == "opentherm"
+    new_text, _diff = render_upsert(text, tree=first.automation, location=first.location)
+    second = next(p for p in parse_device_yaml(new_text) if p.location.kind == "component_action")
+    assert second.location == first.location
+    assert "then:" not in new_text
+    # Deleting it drops the field but keeps the rest of the hub config.
+    deleted, _d = render_delete(text, location=first.location)
+    assert "before_send" not in deleted
+    assert "in_pin: 4" in deleted
+
+
 def test_upsert_component_action_field_splice_miss_raises(monkeypatch) -> None:
     """Domain resolves but the splice can't locate the instance → NOT_FOUND.
 

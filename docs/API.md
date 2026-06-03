@@ -242,12 +242,13 @@ Parsing and writing live on the backend: the frontend exchanges structured `Auto
 {kind: "script",        id: string}
 {kind: "interval",      index: int}
 {kind: "component_on",  component_id: string, trigger: string, index?: int}
+{kind: "component_action", component_id: string, field: string}
 {kind: "device_on",     trigger: string}
 {kind: "light_effect",  component_id: string, index: int}
 {kind: "api_action",    action_name: string}
 ```
 
-`upsert` / `delete` consume the same shape so the writer knows the exact YAML range to splice. On `component_on`, `index` is omitted for a single-handler mapping (`on_press: {then: [...]}`) and set for one entry of a list-shaped trigger such as `time.on_time` (a YAML list of cron schedules); `index == <entry count>` on `upsert` appends a new entry. `api_action` covers user-defined actions under `api.actions:` — structurally a callable (named, typed `variables:`, `then:` action list, no trigger) so the editor reuses the script pipeline. The deprecated `service:` discriminator is accepted on read; the writer emits `action:`.
+`upsert` / `delete` consume the same shape so the writer knows the exact YAML range to splice. On `component_on`, `index` is omitted for a single-handler mapping (`on_press: {then: [...]}`) and set for one entry of a list-shaped trigger such as `time.on_time` (a YAML list of cron schedules); `index == <entry count>` on `upsert` appends a new entry. `api_action` covers user-defined actions under `api.actions:` — structurally a callable (named, typed `variables:`, `then:` action list, no trigger) so the editor reuses the script pipeline. The deprecated `service:` discriminator is accepted on read; the writer emits `action:`. `component_action` is a `type: trigger` config field on a component instance (cover `open_action` / `close_action` / `stop_action`, hub `opentherm.before_send`, …) — a bare action list keyed on `field`, with no trigger or `then:` wrapper.
 
 | Command | Args | Response | Description |
 |---------|------|----------|-------------|
