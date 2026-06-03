@@ -1,10 +1,12 @@
-"""Tests for the per-registry pin ``mode`` flag derivation.
+"""
+Tests for the per-provider pin ``mode`` flag derivation.
 
 The long-form pin Mode checkboxes a value supports depend on its pin
-registry: an I2C expander like ``pca9554`` allows only ``input`` /
-``output``, while a native ``esp32`` pin allows all five flags. The sync
+provider: an I2C expander like ``pca9554`` allows only ``input`` /
+``output``, while a native pin allows all five flags. The sync
 introspects ESPHome's live ``PIN_SCHEMA_REGISTRY`` to emit a global
-``{registry_key: [allowed_modes]}`` map the frontend scopes against.
+``{provider_key: [allowed_modes]}`` map (excluding native target
+platforms) the frontend scopes against.
 
 These walk the installed esphome package, so they pin the contract
 against ESPHome's real pin schemas rather than a hand-maintained table.

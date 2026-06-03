@@ -408,7 +408,20 @@ def load_pin_registry_modes_index() -> dict[str, list[str]]:
             "Failed to load pin_registry_modes.index.json — pin Mode flags won't be scoped."
         )
         return {}
-    return {str(key): [str(m) for m in modes] for key, modes in payload.items()}
+    if not isinstance(payload, dict):
+        _LOGGER.warning(
+            "pin_registry_modes.index.json is not a mapping — ignoring; pin Mode "
+            "flags won't be scoped."
+        )
+        return {}
+    # Tolerate a malformed artefact: drop any entry whose value isn't a list,
+    # keep only string flags, so a partial / hand-mangled file degrades to
+    # "show every flag" rather than crashing startup.
+    return {
+        str(key): [str(m) for m in modes if isinstance(m, str)]
+        for key, modes in payload.items()
+        if isinstance(modes, list)
+    }
 
 
 def load_board_catalog() -> BoardCatalogResponse:

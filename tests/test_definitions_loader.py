@@ -290,6 +290,20 @@ def test_load_pin_registry_modes_handles_corrupt_json(
     assert result == {}
 
 
+def test_load_pin_registry_modes_tolerates_unexpected_shapes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-mapping payload yields {}; entries with non-list values are dropped."""
+    json_path = tmp_path / "pin_registry_modes.index.json"
+    monkeypatch.setattr(defs, "_PIN_REGISTRY_MODES_INDEX_JSON", json_path)
+
+    json_path.write_bytes(orjson.dumps([1, 2, 3]))
+    assert load_pin_registry_modes_index() == {}
+
+    json_path.write_bytes(orjson.dumps({"pca9554": ["input", 5], "bad": "nope"}))
+    assert load_pin_registry_modes_index() == {"pca9554": ["input"]}
+
+
 def test_load_board_body_refuses_traversal_id(caplog: pytest.LogCaptureFixture) -> None:
     """A traversal-shaped id is refused with a warning and ``None`` return."""
     with caplog.at_level(logging.WARNING):
