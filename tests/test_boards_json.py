@@ -44,7 +44,7 @@ from esphome_device_builder.models.boards import (
     Platform,
 )
 from esphome_device_builder.models.common import FieldPreset, PinFeature
-from script.sync_boards import _LIBRETINY_FAMILIES
+from script.sync_boards import _LIBRETINY_FAMILIES, _RP2040_PLATFORM
 
 _DEFINITIONS_DIR = Path(__file__).parent.parent / "esphome_device_builder" / "definitions"
 _BOARDS_INDEX_JSON = _DEFINITIONS_DIR / "boards.index.json"
@@ -61,30 +61,33 @@ def test_split_artefacts_match_manifests() -> None:
     """
     The committed artefacts reproduce what the manifests produce.
 
-    Scoped to the manifest-derived backbone, not byte-compared against
-    ``build_catalog()``: LibreTiny pins are filled from the *installed* esphome's
-    ``*_BOARD_PINS`` (version-dependent — CI runs beta/dev), so they'd false-fail
-    here. Their derivation is pinned version-tolerantly in
-    ``test_libretiny_board_pins.py``.
+    Scoped to the manifest-derived backbone. Two platform sets matter:
+    ``generated`` platforms add disk-only boards from esphome's tables (allowed
+    to appear without a manifest); ``esphome_filled`` is the subset whose
+    *manifested* pins come from esphome (LibreTiny ships ``pins: []`` and gets
+    filled), which are version-dependent (CI runs beta/dev) so they're excluded
+    from the pin compare. RP2040 manifests keep their hand-curated pins, so those
+    stay checked; only its disk-only generated boards are exempt.
     """
     from_yaml = build_board_catalog_from_manifests(strict=True)
     from_disk = load_board_catalog()
-    libretiny = set(_LIBRETINY_FAMILIES)
+    generated = set(_LIBRETINY_FAMILIES) | {_RP2040_PLATFORM}
+    esphome_filled = set(_LIBRETINY_FAMILIES)
     manifest_ids = {b.id for b in from_yaml.boards}
     disk_by_id = {b.id: b for b in from_disk.boards}
 
-    # Boards on disk but not in the manifests are the esphome-generated LibreTiny
-    # entries; nothing else should appear out of thin air.
+    # Boards on disk but not in the manifests are the esphome-generated entries;
+    # nothing else should appear out of thin air.
     extra = [b for b in from_disk.boards if b.id not in manifest_ids]
-    assert all(b.esphome.platform.value in libretiny for b in extra), (
-        f"Unexpected non-LibreTiny boards on disk: {[b.id for b in extra]}"
+    assert all(b.esphome.platform.value in generated for b in extra), (
+        f"Unexpected boards on disk from no manifest: {[b.id for b in extra]}"
     )
 
     for board in from_yaml.boards:
         expected = board.to_dict()
         actual = disk_by_id[board.id].to_dict()
-        if board.esphome.platform.value in libretiny:
-            # pins are esphome-derived at sync; the manifests ship none.
+        if board.esphome.platform.value in esphome_filled:
+            # manifest ships no pins; they're esphome-filled at sync.
             expected.pop("pins", None)
             actual.pop("pins", None)
         assert expected == actual, (

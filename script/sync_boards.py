@@ -88,6 +88,11 @@ _LIBRETINY_FAMILIES: dict[str, tuple[str, str]] = {
     "ln882x": ("LN882X_BOARDS", "LN882X_BOARD_PINS"),
 }
 
+# RP2040/RP2350 also derive pins from ESPHome board data, but as a GPIO matrix:
+# ``BOARDS`` carries ``max_pin`` (full GPIO range), ``RP2040_BOARD_PINS`` only the
+# conventional default-bus pins.
+_RP2040_PLATFORM = "rp2040"
+
 # Fixed-function pin aliases -> (feature, human signal). First match wins. The
 # trailing ``$`` excludes LibreTiny's flexible-mux variants (``WIRE0_SCL_5``
 # enumerates every SCL-capable pin, not a fixed bus). ``Dn`` / ``Pn`` / ``PAn``
@@ -213,15 +218,123 @@ def _augment_libretiny_boards(boards: list[BoardCatalogEntry]) -> None:
                 ids.add(name)
 
 
+# RP2350B (48-GPIO, max_pin 47) routes its ADC inputs to GPIO40-47; rp2040 and
+# rp2350A (30-GPIO) use GPIO26-29.
+_RP2350B_MAX_PIN = 47
+_RP2040_ADC_GPIOS = range(26, 30)
+_RP2350B_ADC_GPIOS = range(40, 48)
+_BUILTIN_LED = "Built-in LED"
+
+# RP2040 default-bus aliases -> the note shown on the pin. The bare aliases are
+# the default bus (bus 0); ``SDA1``/``SCL1`` the second i2c bus. ``LED`` is
+# handled as ``occupied_by``, not a note.
+_RP2040_ALIAS_NOTES: dict[str, str] = {
+    "TX": "Default UART0 TX",
+    "RX": "Default UART0 RX",
+    "SDA": "Default I2C0 SDA",
+    "SCL": "Default I2C0 SCL",
+    "SDA1": "Default I2C1 SDA",
+    "SCL1": "Default I2C1 SCL",
+    "MOSI": "Default SPI0 MOSI (TX)",
+    "MISO": "Default SPI0 MISO (RX)",
+    "SCK": "Default SPI0 CLK",
+    "SS": "Default SPI0 CS",
+}
+
+
+def _derive_rp2040_pins(board_pins: dict[str, int], max_pin: int) -> list[BoardPin]:
+    """
+    Build GPIO0..max_pin pins for an RP2040/RP2350 board.
+
+    Every GPIO carries pwm; the analog GPIOs add adc (26-29, or 40-47 on the
+    48-GPIO rp2350B); default-bus aliases from ``RP2040_BOARD_PINS`` add their
+    feature + note. ``LED`` becomes ``occupied_by``; alias pins past ``max_pin``
+    (the CYW43 virtual LED) are dropped.
+    """
+    features: dict[int, list[PinFeature]] = {g: [PinFeature.PWM] for g in range(max_pin + 1)}
+    notes: dict[int, list[str]] = {g: [] for g in range(max_pin + 1)}
+    occupied: dict[int, str] = {}
+
+    adc_range = _RP2350B_ADC_GPIOS if max_pin == _RP2350B_MAX_PIN else _RP2040_ADC_GPIOS
+    for gpio in adc_range:
+        if gpio <= max_pin:
+            features[gpio].append(PinFeature.ADC)
+            notes[gpio].append(f"ADC{gpio - adc_range.start}")
+
+    for alias, gpio in board_pins.items():
+        if gpio > max_pin:
+            continue
+        if alias == "LED":
+            occupied[gpio] = _BUILTIN_LED
+            continue
+        cap = _alias_capability(alias)
+        if cap is None:
+            continue
+        feature = cap[0]
+        if feature not in features[gpio]:
+            features[gpio].append(feature)
+        note = _RP2040_ALIAS_NOTES.get(alias)
+        if note and note not in notes[gpio]:
+            notes[gpio].append(note)
+
+    return [
+        BoardPin(
+            gpio=gpio,
+            label=f"GPIO{gpio}",
+            features=sorted(features[gpio], key=attrgetter("value")),
+            occupied_by=occupied.get(gpio),
+            notes=", ".join(notes[gpio]) or None,
+        )
+        for gpio in range(max_pin + 1)
+    ]
+
+
+def _generated_rp2040_board(
+    name: str, meta: dict[str, Any], pins: list[BoardPin]
+) -> BoardCatalogEntry:
+    """Build a minimal catalog entry (name + matrix pins) for an unmanifested RP2040 board."""
+    return BoardCatalogEntry(
+        id=name,
+        name=meta.get("name", name),
+        description="",
+        manufacturer="",
+        esphome=BoardEsphomeConfig(
+            platform=Platform.RP2040, board=name, variant=None, framework=None
+        ),
+        pins=pins,
+    )
+
+
+def _augment_rp2040_boards(boards: list[BoardCatalogEntry]) -> None:
+    """
+    Add catalog entries for RP2040/RP2350 boards no manifest id covers.
+
+    No empty-pin fill step — the manifested rp2040 boards already ship full
+    pinouts; only generation matters. Dedup on board ``id``. A board missing from
+    ``RP2040_BOARD_PINS`` still gets the matrix (GPIO0..max_pin + pwm + adc).
+    """
+    ids = {b.id for b in boards}
+    module = importlib.import_module("esphome.components.rp2040.boards")
+    default_max_pin: int = module.DEFAULT_MAX_PIN
+    for name, meta in module.BOARDS.items():
+        if name in ids:
+            continue
+        max_pin = meta.get("max_pin", default_max_pin)
+        pins = _resolve_board_pins(module.RP2040_BOARD_PINS, name) or {}
+        boards.append(_generated_rp2040_board(name, meta, _derive_rp2040_pins(pins, max_pin)))
+        ids.add(name)
+
+
 def build_catalog() -> BoardCatalogResponse:
     """
-    Build the catalog as emitted: manifests + ESPHome-derived LibreTiny pins.
+    Build the catalog as emitted: manifests + ESPHome-derived LibreTiny/RP2040 pins.
 
     Id-sorted so the order matches the split index. Shared by ``main`` and the
     drift test so the committed artefacts stay reproducible.
     """
     catalog = build_board_catalog_from_manifests(strict=True)
     _augment_libretiny_boards(catalog.boards)
+    _augment_rp2040_boards(catalog.boards)
     catalog.boards.sort(key=attrgetter("id"))
     return catalog
 
