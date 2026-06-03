@@ -31,8 +31,11 @@ Usage
 
 from __future__ import annotations
 
+import importlib
 import logging
+import re
 import sys
+from operator import attrgetter
 from pathlib import Path
 from typing import Any
 
@@ -51,7 +54,15 @@ from _catalog_split import (  # noqa: E402
 from esphome_device_builder.definitions import (  # noqa: E402
     build_board_catalog_from_manifests,
 )
-from esphome_device_builder.models import BoardCatalogEntry, BoardCatalogIndex  # noqa: E402
+from esphome_device_builder.models import (  # noqa: E402
+    BoardCatalogEntry,
+    BoardCatalogIndex,
+    BoardCatalogResponse,
+    BoardEsphomeConfig,
+    BoardPin,
+    PinFeature,
+    Platform,
+)
 
 _LOGGER = logging.getLogger("sync_boards")
 
@@ -66,13 +77,161 @@ _INDEX_DROP_FIELDS: frozenset[str] = frozenset(
     {"hardware", "pins", "featured_components", "featured_bundles", "default_components"}
 )
 
+# LibreTiny families: ESPHome's ``components/<platform>/boards.py`` carries
+# ``*_BOARDS`` (board -> {name, family}) and ``*_BOARD_PINS`` (board ->
+# {alias: gpio}). The manifests cover only a curated subset and ship no pin
+# maps, so these are the source for both filling manifested boards' pins and
+# generating entries for the boards the manifests don't cover.
+_LIBRETINY_FAMILIES: dict[str, tuple[str, str]] = {
+    "bk72xx": ("BK72XX_BOARDS", "BK72XX_BOARD_PINS"),
+    "rtl87xx": ("RTL87XX_BOARDS", "RTL87XX_BOARD_PINS"),
+    "ln882x": ("LN882X_BOARDS", "LN882X_BOARD_PINS"),
+}
+
+# Fixed-function pin aliases -> (feature, human signal). First match wins. The
+# trailing ``$`` excludes LibreTiny's flexible-mux variants (``WIRE0_SCL_5``
+# enumerates every SCL-capable pin, not a fixed bus). ``Dn`` / ``Pn`` / ``PAn``
+# positional names carry no capability.
+_PIN_ALIAS_RULES: tuple[tuple[re.Pattern[str], PinFeature, str], ...] = (
+    (re.compile(r"^(?:SERIAL(\d+)_TX|TX(\d*))$"), PinFeature.UART_TX, "UART{n} TX"),
+    (re.compile(r"^(?:SERIAL(\d+)_RX|RX(\d*))$"), PinFeature.UART_RX, "UART{n} RX"),
+    (re.compile(r"^(?:WIRE(\d+)_SDA|SDA(\d*))$"), PinFeature.I2C_SDA, "I2C{n} SDA"),
+    (re.compile(r"^(?:WIRE(\d+)_SCL|SCL(\d*))$"), PinFeature.I2C_SCL, "I2C{n} SCL"),
+    (re.compile(r"^(?:SPI(\d+)_MOSI|MOSI(\d*))$"), PinFeature.SPI_MOSI, "SPI{n} MOSI"),
+    (re.compile(r"^(?:SPI(\d+)_MISO|MISO(\d*))$"), PinFeature.SPI_MISO, "SPI{n} MISO"),
+    (re.compile(r"^(?:SPI(\d+)_SCK|SCK(\d*))$"), PinFeature.SPI_CLK, "SPI{n} SCK"),
+    (re.compile(r"^(?:SPI(\d+)_CS|CS(\d*)|SS(\d*))$"), PinFeature.SPI_CS, "SPI{n} CS"),
+    (re.compile(r"^(?:ADC\d*|A\d+)$"), PinFeature.ADC, "ADC"),
+    (re.compile(r"^DAC\d*$"), PinFeature.DAC, "DAC"),
+    (re.compile(r"^PWM\d*$"), PinFeature.PWM, "PWM"),
+)
+
+
+def _alias_capability(alias: str) -> tuple[PinFeature, str] | None:
+    """
+    Map a fixed-function pin alias to ``(feature, signal)``, or ``None``.
+
+    ``None`` for positional names (``D4`` / ``P6`` / ``PA07``) and for
+    LibreTiny's enumerated flexible-mux aliases (``WIRE0_SCL_5``).
+    """
+    for pattern, feature, label in _PIN_ALIAS_RULES:
+        match = pattern.match(alias)
+        if match:
+            bus = next((g for g in match.groups() if g), "")
+            return feature, label.replace("{n}", bus)
+    return None
+
+
+def _derive_pins_from_aliases(board_pins: dict[str, int]) -> list[BoardPin]:
+    """
+    Build ``BoardPin``s from an ESPHome ``{alias: gpio}`` map.
+
+    Aliases on a shared GPIO union their features; ``notes`` lists the fixed bus
+    roles (``UART1 TX • I2C2 SCL``). A GPIO with only positional aliases still
+    emits a bare pin so the dropdown lists it. ``label`` matches ``_load_pin``'s
+    ``GPIO{n}`` default so generated and manifest pins read the same.
+    """
+    features: dict[int, list[PinFeature]] = {}
+    signals: dict[int, list[str]] = {}
+    for alias, gpio in board_pins.items():
+        features.setdefault(gpio, [])
+        signals.setdefault(gpio, [])
+        cap = _alias_capability(alias)
+        if cap is None:
+            continue
+        feature, signal = cap
+        if feature not in features[gpio]:
+            features[gpio].append(feature)
+        if signal not in signals[gpio]:
+            signals[gpio].append(signal)
+    return [
+        BoardPin(
+            gpio=gpio,
+            label=f"GPIO{gpio}",
+            features=sorted(features[gpio], key=attrgetter("value")),
+            notes=" • ".join(signals[gpio]) or None,
+        )
+        for gpio in sorted(features)
+    ]
+
+
+def _resolve_board_pins(pin_map: dict[str, Any], name: str) -> dict[str, int] | None:
+    """Resolve an ESPHome board's ``{alias: gpio}`` map, following string aliases."""
+    value = pin_map.get(name)
+    seen: set[str] = set()
+    while isinstance(value, str) and value not in seen:
+        seen.add(value)
+        value = pin_map.get(value)
+    return value if isinstance(value, dict) else None
+
+
+def _generated_libretiny_board(
+    platform: str, name: str, meta: Any, pins: dict[str, int]
+) -> BoardCatalogEntry:
+    """Build a minimal catalog entry (name + derived pins) for an unmanifested board."""
+    return BoardCatalogEntry(
+        id=name,
+        name=meta.get("name", name) if isinstance(meta, dict) else name,
+        description="",
+        manufacturer="",
+        esphome=BoardEsphomeConfig(
+            platform=Platform(platform), board=name, variant=None, framework=None
+        ),
+        pins=_derive_pins_from_aliases(pins),
+    )
+
+
+def _augment_libretiny_boards(boards: list[BoardCatalogEntry]) -> None:
+    """
+    Fill LibreTiny pins from ESPHome and add the boards manifests don't cover.
+
+    ``*_BOARD_PINS`` has the real per-board pinouts the ``pins: []`` manifests
+    lack. Per family: (1) fill a manifested board's empty pins, (2) generate a
+    canonical entry for every ESPHome board no manifest *id* already defines, so
+    ``board: bw15`` resolves with its pinout and lists in the picker. Dedup is on
+    board ``id`` (the unique key), not ``esphome.board`` — a chip referenced only
+    by vendor-product manifests still gets its own canonical board.
+    """
+    ids = {b.id for b in boards}
+    for platform, (boards_attr, pins_attr) in _LIBRETINY_FAMILIES.items():
+        module = importlib.import_module(f"esphome.components.{platform}.boards")
+        # No getattr default: an upstream rename of these (private) symbols
+        # should fail the sync loudly, not silently emit a pinless catalog.
+        board_list: dict[str, Any] = getattr(module, boards_attr)
+        pin_map: dict[str, Any] = getattr(module, pins_attr)
+        for board in boards:
+            if board.esphome.platform.value == platform and not board.pins:
+                pins = _resolve_board_pins(pin_map, board.esphome.board)
+                if pins:
+                    board.pins = _derive_pins_from_aliases(pins)
+        for name, meta in board_list.items():
+            if name in ids:
+                continue
+            pins = _resolve_board_pins(pin_map, name)
+            if pins:
+                boards.append(_generated_libretiny_board(platform, name, meta, pins))
+                ids.add(name)
+
+
+def build_catalog() -> BoardCatalogResponse:
+    """
+    Build the catalog as emitted: manifests + ESPHome-derived LibreTiny pins.
+
+    Id-sorted so the order matches the split index. Shared by ``main`` and the
+    drift test so the committed artefacts stay reproducible.
+    """
+    catalog = build_board_catalog_from_manifests(strict=True)
+    _augment_libretiny_boards(catalog.boards)
+    catalog.boards.sort(key=attrgetter("id"))
+    return catalog
+
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
     # Abort the sync on the first bad manifest — partial output here
     # would silently ship a board-shaped hole to every install.
-    catalog = build_board_catalog_from_manifests(strict=True)
+    catalog = build_catalog()
 
     # ``to_dict`` here already applies the omit_default Configs, so
     # body files and index entries both ship the stripped wire shape.

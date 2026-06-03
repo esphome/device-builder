@@ -44,6 +44,7 @@ from esphome_device_builder.models.boards import (
     Platform,
 )
 from esphome_device_builder.models.common import FieldPreset, PinFeature
+from script.sync_boards import _LIBRETINY_FAMILIES
 
 _DEFINITIONS_DIR = Path(__file__).parent.parent / "esphome_device_builder" / "definitions"
 _BOARDS_INDEX_JSON = _DEFINITIONS_DIR / "boards.index.json"
@@ -57,14 +58,39 @@ _BODY_ONLY_KEYS = frozenset(
 
 
 def test_split_artefacts_match_manifests() -> None:
-    """The three split artefacts reassemble back to what the YAMLs produce."""
+    """
+    The committed artefacts reproduce what the manifests produce.
+
+    Scoped to the manifest-derived backbone, not byte-compared against
+    ``build_catalog()``: LibreTiny pins are filled from the *installed* esphome's
+    ``*_BOARD_PINS`` (version-dependent — CI runs beta/dev), so they'd false-fail
+    here. Their derivation is pinned version-tolerantly in
+    ``test_libretiny_board_pins.py``.
+    """
     from_yaml = build_board_catalog_from_manifests(strict=True)
     from_disk = load_board_catalog()
+    libretiny = set(_LIBRETINY_FAMILIES)
+    manifest_ids = {b.id for b in from_yaml.boards}
+    disk_by_id = {b.id: b for b in from_disk.boards}
 
-    assert from_yaml.to_dict() == from_disk.to_dict(), (
-        "Split board catalog is out of sync with the YAML manifests. "
-        "Run `python script/sync_boards.py` to regenerate."
+    # Boards on disk but not in the manifests are the esphome-generated LibreTiny
+    # entries; nothing else should appear out of thin air.
+    extra = [b for b in from_disk.boards if b.id not in manifest_ids]
+    assert all(b.esphome.platform.value in libretiny for b in extra), (
+        f"Unexpected non-LibreTiny boards on disk: {[b.id for b in extra]}"
     )
+
+    for board in from_yaml.boards:
+        expected = board.to_dict()
+        actual = disk_by_id[board.id].to_dict()
+        if board.esphome.platform.value in libretiny:
+            # pins are esphome-derived at sync; the manifests ship none.
+            expected.pop("pins", None)
+            actual.pop("pins", None)
+        assert expected == actual, (
+            f"{board.id} is out of sync with its manifest. "
+            "Run `python script/sync_boards.py` to regenerate."
+        )
 
 
 def test_boards_index_omits_body_fields() -> None:

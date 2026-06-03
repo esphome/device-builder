@@ -1,3 +1,10 @@
+# ``sync-boards`` regenerates the board catalog from the manifests + ESPHome's
+# board data, so it needs ``esphome`` importable. pre-commit.ci runs hooks in a
+# slim env with no project install, so it's skipped there; the catalog stays
+# enforced by ``test_split_artefacts_match_manifests`` in the test job.
+ci:
+  skip: [sync-boards]
+
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.15
@@ -18,15 +25,10 @@ repos:
       - id: sync-boards
         name: regenerate boards.json from manifests
         entry: python script/sync_boards.py
-        language: python
-        # ``voluptuous`` is needed because importing
-        # ``esphome_device_builder.models.remote_build`` (transitively
-        # imported via the script's models import chain) builds the
-        # ``StoredPairing`` ``vol.Schema`` at module-load time. The
-        # schema only *runs* later, in ``__post_init__``, but the
-        # ``import voluptuous as vol`` at the top of the module
-        # fails without the dep installed in the hook's slim env.
-        additional_dependencies: [pyyaml, orjson, mashumaro, voluptuous]
+        # ``language: system`` runs in the project venv so the script imports
+        # the same ``esphome`` the catalog is generated against — no second
+        # version to pin and drift. Skipped on pre-commit.ci (see top ``ci:``).
+        language: system
         pass_filenames: false
         files: ^esphome_device_builder/definitions/boards/.*\.yaml$
         types: [yaml]
