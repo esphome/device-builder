@@ -601,6 +601,14 @@ def test_upsert_component_action_field_unknown_id_raises() -> None:
     assert exc.value.code == ErrorCode.NOT_FOUND
 
 
+def test_delete_component_action_field_unknown_id_raises() -> None:
+    """Deleting an action field on a non-existent instance is NOT_FOUND."""
+    loc = ComponentActionFieldLocation(component_id="nope", field="open_action")
+    with pytest.raises(CommandError) as exc:
+        render_delete(_load("cover_feedback_actions.yaml"), location=loc)
+    assert exc.value.code == ErrorCode.NOT_FOUND
+
+
 # ---------------------------------------------------------------------------
 # api.actions
 # ---------------------------------------------------------------------------

@@ -186,6 +186,16 @@ def test_parse_component_action_field_idless_uses_positional_id() -> None:
     assert actions[0].location.field == "open_action"
 
 
+def test_parse_component_action_field_on_hub_component() -> None:
+    """A single-mapping hub (``opentherm:``, no ``platform:``) is keyed on the bare domain."""
+    yaml = "opentherm:\n  in_pin: 4\n  before_send:\n    - logger.log: sending\n"
+    actions = [p for p in parse_device_yaml(yaml) if p.location.kind == "component_action"]
+    assert len(actions) == 1
+    assert actions[0].location.component_id == "opentherm"
+    assert actions[0].location.field == "before_send"
+    assert actions[0].automation.trigger_id is None
+
+
 def test_parse_on_value_range_float_params_are_json_serialisable() -> None:
     """Decimal on_value_range thresholds round-trip as plain floats."""
     parsed = parse_device_yaml(_load("sensor_on_value_range_float.yaml"))

@@ -1945,7 +1945,11 @@ def _convert_config_vars(  # noqa: C901
             continue
         if any(key.startswith(p) for p in _AUTOMATION_KEY_PREFIXES):
             continue
-        entry = _convert_field(key, raw or {}, schema_dir)
+        # ``component_id`` is set only for a component's own config_vars
+        # (the top-level build call), not the recursive nested calls — so
+        # it doubles as the "this is a direct component field" signal the
+        # action-list trigger override keys on.
+        entry = _convert_field(key, raw or {}, schema_dir, top_level=bool(component_id))
         if entry is None:
             continue
         # Per-(component, field) overrides patch up entries the schema
@@ -2016,8 +2020,15 @@ def _resolve_extends(ref: str, schema_dir: Path) -> dict[str, dict]:  # noqa: C9
     return inner
 
 
-def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noqa: PLR0912, PLR0915, C901
-    """Build a single ConfigEntry dict from a schema's config_var entry."""
+def _convert_field(  # noqa: PLR0912, PLR0915, C901
+    key: str, raw: dict, schema_dir: Path, *, top_level: bool = False
+) -> dict | None:
+    """Build a single ConfigEntry dict from a schema's config_var entry.
+
+    ``top_level`` is True only for a component's own (direct) config
+    vars; it gates the action-list ``type: trigger`` → TRIGGER override
+    so nested trigger fields stay ``nested`` (see below).
+    """
     if not isinstance(raw, dict):
         # Some schemas use bare ``{}``-shaped placeholders for fields
         # whose details live in an extends-referenced base. Treat as
@@ -2055,9 +2066,14 @@ def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noq
     # schema set), so the default ``trigger -> nested`` map yields an
     # empty group the frontend drops. Surface it as TRIGGER instead and
     # let the frontend route it to the automation editor keyed on ``key``.
-    # Scoped (not a ``_TYPE_MAP`` change) so a future ``type: trigger``
-    # field that gains params still maps to ``nested``.
-    if schema_type == "trigger" and not (inner_schema or {}).get("config_vars"):
+    # Scoped two ways: (1) not a ``_TYPE_MAP`` change, so a future
+    # ``type: trigger`` field that gains params still maps to ``nested``;
+    # (2) ``top_level`` only — the ``component_action`` location is
+    # ``(component_id, field)``, so it can only address a direct config
+    # field of a component instance. A ``type: trigger`` nested inside
+    # another mapping (e.g. ``sprinkler`` valves' ``set_action``) can't be
+    # round-tripped, so it stays ``nested`` and is not offered for editing.
+    if top_level and schema_type == "trigger" and not (inner_schema or {}).get("config_vars"):
         entry_type = "trigger"
 
     # Polymorphic registry list (#941). Two upstream shapes:

@@ -390,13 +390,19 @@ def _component_action_fields(catalog_id: str) -> frozenset[str]:
     if not is_unsafe_catalog_id(catalog_id):
         try:
             raw = resources.files(_COMPONENTS_PACKAGE).joinpath(f"{catalog_id}.json").read_bytes()
-        except (FileNotFoundError, ModuleNotFoundError, OSError):
+        except (FileNotFoundError, ModuleNotFoundError):
+            # Absent body — the expected "component has no shipped catalog
+            # entry" case. A real read error (permissions, truncated read)
+            # is NOT swallowed: it would otherwise be miscached as "no
+            # action fields" for the rest of the process.
             raw = b""
         if raw:
             body = json_loads(raw)
             for entry in body.get("config_entries") or []:
                 if isinstance(entry, dict) and entry.get("type") == "trigger":
-                    fields.add(str(entry.get("key")))
+                    key = entry.get("key")
+                    if isinstance(key, str):
+                        fields.add(key)
     frozen = frozenset(fields)
     _ACTION_FIELD_INDEX[catalog_id] = frozen
     return frozen
@@ -414,10 +420,12 @@ def _parse_component_action_fields(root: Any) -> list[ParsedAutomation]:
     """
     out: list[ParsedAutomation] = []
     for domain, instance, comp_id in _iter_component_instances(root):
+        # Catalog id mirrors the sync's: ``<domain>.<platform>`` for a
+        # platform component (``cover: - platform: feedback``), the bare
+        # ``<domain>`` for a single-mapping hub (``opentherm:``).
         platform = instance.get("platform")
-        if not platform:
-            continue
-        fields = _component_action_fields(f"{domain}.{platform}")
+        catalog_id = f"{domain}.{platform}" if platform else domain
+        fields = _component_action_fields(catalog_id)
         if not fields:
             continue
         comp_name = str(instance.get("name") or comp_id)

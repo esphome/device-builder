@@ -179,17 +179,31 @@ def test_convert_field_tx_power_default_without_no_gate(
 
 
 def test_convert_field_bare_trigger_becomes_trigger_type(schema_dir: Path) -> None:
-    """A bare ``type: trigger`` action-list field surfaces as TRIGGER, not nested.
+    """A top-level bare ``type: trigger`` field surfaces as TRIGGER, not nested.
 
     Cover ``open_action`` and similar are action lists the user edits in
     the automation editor; mapping them to an empty ``nested`` group made
     the frontend drop them. They carry no inner ``config_vars``.
     """
     raw = {"key": "Required", "type": "trigger"}
-    entry = _convert_field("open_action", raw, schema_dir)
+    entry = _convert_field("open_action", raw, schema_dir, top_level=True)
     assert entry is not None
     assert entry["type"] == "trigger"
     assert entry["config_entries"] is None
+
+
+def test_convert_field_nested_trigger_stays_nested(schema_dir: Path) -> None:
+    """A ``type: trigger`` field nested inside another mapping stays nested.
+
+    The ``component_action`` location is ``(component_id, field)``, so it
+    can only address a direct component field. Nested trigger fields (e.g.
+    ``sprinkler`` valves' ``set_action``) aren't editable and must not be
+    promoted to TRIGGER — only ``top_level`` fields are.
+    """
+    raw = {"key": "Required", "type": "trigger"}
+    entry = _convert_field("set_action", raw, schema_dir, top_level=False)
+    assert entry is not None
+    assert entry["type"] == "nested"
 
 
 def test_convert_field_trigger_with_inner_config_vars_stays_nested(schema_dir: Path) -> None:
@@ -199,7 +213,7 @@ def test_convert_field_trigger_with_inner_config_vars_stays_nested(schema_dir: P
         "type": "trigger",
         "schema": {"config_vars": {"min_length": {"key": "Optional", "type": "integer"}}},
     }
-    entry = _convert_field("on_click", raw, schema_dir)
+    entry = _convert_field("on_click", raw, schema_dir, top_level=True)
     assert entry is not None
     assert entry["type"] == "nested"
 
