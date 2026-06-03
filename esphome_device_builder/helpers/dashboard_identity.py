@@ -149,6 +149,9 @@ def _get_or_create_dashboard_id(config_dir: Path) -> str:
     read-modify-write runs under the metadata-sidecar lock.
     """
     with metadata_transaction(config_dir) as data:
+        # Sweep any legacy co-tenant first so a stale copy can't
+        # linger even when the new block already answers the read.
+        legacy_id = _migrate_legacy_dashboard_id(data)
         block = data.get(_DASHBOARD_IDENTITY_KEY)
         if isinstance(block, dict):
             existing = block.get(_DASHBOARD_ID_KEY)
@@ -157,7 +160,7 @@ def _get_or_create_dashboard_id(config_dir: Path) -> str:
         else:
             block = {}
             data[_DASHBOARD_IDENTITY_KEY] = block
-        new_id = _migrate_legacy_dashboard_id(data) or secrets.token_urlsafe(_DASHBOARD_ID_BYTES)
+        new_id = legacy_id or secrets.token_urlsafe(_DASHBOARD_ID_BYTES)
         block[_DASHBOARD_ID_KEY] = new_id
         return new_id
 

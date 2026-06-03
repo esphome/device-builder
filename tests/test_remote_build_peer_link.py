@@ -1146,13 +1146,12 @@ async def test_e2e_receiver_settings_write_preserves_offloader_pairing(
     peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
     tmp_path: Path,
 ) -> None:
-    """A remote-build settings write keeps an existing pairing accepted (#1154).
+    """
+    A remote-build settings write keeps an existing pairing accepted (#1154).
 
-    The offloader's ``dashboard_id`` co-lives in the
-    ``_remote_build`` metadata block with the receiver-side
-    settings; a settings write that re-minted it left the
-    long-lived ``peer_link`` keyed on an id the receiver never
-    approved (``no_approved_peer``).
+    A settings write that re-minted the offloader's
+    ``dashboard_id`` left the long-lived ``peer_link`` keyed on
+    an id the receiver never approved (``no_approved_peer``).
     """
     client, controller, _ = peer_link_app
     offloader_dir = tmp_path / "offloader"
@@ -1165,8 +1164,12 @@ async def test_e2e_receiver_settings_write_preserves_offloader_pairing(
     )
 
     # The offloader host writes its own receiver-side settings
-    # (flipping the master enable is the operator's trigger).
-    save_remote_build_settings(offloader_dir, RemoteBuildSettings(enabled=True))
+    # (flipping the master enable is the operator's trigger). Hop
+    # to a thread: the writer does sync I/O blockbuster flags on
+    # the event loop.
+    await asyncio.to_thread(
+        save_remote_build_settings, offloader_dir, RemoteBuildSettings(enabled=True)
+    )
 
     _, dashboard_after = await get_or_create_identities(offloader_dir, store)
     assert dashboard_after.dashboard_id == dashboard.dashboard_id
@@ -1182,7 +1185,8 @@ async def test_e2e_peer_link_recovers_after_identity_rotation(
     peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
     tmp_path: Path,
 ) -> None:
-    """Rotating the offloader key breaks the link until re-pair, then it recovers (#1154).
+    """
+    Rotating the offloader key breaks the link until re-pair, then recovers (#1154).
 
     ``dashboard_id`` is preserved across a rotation, so the
     receiver pins the stale key (``rejected``) until the operator

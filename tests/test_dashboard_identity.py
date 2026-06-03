@@ -179,13 +179,20 @@ async def test_remote_build_settings_writes_preserve_foreign_keys(tmp_path: Path
     metadata_path = tmp_path / ".device-builder.json"
     metadata_path.write_bytes(json.dumps({"_remote_build": {"_sentinel": "keep-me"}}).encode())
 
-    save_remote_build_settings(tmp_path, RemoteBuildSettings(enabled=False))
+    # Hop to a thread: the writers do sync metadata I/O that
+    # blockbuster (Linux CI) flags when called on the event loop.
+    await asyncio.to_thread(
+        save_remote_build_settings, tmp_path, RemoteBuildSettings(enabled=False)
+    )
     block = _read_metadata(tmp_path)["_remote_build"]
     assert block["_sentinel"] == "keep-me"
     assert block["enabled"] is False
 
-    with remote_build_settings_transaction(tmp_path) as settings:
-        settings.enabled = True
+    def _enable() -> None:
+        with remote_build_settings_transaction(tmp_path) as settings:
+            settings.enabled = True
+
+    await asyncio.to_thread(_enable)
     block = _read_metadata(tmp_path)["_remote_build"]
     assert block["_sentinel"] == "keep-me"
     assert block["enabled"] is True
@@ -212,6 +219,25 @@ async def test_legacy_dashboard_id_migrates_out_of_remote_build(tmp_path: Path) 
     assert metadata["_remote_build"]["enabled"] is True
 
 
+async def test_legacy_dashboard_id_swept_even_when_new_block_wins(tmp_path: Path) -> None:
+    """A stale legacy id is removed even if ``_dashboard_identity`` already answers."""
+    metadata_path = tmp_path / ".device-builder.json"
+    metadata_path.write_bytes(
+        json.dumps(
+            {
+                "_dashboard_identity": {"dashboard_id": "current-id"},
+                "_remote_build": {"dashboard_id": "stale-id", "enabled": True},
+            }
+        ).encode()
+    )
+
+    identity = await get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
+    assert identity.dashboard_id == "current-id"
+    block = _read_metadata(tmp_path)["_remote_build"]
+    assert "dashboard_id" not in block
+    assert block["enabled"] is True
+
+
 async def test_minting_dashboard_id_does_not_trip_settings_persisted_gate(tmp_path: Path) -> None:
     """
     Identity creation alone must not flip the HA-addon "settings persisted" signal (#1154).
@@ -222,7 +248,8 @@ async def test_minting_dashboard_id_does_not_trip_settings_persisted_gate(tmp_pa
     never touched the toggle.
     """
     await get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
-    assert has_remote_build_settings_persisted(tmp_path) is False
+    persisted = await asyncio.to_thread(has_remote_build_settings_persisted, tmp_path)
+    assert persisted is False
 
 
 async def test_legacy_dashboard_id_only_block_removed_on_migration(tmp_path: Path) -> None:
@@ -233,7 +260,8 @@ async def test_legacy_dashboard_id_only_block_removed_on_migration(tmp_path: Pat
     identity = await get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
     assert identity.dashboard_id == "legacy-id"
     assert "_remote_build" not in _read_metadata(tmp_path)
-    assert has_remote_build_settings_persisted(tmp_path) is False
+    persisted = await asyncio.to_thread(has_remote_build_settings_persisted, tmp_path)
+    assert persisted is False
 
 
 async def test_init_after_id_only_mutation_preserves_other_fields(tmp_path: Path) -> None:
