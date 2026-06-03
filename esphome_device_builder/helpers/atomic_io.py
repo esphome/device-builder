@@ -19,13 +19,15 @@ import tempfile
 import time
 from pathlib import Path
 
-# Windows raises ``PermissionError`` (WinError 5) from ``os.replace`` when a
-# transient handle holds the destination open (a concurrent reader, an
-# antivirus or the search indexer). POSIX rename is atomic and never hits
-# this, so the retry is Windows-only. Backoff grows exponentially (capped)
-# so the common sub-second window still clears on the first short wait,
-# while a slow scanner under loaded CI gets several seconds before we give
-# up — far cheaper than losing a metadata / preferences write.
+# Windows raises ``PermissionError`` (WinError 5) on both sides of a
+# replace race: from ``os.replace`` when a transient handle holds the
+# destination open, and from ``open()`` when a lock-free reader opens the
+# file while a replace is mid-flight (sharing violation). POSIX rename is
+# atomic and never hits either, so the retry is Windows-only. Backoff grows
+# exponentially (capped) so the common sub-second window still clears on the
+# first short wait, while a slow scanner under loaded CI gets several seconds
+# before we give up — far cheaper than losing a metadata / preferences write
+# or failing a concurrent read.
 _IS_WINDOWS = os.name == "nt"
 _REPLACE_RETRIES = 15
 _REPLACE_RETRY_BACKOFF_S = 0.05
@@ -76,6 +78,20 @@ def atomic_write(
         with contextlib.suppress(OSError):
             tmp_path.unlink()
         raise
+
+
+def read_bytes_with_retry(path: Path) -> bytes:
+    """Read *path*'s bytes, retried on a Windows handle race with a concurrent replace."""
+    for attempt in range(_REPLACE_RETRIES):
+        try:
+            return path.read_bytes()
+        except PermissionError:
+            # POSIX never hits this transiently, so a PermissionError there is
+            # real; re-raise. On Windows, back off and retry the open.
+            if not _IS_WINDOWS or attempt == _REPLACE_RETRIES - 1:
+                raise
+            time.sleep(min(_REPLACE_RETRY_BACKOFF_S * 2**attempt, _REPLACE_RETRY_BACKOFF_CAP_S))
+    raise AssertionError("unreachable: loop returns or raises")  # pragma: no cover
 
 
 def _replace_with_retry(src: Path, dst: Path) -> None:

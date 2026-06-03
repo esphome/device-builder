@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from esphome_device_builder.helpers.atomic_io import atomic_write
+from esphome_device_builder.helpers.atomic_io import atomic_write, read_bytes_with_retry
 
 
 def test_atomic_write_cleans_up_tempfile_on_error(
@@ -187,5 +187,52 @@ def test_atomic_write_does_not_retry_replace_on_posix(
     monkeypatch.setattr("os.replace", _fail)
     with pytest.raises(PermissionError):
         atomic_write(tmp_path / "demo.bin", b"x")
+
+    assert calls["n"] == 1  # no retry on POSIX
+
+
+def test_read_bytes_with_retry_returns_contents(tmp_path: Path) -> None:
+    target = tmp_path / "demo.bin"
+    target.write_bytes(b"payload")
+    assert read_bytes_with_retry(target) == b"payload"
+
+
+def test_read_bytes_with_retry_retries_on_windows_sharing_violation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A transient Windows ``PermissionError`` on open is retried, not surfaced."""
+    monkeypatch.setattr("esphome_device_builder.helpers.atomic_io._IS_WINDOWS", True)
+    monkeypatch.setattr("esphome_device_builder.helpers.atomic_io.time.sleep", lambda _s: None)
+    target = tmp_path / "demo.bin"
+    target.write_bytes(b"payload")
+
+    real_read_bytes = Path.read_bytes
+    calls = {"n": 0}
+
+    def _flaky(self: Path) -> bytes:
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise PermissionError(5, "Access is denied")
+        return real_read_bytes(self)
+
+    monkeypatch.setattr(Path, "read_bytes", _flaky)
+    assert read_bytes_with_retry(target) == b"payload"
+    assert calls["n"] == 3  # failed twice, succeeded on the third
+
+
+def test_read_bytes_with_retry_does_not_retry_on_posix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ``PermissionError`` on POSIX is real and surfaces without a retry."""
+    monkeypatch.setattr("esphome_device_builder.helpers.atomic_io._IS_WINDOWS", False)
+    calls = {"n": 0}
+
+    def _fail(self: Path) -> bytes:
+        calls["n"] += 1
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(Path, "read_bytes", _fail)
+    with pytest.raises(PermissionError):
+        read_bytes_with_retry(tmp_path / "demo.bin")
 
     assert calls["n"] == 1  # no retry on POSIX

@@ -17,7 +17,7 @@ try:
 except ImportError:  # pragma: no cover — Windows path
     _HAS_FCNTL = False
 
-from ...helpers.atomic_io import atomic_write
+from ...helpers.atomic_io import atomic_write, read_bytes_with_retry
 from ...helpers.json import JSONDecodeError, dumps_indent, loads
 
 _METADATA_FILE = ".device-builder.json"
@@ -88,7 +88,10 @@ def _load_metadata(config_dir: Path) -> dict[str, Any]:
     try:
         # orjson decodes bytes directly, so skip the read_text → encode
         # round-trip. JSONDecodeError is a subclass of ValueError.
-        data = loads(path.read_bytes())
+        # read_bytes_with_retry rides out a Windows sharing-violation race
+        # against a concurrent ``_save_metadata`` replace — the read is
+        # lock-free, so it can open the file mid-rename.
+        data = loads(read_bytes_with_retry(path))
         return data if isinstance(data, dict) else {}
     except (FileNotFoundError, JSONDecodeError):
         return {}
