@@ -3321,6 +3321,10 @@ def _audit_catalog_for_pin_metadata(catalog: list[dict]) -> None:
     unconstrained pin. Surfacing it as a sync-time WARNING turns an
     uncovered component into telemetry instead of a silent no-op.
     """
+    # Without esphome introspection every pin field is expectedly uncovered
+    # (the lean / esphome-less install path), so the audit would be pure noise.
+    if _get_esphome_loader() is None:
+        return
     uncovered: list[tuple[str, str]] = []
     for component in catalog:
         for path, entry in _walk_entries(component.get("config_entries") or []):
@@ -4096,6 +4100,15 @@ def _pin_mode_from_closure(validator: Any) -> PinMode | None:
     return None
 
 
+def _merge_pin_modes(a: PinMode | None, b: PinMode | None) -> PinMode | None:
+    """Combine two derived modes; any input plus any output ⇒ INPUT_OUTPUT."""
+    if a is None or a == b:
+        return b if a is None else a
+    if b is None:
+        return a
+    return PinMode.INPUT_OUTPUT
+
+
 def _pin_constraint_from_validator(node: Any) -> _PinConstraint:
     """
     Derive ``(pin_mode, pin_features)`` from a field's live validator.
@@ -4104,8 +4117,11 @@ def _pin_constraint_from_validator(node: Any) -> _PinConstraint:
     ``gpio_*_pin_schema`` closure captures; features from the
     fixed-silicon validators in ``_PIN_FEATURE_VALIDATORS``. Unwraps
     ``vol.All`` / ``vol.Any`` so a composed validator (a DAC pin is
-    gpio-output *and* ``valid_dac_pin``) yields both halves. Returns
-    empties when *node* isn't a pin validator.
+    gpio-output *and* ``valid_dac_pin``) yields both halves. Probes every
+    node for the ``default_mode`` closure rather than matching a brittle
+    ``__qualname__``, and merges modes order-independently so a composed
+    input+output validator resolves to INPUT_OUTPUT. Returns empties when
+    *node* isn't a pin validator.
     """
     mode: PinMode | None = None
     features: list[PinFeature] = []
@@ -4116,9 +4132,7 @@ def _pin_constraint_from_validator(node: Any) -> _PinConstraint:
         if id(current) in seen:
             continue
         seen.add(id(current))
-        qualname = getattr(current, "__qualname__", "") or ""
-        if "_schema_creator.<locals>.validator" in qualname:
-            mode = _pin_mode_from_closure(current) or mode
+        mode = _merge_pin_modes(mode, _pin_mode_from_closure(current))
         feature = _PIN_FEATURE_VALIDATORS.get(getattr(current, "__name__", "") or "")
         if feature is not None and feature not in features:
             features.append(feature)
@@ -4151,7 +4165,10 @@ def _collect_pin_constraints(
             if domain in _PLATFORM_DOMAINS
             else loader.get_component(top_key)
         )
-    except Exception:
+    except Exception as err:
+        # Import / schema-resolution failure; log so the resulting uncovered
+        # pins (flagged by _audit_catalog_for_pin_metadata) are traceable.
+        _LOGGER.debug("pin constraints: %s.%s manifest load failed: %s", domain, stem, err)
         return {}
     schema = getattr(manifest, "config_schema", None)
     if schema is None:
