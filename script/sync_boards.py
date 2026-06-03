@@ -103,6 +103,20 @@ _ESP32_BOARDS_MODULE = "esphome.components.esp32.boards"
 _ESP32_BOARDS_ATTR = "BOARDS"
 _ESP32_BOARD_PINS_ATTR = "ESP32_BOARD_PINS"
 
+# nRF52 ships no per-board pin aliases: ``boards.BOARDS_ZEPHYR`` is just the board
+# list (bootloader config, no name/pins) and ``const.AIN_TO_GPIO`` is a
+# chip-level ADC map shared by every board. Buses (I2C/SPI/UART) are
+# software-routable to any pin, so ADC is the only fixed-function signal to
+# derive; we emit every valid GPIO as a matrix so the editor renders a dropdown.
+_NRF52_PLATFORM = "nrf52"
+_NRF52_MAX_GPIO = 48  # gpio.py::validate_gpio_pin: 0 <= value <= 32 + 16
+
+# BOARDS_ZEPHYR has no display name; these are the user-facing picker labels.
+_NRF52_BOARD_NAMES: dict[str, str] = {
+    "xiao_ble": "Seeed XIAO nRF52840",
+    "adafruit_itsybitsy_nrf52840": "Adafruit ItsyBitsy nRF52840",
+}
+
 # Fixed-function pin aliases -> (feature, human signal). First match wins. The
 # trailing ``$`` excludes LibreTiny's flexible-mux variants (``WIRE0_SCL_5``
 # enumerates every SCL-capable pin, not a fixed bus). ``Dn`` / ``Pn`` / ``PAn``
@@ -180,19 +194,21 @@ def _resolve_board_pins(pin_map: dict[str, Any], name: str) -> dict[str, int] | 
     return value if isinstance(value, dict) else None
 
 
-def _generated_libretiny_board(
-    platform: str, name: str, meta: Any, pins: dict[str, int]
+def _generated_board(
+    platform: Platform,
+    name: str,
+    display: str,
+    pins: list[BoardPin],
+    variant: Esp32Variant | None = None,
 ) -> BoardCatalogEntry:
-    """Build a minimal catalog entry (name + derived pins) for an unmanifested board."""
+    """Build a minimal catalog entry (display name + pins) for an unmanifested board."""
     return BoardCatalogEntry(
         id=name,
-        name=meta.get("name", name) if isinstance(meta, dict) else name,
+        name=display,
         description="",
         manufacturer="",
-        esphome=BoardEsphomeConfig(
-            platform=Platform(platform), board=name, variant=None, framework=None
-        ),
-        pins=_derive_pins_from_aliases(pins),
+        esphome=BoardEsphomeConfig(platform=platform, board=name, variant=variant, framework=None),
+        pins=pins,
     )
 
 
@@ -224,7 +240,12 @@ def _augment_libretiny_boards(boards: list[BoardCatalogEntry]) -> None:
                 continue
             pins = _resolve_board_pins(pin_map, name)
             if pins:
-                boards.append(_generated_libretiny_board(platform, name, meta, pins))
+                display = meta.get("name", name) if isinstance(meta, dict) else name
+                boards.append(
+                    _generated_board(
+                        Platform(platform), name, display, _derive_pins_from_aliases(pins)
+                    )
+                )
                 ids.add(name)
 
 
@@ -299,38 +320,6 @@ def _derive_rp2040_pins(board_pins: dict[str, int], max_pin: int) -> list[BoardP
     ]
 
 
-def _generated_rp2040_board(
-    name: str, meta: dict[str, Any], pins: list[BoardPin]
-) -> BoardCatalogEntry:
-    """Build a minimal catalog entry (name + matrix pins) for an unmanifested RP2040 board."""
-    return BoardCatalogEntry(
-        id=name,
-        name=meta.get("name", name),
-        description="",
-        manufacturer="",
-        esphome=BoardEsphomeConfig(
-            platform=Platform.RP2040, board=name, variant=None, framework=None
-        ),
-        pins=pins,
-    )
-
-
-def _generated_esp32_board(
-    name: str, meta: dict[str, Any], pins: list[BoardPin], variant: Esp32Variant
-) -> BoardCatalogEntry:
-    """Build a minimal catalog entry (name + variant + pins) for an unmanifested board."""
-    return BoardCatalogEntry(
-        id=name,
-        name=meta.get("name", name),
-        description="",
-        manufacturer="",
-        esphome=BoardEsphomeConfig(
-            platform=Platform("esp32"), board=name, variant=variant, framework=None
-        ),
-        pins=pins,
-    )
-
-
 def _augment_rp2040_boards(boards: list[BoardCatalogEntry]) -> None:
     """
     Add catalog entries for RP2040/RP2350 boards no manifest id covers.
@@ -347,7 +336,52 @@ def _augment_rp2040_boards(boards: list[BoardCatalogEntry]) -> None:
             continue
         max_pin = meta.get("max_pin", default_max_pin)
         pins = _resolve_board_pins(module.RP2040_BOARD_PINS, name) or {}
-        boards.append(_generated_rp2040_board(name, meta, _derive_rp2040_pins(pins, max_pin)))
+        display = meta.get("name", name)
+        boards.append(
+            _generated_board(Platform.RP2040, name, display, _derive_rp2040_pins(pins, max_pin))
+        )
+        ids.add(name)
+
+
+def _derive_nrf52_pins(adc_gpios: set[int]) -> list[BoardPin]:
+    """
+    Build P0.0..P1.16 pins for an nRF52 board.
+
+    Labels use the chip's ``P{port}.{pin}`` notation (``port*32 + pin``) — the
+    form ESPHome's validator accepts; ``GPIOn`` is rejected. Only the chip-level
+    ADC pins carry a feature; the rest list bare so the dropdown shows them.
+    """
+    return [
+        BoardPin(
+            gpio=gpio,
+            label=f"P{gpio // 32}.{gpio % 32}",
+            features=[PinFeature.ADC] if gpio in adc_gpios else [],
+            notes="ADC" if gpio in adc_gpios else None,
+        )
+        for gpio in range(_NRF52_MAX_GPIO + 1)
+    ]
+
+
+def _augment_nrf52_boards(boards: list[BoardCatalogEntry]) -> None:
+    """
+    Add catalog entries for nRF52 boards no manifest id covers.
+
+    nRF52 ships no per-board pin aliases, so every board gets the same ADC-tagged
+    full-GPIO matrix from the chip-level ``AIN_TO_GPIO``. Dedup on board ``id``,
+    so a board already claimed by another platform (rp2040's ``adafruit_itsybitsy``)
+    keeps that entry.
+    """
+    ids = {b.id for b in boards}
+    boards_module = importlib.import_module("esphome.components.nrf52.boards")
+    const_module = importlib.import_module("esphome.components.nrf52.const")
+    adc_gpios = set(const_module.AIN_TO_GPIO.values())
+    for name in boards_module.BOARDS_ZEPHYR:
+        if name in ids:
+            continue
+        display = _NRF52_BOARD_NAMES.get(name, name)
+        boards.append(
+            _generated_board(Platform.NRF52, name, display, _derive_nrf52_pins(adc_gpios))
+        )
         ids.add(name)
 
 
@@ -389,13 +423,14 @@ def _augment_esp32_boards(boards: list[BoardCatalogEntry]) -> None:
             if pins
             else [replace(p, features=list(p.features)) for p in generic_pins.get(variant, [])]
         )
-        boards.append(_generated_esp32_board(name, meta, derived, variant))
+        display = meta.get("name", name)
+        boards.append(_generated_board(Platform("esp32"), name, display, derived, variant))
         ids.add(name)
 
 
 def build_catalog() -> BoardCatalogResponse:
     """
-    Build the catalog as emitted: manifests + ESPHome-derived LibreTiny/RP2040/ESP32 pins.
+    Build the catalog as emitted: manifests + ESPHome-derived LibreTiny/RP2040/ESP32/nRF52 pins.
 
     Id-sorted so the order matches the split index. Shared by ``main`` and the
     drift test so the committed artefacts stay reproducible.
@@ -404,6 +439,7 @@ def build_catalog() -> BoardCatalogResponse:
     _augment_libretiny_boards(catalog.boards)
     _augment_rp2040_boards(catalog.boards)
     _augment_esp32_boards(catalog.boards)
+    _augment_nrf52_boards(catalog.boards)
     catalog.boards.sort(key=attrgetter("id"))
     return catalog
 
