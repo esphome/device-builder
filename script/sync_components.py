@@ -2059,20 +2059,13 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
     if entry_type is None and data_type in _DATA_TYPE_PRIMITIVE:
         entry_type = _DATA_TYPE_PRIMITIVE[data_type]
 
-    # A bare ``type: trigger`` config field (cover ``open_action`` /
-    # ``close_action`` / ``stop_action``, climate ``*_action``, …) is an
-    # action list the user edits in the automation editor, not a nested
-    # form. It carries no inner ``config_vars`` (verified across the
-    # schema set), so the default ``trigger -> nested`` map yields an
-    # empty group the frontend drops. Surface it as TRIGGER instead and
-    # let the frontend route it to the automation editor keyed on ``key``.
-    # Scoped two ways: (1) not a ``_TYPE_MAP`` change, so a future
-    # ``type: trigger`` field that gains params still maps to ``nested``;
-    # (2) ``top_level`` only — the ``component_action`` location is
-    # ``(component_id, field)``, so it can only address a direct config
-    # field of a component instance. A ``type: trigger`` nested inside
-    # another mapping (e.g. ``sprinkler`` valves' ``set_action``) can't be
-    # round-tripped, so it stays ``nested`` and is not offered for editing.
+    # A top-level bare ``type: trigger`` field (cover ``open_action`` …) is
+    # an action list edited in the automation editor; the default
+    # ``trigger -> nested`` map yields an empty group the frontend drops, so
+    # surface it as TRIGGER. Scoped to ``top_level`` (the
+    # ``(component_id, field)`` location can't address a nested field, e.g.
+    # ``sprinkler`` ``set_action``) and to no-inner-config_vars (a trigger
+    # with params still wants ``nested``).
     if top_level and schema_type == "trigger" and not (inner_schema or {}).get("config_vars"):
         entry_type = "trigger"
 
