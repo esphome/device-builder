@@ -335,15 +335,10 @@ def extract_esphome_meta_from_config(
     extra_substitutions: dict[str, str] | None = None,
 ) -> EsphomeMeta:
     """
-    Read ``(name, friendly_name, comment, area)`` from a resolved config's ``esphome:`` block.
+    Read ``(name, friendly_name, comment, area)`` off a resolved config's ``esphome:`` block.
 
-    The block sees what the loader merged in via ``!include`` / merge-key
-    (``<<:``) / ``packages:``, so this surfaces meta the raw-text reader
-    misses when the ``esphome:`` block lives in an included file (#1153).
-    ``None`` for any field the block doesn't carry. ``$var`` / ``${var}``
-    references resolve against *extra_substitutions* (typically the merged
-    ``substitutions:`` off the same config); unresolved tokens are left
-    untouched for the caller to defer past.
+    ``None`` for any field absent. ``$var`` / ``${var}`` resolve against
+    *extra_substitutions*; tokens the resolver can't expand are left intact.
     """
     if not isinstance(config, dict):
         return EsphomeMeta(None, None, None, None)
@@ -388,22 +383,11 @@ def _pick_meta(
     storage_value: str | None,
 ) -> str | None:
     """
-    Pick the metadata to display, preferring a fully-resolved value.
+    Pick the value to display: first fully-resolved of yaml → config → storage.
 
-    Source order: the raw-text YAML read (reflects unsaved edits, and
-    survives a draft too broken for the loader), then the resolved-config
-    read (sees ``esphome:`` pulled in via ``!include`` / merge-key /
-    ``packages:``), then StorageJSON (esphome resolved it at build time).
-    A value still holding a substitution token (a nested ``${device.area}``
-    the simple resolver can't expand) is skipped in favour of the next
-    source; a literal ``$`` that isn't substitution-shaped counts as
-    resolved.
-
-    When nothing resolves and StorageJSON is empty, the raw-text token
-    (or ``None``) is surfaced — never the *config* token: an unresolved
-    ``${device.area}`` carried only in an included ``esphome:`` block
-    would otherwise leak into the UI for never-compiled devices, where
-    the pre-resolved-config behaviour was an empty value.
+    A value still holding a substitution token (``${device.area}``) is
+    skipped for the next source. The final fallback surfaces only the
+    raw-text token or ``None`` — never an unresolved config token.
     """
     for value in (yaml_value, config_value):
         if value is not None and not _UNRESOLVED_SUBSTITUTION_RE.search(value):

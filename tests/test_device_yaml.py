@@ -1721,13 +1721,7 @@ def test_load_device_area_from_storage(tmp_path: Path, monkeypatch: pytest.Monke
 
 @pytest.mark.usefixtures("_redirect_ext_storage")
 def test_load_device_area_from_merge_key_include(tmp_path: Path) -> None:
-    """A never-compiled merge-key-templated config resolves its esphome meta (#1153).
-
-    The ``esphome:`` block (name / friendly_name / comment / area)
-    lives in a ``<<: !include`` template using flat substitutions, so
-    the raw-text reader sees nothing; the resolved config supplies it.
-    No StorageJSON is written — the fix must work pre-compile.
-    """
+    """A ``<<: !include`` template's esphome meta resolves before any compile."""
     templates = tmp_path / "templates"
     templates.mkdir()
     (templates / "s31.yaml").write_text(
@@ -1786,13 +1780,7 @@ def test_load_device_area_from_package_include(tmp_path: Path) -> None:
 
 @pytest.mark.usefixtures("_redirect_ext_storage")
 def test_load_device_unresolvable_area_in_include_is_blank_not_token(tmp_path: Path) -> None:
-    """A never-compiled dotted ``${device.area}`` in an include stays blank, not a raw token.
-
-    The key-value substitution the simple resolver can't expand lives
-    only in the included ``esphome:`` block, so neither the raw-text
-    reader nor StorageJSON (never compiled) carries it; the config
-    token must not leak into the area column.
-    """
+    """A never-compiled dotted ``${device.area}`` in an include stays blank, not a raw token."""
     (tmp_path / "common.yaml").write_text(
         "esphome:\n  name: opener\n  area: ${device.area}\n",
         encoding="utf-8",
