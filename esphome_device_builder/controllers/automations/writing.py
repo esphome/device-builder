@@ -26,6 +26,7 @@ from ...models.automations import (
     ApiActionLocation,
     AutomationLocation,
     AutomationTree,
+    ComponentActionFieldLocation,
     ComponentOnLocation,
     DeviceOnLocation,
     IntervalLocation,
@@ -35,6 +36,7 @@ from ...models.automations import (
 )
 from . import api_actions, catalog
 from .emitter import (
+    render_action_field,
     render_api_action_item,
     render_interval_item,
     render_script_item,
@@ -53,7 +55,7 @@ from .writing_lists import (
 # ---------------------------------------------------------------------------
 
 
-def render_upsert(
+def render_upsert(  # noqa: PLR0911 — one return per location kind; a dispatch table
     yaml_text: str,
     *,
     tree: AutomationTree,
@@ -74,6 +76,8 @@ def render_upsert(
         return _upsert_device_on(yaml_text, tree, location)
     if isinstance(location, ComponentOnLocation):
         return _upsert_component_on(yaml_text, tree, location)
+    if isinstance(location, ComponentActionFieldLocation):
+        return _upsert_component_action(yaml_text, tree, location)
     if isinstance(location, LightEffectLocation):
         return upsert_light_effect(yaml_text, tree, location)
     if isinstance(location, ApiActionLocation):
@@ -92,6 +96,8 @@ def render_delete(
         return _delete_top_level(yaml_text, location)
     if isinstance(location, ComponentOnLocation):
         return _delete_component_on(yaml_text, location)
+    if isinstance(location, ComponentActionFieldLocation):
+        return _delete_component_action(yaml_text, location)
     if isinstance(location, LightEffectLocation):
         return delete_light_effect(yaml_text, location)
     if isinstance(location, ApiActionLocation):
@@ -176,6 +182,42 @@ def _upsert_component_on(
         toLine=to_line,
         replacement=replacement,
     )
+
+
+def _upsert_component_action(
+    yaml_text: str,
+    tree: AutomationTree,
+    location: ComponentActionFieldLocation,
+) -> tuple[str, YamlDiff]:
+    """Splice an action-list config field (``open_action:`` …) on a component.
+
+    Reuses the same inline-handler splice as ``on_*`` handlers, keyed on
+    the literal ``field`` name; only the rendered body differs (a bare
+    action list, no ``then:`` wrapper).
+    """
+    domain = resolve_component_domain(yaml_text, location.component_id)
+    if domain is None:
+        msg = (
+            f"Component instance id={location.component_id!r} not found; "
+            f"can't splice action field {location.field!r}"
+        )
+        raise CommandError(ErrorCode.NOT_FOUND, msg)
+    rendered = render_action_field(tree, key=location.field)
+    res = upsert_inline_handler(
+        yaml_text,
+        component_domain=domain,
+        component_id=location.component_id,
+        handler_key=location.field,
+        rendered_yaml=rendered,
+    )
+    if res is None:
+        msg = (
+            f"Component instance id={location.component_id!r} not found "
+            f"under {domain!r}; can't splice action field {location.field!r}"
+        )
+        raise CommandError(ErrorCode.NOT_FOUND, msg)
+    new_text, from_line, to_line, replacement = res
+    return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement=replacement)
 
 
 def _upsert_api_action(
@@ -477,6 +519,34 @@ def _delete_component_on(
         msg = (
             f"Component instance id={location.component_id!r} not found "
             f"under {domain!r}; can't delete handler {location.trigger!r}"
+        )
+        raise CommandError(ErrorCode.NOT_FOUND, msg)
+    new_text, from_line, to_line = res
+    return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement="")
+
+
+def _delete_component_action(
+    yaml_text: str,
+    location: ComponentActionFieldLocation,
+) -> tuple[str, YamlDiff]:
+    """Drop an action-list config field (``open_action:`` …) from a component."""
+    domain = resolve_component_domain(yaml_text, location.component_id)
+    if domain is None:
+        msg = (
+            f"Component instance id={location.component_id!r} not found; "
+            f"can't delete action field {location.field!r}"
+        )
+        raise CommandError(ErrorCode.NOT_FOUND, msg)
+    res = remove_inline_handler(
+        yaml_text,
+        component_domain=domain,
+        component_id=location.component_id,
+        handler_key=location.field,
+    )
+    if res is None:
+        msg = (
+            f"Component instance id={location.component_id!r} not found "
+            f"under {domain!r}; can't delete action field {location.field!r}"
         )
         raise CommandError(ErrorCode.NOT_FOUND, msg)
     new_text, from_line, to_line = res

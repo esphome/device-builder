@@ -21,8 +21,9 @@ one whole-document failure that still raises.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from functools import partial
+from importlib import resources
 from io import StringIO
 from typing import Any
 
@@ -32,12 +33,15 @@ from ruamel.yaml.scalarfloat import ScalarFloat
 from ruamel.yaml.scalarstring import LiteralScalarString
 
 from ...helpers.api import CommandError
+from ...helpers.json import loads as json_loads
+from ...helpers.lazy_catalog import is_unsafe_catalog_id
 from ...models.api import ErrorCode
 from ...models.automations import (
     ActionNode,
     ApiActionLocation,
     AutomationTree,
     AutomationTrigger,
+    ComponentActionFieldLocation,
     ComponentOnLocation,
     ConditionNode,
     DeviceOnLocation,
@@ -47,6 +51,9 @@ from ...models.automations import (
     ScriptLocation,
 )
 from . import catalog
+
+# Package holding the per-component body JSON (``config_entries`` trees).
+_COMPONENTS_PACKAGE = "esphome_device_builder.definitions.components"
 
 # Device-level trigger keys under the ``esphome:`` block.
 _DEVICE_TRIGGER_KEYS: tuple[str, ...] = ("on_boot", "on_loop", "on_shutdown")
@@ -98,6 +105,7 @@ def parse_device_yaml(yaml_text: str) -> list[ParsedAutomation]:
     out.extend(_parse_top_level_intervals(data))
     out.extend(_parse_api_actions(data))
     out.extend(_parse_inline_component_triggers(data))
+    out.extend(_parse_component_action_fields(data))
     out.extend(_parse_light_effects(data))
     return out
 
@@ -307,58 +315,130 @@ def resolve_component_domain(yaml_text: str, component_id: str) -> str | None:
     """
     Return the top-level domain whose instance declares *component_id*.
 
-    Keys instances exactly as :func:`_parse_inline_component_triggers`
-    does — list instances on ``id`` (or the synthetic ``<domain>_<idx>``),
-    flat singletons on :func:`singleton_component_id` — so the writer
-    attributes an id to the same domain the parser did. Only declared
-    instance ids match; an action *reference* (``id:`` nested in a
-    handler body) never does. ``None`` when no instance matches or the
-    YAML can't be parsed.
+    Shares the :func:`_iter_component_instances` walk so the writer
+    attributes an id to the same domain/instance the parser did — list
+    instances on ``id`` (or the synthetic ``<domain>_<idx>``), flat
+    singletons on :func:`singleton_component_id`. Resolves any component
+    domain (not only trigger-hosting ones), so component action-list
+    fields on e.g. ``cover`` resolve too. Only declared instance ids
+    match; an action *reference* (``id:`` nested in a handler body)
+    never does. ``None`` when no instance matches or the YAML won't load.
     """
     yaml = make_yaml()
     try:
         root = yaml.load(yaml_text)
     except Exception:  # noqa: BLE001 — any load failure falls back to the catalog guess
         return None
-    if not isinstance(root, dict):
-        return None
-    for domain, section in root.items():
-        if domain not in _component_trigger_domains():
-            continue
-        if isinstance(section, list):
-            for idx, instance in enumerate(section):
-                if not isinstance(instance, dict):
-                    continue
-                if str(instance.get("id") or f"{domain}_{idx}") == component_id:
-                    return str(domain)
-        elif isinstance(section, dict) and singleton_component_id(section, domain) == component_id:
-            return str(domain)
+    for domain, _instance, comp_id in _iter_component_instances(root):
+        if comp_id == component_id:
+            return domain
     return None
 
 
-def _parse_inline_component_triggers(root: Any) -> list[ParsedAutomation]:
+def _iter_component_instances(
+    root: Any,
+) -> Iterator[tuple[str, dict, str]]:
     """
-    Walk component instances for inline ``on_*:`` handlers.
+    Yield ``(domain, instance, comp_id)`` for every configured component.
 
     Handles list-domain instances (``switch:`` is a list) and flat
     singleton components (``sun:`` / ``mqtt:`` are a single mapping).
+    The id matches what :func:`resolve_component_domain` reconstructs,
+    so the parser and writer attribute the same id to the same instance.
+    Shared by the inline-``on_*`` and component-action-field passes so
+    the instance-walk lives in one place.
     """
     if not isinstance(root, dict):
-        return []
-    out: list[ParsedAutomation] = []
+        return
     for domain, section in root.items():
-        if domain not in _component_trigger_domains():
-            continue
         if isinstance(section, list):
             for idx, instance in enumerate(section):
-                if not isinstance(instance, dict):
-                    continue
-                comp_id = str(instance.get("id") or f"{domain}_{idx}")
-                out.extend(_parse_instance_triggers(domain, instance, comp_id))
+                if isinstance(instance, dict):
+                    yield str(domain), instance, str(instance.get("id") or f"{domain}_{idx}")
         elif isinstance(section, dict):
-            # Flat singleton: the whole block is the single instance.
-            out.extend(
-                _parse_instance_triggers(domain, section, singleton_component_id(section, domain))
+            yield str(domain), section, singleton_component_id(section, str(domain))
+
+
+def _parse_inline_component_triggers(root: Any) -> list[ParsedAutomation]:
+    """Walk component instances for inline ``on_*:`` handlers."""
+    trigger_domains = _component_trigger_domains()
+    out: list[ParsedAutomation] = []
+    for domain, instance, comp_id in _iter_component_instances(root):
+        if domain not in trigger_domains:
+            continue
+        out.extend(_parse_instance_triggers(domain, instance, comp_id))
+    return out
+
+
+# Per-``<domain>.<platform>`` set of ``type: trigger`` action-list field
+# keys, read from the component bodies on first use (process cache).
+_ACTION_FIELD_INDEX: dict[str, frozenset[str]] = {}
+
+
+def _component_action_fields(catalog_id: str) -> frozenset[str]:
+    """
+    Return the ``type: trigger`` action-list field keys for *catalog_id*.
+
+    Reads the component body's top-level ``config_entries`` (the same
+    JSON the components controller serves) once per id. Empty when the
+    body is absent or carries no such field.
+    """
+    cached = _ACTION_FIELD_INDEX.get(catalog_id)
+    if cached is not None:
+        return cached
+    fields: set[str] = set()
+    if not is_unsafe_catalog_id(catalog_id):
+        try:
+            raw = resources.files(_COMPONENTS_PACKAGE).joinpath(f"{catalog_id}.json").read_bytes()
+        except (FileNotFoundError, ModuleNotFoundError, OSError):
+            raw = b""
+        if raw:
+            body = json_loads(raw)
+            for entry in body.get("config_entries") or []:
+                if isinstance(entry, dict) and entry.get("type") == "trigger":
+                    fields.add(str(entry.get("key")))
+    frozen = frozenset(fields)
+    _ACTION_FIELD_INDEX[catalog_id] = frozen
+    return frozen
+
+
+def _parse_component_action_fields(root: Any) -> list[ParsedAutomation]:
+    """
+    Emit each ``type: trigger`` action-list config field on a component.
+
+    Cover ``open_action`` / ``close_action`` / ``stop_action``, climate
+    ``*_action``, … are bare action lists keyed on the field name — a
+    trigger-less automation parallel to ``script:`` / ``api.actions:``.
+    Reuses the shared instance walk and the same body decomposition as
+    inline ``on_*`` handlers (``trigger_id`` is ``None`` — no trigger).
+    """
+    out: list[ParsedAutomation] = []
+    for domain, instance, comp_id in _iter_component_instances(root):
+        platform = instance.get("platform")
+        if not platform:
+            continue
+        fields = _component_action_fields(f"{domain}.{platform}")
+        if not fields:
+            continue
+        comp_name = str(instance.get("name") or comp_id)
+        for key, body in list(instance.items()):
+            if key not in fields:
+                continue
+            from_line, to_line = _key_range(instance, key)
+            tree, error = _safe_tree(
+                partial(_decompose_trigger_body, body, trigger_id=None),
+                trigger_id=None,
+            )
+            out.append(
+                ParsedAutomation(
+                    location=ComponentActionFieldLocation(component_id=comp_id, field=key),
+                    label=f"{comp_name} → {_pretty_name(key)}",
+                    automation=tree,
+                    from_line=from_line,
+                    to_line=to_line,
+                    raw_yaml=_dump_slice({key: body}),
+                    error=error,
+                )
             )
     return out
 
@@ -539,13 +619,16 @@ def _parse_light_effects(root: Any) -> list[ParsedAutomation]:
     return out
 
 
-def _decompose_trigger_body(body: Any, *, trigger_id: str) -> AutomationTree:
+def _decompose_trigger_body(body: Any, *, trigger_id: str | None) -> AutomationTree:
     """
     Build an :class:`AutomationTree` from a trigger handler's body.
 
     Accepts three YAML shortcut forms that all collapse to the same
     tree: bare action list (``on_press: - action: ...``), single
     bare action (``on_press: action: ...``), explicit ``then:``.
+
+    ``trigger_id`` is ``None`` for trigger-less action-list config
+    fields (cover ``open_action`` …); the tree then carries no trigger.
     """
     if isinstance(body, dict):
         return _decompose_trigger_mapping(body, trigger_id=trigger_id)
@@ -553,7 +636,7 @@ def _decompose_trigger_body(body: Any, *, trigger_id: str) -> AutomationTree:
     return AutomationTree(trigger_id=trigger_id, trigger_params={}, actions=actions)
 
 
-def _decompose_trigger_mapping(body: dict[str, Any], *, trigger_id: str) -> AutomationTree:
+def _decompose_trigger_mapping(body: dict[str, Any], *, trigger_id: str | None) -> AutomationTree:
     """
     Decompose one mapping-form trigger handler (params + ``then:``).
 

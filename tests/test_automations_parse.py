@@ -152,6 +152,40 @@ def test_parse_flat_singleton_ignores_config_keys() -> None:
     assert parse_device_yaml(_load("inline_sun_empty.yaml")) == []
 
 
+# ---------------------------------------------------------------------------
+# Component action-list config fields (``open_action:`` etc.) — ``type: trigger``
+# ---------------------------------------------------------------------------
+
+
+def test_parse_component_action_fields_emits_trigger_less_automations() -> None:
+    """A cover feedback platform's ``*_action`` fields surface as automations."""
+    parsed = parse_device_yaml(_load("cover_feedback_actions.yaml"))
+    actions = [p for p in parsed if p.location.kind == "component_action"]
+    by_field = {p.location.field: p for p in actions}
+    assert set(by_field) == {"open_action", "close_action", "stop_action"}
+    for item in actions:
+        assert item.location.component_id == "driveway_gate"
+        # No trigger — only the action list is editable.
+        assert item.automation.trigger_id is None
+        assert item.automation.trigger_params == {}
+    assert [a.action_id for a in by_field["open_action"].automation.actions] == [
+        "switch.turn_off",
+        "switch.turn_on",
+        "delay",
+    ]
+    # JSON-serialisable for the WS layer.
+    orjson.dumps([p.to_dict() for p in actions])
+
+
+def test_parse_component_action_field_idless_uses_positional_id() -> None:
+    """An id-less platform instance keys on the synthetic ``<domain>_<idx>``."""
+    parsed = parse_device_yaml(_load("cover_feedback_actions_idless.yaml"))
+    actions = [p for p in parsed if p.location.kind == "component_action"]
+    assert len(actions) == 1
+    assert actions[0].location.component_id == "cover_0"
+    assert actions[0].location.field == "open_action"
+
+
 def test_parse_on_value_range_float_params_are_json_serialisable() -> None:
     """Decimal on_value_range thresholds round-trip as plain floats."""
     parsed = parse_device_yaml(_load("sensor_on_value_range_float.yaml"))

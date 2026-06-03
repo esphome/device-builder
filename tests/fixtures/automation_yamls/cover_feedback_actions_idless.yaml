@@ -1,0 +1,5 @@
+cover:
+  - platform: feedback
+    name: Driveway Gate
+    open_action:
+      - switch.turn_on: gate_open

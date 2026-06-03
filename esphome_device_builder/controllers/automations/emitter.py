@@ -79,6 +79,20 @@ def render_trigger_handler(tree: AutomationTree, *, key: str) -> str:
     return dump(wrapper)
 
 
+def render_action_field(tree: AutomationTree, *, key: str) -> str:
+    """
+    Render ``<field>:`` as a bare action list (no ``then:`` wrapper).
+
+    Component action-list config fields (cover ``open_action`` …) take
+    a plain action list, unlike trigger handlers which canonicalise to
+    the ``then:`` form. Trigger-less, so no params are emitted — only
+    the action sequence (reusing :func:`emit_action_seq`).
+    """
+    wrapper = CommentedMap()
+    wrapper[key] = emit_action_seq(tree.actions)
+    return dump(wrapper)
+
+
 def emit_trigger_list_item(tree: AutomationTree) -> CommentedMap:
     """Build one entry mapping (trigger params plus ``then:``) for a list-shaped trigger."""
     item = CommentedMap()

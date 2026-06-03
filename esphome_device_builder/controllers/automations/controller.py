@@ -25,6 +25,7 @@ from ...models.automations import (
     AvailableComponentInstance,
     AvailableScript,
     AvailableScriptParameter,
+    ComponentActionFieldLocation,
     ComponentOnLocation,
     DeviceOnLocation,
     IntervalLocation,
@@ -399,7 +400,7 @@ def _component_instance(
     )
 
 
-def _decode_location(raw: dict) -> AutomationLocation:
+def _decode_location(raw: dict) -> AutomationLocation:  # noqa: PLR0911 — one return per kind
     """Convert a wire-shape ``{kind: ...}`` dict into a typed location."""
     if not isinstance(raw, dict) or "kind" not in raw:
         msg = f"location must carry a 'kind' discriminator; got {raw!r}"
@@ -414,6 +415,8 @@ def _decode_location(raw: dict) -> AutomationLocation:
         return IntervalLocation.from_dict(raw)
     if kind == "component_on":
         return ComponentOnLocation.from_dict(raw)
+    if kind == "component_action":
+        return ComponentActionFieldLocation.from_dict(raw)
     if kind == "device_on":
         return DeviceOnLocation.from_dict(raw)
     if kind == "light_effect":

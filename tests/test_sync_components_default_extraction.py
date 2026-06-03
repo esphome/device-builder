@@ -178,6 +178,32 @@ def test_convert_field_tx_power_default_without_no_gate(
     assert "3" in option_values
 
 
+def test_convert_field_bare_trigger_becomes_trigger_type(schema_dir: Path) -> None:
+    """A bare ``type: trigger`` action-list field surfaces as TRIGGER, not nested.
+
+    Cover ``open_action`` and similar are action lists the user edits in
+    the automation editor; mapping them to an empty ``nested`` group made
+    the frontend drop them. They carry no inner ``config_vars``.
+    """
+    raw = {"key": "Required", "type": "trigger"}
+    entry = _convert_field("open_action", raw, schema_dir)
+    assert entry is not None
+    assert entry["type"] == "trigger"
+    assert entry["config_entries"] is None
+
+
+def test_convert_field_trigger_with_inner_config_vars_stays_nested(schema_dir: Path) -> None:
+    """A ``type: trigger`` field WITH params keeps the nested mapping (scoped override)."""
+    raw = {
+        "key": "Optional",
+        "type": "trigger",
+        "schema": {"config_vars": {"min_length": {"key": "Optional", "type": "integer"}}},
+    }
+    entry = _convert_field("on_click", raw, schema_dir)
+    assert entry is not None
+    assert entry["type"] == "nested"
+
+
 def test_convert_field_unconditional_default_unchanged(schema_dir: Path) -> None:
     """Plain ``cv.Optional(K, default=True)`` flows through with no gate.
 

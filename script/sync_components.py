@@ -2048,6 +2048,18 @@ def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noq
     if entry_type is None and data_type in _DATA_TYPE_PRIMITIVE:
         entry_type = _DATA_TYPE_PRIMITIVE[data_type]
 
+    # A bare ``type: trigger`` config field (cover ``open_action`` /
+    # ``close_action`` / ``stop_action``, climate ``*_action``, …) is an
+    # action list the user edits in the automation editor, not a nested
+    # form. It carries no inner ``config_vars`` (verified across the
+    # schema set), so the default ``trigger -> nested`` map yields an
+    # empty group the frontend drops. Surface it as TRIGGER instead and
+    # let the frontend route it to the automation editor keyed on ``key``.
+    # Scoped (not a ``_TYPE_MAP`` change) so a future ``type: trigger``
+    # field that gains params still maps to ``nested``.
+    if schema_type == "trigger" and not (inner_schema or {}).get("config_vars"):
+        entry_type = "trigger"
+
     # Polymorphic registry list (#941). Two upstream shapes:
     #   1. Lights' ``effects:`` carries ``{filter: [<ids>], key:
     #      Optional}`` with no ``type`` — collapse to the

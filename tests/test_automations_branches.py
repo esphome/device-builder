@@ -67,6 +67,7 @@ from esphome_device_builder.models.api import ErrorCode
 from esphome_device_builder.models.automations import (
     ActionNode,
     AutomationTree,
+    ComponentActionFieldLocation,
     ComponentOnLocation,
     ConditionNode,
     DeviceOnLocation,
@@ -160,6 +161,10 @@ def test_scope_skips_component_instance_without_id() -> None:
         ({"kind": "script", "id": "alarm"}, ScriptLocation),
         ({"kind": "interval", "index": 0}, IntervalLocation),
         ({"kind": "component_on", "component_id": "b", "trigger": "on_press"}, ComponentOnLocation),
+        (
+            {"kind": "component_action", "component_id": "g", "field": "open_action"},
+            ComponentActionFieldLocation,
+        ),
         ({"kind": "device_on", "trigger": "on_boot"}, DeviceOnLocation),
         ({"kind": "light_effect", "component_id": "l", "index": 0}, LightEffectLocation),
     ],
