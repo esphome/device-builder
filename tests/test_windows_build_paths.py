@@ -222,6 +222,82 @@ def test_partial_toolchain_move_is_discarded(
     assert (home_pio / "tool.txt").is_file()  # source left untouched, just unused
 
 
+def test_partial_toolchain_discard_failure_uses_default_core_dir(
+    tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If a half-copied pio cannot be discarded, env is left at the default, not the corrupt dir."""
+    config_dir = tmp_path / "First Last" / "esphome"
+    (config_dir / ".esphome").mkdir(parents=True)
+    (tmp_path / "home_platformio").mkdir()
+
+    real_move = wbp.shutil.move
+
+    def _interrupted(src: str, dst: str, *args: object, **kwargs: object) -> object:
+        if "platformio" in str(src):
+            Path(dst).mkdir(parents=True, exist_ok=True)
+            (Path(dst) / "half.txt").write_text("partial", encoding="utf-8")
+            msg = "interrupted"
+            raise OSError(msg)
+        return real_move(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(wbp.shutil, "move", _interrupted)
+    monkeypatch.setattr(wbp.shutil, "rmtree", lambda *_a, **_k: None)  # discard can't remove it
+    root = fake_windows / f"esphb-{_ID8}"
+    with windows_short_build_paths(config_dir):
+        assert os.environ["ESPHOME_DATA_DIR"] == str(root)  # build data still relocated
+        assert "PLATFORMIO_CORE_DIR" not in os.environ  # corrupt toolchain not adopted
+    assert "PLATFORMIO_CORE_DIR" not in os.environ
+
+
+def test_partial_root_is_discarded_and_retried(tmp_path: Path, fake_windows: Path) -> None:
+    """A partial root from an interrupted first move is discarded so the retry relocates cleanly."""
+    config_dir = tmp_path / "First Last" / "esphome"
+    (config_dir / ".esphome").mkdir(parents=True)
+    (config_dir / ".esphome" / "real.txt").write_text("real", encoding="utf-8")
+    root = fake_windows / f"esphb-{_ID8}"
+    root.mkdir(parents=True)  # leftover partial root, no completion marker
+    (root / "half.txt").write_text("partial", encoding="utf-8")
+
+    with windows_short_build_paths(config_dir):
+        assert os.environ["ESPHOME_DATA_DIR"] == str(root)
+    assert (root / "real.txt").read_text(encoding="utf-8") == "real"  # real data moved in
+    assert not (root / "half.txt").exists()  # partial discarded
+    assert (root / wbp._RELOCATED_MARKER).is_file()
+    assert not (config_dir / ".esphome").exists()
+
+
+def test_partial_root_discard_failure_stays_on_old_dir(
+    tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If a partial root cannot be cleared, env is not set: stay on the original data dir."""
+    config_dir = tmp_path / "First Last" / "esphome"
+    (config_dir / ".esphome").mkdir(parents=True)
+    root = fake_windows / f"esphb-{_ID8}"
+    root.mkdir(parents=True)
+    (root / "half.txt").write_text("partial", encoding="utf-8")
+    monkeypatch.setattr(wbp.shutil, "rmtree", lambda *_a, **_k: None)  # discard fails to remove
+
+    with windows_short_build_paths(config_dir):
+        assert "ESPHOME_DATA_DIR" not in os.environ
+    assert (config_dir / ".esphome").is_dir()  # original data untouched
+
+
+def test_marker_loss_does_not_destroy_relocated_root(tmp_path: Path, fake_windows: Path) -> None:
+    """A lost completion marker (write crashed) must not trigger a destructive re-relocation."""
+    config_dir = tmp_path / "First Last" / "esphome"
+    (config_dir / ".esphome").mkdir(parents=True)
+    with windows_short_build_paths(config_dir):  # first run relocates + writes the marker
+        pass
+
+    root = fake_windows / f"esphb-{_ID8}"
+    (root / "data.txt").write_text("built", encoding="utf-8")  # real build output now under root
+    (root / wbp._RELOCATED_MARKER).unlink()  # simulate a marker write that never landed
+    with windows_short_build_paths(config_dir):  # source is gone; root must be trusted as-is
+        assert os.environ["ESPHOME_DATA_DIR"] == str(root)
+    assert (root / "data.txt").read_text(encoding="utf-8") == "built"  # preserved, not wiped
+    assert (root / wbp._RELOCATED_MARKER).is_file()  # marker rewritten
+
+
 def test_dashboard_id_io_failure_falls_back_to_noop(
     tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
