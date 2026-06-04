@@ -36,9 +36,9 @@ jobs:
   windows-maxpath:
     name: Real ESP-IDF compile (Windows MAX_PATH)
     runs-on: windows-latest
-    # Cold ESP-IDF toolchain download + a full mbedtls compile runs minutes; the test's own
-    # @pytest.mark.timeout(2400) caps the test itself.
-    timeout-minutes: 45
+    # Cold ESP-IDF toolchain download + a full mbedtls compile, then clean / clean-all, runs
+    # minutes; the test's own @pytest.mark.timeout(3000) caps the test itself.
+    timeout-minutes: 60
     steps:
       - name: Check out code from GitHub
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
@@ -57,4 +57,4 @@ jobs:
         run: uv pip show esphome
 
       - name: Run Windows MAX_PATH e2e
-        run: uv run pytest -q tests/e2e/slow/windows --durations=10 --timeout=2400 --no-cov
+        run: uv run pytest -q tests/e2e/slow/windows --durations=10 --timeout=3000 --no-cov

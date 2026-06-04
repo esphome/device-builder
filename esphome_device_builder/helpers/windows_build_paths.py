@@ -22,7 +22,7 @@ import logging
 import os
 import shutil
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 
 from .dashboard_identity import get_or_create_dashboard_id
@@ -42,19 +42,33 @@ def windows_short_build_paths(config_dir: Path) -> Iterator[None]:
 
     root = _ROOT_BASE / f"esphb-{get_or_create_dashboard_id(config_dir)[:_DASHBOARD_ID_CHARS]}"
     pio = root / "pio"
+    old_esphome = config_dir / ".esphome"
+    if not root.exists():
+        # First run: rename the existing build tree in (warm cache). The move creates the root,
+        # so it precedes mkdir (else it would nest under it). Same-volume on the desktop target,
+        # so it is an atomic os.rename.
+        _try_move(old_esphome, root)
+        if old_esphome.is_dir():
+            # The move left the old tree in place (a cross-volume copy interrupted, or a
+            # concurrent racer). Pointing env at the now-empty root would silently miss that
+            # data, so stay on the original data dir; deep/spaced builds there may still fail.
+            _LOGGER.warning(
+                "Left Windows build data at %s; deep/spaced builds may fail", old_esphome
+            )
+            yield
+            return
     try:
-        # First run only: rename existing trees in (warm cache). The ``.esphome`` move also
-        # creates the root, so it must precede mkdir, or the move would nest under it.
-        if not root.exists():
-            _try_move(config_dir / ".esphome", root)
         root.mkdir(parents=True, exist_ok=True)
-        if not pio.exists():
-            _try_move(_platformio_dir(), pio)
-        pio.mkdir(parents=True, exist_ok=True)
     except OSError:
-        _LOGGER.exception("Could not set up Windows build root; deep/spaced builds may fail")
+        _LOGGER.exception("Could not create Windows build root; deep/spaced builds may fail")
         yield
         return
+    # Toolchain move is best-effort and retried each run until it lands, so a crash mid-migration
+    # self-heals; a failure here only re-downloads the toolchain, never a build-data read miss.
+    if not pio.exists():
+        _try_move(_platformio_dir(), pio)
+    with suppress(OSError):
+        pio.mkdir(parents=True, exist_ok=True)  # platformio recreates it if this fails
 
     prior_pio = os.environ.get("PLATFORMIO_CORE_DIR")
     os.environ["ESPHOME_DATA_DIR"] = str(root)

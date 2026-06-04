@@ -1,4 +1,11 @@
-"""Pins that the Windows relocation compiles a deep, spaced ESP-IDF config under MAX_PATH."""
+"""
+Pins the Windows build-data relocation against a real ESP-IDF toolchain.
+
+One deep + spaced ESP-IDF compile lands its artifacts under the relocated root (proving MAX_PATH
++ the pioarduino whitespace guard are both neutralised), then ``esphome clean`` and
+``esphome clean-all`` are run against that same tree to prove they target the *relocated* dirs
+(``ESPHOME_DATA_DIR`` build tree + ``PLATFORMIO_CORE_DIR`` toolchain), not the original config dir.
+"""
 
 from __future__ import annotations
 
@@ -17,6 +24,7 @@ from esphome_device_builder.models import FirmwareJob, JobType
 pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Windows MAX_PATH only")
 
 _MAX_PATH = 260
+_NAME = "maxpath-probe-esp32-idf"
 
 # Deliberately long AND space-bearing config dir: proves the relocation handles both the MAX_PATH
 # overflow and the pioarduino whitespace guard / -fdebug-prefix-map in a single real compile.
@@ -24,9 +32,9 @@ _PAD = "padding-" * 9  # 72 chars
 _PROFILE = "First Last"
 
 _CONFIG = textwrap.dedent(
-    """\
+    f"""\
     esphome:
-      name: maxpath-probe-esp32-idf
+      name: {_NAME}
     esp32:
       board: esp32dev
       framework:
@@ -42,11 +50,11 @@ _CONFIG = textwrap.dedent(
 )
 
 
-@pytest.mark.timeout(2400)
-def test_windows_relocated_build_compiles_deep_spaced_idf(
+@pytest.mark.timeout(3000)
+def test_relocated_build_compiles_then_clean_and_clean_all(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A deep + spaced ESP-IDF compile succeeds after relocation and stays under MAX_PATH."""
+    """Compile under MAX_PATH, then clean / clean-all empirically clear the relocated dirs."""
     config_dir = tmp_path / _PAD / _PROFILE / "esphome"
     config_dir.mkdir(parents=True, exist_ok=True)
     config = config_dir / "probe.yaml"
@@ -57,30 +65,60 @@ def test_windows_relocated_build_compiles_deep_spaced_idf(
     monkeypatch.delenv("PLATFORMIO_CORE_DIR", raising=False)
     with windows_short_build_paths(config_dir):
         root = Path(os.environ["ESPHOME_DATA_DIR"])
+        pio = Path(os.environ["PLATFORMIO_CORE_DIR"])
         assert " " not in str(root)  # relocated to a short, space-free root
-        assert " " not in os.environ["PLATFORMIO_CORE_DIR"]
+        assert " " not in str(pio)
 
-        # Drive the real subprocess-env composition (a local COMPILE job). PLATFORMIO_CORE_DIR
-        # flows in through os.environ, so the env carries it without a threaded argument.
+        # PLATFORMIO_CORE_DIR flows in through os.environ, so the env carries it without a
+        # threaded argument.
         job = FirmwareJob(job_id="probe", configuration="probe.yaml", job_type=JobType.COMPILE)
         env = compose_subprocess_env(job)
-        assert env["PLATFORMIO_CORE_DIR"] == os.environ["PLATFORMIO_CORE_DIR"]
+        assert env["PLATFORMIO_CORE_DIR"] == str(pio)
 
-        result = subprocess.run(  # noqa: S603
-            [sys.executable, "-m", "esphome", "compile", str(config)],
-            env=env,
-            capture_output=True,
-            text=True,
-            check=False,
-            close_fds=False,
-        )
-        assert result.returncode == 0, (
-            f"deep + spaced ESP-IDF compile failed after relocation:\n"
-            f"stdout:\n{result.stdout[-4000:]}\nstderr:\n{result.stderr[-2000:]}"
-        )
+        # 1) Compile: artifacts must land under the relocated root, never the spaced config dir.
+        _run(["compile", str(config)], env, "compile")
+        build_path = root / "build" / _NAME
+        pioenvs = build_path / ".pioenvs"
+        assert pioenvs.is_dir(), "build tree not under the relocated root"
+        assert not (config_dir / ".esphome").exists(), "nothing should build under the config dir"
+        assert pio.is_dir(), "toolchain not under the relocated PLATFORMIO_CORE_DIR"
+        assert _deepest(root) < _MAX_PATH, f"deepest relocated path is {_deepest(root)}"
 
-        deepest = _deepest(root)
-        assert deepest < _MAX_PATH, f"deepest relocated path is {deepest} (>= {_MAX_PATH})"
+        # A .json sidecar + a storage dir under the root prove clean-all preserves them.
+        (root / "keep.json").write_text("{}", encoding="utf-8")
+        (root / "storage").mkdir(exist_ok=True)
+        (root / "storage" / "probe.json").write_text("{}", encoding="utf-8")
+
+        # 2) esphome clean: the build trees under the relocated build path go away.
+        _run(["clean", str(config)], env, "clean")
+        assert not pioenvs.is_dir()
+        assert not (build_path / ".piolibdeps").is_dir()
+        assert not (build_path / "build").is_dir()
+
+        # 3) esphome clean-all: the relocated data dir is cleared (json + storage kept) and the
+        # relocated PlatformIO toolchain dir is removed.
+        assert pio.is_dir()  # still present after a plain clean
+        _run(["clean-all", str(config_dir)], env, "clean-all")
+        assert not pio.is_dir(), "clean-all did not remove the relocated PLATFORMIO_CORE_DIR"
+        assert not build_path.exists(), "clean-all did not clear the relocated build tree"
+        assert (root / "keep.json").is_file(), "clean-all must preserve .json files"
+        assert (root / "storage" / "probe.json").is_file(), "clean-all must preserve storage/"
+
+
+def _run(esphome_args: list[str], env: dict[str, str], label: str) -> None:
+    """Run an ``esphome`` subcommand under *env*; fail with captured output on non-zero exit."""
+    result = subprocess.run(  # noqa: S603
+        [sys.executable, "-m", "esphome", *esphome_args],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        close_fds=False,
+    )
+    assert result.returncode == 0, (
+        f"esphome {label} failed after relocation:\n"
+        f"stdout:\n{result.stdout[-4000:]}\nstderr:\n{result.stderr[-2000:]}"
+    )
 
 
 def _deepest(root: Path) -> int:

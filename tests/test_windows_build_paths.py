@@ -1,4 +1,5 @@
-"""Unit contract for the Windows build-data relocation helper.
+"""
+Unit contract for the Windows build-data relocation helper.
 
 The off-Windows no-op runs everywhere. The Windows branch is driven off Windows by faking the
 platform gate, the root base, and the toolchain source dir, so relocation / migration /
@@ -8,6 +9,7 @@ idempotence / env restore / fallback get fast-matrix coverage without a Windows 
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -126,10 +128,10 @@ def test_second_run_reuses_root_without_remigrating(tmp_path: Path, fake_windows
     assert not (root / "new.txt").exists()
 
 
-def test_failed_move_still_relocates_env(
+def test_failed_data_move_stays_on_old_dir(
     tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A migration move that errors is logged but never aborts relocation: env still points home."""
+    """A failed ``.esphome`` move leaves data in place and does NOT relocate (no silent miss)."""
     config_dir = tmp_path / "First Last" / "esphome"
     (config_dir / ".esphome").mkdir(parents=True)
 
@@ -138,20 +140,66 @@ def test_failed_move_still_relocates_env(
         raise OSError(msg)
 
     monkeypatch.setattr(wbp.shutil, "move", _boom)
+    with windows_short_build_paths(config_dir):
+        assert "ESPHOME_DATA_DIR" not in os.environ  # env points nowhere -> reads hit old data
+    assert (config_dir / ".esphome").is_dir()  # data left untouched at the original location
+
+
+def test_failed_toolchain_move_still_relocates(
+    tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed toolchain move never aborts relocation: the build data still moves to the root."""
+    config_dir = tmp_path / "First Last" / "esphome"
+    (config_dir / ".esphome").mkdir(parents=True)
+    (config_dir / ".esphome" / "marker.txt").write_text("data", encoding="utf-8")
+    (tmp_path / "home_platformio").mkdir()
+
+    real_move = wbp.shutil.move
+
+    def _move(src: str, dst: str, *args: object, **kwargs: object) -> object:
+        if "platformio" in str(src):
+            msg = "denied"
+            raise OSError(msg)
+        return real_move(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(wbp.shutil, "move", _move)
     root = fake_windows / f"esphb-{_ID8}"
     with windows_short_build_paths(config_dir):
         assert os.environ["ESPHOME_DATA_DIR"] == str(root)
-        assert root.is_dir()
+        assert (root / "marker.txt").read_text(encoding="utf-8") == "data"
     assert "ESPHOME_DATA_DIR" not in os.environ
+
+
+def test_retries_toolchain_move_when_pio_absent(tmp_path: Path, fake_windows: Path) -> None:
+    """A crash before the toolchain landed (pio absent) self-heals: the next run re-sweeps it."""
+    config_dir = tmp_path / "First Last" / "esphome"
+    (config_dir / ".esphome").mkdir(parents=True)
+
+    # First run relocates the build data; no toolchain exists yet.
+    with windows_short_build_paths(config_dir):
+        pass
+    root = fake_windows / f"esphb-{_ID8}"
+    shutil.rmtree(root / "pio", ignore_errors=True)  # simulate a crash before pio was populated
+
+    # Toolchain now present and pio absent: the next run must still sweep it into the root.
+    home_pio = tmp_path / "home_platformio"
+    home_pio.mkdir()
+    (home_pio / "tool.txt").write_text("toolchain", encoding="utf-8")
+    with windows_short_build_paths(config_dir):
+        pass
+    assert (root / "pio" / "tool.txt").read_text(encoding="utf-8") == "toolchain"
+    assert not home_pio.exists()
 
 
 def test_root_creation_failure_falls_back_to_noop(
     tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """If the root dir cannot be created, the block yields and never sets the override env."""
+    config_dir = tmp_path / "First Last" / "esphome"
+    config_dir.mkdir(parents=True)  # no .esphome, so the stranded-data guard cannot fire first
     blocker = tmp_path / "blocker"
     blocker.write_text("not a dir", encoding="utf-8")
     monkeypatch.setattr(wbp, "_ROOT_BASE", blocker)  # mkdir under a file raises OSError
-    with windows_short_build_paths(tmp_path / "First Last" / "esphome"):
+    with windows_short_build_paths(config_dir):
         assert "ESPHOME_DATA_DIR" not in os.environ
     assert "ESPHOME_DATA_DIR" not in os.environ
