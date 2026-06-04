@@ -140,8 +140,8 @@ def _relocate_toolchain(pio: Path) -> bool:
     discard -- a long default path beats building against a corrupt toolchain.
     """
     old_pio = _platformio_dir()
-    if not pio.exists() and old_pio.is_dir():
-        _try_move(old_pio, pio)
+    if not pio.exists():
+        _try_move(old_pio, pio)  # no-op when ~/.platformio is absent
         if old_pio.is_dir():
             _LOGGER.warning("Toolchain move from %s incomplete; discarding partial copy", old_pio)
             shutil.rmtree(pio, ignore_errors=True)
