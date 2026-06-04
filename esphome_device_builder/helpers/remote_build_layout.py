@@ -100,8 +100,11 @@ class RemoteBuildPath:
         * **Single-shared** across all dashboards reintroduces
           PR #578's basename-collision bug — two offloaders
           each submitting ``kitchen.yaml`` would clobber each
-          other's ``storage/kitchen.yaml.json``. The
-          ``dir_id`` partition is the isolation gate.
+          other's ``storage/kitchen.yaml.json``. The ``dir_id``
+          partition is the isolation gate; it's the first 8
+          chars of the dashboard_id (~48 bits), so two offloaders
+          collide only if their ids share that prefix —
+          astronomically unlikely for a handful of offloaders.
 
         Separate root from :meth:`subtree` — that one is
         anchored on ``config_dir``, this one on
