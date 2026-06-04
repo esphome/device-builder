@@ -1973,13 +1973,7 @@ async def test_identity_rotation_refreshes_snapshot_and_respawns_approved_client
 async def test_sweep_stale_pairing_fires_removed_and_clears_remote_jobs(
     tmp_path: Path,
 ) -> None:
-    """A swept stale pairing fires ``"removed"`` and drops its remote-job cache entry.
-
-    Re-pairing the same endpoint under a fresh pin drops the
-    old (APPROVED) row; connected clients must learn of it via
-    the event, and its in-flight remote-job snapshot row must
-    not outlive the pairing.
-    """
+    """Sweeping a stale pairing fires ``"removed"`` and drops its remote-job cache entry."""
     controller = _make_controller(config_dir=tmp_path)
     controller.offloader._db.bus = MagicMock()
     stale_pin = "a" * 64

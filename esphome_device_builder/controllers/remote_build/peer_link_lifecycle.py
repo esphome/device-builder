@@ -126,7 +126,7 @@ def sweep_stale_pairings_at_endpoint(
     pin-drift branch. Snapshots to lists before iterating
     to avoid mutate-during-iteration. Each dropped pairing
     fires ``OFFLOADER_PAIR_STATUS_CHANGED`` ``"removed"`` and
-    clears its derived caches, mirroring ``unpair``.
+    clears its derived caches.
     """
     for stale_pin, pairing in list(controller.state.pairings.items()):
         if stale_pin == keep_pin_sha256:
@@ -144,7 +144,7 @@ def sweep_stale_pairings_at_endpoint(
         # Fire "removed" so connected clients drop the row from
         # their pairings list — without it a swept (possibly
         # APPROVED) row lingers in every subscriber's snapshot
-        # until reload (cross-tab desync). Mirrors ``unpair``.
+        # until reload (cross-tab desync).
         controller._fire_offloader_pair_status_changed(
             pairing.receiver_hostname, pairing.receiver_port, stale_pin, "removed"
         )
