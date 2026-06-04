@@ -1,0 +1,47 @@
+name: Windows MAX_PATH junction probe
+
+# Manual investigation aid for the desktop-Windows path-shortening design (issue #1190).
+# Runs one ESP-IDF compile on a windows-latest runner with ESPHOME_DATA_DIR /
+# PLATFORMIO_CORE_DIR pointed at short directory junctions, then inspects the generated
+# build files to decide whether the compiler is handed the short junction path (junction
+# survives) or the canonical long target (PlatformIO/CMake canonicalized it away). See
+# script/windows_maxpath_probe.py. workflow_dispatch only (never on push/PR).
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    name: Junction canonicalization probe
+    runs-on: windows-latest
+    # ESP-IDF cold toolchain download + configure on a fresh runner is the slow part; a full
+    # compile may not finish, but the build files we inspect appear at cmake-configure time.
+    timeout-minutes: 60
+    steps:
+      - name: Check out code from GitHub
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version: "3.12"
+
+      - name: Install esphome
+        run: pip install esphome
+
+      - name: Run MAX_PATH junction probe
+        run: python script/windows_maxpath_probe.py
+
+      - name: Upload generated build files
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: maxpath-probe-build-files
+          path: |
+            C:\esphb\**\compile_commands.json
+            C:\esphb\**\build.ninja
+            C:\esphb\**\CMakeCache.txt
+          if-no-files-found: warn
