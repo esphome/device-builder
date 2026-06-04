@@ -27,7 +27,7 @@ import pytest
 
 from esphome_device_builder.controllers.firmware.download import get_binaries
 
-from .conftest import PairedInstances, run_offload_compile_round_trip
+from ...conftest import PairedInstances, run_offload_compile_round_trip
 
 _DEVICE = "bk7231n-e2e"
 _CONFIGURATION_FILENAME = f"{_DEVICE}.yaml"

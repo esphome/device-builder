@@ -300,28 +300,72 @@ jobs:
       - name: Show installed esphome version
         run: uv pip show esphome | grep -E '^(Name|Version):'
 
+      - name: Run e2e tests
+        # The slow real-compile tests live under ``tests/e2e/slow/`` and
+        # run in their own per-toolchain jobs below; this job covers the
+        # fast wire-level e2e suite. ``--timeout=120`` is plenty for it.
+        timeout-minutes: 10
+        run: >-
+          uv run pytest -q -n auto tests/e2e --maxfail=5 --durations=10 --timeout=120 --no-cov
+          --ignore=tests/e2e/slow
+
+  e2e-libretiny:
+    name: E2E LibreTiny (esphome ${{ matrix.channel }})
+    runs-on: ubuntu-latest
+    # The LibreTiny e2e (tests/e2e/slow/libretiny/) runs a real bk7231n
+    # compile that clones the LibreTiny SDK from source (minutes on a cold
+    # runner). Split onto its own runner so it can't slow the fast e2e
+    # matrix. ``stable`` is a strict gate; ``dev`` is advisory.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - channel: stable
+            install: ""
+            allow_failure: false
+          - channel: dev
+            install: uv pip install --upgrade git+https://github.com/esphome/esphome.git@dev
+            allow_failure: true
+    continue-on-error: ${{ matrix.allow_failure }}
+    steps:
+      - name: Check out code from GitHub
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Set up uv and Python 3.14
+        uses: ./.github/actions/setup-uv-python
+        with:
+          python-version: "3.14"
+
+      - name: Create venv + install package + test deps
+        run: |
+          uv venv
+          uv pip install -e '.[esphome,test]'
+
+      - name: Install esphome (${{ matrix.channel }} channel)
+        if: matrix.install != ''
+        run: ${{ matrix.install }}
+
+      - name: Show installed esphome version
+        run: uv pip show esphome | grep -E '^(Name|Version):'
+
       - name: Cache PlatformIO core + per-platform toolchains
-        # The LibreTiny e2e (test_libretiny_compile_download.py) runs a real
-        # bk7231n compile, which clones the LibreTiny SDK from source on a
+        # The LibreTiny compile clones the LibreTiny SDK from source on a
         # cold runner. Cache ``~/.platformio`` per channel so stable/dev
-        # SDK downloads don't collide. The native-IDF e2e runs in its own
-        # job below (different toolchain tree), so it isn't cached here.
+        # SDK downloads don't collide.
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: ~/.platformio
-          key: pio-e2e-libretiny-${{ runner.os }}-${{ matrix.channel }}-${{ hashFiles('tests/e2e/test_libretiny_compile_download.py') }}
+          key: pio-e2e-libretiny-${{ runner.os }}-${{ matrix.channel }}-${{ hashFiles('tests/e2e/slow/libretiny/test_libretiny_compile_download.py') }}
           restore-keys: |
             pio-e2e-libretiny-${{ runner.os }}-${{ matrix.channel }}-
 
-      - name: Run e2e tests
+      - name: Run LibreTiny e2e
         # 20 min outer cap: a cold LibreTiny SDK clone plus compile runs
-        # minutes. Fast tests keep ``--timeout=120``; the LibreTiny test
-        # opts out via its own ``@pytest.mark.timeout(600)``. The native-IDF
-        # e2e is excluded here and runs in the dev-only job below.
+        # minutes. The test's own ``@pytest.mark.timeout(600)`` caps it.
         timeout-minutes: 20
-        run: >-
-          uv run pytest -q -n auto tests/e2e --maxfail=5 --durations=10 --timeout=120 --no-cov
-          --ignore=tests/e2e/test_esp_idf_compile_download.py
+        run: uv run pytest -q tests/e2e/slow/libretiny --durations=10 --timeout=600 --no-cov
 
   e2e-native-idf:
     name: E2E native ESP-IDF (esphome dev)
@@ -377,7 +421,7 @@ jobs:
         timeout-minutes: 25
         env:
           ESPHOME_ESP_IDF_PREFIX: ~/.cache/esphome-idf
-        run: uv run pytest -q tests/e2e/test_esp_idf_compile_download.py --durations=10 --timeout=900 --no-cov
+        run: uv run pytest -q tests/e2e/slow/esp32 --durations=10 --timeout=900 --no-cov
 
   benchmarks:
     name: Run benchmarks (CodSpeed)
