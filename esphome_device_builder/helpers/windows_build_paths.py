@@ -40,7 +40,13 @@ def windows_short_build_paths(config_dir: Path) -> Iterator[None]:
         yield
         return
 
-    root = _ROOT_BASE / f"esphb-{get_or_create_dashboard_id(config_dir)[:_DASHBOARD_ID_CHARS]}"
+    try:
+        dashboard_id = get_or_create_dashboard_id(config_dir)
+    except OSError:
+        _LOGGER.exception("Could not resolve dashboard_id; deep/spaced builds may fail")
+        yield
+        return
+    root = _ROOT_BASE / f"esphb-{dashboard_id[:_DASHBOARD_ID_CHARS]}"
     pio = root / "pio"
     old_esphome = config_dir / ".esphome"
     if not root.exists():
@@ -63,10 +69,16 @@ def windows_short_build_paths(config_dir: Path) -> Iterator[None]:
         _LOGGER.exception("Could not create Windows build root; deep/spaced builds may fail")
         yield
         return
-    # Toolchain move is best-effort and retried each run until it lands, so a crash mid-migration
-    # self-heals; a failure here only re-downloads the toolchain, never a build-data read miss.
-    if not pio.exists():
-        _try_move(_platformio_dir(), pio)
+    # Best-effort toolchain warm-up: rename ~/.platformio in on first run, retried each run while
+    # pio is absent so a crash before it lands self-heals. If the move leaves the source behind (a
+    # cross-volume copy interrupted), discard the half-copied pio so platformio re-downloads a
+    # clean toolchain rather than building against a corrupt one; the source stays put, unused.
+    old_pio = _platformio_dir()
+    if not pio.exists() and old_pio.is_dir():
+        _try_move(old_pio, pio)
+        if old_pio.is_dir():
+            _LOGGER.warning("Toolchain move from %s incomplete; discarding partial copy", old_pio)
+            shutil.rmtree(pio, ignore_errors=True)
     with suppress(OSError):
         pio.mkdir(parents=True, exist_ok=True)  # platformio recreates it if this fails
 

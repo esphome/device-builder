@@ -191,6 +191,52 @@ def test_retries_toolchain_move_when_pio_absent(tmp_path: Path, fake_windows: Pa
     assert not home_pio.exists()
 
 
+def test_partial_toolchain_move_is_discarded(
+    tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An interrupted toolchain copy (source left, pio half-written) is discarded, not trusted."""
+    config_dir = tmp_path / "First Last" / "esphome"
+    (config_dir / ".esphome").mkdir(parents=True)
+    home_pio = tmp_path / "home_platformio"
+    home_pio.mkdir()
+    (home_pio / "tool.txt").write_text("toolchain", encoding="utf-8")
+
+    real_move = wbp.shutil.move
+
+    def _interrupted(src: str, dst: str, *args: object, **kwargs: object) -> object:
+        if "platformio" in str(src):
+            # A cross-volume copy that got partway then died: dst half-written, src left behind.
+            Path(dst).mkdir(parents=True, exist_ok=True)
+            (Path(dst) / "half.txt").write_text("partial", encoding="utf-8")
+            msg = "interrupted"
+            raise OSError(msg)
+        return real_move(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(wbp.shutil, "move", _interrupted)
+    root = fake_windows / f"esphb-{_ID8}"
+    with windows_short_build_paths(config_dir):
+        assert os.environ["ESPHOME_DATA_DIR"] == str(root)  # build data still relocated
+        pio = root / "pio"
+        assert not (pio / "half.txt").exists()  # the half-copied tree was discarded
+        assert not any(pio.iterdir())  # left clean for platformio to re-download into
+    assert (home_pio / "tool.txt").is_file()  # source left untouched, just unused
+
+
+def test_dashboard_id_io_failure_falls_back_to_noop(
+    tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An OSError minting the dashboard_id degrades to a no-op, not a startup-aborting raise."""
+
+    def _boom(_config_dir: Path) -> str:
+        msg = "sidecar unwritable"
+        raise OSError(msg)
+
+    monkeypatch.setattr(wbp, "get_or_create_dashboard_id", _boom)
+    with windows_short_build_paths(tmp_path / "First Last" / "esphome"):
+        assert "ESPHOME_DATA_DIR" not in os.environ
+    assert "ESPHOME_DATA_DIR" not in os.environ
+
+
 def test_root_creation_failure_falls_back_to_noop(
     tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
