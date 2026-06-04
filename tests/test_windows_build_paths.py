@@ -128,3 +128,21 @@ def test_name_collision_falls_back_without_stealing(
         assert pio is None
     # The colliding junction is untouched (not stolen / repointed).
     assert os.path.realpath(junction) == os.path.realpath(other)
+
+
+@_not_windows
+def test_dangling_junction_is_replaced(
+    tmp_path: Path, fake_windows: list[tuple[Path, Path]]
+) -> None:
+    """A junction whose target was deleted is cleared and recreated, not left to fail setup."""
+    config_dir = tmp_path / "cfg"
+    data = config_dir / ".esphome"
+    data.mkdir(parents=True)
+    junction = wbp._JUNCTION_ROOT / f"esphb-{wbp._suffix(data)}"
+    gone = tmp_path / "gone"  # never created → dangling
+    Path(junction).symlink_to(gone, target_is_directory=True)
+    assert not junction.exists()  # dangling: exists() follows the link and is False
+
+    with windows_short_build_paths(config_dir) as pio:
+        assert pio is not None
+        assert os.path.realpath(junction) == os.path.realpath(data)

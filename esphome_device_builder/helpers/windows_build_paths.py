@@ -18,9 +18,12 @@ and yields the short PlatformIO core dir, for the duration of the ``with`` block
   junction back to its long target. The caller threads it onto app state and
   :func:`controllers.firmware.cli.compose_subprocess_env` injects it per-subprocess.
 
-The junction and the real toolchain dir are left on disk on exit (a concurrent dashboard may
-share them; the desktop uninstaller reclaims ``C:\esphb-*``); only the ``ESPHOME_DATA_DIR``
-override is restored. No-op on every non-Windows platform (yields ``None``).
+On exit only the ``ESPHOME_DATA_DIR`` override is restored; the ``C:\esphb-<suffix>`` junction
+and the ``C:\esphb-<suffix>-pio`` toolchain dir are deliberately left on disk (a concurrent
+dashboard may share them, and the toolchain is expensive to re-download). They are **not**
+cleaned up on esphome-desktop uninstall today — the toolchain dir in particular can be
+multi-GB — so removing ``C:\esphb-*`` is a known follow-up for the desktop uninstaller. No-op
+on every non-Windows platform (yields ``None``).
 """
 
 from __future__ import annotations
@@ -81,7 +84,7 @@ def windows_short_build_paths(config_dir: Path) -> Iterator[Path | None]:
         yield pio_dir
     finally:
         # Restore the override; leave the junction + toolchain on disk (a concurrent dashboard
-        # may share them; the uninstaller reclaims them).
+        # may share them; not cleaned on uninstall today — see module docstring).
         if prior is None:
             os.environ.pop("ESPHOME_DATA_DIR", None)
         else:
@@ -125,7 +128,20 @@ def _ensure_junction(link: Path, target: Path) -> None:
             return
         msg = f"{link} already exists pointing elsewhere"
         raise OSError(msg)
+    if os.path.lexists(link):
+        # Dangling junction: the name is occupied but its target is gone (uninstall/reinstall
+        # or a moved config dir), so ``exists()`` was False above. Drop the stale entry so the
+        # create below doesn't fail on the occupied name.
+        _remove_link(link)
     _create_junction(link, target)
+
+
+def _remove_link(link: Path) -> None:
+    """Remove a junction (rmdir) or symlink (unlink) entry without touching its target."""
+    if link.is_symlink():
+        link.unlink()
+    else:
+        link.rmdir()
 
 
 def _create_junction(link: Path, target: Path) -> None:

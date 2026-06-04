@@ -22,6 +22,11 @@ _MAX_PATH = 260
 # deepest object path overflows MAX_PATH; through the junction it stays short.
 _PAD = "padding-" * 9  # 72 chars
 
+# A space-bearing component mimics a real Windows profile dir (``C:\Users\First Last\...``) so
+# the live compile proves the native junction handles a space in the target — the case that
+# would break ``cmd /c mklink`` quote-stripping.
+_PROFILE = "First Last"
+
 _CONFIG = textwrap.dedent(
     """\
     esphome:
@@ -46,8 +51,9 @@ def test_windows_short_paths_compile_deep_idf(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A deep ESP-IDF compile succeeds through the short-path layout and stays under MAX_PATH."""
-    config_dir = tmp_path / _PAD / "esphome"
+    config_dir = tmp_path / _PROFILE / _PAD / "esphome"
     config_dir.mkdir(parents=True, exist_ok=True)
+    assert " " in str(config_dir), "config_dir must carry a space to exercise the junction target"
     config = config_dir / "probe.yaml"
     config.write_text(_CONFIG, encoding="utf-8")
 
