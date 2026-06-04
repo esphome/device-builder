@@ -115,12 +115,56 @@ class BoardCatalog:
         page = results[offset : offset + limit]
         return PagedBoardsResponse(boards=page, total=total, offset=offset, limit=limit)
 
+    @api_command("boards/get_compatible_boards")
+    async def get_compatible_boards(self, *, board_id: str, **kwargs: Any) -> PagedBoardsResponse:
+        """
+        Boards interchangeable with ``board_id`` — same PlatformIO target.
+
+        Lets the device editor offer a "wrong board?" swap among
+        physically-equivalent boards (issue #615): a device the board-id
+        re-derivation auto-migrated onto a generic can switch back to the
+        curated vendor entry, and vice-versa. The boards include
+        ``board_id`` itself; the frontend drops it. Empty when the id is
+        unknown or has no siblings.
+
+        Returns the same slim :class:`PagedBoardsResponse` envelope as
+        ``boards/get_boards`` (so the wire shape + frontend hydration match)
+        — unpaginated, the whole set in one page.
+        """
+        current = self.get_by_id(board_id)
+        matches = (
+            self.find_all_by_pio_board(current.esphome.board, current.esphome.platform)
+            if current is not None
+            else []
+        )
+        return PagedBoardsResponse(boards=matches, total=len(matches), offset=0, limit=len(matches))
+
     def get_by_id(self, board_id: str) -> BoardCatalogIndex | None:
         """Look up a slim board index entry by id, or ``None``."""
         for board in self._boards:
             if board.id == board_id:
                 return board
         return None
+
+    def _matches_pio_board(
+        self,
+        pio_board: str,
+        platform: Platform | str | None = None,
+    ) -> list[BoardCatalogIndex]:
+        """
+        Catalog entries on a PlatformIO board, optionally scoped to a platform.
+
+        The shared filter step behind :meth:`find_by_pio_board` (which then
+        ranks to a single winner) and :meth:`find_all_by_pio_board` (which
+        sorts and returns the whole set). nRF52 and rp2040 can ship the same
+        PlatformIO board id, so ``platform`` scopes the match; it accepts the
+        :class:`Platform` enum or its raw string value.
+        """
+        matches = [b for b in self._boards if b.esphome.board == pio_board]
+        if platform is not None:
+            platform_value = platform.value if isinstance(platform, Platform) else platform
+            matches = [b for b in matches if b.esphome.platform.value == platform_value]
+        return matches
 
     def find_by_pio_board(
         self,
@@ -159,10 +203,7 @@ class BoardCatalog:
            the board for plain ``d1_mini`` YAMLs).
         3. Fall back to the first match in iteration order.
         """
-        matches = [b for b in self._boards if b.esphome.board == pio_board]
-        if platform is not None:
-            platform_value = platform.value if isinstance(platform, Platform) else platform
-            matches = [b for b in matches if b.esphome.platform.value == platform_value]
+        matches = self._matches_pio_board(pio_board, platform)
         if not matches:
             return None
         if pio_variant:
@@ -179,6 +220,27 @@ class BoardCatalog:
             if b.id.replace("_", "-") == normalized_pio:
                 return b
         return matches[0]
+
+    def find_all_by_pio_board(
+        self,
+        pio_board: str,
+        platform: Platform | str | None = None,
+    ) -> list[BoardCatalogIndex]:
+        """
+        Every catalog entry sharing a PlatformIO board id (interchangeable).
+
+        :meth:`find_by_pio_board` collapses this set to a single ranked
+        winner; this returns the whole set, for the "change board" picker
+        (issue #615). ``platform`` scopes the match the same way
+        :meth:`find_by_pio_board` does — nRF52 and rp2040 can share a
+        PlatformIO board id, and a cross-platform sibling is not a valid
+        swap target. Ordered like :meth:`get_boards`: featured first,
+        generics last, then by name.
+        """
+        return sorted(
+            self._matches_pio_board(pio_board, platform),
+            key=lambda b: (not b.featured, b.is_generic, b.name.lower()),
+        )
 
     def find_by_platform_variant(
         self,
