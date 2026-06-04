@@ -647,6 +647,14 @@ class DashboardAdvertiser:
         loop = asyncio.get_running_loop()
         new_addresses = await loop.run_in_executor(None, _local_addresses)
         new_info = self.build_service_info(new_addresses)
+        # Preserve the instance name zeroconf actually registered.
+        # ``async_register_service(allow_name_change=True)`` renames the
+        # ServiceInfo in place on a collision (``green`` → ``green-2``),
+        # but ``build_service_info`` always recomposes from ``self._name``.
+        # Without this, ``async_update_service`` would announce the
+        # pre-collision name — a second, conflicting record rather than an
+        # update — and ``service_instance_name`` would report the wrong name.
+        new_info.name = info.name
         # Compare normalized sets so the order ifaddr returns
         # interfaces in (which can shift between calls on some
         # platforms) doesn't trigger a spurious re-publish. Also

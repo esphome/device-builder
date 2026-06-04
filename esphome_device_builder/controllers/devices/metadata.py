@@ -98,7 +98,7 @@ class DeviceMetadataBase(DeviceBuilderBase):
 
         matched = None
         if pio_board:
-            matched = self._db.boards.find_by_pio_board(pio_board, variant)
+            matched = self._db.boards.find_by_pio_board(pio_board, variant, platform)
         if matched is None and platform:
             matched = self._db.boards.find_by_platform_variant(platform, variant)
         if matched is None:

@@ -114,7 +114,9 @@ async def create_device(  # noqa: PLR0912, PLR0915, C901
         if source != "stub":
             matched = None
             if pio_board:
-                matched = controller._db.boards.find_by_pio_board(pio_board, variant)
+                matched = controller._db.boards.find_by_pio_board(
+                    pio_board, variant, parsed_platform
+                )
             if matched is None and parsed_platform:
                 matched = controller._db.boards.find_by_platform_variant(parsed_platform, variant)
             if matched:
