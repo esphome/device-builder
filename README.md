@@ -428,7 +428,7 @@ tracked separately:
   (`ghcr.io/esphome/esphome`) — currently only the HA-addon image carries
   it
 - 🗺️ See the
-  [project backlog](https://github.com/orgs/esphome/projects/7/views/1?filterQuery=project%3A%22device-builder-dashboard%22)
+  [project backlog](https://github.com/orgs/esphome/projects/7/views/1?filterQuery=project%3A%22device-builder%22)
   for in-progress work and what's planned next
 
 ## Documentation
