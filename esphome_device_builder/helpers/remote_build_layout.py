@@ -46,15 +46,10 @@ _REMOTE_BUILDS_PARTS: tuple[str, ...] = tuple(REMOTE_BUILDS_SUBDIR.as_posix().sp
 # dir_id + device_name + YAML filename.
 _TAIL_SEGMENT_COUNT = 3
 
-# On-disk directory key: the first 8 chars of the ``dashboard_id``.
-# The full id runs to 32 chars on older installs, which nested under
-# ``.esphome/.remote_builds/<id>/`` plus the deep ESP-IDF build tree
-# eats into the Windows MAX_PATH budget (issue #1190). 8 base64url
-# chars (~48 bits) keeps two offloaders' subtrees from colliding; the
-# id stays full-length on the wire / in audit. Truncation is
-# idempotent (``id[:8][:8] == id[:8]``), so a path round-tripped
-# through :func:`parse_from_configuration` (which recovers the
-# already-8-char segment) renders the same directory.
+# On-disk directory key: first 8 chars of the dashboard_id. Short keeps the
+# subtree path under Windows MAX_PATH; the id stays full-length on the wire.
+# Truncation is idempotent (``id[:8][:8] == id[:8]``), so a path recovered by
+# :func:`parse_from_configuration` (already 8 chars) renders the same directory.
 _DASHBOARD_DIR_ID_CHARS = 8
 
 
@@ -89,7 +84,7 @@ class RemoteBuildPath:
         """Return the ``ESPHOME_DATA_DIR`` the compile subprocess writes into.
 
         Resolves to
-        ``<dashboard_data_dir>/.remote_builds/<dashboard_id>/.esphome``
+        ``<dashboard_data_dir>/.remote_builds/<dir_id>/.esphome``
         — one shared ``.esphome`` per paired offloader,
         anchored under :attr:`esphome.core.CORE.data_dir` so
         the addon's per-instance ``/data`` volume holds the
@@ -106,7 +101,7 @@ class RemoteBuildPath:
           PR #578's basename-collision bug — two offloaders
           each submitting ``kitchen.yaml`` would clobber each
           other's ``storage/kitchen.yaml.json``. The
-          ``dashboard_id`` partition is the isolation gate.
+          ``dir_id`` partition is the isolation gate.
 
         Separate root from :meth:`subtree` — that one is
         anchored on ``config_dir``, this one on

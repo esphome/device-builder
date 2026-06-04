@@ -395,7 +395,7 @@ def test_clean_job_command_passes_remote_build_yaml_path_through() -> None:
 
     The receiver's submit_job dispatch lands a ``FirmwareJob``
     whose ``configuration`` is the relative POSIX path under
-    ``.esphome/.remote_builds/<dashboard_id>/<device>/``. The
+    ``.esphome/.remote_builds/<dir_id>/<device>/``. The
     build-command builder must thread that path verbatim — the
     paired ``ESPHOME_DATA_DIR`` override resolves esphome's
     ``CORE.data_dir`` to the per-offloader subtree, and

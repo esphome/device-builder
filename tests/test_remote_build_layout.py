@@ -73,7 +73,7 @@ def test_parse_handles_deep_nested_yaml_under_subtree() -> None:
     """A configuration deeper than the canonical 5 segments still parses.
 
     The bundle layout only constrains the first four segments
-    (``.esphome / .remote_builds / <dashboard_id> / <device_name>``);
+    (``.esphome / .remote_builds / <dir_id> / <device_name>``);
     the YAML name inside the subtree is free-form. A nested
     YAML (theoretical, not the writer's current shape but
     allowed by the contract) should still resolve.
@@ -130,7 +130,7 @@ _LONG_ID = "Nc7uJKFUh3U0o6DKioxJFsfpZwWoN5Ws"
 
 
 def test_long_dashboard_id_renders_8_char_dir(tmp_path: Path) -> None:
-    """A >8-char id renders an 8-char on-disk dir, keeping paths under Windows MAX_PATH (#1190)."""
+    """A >8-char id renders an 8-char on-disk dir, keeping paths under Windows MAX_PATH."""
     key = RemoteBuildPath(dashboard_id=_LONG_ID, device_name="kitchen")
     assert key.dir_id == "Nc7uJKFU"
     assert key.subtree(tmp_path) == (

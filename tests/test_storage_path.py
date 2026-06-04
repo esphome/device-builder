@@ -58,9 +58,9 @@ def test_resolve_data_dir_malformed_remote_build_path_falls_through_to_local() -
 
     ``parse_from_configuration`` returns ``None`` for any path
     that doesn't match the canonical
-    ``.esphome/.remote_builds/<dashboard_id>/<device>/<file>`` shape.
+    ``.esphome/.remote_builds/<dir_id>/<device>/<file>`` shape.
     A 3-segment shorthand like
-    ``.esphome/.remote_builds/<id>/kitchen.yaml`` (no device
+    ``.esphome/.remote_builds/<dir_id>/kitchen.yaml`` (no device
     subtree) doesn't qualify and the resolver falls through to
     ``CORE.data_dir`` — same as a bare basename.
     """
@@ -84,8 +84,8 @@ def test_resolve_storage_path_remote_build_uses_basename_keyspace(tmp_path: Path
     ``<per-dashboard-data-dir>/kitchen.yaml`` writes its sidecar
     at ``<per-dashboard-data-dir>/storage/kitchen.yaml.json``,
     where ``<per-dashboard-data-dir>`` is
-    ``<CORE.data_dir>/.remote_builds/<dashboard_id>/.esphome``.
-    The full configuration string (``.esphome/.remote_builds/<id>/<device>/<device>.yaml``)
+    ``<CORE.data_dir>/.remote_builds/<dir_id>/.esphome``.
+    The full configuration string (``.esphome/.remote_builds/<dir_id>/<device>/<device>.yaml``)
     is not re-embedded in the sidecar path — pins the
     basename-keyed contract so a future refactor can't silently
     regress the resolver into emitting the buggy full-path key.

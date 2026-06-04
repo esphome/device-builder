@@ -71,9 +71,9 @@ def test_remote_build_job_pins_data_dir_to_per_dashboard_esphome(
 
     The configuration is the relative POSIX path the receiver-side
     submit_job dispatch sets on the :class:`FirmwareJob`
-    (``.esphome/.remote_builds/<dashboard_id>/<device>/<device>.yaml``).
+    (``.esphome/.remote_builds/<dir_id>/<device>/<device>.yaml``).
     The env override points at the per-dashboard
-    ``<CORE.data_dir>/.remote_builds/<dashboard_id>/.esphome``
+    ``<CORE.data_dir>/.remote_builds/<dir_id>/.esphome``
     directory: one toolchain cache + storage keyspace shared
     across every device that offloader submits, isolated
     from the dashboard's local-build keyspace AND from other
@@ -142,9 +142,9 @@ def test_malformed_remote_build_path_falls_through_to_local(
     """A configuration that doesn't parse as a remote-build path stays local.
 
     The layout parser returns ``None`` for any path that doesn't
-    match ``.esphome/.remote_builds/<dashboard_id>/<device>/<file>``
+    match ``.esphome/.remote_builds/<dir_id>/<device>/<file>``
     — a 4-segment shorthand like
-    ``.esphome/.remote_builds/<id>/kitchen.yaml`` (no device
+    ``.esphome/.remote_builds/<dir_id>/kitchen.yaml`` (no device
     subtree) doesn't qualify and the env override skips. Pins
     the contract that ``ESPHOME_DATA_DIR`` is only pinned when
     we know we're looking at the canonical layout the writer
