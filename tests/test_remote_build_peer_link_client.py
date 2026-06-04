@@ -64,6 +64,7 @@ from esphome_device_builder.controllers.remote_build.peer_link_client import (
     _DownloadArtifactsState,
     _extract_receiver_esphome_version,
     drive_initiator_round_trip,
+    one_shot,
     preview_pair,
     request_pair,
 )
@@ -117,6 +118,25 @@ def bound_unused_tcp_port() -> Iterator[int]:
     """Yield a 127.0.0.1 port held bound (no ``listen``) for the test — no TOCTOU race."""
     with closing(get_unused_port_socket("127.0.0.1")) as sock:
         yield sock.getsockname()[1]
+
+
+@pytest.fixture
+def fast_unreachable_connect(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bound the one-shot connect so an unreachable receiver fails sub-second.
+
+    A bound-but-unlistened port refuses instantly on Linux (RST) but
+    BSD/macOS silently drops the SYN, so the connect otherwise hangs to
+    the 10s client budget. The timeout and the refusal both surface as
+    the same ``PeerLinkClientError("...failed...")`` / ``UNAVAILABLE``,
+    so shortening the driver budget keeps the assertions intact.
+    """
+    real = one_shot.drive_initiator_round_trip
+
+    async def _fast(**kwargs: Any) -> Any:
+        kwargs.setdefault("timeout_seconds", 0.5)
+        return await real(**kwargs)
+
+    monkeypatch.setattr(one_shot, "drive_initiator_round_trip", _fast)
 
 
 def _make_controller(*, config_dir: Path) -> RemoteBuildController:
@@ -214,6 +234,7 @@ async def test_preview_pair_does_not_persist_state_on_receiver(
 async def test_preview_pair_connection_refused_raises_client_error(
     tmp_path: Path,
     bound_unused_tcp_port: int,
+    fast_unreachable_connect: None,
 ) -> None:
     """Connecting to a closed port raises :class:`PeerLinkClientError`."""
     initiator_priv = secrets.token_bytes(32)
@@ -766,6 +787,7 @@ async def test_controller_preview_pair_returns_receiver_pin(
 async def test_controller_preview_pair_unavailable_on_unreachable_receiver(
     offloader_controller_dir: Path,
     bound_unused_tcp_port: int,
+    fast_unreachable_connect: None,
 ) -> None:
     """Receiver unreachable → CommandError(UNAVAILABLE)."""
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
@@ -863,6 +885,7 @@ async def test_controller_request_pair_closed_window_raises_no_pairing_window(
 async def test_controller_request_pair_unavailable_on_unreachable_receiver(
     offloader_controller_dir: Path,
     bound_unused_tcp_port: int,
+    fast_unreachable_connect: None,
 ) -> None:
     """Receiver unreachable → CommandError(UNAVAILABLE)."""
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
