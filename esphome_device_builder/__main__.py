@@ -271,6 +271,7 @@ def main() -> None:
     from .controllers.config import DashboardSettings  # noqa: PLC0415
     from .device_builder import DeviceBuilder  # noqa: PLC0415
     from .helpers.single_instance import ensure_single_execution  # noqa: PLC0415
+    from .helpers.windows_build_paths import windows_short_build_paths  # noqa: PLC0415
 
     settings = DashboardSettings()
     settings.parse_args(args)
@@ -287,8 +288,10 @@ def main() -> None:
     with ensure_single_execution(CORE.data_dir) as lock:
         if lock.exit_code is not None:
             sys.exit(lock.exit_code)
-        device_builder = DeviceBuilder(settings)
-        device_builder.run()
+        # Windows: short-junction the build tree so deep builds stay under MAX_PATH.
+        with windows_short_build_paths(settings.config_dir) as pio_core_dir:
+            device_builder = DeviceBuilder(settings, windows_pio_core_dir=pio_core_dir)
+            device_builder.run()
 
 
 def _log_uncaught_exception(

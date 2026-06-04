@@ -20,8 +20,10 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import pytest
 from esphome.core import CORE
 
+from esphome_device_builder.controllers.firmware.cli import compose_subprocess_env
 from esphome_device_builder.controllers.firmware.constants import (
     ESPHOME_SUBPROCESS_ENV,
 )
@@ -42,6 +44,19 @@ def _make_job(
         configuration=configuration,
         job_type=job_type,
     )
+
+
+def test_compose_injects_windows_pio_core_dir_when_set(tmp_path: Path) -> None:
+    """The Windows short PLATFORMIO_CORE_DIR is pinned when threaded in (platform-agnostic)."""
+    env = compose_subprocess_env(_make_job(configuration="kitchen.yaml"), tmp_path / "pio")
+    assert env["PLATFORMIO_CORE_DIR"] == str(tmp_path / "pio")
+
+
+def test_compose_omits_pio_core_dir_when_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No PLATFORMIO_CORE_DIR override off Windows / when shortening is inactive."""
+    monkeypatch.delenv("PLATFORMIO_CORE_DIR", raising=False)
+    env = compose_subprocess_env(_make_job(configuration="kitchen.yaml"), None)
+    assert "PLATFORMIO_CORE_DIR" not in env
 
 
 def test_local_job_env_does_not_override_data_dir(

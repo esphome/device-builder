@@ -155,6 +155,8 @@ def firmware_controller_factory(
         controller = FirmwareController.__new__(FirmwareController)
         controller.state = FirmwareState()
         controller.download_tokens = DownloadTokens()
+        # Mirror ``__init__``: no Windows short-path override in tests.
+        controller._windows_pio_core_dir = None
         controller.state.jobs = {j.job_id: j for j in jobs}
         # ``__new__`` bypasses ``__init__`` where the real controller
         # creates this; ``persist_jobs`` acquires it to serialize writes.
@@ -234,6 +236,8 @@ def bare_firmware_controller_factory() -> BareFirmwareControllerFactory:
         controller = FirmwareController.__new__(FirmwareController)
         controller.state = FirmwareState()
         controller.download_tokens = DownloadTokens()
+        # Mirror ``__init__``: no Windows short-path override in tests.
+        controller._windows_pio_core_dir = None
         if esphome_cmd is not None:
             controller.state.esphome_cmd = esphome_cmd
         if current_job is not None:

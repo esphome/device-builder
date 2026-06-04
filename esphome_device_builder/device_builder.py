@@ -192,9 +192,13 @@ class DeviceBuilder:
     All device state lives in DevicesController.
     """
 
-    def __init__(self, settings: DashboardSettings) -> None:
+    def __init__(
+        self, settings: DashboardSettings, windows_pio_core_dir: Path | None = None
+    ) -> None:
         """Initialize the Device Builder."""
         self.settings = settings
+        # Real short PLATFORMIO_CORE_DIR on Windows (helpers.windows_build_paths); None else.
+        self.windows_pio_core_dir = windows_pio_core_dir
         self.bus = EventBus()
         self.peer_link_identity_store = PeerLinkIdentityStore(settings.config_dir)
         # Reference-counted "is anyone watching the dashboard?" gate.
@@ -307,7 +311,7 @@ class DeviceBuilder:
         self.config = ConfigController(self)
         self.devices = DevicesController(self)
         self.automations = AutomationsController(self)
-        self.firmware = FirmwareController(self)
+        self.firmware = FirmwareController(self, self.windows_pio_core_dir)
         self.editor = EditorController(self)
         self.labels = LabelsController(self)
         self.onboarding = OnboardingController(self)

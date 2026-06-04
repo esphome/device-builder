@@ -1,0 +1,60 @@
+name: Windows real-compile (MAX_PATH)
+
+# tests/e2e/slow/windows: a real ESP-IDF compile on a windows-latest runner that proves the
+# Windows build-data relocation (short, space-free root) builds and keeps building — covering
+# both MAX_PATH and spaced profile dirs. A cold ESP-IDF toolchain download makes this a
+# ~20-40 min job, so it is gated to changes that touch the mechanism plus a weekly drift check
+# rather than running on every PR. The default test matrix ignores tests/e2e, so this workflow
+# is the only place this e2e runs.
+#
+# YAML anchors (``&trigger-paths`` / ``*trigger-paths``) keep the push and pull_request path
+# filters in lockstep.
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Mondays 06:00 UTC: catch upstream esphome / platformio / IDF drift even with no code change.
+    - cron: "0 6 * * 1"
+  push:
+    branches: [main]
+    paths: &trigger-paths
+      - "esphome_device_builder/helpers/windows_build_paths.py"
+      - "esphome_device_builder/helpers/dashboard_identity.py"
+      - "esphome_device_builder/controllers/firmware/cli.py"
+      - "esphome_device_builder/helpers/storage_path.py"
+      - "esphome_device_builder/__main__.py"
+      - "tests/e2e/slow/windows/**"
+      - ".github/workflows/windows-real-compile.yml"
+  pull_request:
+    branches: [main]
+    paths: *trigger-paths
+
+jobs:
+  windows-maxpath:
+    name: Real ESP-IDF compile (Windows MAX_PATH)
+    runs-on: windows-latest
+    # Cold ESP-IDF toolchain download + a full mbedtls compile runs minutes; the test's own
+    # @pytest.mark.timeout(2400) caps the test itself.
+    timeout-minutes: 45
+    steps:
+      - name: Check out code from GitHub
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+
+      - name: Set up uv and Python 3.13
+        uses: ./.github/actions/setup-uv-python
+        with:
+          python-version: "3.13"
+
+      - name: Create venv + install package + test deps
+        run: |
+          uv venv
+          uv pip install -e '.[esphome,test]'
+
+      - name: Show installed esphome version
+        run: uv pip show esphome
+
+      - name: Run Windows MAX_PATH e2e
+        run: uv run pytest -q tests/e2e/slow/windows --durations=10 --timeout=2400 --no-cov
