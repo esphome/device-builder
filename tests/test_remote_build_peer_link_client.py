@@ -231,10 +231,10 @@ async def test_preview_pair_does_not_persist_state_on_receiver(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("fast_unreachable_connect")
 async def test_preview_pair_connection_refused_raises_client_error(
     tmp_path: Path,
     bound_unused_tcp_port: int,
-    fast_unreachable_connect: None,
 ) -> None:
     """Connecting to a closed port raises :class:`PeerLinkClientError`."""
     initiator_priv = secrets.token_bytes(32)
@@ -784,10 +784,10 @@ async def test_controller_preview_pair_returns_receiver_pin(
     assert await _saved_pairings(offloader) == []
 
 
+@pytest.mark.usefixtures("fast_unreachable_connect")
 async def test_controller_preview_pair_unavailable_on_unreachable_receiver(
     offloader_controller_dir: Path,
     bound_unused_tcp_port: int,
-    fast_unreachable_connect: None,
 ) -> None:
     """Receiver unreachable → CommandError(UNAVAILABLE)."""
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
@@ -882,10 +882,10 @@ async def test_controller_request_pair_closed_window_raises_no_pairing_window(
     assert exc.value.code == ErrorCode.NO_PAIRING_WINDOW
 
 
+@pytest.mark.usefixtures("fast_unreachable_connect")
 async def test_controller_request_pair_unavailable_on_unreachable_receiver(
     offloader_controller_dir: Path,
     bound_unused_tcp_port: int,
-    fast_unreachable_connect: None,
 ) -> None:
     """Receiver unreachable → CommandError(UNAVAILABLE)."""
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
