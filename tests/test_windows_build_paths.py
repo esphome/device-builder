@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -163,3 +164,26 @@ def test_space_bearing_target_passed_through_unmangled(
         _link, target = fake_windows[0]
         assert target == config_dir / ".esphome"
         assert " " in str(target)
+
+
+def test_remove_link_rmdirs_a_plain_directory(tmp_path: Path) -> None:
+    """The non-symlink branch (a real junction on Windows) is removed with rmdir."""
+    junction = tmp_path / "j"
+    junction.mkdir()
+    wbp._remove_link(junction)
+    assert not junction.exists()
+
+
+def test_create_junction_calls_the_native_api(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``_create_junction`` calls ``_winapi.CreateJunction(target, link)`` (faked off Windows)."""
+    calls: list[tuple[str, str]] = []
+    fake_winapi = types.ModuleType("_winapi")
+    fake_winapi.CreateJunction = lambda src, dst: calls.append((src, dst))  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "_winapi", fake_winapi)
+
+    link = tmp_path / "link"
+    target = tmp_path / "target"
+    wbp._create_junction(link, target)
+    assert calls == [(str(target), str(link))]

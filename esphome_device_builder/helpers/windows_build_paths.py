@@ -11,12 +11,13 @@ esphome-desktop uninstall today). No-op off Windows.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+
+from fnv_hash_fast import fnv1a_32
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -75,8 +76,7 @@ def _is_windows() -> bool:
 
 def _suffix(real_data: Path) -> str:
     """Stable 8-hex per-install dir suffix (case-folded); 8 hex makes a collision negligible."""
-    key = str(real_data.resolve()).lower().encode()
-    return hashlib.sha1(key).hexdigest()[:8]  # noqa: S324 — short non-crypto dir tag
+    return f"{fnv1a_32(str(real_data.resolve()).lower().encode('utf-8')):08x}"
 
 
 def _ensure_junction(link: Path, target: Path) -> None:
