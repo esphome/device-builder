@@ -12,6 +12,10 @@ permissions:
 
 on:
   workflow_dispatch:
+  # TEMPORARY: branch-scoped push trigger so the probe runs before the
+  # workflow_dispatch entry lands on the default branch. Remove before merge.
+  push:
+    branches: [windows-maxpath-junction-probe]
 
 jobs:
   probe:
