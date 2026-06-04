@@ -1,0 +1,1 @@
+{"description":"","esphome":{"board":"denky_d4","platform":"esp32","variant":"esp32"},"id":"denky_d4","manufacturer":"","name":"Denky D4 (PICO-V3-02)","pins":[{"features":["uart_rx"],"gpio":8,"label":"GPIO8","notes":"UART RX"},{"gpio":14,"label":"GPIO14"}]}

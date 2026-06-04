@@ -1,0 +1,1 @@
+{"description":"","esphome":{"board":"lolin_d32","platform":"esp32","variant":"esp32"},"id":"lolin_d32","manufacturer":"","name":"WEMOS LOLIN D32","pins":[{"gpio":5,"label":"GPIO5"},{"gpio":35,"label":"GPIO35"}]}

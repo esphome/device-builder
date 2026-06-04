@@ -939,6 +939,40 @@ async def test_refresh_publishes_via_update_service_when_addresses_change(
     assert sorted(new_info.parsed_addresses()) == sorted(["192.168.1.42", "fdc8::1"])
 
 
+async def test_refresh_preserves_collision_renamed_instance_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    After an ``allow_name_change`` rename, refresh keeps the registered name.
+
+    ``async_register_service(allow_name_change=True)`` renames the
+    ServiceInfo in place on a hostname collision; ``build_service_info``
+    always recomposes from the original friendly name. Without name
+    preservation, ``async_update_service`` would announce the
+    pre-collision name (a second, conflicting record) and
+    ``service_instance_name`` would drift back to the wrong name.
+    """
+    addresses = ["192.168.1.10"]
+    monkeypatch.setattr(dashboard_advertise, "_local_addresses", lambda: list(addresses))
+    advertiser = _make_advertiser(name="green", hostname="green.local")
+    zc = _make_zeroconf_mock()
+    await advertiser.register(zc)
+    # Model zeroconf's in-place collision rename: a second "green"
+    # on the LAN bumps the instance name to "green-2".
+    renamed = f"green-2.{SERVICE_TYPE}"
+    assert advertiser._info is not None
+    advertiser._info.name = renamed
+    zc.async_update_service.reset_mock()
+
+    addresses[:] = ["192.168.1.42"]
+    changed = await advertiser.refresh()
+
+    assert changed is True
+    new_info = zc.async_update_service.call_args.args[0]
+    assert new_info.name == renamed
+    assert advertiser.service_instance_name == renamed
+
+
 async def test_refresh_is_noop_when_not_registered() -> None:
     """``refresh()`` before ``register()`` is a no-op (no zeroconf to talk to)."""
     advertiser = _make_advertiser(name="green", hostname="green.local")

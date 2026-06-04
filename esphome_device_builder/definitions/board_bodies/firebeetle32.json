@@ -1,0 +1,1 @@
+{"description":"","esphome":{"board":"firebeetle32","platform":"esp32","variant":"esp32"},"id":"firebeetle32","manufacturer":"","name":"FireBeetle-ESP32","pins":[{"gpio":2,"label":"GPIO2"}]}

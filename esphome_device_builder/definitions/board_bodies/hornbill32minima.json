@@ -1,0 +1,1 @@
+{"description":"","esphome":{"board":"hornbill32minima","platform":"esp32","variant":"esp32"},"id":"hornbill32minima","manufacturer":"","name":"Hornbill ESP32 Minima","pins":[{"features":["spi_cs"],"gpio":2,"label":"GPIO2","notes":"SPI CS"}]}

@@ -1,0 +1,1 @@
+{"description":"","esphome":{"board":"honeylemon","platform":"esp32","variant":"esp32"},"id":"honeylemon","manufacturer":"","name":"HONEYLemon","pins":[{"gpio":0,"label":"GPIO0"},{"gpio":2,"label":"GPIO2"}]}

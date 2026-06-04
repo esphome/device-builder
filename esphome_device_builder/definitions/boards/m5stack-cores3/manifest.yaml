@@ -182,7 +182,7 @@ pins:
   features:
   - adc
   - pwm
-  - usb_dp
+  - usb_dm
   available: null
   notes: ADC2_CH8, USB D- (USB-OTG)
 - gpio: 20

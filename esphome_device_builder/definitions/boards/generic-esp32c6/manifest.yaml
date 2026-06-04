@@ -106,7 +106,7 @@ pins:
   label: GPIO13
   features:
   - pwm
-  - usb_dm
+  - usb_dp
   available: null
   notes: USB Serial/JTAG D+
 - gpio: 14

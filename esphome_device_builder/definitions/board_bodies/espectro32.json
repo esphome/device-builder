@@ -1,0 +1,1 @@
+{"description":"","esphome":{"board":"espectro32","platform":"esp32","variant":"esp32"},"id":"espectro32","manufacturer":"","name":"ESPectro32","pins":[{"gpio":15,"label":"GPIO15"},{"gpio":33,"label":"GPIO33"}]}

@@ -1,0 +1,1 @@
+{"description":"","esphome":{"board":"upesy_wrover","platform":"esp32","variant":"esp32"},"id":"upesy_wrover","manufacturer":"","name":"uPesy ESP32 Wrover DevKit","pins":[{"gpio":2,"label":"GPIO2"}]}

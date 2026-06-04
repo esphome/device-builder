@@ -1,0 +1,1 @@
+{"description":"","esphome":{"board":"s_odi_ultra","platform":"esp32","variant":"esp32"},"id":"s_odi_ultra","manufacturer":"","name":"S.ODI Ultra v1","pins":[{"gpio":2,"label":"GPIO2"},{"gpio":4,"label":"GPIO4"}]}

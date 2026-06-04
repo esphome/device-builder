@@ -1,0 +1,1 @@
+{"description":"","esphome":{"board":"lolin32_lite","platform":"esp32","variant":"esp32"},"id":"lolin32_lite","manufacturer":"","name":"WEMOS LOLIN32 Lite","pins":[{"gpio":22,"label":"GPIO22"}]}

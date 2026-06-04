@@ -1,0 +1,1 @@
+{"description":"","esphome":{"board":"wemosbat","platform":"esp32","variant":"esp32"},"id":"wemosbat","manufacturer":"","name":"WeMos WiFi and Bluetooth Battery","pins":[{"gpio":16,"label":"GPIO16"}]}

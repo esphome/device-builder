@@ -1,0 +1,1 @@
+{"description":"","esphome":{"board":"xinabox_cw02","platform":"esp32","variant":"esp32"},"id":"xinabox_cw02","manufacturer":"","name":"XinaBox CW02","pins":[{"gpio":27,"label":"GPIO27"}]}

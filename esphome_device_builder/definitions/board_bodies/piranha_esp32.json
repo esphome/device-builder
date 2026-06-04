@@ -1,0 +1,1 @@
+{"description":"","esphome":{"board":"piranha_esp32","platform":"esp32","variant":"esp32"},"id":"piranha_esp32","manufacturer":"","name":"Fishino Piranha ESP-32","pins":[{"gpio":0,"label":"GPIO0"},{"gpio":2,"label":"GPIO2"}]}
