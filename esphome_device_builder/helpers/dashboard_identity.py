@@ -42,7 +42,13 @@ from typing import Any
 from ..controllers.config import metadata_transaction
 from .peer_link_identity import PeerLinkIdentity, PeerLinkIdentityStore
 
-_DASHBOARD_ID_BYTES = 24
+# 6 bytes of entropy -> exactly 8 base64url chars (no padding), the
+# same length as the mDNS hostname suffix. Short keeps the
+# remote-build subtree path (``.remote_builds/<dashboard_id>/``)
+# under Windows MAX_PATH; the id is a correlation / isolation token,
+# not an auth credential (pairing authenticates via the X25519 Noise
+# XX handshake), so 48 bits is ample.
+_DASHBOARD_ID_BYTES = 6
 _DASHBOARD_IDENTITY_KEY = "_dashboard_identity"
 _DASHBOARD_ID_KEY = "dashboard_id"
 # Legacy location the id co-lived in with the receiver settings;
@@ -52,15 +58,15 @@ _LEGACY_REMOTE_BUILD_KEY = "_remote_build"
 # Public validation contract for ``dashboard_id`` strings on the
 # wire. ``dashboard_id`` is generated via
 # :func:`secrets.token_urlsafe` at :data:`_DASHBOARD_ID_BYTES`
-# bytes of entropy (32 base64url chars at the current size).
-# The cap of 64 defends against runaway inputs without
-# rejecting legitimate values; the pattern catches probes
+# bytes of entropy (8 base64url chars at the current size). The
+# cap of 64 defends against runaway inputs without rejecting
+# legitimate values (older installs carry a 32-char id minted
+# before the length was reduced). The pattern catches probes
 # carrying control bytes / non-printables. Both consumers
 # (``controllers/remote_build`` for WS-command argument
 # validation, and ``controllers/remote_build/peer_link`` for
-# msg3-supplied values on the Noise WS) import these so a
-# future entropy bump or alphabet change happens in one
-# place.
+# msg3-supplied values on the Noise WS) import these so a future
+# entropy change or alphabet change happens in one place.
 DASHBOARD_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 DASHBOARD_ID_MAX_CHARS = 64
 

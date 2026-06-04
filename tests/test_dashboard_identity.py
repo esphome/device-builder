@@ -304,8 +304,8 @@ async def test_dashboard_id_is_url_safe(tmp_path: Path) -> None:
     """``secrets.token_urlsafe`` output: only ``[A-Za-z0-9_-]``."""
     identity = await get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
     assert DASHBOARD_ID_PATTERN.fullmatch(identity.dashboard_id)
-    # 24 bytes base64url-encoded = 32 chars (no padding in token_urlsafe).
-    assert len(identity.dashboard_id) == 32
+    # 6 bytes base64url-encoded = 8 chars (no padding in token_urlsafe).
+    assert len(identity.dashboard_id) == 8
     assert len(identity.dashboard_id) <= DASHBOARD_ID_MAX_CHARS
 
 
