@@ -51,7 +51,7 @@ _PROBE_YAML = textwrap.dedent(
       password: "probe-password"
     api:
       encryption:
-        key: "bm90aGluZ3Rvc2VlaGVyZW5vdGhpbmd0b3NlZQ=="
+        key: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
     """
 )
 
