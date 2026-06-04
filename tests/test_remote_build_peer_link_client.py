@@ -155,6 +155,9 @@ async def receiver_server(
             identity.public_bytes,
         )
     finally:
+        # Stop any connected offloaders before closing the server,
+        # else an open peer-link Noise WS hangs server.close().
+        await _stop_created_offloaders()
         await server.close()
         await handles.stop()
 
@@ -686,6 +689,31 @@ def offloader_controller_dir(tmp_path: Path) -> Path:
     return offloader_dir
 
 
+_CREATED_OFFLOADERS: list[OffloaderController] = []
+
+
+async def _stop_created_offloaders() -> None:
+    """Stop + drain every offloader built via _make_offloader_controller."""
+    while _CREATED_OFFLOADERS:
+        await _CREATED_OFFLOADERS.pop().stop()
+
+
+@pytest.fixture(autouse=True)
+async def _drain_offloaders() -> AsyncGenerator[None, None]:
+    """
+    Stop every _make_offloader_controller offloader at teardown.
+
+    The pair flow leaves live peer-link clients / pair-status
+    listeners (and, post-pair, an open Noise WS to the receiver);
+    an open connection hangs ``receiver_server``'s ``server.close()``.
+    """
+    _CREATED_OFFLOADERS.clear()
+    try:
+        yield
+    finally:
+        await _stop_created_offloaders()
+
+
 def _make_offloader_controller(*, config_dir: Path) -> OffloaderController:
     db = MagicMock()
     db.devices = MagicMock()
@@ -694,7 +722,9 @@ def _make_offloader_controller(*, config_dir: Path) -> OffloaderController:
     db.settings = MagicMock()
     db.settings.config_dir = config_dir
     db.peer_link_identity_store = PeerLinkIdentityStore(config_dir)
-    return OffloaderController(db)
+    controller = OffloaderController(db)
+    _CREATED_OFFLOADERS.append(controller)
+    return controller
 
 
 async def _saved_pairings(offloader: OffloaderController) -> list[StoredPairing]:
