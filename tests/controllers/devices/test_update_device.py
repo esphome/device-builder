@@ -138,6 +138,17 @@ async def test_update_changed_board_sets_flag(
     assert meta["board_id_user_set"] is True
 
 
+async def test_update_device_rescans_so_clients_refresh(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """The handler re-scans the file so a DEVICE_UPDATED event fires."""
+    controller = make_controller(tmp_path)
+
+    await controller.update_device(name="kitchen", board_id="esp32-c3-devkitm-1")
+
+    assert ("reload", "kitchen.yaml") in controller._scanner.calls
+
+
 async def test_update_device_falls_back_to_name_for_missing_friendly_name(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:

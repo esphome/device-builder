@@ -46,6 +46,9 @@ async def update_device(
         friendly_name=friendly_name,
         comment=comment,
     )
+    # Re-scan the one file so the in-memory device + its resolved board_id
+    # pick up the sidecar write and a DEVICE_UPDATED event fires for clients.
+    await controller._scanner.reload(filename)
     meta = await controller._shared_sidecar.get(filename)
     return UpdateDeviceResponse(
         name=name,
