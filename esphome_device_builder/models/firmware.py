@@ -134,6 +134,13 @@ class FirmwareJob(DataClassORJSONMixin):
     # compile fails/cancels. Rides through ``JobLifecycleData`` so the
     # frontend can render the dependency.
     depends_on: str = ""
+    # Latched true once ``depends_on``'s prerequisite has completed and this
+    # job was released onto its lane. Persisted so a restart that lands after
+    # the prerequisite was cleared/pruned from history can still distinguish a
+    # released dependent (route to its lane — the build artifacts exist) from
+    # one whose prerequisite never completed (cancel). Always false for jobs
+    # without a ``depends_on``.
+    dependency_released: bool = False
     # Coarse progress estimate parsed from PlatformIO/esptool output
     # (0-100). Monotonically non-decreasing *within a phase* — the
     # streaming ingest only latches a higher parsed percent. At
