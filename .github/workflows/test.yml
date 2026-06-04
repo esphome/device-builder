@@ -310,23 +310,13 @@ jobs:
           --ignore=tests/e2e/slow
 
   e2e-libretiny:
-    name: E2E LibreTiny (esphome ${{ matrix.channel }})
+    name: E2E LibreTiny (esphome stable)
     runs-on: ubuntu-latest
     # The LibreTiny e2e (tests/e2e/slow/libretiny/) runs a real bk7231n
     # compile that clones the LibreTiny SDK from source (minutes on a cold
     # runner). Split onto its own runner so it can't slow the fast e2e
-    # matrix. ``stable`` is a strict gate; ``dev`` is advisory.
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - channel: stable
-            install: ""
-            allow_failure: false
-          - channel: dev
-            install: uv pip install --upgrade git+https://github.com/esphome/esphome.git@dev
-            allow_failure: true
-    continue-on-error: ${{ matrix.allow_failure }}
+    # matrix. Stable only -- the ``[esphome]`` extra resolves the release
+    # the dashboard ships with.
     steps:
       - name: Check out code from GitHub
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
@@ -343,23 +333,18 @@ jobs:
           uv venv
           uv pip install -e '.[esphome,test]'
 
-      - name: Install esphome (${{ matrix.channel }} channel)
-        if: matrix.install != ''
-        run: ${{ matrix.install }}
-
       - name: Show installed esphome version
         run: uv pip show esphome | grep -E '^(Name|Version):'
 
       - name: Cache PlatformIO core + per-platform toolchains
         # The LibreTiny compile clones the LibreTiny SDK from source on a
-        # cold runner. Cache ``~/.platformio`` per channel so stable/dev
-        # SDK downloads don't collide.
+        # cold runner. Cache ``~/.platformio`` so the SDK download is reused.
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: ~/.platformio
-          key: pio-e2e-libretiny-${{ runner.os }}-${{ matrix.channel }}-${{ hashFiles('tests/e2e/slow/libretiny/test_libretiny_compile_download.py') }}
+          key: pio-e2e-libretiny-${{ runner.os }}-${{ hashFiles('tests/e2e/slow/libretiny/test_libretiny_compile_download.py') }}
           restore-keys: |
-            pio-e2e-libretiny-${{ runner.os }}-${{ matrix.channel }}-
+            pio-e2e-libretiny-${{ runner.os }}-
 
       - name: Run LibreTiny e2e
         # 20 min outer cap: a cold LibreTiny SDK clone plus compile runs
