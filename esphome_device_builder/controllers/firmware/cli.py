@@ -24,9 +24,7 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-def compose_subprocess_env(
-    job: FirmwareJob, windows_pio_core_dir: Path | None = None
-) -> dict[str, str]:
+def compose_subprocess_env(job: FirmwareJob) -> dict[str, str]:
     """
     Return the env dict for *job*'s ``esphome`` subprocess.
 
@@ -34,16 +32,11 @@ def compose_subprocess_env(
     for receiver-side remote-build jobs pins ``ESPHOME_DATA_DIR``
     to the per-build subtree under ``CORE.data_dir`` so per-config
     artefacts land in one ``(dashboard_id, device)``-keyed dir.
-
-    On Windows also pins ``PLATFORMIO_CORE_DIR`` to *windows_pio_core_dir*
-    (a real short dir) so framework paths stay under ``MAX_PATH``.
     """
     env = {**os.environ, **ESPHOME_SUBPROCESS_ENV}
     remote_build_path = parse_remote_build_path(job.configuration)
     if remote_build_path is not None:
         env["ESPHOME_DATA_DIR"] = str(remote_build_path.data_dir(Path(CORE.data_dir)))
-    if windows_pio_core_dir is not None:
-        env["PLATFORMIO_CORE_DIR"] = str(windows_pio_core_dir)
     return env
 
 

@@ -54,14 +54,17 @@ def test_windows_relocated_build_compiles_deep_spaced_idf(
     assert " " in str(config_dir)  # the case the relocation must neutralize
 
     monkeypatch.delenv("ESPHOME_DATA_DIR", raising=False)
-    with windows_short_build_paths(config_dir) as pio_core_dir:
-        assert pio_core_dir is not None
+    monkeypatch.delenv("PLATFORMIO_CORE_DIR", raising=False)
+    with windows_short_build_paths(config_dir):
         root = Path(os.environ["ESPHOME_DATA_DIR"])
         assert " " not in str(root)  # relocated to a short, space-free root
+        assert " " not in os.environ["PLATFORMIO_CORE_DIR"]
 
-        # Drive the real subprocess-env composition (a local COMPILE job).
+        # Drive the real subprocess-env composition (a local COMPILE job). PLATFORMIO_CORE_DIR
+        # flows in through os.environ, so the env carries it without a threaded argument.
         job = FirmwareJob(job_id="probe", configuration="probe.yaml", job_type=JobType.COMPILE)
-        env = compose_subprocess_env(job, pio_core_dir)
+        env = compose_subprocess_env(job)
+        assert env["PLATFORMIO_CORE_DIR"] == os.environ["PLATFORMIO_CORE_DIR"]
 
         result = subprocess.run(  # noqa: S603
             [sys.executable, "-m", "esphome", "compile", str(config)],

@@ -41,8 +41,6 @@ from .helpers import (
 )
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from ...device_builder import DeviceBuilder
     from ...helpers.event_bus import EventBus
 
@@ -60,12 +58,8 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     connected clients.
     """
 
-    def __init__(
-        self, device_builder: DeviceBuilder, windows_pio_core_dir: Path | None = None
-    ) -> None:
+    def __init__(self, device_builder: DeviceBuilder) -> None:
         self._db = device_builder
-        # Real short PLATFORMIO_CORE_DIR on Windows (helpers.windows_build_paths); None else.
-        self._windows_pio_core_dir = windows_pio_core_dir
         self.state = FirmwareState()
         # Short-lived capability tokens for the HTTP artifact-download route.
         self.download_tokens = download_mod.DownloadTokens()
@@ -415,7 +409,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         await cli.verify_chip(self, job, lane)
 
     def _compose_subprocess_env(self, job: FirmwareJob) -> dict[str, str]:
-        return cli.compose_subprocess_env(job, self._windows_pio_core_dir)
+        return cli.compose_subprocess_env(job)
 
     def _build_command(
         self,

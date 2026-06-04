@@ -26,8 +26,8 @@ def test_context_manager_is_noop_off_windows(
 ) -> None:
     """Off Windows the context manager touches nothing and yields ``None``."""
     monkeypatch.delenv("ESPHOME_DATA_DIR", raising=False)
-    with windows_short_build_paths(tmp_path) as pio:
-        assert pio is None
+    with windows_short_build_paths(tmp_path) as ret:
+        assert ret is None
         assert "ESPHOME_DATA_DIR" not in os.environ
     assert "ESPHOME_DATA_DIR" not in os.environ
 
@@ -42,30 +42,49 @@ def fake_windows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(wbp, "get_or_create_dashboard_id", lambda _config_dir: _ID)
     monkeypatch.setattr(wbp, "_platformio_dir", lambda: tmp_path / "home_platformio")
     monkeypatch.delenv("ESPHOME_DATA_DIR", raising=False)
+    monkeypatch.delenv("PLATFORMIO_CORE_DIR", raising=False)
     return root_base
 
 
 def test_relocates_env_to_short_root_and_restores(tmp_path: Path, fake_windows: Path) -> None:
-    """Inside the block ESPHOME_DATA_DIR is the short root and the pio dir is yielded."""
+    """Inside the block both env vars point at the short root; both are cleared on exit."""
     config_dir = tmp_path / "First Last" / "esphome"
     root = fake_windows / f"esphb-{_ID8}"
-    with windows_short_build_paths(config_dir) as pio:
+    with windows_short_build_paths(config_dir):
         assert os.environ["ESPHOME_DATA_DIR"] == str(root)
-        assert pio == root / "pio"
+        assert os.environ["PLATFORMIO_CORE_DIR"] == str(root / "pio")
         assert root.is_dir()
-        assert pio.is_dir()
+        assert (root / "pio").is_dir()
     assert "ESPHOME_DATA_DIR" not in os.environ
+    assert "PLATFORMIO_CORE_DIR" not in os.environ
 
 
-def test_restores_prior_env_var(
+def test_root_uses_first_8_chars_of_dashboard_id(tmp_path: Path, fake_windows: Path) -> None:
+    """The root suffix is exactly the first 8 chars of the dashboard_id."""
+    assert len(_ID) > 8, "stub id must exceed 8 chars to prove truncation"
+    with windows_short_build_paths(tmp_path / "cfg"):
+        assert Path(os.environ["ESPHOME_DATA_DIR"]).name == f"esphb-{_ID[:8]}"
+
+
+def test_skips_relocation_when_user_set_data_dir(
     tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """An existing ESPHOME_DATA_DIR is restored verbatim on exit."""
-    monkeypatch.setenv("ESPHOME_DATA_DIR", str(tmp_path / "prior"))
-    with windows_short_build_paths(tmp_path / "First Last" / "esphome") as pio:
-        assert pio is not None
-        assert os.environ["ESPHOME_DATA_DIR"] != str(tmp_path / "prior")
-    assert os.environ["ESPHOME_DATA_DIR"] == str(tmp_path / "prior")
+    """A user-set ESPHOME_DATA_DIR is a deliberate choice: relocation is skipped and it stands."""
+    monkeypatch.setenv("ESPHOME_DATA_DIR", str(tmp_path / "chosen"))
+    with windows_short_build_paths(tmp_path / "First Last" / "esphome"):
+        assert os.environ["ESPHOME_DATA_DIR"] == str(tmp_path / "chosen")
+        assert not (fake_windows / f"esphb-{_ID8}").exists()
+    assert os.environ["ESPHOME_DATA_DIR"] == str(tmp_path / "chosen")
+
+
+def test_restores_prior_platformio_core_dir(
+    tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A pre-existing PLATFORMIO_CORE_DIR is restored verbatim on exit."""
+    monkeypatch.setenv("PLATFORMIO_CORE_DIR", str(tmp_path / "prior_pio"))
+    with windows_short_build_paths(tmp_path / "First Last" / "esphome"):
+        assert os.environ["PLATFORMIO_CORE_DIR"] != str(tmp_path / "prior_pio")
+    assert os.environ["PLATFORMIO_CORE_DIR"] == str(tmp_path / "prior_pio")
 
 
 def test_platformio_dir_defaults_under_home() -> None:
@@ -83,9 +102,9 @@ def test_migrates_existing_data_and_toolchain(tmp_path: Path, fake_windows: Path
     (home_pio / "tool.txt").write_text("toolchain", encoding="utf-8")
 
     root = fake_windows / f"esphb-{_ID8}"
-    with windows_short_build_paths(config_dir) as pio:
+    with windows_short_build_paths(config_dir):
         assert (root / "marker.txt").read_text(encoding="utf-8") == "data"
-        assert (pio / "tool.txt").read_text(encoding="utf-8") == "toolchain"
+        assert (root / "pio" / "tool.txt").read_text(encoding="utf-8") == "toolchain"
     assert not (config_dir / ".esphome").exists()
     assert not home_pio.exists()
 
@@ -107,17 +126,32 @@ def test_second_run_reuses_root_without_remigrating(tmp_path: Path, fake_windows
     assert not (root / "new.txt").exists()
 
 
-def test_migration_failure_falls_back_and_leaves_env(
+def test_failed_move_still_relocates_env(
     tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """If relocation raises, the block yields ``None`` and never sets the override."""
+    """A migration move that errors is logged but never aborts relocation: env still points home."""
+    config_dir = tmp_path / "First Last" / "esphome"
+    (config_dir / ".esphome").mkdir(parents=True)
 
-    def _boom(*_args: object) -> None:
+    def _boom(*_args: object, **_kwargs: object) -> None:
         msg = "denied"
         raise OSError(msg)
 
-    monkeypatch.setattr(wbp, "_migrate", _boom)
-    with windows_short_build_paths(tmp_path / "First Last" / "esphome") as pio:
-        assert pio is None
+    monkeypatch.setattr(wbp.shutil, "move", _boom)
+    root = fake_windows / f"esphb-{_ID8}"
+    with windows_short_build_paths(config_dir):
+        assert os.environ["ESPHOME_DATA_DIR"] == str(root)
+        assert root.is_dir()
+    assert "ESPHOME_DATA_DIR" not in os.environ
+
+
+def test_root_creation_failure_falls_back_to_noop(
+    tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If the root dir cannot be created, the block yields and never sets the override env."""
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a dir", encoding="utf-8")
+    monkeypatch.setattr(wbp, "_ROOT_BASE", blocker)  # mkdir under a file raises OSError
+    with windows_short_build_paths(tmp_path / "First Last" / "esphome"):
         assert "ESPHOME_DATA_DIR" not in os.environ
     assert "ESPHOME_DATA_DIR" not in os.environ

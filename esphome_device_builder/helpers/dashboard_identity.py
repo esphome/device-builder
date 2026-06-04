@@ -132,11 +132,7 @@ async def rotate_identity(
 
 
 def get_or_create_dashboard_id(config_dir: Path) -> str:
-    """Sync accessor for the persistent ``dashboard_id`` (mints + persists on first call).
-
-    For sync startup callers that need the id before the event loop (e.g. the Windows
-    build-path relocation); reads the metadata sidecar under *config_dir*.
-    """
+    """Sync accessor for the persistent ``dashboard_id`` (mints + persists on first call)."""
     return _get_or_create_dashboard_id(config_dir)
 
 
