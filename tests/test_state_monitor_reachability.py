@@ -457,12 +457,7 @@ async def test_mdns_removed_clears_tracker_for_device() -> None:
 
 
 def test_forget_drops_source_ledger() -> None:
-    """``forget`` clears the precedence ledger so a reused name isn't gated by a stale source.
-
-    A deleted ping-only device that left ``state_source`` pinned to
-    ``mdns`` would otherwise block the re-added device's lower-priority
-    ping observation forever.
-    """
+    """``forget`` removes the name from the precedence ledger."""
     devices = [_make_device(state=DeviceState.ONLINE)]
     monitor = _make_monitor(devices)
 
