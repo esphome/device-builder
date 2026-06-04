@@ -58,7 +58,6 @@ from esphome_device_builder.models import (
     EventType,
     QueueStatus,
 )
-from script.sync_boards import build_catalog
 
 if TYPE_CHECKING:
     from blockbuster import BlockBuster
@@ -496,6 +495,11 @@ def generated_board_catalog() -> BoardCatalogResponse:
     ``xdist_group("board_sync")`` so this runs a single time per suite.
     Tests read the result only — do not mutate it.
     """
+    # Imported lazily: ``script.sync_boards`` mutates ``sys.path`` at import
+    # time, so a top-level import would force that side effect on the whole
+    # suite during collection even when no test wants this fixture.
+    from script.sync_boards import build_catalog  # noqa: PLC0415
+
     return build_catalog()
 
 
