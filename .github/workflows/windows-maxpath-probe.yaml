@@ -1,10 +1,9 @@
 name: Windows MAX_PATH junction probe
 
 # Manual investigation aid for the desktop-Windows path-shortening design (issue #1190).
-# Runs one ESP-IDF compile on a windows-latest runner with ESPHOME_DATA_DIR /
-# PLATFORMIO_CORE_DIR pointed at short directory junctions, then inspects the generated
-# build files to decide whether the compiler is handed the short junction path (junction
-# survives) or the canonical long target (PlatformIO/CMake canonicalized it away). See
+# Compiles a deep ESP-IDF config on a windows-latest runner under the proposed short-root
+# layout (build tree via a short junction C:\esphb, PlatformIO core at a real short dir
+# C:\esphb-pio) and confirms it builds where the long default overflows MAX_PATH. See
 # script/windows_maxpath_probe.py. workflow_dispatch only (never on push/PR).
 
 permissions:
@@ -12,10 +11,6 @@ permissions:
 
 on:
   workflow_dispatch:
-  # TEMPORARY: branch-scoped push trigger so the probe runs before the
-  # workflow_dispatch entry lands on the default branch. Remove before merge.
-  push:
-    branches: [windows-maxpath-junction-probe]
 
 jobs:
   probe:
