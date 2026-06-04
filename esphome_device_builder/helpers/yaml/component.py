@@ -378,12 +378,19 @@ def _string_needs_quoting(value: str) -> bool:
     # globals ``initial_value`` C++ literal ``"Hello"`` emitted bare
     # round-trips as the plain string ``Hello``, dropping the quotes
     # ESPHome compiles against (#1095). ``:`` opens a mapping value and
-    # ``#`` opens a comment anywhere in the value. Survivors then take
-    # the (cheap pre-filtered) ``yaml.safe_load`` round-trip test for
-    # numeric-looking strings — the original #901 case.
+    # ``#`` opens a comment anywhere in the value. A trailing space is
+    # stripped on a plain round trip, and an embedded ``\n`` / ``\r`` /
+    # ``\t`` splits the value across lines (invalid YAML) or is silently
+    # eaten — both mirror ``_safe_yaml_scalar``'s guards, since this
+    # emitter takes the same arbitrary user-supplied component field
+    # values. Survivors then take the (cheap pre-filtered)
+    # ``yaml.safe_load`` round-trip test for numeric-looking strings —
+    # the original #901 case.
     if value.lower() in _YAML_RESERVED_KEYWORDS or value in ("~", ""):
         return True
     if value[0] in _PLAIN_SCALAR_INDICATOR_LEAD or ":" in value or "#" in value:
+        return True
+    if value.endswith(" ") or any(c in value for c in "\n\r\t"):
         return True
     return _yaml_reparses_as_non_string(value)
 

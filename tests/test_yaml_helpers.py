@@ -1265,6 +1265,24 @@ def test_generate_component_yaml_quote_bearing_string_round_trips(value: str) ->
     assert yaml.safe_load(out)["myc"]["v"] == value
 
 
+@pytest.mark.parametrize(
+    "value",
+    ["Living Room ", "line1\nline2", "tab\there", "carriage\rreturn"],
+    ids=["trailing-space", "embedded-newline", "embedded-tab", "embedded-cr"],
+)
+def test_generate_component_yaml_whitespace_and_control_chars_round_trip(value: str) -> None:
+    r"""Trailing-space / control-char field values survive a full re-parse.
+
+    A trailing space is stripped on a plain round trip; an embedded
+    ``\n`` / ``\t`` / ``\r`` emitted bare produces invalid YAML (the
+    value splits across lines). The emitter must quote them, matching
+    ``_safe_yaml_scalar`` — both take the same user-supplied field input.
+    """
+    component = _component(component_id="myc", category=ComponentCategory.MISC)
+    out = generate_component_yaml(component, {"v": value})
+    assert yaml.safe_load(out)["myc"]["v"] == value
+
+
 # ---------------------------------------------------------------------------
 # generate_component_yaml — nested fields (_emit_field branches)
 # ---------------------------------------------------------------------------
@@ -1545,15 +1563,16 @@ def test_generate_component_yaml_quotes_case_variant_keyword_strings(variant: st
 
 
 def test_generate_component_yaml_quotes_unparseable_string_starting_with_digit() -> None:
-    r"""A digit-led string yaml can't parse (``"0\t"``) falls through unquoted.
+    r"""A digit-led string yaml can't parse (``"0\x7f"``) falls through unquoted.
 
     Exercises the ``yaml.YAMLError`` branch in
     ``_yaml_reparses_as_non_string`` — the pre-filter lets the value
     through, the parser raises, and the helper returns False so the
-    string emits without quotes.
+    string emits without quotes. ``\x7f`` (DEL) is a control char the
+    ``\n`` / ``\r`` / ``\t`` quoting guard deliberately does not cover.
     """
     component = _component(component_id="myc", category=ComponentCategory.MISC)
-    out = generate_component_yaml(component, {"v": "0\t"})
+    out = generate_component_yaml(component, {"v": "0\x7f"})
     # The value rendered bare — no extra quotes from the reparse check.
     assert '  v: "' not in out
 
