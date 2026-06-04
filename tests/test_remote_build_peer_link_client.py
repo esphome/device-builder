@@ -122,14 +122,10 @@ def bound_unused_tcp_port() -> Iterator[int]:
 
 @pytest.fixture
 def fast_unreachable_connect(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Bound the one-shot connect so an unreachable receiver fails sub-second.
-
-    A bound-but-unlistened port refuses instantly on Linux (RST) but
-    BSD/macOS silently drops the SYN, so the connect otherwise hangs to
-    the 10s client budget. The timeout and the refusal both surface as
-    the same ``PeerLinkClientError("...failed...")`` / ``UNAVAILABLE``,
-    so shortening the driver budget keeps the assertions intact.
-    """
+    """Shorten the one-shot connect budget so unreachable-receiver tests fail fast."""
+    # A bound-but-unlistened port RSTs instantly on Linux but BSD/macOS drops
+    # the SYN, so the connect hangs to the 10s budget; a timeout and a refusal
+    # both surface as PeerLinkClientError("...failed") / UNAVAILABLE.
     real = one_shot.drive_initiator_round_trip
 
     async def _fast(**kwargs: Any) -> Any:
