@@ -385,7 +385,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     async def update_device(
         self,
         *,
-        name: str,
+        configuration: str,
         friendly_name: str | None = None,
         comment: str | None = None,
         board_id: str | None = None,
@@ -394,7 +394,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         """Update device metadata (sidecar JSON, not the YAML file)."""
         return await mutations_simple.update_device(
             self,
-            name=name,
+            configuration=configuration,
             friendly_name=friendly_name,
             comment=comment,
             board_id=board_id,

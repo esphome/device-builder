@@ -561,6 +561,75 @@ def test_find_by_pio_board_scoped_miss_returns_none(catalog: BoardCatalog) -> No
 
 
 # ---------------------------------------------------------------------------
+# find_all_by_pio_board / get_compatible_boards
+# ---------------------------------------------------------------------------
+
+
+def test_find_all_by_pio_board_returns_every_sibling(catalog: BoardCatalog) -> None:
+    """Every entry on a shared pio_board is returned, generics last."""
+    boards = catalog.find_all_by_pio_board("esp32-c3-devkitm-1")
+
+    assert [b.id for b in boards] == ["seeed-xiao-esp32c3", "generic-esp32c3"]
+
+
+def test_find_all_by_pio_board_scopes_to_platform(catalog: BoardCatalog) -> None:
+    """``platform`` (enum or string) drops siblings on other platforms."""
+    catalog._boards = [
+        _board(
+            board_id="adafruit_itsybitsy",
+            platform=Platform.RP2040,
+            pio_board="adafruit_itsybitsy",
+        ),
+        _board(
+            board_id="adafruit_itsybitsy_nrf52",
+            platform=Platform.NRF52,
+            pio_board="adafruit_itsybitsy",
+        ),
+    ]
+
+    rp = catalog.find_all_by_pio_board("adafruit_itsybitsy", platform=Platform.RP2040)
+    nrf = catalog.find_all_by_pio_board("adafruit_itsybitsy", platform="nrf52")
+
+    assert [b.id for b in rp] == ["adafruit_itsybitsy"]
+    assert [b.id for b in nrf] == ["adafruit_itsybitsy_nrf52"]
+
+
+def test_find_all_by_pio_board_unknown_returns_empty(catalog: BoardCatalog) -> None:
+    """No catalog entry on that pio_board → empty list."""
+    assert catalog.find_all_by_pio_board("nonexistent-board") == []
+
+
+async def test_get_compatible_boards_returns_siblings_including_self(
+    catalog: BoardCatalog,
+) -> None:
+    """Returns every sibling on the board's pio target, the board included."""
+    response = await catalog.get_compatible_boards(board_id="generic-esp32c3")
+
+    assert [b.id for b in response.boards] == ["seeed-xiao-esp32c3", "generic-esp32c3"]
+    assert response.total == 2
+
+
+async def test_get_compatible_boards_lone_board_returns_only_itself(
+    catalog: BoardCatalog,
+) -> None:
+    """A board with a unique pio target comes back as just itself."""
+    response = await catalog.get_compatible_boards(board_id="m5stack-cores3")
+
+    assert [b.id for b in response.boards] == ["m5stack-cores3"]
+    assert response.total == 1
+
+
+async def test_get_compatible_boards_unknown_id_returns_empty(
+    catalog: BoardCatalog,
+) -> None:
+    """Unknown board id → empty page (not an exception)."""
+    response = await catalog.get_compatible_boards(board_id="not-a-real-board")
+
+    assert response.boards == []
+    assert response.total == 0
+
+
+# ---------------------------------------------------------------------------
 # find_by_platform_variant
 # ---------------------------------------------------------------------------
 

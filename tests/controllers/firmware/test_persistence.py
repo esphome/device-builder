@@ -586,3 +586,41 @@ async def test_held_upload_cancels_when_prerequisite_is_gone(
     assert restored["orphan01"].status == JobStatus.CANCELLED
     assert restored["orphan01"].error
     assert reader.state.upload_lane.queue.empty()
+
+
+async def test_released_upload_runs_after_prerequisite_cleared_then_restart(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_runtime: None,
+) -> None:
+    """A released UPLOAD resumes on its lane even when its prerequisite is gone.
+
+    Clearing finished jobs (or history pruning) can drop the COMPLETED compile
+    while its dependent upload is still queued; once the compile released the
+    upload the build artifacts exist, so a restart must flash rather than
+    cancel. ``dependency_released`` is the latch that distinguishes this from a
+    prerequisite that never completed.
+    """
+    (tmp_path / "kitchen.yaml").write_text("")
+    writer = _persistent_controller(firmware_controller_factory)
+    await writer.compile(configuration="kitchen.yaml")
+    _inject_job(
+        tmp_path,
+        FirmwareJob(
+            job_id="released01",
+            configuration="kitchen.yaml",
+            job_type=JobType.UPLOAD,
+            status=JobStatus.QUEUED,
+            port="OTA",
+            depends_on="cleared-from-history",
+            dependency_released=True,
+        ),
+    )
+
+    reader = await _restart(firmware_controller_factory)
+
+    restored = {j.job_id: j for j in await reader.get_jobs()}
+    assert restored["released01"].status == JobStatus.QUEUED
+    assert restored["released01"].error is None
+    # Routed onto the upload lane to flash, not cancelled.
+    assert not reader.state.upload_lane.queue.empty()

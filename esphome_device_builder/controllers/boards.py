@@ -29,6 +29,11 @@ _LOGGER = logging.getLogger(__name__)
 _BODY_CACHE_MAXSIZE = 128
 
 
+def _board_sort_key(board: BoardCatalogIndex) -> tuple[bool, bool, str]:
+    """Catalog display order: featured first, generics last, then by name."""
+    return (not board.featured, board.is_generic, board.name.lower())
+
+
 class BoardCatalog:
     """In-memory slim board index + lazy-loaded full bodies."""
 
@@ -106,14 +111,26 @@ class BoardCatalog:
                 or any(query_lower in t for t in b.tags)
             ]
 
-        results = sorted(
-            results,
-            key=lambda b: (not b.featured, b.is_generic, b.name.lower()),
-        )
+        results = sorted(results, key=_board_sort_key)
 
         total = len(results)
         page = results[offset : offset + limit]
         return PagedBoardsResponse(boards=page, total=total, offset=offset, limit=limit)
+
+    @api_command("boards/get_compatible_boards")
+    async def get_compatible_boards(self, *, board_id: str, **kwargs: Any) -> PagedBoardsResponse:
+        """
+        Boards interchangeable with ``board_id`` (same PlatformIO target).
+
+        One page; includes ``board_id`` itself, empty when the id is unknown.
+        """
+        current = self.get_by_id(board_id)
+        matches = (
+            self.find_all_by_pio_board(current.esphome.board, current.esphome.platform)
+            if current is not None
+            else []
+        )
+        return PagedBoardsResponse(boards=matches, total=len(matches), offset=0, limit=len(matches))
 
     def get_by_id(self, board_id: str) -> BoardCatalogIndex | None:
         """Look up a slim board index entry by id, or ``None``."""
@@ -121,6 +138,18 @@ class BoardCatalog:
             if board.id == board_id:
                 return board
         return None
+
+    def _matches_pio_board(
+        self,
+        pio_board: str,
+        platform: Platform | str | None = None,
+    ) -> list[BoardCatalogIndex]:
+        """Catalog entries on a PlatformIO board, optionally scoped to a platform."""
+        matches = [b for b in self._boards if b.esphome.board == pio_board]
+        if platform is not None:
+            platform_value = platform.value if isinstance(platform, Platform) else platform
+            matches = [b for b in matches if b.esphome.platform.value == platform_value]
+        return matches
 
     def find_by_pio_board(
         self,
@@ -159,10 +188,7 @@ class BoardCatalog:
            the board for plain ``d1_mini`` YAMLs).
         3. Fall back to the first match in iteration order.
         """
-        matches = [b for b in self._boards if b.esphome.board == pio_board]
-        if platform is not None:
-            platform_value = platform.value if isinstance(platform, Platform) else platform
-            matches = [b for b in matches if b.esphome.platform.value == platform_value]
+        matches = self._matches_pio_board(pio_board, platform)
         if not matches:
             return None
         if pio_variant:
@@ -179,6 +205,14 @@ class BoardCatalog:
             if b.id.replace("_", "-") == normalized_pio:
                 return b
         return matches[0]
+
+    def find_all_by_pio_board(
+        self,
+        pio_board: str,
+        platform: Platform | str | None = None,
+    ) -> list[BoardCatalogIndex]:
+        """All catalog entries on the same PlatformIO board, featured first then generics last."""
+        return sorted(self._matches_pio_board(pio_board, platform), key=_board_sort_key)
 
     def find_by_platform_variant(
         self,

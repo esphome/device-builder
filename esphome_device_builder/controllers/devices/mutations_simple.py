@@ -19,13 +19,17 @@ if TYPE_CHECKING:
 async def update_device(
     controller: DevicesController,
     *,
-    name: str,
+    configuration: str,
     friendly_name: str | None,
     comment: str | None,
     board_id: str | None,
 ) -> UpdateDeviceResponse:
-    """Update device metadata (sidecar JSON, not the YAML file)."""
-    filename = f"{name}.yaml"
+    """Update device metadata (sidecar JSON, not the YAML file).
+
+    Keyed by ``configuration`` (the ``.yaml`` filename) like every other
+    device mutation; a device's ESPHome ``name`` can differ from its
+    filename stem, so keying on name writes the wrong sidecar.
+    """
     # Flag board_id as user-set only when it differs from the displayed
     # board, so a client echoing the shown (maybe auto-derived) value
     # while editing name/comment can't pin a derived id. A deliberate
@@ -34,19 +38,23 @@ async def update_device(
     user_set: bool | None = None
     if board_id:
         displayed = next(
-            (d.board_id for d in controller._scanner.devices if d.configuration == filename),
+            (d.board_id for d in controller._scanner.devices if d.configuration == configuration),
             "",
         )
         if board_id != displayed:
             user_set = True
     await controller._persist_device_metadata_async(
-        filename,
+        configuration,
         board_id=board_id,
         board_id_user_set=user_set,
         friendly_name=friendly_name,
         comment=comment,
     )
-    meta = await controller._shared_sidecar.get(filename)
+    # Re-scan the one file so the in-memory device + its resolved board_id
+    # pick up the sidecar write and a DEVICE_UPDATED event fires for clients.
+    await controller._scanner.reload(configuration)
+    meta = await controller._shared_sidecar.get(configuration)
+    name = configuration.removesuffix(".yaml")
     return UpdateDeviceResponse(
         name=name,
         friendly_name=meta.get("friendly_name", name),

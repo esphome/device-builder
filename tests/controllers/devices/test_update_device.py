@@ -34,9 +34,8 @@ async def test_update_device_writes_full_metadata(
 ) -> None:
     """The three sidecar-stored fields land on disk and round-trip back.
 
-    ``name`` is the entry's filename key (``<name>.yaml``), not a
-    sidecar field; ``friendly_name`` / ``comment`` / ``board_id``
-    are the three values actually written into
+    ``configuration`` is the entry's filename key; ``friendly_name`` /
+    ``comment`` / ``board_id`` are the three values actually written into
     ``.device-builder.json``. Pin the persist + read-back contract
     end-to-end. The previous shape was a tight feedback loop where
     the response was built from the *input* args; that drifted out
@@ -47,7 +46,7 @@ async def test_update_device_writes_full_metadata(
     controller = make_controller(tmp_path)
 
     response = await controller.update_device(
-        name="kitchen",
+        configuration="kitchen.yaml",
         friendly_name="Kitchen Sensor",
         comment="On the wall by the toaster",
         board_id="esp32-c3-devkitm-1",
@@ -92,7 +91,7 @@ async def test_update_device_partial_keeps_unrelated_fields(
         comment="Old comment",
     )
 
-    response = await controller.update_device(name="kitchen", comment="New comment")
+    response = await controller.update_device(configuration="kitchen.yaml", comment="New comment")
 
     # Only the comment changed; the other identity fields survive.
     assert response.comment == "New comment"
@@ -117,7 +116,9 @@ async def test_update_echoing_displayed_board_does_not_pin(
     controller = make_controller(tmp_path)
     controller._scanner.devices = [make_device("kitchen", board_id="generic-esp32")]
 
-    await controller.update_device(name="kitchen", comment="x", board_id="generic-esp32")
+    await controller.update_device(
+        configuration="kitchen.yaml", comment="x", board_id="generic-esp32"
+    )
 
     meta = await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml")
     assert meta["board_id"] == "generic-esp32"
@@ -131,11 +132,22 @@ async def test_update_changed_board_sets_flag(
     controller = make_controller(tmp_path)
     controller._scanner.devices = [make_device("kitchen", board_id="generic-esp32")]
 
-    await controller.update_device(name="kitchen", board_id="aquaping")
+    await controller.update_device(configuration="kitchen.yaml", board_id="aquaping")
 
     meta = await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml")
     assert meta["board_id"] == "aquaping"
     assert meta["board_id_user_set"] is True
+
+
+async def test_update_device_rescans_so_clients_refresh(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """The handler re-scans the file so a DEVICE_UPDATED event fires."""
+    controller = make_controller(tmp_path)
+
+    await controller.update_device(configuration="kitchen.yaml", board_id="esp32-c3-devkitm-1")
+
+    assert ("reload", "kitchen.yaml") in controller._scanner.calls
 
 
 async def test_update_device_falls_back_to_name_for_missing_friendly_name(
@@ -150,7 +162,9 @@ async def test_update_device_falls_back_to_name_for_missing_friendly_name(
     """
     controller = make_controller(tmp_path)
 
-    response = await controller.update_device(name="kitchen", board_id="esp32-c3-devkitm-1")
+    response = await controller.update_device(
+        configuration="kitchen.yaml", board_id="esp32-c3-devkitm-1"
+    )
 
     # No friendly_name passed, no sidecar entry → falls back to ``name``.
     assert response.friendly_name == "kitchen"
@@ -173,7 +187,7 @@ async def test_update_device_persists_via_executor(
     """
     controller = make_controller(tmp_path)
 
-    await controller.update_device(name="kitchen", friendly_name="Kitchen")
+    await controller.update_device(configuration="kitchen.yaml", friendly_name="Kitchen")
 
     # The atomic-replace landed a real JSON file on disk.
     sidecar = tmp_path / ".device-builder.json"

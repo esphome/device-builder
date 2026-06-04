@@ -67,6 +67,9 @@ class FirmwareState:
 
     def place_on_lane(self, job: FirmwareJob) -> None:
         """Put *job* onto the lane its type maps to, ready for that lane's consumer."""
+        if job.depends_on:
+            # Reached only once the dependency is satisfied; latch it.
+            job.dependency_released = True
         self.lane_for(job).queue.put_nowait(job)
 
     def active_jobs(self) -> Iterator[FirmwareJob]:
