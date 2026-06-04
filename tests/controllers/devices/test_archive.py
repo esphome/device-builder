@@ -180,6 +180,7 @@ async def test_archive_clears_volatile_metadata_keeps_identity(
         tmp_path,
         "kitchen.yaml",
         board_id="esp32-c3-devkitm-1",
+        board_id_user_set=True,
         friendly_name="Kitchen Sensor",
         comment="By the toaster",
         mac_address="94:C9:60:1F:8C:F1",
@@ -204,6 +205,7 @@ async def test_archive_clears_volatile_metadata_keeps_identity(
     post_shared = await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml")
     assert post_shared == {
         "board_id": "esp32-c3-devkitm-1",
+        "board_id_user_set": True,
         "friendly_name": "Kitchen Sensor",
         "comment": "By the toaster",
     }

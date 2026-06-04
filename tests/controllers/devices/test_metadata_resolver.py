@@ -248,18 +248,8 @@ def test_added_device_fully_populated_does_not_regenerate(
     assert regenerated == []
 
 
-def test_board_id_from_sidecar_takes_priority_over_yaml(tmp_path: Path, monkeypatch: Any) -> None:
-    """A pinned board_id from the sidecar isn't clobbered by YAML re-derivation.
-
-    Locks down the existing precedence even though the diff under
-    test is about the hash side — board_id and the hash are
-    resolved together, so a refactor that broke the precedence in
-    one direction would likely break the other.
-    """
-    config_dir = tmp_path
-    filename = "kitchen.yaml"
-    (config_dir / filename).write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-
+def _resolver_controller(tmp_path: Path) -> DevicesController:
+    """Build a bare ``DevicesController`` with a real store + shared sidecar."""
     controller = DevicesController.__new__(DevicesController)
     controller._shutdown_callbacks = []
     controller._metadata_store = DeviceMetadataStore(
@@ -268,14 +258,82 @@ def test_board_id_from_sidecar_takes_priority_over_yaml(tmp_path: Path, monkeypa
         shutdown_register=controller._shutdown_callbacks.append,
     )
     controller._shared_sidecar = SharedSidecarClient(tmp_path)
+    return controller
+
+
+def test_user_set_board_id_is_trusted_over_yaml(tmp_path: Path, monkeypatch: Any) -> None:
+    """A user-picked board_id (flagged) wins over a fresh YAML re-derivation.
+
+    Pins that a deliberate pick survives even when it differs from
+    what ``find_by_pio_board`` would return today.
+    """
+    config_dir = tmp_path
+    filename = "kitchen.yaml"
+    (config_dir / filename).write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    controller = _resolver_controller(tmp_path)
     derive = MagicMock(return_value="should-not-be-called")
     monkeypatch.setattr(controller, "_derive_board_id_from_yaml", derive, raising=False)
-    _seed_metadata(monkeypatch, controller, filename, {"board_id": "esp32-poe"})
+    _seed_metadata(
+        monkeypatch, controller, filename, {"board_id": "esp32-poe", "board_id_user_set": True}
+    )
 
     metadata = controller._resolve_device_metadata(config_dir, filename)
 
     assert metadata.board_id == "esp32-poe"
     derive.assert_not_called()
+
+
+def test_unflagged_board_id_is_rederived_not_trusted(tmp_path: Path, monkeypatch: Any) -> None:
+    """A stale sidecar board_id with no user-set flag is re-derived.
+
+    The reported-bug shape: a board_id auto-derived under an older
+    catalog lingers in the sidecar; resolve must recompute against
+    the current catalog rather than trust the stale value.
+    """
+    config_dir = tmp_path
+    filename = "kitchen.yaml"
+    (config_dir / filename).write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    controller = _resolver_controller(tmp_path)
+    derive = MagicMock(return_value="cb3s")
+    monkeypatch.setattr(controller, "_derive_board_id_from_yaml", derive, raising=False)
+    _seed_metadata(monkeypatch, controller, filename, {"board_id": "avatto-stale"})
+
+    metadata = controller._resolve_device_metadata(config_dir, filename)
+
+    assert metadata.board_id == "cb3s"
+    derive.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "flag_value",
+    [1, "true", "True", "false", "1", [], {}, 0],
+    ids=["int_1", "str_true", "str_True", "str_false", "str_1", "list", "dict", "int_0"],
+)
+def test_corrupt_user_set_flag_is_not_trusted(
+    tmp_path: Path, monkeypatch: Any, flag_value: Any
+) -> None:
+    """Only a literal ``True`` pins the pick; truthy non-bool values re-derive.
+
+    A hand-edited sidecar could hold ``1`` or ``"true"`` (both
+    truthy); the ``is True`` gate must still re-derive against the
+    current catalog rather than trust a stale board_id.
+    """
+    config_dir = tmp_path
+    filename = "kitchen.yaml"
+    (config_dir / filename).write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    controller = _resolver_controller(tmp_path)
+    derive = MagicMock(return_value="cb3s")
+    monkeypatch.setattr(controller, "_derive_board_id_from_yaml", derive, raising=False)
+    seed = {"board_id": "avatto-stale", "board_id_user_set": flag_value}
+    _seed_metadata(monkeypatch, controller, filename, seed)
+
+    metadata = controller._resolve_device_metadata(config_dir, filename)
+
+    assert metadata.board_id == "cb3s"
+    derive.assert_called_once()
 
 
 @pytest.mark.parametrize(

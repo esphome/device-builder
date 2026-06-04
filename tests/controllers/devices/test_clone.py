@@ -482,18 +482,50 @@ async def test_clone_device_carries_source_board_id_into_metadata(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """Source's ``board_id`` survives the clone via the metadata sidecar.
+    """A user-picked source ``board_id`` survives the clone via the sidecar.
 
-    ``board_id`` is the one piece of dashboard state that can't be
-    recovered from the YAML — it's a catalog-key indirection set by
-    the user at wizard time. The clone path reads the source's
-    metadata in the gather phase and writes it onto the new file's
-    metadata entry in the commit phase, so the cloned device shows
-    up bound to the same catalog board the source picked.
+    A user-set ``board_id`` is the one piece of dashboard state that
+    can't be recovered from the YAML — it's a catalog-key indirection
+    set by the user at wizard time. The clone reads the source's
+    metadata in the gather phase and writes it (with the user-set
+    flag) onto the new file's entry in the commit phase, so the
+    cloned device shows up bound to the same catalog board.
     """
     config_dir = tmp_path
     # Seed the source's metadata sidecar so the clone has something
     # to carry forward.
+    await asyncio.to_thread(
+        set_device_metadata,
+        config_dir,
+        "kitchen.yaml",
+        board_id="esp32-s3-devkitc-1",
+        board_id_user_set=True,
+    )
+    (tmp_path / "kitchen.yaml").write_text(SOURCE_YAML, "utf-8")
+
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    ctrl._db.settings.config_dir = config_dir
+
+    await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    # Verify the metadata sidecar got the carry-forward write.
+    meta = await asyncio.to_thread(get_device_metadata, config_dir, "bedroom-bulb.yaml")
+    assert meta is not None
+    assert meta["board_id"] == "esp32-s3-devkitc-1"
+    assert meta["board_id_user_set"] is True
+
+
+async def test_clone_device_drops_auto_derived_source_board_id(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """An auto-derived source ``board_id`` (no flag) is not carried forward.
+
+    Only a deliberate pick is identity worth copying; an
+    auto-derived board re-resolves from the cloned YAML, so carrying
+    a stale guess would just re-introduce the staleness bug.
+    """
+    config_dir = tmp_path
     await asyncio.to_thread(
         set_device_metadata,
         config_dir,
@@ -507,10 +539,8 @@ async def test_clone_device_carries_source_board_id_into_metadata(
 
     await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
 
-    # Verify the metadata sidecar got the carry-forward write.
     meta = await asyncio.to_thread(get_device_metadata, config_dir, "bedroom-bulb.yaml")
-    assert meta is not None
-    assert meta["board_id"] == "esp32-s3-devkitc-1"
+    assert "board_id" not in meta
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")

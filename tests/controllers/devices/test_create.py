@@ -517,14 +517,16 @@ async def test_create_device_clears_residual_metadata_from_archived_same_name(
 
     ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
     ctrl._db.settings.config_dir = config_dir
+    # Catalog *would* match, but a no-pick create never persists a
+    # derived board_id; the scanner recomputes it on resolve.
     boards = StubBoardLookups(ctrl)
-    boards.find_by_pio_board_returns(None)
+    boards.find_by_pio_board_returns("generic-esp32")
     boards.find_by_platform_variant_returns(None)
 
     await ctrl.create_device(name="kitchen", file_content=VALID_FILE_CONTENT)
 
-    # Stale entry was cleared. No matching board → no board_id
-    # written back, so the entry should be absent (not just empty).
+    # Stale entry was cleared and nothing was written back, so the
+    # entry is absent (not just empty).
     post = await asyncio.to_thread(get_device_metadata, config_dir, "kitchen.yaml")
     assert post == {}
 
@@ -570,7 +572,7 @@ async def test_create_device_with_board_id_overwrites_archived_board_id(
     await ctrl.create_device(name="kitchen", board_id="rp2040-new-board")
 
     post = await asyncio.to_thread(get_device_metadata, config_dir, "kitchen.yaml")
-    assert post == {"board_id": "rp2040-new-board"}
+    assert post == {"board_id": "rp2040-new-board", "board_id_user_set": True}
 
 
 @pytest.mark.xdist_group("catalog")

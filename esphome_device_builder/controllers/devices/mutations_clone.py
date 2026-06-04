@@ -126,17 +126,19 @@ async def clone_device(  # noqa: C901
     # the key; those indirections stay shared with the source.
     new_content = rewrite_api_encryption_key(new_content, new_key)
 
-    # Carry forward only the source's ``board_id`` since that's
-    # the catalog-key indirection the user picked at wizard
-    # time and the scanner can't recover it from the YAML.
-    # Friendly name lives in the YAML we just wrote (no need to
-    # duplicate to metadata). ``ip`` is intentionally not
-    # carried; the clone hasn't booted yet and inheriting the
-    # source's address would mis-route ``devices/logs`` until
-    # the first mDNS announce. StorageJSON is skipped entirely
-    # since it's a build artefact and the next compile writes a
-    # real one.
+    # Carry forward only a *user-picked* ``board_id`` since that's
+    # the catalog-key indirection the user chose at wizard time and
+    # the scanner can't recover it from the YAML. An auto-derived
+    # board (no ``board_id_user_set`` flag) is dropped; the cloned
+    # YAML re-derives it against the current catalog. Friendly name
+    # lives in the YAML we just wrote (no need to duplicate to
+    # metadata). ``ip`` is intentionally not carried; the clone
+    # hasn't booted yet and inheriting the source's address would
+    # mis-route ``devices/logs`` until the first mDNS announce.
+    # StorageJSON is skipped entirely since it's a build artefact and
+    # the next compile writes a real one.
     carry_board_id = source_meta.get("board_id") if source_meta else None
+    carry_user_set = source_meta.get("board_id_user_set") if source_meta else None
 
     def _commit() -> None:
         with new_path.open("x", encoding="utf-8") as f:
@@ -151,8 +153,10 @@ async def clone_device(  # noqa: C901
         # frontend renders a single message.
         msg = f"A device named {new_filename} already exists"
         raise CommandError(ErrorCode.INVALID_ARGS, msg) from exc
-    if carry_board_id:
-        await controller._persist_device_metadata_async(new_filename, board_id=carry_board_id)
+    if carry_board_id and carry_user_set is True:
+        await controller._persist_device_metadata_async(
+            new_filename, board_id=carry_board_id, board_id_user_set=True
+        )
     await controller._commit_history(new_filename, f"Clone {configuration} to {new_filename}")
     # Rescan so the scanner indexes the new YAML and fires the
     # ADDED event WS subscribers expect; ``probe_device`` runs

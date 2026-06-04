@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from .controller import DevicesController
 
 
-async def create_device(  # noqa: PLR0912, PLR0915, C901
+async def create_device(  # noqa: C901
     controller: DevicesController,
     *,
     name: str,
@@ -38,9 +38,9 @@ async def create_device(  # noqa: PLR0912, PLR0915, C901
     deliberately skips validation so an existing config from
     an older ESPHome version (with since-changed schemas) can
     still land in the editor for repair. ``board_id`` is
-    derived from the YAML's platform / board / variant fields
-    when not explicitly provided, except for the stub branch
-    (its hard-coded ``board: esp32dev`` would mis-bind).
+    persisted (as a deliberate user pick) only when explicitly
+    provided; otherwise the scanner derives it from the YAML on
+    each resolve against the current catalog.
     """
     # The wizard passes the user's raw input here — capitalisation,
     # inter-word spaces, and unicode all stay intact. ``clean_friendly_name``
@@ -101,29 +101,11 @@ async def create_device(  # noqa: PLR0912, PLR0915, C901
             on_failure=ErrorCode.INTERNAL_ERROR,
         )
 
-    # Derive board_id from YAML when not explicitly provided.
-    # Skip the stub branch since ``generate_minimal_stub_yaml``
-    # hard-codes ``esp32: board: esp32dev`` and many catalog
-    # entries share that PIO board; the lookup would pin the new
-    # device to whichever entry the index surfaces first, and the
-    # wrong entry would stay bound after the user rewrites the
-    # platform block.
+    # Only for _init_storage's platform fallback; board_id is left
+    # to the scanner, which derives it on resolve (never persisted here).
     parsed_platform = ""
-    if not board_id and controller._db.boards:
-        parsed_platform, pio_board, variant = parse_platform_from_yaml(yaml_content)
-        if source != "stub":
-            matched = None
-            if pio_board:
-                matched = controller._db.boards.find_by_pio_board(
-                    pio_board, variant, parsed_platform
-                )
-            if matched is None and parsed_platform:
-                matched = controller._db.boards.find_by_platform_variant(parsed_platform, variant)
-            if matched:
-                # board stays None — _init_storage uses parsed_platform
-                # when board is unset, and only board_id needs to be
-                # persisted here for the device-metadata sidecar.
-                board_id = matched.id
+    if not board_id:
+        parsed_platform, _pio_board, _variant = parse_platform_from_yaml(yaml_content)
 
     loop = asyncio.get_running_loop()
 
@@ -168,7 +150,9 @@ async def create_device(  # noqa: PLR0912, PLR0915, C901
     # silently mis-binds.
     await controller._delete_device_metadata(filename)
     if board_id:
-        await controller._persist_device_metadata_async(filename, board_id=board_id)
+        await controller._persist_device_metadata_async(
+            filename, board_id=board_id, board_id_user_set=True
+        )
     await controller._commit_history(filename, f"Create {filename}")
     # _scanner.scan fires _on_scan_change(ADDED) for the new
     # YAML and that already runs probe_device; don't double-probe.

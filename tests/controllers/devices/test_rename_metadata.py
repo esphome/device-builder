@@ -39,6 +39,7 @@ def test_rename_device_metadata_carries_identity_fields(tmp_path: Path) -> None:
         tmp_path,
         "kitchen.yaml",
         board_id="esp32dev",
+        board_id_user_set=True,
         comment="downstairs",
         labels=["a", "b"],
     )
@@ -48,6 +49,8 @@ def test_rename_device_metadata_carries_identity_fields(tmp_path: Path) -> None:
     assert get_device_metadata(tmp_path, "kitchen.yaml") == {}
     moved = get_device_metadata(tmp_path, "livingroom.yaml")
     assert moved.get("board_id") == "esp32dev"
+    # The user-set flag rides along so the pick isn't re-derived after rename.
+    assert moved.get("board_id_user_set") is True
     assert moved.get("comment") == "downstairs"
     assert moved.get("labels") == ["a", "b"]
 

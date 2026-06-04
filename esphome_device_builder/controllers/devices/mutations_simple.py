@@ -26,9 +26,23 @@ async def update_device(
 ) -> UpdateDeviceResponse:
     """Update device metadata (sidecar JSON, not the YAML file)."""
     filename = f"{name}.yaml"
+    # Flag board_id as user-set only when it differs from the displayed
+    # board, so a client echoing the shown (maybe auto-derived) value
+    # while editing name/comment can't pin a derived id. A deliberate
+    # pick equal to the current derivation is intentionally left
+    # unflagged; it re-derives to the same id, so nothing is lost.
+    user_set: bool | None = None
+    if board_id:
+        displayed = next(
+            (d.board_id for d in controller._scanner.devices if d.configuration == filename),
+            "",
+        )
+        if board_id != displayed:
+            user_set = True
     await controller._persist_device_metadata_async(
         filename,
         board_id=board_id,
+        board_id_user_set=user_set,
         friendly_name=friendly_name,
         comment=comment,
     )

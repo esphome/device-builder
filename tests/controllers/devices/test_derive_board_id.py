@@ -1,19 +1,19 @@
 """End-to-end coverage for ``DevicesController._derive_board_id_from_yaml``.
 
 The helper is invoked from ``_resolve_device_metadata`` whenever a
-device lacks a sidecar ``board_id``. It parses the YAML for
-``platform`` / ``board`` / ``variant``, asks the catalog for a
-matching entry, and backfills the shared sidecar via
-``set_device_metadata`` on cache miss so subsequent scans skip
-the YAML parse.
+device has no user-set sidecar ``board_id``. It parses the YAML for
+``platform`` / ``board`` / ``variant`` and asks the catalog for a
+matching entry. The result is never persisted; it is recomputed each
+resolve so a catalog update self-heals.
 
-Five branches to pin:
+Branches to pin:
 
 1. ``self._db.boards is None`` → empty string (catalog not loaded).
 2. Missing YAML (``OSError``) → empty string.
 3. PlatformIO-board match → catalog id returned.
 4. ``pio_board`` misses, ``platform`` matches → fallback hit.
 5. No match at all → empty string.
+6. A catalog hit doesn't write the sidecar.
 """
 
 from __future__ import annotations
@@ -76,8 +76,7 @@ def test_derive_uses_pio_board_match_first(
     ``find_by_pio_board`` is the higher-fidelity lookup — a YAML
     with ``board: esp32-c3-devkitm-1`` should land on the
     "Generic ESP32-C3" catalog entry, not on whatever the bare
-    ``esp32:`` fallback would pick. Pin both call ordering and
-    the persist-to-sidecar step.
+    ``esp32:`` fallback would pick. Pin the call ordering.
     """
     controller = make_controller(tmp_path, with_boards=True)
     boards = StubBoardLookups(controller)
@@ -144,6 +143,25 @@ def test_derive_skips_pio_board_when_yaml_omits_board_field(
     # PIO lookup was skipped — pio_board was empty.
     pio_lookup.assert_not_called()
     platform_lookup.assert_called_once_with("esp32", "")
+
+
+def test_derive_does_not_persist_to_sidecar(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A catalog match returns the id without writing it to the sidecar.
+
+    A derived id depends on the shipped catalog, so it must not be
+    cached; a stale write would survive a catalog update that
+    changes the match.
+    """
+    controller = make_controller(tmp_path, with_boards=True)
+    StubBoardLookups(controller).find_by_pio_board_returns("generic-esp32c3")
+    _write_yaml(tmp_path, "kitchen.yaml", platform="esp32", board="esp32-c3-devkitm-1")
+
+    result = controller._derive_board_id_from_yaml(tmp_path, "kitchen.yaml")
+
+    assert result == "generic-esp32c3"
+    assert controller._shared_sidecar.get_sync("kitchen.yaml") == {}
 
 
 def test_derive_returns_empty_when_no_catalog_entry_matches(

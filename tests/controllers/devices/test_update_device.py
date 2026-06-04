@@ -24,6 +24,7 @@ from esphome_device_builder.controllers.config import (
     get_device_metadata,
     set_device_metadata,
 )
+from tests.conftest import make_device
 
 from .conftest import MakeControllerFactory
 
@@ -63,6 +64,8 @@ async def test_update_device_writes_full_metadata(
     assert meta["friendly_name"] == "Kitchen Sensor"
     assert meta["comment"] == "On the wall by the toaster"
     assert meta["board_id"] == "esp32-c3-devkitm-1"
+    # A board_id passed here is a deliberate pick, so it's flagged.
+    assert meta["board_id_user_set"] is True
 
 
 async def test_update_device_partial_keeps_unrelated_fields(
@@ -95,6 +98,44 @@ async def test_update_device_partial_keeps_unrelated_fields(
     assert response.comment == "New comment"
     assert response.friendly_name == "Kitchen Sensor"
     assert response.board_id == "esp32-c3-devkitm-1"
+
+    # A friendly_name/comment-only update doesn't stamp the
+    # user-set flag (no board_id was passed).
+    meta = await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml")
+    assert "board_id_user_set" not in meta
+
+
+async def test_update_echoing_displayed_board_does_not_pin(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """Re-sending the currently displayed (derived) board_id doesn't flag it.
+
+    Guards the round-trip case: a client that echoes the shown
+    auto-derived board while editing the comment must not pin a
+    derived id, which would re-break the self-heal.
+    """
+    controller = make_controller(tmp_path)
+    controller._scanner.devices = [make_device("kitchen", board_id="generic-esp32")]
+
+    await controller.update_device(name="kitchen", comment="x", board_id="generic-esp32")
+
+    meta = await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml")
+    assert meta["board_id"] == "generic-esp32"
+    assert "board_id_user_set" not in meta
+
+
+async def test_update_changed_board_sets_flag(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A board_id that differs from the displayed board is a deliberate pick."""
+    controller = make_controller(tmp_path)
+    controller._scanner.devices = [make_device("kitchen", board_id="generic-esp32")]
+
+    await controller.update_device(name="kitchen", board_id="aquaping")
+
+    meta = await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml")
+    assert meta["board_id"] == "aquaping"
+    assert meta["board_id_user_set"] is True
 
 
 async def test_update_device_falls_back_to_name_for_missing_friendly_name(

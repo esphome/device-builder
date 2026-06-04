@@ -190,6 +190,7 @@ async def test_e2e_pre_pr_shape_migrates_through_resolver(
     await seed_device(tmp_path, "kitchen.yaml")
     pre_pr = {
         "board_id": "esp32-c3-devkitm-1",
+        "board_id_user_set": True,
         "friendly_name": "Kitchen Sensor",
         "comment": "By the toaster",
         "mac_address": "94:C9:60:1F:8C:F1",
@@ -234,6 +235,7 @@ async def test_e2e_pre_pr_shape_migrates_through_resolver(
     assert shared["_labels"] == [{"id": "abc", "name": "Bedroom"}]
     assert shared["kitchen.yaml"] == {
         "board_id": "esp32-c3-devkitm-1",
+        "board_id_user_set": True,
         "friendly_name": "Kitchen Sensor",
         "comment": "By the toaster",
         "labels": ["abc"],

@@ -2,22 +2,70 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 from ...helpers.build_size import coerce_sidecar_int
 from ...helpers.config_hash import read_build_info_hash
 from ...helpers.device_yaml import parse_platform_from_yaml
 from .._device_builder_base import DeviceBuilderBase
 from .._device_scanner import DeviceFileMetadata
+from ..config import metadata_transaction
 from ._metadata_store import STORE_FIELDS
 
 if TYPE_CHECKING:
+    from ..boards import BoardCatalog
     from ._metadata_store import DeviceMetadataStore
     from ._shared_sidecar import SharedSidecarClient
 
 _LOGGER = logging.getLogger(__name__)
+
+# Sidecar marker so the board_id_user_set back-fill runs once.
+_USER_SET_MIGRATED_KEY = "_board_id_user_set_migrated"
+
+
+def _is_devices_esphome_io_import(board: Any) -> bool:
+    """Whether *board* is a devices.esphome.io import (vs a curated entry)."""
+    return urlparse(str(board.docs_url)).hostname == "devices.esphome.io"
+
+
+def _migrate_board_id_user_set_sync(config_dir: Path, boards: BoardCatalog) -> int:
+    """Flag pre-existing curated picks displaced by a newer generic board.
+
+    Sidecars written before ``board_id_user_set`` existed carry no
+    flag, so a deliberately picked board now outranked by a generic
+    on its own PlatformIO board (e.g. ``apollo-esk-1`` vs the generic
+    ``esp32-c6-devkitm-1``) would re-derive to the generic on the next
+    scan. devices.esphome.io imports are intentionally left unflagged:
+    they are the stale auto-derived ids the re-derivation heals.
+    """
+    stamped = 0
+    with metadata_transaction(config_dir) as data:
+        if data.get(_USER_SET_MIGRATED_KEY):
+            return 0
+        for filename, entry in data.items():
+            if filename.startswith("_") or not isinstance(entry, dict):
+                continue
+            board_id = entry.get("board_id")
+            if not board_id or entry.get("board_id_user_set") is True:
+                continue
+            picked = boards.get_by_id(board_id)
+            if picked is None or picked.is_generic or _is_devices_esphome_io_import(picked):
+                continue
+            variant = picked.esphome.variant.value if picked.esphome.variant else ""
+            winner = boards.find_by_pio_board(
+                picked.esphome.board, variant, picked.esphome.platform.value
+            )
+            # Preserve only a curated pick now outranked by a generic
+            # on the same PlatformIO board.
+            if winner is not None and winner.id != board_id and winner.is_generic:
+                entry["board_id_user_set"] = True
+                stamped += 1
+        data[_USER_SET_MIGRATED_KEY] = True
+    return stamped
 
 
 def _partition_fields(fields: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -51,8 +99,11 @@ class DeviceMetadataBase(DeviceBuilderBase):
         expected_config_hash = read_build_info_hash(config_dir / filename) or str(
             store_md.get("expected_config_hash", "")
         )
+        # Trust a persisted board_id only when the user set it; an
+        # unflagged one is re-derived so a catalog change self-heals.
+        # ``is True`` so a corrupt hand-edited flag isn't trusted.
         board_id = str(shared_md.get("board_id", ""))
-        if not board_id:
+        if not (board_id and shared_md.get("board_id_user_set") is True):
             board_id = self._derive_board_id_from_yaml(config_dir, filename)
         mac_address = str(shared_md.get("mac_address", ""))
         # Defensive coercion: a corrupt sidecar entry shouldn't
@@ -80,13 +131,18 @@ class DeviceMetadataBase(DeviceBuilderBase):
             api_encryption_active=api_encryption_active,
         )
 
-    def _derive_board_id_from_yaml(self, config_dir: Path, filename: str) -> str:
-        """Parse the YAML, match a catalog board, backfill on cache miss.
+    async def migrate_board_id_user_set(self) -> None:
+        """One-shot back-fill of ``board_id_user_set`` for pre-flag picks."""
+        boards = self._db.boards
+        if boards is None:
+            return
+        config_dir = self._db.settings.config_dir
+        stamped = await asyncio.to_thread(_migrate_board_id_user_set_sync, config_dir, boards)
+        if stamped:
+            _LOGGER.info("Back-filled board_id_user_set on %d pre-flag picks", stamped)
 
-        Backfills via ``set_device_metadata`` only when the
-        shared sidecar lacks ``board_id`` so subsequent scans
-        skip the YAML parse.
-        """
+    def _derive_board_id_from_yaml(self, config_dir: Path, filename: str) -> str:
+        """Match the YAML's board against the current catalog; never persisted."""
         if self._db.boards is None:
             return ""
         yaml_path = config_dir / filename
@@ -103,10 +159,6 @@ class DeviceMetadataBase(DeviceBuilderBase):
             matched = self._db.boards.find_by_platform_variant(platform, variant)
         if matched is None:
             return ""
-        try:
-            self._shared_sidecar.update_sync(filename, board_id=matched.id)
-        except OSError:
-            _LOGGER.warning("Could not persist derived board_id for %s", filename)
         return matched.id
 
     async def _persist_device_metadata_async(self, configuration: str, **fields: Any) -> None:

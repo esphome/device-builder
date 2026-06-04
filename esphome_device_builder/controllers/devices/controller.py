@@ -232,6 +232,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         # Seed the store (and migrate on first post-upgrade boot)
         # before the scanner runs — resolver reads off it.
         await self._metadata_store.async_load()
+        await self.migrate_board_id_user_set()
         await loop.run_in_executor(None, self._load_ignored_devices)
         await self._scanner.scan()
         self._scanner.start()

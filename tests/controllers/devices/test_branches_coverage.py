@@ -68,7 +68,7 @@ def _device(name: str, *, ip: str = "", ip_addresses: list[str] | None = None) -
 
 
 # ---------------------------------------------------------------------------
-# create_device file_content + board derivation
+# create_device file_content
 # ---------------------------------------------------------------------------
 
 
@@ -76,20 +76,18 @@ def _device(name: str, *, ip: str = "", ip_addresses: list[str] | None = None) -
 async def test_create_device_writes_file_content_verbatim(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """``file_content`` is written as-is and the catalog derives ``board_id`` from it.
+    """``file_content`` is written as-is; create derives no board_id.
 
     The dashboard's adoption flow ships an entire YAML through
     ``file_content`` (the upstream ``DashboardImportDiscovery``
-    URL fetches the project YAML and the user just confirms).
-    Pin: the YAML lands verbatim *and* the catalog's PIO-board
-    lookup runs against the parsed platform/board so the new
-    device picks up its catalog entry without the user having
-    to choose one manually.
+    URL fetches the project YAML and the user just confirms). The
+    board card comes from the scanner's resolve, not create, so
+    no board lookup runs here.
     """
     controller = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
     boards = StubBoardLookups(controller)
     pio_lookup = boards.find_by_pio_board_returns("esp32-c3-devkitm-1")
-    boards.find_by_platform_variant_returns(None)
+    variant_lookup = boards.find_by_platform_variant_returns(None)
 
     yaml_text = (
         "esphome:\n  name: kitchen\nesp32:\n  board: esp32-c3-devkitm-1\n  variant: esp32c3\n"
@@ -98,35 +96,11 @@ async def test_create_device_writes_file_content_verbatim(
 
     assert result.configuration == "kitchen.yaml"
     written = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
-    # Verbatim — no template generation override.
+    # Verbatim, no template generation override.
     assert written == yaml_text
-    # Catalog's PIO-board lookup ran against the parsed YAML.
-    pio_lookup.assert_called_once()
-
-
-@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
-async def test_create_device_falls_back_to_platform_variant_lookup(
-    tmp_path: Path, make_controller: MakeControllerFactory
-) -> None:
-    """When the PIO-board lookup misses, the platform/variant fallback runs.
-
-    Generic ``esp32:`` configs without a specific ``board:``
-    entry still need a catalog match so the dashboard can show
-    a generic-esp32-c3 entry rather than an unmapped board.
-    Pin the fallback so a regression that dropped it would leave
-    catalog-less placeholders on every wizard run with a generic
-    ESP32 template.
-    """
-    controller = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
-    # PIO miss; platform/variant hit.
-    boards = StubBoardLookups(controller)
-    boards.find_by_pio_board_returns(None)
-    variant_lookup = boards.find_by_platform_variant_returns("generic-esp32-c3")
-
-    yaml_text = "esphome:\n  name: kitchen\nesp32:\n  variant: esp32c3\n"
-    await controller.create_device(name="kitchen", file_content=yaml_text)
-
-    variant_lookup.assert_called_once()
+    # Create no longer derives a board_id; the scanner does on resolve.
+    pio_lookup.assert_not_called()
+    variant_lookup.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -759,36 +733,6 @@ async def test_persist_device_metadata_async_routes_store_field_to_store(
     controller = make_controller(tmp_path)
     await controller._persist_device_metadata_async("kitchen.yaml", ip="192.168.1.42")
     assert controller._metadata_store.get("kitchen.yaml") == {"ip": "192.168.1.42"}
-
-
-def test_derive_board_id_swallows_persist_oserror(
-    tmp_path: Path,
-    make_controller: MakeControllerFactory,
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """A read-only mount on the shared sidecar logs + still returns the id.
-
-    Catalog match succeeded; we shouldn't drop the answer just
-    because the sidecar write failed.
-    """
-    controller = make_controller(tmp_path, with_boards=True)
-    StubBoardLookups(controller).find_by_pio_board_returns("generic-esp32c3")
-    (tmp_path / "kitchen.yaml").write_text(
-        "esphome:\n  name: kitchen\nesp32:\n  board: esp32-c3-devkitm-1\n",
-        encoding="utf-8",
-    )
-
-    def _boom(*_args: Any, **_kwargs: Any) -> None:
-        raise OSError("read-only filesystem")
-
-    monkeypatch.setattr(controller._shared_sidecar, "update_sync", _boom)
-
-    with caplog.at_level("WARNING"):
-        result = controller._derive_board_id_from_yaml(tmp_path, "kitchen.yaml")
-
-    assert result == "generic-esp32c3"
-    assert any("Could not persist derived board_id" in r.message for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------
