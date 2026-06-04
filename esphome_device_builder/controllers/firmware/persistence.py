@@ -138,11 +138,8 @@ def _restore_to_lane(controller: FirmwareController, job: FirmwareJob) -> None:
     No prerequisite (or one already completed) → onto its lane. A
     prerequisite still pending → held; ``lifecycle._release_dependents``
     lands it when the prerequisite finishes. A prerequisite that's gone or
-    didn't succeed → the dependent can't run, so cancel it.
-
-    A dependent already released before the restart (``dependency_released``)
-    routes onto its lane even when the prerequisite is gone — it completed
-    once and the artifacts exist.
+    didn't succeed → the dependent can't run, so cancel it. A dependent
+    already released (``dependency_released``) routes onto its lane regardless.
     """
     if controller.state.dependency_satisfied(job) or job.dependency_released:
         controller.state.place_on_lane(job)
