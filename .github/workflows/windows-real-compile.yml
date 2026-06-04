@@ -37,7 +37,7 @@ jobs:
     name: Real ESP-IDF compile (Windows MAX_PATH)
     runs-on: windows-latest
     # Cold ESP-IDF toolchain download + a full mbedtls compile, then clean / clean-all, runs
-    # minutes; the test's own @pytest.mark.timeout(3000) caps the test itself.
+    # minutes; the pytest --timeout=3000 below caps the run, this caps the whole job.
     timeout-minutes: 60
     steps:
       - name: Check out code from GitHub

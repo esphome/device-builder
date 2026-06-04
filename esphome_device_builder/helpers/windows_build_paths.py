@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import string
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -31,6 +32,9 @@ _LOGGER = logging.getLogger(__name__)
 
 _ROOT_BASE = Path("C:\\")
 _DASHBOARD_ID_CHARS = 8
+# dashboard_id is base64url (token_urlsafe), so this is a no-op in practice; it guards a hand
+# -corrupted sidecar from injecting path separators / a drive prefix into the root segment.
+_SAFE_SUFFIX_CHARS = frozenset(string.ascii_letters + string.digits + "_-")
 # Written into the root only after the build-data move fully completes; ``.json`` so esphome's
 # clean / clean-all preserve it. Distinguishes a finished relocation from a partial one, so a
 # later stale write to the old location isn't mistaken for unfinished work.
@@ -50,7 +54,7 @@ def windows_short_build_paths(config_dir: Path) -> Iterator[None]:
         _LOGGER.exception("Could not resolve dashboard_id; deep/spaced builds may fail")
         yield
         return
-    root = _ROOT_BASE / f"esphb-{dashboard_id[:_DASHBOARD_ID_CHARS]}"
+    root = _ROOT_BASE / f"esphb-{_safe_suffix(dashboard_id)}"
     pio = root / "pio"
     if not _relocate_into(config_dir / ".esphome", root):
         yield
@@ -77,6 +81,11 @@ def windows_short_build_paths(config_dir: Path) -> Iterator[None]:
 # ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
+
+
+def _safe_suffix(dashboard_id: str) -> str:
+    """First 8 filename-safe chars of *dashboard_id*; stable across runs for the same id."""
+    return "".join(c for c in dashboard_id if c in _SAFE_SUFFIX_CHARS)[:_DASHBOARD_ID_CHARS]
 
 
 def _is_windows() -> bool:

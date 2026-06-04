@@ -68,6 +68,17 @@ def test_root_uses_first_8_chars_of_dashboard_id(tmp_path: Path, fake_windows: P
         assert Path(os.environ["ESPHOME_DATA_DIR"]).name == f"esphb-{_ID[:8]}"
 
 
+def test_corrupt_dashboard_id_cannot_escape_the_root_segment(
+    tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A hand-corrupted id with separators / a drive prefix is sanitized to one safe segment."""
+    monkeypatch.setattr(wbp, "get_or_create_dashboard_id", lambda _config_dir: "..\\C:/evil")
+    with windows_short_build_paths(tmp_path / "cfg"):
+        root = Path(os.environ["ESPHOME_DATA_DIR"])
+        assert root.parent == fake_windows  # stays directly under the root base, no traversal
+        assert root.name == "esphb-Cevil"  # separators, dots, colon stripped; safe chars kept
+
+
 def test_skips_relocation_when_user_set_data_dir(
     tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

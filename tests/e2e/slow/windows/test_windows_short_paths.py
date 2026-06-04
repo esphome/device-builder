@@ -101,7 +101,8 @@ def test_compile_lands_under_relocated_root(relocated_compile: _Relocated) -> No
     assert (r.root / "build" / _NAME / ".pioenvs").is_dir(), "build tree not under relocated root"
     assert not (r.config_dir / ".esphome").exists(), "nothing should build under the config dir"
     assert r.pio.is_dir(), "toolchain not under the relocated PLATFORMIO_CORE_DIR"
-    assert _deepest(r.root) < _MAX_PATH, f"deepest relocated path is {_deepest(r.root)}"
+    deepest = _deepest(r.root)
+    assert deepest < _MAX_PATH, f"deepest relocated path is {deepest}"
 
 
 def test_clean_clears_relocated_build_tree(relocated_compile: _Relocated) -> None:
