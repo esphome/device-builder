@@ -407,6 +407,6 @@ def test_clean_job_command_passes_remote_build_yaml_path_through() -> None:
     "config not found."
     """
     controller = _firmware_controller_with(None)
-    rel_yaml = ".esphome/.remote_builds/dashboard-alpha/kitchen/kitchen.yaml"
+    rel_yaml = ".esphome/.remote_builds/a1b2c3d4/kitchen/kitchen.yaml"
     cmd = controller._build_command(JobType.CLEAN, rel_yaml, "")
     assert cmd == ["esphome", "--dashboard", "clean", rel_yaml]

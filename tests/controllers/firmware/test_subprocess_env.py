@@ -93,10 +93,10 @@ def test_remote_build_job_pins_data_dir_to_per_dashboard_esphome(
     ``CORE.data_dir`` to pin the *anchor*, not just the path.
     """
     controller = firmware_controller_factory(with_settings=True)
-    configuration = ".esphome/.remote_builds/dashboard-alpha/kitchen/kitchen.yaml"
+    configuration = ".esphome/.remote_builds/a1b2c3d4/kitchen/kitchen.yaml"
     env = controller._compose_subprocess_env(_make_job(configuration=configuration))
 
-    expected = Path(CORE.data_dir) / ".remote_builds" / "dashboard-alpha" / ".esphome"
+    expected = Path(CORE.data_dir) / ".remote_builds" / "a1b2c3d4" / ".esphome"
     assert env["ESPHOME_DATA_DIR"] == str(expected)
     # The override is the only data-dir-related change; the
     # ANSI / unbuffered overlays still land.
@@ -127,12 +127,12 @@ def test_remote_build_clean_job_pins_data_dir_to_per_dashboard_esphome(
     at the wrong data dir, so nothing got removed."
     """
     controller = firmware_controller_factory(with_settings=True)
-    configuration = ".esphome/.remote_builds/dashboard-alpha/kitchen/kitchen.yaml"
+    configuration = ".esphome/.remote_builds/a1b2c3d4/kitchen/kitchen.yaml"
     env = controller._compose_subprocess_env(
         _make_job(configuration=configuration, job_type=JobType.CLEAN)
     )
 
-    expected = Path(CORE.data_dir) / ".remote_builds" / "dashboard-alpha" / ".esphome"
+    expected = Path(CORE.data_dir) / ".remote_builds" / "a1b2c3d4" / ".esphome"
     assert env["ESPHOME_DATA_DIR"] == str(expected)
 
 
@@ -151,7 +151,7 @@ def test_malformed_remote_build_path_falls_through_to_local(
     produces.
     """
     controller = firmware_controller_factory(with_settings=True)
-    configuration = ".esphome/.remote_builds/dashboard-alpha/kitchen.yaml"
+    configuration = ".esphome/.remote_builds/a1b2c3d4/kitchen.yaml"
     env = controller._compose_subprocess_env(_make_job(configuration=configuration))
 
     assert env.get("ESPHOME_DATA_DIR") == os.environ.get("ESPHOME_DATA_DIR")
