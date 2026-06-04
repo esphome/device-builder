@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from esphome_device_builder.models import PinFeature
-from script.sync_boards import (
-    _alias_capability,
-    _derive_pins_from_aliases,
-    build_catalog,
-)
+import pytest
+
+from esphome_device_builder.models import BoardCatalogResponse, PinFeature
+from script.sync_boards import _alias_capability, _derive_pins_from_aliases
+
+pytestmark = pytest.mark.xdist_group("board_sync")
 
 
 def test_alias_capability_maps_fixed_functions() -> None:
@@ -42,8 +42,10 @@ def test_derive_unions_features_and_skips_flexible_mux() -> None:
     assert by_gpio[3].features == [PinFeature.ADC]
 
 
-def test_catalog_generates_unmanifested_libretiny_board() -> None:
-    boards = {b.esphome.board: b for b in build_catalog().boards}
+def test_catalog_generates_unmanifested_libretiny_board(
+    generated_board_catalog: BoardCatalogResponse,
+) -> None:
+    boards = {b.esphome.board: b for b in generated_board_catalog.boards}
     # bw15 has no device-builder manifest but is in RTL87XX_BOARD_PINS.
     assert "bw15" in boards, "bw15 should be auto-generated from ESPHome board data"
     bw15 = boards["bw15"]
