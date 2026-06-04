@@ -119,7 +119,8 @@ class BoardCatalog:
 
     @api_command("boards/get_compatible_boards")
     async def get_compatible_boards(self, *, board_id: str, **kwargs: Any) -> PagedBoardsResponse:
-        """Boards interchangeable with ``board_id`` (same PlatformIO target).
+        """
+        Boards interchangeable with ``board_id`` (same PlatformIO target).
 
         One page; includes ``board_id`` itself, empty when the id is unknown.
         """
