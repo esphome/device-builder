@@ -11,8 +11,10 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from esphome.core import CORE
 from esphome.helpers import write_file as atomic_write_file
 from esphome.zeroconf import AsyncEsphomeZeroconf
 
@@ -22,6 +24,7 @@ from ...helpers.device_yaml import (
     configuration_stem,
 )
 from ...helpers.event_bus import Event
+from ...helpers.storage import ShutdownCallback
 from ...models import (
     AddComponentResponse,
     Device,
@@ -35,6 +38,11 @@ from ...models import (
     UpdateDeviceResponse,
     WizardResponse,
 )
+from .._build_size_refresher import BuildSizeRefresher
+from .._device_mqtt_coordinator import DeviceMqttCoordinator
+from .._device_scanner import DeviceScanner, ScanChange
+from .._device_state_monitor import DeviceStateMonitor
+from .._reachability_tracker import ReachabilityTracker
 from ..firmware.helpers import _find_esphome_cmd
 from ..version_history import GIT_COMMIT_ERRORS
 from . import (
@@ -55,8 +63,10 @@ from . import (
     storage_regen,
     validate,
 )
+from ._metadata_store import DeviceMetadataStore
+from ._shared_sidecar import SharedSidecarClient
 from ._state import DevicesState
-from ._wiring import wire_collaborators
+from ._yaml_search_cache import YamlSearchCache
 from .helpers import (
     _build_address_cache_args,
     _validate_archive_configuration,
@@ -64,21 +74,22 @@ from .helpers import (
 from .metadata import DeviceMetadataBase
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from ...device_builder import DeviceBuilder
-    from ...helpers.storage import ShutdownCallback
     from ...models import AdoptableDevice, BoardCatalogEntry
-    from .._build_size_refresher import BuildSizeRefresher
-    from .._device_mqtt_coordinator import DeviceMqttCoordinator
-    from .._device_scanner import DeviceScanner, ScanChange
-    from .._device_state_monitor import DeviceStateMonitor
-    from .._reachability_tracker import ReachabilityTracker
-    from ._metadata_store import DeviceMetadataStore
-    from ._shared_sidecar import SharedSidecarClient
-    from ._yaml_search_cache import YamlSearchCache
 
 _LOGGER = logging.getLogger(__name__)
+
+# How long the persisted "regen failed" stamp is honoured before a
+# restart-time check is allowed to re-spawn ``--only-generate`` for
+# the same untouched YAML. The in-memory ``_regenerate_failed`` set
+# blocks within a session until the user edits the YAML; the TTL
+# only applies cross-restart, so a transient external problem
+# (git package server flaky, DNS hiccup) eventually recovers
+# without forcing the user to touch the file. One hour is short
+# enough that "I'll come back to this in a bit and restart" works,
+# long enough that a debugger restarting the dashboard 10x in a
+# row doesn't churn through 10 spawns on the same broken config.
+_REGEN_FAILURE_TTL_SECONDS: float = 3600.0
 
 
 class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods need a refactor first)
@@ -86,30 +97,117 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 ):
     """Manage device configurations, file watching, and CLI operations."""
 
-    # Background collaborators, constructed in ``__init__`` via
-    # ``_wiring.wire_collaborators``. Declared here so the type checker
-    # sees the controller's attribute surface even though the wiring
-    # lives in a sibling module.
-    _shutdown_callbacks: list[ShutdownCallback]
-    _metadata_store: DeviceMetadataStore
-    _shared_sidecar: SharedSidecarClient
-    _yaml_write_locks: dict[str, asyncio.Lock]
-    _regenerate_lock: asyncio.Lock
-    _yaml_search_cache: YamlSearchCache
-    _yaml_search_lock: asyncio.Lock
-    _scanner: DeviceScanner
-    _build_size: BuildSizeRefresher
-    _state_monitor: DeviceStateMonitor
-    _reachability: ReachabilityTracker
-    _mqtt_coordinator: DeviceMqttCoordinator
-
     def __init__(self, device_builder: DeviceBuilder) -> None:
         super().__init__(device_builder)
         self.state = DevicesState()
         # Unsubscribe handle for the firmware-job-completion listener
         # wired up in start(); held so stop() can detach cleanly.
         self._unsub_job_completed: Any = None
-        wire_collaborators(self)
+
+        # Constructed before the scanner so the first
+        # ``_resolve_device_metadata`` reads off the store.
+        self._shutdown_callbacks: list[ShutdownCallback] = []
+        self._metadata_store = DeviceMetadataStore(
+            config_dir=self._db.settings.config_dir,
+            data_dir=Path(CORE.data_dir),
+            shutdown_register=self._shutdown_callbacks.append,
+        )
+        self._shared_sidecar = SharedSidecarClient(self._db.settings.config_dir)
+
+        # Per-file locks serialising a YAML write with its version-history
+        # commit (see ``_persist_yaml_mutation``). One ``asyncio.Lock`` per
+        # distinct filename written this process lifetime; never evicted —
+        # popping on delete could desync a lock a concurrent save is
+        # awaiting. Negligible in practice (a real fleet reuses filenames);
+        # only churn through many unique names grows it.
+        self._yaml_write_locks: dict[str, asyncio.Lock] = {}
+
+        # Background ``--only-generate`` bookkeeping. ``--only-generate``
+        # validates a YAML and writes its ``StorageJSON`` without doing
+        # a real build; we trigger it whenever a YAML is saved or
+        # first-seen with no compile output. Three guards stop us from
+        # spinning:
+        #   * ``state.regenerate_pending`` — configurations already in
+        #     flight (scheduled but not yet finished). Skip duplicate
+        #     schedules.
+        #   * ``state.regenerate_failed`` — YAMLs whose last attempt
+        #     failed. Don't retry until the file changes (cleared on
+        #     ``ScanChange.UPDATED``).
+        #   * ``_regenerate_lock`` — serialises the actual subprocess
+        #     so we don't spawn N esphome compiles in parallel.
+        self._regenerate_lock = asyncio.Lock()
+
+        # ``yaml/search`` per-file cache. The class owns its own
+        # ``stat``-then-read flow + ``asyncio.Lock`` so the
+        # bookkeeping doesn't sprawl across this controller. See
+        # ``_yaml_search_cache.YamlSearchCache``.
+        self._yaml_search_cache = YamlSearchCache()
+        # Global search lock — ``yaml/search`` is I/O-bound (one
+        # ``stat`` per device + reads on cache misses), so two
+        # concurrent searches against the same fleet would just
+        # double the disk pressure without helping latency. Serialise
+        # to one in-flight call per controller; the frontend's
+        # debounce + concurrency-of-1 gate keeps the queue depth low
+        # in normal use, and a slow request from a stuck client
+        # won't fan out to N parallel walks.
+        self._yaml_search_lock = asyncio.Lock()
+
+        self._scanner = DeviceScanner(
+            config_dir=self._db.settings.config_dir,
+            get_metadata=self._resolve_device_metadata,
+            on_change=self._on_scan_change,
+        )
+        # Single-worker build-size refresher. Bulk operations
+        # (clean / delete N devices in a row, fleet-wide startup
+        # sweep) all funnel into one queue so repeated requests
+        # for the same configuration coalesce and we never pile
+        # up background tasks.
+        self._build_size = BuildSizeRefresher(
+            get_filenames=lambda: (d.configuration for d in self._get_devices()),
+            get_metadata_snapshot=self._metadata_store.snapshot_all,
+            persist_size=self._persist_build_size,
+            on_refreshed=self._scanner.reload,
+        )
+        # Build the state monitor first so the reachability tracker
+        # can take its ``get_mdns_cache_info`` bound method directly
+        # as the mDNS cache reader (no wrapper lambda — bound
+        # methods already match the ``Callable[[str], MdnsCacheInfo
+        # | None]`` shape). Wire the tracker back onto the monitor
+        # after construction; the monitor only invokes
+        # ``self._reachability`` at observation time so the
+        # initial ``None`` is fine.
+        self._state_monitor = DeviceStateMonitor(
+            get_devices=self._get_devices,
+            get_devices_by_name=self._scanner.get_by_name,
+            on_state_change=self._on_state_change,
+            on_ip_change=self._on_ip_change,
+            on_version_change=self._on_version_change,
+            on_config_hash_change=self._on_config_hash_change,
+            on_api_encryption_change=self._on_api_encryption_change,
+            on_mac_address_change=self._on_mac_address_change,
+            on_importable_added=self._on_importable_added,
+            on_importable_removed=self._on_importable_removed,
+            is_ignored=self.state.ignored_devices.__contains__,
+            presence=self._db.subscriber_presence,
+        )
+        # Per-signal freshness tracker (mDNS / ping / MQTT last-seen,
+        # ping RTT) feeding the device drawer's Reachability section.
+        # Lives here on the controller so the subscribe handler can
+        # call ``snapshot()`` on demand; observations come in via the
+        # state monitor.
+        self._reachability = ReachabilityTracker(
+            on_observation=self._on_reachability_observation,
+            mdns_cache_reader=self._state_monitor.get_mdns_cache_info,
+        )
+        self._state_monitor.set_reachability(self._reachability)
+        # MQTT routes its observations through the same state monitor so
+        # source-priority is enforced in one place.
+        self._mqtt_coordinator = DeviceMqttCoordinator(
+            config_dir=self._db.settings.config_dir,
+            get_devices=self._get_devices,
+            on_state_change=lambda n, s: self._state_monitor.apply(n, s, "mqtt"),
+            on_ip_change=self._state_monitor.apply_ip,
+        )
 
     @property
     def zeroconf(self) -> AsyncEsphomeZeroconf | None:
