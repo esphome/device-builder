@@ -193,6 +193,16 @@ async def request_pair(
         status=target_status,
     )
     key = result.pin_sha256
+    # Carry operator-set fields forward across a re-pair of the
+    # same receiver identity (same pin). ``enabled`` never
+    # self-heals — overwriting it would silently re-enable
+    # transparent-install routing the operator turned off.
+    # ``esphome_version`` keeps the last-known display value
+    # until the next session-open refreshes it.
+    prior = controller.state.pairings.get(key)
+    if prior is not None:
+        pairing.enabled = prior.enabled
+        pairing.esphome_version = prior.esphome_version
     # Sweep any stale entry at the same endpoint under a
     # different pin (rotation, or a different receiver took
     # the hostname) so the old row's listener + alert don't
