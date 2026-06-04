@@ -3,9 +3,11 @@ Single source of truth for the receiver-side remote-build on-disk layout.
 
 Per-device YAML extract lives at
 
-    ``<config_dir>/.esphome/.remote_builds/<dashboard_id>/<device_name>/``
+    ``<config_dir>/.esphome/.remote_builds/<dir_id>/<device_name>/``
 
-with the bundle tarball as a sibling
+where ``<dir_id>`` is the first :data:`_DASHBOARD_DIR_ID_CHARS`
+chars of the ``dashboard_id`` (short, to stay under Windows
+MAX_PATH), with the bundle tarball as a sibling
 (``<device_name>.tar.gz``). :class:`RemoteBuildPath` is the
 canonical ``(dashboard_id, device_name)`` key;
 :meth:`~RemoteBuildPath.subtree` /
@@ -41,8 +43,14 @@ BUNDLE_SUFFIX = ".tar.gz"
 _REMOTE_BUILDS_PARTS: tuple[str, ...] = tuple(REMOTE_BUILDS_SUBDIR.as_posix().split("/"))
 
 # Tail segments a valid configuration carries after the prefix:
-# dashboard_id + device_name + YAML filename.
+# dir_id + device_name + YAML filename.
 _TAIL_SEGMENT_COUNT = 3
+
+# On-disk directory key: first 8 chars of the dashboard_id. Short keeps the
+# subtree path under Windows MAX_PATH; the id stays full-length on the wire.
+# Truncation is idempotent (``id[:8][:8] == id[:8]``), so a path recovered by
+# :func:`parse_from_configuration` (already 8 chars) renders the same directory.
+_DASHBOARD_DIR_ID_CHARS = 8
 
 
 @dataclass(frozen=True)
@@ -57,24 +65,26 @@ class RemoteBuildPath:
     dashboard_id: str
     device_name: str
 
+    @property
+    def dir_id(self) -> str:
+        """On-disk directory key: first :data:`_DASHBOARD_DIR_ID_CHARS` chars of the id."""
+        return self.dashboard_id[:_DASHBOARD_DIR_ID_CHARS]
+
     def subtree(self, config_dir: Path) -> Path:
         """Return the absolute extract directory under *config_dir*."""
-        return config_dir / REMOTE_BUILDS_SUBDIR / self.dashboard_id / self.device_name
+        return config_dir / REMOTE_BUILDS_SUBDIR / self.dir_id / self.device_name
 
     def bundle(self, config_dir: Path) -> Path:
         """Return the absolute bundle tarball path, sibling to :meth:`subtree`."""
         return (
-            config_dir
-            / REMOTE_BUILDS_SUBDIR
-            / self.dashboard_id
-            / f"{self.device_name}{BUNDLE_SUFFIX}"
+            config_dir / REMOTE_BUILDS_SUBDIR / self.dir_id / f"{self.device_name}{BUNDLE_SUFFIX}"
         )
 
     def data_dir(self, dashboard_data_dir: Path) -> Path:
         """Return the ``ESPHOME_DATA_DIR`` the compile subprocess writes into.
 
         Resolves to
-        ``<dashboard_data_dir>/.remote_builds/<dashboard_id>/.esphome``
+        ``<dashboard_data_dir>/.remote_builds/<dir_id>/.esphome``
         — one shared ``.esphome`` per paired offloader,
         anchored under :attr:`esphome.core.CORE.data_dir` so
         the addon's per-instance ``/data`` volume holds the
@@ -90,8 +100,11 @@ class RemoteBuildPath:
         * **Single-shared** across all dashboards reintroduces
           PR #578's basename-collision bug — two offloaders
           each submitting ``kitchen.yaml`` would clobber each
-          other's ``storage/kitchen.yaml.json``. The
-          ``dashboard_id`` partition is the isolation gate.
+          other's ``storage/kitchen.yaml.json``. The ``dir_id``
+          partition is the isolation gate; it's the first 8
+          chars of the dashboard_id (~48 bits), so two offloaders
+          collide only if their ids share that prefix —
+          astronomically unlikely for a handful of offloaders.
 
         Separate root from :meth:`subtree` — that one is
         anchored on ``config_dir``, this one on
@@ -103,7 +116,7 @@ class RemoteBuildPath:
         pre-extract wipe off the deep ``build/<env>/.pioenvs``
         tree (PR #578).
         """
-        return dashboard_data_dir / REMOTE_BUILDS_NAME / self.dashboard_id / ".esphome"
+        return dashboard_data_dir / REMOTE_BUILDS_NAME / self.dir_id / ".esphome"
 
 
 def parse_from_configuration(configuration: str) -> RemoteBuildPath | None:
@@ -113,6 +126,11 @@ def parse_from_configuration(configuration: str) -> RemoteBuildPath | None:
     any path outside the canonical layout — typically a
     locally-submitted job sitting at the top of ``<config_dir>``;
     callers treat ``None`` as "not a remote-build job".
+
+    The recovered ``dashboard_id`` is the on-disk ``dir_id``
+    (already truncated to :data:`_DASHBOARD_DIR_ID_CHARS` chars,
+    not the full wire id). :attr:`RemoteBuildPath.dir_id` is
+    idempotent, so the round-tripped key renders the same paths.
     """
     parts = PurePosixPath(configuration).parts
     expected = _REMOTE_BUILDS_PARTS

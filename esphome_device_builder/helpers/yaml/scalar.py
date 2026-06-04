@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import io
 import re
 from typing import TYPE_CHECKING
+
+import yaml
+from yaml.emitter import Emitter
+from yaml.resolver import Resolver
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -222,88 +227,77 @@ def read_yaml_scalar(yaml_text: str, path: Sequence[str]) -> str | None:
     return captured[0] if captured else None
 
 
-# Plain (unquoted) YAML scalars accept most printable characters,
-# but a small set of leading bytes and embedded sequences make the
-# parser interpret the value as something other than a plain
-# string. ``_PLAIN_SCALAR_INDICATOR_LEAD`` covers the YAML
-# indicator characters that, when leading, change scalar shape;
-# ``_PLAIN_SCALAR_FORBIDDEN_SUBSTR`` covers the embedded sequences
-# that flip a plain scalar into a key/value or comment. ``_RESERVED_PLAIN``
-# is the set of plain scalars YAML interprets as bool / null —
-# emitting one of these unquoted would round-trip as a non-string.
-_PLAIN_SCALAR_INDICATOR_LEAD = set("!&*?|>%@`#-,[]{}\"'")
-_PLAIN_SCALAR_FORBIDDEN_SUBSTR = (": ", " #")
-_RESERVED_PLAIN = frozenset(
-    {
-        "true",
-        "false",
-        "null",
-        "yes",
-        "no",
-        "on",
-        "off",
-        "~",
-        "",
-    }
-)
+# The plain-vs-quoted decision and the escaping are delegated to PyYAML
+# so neither can drift from what the parser accepts. analyze_scalar
+# answers the syntax half (safe unquoted?); the resolver answers the
+# type half (would the plain form reparse as a non-string?). Both are
+# stateless per call, so one shared instance of each is reused.
+_SCALAR_ANALYZER = Emitter(io.StringIO(), allow_unicode=True)
+_SCALAR_RESOLVER = Resolver()
+_STR_TAG = "tag:yaml.org,2002:str"
+# Huge width keeps a quoted scalar on one line under the hand-built
+# ``key: <scalar>`` layout.
+_NO_WRAP = 1 << 30
+# libyaml's C emitter, mirroring FastestSafeLoader: byte-identical, ~2x.
+try:
+    _FASTEST_SAFE_DUMPER: type = yaml.CSafeDumper
+except AttributeError:  # pragma: no cover
+    _FASTEST_SAFE_DUMPER = yaml.SafeDumper
+
+# Fast path: a value built only from these characters, led by a letter
+# and not a reserved word, is always a plain string scalar, so it skips
+# the PyYAML round-trip. Strict subset of "plain-safe" — see the fuzz
+# test in test_yaml_helpers; never causes a value to emit unquoted that
+# PyYAML would have quoted.
+_PLAIN_FAST_LEAD = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+_PLAIN_FAST_CHARS = _PLAIN_FAST_LEAD | frozenset("0123456789_-./ ")
+_RESERVED_PLAIN = frozenset({"true", "false", "null", "yes", "no", "on", "off"})
 
 
 def _safe_yaml_scalar(value: str) -> str:
-    r"""
+    """
     Render *value* as a YAML scalar — plain when safe, double-quoted otherwise.
 
-    Used by rewriters that accept arbitrary user-supplied strings
-    (friendly_name, comments, mqtt topics, etc.) where a value
-    like ``"Bedroom #2"`` would otherwise become a comment or
-    ``"Lamp: Bedroom"`` would split into a key/value pair on round
-    trip. Plain identifiers (``"Kitchen"``, ``"my-device"``) round
-    trip without quotes; values get double-quoted (with embedded
-    ``"`` and ``\\`` escaped) when any of these holds:
-
-    - empty string or matches a reserved plain scalar
-      (``true`` / ``false`` / ``null`` / ``yes`` / ``no`` /
-      ``on`` / ``off`` / ``~``);
-    - starts with a YAML indicator character (``! & * ? | > %
-      @ ` # - , [ ] { } " '``);
-    - ends in ``:`` (would parse as a key with empty value) or in
-      whitespace (would lose the trailing space on round trip);
-    - contains ``: `` (key/value split) or `` #`` (comment marker);
-    - contains a control character (``\\n`` / ``\\r`` / ``\\t``).
+    Used wherever arbitrary user-supplied strings (friendly_name, ssid,
+    component field values, …) are emitted into hand-built YAML. Plain
+    identifiers round trip unquoted; anything PyYAML can't emit plain is
+    double-quoted and escaped by PyYAML.
     """
-    if not value or value.lower() in _RESERVED_PLAIN:
-        return f'"{value}"'
-    if value[0] in _PLAIN_SCALAR_INDICATOR_LEAD:
-        return _quote(value)
-    if value.endswith((":", " ")):
-        return _quote(value)
-    if any(s in value for s in _PLAIN_SCALAR_FORBIDDEN_SUBSTR):
-        return _quote(value)
-    # ``\n``, ``\r``, and ``\t`` would either be silently stripped
-    # (tab) or split into multiple YAML lines. Quote and escape.
-    if any(c in value for c in "\n\r\t"):
-        return _quote(value)
-    return value
-
-
-# YAML double-quoted scalar escapes for the five characters that
-# would otherwise break round-trip: ``\`` and ``"`` need escaping
-# because the closing quote / escape leader; the three control
-# characters need escaping because plain-text rendering would split
-# the value across lines or eat the tab.
-_QUOTE_ESCAPES = str.maketrans(
-    {
-        "\\": r"\\",
-        '"': r"\"",
-        "\n": r"\n",
-        "\r": r"\r",
-        "\t": r"\t",
-    }
-)
+    if _plain_is_fast_safe(value) or _plain_is_safe(value):
+        return value
+    return _quote(value)
 
 
 def _quote(value: str) -> str:
-    """Render *value* as a double-quoted YAML scalar with minimal escapes."""
-    return f'"{value.translate(_QUOTE_ESCAPES)}"'
+    """Render *value* as a single-line double-quoted YAML scalar."""
+    return yaml.dump(
+        value,
+        Dumper=_FASTEST_SAFE_DUMPER,
+        default_style='"',
+        allow_unicode=True,
+        width=_NO_WRAP,
+    ).rstrip("\n")
+
+
+def _plain_is_fast_safe(value: str) -> bool:
+    """Return True for the common identifier class that is trivially plain-safe."""
+    # ``value[:1]`` folds the empty check into the leading-letter test:
+    # an empty slice is not in the set, so empty strings fall through.
+    return (
+        value[:1] in _PLAIN_FAST_LEAD
+        and value[-1] != " "
+        and value.lower() not in _RESERVED_PLAIN
+        and _PLAIN_FAST_CHARS.issuperset(value)
+    )
+
+
+def _plain_is_safe(value: str) -> bool:
+    """Return True when *value* round-trips as a string emitted plain (unquoted)."""
+    if not value:
+        return False
+    if not _SCALAR_ANALYZER.analyze_scalar(value).allow_flow_plain:
+        return False
+    return bool(_SCALAR_RESOLVER.resolve(yaml.ScalarNode, value, (True, False)) == _STR_TAG)
 
 
 def _strip_yaml_quotes(value: str) -> str:

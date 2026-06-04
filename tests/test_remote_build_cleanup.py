@@ -24,6 +24,7 @@ from esphome_device_builder.helpers.remote_build_cleanup import (
 from esphome_device_builder.helpers.remote_build_layout import (
     REMOTE_BUILDS_SUBDIR,
     RemoteBuildPath,
+    parse_from_configuration,
 )
 
 
@@ -506,3 +507,25 @@ def test_sweep_continues_after_subtree_rmtree_failure(
     # exists, the successful one is gone.
     assert deleted == 1
     assert len(calls) == 2
+
+
+def test_sweep_protects_in_flight_subtree_with_long_dashboard_id(tmp_path: Path) -> None:
+    """A long-id cold subtree stays protected when in-flight via its 8-char dir_id.
+
+    The in-flight set is keyed through ``parse_from_configuration`` (the dir_id) exactly as the
+    controller's loop builds it; the sweep reconstructs the same dir_id from the directory name,
+    so idempotent truncation must keep the two equal or an active build gets swept.
+    """
+    now = 1_000_000.0
+    key = RemoteBuildPath(dashboard_id="Nc7uJKFUh3U0o6DKioxJFsfpZwWoN5Ws", device_name="kitchen")
+    _populate(tmp_path, key, age_seconds=3600, now=now)  # cold
+
+    configuration = (key.subtree(tmp_path) / "kitchen.yaml").relative_to(tmp_path).as_posix()
+    in_flight = parse_from_configuration(configuration)
+    assert in_flight is not None
+
+    deleted = sweep_remote_builds(
+        tmp_path, ttl_seconds=600, in_flight_keys=frozenset({in_flight}), now=now
+    )
+    assert deleted == 0
+    assert key.subtree(tmp_path).exists()

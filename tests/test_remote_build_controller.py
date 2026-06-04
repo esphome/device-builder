@@ -1970,6 +1970,73 @@ async def test_identity_rotation_refreshes_snapshot_and_respawns_approved_client
     spawn.assert_called_once_with(approved)
 
 
+async def test_sweep_stale_pairing_fires_removed_and_clears_remote_jobs(
+    tmp_path: Path,
+) -> None:
+    """Sweeping a stale pairing fires ``"removed"`` and drops its remote-job cache entry."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller.offloader._db.bus = MagicMock()
+    stale_pin = "a" * 64
+    keep_pin = "b" * 64
+    controller.offloader.state.pairings[stale_pin] = StoredPairing(
+        receiver_hostname="r.local",
+        receiver_port=6055,
+        pin_sha256=stale_pin,
+        static_x25519_pub=b"\x01" * 32,
+        label="r",
+        paired_at=1.0,
+        status=PeerStatus.APPROVED,
+    )
+    controller.offloader.state.offloader_remote_jobs["job-1"] = {
+        "receiver_hostname": "r.local",
+        "receiver_port": 6055,
+        "pin_sha256": stale_pin,
+        "job_id": "job-1",
+        "status": "running",
+        "error_message": "",
+    }
+
+    controller.offloader._sweep_stale_pairings_at_endpoint(
+        "r.local", 6055, keep_pin_sha256=keep_pin
+    )
+
+    assert stale_pin not in controller.offloader.state.pairings
+    assert "job-1" not in controller.offloader.state.offloader_remote_jobs
+    fire = controller.offloader._db.bus.fire
+    fire.assert_called_once()
+    event_type, payload = fire.call_args.args
+    assert event_type is EventType.OFFLOADER_PAIR_STATUS_CHANGED
+    assert payload == {
+        "receiver_hostname": "r.local",
+        "receiver_port": 6055,
+        "pin_sha256": stale_pin,
+        "status": "removed",
+    }
+
+
+async def test_sweep_keeps_matching_pin_silent(tmp_path: Path) -> None:
+    """Re-confirming the same pin at an endpoint sweeps nothing and fires no event."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller.offloader._db.bus = MagicMock()
+    keep_pin = "b" * 64
+    controller.offloader.state.pairings[keep_pin] = StoredPairing(
+        receiver_hostname="r.local",
+        receiver_port=6055,
+        pin_sha256=keep_pin,
+        static_x25519_pub=b"\x02" * 32,
+        label="r",
+        paired_at=1.0,
+        status=PeerStatus.APPROVED,
+    )
+
+    controller.offloader._sweep_stale_pairings_at_endpoint(
+        "r.local", 6055, keep_pin_sha256=keep_pin
+    )
+
+    assert keep_pin in controller.offloader.state.pairings
+    controller.offloader._db.bus.fire.assert_not_called()
+
+
 async def test_load_offloader_identities_refreshes_snapshot(tmp_path: Path) -> None:
     """Loading identities writes the values back to the synchronously-read snapshot."""
     controller = _make_controller(config_dir=tmp_path)

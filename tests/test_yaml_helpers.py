@@ -25,6 +25,8 @@ What we pin:
 
 from __future__ import annotations
 
+import random
+import string
 from typing import Any
 
 import pytest
@@ -47,6 +49,7 @@ from esphome_device_builder.helpers.yaml import (
     rewrite_yaml_scalar,
     upsert_yaml_leaf_under_top_block,
 )
+from esphome_device_builder.helpers.yaml.scalar import _plain_is_fast_safe, _plain_is_safe
 from esphome_device_builder.models.common import ConfigEntry, ConfigEntryType
 from esphome_device_builder.models.components import (
     ComponentCatalogEntry,
@@ -708,6 +711,35 @@ def test_safe_yaml_scalar(value: str, expected: str) -> None:
     assert _safe_yaml_scalar(value) == expected
 
 
+def test_plain_fast_path_is_strict_subset_and_round_trips() -> None:
+    """The identifier fast path never disagrees with PyYAML, and output round-trips.
+
+    Fuzzes a deterministic corpus over indicators, control chars,
+    digits, whitespace and unicode. ``_plain_is_fast_safe`` returning
+    True MUST imply ``_plain_is_safe`` (the PyYAML decision) is also
+    True; a violation would emit a value unquoted that the parser
+    rejects or rewrites. Every ``_safe_yaml_scalar`` result must also
+    survive a re-parse; the round trip is batched into one document per
+    chunk so the fuzz stays fast.
+    """
+    rng = random.Random(20260604)  # noqa: S311, fuzz corpus, not cryptographic
+    alphabet = string.ascii_letters + string.digits + "_-./ :#!%@&*,[]{}\"'~+\t\n\r\x00\x0b\x7fé好"
+
+    def _rand() -> str:
+        return "".join(rng.choice(alphabet) for _ in range(rng.randint(0, 8)))
+
+    for _ in range(40):
+        chunk = [_rand() for _ in range(500)]
+        lines = []
+        for i, value in enumerate(chunk):
+            if _plain_is_fast_safe(value):
+                assert _plain_is_safe(value), f"fast path kept {value!r} plain but PyYAML quotes it"
+            lines.append(f"k{i}: {_safe_yaml_scalar(value)}")
+        parsed = yaml.safe_load("\n".join(lines))
+        for i, value in enumerate(chunk):
+            assert parsed[f"k{i}"] == value
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
@@ -1180,13 +1212,13 @@ def test_generate_component_yaml_quotes_yaml_keyword_strings(keyword: str) -> No
 
 @pytest.mark.parametrize(
     "value",
-    ["foo:bar", "foo#bar", "!secret api_key", "%"],
+    ["foo:bar", "foo #bar", "!secret api_key", "%"],
     ids=["colon", "hash", "tag-prefix", "percent"],
 )
 def test_generate_component_yaml_quotes_strings_with_special_chars(value: str) -> None:
-    """Strings containing ``:`` / ``#`` or equal to a YAML reserved scalar get quoted.
+    """Strings PyYAML can't emit plain — ``:`` / `` #`` / leading ``!`` / ``%`` — get quoted.
 
-    ``:`` opens a mapping value, ``#`` opens a comment, ``!``
+    ``:`` opens a mapping value, `` #`` opens a comment, ``!``
     introduces a tag. ``%`` is the regression case from issue #675 —
     a humidity sensor's ``unit_of_measurement: "%"`` default was
     being emitted unquoted as ``unit_of_measurement: %`` and
@@ -1544,18 +1576,15 @@ def test_generate_component_yaml_quotes_case_variant_keyword_strings(variant: st
     assert f'  v: "{variant}"' in out
 
 
-def test_generate_component_yaml_quotes_unparseable_string_starting_with_digit() -> None:
-    r"""A digit-led string yaml can't parse (``"0\t"``) falls through unquoted.
+def test_generate_component_yaml_quotes_digit_led_control_char_string() -> None:
+    r"""A digit-led control-char value (``"0\t"``) is quoted and round-trips.
 
-    Exercises the ``yaml.YAMLError`` branch in
-    ``_yaml_reparses_as_non_string`` — the pre-filter lets the value
-    through, the parser raises, and the helper returns False so the
-    string emits without quotes.
+    Emitted bare it is invalid YAML; the renderer quotes and escapes
+    it so a re-parse recovers the exact value.
     """
     component = _component(component_id="myc", category=ComponentCategory.MISC)
     out = generate_component_yaml(component, {"v": "0\t"})
-    # The value rendered bare — no extra quotes from the reparse check.
-    assert '  v: "' not in out
+    assert yaml.safe_load(out)["myc"]["v"] == "0\t"
 
 
 # ---------------------------------------------------------------------------

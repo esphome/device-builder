@@ -124,7 +124,9 @@ def sweep_stale_pairings_at_endpoint(
     Walks both ``_pairings`` and ``_offloader_alerts``
     because an alert can outlive its pairing on the
     pin-drift branch. Snapshots to lists before iterating
-    to avoid mutate-during-iteration.
+    to avoid mutate-during-iteration. Each dropped pairing
+    fires ``OFFLOADER_PAIR_STATUS_CHANGED`` ``"removed"`` and
+    clears its derived caches.
     """
     for stale_pin, pairing in list(controller.state.pairings.items()):
         if stale_pin == keep_pin_sha256:
@@ -135,7 +137,17 @@ def sweep_stale_pairings_at_endpoint(
         controller._cancel_pair_status_listener(stale_pin)
         controller._cancel_peer_link_client(stale_pin)
         controller.state.peer_queue_status.pop(stale_pin, None)
+        for job_id, entry in list(controller.state.offloader_remote_jobs.items()):
+            if entry["pin_sha256"] == stale_pin:
+                controller.state.offloader_remote_jobs.pop(job_id, None)
         controller.state.open_peer_links.discard(stale_pin)
+        # Fire "removed" so connected clients drop the row from
+        # their pairings list — without it a swept (possibly
+        # APPROVED) row lingers in every subscriber's snapshot
+        # until reload (cross-tab desync).
+        controller._fire_offloader_pair_status_changed(
+            pairing.receiver_hostname, pairing.receiver_port, stale_pin, "removed"
+        )
     # Alerts can outlive pairings — sweep them in a second
     # pass keyed on the alert's stored ``receiver_hostname``
     # / ``receiver_port`` (also walks the pin-keyed dict so

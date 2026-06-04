@@ -73,7 +73,7 @@ def test_parse_handles_deep_nested_yaml_under_subtree() -> None:
     """A configuration deeper than the canonical 5 segments still parses.
 
     The bundle layout only constrains the first four segments
-    (``.esphome / .remote_builds / <dashboard_id> / <device_name>``);
+    (``.esphome / .remote_builds / <dir_id> / <device_name>``);
     the YAML name inside the subtree is free-form. A nested
     YAML (theoretical, not the writer's current shape but
     allowed by the contract) should still resolve.
@@ -123,3 +123,28 @@ def test_remote_build_path_is_hashable() -> None:
     keys = frozenset({a, b})
     assert keys == frozenset({a})
     assert hash(a) == hash(b)
+
+
+# A 32-char base64url id like older installs persist.
+_LONG_ID = "Nc7uJKFUh3U0o6DKioxJFsfpZwWoN5Ws"
+
+
+def test_long_dashboard_id_renders_8_char_dir(tmp_path: Path) -> None:
+    """A >8-char id renders an 8-char on-disk dir, keeping paths under Windows MAX_PATH."""
+    key = RemoteBuildPath(dashboard_id=_LONG_ID, device_name="kitchen")
+    assert key.dir_id == "Nc7uJKFU"
+    assert key.subtree(tmp_path) == (
+        tmp_path / ".esphome" / ".remote_builds" / "Nc7uJKFU" / "kitchen"
+    )
+    assert key.data_dir(tmp_path) == (tmp_path / ".remote_builds" / "Nc7uJKFU" / ".esphome")
+
+
+def test_parse_round_trip_idempotent_for_long_id(tmp_path: Path) -> None:
+    """Parsing a long-id subtree path recovers the 8-char dir_id and renders identical paths."""
+    key = RemoteBuildPath(dashboard_id=_LONG_ID, device_name="kitchen")
+    configuration = (key.subtree(tmp_path) / "kitchen.yaml").relative_to(tmp_path).as_posix()
+    parsed = parse_from_configuration(configuration)
+    assert parsed is not None
+    assert parsed.dashboard_id == "Nc7uJKFU"  # the truncated dir_id, not the full wire id
+    assert parsed.subtree(tmp_path) == key.subtree(tmp_path)
+    assert parsed.data_dir(tmp_path) == key.data_dir(tmp_path)

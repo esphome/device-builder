@@ -47,9 +47,9 @@ def test_resolve_data_dir_remote_build_configuration_uses_per_dashboard_esphome(
     anchored on ``CORE.data_dir`` to keep HA-addon builds out of
     the ``/config`` volume.
     """
-    configuration = ".esphome/.remote_builds/dashboard-alpha/kitchen/kitchen.yaml"
+    configuration = ".esphome/.remote_builds/a1b2c3d4/kitchen/kitchen.yaml"
     assert resolve_data_dir(configuration) == (
-        tmp_path / ".esphome" / ".remote_builds" / "dashboard-alpha" / ".esphome"
+        tmp_path / ".esphome" / ".remote_builds" / "a1b2c3d4" / ".esphome"
     )
 
 
@@ -58,13 +58,13 @@ def test_resolve_data_dir_malformed_remote_build_path_falls_through_to_local() -
 
     ``parse_from_configuration`` returns ``None`` for any path
     that doesn't match the canonical
-    ``.esphome/.remote_builds/<dashboard_id>/<device>/<file>`` shape.
+    ``.esphome/.remote_builds/<dir_id>/<device>/<file>`` shape.
     A 3-segment shorthand like
-    ``.esphome/.remote_builds/<id>/kitchen.yaml`` (no device
+    ``.esphome/.remote_builds/<dir_id>/kitchen.yaml`` (no device
     subtree) doesn't qualify and the resolver falls through to
     ``CORE.data_dir`` — same as a bare basename.
     """
-    configuration = ".esphome/.remote_builds/dashboard-alpha/kitchen.yaml"
+    configuration = ".esphome/.remote_builds/a1b2c3d4/kitchen.yaml"
     assert resolve_data_dir(configuration) == Path(CORE.data_dir)
 
 
@@ -84,18 +84,18 @@ def test_resolve_storage_path_remote_build_uses_basename_keyspace(tmp_path: Path
     ``<per-dashboard-data-dir>/kitchen.yaml`` writes its sidecar
     at ``<per-dashboard-data-dir>/storage/kitchen.yaml.json``,
     where ``<per-dashboard-data-dir>`` is
-    ``<CORE.data_dir>/.remote_builds/<dashboard_id>/.esphome``.
-    The full configuration string (``.esphome/.remote_builds/<id>/<device>/<device>.yaml``)
+    ``<CORE.data_dir>/.remote_builds/<dir_id>/.esphome``.
+    The full configuration string (``.esphome/.remote_builds/<dir_id>/<device>/<device>.yaml``)
     is not re-embedded in the sidecar path — pins the
     basename-keyed contract so a future refactor can't silently
     regress the resolver into emitting the buggy full-path key.
     """
-    configuration = ".esphome/.remote_builds/dashboard-alpha/kitchen/kitchen.yaml"
+    configuration = ".esphome/.remote_builds/a1b2c3d4/kitchen/kitchen.yaml"
     assert resolve_storage_path(configuration) == (
         tmp_path
         / ".esphome"
         / ".remote_builds"
-        / "dashboard-alpha"
+        / "a1b2c3d4"
         / ".esphome"
         / "storage"
         / "kitchen.yaml.json"
@@ -111,12 +111,12 @@ def test_resolve_idedata_path_local_configuration() -> None:
 
 def test_resolve_idedata_path_remote_build(tmp_path: Path) -> None:
     """Idedata for a remote build lands under the per-build subtree."""
-    configuration = ".esphome/.remote_builds/dashboard-alpha/kitchen/kitchen.yaml"
+    configuration = ".esphome/.remote_builds/a1b2c3d4/kitchen/kitchen.yaml"
     assert resolve_idedata_path(configuration, name="kitchen") == (
         tmp_path
         / ".esphome"
         / ".remote_builds"
-        / "dashboard-alpha"
+        / "a1b2c3d4"
         / ".esphome"
         / "idedata"
         / "kitchen.json"

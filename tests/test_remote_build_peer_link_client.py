@@ -1814,6 +1814,67 @@ async def test_request_pair_clears_offloader_alert_for_same_receiver(
         await asyncio.gather(listener, return_exceptions=True)
 
 
+async def test_request_pair_approved_preserves_operator_enabled_and_version(
+    offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Re-pair to APPROVED preserves operator ``enabled`` toggle + version."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+    pubkey = b"\x44" * 32
+    pin = hashlib.sha256(pubkey).hexdigest()
+
+    # Operator previously paired this receiver, disabled transparent
+    # install for it, and a session-open captured its version.
+    offloader.state.pairings[pin] = _stub_pairing(
+        receiver_hostname="rcv.local",
+        receiver_port=6055,
+        pin_sha256=pin,
+        static_x25519_pub=pubkey,
+        status=PeerStatus.APPROVED,
+    )
+    offloader.state.pairings[pin].enabled = False
+    offloader.state.pairings[pin].esphome_version = "2025.5.0"
+
+    async def _fake_request_pair(**_: object) -> RequestPairResult:
+        return RequestPairResult(
+            status=IntentResponse.APPROVED,
+            pin_sha256=pin,
+            remote_static_pub=pubkey,
+        )
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.pair_commands.peer_link_request_pair",
+        _fake_request_pair,
+    )
+    fake_identity = MagicMock()
+    fake_identity.private_bytes = b"\x00" * 32
+    fake_dashboard = MagicMock()
+    fake_dashboard.dashboard_id = "dashboard-stub"
+
+    async def _fake_load_offloader_identities(
+        _fi: MagicMock = fake_identity, _fd: MagicMock = fake_dashboard
+    ) -> tuple[MagicMock, MagicMock]:
+        return _fi, _fd
+
+    monkeypatch.setattr(
+        offloader, "_load_offloader_identities_async", _fake_load_offloader_identities
+    )
+    monkeypatch.setattr(offloader, "_spawn_peer_link_client", MagicMock())
+
+    summary = await offloader.request_pair(
+        hostname="rcv.local",
+        port=6055,
+        pin_sha256=pin,
+        receiver_label="lab-pc",
+        offloader_label="off",
+    )
+
+    assert summary.status is PeerStatus.APPROVED
+    refreshed = offloader.state.pairings[pin]
+    assert refreshed.enabled is False
+    assert refreshed.esphome_version == "2025.5.0"
+
+
 async def test_unpair_does_not_fire_event_when_nothing_to_remove(
     offloader_controller_dir: Path,
 ) -> None:

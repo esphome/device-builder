@@ -5,10 +5,8 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any
 
-import yaml
-
 from ...models.common import ConfigEntryType
-from .scalar import _PLAIN_SCALAR_INDICATOR_LEAD, ESPHOME_YAML_INDENT, _quote, block_body_is_list
+from .scalar import ESPHOME_YAML_INDENT, _quote, _safe_yaml_scalar, block_body_is_list
 
 if TYPE_CHECKING:
     from ...models import ComponentCatalogEntry
@@ -360,55 +358,8 @@ def _format_yaml_value(value: Any) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, str):
-        return _quote(value) if _string_needs_quoting(value) else value
+        return _safe_yaml_scalar(value)
     return str(value)
-
-
-_YAML_RESERVED_KEYWORDS = frozenset({"true", "false", "null", "yes", "no", "on", "off"})
-
-
-def _string_needs_quoting(value: str) -> bool:
-    """Return True when *value* needs YAML quoting to round-trip as a string."""
-    # YAML 1.1 recognises every case variant of the reserved words
-    # (``true``/``True``/``TRUE`` etc.) as bool/null, so ``str(True)``
-    # from a JSON bool would otherwise re-parse as ``True``. ``~`` and
-    # empty string are YAML null shorthands. A leading YAML indicator
-    # character (the ``_PLAIN_SCALAR_INDICATOR_LEAD`` set: ``! & * ? |
-    # > % @ ` # - , [ ] { } " '``) changes the scalar's shape — e.g. a
-    # globals ``initial_value`` C++ literal ``"Hello"`` emitted bare
-    # round-trips as the plain string ``Hello``, dropping the quotes
-    # ESPHome compiles against (#1095). ``:`` opens a mapping value and
-    # ``#`` opens a comment anywhere in the value. Survivors then take
-    # the (cheap pre-filtered) ``yaml.safe_load`` round-trip test for
-    # numeric-looking strings — the original #901 case.
-    if value.lower() in _YAML_RESERVED_KEYWORDS or value in ("~", ""):
-        return True
-    if value[0] in _PLAIN_SCALAR_INDICATOR_LEAD or ":" in value or "#" in value:
-        return True
-    return _yaml_reparses_as_non_string(value)
-
-
-# YAML 1.1 plain scalars can only re-parse as a non-string when the
-# first character is a digit, sign, or ``.`` (covers int / float /
-# hex / binary / ``.inf`` / ``.nan`` / dates / timestamps). Every
-# other plain leading character resolves to a string, so the cheap
-# membership test rules out the ``yaml.safe_load`` call for typical
-# values like ``"GPIO4"`` or ``"Bedroom Light"`` — without the
-# pre-filter the parser ran on every emitted string field and
-# regressed ``merge_component_yaml`` by ~600µs per emission
-# (CodSpeed flagged this on #908).
-_YAML_AMBIGUOUS_FIRST = frozenset("0123456789-+.")
-
-
-def _yaml_reparses_as_non_string(value: str) -> bool:
-    """Return True when ``yaml.safe_load(value)`` is not a string."""
-    if not value or value[0] not in _YAML_AMBIGUOUS_FIRST:
-        return False
-    try:
-        parsed = yaml.safe_load(value)
-    except yaml.YAMLError:
-        return False
-    return parsed is not None and not isinstance(parsed, str)
 
 
 def _format_flow_yaml_value(value: Any) -> str:
