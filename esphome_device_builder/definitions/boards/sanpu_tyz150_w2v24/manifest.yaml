@@ -8,11 +8,11 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/SANPU-TYZ150-W2V24/devices.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/SANPU-TYZ150-W2V24/mechanical.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/SANPU-TYZ150-W2V24/CB3L.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/SANPU-TYZ150-W2V24/extract_from_unit.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/SANPU-TYZ150-W2V24/flashing_points.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/SANPU-TYZ150-W2V24/devices.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/SANPU-TYZ150-W2V24/mechanical.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/SANPU-TYZ150-W2V24/CB3L.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/SANPU-TYZ150-W2V24/extract_from_unit.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/SANPU-TYZ150-W2V24/flashing_points.png
 docs_url: https://devices.esphome.io/devices/SANPU-TYZ150-W2V24/
 featured_components:
 - id: light_cwww_1
@@ -27,6 +27,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: SANPU-TYZ150-W2V24
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/SANPU-TYZ150-W2V24/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/SANPU-TYZ150-W2V24/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 720fd9e8d62289726ad62d6d7060cef3fbc0b79ebd52fcd352e08e221c65f631

@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/RZTK-Smart-LED-3-USB-RGB-SCW-WB-CB003/chip.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/RZTK-Smart-LED-3-USB-RGB-SCW-WB-CB003/image.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/RZTK-Smart-LED-3-USB-RGB-SCW-WB-CB003/chip.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/RZTK-Smart-LED-3-USB-RGB-SCW-WB-CB003/image.png
 docs_url: https://devices.esphome.io/devices/RZTK-Smart-LED-3-USB-RGB-SCW-WB-CB003/
 featured_components:
 - id: rgb_lightstrip1
@@ -59,6 +59,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: RZTK-Smart-LED-3-USB-RGB-SCW-WB-CB003
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/RZTK-Smart-LED-3-USB-RGB-SCW-WB-CB003/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/RZTK-Smart-LED-3-USB-RGB-SCW-WB-CB003/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 111490fc1fda0de0a3ed9797c0fd2f7a6528c81c12661b28daf86a6381a846c1

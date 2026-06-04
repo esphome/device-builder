@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Jeeo-TF-SH330/TF-SH330.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Jeeo-TF-SH330/TF-SH330.jpg
 tags:
 - relay
 - compact
@@ -76,6 +76,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Jeeo-TF-SH330
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Jeeo-TF-SH330/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Jeeo-TF-SH330/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: ff7d8f41c55974f97d9e3229655a6302f5c156605f673f3220f908ccb33ae8ec

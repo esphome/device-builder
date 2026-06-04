@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/XtendLan-IP66-Dual/Whole.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/XtendLan-IP66-Dual/ESP-Pinout.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/XtendLan-IP66-Dual/ESP-Pinout2.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/XtendLan-IP66-Dual/Whole.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/XtendLan-IP66-Dual/ESP-Pinout.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/XtendLan-IP66-Dual/ESP-Pinout2.jpg
 tags:
 - relay
 - compact
@@ -80,6 +80,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: XtendLan-IP66-Dual
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/XtendLan-IP66-Dual/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/XtendLan-IP66-Dual/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 7fe0eb898bad0019b05055bc90ed3183722e014ed1331b3594c27233dd171bf0

@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Gosund-SP111/gosund-sp111.JPG
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Gosund-SP111/gosund-sp111.JPG
 tags:
 - relay
 - compact
@@ -115,6 +115,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Gosund-SP111
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Gosund-SP111/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Gosund-SP111/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 928ac63f79407a1657399a7b792c815d99140264edaaf0b017828923c2b07d23

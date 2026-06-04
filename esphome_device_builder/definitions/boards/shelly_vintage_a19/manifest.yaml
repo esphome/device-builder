@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Vintage-A19/Shelly_Vintage_A60_x1-938x938.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Shelly-Vintage-A19/Shelly_Vintage_A60_x1-938x938.png
 tags:
 - shelly
 pins:
@@ -39,6 +39,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Shelly-Vintage-A19
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Shelly-Vintage-A19/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Shelly-Vintage-A19/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 362299c346953057500d08e49ee1c2d66252f519f85480a66d83126ca6fe37aa

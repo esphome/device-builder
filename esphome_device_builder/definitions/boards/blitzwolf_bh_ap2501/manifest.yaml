@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/BlitzWolf-BH-AP2501/product.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/BlitzWolf-BH-AP2501/ESP12F.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/BlitzWolf-BH-AP2501/product.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/BlitzWolf-BH-AP2501/ESP12F.jpg
 docs_url: https://devices.esphome.io/devices/BlitzWolf-BH-AP2501/
 product_url: https://github.com/wildekek/BlitzHome-BH-AP2501
 featured_components:
@@ -97,6 +97,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: BlitzWolf-BH-AP2501
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/BlitzWolf-BH-AP2501/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/BlitzWolf-BH-AP2501/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: a0d8a536420deaade585252c76b352fdd89dd111bd482d4604aa4d4b3ad7e6f5

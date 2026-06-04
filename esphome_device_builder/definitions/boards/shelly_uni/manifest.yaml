@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Uni/shelly_uni_625x625.webp
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Uni/shelly_uni_scheme-1536x717.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Uni/shelly_uni_gpio.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Shelly-Uni/shelly_uni_625x625.webp
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Shelly-Uni/shelly_uni_scheme-1536x717.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Shelly-Uni/shelly_uni_gpio.jpg
 tags:
 - shelly
 pins:
@@ -141,6 +141,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Shelly-Uni
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Shelly-Uni/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Shelly-Uni/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: a833441233acef1c4d0ace94498f1f4a002c1603a05e14f0059b939785b07dbf

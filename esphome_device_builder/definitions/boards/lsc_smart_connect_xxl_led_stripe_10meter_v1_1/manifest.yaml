@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/LSC-Smart-Connect-XXL-LED-Stripe-10Meter-v1.1/Led-strip-photo.webp
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/LSC-Smart-Connect-XXL-LED-Stripe-10Meter-v1.1/oldboard.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/LSC-Smart-Connect-XXL-LED-Stripe-10Meter-v1.1/newboard.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/LSC-Smart-Connect-XXL-LED-Stripe-10Meter-v1.1/Led-strip-photo.webp
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/LSC-Smart-Connect-XXL-LED-Stripe-10Meter-v1.1/oldboard.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/LSC-Smart-Connect-XXL-LED-Stripe-10Meter-v1.1/newboard.jpg
 docs_url: https://devices.esphome.io/devices/LSC-Smart-Connect-XXL-LED-Stripe-10Meter-v1.1/
 featured_components:
 - id: white_light
@@ -48,6 +48,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: LSC-Smart-Connect-XXL-LED-Stripe-10Meter-v1.1
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/LSC-Smart-Connect-XXL-LED-Stripe-10Meter-v1.1/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/LSC-Smart-Connect-XXL-LED-Stripe-10Meter-v1.1/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: bf88529865c3a10917618f0a0c3cacb7d9f17abdc76ff4b7bc10f098c42d6981

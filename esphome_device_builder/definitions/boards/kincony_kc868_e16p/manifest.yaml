@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-KC868-E16P/kc868-e16p.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-KC868-E16P/kc868-e16p.jpg
 tags:
 - relay
 pins:
@@ -428,6 +428,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: KinCony-KC868-E16P
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-KC868-E16P/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-KC868-E16P/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 28e1c4f63969b195fd6b992b2315f19f74056f34b93d32b0ddb30452d34b44ee

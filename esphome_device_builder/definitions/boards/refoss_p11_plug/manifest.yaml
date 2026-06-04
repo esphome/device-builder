@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/refoss-p11-plug/refoss_P11.webp
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/refoss-p11-plug/refoss_P11.webp
 tags:
 - relay
 - compact
@@ -83,6 +83,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: refoss-p11-plug
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/refoss-p11-plug/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/refoss-p11-plug/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 1567e5d37ee3bb51b05c98f43b1cb81a5a49e52470f4e69211a5f7588cbb7dd7

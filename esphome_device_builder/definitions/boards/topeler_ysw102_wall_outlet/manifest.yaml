@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Topeler-YSW102-Wall-Outlet/topeler-ysw102-front.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Topeler-YSW102-Wall-Outlet/topeler-ysw102-back.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Topeler-YSW102-Wall-Outlet/topeler-ysw102-cb2s.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Topeler-YSW102-Wall-Outlet/topeler-ysw102-front.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Topeler-YSW102-Wall-Outlet/topeler-ysw102-back.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Topeler-YSW102-Wall-Outlet/topeler-ysw102-cb2s.png
 tags:
 - relay
 - compact
@@ -40,6 +40,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Topeler-YSW102-Wall-Outlet
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Topeler-YSW102-Wall-Outlet/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Topeler-YSW102-Wall-Outlet/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: ac3b103123e72f7452a27affb49b2ee5b962b4a86b43a9f4ccc34e62b97c80c0

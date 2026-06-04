@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Plus-0-10V-Dimmer/shelly_plus_0-10v_dimmer.jpeg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Shelly-Plus-0-10V-Dimmer/shelly_plus_0-10v_dimmer.jpeg
 tags:
 - shelly
 pins:
@@ -128,6 +128,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Shelly-Plus-0-10V-Dimmer
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Shelly-Plus-0-10V-Dimmer/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Shelly-Plus-0-10V-Dimmer/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 356a87b31d4b59e3c4e41899ad037d3100d6830d35dbad5dc7c05e68613aff8e

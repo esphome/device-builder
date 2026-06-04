@@ -11,11 +11,11 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-T3E-ESP32-S3/Eu-Version.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-T3E-ESP32-S3/Asia-Version.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-T3E-ESP32-S3/front.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-T3E-ESP32-S3/back.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-T3E-ESP32-S3/pin.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-T3E-ESP32-S3/Eu-Version.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-T3E-ESP32-S3/Asia-Version.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-T3E-ESP32-S3/front.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-T3E-ESP32-S3/back.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-T3E-ESP32-S3/pin.jpg
 pins:
 - gpio: 2
   available: false
@@ -156,6 +156,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Tuya-T3E-ESP32-S3
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-T3E-ESP32-S3/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-T3E-ESP32-S3/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 02fc8a2b1b66bf0bed74214bfffaf7a652e146d0d56ec8e43973250fea6186fd

@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tomzn-TOB9-VAP/device.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tomzn-TOB9-VAP/board.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tomzn-TOB9-VAP/disassembling.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tomzn-TOB9-VAP/device.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tomzn-TOB9-VAP/board.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tomzn-TOB9-VAP/disassembling.jpg
 pins:
 - gpio: 17
   available: false
@@ -51,6 +51,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Tomzn-TOB9-VAP
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tomzn-TOB9-VAP/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tomzn-TOB9-VAP/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 8c3e207ced935c0d5b2a6e7b5d2998ed2f12c8bafb49fb8d6dce2dd372b589f5

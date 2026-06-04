@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/LSC-Plug-With-Monitoring/box.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/LSC-Plug-With-Monitoring/device.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/LSC-Plug-With-Monitoring/box.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/LSC-Plug-With-Monitoring/device.png
 tags:
 - relay
 - compact
@@ -44,6 +44,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: LSC-Plug-With-Monitoring
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/LSC-Plug-With-Monitoring/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/LSC-Plug-With-Monitoring/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: aa8a8783c823cf454116baf7fd400b0a0207d2af4de7d7f9926cf8be41819bb1

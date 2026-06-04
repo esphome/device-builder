@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/AVATTO-Tuya-WiFi-Smart-Switch/AVATTOTuyaWiFiSmartSwitch.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/AVATTO-Tuya-WiFi-Smart-Switch/Frontside.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/AVATTO-Tuya-WiFi-Smart-Switch/Backside.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/AVATTO-Tuya-WiFi-Smart-Switch/AVATTOTuyaWiFiSmartSwitch.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/AVATTO-Tuya-WiFi-Smart-Switch/Frontside.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/AVATTO-Tuya-WiFi-Smart-Switch/Backside.jpg
 docs_url: https://devices.esphome.io/devices/AVATTO-Tuya-WiFi-Smart-Switch/
 featured_components:
 - id: led
@@ -22,6 +22,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: AVATTO-Tuya-WiFi-Smart-Switch
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/AVATTO-Tuya-WiFi-Smart-Switch/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/AVATTO-Tuya-WiFi-Smart-Switch/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 78fed0455ee3ef73fbc1fd14354ce15e73360411fc6cd5ef52b3d9d01f2cd392

@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/ESP-12F-Relay-X8/image.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/ESP-12F-Relay-X8/image.jpg
 tags:
 - relay
 pins:
@@ -119,6 +119,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: ESP-12F-Relay-X8
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/ESP-12F-Relay-X8/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/ESP-12F-Relay-X8/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 89f7ad4ee95b07037594153379b206e5592e765559416e4e0ca75b4724fec2a5

@@ -11,9 +11,9 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sonoff-BASIC-R4-v1.0/sonoff_basic_r4.webp
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sonoff-BASIC-R4-v1.0/sonoff_basic_r4_pcb.webp
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sonoff-BASIC-R4-v1.0/sonoff_basic_r4_pcb_rear.webp
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Sonoff-BASIC-R4-v1.0/sonoff_basic_r4.webp
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Sonoff-BASIC-R4-v1.0/sonoff_basic_r4_pcb.webp
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Sonoff-BASIC-R4-v1.0/sonoff_basic_r4_pcb_rear.webp
 tags:
 - relay
 - sonoff
@@ -52,6 +52,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Sonoff-BASIC-R4-v1.0
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Sonoff-BASIC-R4-v1.0/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Sonoff-BASIC-R4-v1.0/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 65124ec1c37da8fd94602edfae9e609c6bc064d7efb4115d4253f47c44f442eb

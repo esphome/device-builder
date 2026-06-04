@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Cocoon-DY180363-RGBW-8W-Bulb/DY180363.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Cocoon-DY180363-RGBW-8W-Bulb/DY180363.png
 pins:
 - gpio: 4
   available: false
@@ -76,6 +76,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Cocoon-DY180363-RGBW-8W-Bulb
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Cocoon-DY180363-RGBW-8W-Bulb/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Cocoon-DY180363-RGBW-8W-Bulb/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 548583fd81c17b2298ceee18683b91bdd973558dd721741fa1f85d866061da56

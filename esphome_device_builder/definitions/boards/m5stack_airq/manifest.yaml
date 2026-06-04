@@ -10,8 +10,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/M5Stack-AirQ/M5stack-AirQsensorDisplay.jpeg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/M5Stack-AirQ/M5stack-AirQ.webp
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/M5Stack-AirQ/M5stack-AirQsensorDisplay.jpeg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/M5Stack-AirQ/M5stack-AirQ.webp
 pins:
 - gpio: 0
   available: false
@@ -123,6 +123,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: M5Stack-AirQ
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/M5Stack-AirQ/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/M5Stack-AirQ/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 6c48045b8b8337fe2fa0faa419997bf8eda2f2a667e9117e8b99bf29205ccc97

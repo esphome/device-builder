@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/TENSTAR-ROBOT-ESP32-S3-SuperMini/Pinouts.webp
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/TENSTAR-ROBOT-ESP32-S3-SuperMini/esp32s3supermini.jpeg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/TENSTAR-ROBOT-ESP32-S3-SuperMini/Pinouts.webp
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/TENSTAR-ROBOT-ESP32-S3-SuperMini/esp32s3supermini.jpeg
 pins:
 - gpio: 48
   available: false
@@ -34,6 +34,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: TENSTAR-ROBOT-ESP32-S3-SuperMini
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/TENSTAR-ROBOT-ESP32-S3-SuperMini/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/TENSTAR-ROBOT-ESP32-S3-SuperMini/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: be73ebde450dfb159f65d31908fadcd8897428501aa73427334ec0f6457b7523

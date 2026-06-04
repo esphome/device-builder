@@ -8,12 +8,12 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/H801-RGBW-LED-Controller/h801.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/H801-RGBW-LED-Controller/h801-board-front.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/H801-RGBW-LED-Controller/h801-board-back.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/H801-RGBW-LED-Controller/h801-pir_sensor.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/H801-RGBW-LED-Controller/H802WiFi-1.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/H801-RGBW-LED-Controller/h802-board-photo-annotated.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/H801-RGBW-LED-Controller/h801.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/H801-RGBW-LED-Controller/h801-board-front.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/H801-RGBW-LED-Controller/h801-board-back.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/H801-RGBW-LED-Controller/h801-pir_sensor.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/H801-RGBW-LED-Controller/H802WiFi-1.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/H801-RGBW-LED-Controller/h802-board-photo-annotated.jpg
 pins:
 - gpio: 4
   available: false
@@ -95,6 +95,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: H801-RGBW-LED-Controller
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/H801-RGBW-LED-Controller/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/H801-RGBW-LED-Controller/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: bf2b2d3cc4c83f7849bc3f0d949522615158d35352e6a50eb31a755de5e21204

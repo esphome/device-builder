@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sinilink-XY-VFMS/sinilink-xy-wfms.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Sinilink-XY-VFMS/sinilink-xy-wfms.png
 tags:
 - relay
 pins:
@@ -58,6 +58,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Sinilink-XY-VFMS
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Sinilink-XY-VFMS/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Sinilink-XY-VFMS/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 75ba05686a47e7dcfb62e0aa75d9daab98649e0b5319a278875c50e252b9f5a5

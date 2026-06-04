@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Gosund-WO1/Gosund-WO1.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Gosund-WO1/Gosund-WO1.jpg
 tags:
 - relay
 - compact
@@ -103,6 +103,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Gosund-WO1
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Gosund-WO1/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Gosund-WO1/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: e550c16029870bb9c7b92a2a5e00ce56e6b7b0ee92526da567d14d2b42bf0ec2

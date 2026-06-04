@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/MagicHome-ZJ-WFMN-C-Single-Color/magichome_single_color.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/MagicHome-ZJ-WFMN-C-Single-Color/magichome_single_color.png
 pins:
 - gpio: 12
   available: false
@@ -37,6 +37,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: MagicHome-ZJ-WFMN-C-Single-Color
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/MagicHome-ZJ-WFMN-C-Single-Color/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/MagicHome-ZJ-WFMN-C-Single-Color/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 286af7f21800840f54f702b0600016ffd5dbfe4656aa56393d1b93e14ad9711d

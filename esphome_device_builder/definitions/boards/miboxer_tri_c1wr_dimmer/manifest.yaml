@@ -11,10 +11,10 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Miboxer-TRI-C1WR-Dimmer/miboxer-tri-c1wr.webp
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Miboxer-TRI-C1WR-Dimmer/miboxer-tri-c1wr-pcb-top.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Miboxer-TRI-C1WR-Dimmer/miboxer-tri-c1wr-pcb-bottom.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Miboxer-TRI-C1WR-Dimmer/test_board.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Miboxer-TRI-C1WR-Dimmer/miboxer-tri-c1wr.webp
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Miboxer-TRI-C1WR-Dimmer/miboxer-tri-c1wr-pcb-top.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Miboxer-TRI-C1WR-Dimmer/miboxer-tri-c1wr-pcb-bottom.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Miboxer-TRI-C1WR-Dimmer/test_board.jpg
 docs_url: https://devices.esphome.io/devices/Miboxer-TRI-C1WR-Dimmer/
 featured_components:
 - id: restart_device
@@ -63,6 +63,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Miboxer-TRI-C1WR-Dimmer
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Miboxer-TRI-C1WR-Dimmer/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Miboxer-TRI-C1WR-Dimmer/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 18865357983f953e9be9bad17595e8e941f3bbc2d1be68e2d404eeab70241fa5

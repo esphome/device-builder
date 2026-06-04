@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Mini-W1-4CH/front.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Mini-W1-4CH/back.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Mini-W1-4CH/soldering.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-Mini-W1-4CH/front.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-Mini-W1-4CH/back.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-Mini-W1-4CH/soldering.jpg
 tags:
 - relay
 pins:
@@ -189,6 +189,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Tuya-Mini-W1-4CH
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-Mini-W1-4CH/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-Mini-W1-4CH/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 087e7156a3f13907b339f4f3c0144e65c27a671ca191e30b25f27c86f71360c7

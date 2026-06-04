@@ -8,10 +8,10 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sonoff-BASIC-R2-v1.4/Sonoff-BASIC-R2-v1.4_pcb.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sonoff-BASIC-R2-v1.4/Sonoff-BASIC-R2-v1.4_pcb_rear.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sonoff-BASIC-R2-v1.4/SonoffBasicR2-2023-Top.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sonoff-BASIC-R2-v1.4/SonoffBasicR2-2023-Bottom.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Sonoff-BASIC-R2-v1.4/Sonoff-BASIC-R2-v1.4_pcb.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Sonoff-BASIC-R2-v1.4/Sonoff-BASIC-R2-v1.4_pcb_rear.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Sonoff-BASIC-R2-v1.4/SonoffBasicR2-2023-Top.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Sonoff-BASIC-R2-v1.4/SonoffBasicR2-2023-Bottom.jpg
 tags:
 - relay
 - sonoff
@@ -61,6 +61,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Sonoff-BASIC-R2-v1.4
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Sonoff-BASIC-R2-v1.4/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Sonoff-BASIC-R2-v1.4/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: f4a78fada84f8b5d02ba0f17b8a04ab5852d2eb93410d195fd47b0cc864e393c

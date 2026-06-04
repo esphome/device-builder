@@ -11,11 +11,11 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Gelidus-Research-Energy-Collector-1/grec1.top.bare.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Gelidus-Research-Energy-Collector-1/grec1.enclosed.side.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Gelidus-Research-Energy-Collector-1/grec1.j2.circuit.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Gelidus-Research-Energy-Collector-1/photo.sens.1m.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Gelidus-Research-Energy-Collector-1/grec1.j2.connection.pins.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Gelidus-Research-Energy-Collector-1/grec1.top.bare.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Gelidus-Research-Energy-Collector-1/grec1.enclosed.side.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Gelidus-Research-Energy-Collector-1/grec1.j2.circuit.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Gelidus-Research-Energy-Collector-1/photo.sens.1m.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Gelidus-Research-Energy-Collector-1/grec1.j2.connection.pins.jpg
 docs_url: https://devices.esphome.io/devices/Gelidus-Research-Energy-Collector-1/
 featured_components:
 - id: sensor_energy_pulse_meter
@@ -54,6 +54,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Gelidus-Research-Energy-Collector-1
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Gelidus-Research-Energy-Collector-1/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Gelidus-Research-Energy-Collector-1/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: e8d0e2c5e20b53f76cfb982206f0e62a2c7d6f1c2afeda0051ac8c0b7c84c5b8

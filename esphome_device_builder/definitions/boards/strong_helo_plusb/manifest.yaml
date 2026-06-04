@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Strong-Helo-PLUSB/strong_HELO-PLUSB-EU.webp
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Strong-Helo-PLUSB/mcu_pinout.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Strong-Helo-PLUSB/strong_HELO-PLUSB-EU.webp
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Strong-Helo-PLUSB/mcu_pinout.jpg
 tags:
 - relay
 pins:
@@ -119,6 +119,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Strong-Helo-PLUSB
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Strong-Helo-PLUSB/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Strong-Helo-PLUSB/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 2bfa925fc6ae942ca9d465d64df977783ebce983160d25db0266a404bda58e3b

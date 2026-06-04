@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Generic-Chinese-Brand-WiFi-Smart-Power-Strip/Generic-Chinese-Brand-WiFi-Smart-Power-Strip.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Generic-Chinese-Brand-WiFi-Smart-Power-Strip/Generic-Chinese-Brand-WiFi-Smart-Power-Strip.jpg
 tags:
 - relay
 - compact
@@ -149,6 +149,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Generic-Chinese-Brand-WiFi-Smart-Power-Strip
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Generic-Chinese-Brand-WiFi-Smart-Power-Strip/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Generic-Chinese-Brand-WiFi-Smart-Power-Strip/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 2a262c4152643d45c86b481222421d18e6b3448141e156467a7535affb5454f3

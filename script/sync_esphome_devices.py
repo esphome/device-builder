@@ -2,7 +2,7 @@
 """
 Generate ``definitions/boards/<id>/manifest.yaml`` from devices.esphome.io.
 
-The upstream repo (https://github.com/esphome/esphome-devices) is a
+The upstream repo (https://github.com/esphome/devices.esphome.io) is a
 Docusaurus site whose 760+ device pages each have YAML front matter
 plus an inline ``yaml`` config. This script clones the repo, walks
 the device pages, and emits one ``boards/<id>/manifest.yaml`` per
@@ -55,17 +55,17 @@ _COMPONENTS_INDEX_JSON = _DEFINITIONS_DIR / "components.index.json"
 _COMPONENTS_BODIES_DIR = _DEFINITIONS_DIR / "components"
 _CACHE_ROOT = _REPO_ROOT / ".cache"
 _DEVICES_CLONE_DIR = _CACHE_ROOT / "esphome-devices"
-_DEVICES_REPO_URL = "https://github.com/esphome/esphome-devices.git"
+_DEVICES_REPO_URL = "https://github.com/esphome/devices.esphome.io.git"
 _DEVICES_REPO_BRANCH = "main"
 _DEVICES_SUBDIR = Path("src/docs/devices")
 _DEVICES_PAGE_BASE = "https://devices.esphome.io/devices"
-_DEVICES_REPO_BLOB_BASE = "https://github.com/esphome/esphome-devices/blob/main"
-_DEVICES_REPO_RAW_BASE = "https://raw.githubusercontent.com/esphome/esphome-devices/main"
+_DEVICES_REPO_BLOB_BASE = "https://github.com/esphome/devices.esphome.io/blob/main"
+_DEVICES_REPO_RAW_BASE = "https://raw.githubusercontent.com/esphome/devices.esphome.io/main"
 
 _SOURCE_TYPE = "esphome-devices"
 
 # Closed enums upstream enforces (mirror of
-# esphome-devices/src/utils/validFrontmatter.ts).
+# devices.esphome.io/src/utils/validFrontmatter.ts).
 _VALID_SOC_FAMILIES: frozenset[str] = frozenset({"esp32", "esp8266", "bk72xx", "rp2040", "rtl87xx"})
 
 # Map ESP32 chip variants to a sensible default PlatformIO board id —
@@ -347,7 +347,7 @@ def _dump_manifest(data: dict[str, Any]) -> str:
 
 def _ensure_devices_repo(*, pull: bool = True) -> Path | None:
     """
-    Clone or update the esphome-devices repo. Returns its path or None.
+    Clone or update the devices.esphome.io repo. Returns its path or None.
 
     Mirrors the docs-repo handling in script/sync_components.py:
     shallow clone on first run, ``git pull --ff-only`` afterwards. A
@@ -371,7 +371,7 @@ def _ensure_devices_repo(*, pull: bool = True) -> Path | None:
         return target
 
     target.parent.mkdir(parents=True, exist_ok=True)
-    _LOGGER.info("Cloning esphome-devices (shallow) to %s", target)
+    _LOGGER.info("Cloning devices.esphome.io (shallow) to %s", target)
     try:
         subprocess.run(
             [
@@ -388,7 +388,7 @@ def _ensure_devices_repo(*, pull: bool = True) -> Path | None:
             timeout=300,
         )
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        _LOGGER.error("Could not clone esphome-devices: %s", exc)
+        _LOGGER.error("Could not clone devices.esphome.io: %s", exc)
         return None
     return target
 

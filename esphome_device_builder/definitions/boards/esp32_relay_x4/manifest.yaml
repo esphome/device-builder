@@ -11,9 +11,9 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/ESP32-Relay-x4/ac-dc-esp32-relayx4-front.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/ESP32-Relay-x4/ac-dc-esp32-relayx4-back.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/ESP32-Relay-x4/ESP32_Relay-x4_V1.1-303E32AC411.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/ESP32-Relay-x4/ac-dc-esp32-relayx4-front.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/ESP32-Relay-x4/ac-dc-esp32-relayx4-back.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/ESP32-Relay-x4/ESP32_Relay-x4_V1.1-303E32AC411.jpg
 tags:
 - relay
 pins:
@@ -66,6 +66,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: ESP32-Relay-x4
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/ESP32-Relay-x4/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/ESP32-Relay-x4/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 53596c2716f639cbb77950fb1a346e578f6222114fc995fb31a55a07e67f1bb5

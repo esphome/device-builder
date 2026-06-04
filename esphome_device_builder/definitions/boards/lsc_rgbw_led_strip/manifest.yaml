@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/LSC-RGBW-LED-Strip/image.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/LSC-RGBW-LED-Strip/image.jpg
 pins:
 - gpio: 4
   available: false
@@ -125,6 +125,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: LSC-RGBW-LED-Strip
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/LSC-RGBW-LED-Strip/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/LSC-RGBW-LED-Strip/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: d49f23530f24a845c8248defe6a36b7c59f3f16df3c044879e348de85e1bed2f

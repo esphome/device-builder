@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Wipro-Next-20W-Smart-CCT-Batten/wipro-wiring-pcb.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Wipro-Next-20W-Smart-CCT-Batten/wipro-wiring-pcb.jpg
 pins:
 - gpio: 5
   available: false
@@ -54,6 +54,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Wipro-Next-20W-Smart-CCT-Batten
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Wipro-Next-20W-Smart-CCT-Batten/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Wipro-Next-20W-Smart-CCT-Batten/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 5df1d7e3990a5e6d115252e76a68e28282402a20e16fea536db08b9b36bd34ec

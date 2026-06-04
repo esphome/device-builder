@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/LSC-Battletron-Desk-Strip-3-meter-3206528/LSC_OCLS26_top.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/LSC-Battletron-Desk-Strip-3-meter-3206528/LSC_OCLS26_bottom.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/LSC-Battletron-Desk-Strip-3-meter-3206528/LSC_OCLS26_traced.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/LSC-Battletron-Desk-Strip-3-meter-3206528/LSC_OCLS26_top.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/LSC-Battletron-Desk-Strip-3-meter-3206528/LSC_OCLS26_bottom.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/LSC-Battletron-Desk-Strip-3-meter-3206528/LSC_OCLS26_traced.jpg
 docs_url: https://devices.esphome.io/devices/LSC-Battletron-Desk-Strip-3-meter-3206528/
 featured_components:
 - id: color_light
@@ -24,6 +24,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: LSC-Battletron-Desk-Strip-3-meter-3206528
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/LSC-Battletron-Desk-Strip-3-meter-3206528/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/LSC-Battletron-Desk-Strip-3-meter-3206528/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: f1a27e852351c090ed71e5b3b25ed6433f7782b4cd1edb8b5272d8936766cddc

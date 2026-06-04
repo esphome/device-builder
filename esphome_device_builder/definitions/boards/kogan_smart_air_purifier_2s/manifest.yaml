@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Kogan-Smart-Air-Purifier-2S/KoganSmartAirPurifier2S.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Kogan-Smart-Air-Purifier-2S/KoganSmartAirPurifier2S.jpg
 docs_url: https://devices.esphome.io/devices/Kogan-Smart-Air-Purifier-2S/
 featured_components:
 - id: fan_tuya_1
@@ -58,6 +58,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Kogan-Smart-Air-Purifier-2S
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Kogan-Smart-Air-Purifier-2S/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Kogan-Smart-Air-Purifier-2S/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 5a370ca634f887c2e5efab600f83991e80182a39035930eaf55220c0f03bc133

@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-T64M/T64M-1.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-T64M/T64M-1.jpg
 tags:
 - relay
 pins:
@@ -1735,6 +1735,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: KinCony-T64M
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-T64M/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-T64M/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: e5ae3e3a96563e71267913d180d99b303b814ad8ca73975cb78fbf7ca75d2c73

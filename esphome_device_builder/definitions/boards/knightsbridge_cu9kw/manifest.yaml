@@ -8,10 +8,10 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Knightsbridge-CU9KW/knightsbridge-cu9kw.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Knightsbridge-CU9KW/knightsbridge-op9kw.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Knightsbridge-CU9KW/knightsbridge-cu9kw-disassembly.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Knightsbridge-CU9KW/knightsbridge-cu9kw-ESP-board.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Knightsbridge-CU9KW/knightsbridge-cu9kw.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Knightsbridge-CU9KW/knightsbridge-op9kw.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Knightsbridge-CU9KW/knightsbridge-cu9kw-disassembly.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Knightsbridge-CU9KW/knightsbridge-cu9kw-ESP-board.jpg
 tags:
 - relay
 - compact
@@ -149,6 +149,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Knightsbridge-CU9KW
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Knightsbridge-CU9KW/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Knightsbridge-CU9KW/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: fac3211801887b58fe4a0a0423f636cadf44e5a18b0bae4787ff8c4edb5e28b0

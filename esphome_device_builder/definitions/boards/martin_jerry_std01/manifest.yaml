@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Martin-Jerry-STD01/External_Thumbwheel.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Martin-Jerry-STD01/Opening_Switch.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Martin-Jerry-STD01/Wires_Soldered.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Martin-Jerry-STD01/External_Thumbwheel.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Martin-Jerry-STD01/Opening_Switch.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Martin-Jerry-STD01/Wires_Soldered.jpg
 docs_url: https://devices.esphome.io/devices/Martin-Jerry-STD01/
 featured_components:
 - id: light_tuya_1
@@ -31,6 +31,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Martin-Jerry-STD01
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Martin-Jerry-STD01/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Martin-Jerry-STD01/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 03427f2a4ac47981006e8a2ad678af193a8a2c0dbe7f26ad2a409194945d650f

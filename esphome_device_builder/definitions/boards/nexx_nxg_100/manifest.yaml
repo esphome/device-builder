@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Nexx-NXG-100/NXG-100_with_app_Black_320x192.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Nexx-NXG-100/NXG-100_pcb.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Nexx-NXG-100/NXG-100_with_app_Black_320x192.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Nexx-NXG-100/NXG-100_pcb.jpg
 tags:
 - relay
 pins:
@@ -86,6 +86,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Nexx-NXG-100
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Nexx-NXG-100/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Nexx-NXG-100/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 211cb58f17370ca2d44d64bcc12efe013755bb7b0e23b75860b21fb26a95cf67

@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Smart-Plug-20A/tuya-smart-plug-20.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Smart-Plug-20A/hardware-closeup.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Smart-Plug-20A/programming.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-Smart-Plug-20A/tuya-smart-plug-20.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-Smart-Plug-20A/hardware-closeup.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-Smart-Plug-20A/programming.jpg
 tags:
 - relay
 - compact
@@ -35,6 +35,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Tuya-Smart-Plug-20A
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-Smart-Plug-20A/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-Smart-Plug-20A/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 986d64fb1c916b99c96ba6a495ab182349d853cf185e4bdd68864fd9750bd3e8

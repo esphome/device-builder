@@ -8,11 +8,11 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Smart-Plug-16A-IL/tuya-smart-plug-16A-IL-front.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Smart-Plug-16A-IL/tuya-smart-plug-16A-IL-back.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Smart-Plug-16A-IL/tuya-smart-plug-16A-IL-dissasemble.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Smart-Plug-16A-IL/tuya-smart-plug-16A-IL-breakout.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Smart-Plug-16A-IL/tuya-smart-plug-16A-IL-flasher.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-Smart-Plug-16A-IL/tuya-smart-plug-16A-IL-front.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-Smart-Plug-16A-IL/tuya-smart-plug-16A-IL-back.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-Smart-Plug-16A-IL/tuya-smart-plug-16A-IL-dissasemble.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-Smart-Plug-16A-IL/tuya-smart-plug-16A-IL-breakout.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-Smart-Plug-16A-IL/tuya-smart-plug-16A-IL-flasher.png
 tags:
 - relay
 - compact
@@ -44,6 +44,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Tuya-Smart-Plug-16A-IL
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-Smart-Plug-16A-IL/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-Smart-Plug-16A-IL/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: b0a725c8b9695555a8250ba0db8a5c622b0abad1e23fcc732b94b41871a92fb7

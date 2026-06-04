@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-DY-CK400A-Garage-Door-Opener/device.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-DY-CK400A-Garage-Door-Opener/board.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-DY-CK400A-Garage-Door-Opener/programming-pins.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-DY-CK400A-Garage-Door-Opener/device.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-DY-CK400A-Garage-Door-Opener/board.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-DY-CK400A-Garage-Door-Opener/programming-pins.png
 docs_url: https://devices.esphome.io/devices/Tuya-DY-CK400A-Garage-Door-Opener/
 featured_components:
 - id: contact
@@ -28,6 +28,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Tuya-DY-CK400A-Garage-Door-Opener
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-DY-CK400A-Garage-Door-Opener/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-DY-CK400A-Garage-Door-Opener/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: f727dbfaed5cfbcded5446442a59ef31ed3c45ef182dcb2bd65bf4cdbfbaf7ee

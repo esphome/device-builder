@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Plus-2PM/shellyplus2pm_pcb_versions.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Plus-2PM/ESP32-U4WDH_versions.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Shelly-Plus-2PM/shellyplus2pm_pcb_versions.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Shelly-Plus-2PM/ESP32-U4WDH_versions.png
 tags:
 - shelly
 pins:
@@ -162,6 +162,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Shelly-Plus-2PM
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Shelly-Plus-2PM/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Shelly-Plus-2PM/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 7e2ef23b286a4c658d50513e2676da46716b29dc2bce5a4cee7a09e7f500aab6

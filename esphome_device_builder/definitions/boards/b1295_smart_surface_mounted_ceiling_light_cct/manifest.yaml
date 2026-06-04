@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/B1295-SMART-Surface-Mounted-Ceiling-Light-CCT/smart-cct-wifi-surface-mounted-led-ceiling-light-24w-ip20.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/B1295-SMART-Surface-Mounted-Ceiling-Light-CCT/TYWE2L-backside-flash.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/B1295-SMART-Surface-Mounted-Ceiling-Light-CCT/smart-cct-wifi-surface-mounted-led-ceiling-light-24w-ip20.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/B1295-SMART-Surface-Mounted-Ceiling-Light-CCT/TYWE2L-backside-flash.jpg
 pins:
 - gpio: 12
   available: false
@@ -55,6 +55,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: B1295-SMART-Surface-Mounted-Ceiling-Light-CCT
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/B1295-SMART-Surface-Mounted-Ceiling-Light-CCT/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/B1295-SMART-Surface-Mounted-Ceiling-Light-CCT/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 92235f206ff83f1ff9f8265d403d451ef94e184fcb250119494de3800759200c

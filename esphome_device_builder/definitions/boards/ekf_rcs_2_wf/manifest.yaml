@@ -8,11 +8,11 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/EKF-RCS-2-WF/0.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/EKF-RCS-2-WF/1.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/EKF-RCS-2-WF/3.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/EKF-RCS-2-WF/4.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/EKF-RCS-2-WF/5.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/EKF-RCS-2-WF/0.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/EKF-RCS-2-WF/1.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/EKF-RCS-2-WF/3.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/EKF-RCS-2-WF/4.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/EKF-RCS-2-WF/5.jpg
 tags:
 - relay
 - compact
@@ -43,6 +43,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: EKF-RCS-2-WF
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/EKF-RCS-2-WF/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/EKF-RCS-2-WF/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 3019789105f2900d6086843ae567f8e66aea2c6088558ac1874b024e33729701

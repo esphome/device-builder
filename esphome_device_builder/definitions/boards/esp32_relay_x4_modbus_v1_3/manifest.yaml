@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/ESP32_Relay_X4_Modbus_v1.3/esp32_relay_x4_modbus_v1_3.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/ESP32_Relay_X4_Modbus_v1.3/esp32_relay_x4_modbus_v1_3.png
 tags:
 - relay
 pins:
@@ -153,6 +153,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: ESP32_Relay_X4_Modbus_v1.3
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/ESP32_Relay_X4_Modbus_v1.3/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/ESP32_Relay_X4_Modbus_v1.3/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 0e7cd50afc8de2f88a3558a9e0eabc5979acc876af52e6c862e11138138fc53a

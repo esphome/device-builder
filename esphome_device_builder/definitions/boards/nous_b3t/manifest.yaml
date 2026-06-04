@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Nous-B3T/B3T_mockup.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Nous-B3T/pinout.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Nous-B3T/B3T_mockup.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Nous-B3T/pinout.png
 tags:
 - relay
 pins:
@@ -114,6 +114,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Nous-B3T
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Nous-B3T/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Nous-B3T/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: a4605e782cd37ecf47e5db4b0f3ffa7c92073b27f6ad6e941ddd9589ab8a6836

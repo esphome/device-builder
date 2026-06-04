@@ -8,11 +8,11 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Ceiling-Light/box.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Ceiling-Light/ceiling.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Ceiling-Light/LED_plate.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Ceiling-Light/PCB_2.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Ceiling-Light/PCB.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-Ceiling-Light/box.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-Ceiling-Light/ceiling.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-Ceiling-Light/LED_plate.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-Ceiling-Light/PCB_2.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-Ceiling-Light/PCB.jpg
 docs_url: https://devices.esphome.io/devices/Tuya-Ceiling-Light/
 featured_components:
 - id: ceiling
@@ -77,6 +77,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Tuya-Ceiling-Light
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-Ceiling-Light/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-Ceiling-Light/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: ca7763c4295cbfd366509c98d68963d2b2db46041651ba4056e53e334e0b59c2

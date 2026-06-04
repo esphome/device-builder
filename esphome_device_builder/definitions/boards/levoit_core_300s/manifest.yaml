@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Levoit-Core-300s/levoit-core-300s.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Levoit-Core-300s/levoit-core-300s-flashing.jpeg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Levoit-Core-300s/levoit-core-300s.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Levoit-Core-300s/levoit-core-300s-flashing.jpeg
 docs_url: https://devices.esphome.io/devices/Levoit-Core-300s/
 featured_components:
 - id: sensor_wifi_signal_1
@@ -24,6 +24,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Levoit-Core-300s
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Levoit-Core-300s/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Levoit-Core-300s/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 47367dea13644f03927ddf651641cee4d5891d8cd4bcc4a13b68e218d5c4da15

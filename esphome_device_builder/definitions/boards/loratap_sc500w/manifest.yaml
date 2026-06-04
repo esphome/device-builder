@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/LoraTap-SC500W/LoraTap-SC500W.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/LoraTap-SC500W/LoraTap-SC500W.png
 tags:
 - relay
 pins:
@@ -102,6 +102,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: LoraTap-SC500W
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/LoraTap-SC500W/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/LoraTap-SC500W/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: fd330abaaa1bd8fbab4be9fd14fb9ed532a55d7a6df6a0b0108e59e837b0c6de

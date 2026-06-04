@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/LoraTap-SC511WSC/image.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/LoraTap-SC511WSC/image.png
 docs_url: https://devices.esphome.io/devices/LoraTap-SC511WSC/
 featured_components:
 - id: open_cover_switch
@@ -58,6 +58,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: LoraTap-SC511WSC
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/LoraTap-SC511WSC/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/LoraTap-SC511WSC/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: d10aea73cb4825e163f424d8d9dbfc15dbcbc525569d373bbe1e39a2b75987ae

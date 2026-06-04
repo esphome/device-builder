@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Goldair-GPOC2415-Smart-Heater/device.webp
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Goldair-GPOC2415-Smart-Heater/chip.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Goldair-GPOC2415-Smart-Heater/device.webp
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Goldair-GPOC2415-Smart-Heater/chip.jpg
 docs_url: https://devices.esphome.io/devices/Goldair-GPOC2415-Smart-Heater/
 featured_components:
 - id: climate_tuya_1
@@ -92,6 +92,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Goldair-GPOC2415-Smart-Heater
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Goldair-GPOC2415-Smart-Heater/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Goldair-GPOC2415-Smart-Heater/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 2b017b6751c224c489a1b19beeb50bbc3daf0eda97279ab24478871b8906fca2

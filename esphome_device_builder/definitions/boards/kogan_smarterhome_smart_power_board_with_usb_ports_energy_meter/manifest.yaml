@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Kogan-Smarterhome-Smart-Power-Board-With-Usb-Ports-Energy-Meter/kogan-smarterhome-smart-power-board-with-usb-ports-energy-meter.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Kogan-Smarterhome-Smart-Power-Board-With-Usb-Ports-Energy-Meter/kogan-smarterhome-smart-power-board-with-usb-ports-energy-meter.jpg
 tags:
 - relay
 - compact
@@ -128,6 +128,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Kogan-Smarterhome-Smart-Power-Board-With-Usb-Ports-Energy-Meter
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Kogan-Smarterhome-Smart-Power-Board-With-Usb-Ports-Energy-Meter/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Kogan-Smarterhome-Smart-Power-Board-With-Usb-Ports-Energy-Meter/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: fa8c3b240925d785eb9c509d2362c3349ece8833183a196884ef14ae68c600d0

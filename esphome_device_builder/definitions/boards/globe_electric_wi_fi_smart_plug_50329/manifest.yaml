@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Globe-Electric-Wi-Fi-Smart-Plug-50329/globe1.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Globe-Electric-Wi-Fi-Smart-Plug-50329/globe2.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Globe-Electric-Wi-Fi-Smart-Plug-50329/globe3.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Globe-Electric-Wi-Fi-Smart-Plug-50329/globe1.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Globe-Electric-Wi-Fi-Smart-Plug-50329/globe2.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Globe-Electric-Wi-Fi-Smart-Plug-50329/globe3.jpg
 tags:
 - relay
 - compact
@@ -37,6 +37,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Globe-Electric-Wi-Fi-Smart-Plug-50329
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Globe-Electric-Wi-Fi-Smart-Plug-50329/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Globe-Electric-Wi-Fi-Smart-Plug-50329/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 1253d49929d20ed426586cbdcb92cdf105070a83deda19d5c2c17757fed33df1

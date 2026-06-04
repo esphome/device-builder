@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/prime-CCRCWFIO2PK-plug/CCRCWFIO2PK.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/prime-CCRCWFIO2PK-plug/CCRCWFIO2PK-disassembled.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/prime-CCRCWFIO2PK-plug/CCRCWFIO2PK.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/prime-CCRCWFIO2PK-plug/CCRCWFIO2PK-disassembled.jpg
 tags:
 - relay
 - compact
@@ -75,6 +75,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: prime-CCRCWFIO2PK-plug
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/prime-CCRCWFIO2PK-plug/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/prime-CCRCWFIO2PK-plug/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 1a05d80a0025941ba2f49197651cca1db3e320ad404be20d9ba91473d9f43a9c

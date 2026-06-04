@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Arlec-PC399HA-Plug/Arlec-PC399HA-Plug.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Arlec-PC399HA-Plug/Arlec-PC399HA-Plug.jpg
 tags:
 - relay
 - compact
@@ -85,6 +85,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Arlec-PC399HA-Plug
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Arlec-PC399HA-Plug/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Arlec-PC399HA-Plug/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 62842fd8e0c9d944efb812da925ae51bcbae4535c4d9204ae563dbd52def1e3b

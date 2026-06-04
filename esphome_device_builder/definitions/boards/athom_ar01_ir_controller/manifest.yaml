@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Athom-AR01-IR-Controller/ar01-01-enclosure_front.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Athom-AR01-IR-Controller/ar01-06-top_pcb_removed_from_enclosure.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Athom-AR01-IR-Controller/ar01-01-enclosure_front.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Athom-AR01-IR-Controller/ar01-06-top_pcb_removed_from_enclosure.jpg
 pins:
 - gpio: 0
   available: false
@@ -74,6 +74,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Athom-AR01-IR-Controller
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Athom-AR01-IR-Controller/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Athom-AR01-IR-Controller/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 631ee24e94cc3d43a7d6a9fb0068d0680268c767e026f74cc2efd1cfb6b23fc4

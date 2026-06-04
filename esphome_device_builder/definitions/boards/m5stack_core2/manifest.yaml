@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/M5Stack-Core2/core2_01.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/M5Stack-Core2/core2_01.png
 pins:
 - gpio: 39
   available: false
@@ -67,6 +67,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: M5Stack-Core2
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/M5Stack-Core2/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/M5Stack-Core2/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 8fafb5f7ee8ebebfa3c84a1cbd654b0e3a50bae99c36825b6e4d16137882c700

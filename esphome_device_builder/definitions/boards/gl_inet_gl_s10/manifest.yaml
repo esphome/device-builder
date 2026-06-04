@@ -11,14 +11,14 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/GL-iNet-GL-S10/image1.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/GL-iNet-GL-S10/image2.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/GL-iNet-GL-S10/image3.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/GL-iNet-GL-S10/image4.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/GL-iNet-GL-S10/image5.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/GL-iNet-GL-S10/image6.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/GL-iNet-GL-S10/image7.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/GL-iNet-GL-S10/image8.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/GL-iNet-GL-S10/image1.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/GL-iNet-GL-S10/image2.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/GL-iNet-GL-S10/image3.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/GL-iNet-GL-S10/image4.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/GL-iNet-GL-S10/image5.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/GL-iNet-GL-S10/image6.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/GL-iNet-GL-S10/image7.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/GL-iNet-GL-S10/image8.jpg
 pins:
 - gpio: 12
   available: false
@@ -76,6 +76,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: GL-iNet-GL-S10
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/GL-iNet-GL-S10/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/GL-iNet-GL-S10/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 1029ba2937fb8e7794df9de756250c5b06e6f8bdfbc0de97d5aa82e82a7db5d1

@@ -11,9 +11,9 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-TA/TA1.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-TA/TA2.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-TA/TA3.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-TA/TA1.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-TA/TA2.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-TA/TA3.jpg
 pins:
 - gpio: 0
   available: false
@@ -388,6 +388,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: KinCony-TA
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-TA/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-TA/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 1300f77c5a1d463cc4d7de1cefc5ebd70ab70ee773c7fe040003664e71aacf3b

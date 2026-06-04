@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/ADS-WSM-1A/WSM-1A_cover.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/ADS-WSM-1A/WSM-1A_ports.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/ADS-WSM-1A/WSM-1A_Board.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/ADS-WSM-1A/WSM-1A_cover.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/ADS-WSM-1A/WSM-1A_ports.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/ADS-WSM-1A/WSM-1A_Board.jpg
 pins:
 - gpio: 15
   available: false
@@ -38,6 +38,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: ADS-WSM-1A
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/ADS-WSM-1A/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/ADS-WSM-1A/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: c662c97ca9727e9e02678513c0423003511f6d447ca3196ae72433da32a46199

@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-B8/B8-1.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-B8/B8-1.jpg
 tags:
 - relay
 pins:
@@ -385,6 +385,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: KinCony-B8
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-B8/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-B8/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: a9af6fcf45695f3d3ba6218cc631c3ca1044f4340245b0ebf04b994340f7eb0c

@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/LEDVANCE-SMART-WIFI-B40-5W-RGBW-E14/image.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/LEDVANCE-SMART-WIFI-B40-5W-RGBW-E14/image.png
 docs_url: https://devices.esphome.io/devices/LEDVANCE-SMART-WIFI-B40-5W-RGBW-E14/
 featured_components:
 - id: light_rgbww
@@ -62,6 +62,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: LEDVANCE-SMART-WIFI-B40-5W-RGBW-E14
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/LEDVANCE-SMART-WIFI-B40-5W-RGBW-E14/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/LEDVANCE-SMART-WIFI-B40-5W-RGBW-E14/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 1c4d6363f1a0e9cbe1469069f510fe86fbfff67026cd7e1cc0ab268f8d9da018

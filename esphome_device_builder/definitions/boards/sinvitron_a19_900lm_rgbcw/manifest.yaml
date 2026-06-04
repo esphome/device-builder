@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sinvitron-A19-900lm-RGBCW/sinvitron-outside.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sinvitron-A19-900lm-RGBCW/sinvitron-inside.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Sinvitron-A19-900lm-RGBCW/sinvitron-outside.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Sinvitron-A19-900lm-RGBCW/sinvitron-inside.jpg
 pins:
 - gpio: 4
   available: false
@@ -104,6 +104,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Sinvitron-A19-900lm-RGBCW
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Sinvitron-A19-900lm-RGBCW/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Sinvitron-A19-900lm-RGBCW/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: f6ab06fa961f29a1fb6c1276dbcd43b5d8a01c19503141fea51bfda6d6358ccb

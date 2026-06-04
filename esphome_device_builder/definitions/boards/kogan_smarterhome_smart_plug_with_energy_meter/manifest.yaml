@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Kogan-Smarterhome-Smart-Plug-With-Energy-Meter/kogan-smarterhome-smart-plug-energy-meter.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Kogan-Smarterhome-Smart-Plug-With-Energy-Meter/kogan-smarterhome-smart-plug-energy-meter.jpg
 tags:
 - relay
 - compact
@@ -94,6 +94,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Kogan-Smarterhome-Smart-Plug-With-Energy-Meter
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Kogan-Smarterhome-Smart-Plug-With-Energy-Meter/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Kogan-Smarterhome-Smart-Plug-With-Energy-Meter/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 800caf139b0e7d41144822ba7c861e38e6661244ddc9afdd852b137adf2df383

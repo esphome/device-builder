@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Denver-SHP-102/denver-shp-102-box.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Denver-SHP-102/denver-shp-102-box.jpg
 tags:
 - relay
 - compact
@@ -27,6 +27,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Denver-SHP-102
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Denver-SHP-102/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Denver-SHP-102/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 45d8ffd7b9e9b7c8023b7ff7313a1a4a23f60d02a9316cd63232e9daae9be08b

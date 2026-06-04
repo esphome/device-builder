@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Nous-A4t/A4T_00.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Nous-A4t/A4T_00.jpg
 tags:
 - relay
 - compact
@@ -97,6 +97,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Nous-A4t
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Nous-A4t/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Nous-A4t/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 7cfc7db7d70b1c5487b3c5e4b75dbebd86946b85f89f69fe0d77420489d22319

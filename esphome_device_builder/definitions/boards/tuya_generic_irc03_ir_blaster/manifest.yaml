@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Generic-IRC03-IR-Blaster/IRC03.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-Generic-IRC03-IR-Blaster/IRC03.jpg
 pins:
 - gpio: 9
   available: false
@@ -53,6 +53,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Tuya-Generic-IRC03-IR-Blaster
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-Generic-IRC03-IR-Blaster/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-Generic-IRC03-IR-Blaster/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 09744531f232eb35103123929f8df04e2bb469c89060d2d19da8e80289337a3f

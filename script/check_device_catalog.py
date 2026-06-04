@@ -170,7 +170,7 @@ def main() -> int:
     # manifests under review.
     repo = _ensure_devices_repo(pull=False)
     if repo is None:
-        print("ERROR: Could not clone esphome-devices.", file=sys.stderr)
+        print("ERROR: Could not clone devices.esphome.io.", file=sys.stderr)
         return 1
     revision = _get_repo_revision(repo)
     components_index = _load_components_index()

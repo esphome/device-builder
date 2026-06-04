@@ -10,7 +10,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/ESP32-SmartPlug-Rowi-AU/rowi.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/ESP32-SmartPlug-Rowi-AU/rowi.png
 tags:
 - relay
 - compact
@@ -101,6 +101,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: ESP32-SmartPlug-Rowi-AU
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/ESP32-SmartPlug-Rowi-AU/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/ESP32-SmartPlug-Rowi-AU/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: d665c36df9a303e6d3fbb2c5c16ca6c34d5017303c29d0139a56baee3af96770

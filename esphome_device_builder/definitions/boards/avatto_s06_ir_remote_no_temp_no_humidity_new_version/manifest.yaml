@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/AVATTO-S06-IR-Remote-no-temp-no-humidity-new-version/AVATTO-S06-WiFi-IR-Universal-Remote-Controller.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/AVATTO-S06-IR-Remote-no-temp-no-humidity-new-version/AVATTO-S06-WiFi-IR-Universal-Remote-Controller.jpg
 pins:
 - gpio: 6
   available: false
@@ -42,6 +42,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: AVATTO-S06-IR-Remote-no-temp-no-humidity-new-version
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/AVATTO-S06-IR-Remote-no-temp-no-humidity-new-version/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/AVATTO-S06-IR-Remote-no-temp-no-humidity-new-version/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: c764419f7da3b6189fda97d543ddff9216b92b9d090fd4b73e7a5083fc8656c5

@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Mirabella-Genio-Wi-Fi-SES-LED-Candle/mirabella-genio-wi-fi-ses-led-candle.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Mirabella-Genio-Wi-Fi-SES-LED-Candle/mirabella-genio-wi-fi-ses-led-candle.jpg
 pins:
 - gpio: 12
   available: false
@@ -58,6 +58,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Mirabella-Genio-Wi-Fi-SES-LED-Candle
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Mirabella-Genio-Wi-Fi-SES-LED-Candle/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Mirabella-Genio-Wi-Fi-SES-LED-Candle/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 0bcb6d6853148e2c2199e511655664b8d3f406544bbaabc56638ef33ab57d9da

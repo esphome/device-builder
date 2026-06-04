@@ -11,9 +11,9 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-F24/F24-1.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-F24/F24-2.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-F24/F24-3.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-F24/F24-1.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-F24/F24-2.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-F24/F24-3.jpg
 tags:
 - relay
 pins:
@@ -770,6 +770,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: KinCony-F24
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-F24/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-F24/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 04ea7568cbc050d91fe77a54f13f77119906a6e24a0aa0f08f971afb11f1d7c0

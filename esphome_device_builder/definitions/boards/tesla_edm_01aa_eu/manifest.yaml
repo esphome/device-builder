@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/TESLA-EDM-01AA-EU/tesla-dimmer.webp
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/TESLA-EDM-01AA-EU/tesla-dimmer.webp
 docs_url: https://devices.esphome.io/devices/TESLA-EDM-01AA-EU/
 product_url: https://www.teslasmart.com/tesla-smart-switch-dimmer-touch
 featured_components:
@@ -48,6 +48,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: TESLA-EDM-01AA-EU
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/TESLA-EDM-01AA-EU/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/TESLA-EDM-01AA-EU/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: a38e8115b751a9595e2f55f5f66d96057ef1708ff2241caec46690d783e51033

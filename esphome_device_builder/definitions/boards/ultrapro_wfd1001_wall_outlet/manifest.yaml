@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/UltraPro-WFD1001-Wall-Outlet/ultrapro-wfd1001-wall-outlet-v1.0.4.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/UltraPro-WFD1001-Wall-Outlet/ultrapro-wfd1001-label-sticker.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/UltraPro-WFD1001-Wall-Outlet/ultrapro-wfd1001-wall-outlet-v1.0.4.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/UltraPro-WFD1001-Wall-Outlet/ultrapro-wfd1001-label-sticker.png
 tags:
 - relay
 - compact
@@ -32,6 +32,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: UltraPro-WFD1001-Wall-Outlet
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/UltraPro-WFD1001-Wall-Outlet/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/UltraPro-WFD1001-Wall-Outlet/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 58068c935455713d0330090fa58cf172de18698ea25480715e60947d63d3a9a2

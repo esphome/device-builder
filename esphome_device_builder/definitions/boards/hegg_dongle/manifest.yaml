@@ -8,12 +8,12 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Hegg-Dongle/hegg-wrapped-top.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Hegg-Dongle/hegg-wrapped-bottom.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Hegg-Dongle/heggback.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Hegg-Dongle/heggfront.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Hegg-Dongle/heggDataGND.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Hegg-Dongle/hegg-bent-pins.jpeg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Hegg-Dongle/hegg-wrapped-top.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Hegg-Dongle/hegg-wrapped-bottom.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Hegg-Dongle/heggback.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Hegg-Dongle/heggfront.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Hegg-Dongle/heggDataGND.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Hegg-Dongle/hegg-bent-pins.jpeg
 pins:
 - gpio: 12
   available: false
@@ -70,6 +70,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Hegg-Dongle
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Hegg-Dongle/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Hegg-Dongle/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 1552207cc5ecd8e3123ded4d7893b9923b9e85ffa1dac5c3a0c9210d5e7bfa59

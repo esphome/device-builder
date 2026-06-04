@@ -10,7 +10,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Makerfabs-DC-Motor/image_1.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Makerfabs-DC-Motor/image_1.jpg
 pins:
 - gpio: 25
   available: false
@@ -82,6 +82,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Makerfabs-DC-Motor
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Makerfabs-DC-Motor/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Makerfabs-DC-Motor/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 1ae886e1135b70baef983496330b0ef5e24a85c044ec8cff643e430b668d7fe9

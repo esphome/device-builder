@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Plus-RGBW-PM/Shelly-Plus-RGBW-PM.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Plus-RGBW-PM/Plus-addon-interface.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Shelly-Plus-RGBW-PM/Shelly-Plus-RGBW-PM.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Shelly-Plus-RGBW-PM/Plus-addon-interface.png
 tags:
 - shelly
 pins:
@@ -210,6 +210,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Shelly-Plus-RGBW-PM
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Shelly-Plus-RGBW-PM/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Shelly-Plus-RGBW-PM/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 49300e9e1e7e1fd888123f9415abc0f53dd3942edc9fa6766f5f0395a24ffb34

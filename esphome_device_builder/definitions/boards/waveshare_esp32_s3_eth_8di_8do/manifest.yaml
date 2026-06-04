@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Waveshare-ESP32-S3-ETH-8DI-8DO/device.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Waveshare-ESP32-S3-ETH-8DI-8DO/device.png
 pins:
 - gpio: 0
   available: false
@@ -302,6 +302,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Waveshare-ESP32-S3-ETH-8DI-8DO
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Waveshare-ESP32-S3-ETH-8DI-8DO/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Waveshare-ESP32-S3-ETH-8DI-8DO/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 3137339f13de36a9e54b6430077039bf01468d05ca7364a32cf8accebce8cdf8

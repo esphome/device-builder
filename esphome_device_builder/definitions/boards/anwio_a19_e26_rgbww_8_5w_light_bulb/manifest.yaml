@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Anwio-A19-E26-RGBWW-8.5W-Light-Bulb/anwio-a19-top-down.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Anwio-A19-E26-RGBWW-8.5W-Light-Bulb/anwio-a19-board-view.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Anwio-A19-E26-RGBWW-8.5W-Light-Bulb/anwio-a19-board-view-2.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Anwio-A19-E26-RGBWW-8.5W-Light-Bulb/anwio-a19-top-down.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Anwio-A19-E26-RGBWW-8.5W-Light-Bulb/anwio-a19-board-view.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Anwio-A19-E26-RGBWW-8.5W-Light-Bulb/anwio-a19-board-view-2.jpg
 docs_url: https://devices.esphome.io/devices/Anwio-A19-E26-RGBWW-8.5W-Light-Bulb/
 featured_components:
 - id: device
@@ -64,6 +64,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Anwio-A19-E26-RGBWW-8.5W-Light-Bulb
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Anwio-A19-E26-RGBWW-8.5W-Light-Bulb/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Anwio-A19-E26-RGBWW-8.5W-Light-Bulb/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 21040773679ebc76ea0483d93b69f502fd5c0a8546364ffd1fcf6d61e520e948

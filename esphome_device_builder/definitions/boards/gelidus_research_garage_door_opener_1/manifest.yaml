@@ -11,10 +11,10 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Gelidus-Research-Garage-Door-Opener-1/grgdo1.top.bare.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Gelidus-Research-Garage-Door-Opener-1/grgdo1.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Gelidus-Research-Garage-Door-Opener-1/grgdo1.dht22.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Gelidus-Research-Garage-Door-Opener-1/features.secplus.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Gelidus-Research-Garage-Door-Opener-1/grgdo1.top.bare.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Gelidus-Research-Garage-Door-Opener-1/grgdo1.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Gelidus-Research-Garage-Door-Opener-1/grgdo1.dht22.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Gelidus-Research-Garage-Door-Opener-1/features.secplus.jpg
 docs_url: https://devices.esphome.io/devices/Gelidus-Research-Garage-Door-Opener-1/
 featured_components:
 - id: id_prefix_dry_contact_open
@@ -57,6 +57,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Gelidus-Research-Garage-Door-Opener-1
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Gelidus-Research-Garage-Door-Opener-1/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Gelidus-Research-Garage-Door-Opener-1/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 7199ac125594dabd7c7e857b6afc8cae58bcbd2a17bb5bfd2e4982f96d58513b

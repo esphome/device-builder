@@ -10,9 +10,9 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Homemaster-MiniPLC/MiniPLC.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Homemaster-MiniPLC/pinout.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Homemaster-MiniPLC/system_block_diagram.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Homemaster-MiniPLC/MiniPLC.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Homemaster-MiniPLC/pinout.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Homemaster-MiniPLC/system_block_diagram.png
 tags:
 - relay
 pins:
@@ -314,6 +314,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Homemaster-MiniPLC
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Homemaster-MiniPLC/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Homemaster-MiniPLC/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 130c022bb16f8b1949bff6ea1ce8abe497fa87960cf0758f40394d62a05d4efd

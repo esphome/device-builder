@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Kogan-Smarterhome-Smart-Plug-Energy-Meter-5v-24a-Usb-Ports/kogan-smarterhome-smart-plug-energy-meter-5v-24a-usb-ports.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Kogan-Smarterhome-Smart-Plug-Energy-Meter-5v-24a-Usb-Ports/kogan-smarterhome-smart-plug-energy-meter-5v-24a-usb-ports.jpg
 tags:
 - relay
 - compact
@@ -95,6 +95,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Kogan-Smarterhome-Smart-Plug-Energy-Meter-5v-24a-Usb-Ports
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Kogan-Smarterhome-Smart-Plug-Energy-Meter-5v-24a-Usb-Ports/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Kogan-Smarterhome-Smart-Plug-Energy-Meter-5v-24a-Usb-Ports/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 56d577bdb879abef3aa060f5a0bd5c43cd95633f5217ec1d668431632175a882

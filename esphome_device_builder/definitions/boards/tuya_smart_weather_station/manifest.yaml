@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Smart-Weather-Station/device.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-Smart-Weather-Station/device.jpg
 docs_url: https://devices.esphome.io/devices/Tuya-Smart-Weather-Station/
 featured_components:
 - id: select_tuya_1
@@ -170,6 +170,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Tuya-Smart-Weather-Station
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-Smart-Weather-Station/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-Smart-Weather-Station/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: de824936d1c465512bf4f1d81279f62a4361e0470215672845ea53170cd18beb

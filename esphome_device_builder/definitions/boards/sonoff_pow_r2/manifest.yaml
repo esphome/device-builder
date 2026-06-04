@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sonoff-POW-R2/inside.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Sonoff-POW-R2/inside.jpg
 tags:
 - relay
 - sonoff
@@ -43,6 +43,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Sonoff-POW-R2
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Sonoff-POW-R2/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Sonoff-POW-R2/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 0f7ee3226ed20c1b63c735a0839dcf1b9f1dd382f8673e3b64703f8ae07f2399

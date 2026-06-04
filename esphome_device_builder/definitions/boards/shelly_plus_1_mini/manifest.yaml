@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Plus-1-Mini/shelly_plus_1_mini_pinout.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Shelly-Plus-1-Mini/shelly_plus_1_mini_pinout.png
 tags:
 - relay
 - shelly
@@ -109,6 +109,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Shelly-Plus-1-Mini
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Shelly-Plus-1-Mini/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Shelly-Plus-1-Mini/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 35ef4da155e50482e0d46e414f515a1ef6cd02883f6227f2ca6f462d85b683b7

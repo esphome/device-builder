@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Feit-DIMSMART-3-CAN/Feit-DIMSMART-3-CAN.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Feit-DIMSMART-3-CAN/board.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Feit-DIMSMART-3-CAN/Feit-DIMSMART-3-CAN.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Feit-DIMSMART-3-CAN/board.jpg
 docs_url: https://devices.esphome.io/devices/Feit-DIMSMART-3-CAN/
 featured_components:
 - id: dimmer_switch
@@ -72,6 +72,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Feit-DIMSMART-3-CAN
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Feit-DIMSMART-3-CAN/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Feit-DIMSMART-3-CAN/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: f82a0a82b4cbea4a5e0f5fd2af95bbcfe27a22ffa00dfd56fa32852be790a9ae

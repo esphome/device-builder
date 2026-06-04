@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Zemismart-Switch-TB22/zemismart-tb23.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Zemismart-Switch-TB22/board-front.jpeg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Zemismart-Switch-TB22/board-back.jpeg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Zemismart-Switch-TB22/zemismart-tb23.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Zemismart-Switch-TB22/board-front.jpeg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Zemismart-Switch-TB22/board-back.jpeg
 pins:
 - gpio: 0
   available: false
@@ -106,6 +106,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Zemismart-Switch-TB22
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Zemismart-Switch-TB22/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Zemismart-Switch-TB22/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 9c1b80b7ea4fc117fcd8e6cbcc1e66481e479a1f9101adfd52caed825ef1abc5

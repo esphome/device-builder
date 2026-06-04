@@ -10,7 +10,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-DM32/DM32-1.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-DM32/DM32-1.jpg
 pins:
 - gpio: 0
   available: false
@@ -756,6 +756,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: KinCony-DM32
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-DM32/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-DM32/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 6e3c80de4e40b4dba62c3f5c784ee38a9c457d71d607f5c1d9b89c0ded754ad0

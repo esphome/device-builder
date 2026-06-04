@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Geeni-4-outlet-surge-strip/geeni4.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Geeni-4-outlet-surge-strip/20251115_163733.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Geeni-4-outlet-surge-strip/geeni4.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Geeni-4-outlet-surge-strip/20251115_163733.jpg
 tags:
 - relay
 - compact
@@ -42,6 +42,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Geeni-4-outlet-surge-strip
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Geeni-4-outlet-surge-strip/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Geeni-4-outlet-surge-strip/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 9f305d359bea1c69fd2eef2bb14b0582cf73bdab67f0072b0011397899fc4843

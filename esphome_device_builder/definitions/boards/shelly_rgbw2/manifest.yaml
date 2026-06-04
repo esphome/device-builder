@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-RGBW2/Shelly-RGBW2.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Shelly-RGBW2/Shelly-RGBW2.png
 tags:
 - shelly
 pins:
@@ -79,6 +79,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Shelly-RGBW2
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Shelly-RGBW2/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Shelly-RGBW2/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: f97083e5fae595293c58789aadbfb4e2d207378903270fcc5bb32127134f038c

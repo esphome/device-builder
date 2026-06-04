@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/ESPBell-LITE/espbell.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/ESPBell-LITE/notification.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/ESPBell-LITE/ha.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/ESPBell-LITE/espbell.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/ESPBell-LITE/notification.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/ESPBell-LITE/ha.jpg
 pins:
 - gpio: 4
   available: false
@@ -44,6 +44,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: ESPBell-LITE
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/ESPBell-LITE/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/ESPBell-LITE/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: d6541565ad81645ed51f470fc7afd7226e14e80d27d85bff3f79bad1d5e654b3

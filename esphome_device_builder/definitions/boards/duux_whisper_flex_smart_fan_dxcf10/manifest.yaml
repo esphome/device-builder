@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Duux-Whisper-Flex-Smart-Fan-DXCF10/duux_DXCF10.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Duux-Whisper-Flex-Smart-Fan-DXCF10/duux_DXCF10.png
 docs_url: https://devices.esphome.io/devices/Duux-Whisper-Flex-Smart-Fan-DXCF10/
 featured_components:
 - id: fan_tuya_1
@@ -59,6 +59,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Duux-Whisper-Flex-Smart-Fan-DXCF10
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Duux-Whisper-Flex-Smart-Fan-DXCF10/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Duux-Whisper-Flex-Smart-Fan-DXCF10/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 61ca50450c38e2492acf24885f0e88795e1181d20bb60239e13396ea04bed2fb

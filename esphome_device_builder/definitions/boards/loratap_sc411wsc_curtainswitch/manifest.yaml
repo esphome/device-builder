@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/LoraTap-SC411WSC-CurtainSwitch/LoraTap-SC411WSC.JPG
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/LoraTap-SC411WSC-CurtainSwitch/LoraTap-SC411WSC.JPG
 docs_url: https://devices.esphome.io/devices/LoraTap-SC411WSC-CurtainSwitch/
 featured_components:
 - id: open_cover_switch
@@ -46,6 +46,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: LoraTap-SC411WSC-CurtainSwitch
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/LoraTap-SC411WSC-CurtainSwitch/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/LoraTap-SC411WSC-CurtainSwitch/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: f8e66f46f66096df79279becd6a95881001f216b42adee75b5f70f56860fa277

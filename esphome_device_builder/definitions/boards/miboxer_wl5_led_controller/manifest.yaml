@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/MiBoxer-WL5-LED-Controller/MiBoxer-WL5.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/MiBoxer-WL5-LED-Controller/MiBoxer-WL5-board.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/MiBoxer-WL5-LED-Controller/MiBoxer-WL5.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/MiBoxer-WL5-LED-Controller/MiBoxer-WL5-board.jpg
 docs_url: https://devices.esphome.io/devices/MiBoxer-WL5-LED-Controller/
 featured_components:
 - id: number_tuya_1
@@ -37,6 +37,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: MiBoxer-WL5-LED-Controller
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/MiBoxer-WL5-LED-Controller/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/MiBoxer-WL5-LED-Controller/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 262a83ac174349ea6a4dde72eade501cdeb0bd37f811d9e30f6d28722568512f

@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Yagala-SM-SO301/product_image.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Yagala-SM-SO301/product_image.jpg
 tags:
 - relay
 - compact
@@ -127,6 +127,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Yagala-SM-SO301
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Yagala-SM-SO301/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Yagala-SM-SO301/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: f8352ec5c427a5d6e290cd75b2626949a52571e0980da7ddd2723d8ad1c3933c

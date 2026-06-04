@@ -11,10 +11,10 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Maltec-DH-20000A-Dehumidifier/header.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Maltec-DH-20000A-Dehumidifier/board.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Maltec-DH-20000A-Dehumidifier/boardcnwifi.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Maltec-DH-20000A-Dehumidifier/jstxh.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Maltec-DH-20000A-Dehumidifier/header.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Maltec-DH-20000A-Dehumidifier/board.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Maltec-DH-20000A-Dehumidifier/boardcnwifi.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Maltec-DH-20000A-Dehumidifier/jstxh.jpg
 docs_url: https://devices.esphome.io/devices/Maltec-DH-20000A-Dehumidifier/
 featured_components:
 - id: button_restart_1
@@ -103,6 +103,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Maltec-DH-20000A-Dehumidifier
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Maltec-DH-20000A-Dehumidifier/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Maltec-DH-20000A-Dehumidifier/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 35ad032827095d82ea8a4209b5a6193ba5b51567bc10bfd067a5b3eb18e41fed

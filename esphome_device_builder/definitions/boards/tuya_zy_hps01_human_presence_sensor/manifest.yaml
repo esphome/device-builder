@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-ZY-HPS01-Human-Presence-Sensor/ZY_HPS01.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-ZY-HPS01-Human-Presence-Sensor/cb3s.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-ZY-HPS01-Human-Presence-Sensor/ZY_HPS01.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-ZY-HPS01-Human-Presence-Sensor/cb3s.png
 docs_url: https://devices.esphome.io/devices/Tuya-ZY-HPS01-Human-Presence-Sensor/
 featured_components:
 - id: binary_sensor_tuya_1
@@ -113,6 +113,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Tuya-ZY-HPS01-Human-Presence-Sensor
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-ZY-HPS01-Human-Presence-Sensor/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-ZY-HPS01-Human-Presence-Sensor/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: fe7eb462e1f260b5e8a8f52c93afe5617ad13aade3d07ca0a672d5a73972c76b

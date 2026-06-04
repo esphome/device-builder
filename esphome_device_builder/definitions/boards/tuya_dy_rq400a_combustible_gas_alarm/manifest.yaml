@@ -8,14 +8,14 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-DY-RQ400A-Combustible-Gas-Alarm/rq400a.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-DY-RQ400A-Combustible-Gas-Alarm/pcb-front-wifi-back.webp
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-DY-RQ400A-Combustible-Gas-Alarm/pcb-front-wifi-front.webp
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-DY-RQ400A-Combustible-Gas-Alarm/runjet-mcu.webp
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-DY-RQ400A-Combustible-Gas-Alarm/gas-sensor-closeup.webp
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-DY-RQ400A-Combustible-Gas-Alarm/uart1-attach-a.webp
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-DY-RQ400A-Combustible-Gas-Alarm/uart1-attach-b1.webp
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-DY-RQ400A-Combustible-Gas-Alarm/uart1-attach-b2.webp
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-DY-RQ400A-Combustible-Gas-Alarm/rq400a.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-DY-RQ400A-Combustible-Gas-Alarm/pcb-front-wifi-back.webp
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-DY-RQ400A-Combustible-Gas-Alarm/pcb-front-wifi-front.webp
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-DY-RQ400A-Combustible-Gas-Alarm/runjet-mcu.webp
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-DY-RQ400A-Combustible-Gas-Alarm/gas-sensor-closeup.webp
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-DY-RQ400A-Combustible-Gas-Alarm/uart1-attach-a.webp
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-DY-RQ400A-Combustible-Gas-Alarm/uart1-attach-b1.webp
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-DY-RQ400A-Combustible-Gas-Alarm/uart1-attach-b2.webp
 docs_url: https://devices.esphome.io/devices/Tuya-DY-RQ400A-Combustible-Gas-Alarm/
 product_url: https://github.com/dshcherb/DY-RQ400A-gas-alarm-esphome
 featured_components:
@@ -85,6 +85,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Tuya-DY-RQ400A-Combustible-Gas-Alarm
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-DY-RQ400A-Combustible-Gas-Alarm/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-DY-RQ400A-Combustible-Gas-Alarm/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: bd1009aa94b5c15dfb1bbb0f2e7a8f862b4356ddc96faedf2723a6df81248b4b

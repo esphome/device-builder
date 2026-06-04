@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Arlec-GridConnect-Smart-Plug-PC190HA/PC190HA.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Arlec-GridConnect-Smart-Plug-PC190HA/PC190HA.png
 tags:
 - relay
 - compact
@@ -71,6 +71,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Arlec-GridConnect-Smart-Plug-PC190HA
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Arlec-GridConnect-Smart-Plug-PC190HA/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Arlec-GridConnect-Smart-Plug-PC190HA/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 30ca79595b88edcc40e3a8f2b162f96298d6da82117c543fa0c7c143fdcb45f0

@@ -11,9 +11,9 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-KC868-A8v3/A8v3-3.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-KC868-A8v3/A8v3_diagram-1.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-KC868-A8v3/A8v3_diagram-2.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-KC868-A8v3/A8v3-3.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-KC868-A8v3/A8v3_diagram-1.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-KC868-A8v3/A8v3_diagram-2.jpg
 tags:
 - relay
 pins:
@@ -348,6 +348,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: KinCony-KC868-A8v3
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-KC868-A8v3/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-KC868-A8v3/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: fe0efa7c32a9aacdc1e6a3d55923208f9aeade25682398b367ab3f534a894682

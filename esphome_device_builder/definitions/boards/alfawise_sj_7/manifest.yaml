@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Alfawise-SJ-7/diffuser.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Alfawise-SJ-7/lovelace_card_example.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Alfawise-SJ-7/diffuser.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Alfawise-SJ-7/lovelace_card_example.png
 docs_url: https://devices.esphome.io/devices/Alfawise-SJ-7/
 featured_components:
 - id: name_fan
@@ -28,6 +28,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Alfawise-SJ-7
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Alfawise-SJ-7/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Alfawise-SJ-7/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 837539f03a867cf41efd58de05a5e4cb27e25c2b1887bb8efd2fe55444cdf3ff

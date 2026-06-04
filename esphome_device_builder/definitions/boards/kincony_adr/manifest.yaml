@@ -11,9 +11,9 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-ADR/esp32-ac-dimmer-adr-1.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-ADR/ADR-lamp.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-ADR/ADR-fan.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-ADR/esp32-ac-dimmer-adr-1.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-ADR/ADR-lamp.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-ADR/ADR-fan.jpg
 pins:
 - gpio: 25
   available: false
@@ -54,6 +54,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: KinCony-ADR
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-ADR/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-ADR/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 4c3faf789ad481696178569c8c2b4708fb31fadd9a484a1a1261bf8aacbc84f9

@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/JDONG-X6060-lamp/jdong_x6060.jpeg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/JDONG-X6060-lamp/jdong_x6060.jpeg
 docs_url: https://devices.esphome.io/devices/JDONG-X6060-lamp/
 featured_components:
 - id: light_rgbww
@@ -22,6 +22,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: JDONG-X6060-lamp
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/JDONG-X6060-lamp/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/JDONG-X6060-lamp/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 9f5e28aeff370f957cd5e299e8cda6e625097080d18540c26695be75a947a6ff

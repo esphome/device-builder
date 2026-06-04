@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Connect-SmartHome-10W-CCT-Bulb-CSH-B22WW10W/connect_smarthome_CSH-B22WW10W.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Connect-SmartHome-10W-CCT-Bulb-CSH-B22WW10W/connect_smarthome_CSH-B22WW10W.jpg
 pins:
 - gpio: 5
   available: false
@@ -51,6 +51,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Connect-SmartHome-10W-CCT-Bulb-CSH-B22WW10W
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Connect-SmartHome-10W-CCT-Bulb-CSH-B22WW10W/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Connect-SmartHome-10W-CCT-Bulb-CSH-B22WW10W/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: b2424a8b4e66acb6f8d2c69454eefe3658c569845346d4c21f732579b4ec80e3

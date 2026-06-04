@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Mirabella-Genio-Wi-Fi-500-LED-Mulitcoloured-Fairy-Lights/Mirabella-Genio-Wi-Fi-500-LED-Mulitcoloured-Fairy-Lights.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Mirabella-Genio-Wi-Fi-500-LED-Mulitcoloured-Fairy-Lights/Mirabella-Genio-Wi-Fi-500-LED-Mulitcoloured-Fairy-Lights.jpg
 pins:
 - gpio: 4
   available: false
@@ -85,6 +85,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Mirabella-Genio-Wi-Fi-500-LED-Mulitcoloured-Fairy-Lights
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Mirabella-Genio-Wi-Fi-500-LED-Mulitcoloured-Fairy-Lights/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Mirabella-Genio-Wi-Fi-500-LED-Mulitcoloured-Fairy-Lights/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 92c7c609fb9264b10f099f748c772dd76d020ec06952dc2c5add7563f0b98eb5

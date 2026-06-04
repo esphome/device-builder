@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Guition-ESP32-S3-4848S040/guition-esp32-s3-4848s040.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Guition-ESP32-S3-4848S040/guition-esp32-s3-4848s040-connector.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Guition-ESP32-S3-4848S040/guition-esp32-s3-4848s040.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Guition-ESP32-S3-4848S040/guition-esp32-s3-4848s040-connector.jpg
 pins:
 - gpio: 1
   available: false
@@ -145,6 +145,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Guition-ESP32-S3-4848S040
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Guition-ESP32-S3-4848S040/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Guition-ESP32-S3-4848S040/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: d15d6903a503e70eceda2bc4922387111bb60a9b235944054bf30ca3bfe5ba4a

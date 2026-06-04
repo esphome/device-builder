@@ -10,7 +10,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-1-Gen4/shelly-1-gen4.webp
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Shelly-1-Gen4/shelly-1-gen4.webp
 tags:
 - relay
 - shelly
@@ -58,6 +58,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Shelly-1-Gen4
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Shelly-1-Gen4/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Shelly-1-Gen4/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: e7f4417539cea5a0718fceb2f392f4d0b9efee69ea4eff22d9d4529b85a1cedd

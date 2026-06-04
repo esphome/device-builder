@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Electriq-IQoolsmart12hp-air-conditioner/electriq_IQOOL-SMART12HP.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Electriq-IQoolsmart12hp-air-conditioner/electriq_IQOOL-SMART12HP.jpg
 docs_url: https://devices.esphome.io/devices/Electriq-IQoolsmart12hp-air-conditioner/
 featured_components:
 - id: climate_tuya_1
@@ -63,6 +63,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Electriq-IQoolsmart12hp-air-conditioner
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Electriq-IQoolsmart12hp-air-conditioner/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Electriq-IQoolsmart12hp-air-conditioner/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: d9ffd8072434ce2a2743089215cfe12d2677b19517a7b128cc0912c57af3ef7d

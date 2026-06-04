@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-KC868-Uair/kc868-uair.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-KC868-Uair/kc868-uair.jpg
 pins:
 - gpio: 32
   available: false
@@ -59,6 +59,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: KinCony-KC868-Uair
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-KC868-Uair/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-KC868-Uair/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 2ef361ba63f8c1ee72ce3a6fe2e2114d0149ca6d0bfc03553aee5cc68b73dc3f

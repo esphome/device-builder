@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Power-Strip-4-Gen4/index.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Shelly-Power-Strip-4-Gen4/index.png
 tags:
 - relay
 - compact
@@ -182,6 +182,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Shelly-Power-Strip-4-Gen4
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Shelly-Power-Strip-4-Gen4/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Shelly-Power-Strip-4-Gen4/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 453cec4b753cd6f567798e7ef0e49f06f9db7d5d0ef94523a8c15757bd0b9729

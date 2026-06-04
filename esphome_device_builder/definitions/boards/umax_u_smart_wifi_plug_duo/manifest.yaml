@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/UMAX-U-Smart-Wifi-Plug-Duo/umax-wifi-plug-duo.jpeg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/UMAX-U-Smart-Wifi-Plug-Duo/umax-wifi-plug-duo.jpeg
 tags:
 - relay
 - compact
@@ -114,6 +114,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: UMAX-U-Smart-Wifi-Plug-Duo
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/UMAX-U-Smart-Wifi-Plug-Duo/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/UMAX-U-Smart-Wifi-Plug-Duo/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: ec49befff6c591386d4fbfffc0204edf6bb93fb676aa929dea8302f5fcf748ab

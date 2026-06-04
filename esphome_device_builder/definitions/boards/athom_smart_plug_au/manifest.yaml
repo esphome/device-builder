@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Athom-Smart-Plug-AU/Athom-Plug-AU.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Athom-Smart-Plug-AU/Athom-Plug-AU.png
 tags:
 - relay
 - compact
@@ -90,6 +90,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Athom-Smart-Plug-AU
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Athom-Smart-Plug-AU/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Athom-Smart-Plug-AU/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 9bdc0d10332ba04862e79a69453cb70f10e7d174859e7a49d71f9e3f2394c1b7

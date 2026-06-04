@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Makerfabs-AC-Dimmer/image_1.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Makerfabs-AC-Dimmer/image_1.jpg
 docs_url: https://devices.esphome.io/devices/Makerfabs-AC-Dimmer/
 featured_components:
 - id: fan_speed_1
@@ -23,6 +23,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Makerfabs-AC-Dimmer
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Makerfabs-AC-Dimmer/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Makerfabs-AC-Dimmer/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 8c5076e8f635f0761fa22a5c10a237f3d28ea4b1616bf0d594c3137a7f1a3ca5

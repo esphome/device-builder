@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Govee-H601A-6in-recessed-RGBCCT-light/module.jpeg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Govee-H601A-6in-recessed-RGBCCT-light/full_pcb.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Govee-H601A-6in-recessed-RGBCCT-light/module.jpeg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Govee-H601A-6in-recessed-RGBCCT-light/full_pcb.png
 docs_url: https://devices.esphome.io/devices/Govee-H601A-6in-recessed-RGBCCT-light/
 featured_components:
 - id: light_rgbww_1
@@ -63,6 +63,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Govee-H601A-6in-recessed-RGBCCT-light
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Govee-H601A-6in-recessed-RGBCCT-light/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Govee-H601A-6in-recessed-RGBCCT-light/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: c70ae990f8215691610fe554bcbb48131bbbf29743aca283867740674aabfc35

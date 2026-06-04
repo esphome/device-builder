@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Kogan-Smarterhome-Bladeless-DC-Motor-Turbo-Smart-Fan/Kogan-Smarterhome-Bladeless-DC-Motor-Turbo-Smart-Fan.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Kogan-Smarterhome-Bladeless-DC-Motor-Turbo-Smart-Fan/Kogan-Smarterhome-Bladeless-DC-Motor-Turbo-Smart-Fan.jpg
 docs_url: https://devices.esphome.io/devices/Kogan-Smarterhome-Bladeless-DC-Motor-Turbo-Smart-Fan/
 featured_components:
 - id: fan_tuya_1
@@ -23,6 +23,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Kogan-Smarterhome-Bladeless-DC-Motor-Turbo-Smart-Fan
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Kogan-Smarterhome-Bladeless-DC-Motor-Turbo-Smart-Fan/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Kogan-Smarterhome-Bladeless-DC-Motor-Turbo-Smart-Fan/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 772fbb29e615c1d4c12618ea9e95812ea3295e5e88ca2a00674913729d149db9

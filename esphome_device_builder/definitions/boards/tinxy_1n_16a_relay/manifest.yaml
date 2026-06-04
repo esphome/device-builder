@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tinxy-1N-16A-Relay/closeup.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tinxy-1N-16A-Relay/connection-jumper.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tinxy-1N-16A-Relay/connection-serial.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tinxy-1N-16A-Relay/closeup.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tinxy-1N-16A-Relay/connection-jumper.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tinxy-1N-16A-Relay/connection-serial.jpg
 tags:
 - relay
 pins:
@@ -56,6 +56,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Tinxy-1N-16A-Relay
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tinxy-1N-16A-Relay/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tinxy-1N-16A-Relay/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 52d7dfa0b94a1df8b0f935d56fb860aaa799b08c24313975366afdb41d09753d

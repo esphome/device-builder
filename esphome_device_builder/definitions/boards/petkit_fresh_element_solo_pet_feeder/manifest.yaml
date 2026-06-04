@@ -11,9 +11,9 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Petkit-Fresh-Element-Solo-Pet-Feeder/Petkit-Fresh-Element-Solo-Pet-Feeder-Product.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Petkit-Fresh-Element-Solo-Pet-Feeder/Petkit-Fresh-Element-Solo-Pet-Feeder-Flashing-A.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Petkit-Fresh-Element-Solo-Pet-Feeder/Petkit-Fresh-Element-Solo-Pet-Feeder-Flashing-B.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Petkit-Fresh-Element-Solo-Pet-Feeder/Petkit-Fresh-Element-Solo-Pet-Feeder-Product.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Petkit-Fresh-Element-Solo-Pet-Feeder/Petkit-Fresh-Element-Solo-Pet-Feeder-Flashing-A.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Petkit-Fresh-Element-Solo-Pet-Feeder/Petkit-Fresh-Element-Solo-Pet-Feeder-Flashing-B.png
 pins:
 - gpio: 5
   available: false
@@ -165,6 +165,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Petkit-Fresh-Element-Solo-Pet-Feeder
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Petkit-Fresh-Element-Solo-Pet-Feeder/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Petkit-Fresh-Element-Solo-Pet-Feeder/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: c35c5bbe258d03e0a17e1237fb164cfb2464c354aad475936377f6491c21c5e7

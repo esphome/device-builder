@@ -8,14 +8,14 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-WB5-WiFi-5in1-LED-Controller/WB5-WiFi-5IN1-LED-Controller.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-WB5-WiFi-5in1-LED-Controller/WB5-pcb.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-WB5-WiFi-5in1-LED-Controller/usb-serial-adapter.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-WB5-WiFi-5in1-LED-Controller/probe-hook.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-WB5-WiFi-5in1-LED-Controller/Probe-Test-Lead.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-WB5-WiFi-5in1-LED-Controller/pins.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-WB5-WiFi-5in1-LED-Controller/pcbite.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-WB5-WiFi-5in1-LED-Controller/Outout-Mode.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-WB5-WiFi-5in1-LED-Controller/WB5-WiFi-5IN1-LED-Controller.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-WB5-WiFi-5in1-LED-Controller/WB5-pcb.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-WB5-WiFi-5in1-LED-Controller/usb-serial-adapter.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-WB5-WiFi-5in1-LED-Controller/probe-hook.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-WB5-WiFi-5in1-LED-Controller/Probe-Test-Lead.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-WB5-WiFi-5in1-LED-Controller/pins.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-WB5-WiFi-5in1-LED-Controller/pcbite.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-WB5-WiFi-5in1-LED-Controller/Outout-Mode.jpg
 docs_url: https://devices.esphome.io/devices/Tuya-WB5-WiFi-5in1-LED-Controller/
 featured_components:
 - id: light_tuya_1
@@ -33,6 +33,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Tuya-WB5-WiFi-5in1-LED-Controller
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-WB5-WiFi-5in1-LED-Controller/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-WB5-WiFi-5in1-LED-Controller/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: a9b4695749505ceb4c37940f7bc4400fd7ef7763b0251928bb2069da599717fb

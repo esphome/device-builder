@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Brilliant-Smart-CCT-Globe-GU10/BL20887.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Brilliant-Smart-CCT-Globe-GU10/BL20887.png
 pins:
 - gpio: 5
   available: false
@@ -52,6 +52,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Brilliant-Smart-CCT-Globe-GU10
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Brilliant-Smart-CCT-Globe-GU10/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Brilliant-Smart-CCT-Globe-GU10/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 49b28670e92bbb8e310279f929466bd5ac9af1c43b7469368a1aaf0ce2170b17

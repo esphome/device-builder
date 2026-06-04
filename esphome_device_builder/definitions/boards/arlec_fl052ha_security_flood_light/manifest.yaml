@@ -8,10 +8,10 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Arlec-FL052HA-Security-Flood-Light/Arlec-FL052HA-Security-Flood-Light.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Arlec-FL052HA-Security-Flood-Light/1019.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Arlec-FL052HA-Security-Flood-Light/0320.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Arlec-FL052HA-Security-Flood-Light/0520.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Arlec-FL052HA-Security-Flood-Light/Arlec-FL052HA-Security-Flood-Light.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Arlec-FL052HA-Security-Flood-Light/1019.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Arlec-FL052HA-Security-Flood-Light/0320.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Arlec-FL052HA-Security-Flood-Light/0520.jpg
 pins:
 - gpio: 14
   available: false
@@ -41,6 +41,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Arlec-FL052HA-Security-Flood-Light
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Arlec-FL052HA-Security-Flood-Light/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Arlec-FL052HA-Security-Flood-Light/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: b171af82418e8f268d3fb457c00f7c0e252e44eac010ce6f778102ad1fcad81a

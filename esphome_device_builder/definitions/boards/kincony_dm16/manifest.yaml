@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-DM16/DM16-1.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-DM16/DM16-1.jpg
 pins:
 - gpio: 0
   available: false
@@ -387,6 +387,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: KinCony-DM16
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-DM16/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-DM16/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 716181281df1844805aa6fb878c0f92ed5c9f87865cffbe8de4a643b3caf2f57

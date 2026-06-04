@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/EttroIT-ESR35xx/ESR3532.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/EttroIT-ESR35xx/unit-disassembled.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/EttroIT-ESR35xx/ESR3532.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/EttroIT-ESR35xx/unit-disassembled.png
 docs_url: https://devices.esphome.io/devices/EttroIT-ESR35xx/
 featured_components:
 - id: mlock
@@ -41,6 +41,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: EttroIT-ESR35xx
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/EttroIT-ESR35xx/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/EttroIT-ESR35xx/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 0d44e5b79b1e70b4298f6c3fac87bbc8d94877143cad087a22eea67e987d28b0

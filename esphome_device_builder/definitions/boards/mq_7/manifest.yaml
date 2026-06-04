@@ -11,10 +11,10 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/MQ-7/mq-7.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/MQ-7/mq-7-heater-mod.webp
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/MQ-7/mq-7-device.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/MQ-7/mq-7-history.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/MQ-7/mq-7.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/MQ-7/mq-7-heater-mod.webp
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/MQ-7/mq-7-device.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/MQ-7/mq-7-history.png
 docs_url: https://devices.esphome.io/devices/MQ-7/
 featured_components:
 - id: temperature_sensor_id
@@ -65,6 +65,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: MQ-7
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/MQ-7/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/MQ-7/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: e35968370228cd3d9112ae670e2f82f3570b94956fbccdc3f39a614a5b349d17

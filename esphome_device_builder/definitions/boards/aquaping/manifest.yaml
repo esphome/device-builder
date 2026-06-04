@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/AquaPing/aquaping7.jpeg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/AquaPing/screenshot.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/AquaPing/aquaping7.jpeg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/AquaPing/screenshot.jpg
 docs_url: https://devices.esphome.io/devices/AquaPing/
 product_url: https://github.com/microphonon/acoustic-leak-detector/tree/main/Home_Assistant
 featured_components:
@@ -28,6 +28,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: AquaPing
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/AquaPing/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/AquaPing/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 248f0ee3e41f1ee7df41cf550a9f780696da3c208035e71682feaa41c9d0c913

@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/LinkNode-R4/LinkNodeR4.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/LinkNode-R4/LinkNodeR4.jpg
 tags:
 - relay
 pins:
@@ -61,6 +61,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: LinkNode-R4
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/LinkNode-R4/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/LinkNode-R4/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 69c9408c3249d8f311d490d0dc4a4beb20989bbe5b29e9e17ef69a82feb6a491

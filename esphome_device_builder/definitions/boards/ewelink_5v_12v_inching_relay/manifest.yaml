@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/eWelink-5V-12V-Inching-Relay/device.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/eWelink-5V-12V-Inching-Relay/programming-pins.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/eWelink-5V-12V-Inching-Relay/device.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/eWelink-5V-12V-Inching-Relay/programming-pins.png
 tags:
 - relay
 pins:
@@ -58,6 +58,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: eWelink-5V-12V-Inching-Relay
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/eWelink-5V-12V-Inching-Relay/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/eWelink-5V-12V-Inching-Relay/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: fedab992f83d60980119fd3212261d75ed513c445db2b49bca922b8d8bf1b823

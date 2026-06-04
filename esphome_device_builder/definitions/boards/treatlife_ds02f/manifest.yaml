@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/TreatLife-DS02F/treatlife_DS02F.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/TreatLife-DS02F/treatlife_DS02F.jpg
 docs_url: https://devices.esphome.io/devices/TreatLife-DS02F/
 featured_components:
 - id: fan_tuya_1
@@ -22,6 +22,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: TreatLife-DS02F
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/TreatLife-DS02F/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/TreatLife-DS02F/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 6f65e35a8dfc04cf2efc49af595536c7f40b9dab437e55db449e7fe56d5707ac

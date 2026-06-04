@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-B24M/B24M-1.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-B24M/B24M-1.jpg
 tags:
 - relay
 pins:
@@ -769,6 +769,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: KinCony-B24M
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-B24M/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-B24M/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: c7974272405067b2ac77e5da994415a95f053d32d414b90023242d4f02541da1

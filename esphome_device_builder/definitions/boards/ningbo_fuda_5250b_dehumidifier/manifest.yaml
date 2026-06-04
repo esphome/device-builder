@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Ningbo-Fuda-5250B-Dehumidifier/5250B.webp
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Ningbo-Fuda-5250B-Dehumidifier/5250B.webp
 docs_url: https://devices.esphome.io/devices/Ningbo-Fuda-5250B-Dehumidifier/
 featured_components:
 - id: binary_sensor_tuya_1
@@ -98,6 +98,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Ningbo-Fuda-5250B-Dehumidifier
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Ningbo-Fuda-5250B-Dehumidifier/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Ningbo-Fuda-5250B-Dehumidifier/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 9e4bddcda02fc6617cbfef2310ded2f31a2b6cba2e219495171e1ee1ef7e5e75

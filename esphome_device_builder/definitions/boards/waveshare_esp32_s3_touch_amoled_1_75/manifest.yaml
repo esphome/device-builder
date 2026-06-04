@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Waveshare-ESP32-S3-Touch-AMOLED-1.75/Waveshare-ESP32-S3-Touch-AMOLED-1.75.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Waveshare-ESP32-S3-Touch-AMOLED-1.75/Waveshare-ESP32-S3-Touch-AMOLED-1.75.png
 pins:
 - gpio: 46
   available: false
@@ -36,6 +36,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Waveshare-ESP32-S3-Touch-AMOLED-1.75
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Waveshare-ESP32-S3-Touch-AMOLED-1.75/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Waveshare-ESP32-S3-Touch-AMOLED-1.75/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 721eb4caf158309221a7b5ee4662fa412c26e5fc00d5b649a4064ca2aa34a955

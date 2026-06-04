@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/SZMDLX-IR-Hub/irhub1.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/SZMDLX-IR-Hub/irhub2.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/SZMDLX-IR-Hub/irhub1.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/SZMDLX-IR-Hub/irhub2.jpg
 pins:
 - gpio: 13
   available: false
@@ -33,6 +33,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: SZMDLX-IR-Hub
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/SZMDLX-IR-Hub/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/SZMDLX-IR-Hub/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 714443b9cca7f5ca16525ba42c3a2cb29b1a1931adafa2ee34beb636d2155993

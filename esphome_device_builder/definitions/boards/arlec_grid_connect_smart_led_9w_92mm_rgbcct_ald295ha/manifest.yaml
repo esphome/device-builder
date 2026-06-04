@@ -8,14 +8,14 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA/ALD295HA.jpeg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA/1.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA/2.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA/3.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA/A.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA/B.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA/C.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA/D.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA/ALD295HA.jpeg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA/1.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA/2.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA/3.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA/A.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA/B.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA/C.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA/D.jpg
 docs_url: https://devices.esphome.io/devices/Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA/
 featured_components:
 - id: id_name
@@ -80,6 +80,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 9e2417391d47a16891586d8ece10f23e22a93b74f8a0132accc3f6be57d7a60f

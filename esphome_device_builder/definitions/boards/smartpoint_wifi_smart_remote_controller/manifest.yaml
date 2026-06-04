@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Smartpoint-Wifi-Smart-Remote-Controller/smartpoint_wifi_smart_remote_controller.jpeg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Smartpoint-Wifi-Smart-Remote-Controller/top-removed.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Smartpoint-Wifi-Smart-Remote-Controller/underside.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Smartpoint-Wifi-Smart-Remote-Controller/smartpoint_wifi_smart_remote_controller.jpeg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Smartpoint-Wifi-Smart-Remote-Controller/top-removed.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Smartpoint-Wifi-Smart-Remote-Controller/underside.jpg
 pins:
 - gpio: 13
   available: false
@@ -30,6 +30,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Smartpoint-Wifi-Smart-Remote-Controller
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Smartpoint-Wifi-Smart-Remote-Controller/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Smartpoint-Wifi-Smart-Remote-Controller/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 402ce4b30eb47119c2c5072294f9c346762e40c4a030647f0b4976b255e89623

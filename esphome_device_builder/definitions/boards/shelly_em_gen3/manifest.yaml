@@ -11,14 +11,14 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-EM-Gen3/shelly_em_gen3.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-EM-Gen3/pcb_pinout_diagram.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-EM-Gen3/ct1.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-EM-Gen3/ct2.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-EM-Gen3/ct3.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-EM-Gen3/package_front.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-EM-Gen3/package_back.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-EM-Gen3/package_left.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Shelly-EM-Gen3/shelly_em_gen3.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Shelly-EM-Gen3/pcb_pinout_diagram.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Shelly-EM-Gen3/ct1.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Shelly-EM-Gen3/ct2.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Shelly-EM-Gen3/ct3.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Shelly-EM-Gen3/package_front.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Shelly-EM-Gen3/package_back.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Shelly-EM-Gen3/package_left.jpg
 tags:
 - shelly
 pins:
@@ -142,6 +142,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Shelly-EM-Gen3
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Shelly-EM-Gen3/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Shelly-EM-Gen3/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: b32b65da1111017e12267084fca82250c48d59289f0079da9af2da21bd8bac7d

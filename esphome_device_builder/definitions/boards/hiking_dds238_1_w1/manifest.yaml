@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Hiking-DDS238-1-W1/Hiking-DDS238-1-W1.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Hiking-DDS238-1-W1/Hiking-DDS238-1-W1-inside.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Hiking-DDS238-1-W1/Hiking-DDS238-1-W1-MCU.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Hiking-DDS238-1-W1/Hiking-DDS238-1-W1.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Hiking-DDS238-1-W1/Hiking-DDS238-1-W1-inside.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Hiking-DDS238-1-W1/Hiking-DDS238-1-W1-MCU.jpg
 pins:
 - gpio: 14
   available: false
@@ -127,6 +127,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Hiking-DDS238-1-W1
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Hiking-DDS238-1-W1/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Hiking-DDS238-1-W1/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 05383452651508651f2f89f5293ad0198d6bcb0bd36551d6f580aac2f6ccf165

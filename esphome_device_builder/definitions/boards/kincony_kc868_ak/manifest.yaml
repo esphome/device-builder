@@ -10,7 +10,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-KC868-AK/kc868-ak.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-KC868-AK/kc868-ak.png
 pins:
 - gpio: 0
   available: false
@@ -473,6 +473,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: KinCony-KC868-AK
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-KC868-AK/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-KC868-AK/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 6bbc6207b067bffca12a75e84948837d8010cec925761245f59441df08db12b6

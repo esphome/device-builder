@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Bulb-Duo-RGBW/Shelly-Bulb-Duo-RGBW.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Shelly-Bulb-Duo-RGBW/Shelly-Bulb-Duo-RGBW.png
 tags:
 - shelly
 pins:
@@ -79,6 +79,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Shelly-Bulb-Duo-RGBW
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Shelly-Bulb-Duo-RGBW/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Shelly-Bulb-Duo-RGBW/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 4b29f48d668f018fdd114835bf12fdad1d2cbdb30c6d58b47ade09cb743d95f5

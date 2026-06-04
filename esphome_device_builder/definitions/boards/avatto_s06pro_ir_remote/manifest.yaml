@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/AVATTO-S06Pro-IR-Remote/AVATTO-S06Pro-WiFi-IR-Universal-Remote-Controller.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/AVATTO-S06Pro-IR-Remote/schema-CB3S.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/AVATTO-S06Pro-IR-Remote/AVATTO-S06Pro-WiFi-IR-Universal-Remote-Controller.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/AVATTO-S06Pro-IR-Remote/schema-CB3S.png
 pins:
 - gpio: 6
   available: false
@@ -59,6 +59,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: AVATTO-S06Pro-IR-Remote
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/AVATTO-S06Pro-IR-Remote/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/AVATTO-S06Pro-IR-Remote/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 2ec691c3abef4ebbc3fc323f335bcdcc8754ef88117636304123c2c4f59d400a

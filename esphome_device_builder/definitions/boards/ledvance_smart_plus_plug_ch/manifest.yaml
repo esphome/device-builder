@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/LEDVANCE-SMART-PLUS-PLUG-CH/image.webp
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/LEDVANCE-SMART-PLUS-PLUG-CH/image.webp
 tags:
 - relay
 - compact
@@ -31,6 +31,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: LEDVANCE-SMART-PLUS-PLUG-CH
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/LEDVANCE-SMART-PLUS-PLUG-CH/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/LEDVANCE-SMART-PLUS-PLUG-CH/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: a6cc6314412b5f78d4ca9ac0060300e1213a5b0025ed98a3953fec25edbe768b

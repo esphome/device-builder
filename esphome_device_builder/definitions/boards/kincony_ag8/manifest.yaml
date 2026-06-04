@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-AG8/AG8-3.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-AG8/AG8_Smart_Controller_diagram.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-AG8/AG8-3.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-AG8/AG8_Smart_Controller_diagram.jpg
 pins:
 - gpio: 15
   available: false
@@ -89,6 +89,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: KinCony-AG8
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-AG8/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-AG8/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 92084be9d3bc2b09ba144392cb9189c357807c3c348e7463309afba66f863233

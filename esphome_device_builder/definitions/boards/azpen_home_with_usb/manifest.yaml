@@ -8,10 +8,10 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Azpen-Home-With-USB/WallSide.jpeg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Azpen-Home-With-USB/SocketSide.jpeg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Azpen-Home-With-USB/ESPboard.jpeg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Azpen-Home-With-USB/GPIOs.jpeg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Azpen-Home-With-USB/WallSide.jpeg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Azpen-Home-With-USB/SocketSide.jpeg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Azpen-Home-With-USB/ESPboard.jpeg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Azpen-Home-With-USB/GPIOs.jpeg
 tags:
 - relay
 - compact
@@ -57,6 +57,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Azpen-Home-With-USB
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Azpen-Home-With-USB/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Azpen-Home-With-USB/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: d0b1f74d3e7d3d5a6c3c8a8e6342c7b65f21e44c8ee32fc043b2d6d9cccc433c

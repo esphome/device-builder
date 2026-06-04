@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Hama-WLAN-Power-Strip-00176574/index.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Hama-WLAN-Power-Strip-00176574/index.png
 tags:
 - relay
 - compact
@@ -100,6 +100,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Hama-WLAN-Power-Strip-00176574
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Hama-WLAN-Power-Strip-00176574/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Hama-WLAN-Power-Strip-00176574/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: b267e6c34add60ef8dad390073978c0f3469b946e6fbbdb6813e7aa43a2ecc6c

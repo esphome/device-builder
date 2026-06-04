@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/ESP32-S3-4.0-Inch-Smart-Display/ESP32-S3-4.0-Inch-Smart-Display.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/ESP32-S3-4.0-Inch-Smart-Display/ESP32-S3-4.0-Inch-Smart-Display_animation.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/ESP32-S3-4.0-Inch-Smart-Display/ESP32-S3-4.0-Inch-Smart-Display.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/ESP32-S3-4.0-Inch-Smart-Display/ESP32-S3-4.0-Inch-Smart-Display_animation.jpg
 pins:
 - gpio: 1
   available: false
@@ -106,6 +106,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: ESP32-S3-4.0-Inch-Smart-Display
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/ESP32-S3-4.0-Inch-Smart-Display/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/ESP32-S3-4.0-Inch-Smart-Display/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 197521fbb15e9afc69557a2e7b42ccc2914baa597192d5c45a84468eec041938

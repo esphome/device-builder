@@ -10,7 +10,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/ESP32-Relay-X2/image.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/ESP32-Relay-X2/image.jpg
 tags:
 - relay
 pins:
@@ -63,6 +63,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: ESP32-Relay-X2
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/ESP32-Relay-X2/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/ESP32-Relay-X2/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: df03b40d47061c061907d9cfe98c52e7eebd4eb1beee0066b9556f3e057a42e8

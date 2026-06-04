@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/MartinJerry-USFC01/MJ-usfc01.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/MartinJerry-USFC01/MJ-usfc01.jpg
 docs_url: https://devices.esphome.io/devices/MartinJerry-USFC01/
 featured_components:
 - id: fan_tuya_1
@@ -22,6 +22,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: MartinJerry-USFC01
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/MartinJerry-USFC01/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/MartinJerry-USFC01/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 1efd74f9d166f2a2d92310a61b1a00f3b37e60bd7421aefa3dbe1dabf9a96398

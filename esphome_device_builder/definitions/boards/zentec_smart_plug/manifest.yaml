@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Zentec-Smart-Plug/zentec-outside.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Zentec-Smart-Plug/zentec-inside.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Zentec-Smart-Plug/zentec-outside.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Zentec-Smart-Plug/zentec-inside.jpg
 tags:
 - relay
 - compact
@@ -61,6 +61,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Zentec-Smart-Plug
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Zentec-Smart-Plug/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Zentec-Smart-Plug/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: de90081da126f6880b34509a8985aff7fca3326175a09c5bccba96312de780d9

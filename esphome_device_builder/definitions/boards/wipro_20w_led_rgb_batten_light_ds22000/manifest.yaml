@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Wipro-20W-LED-RGB-Batten-Light-DS22000/TYWE3L.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Wipro-20W-LED-RGB-Batten-Light-DS22000/TYWE3L.png
 pins:
 - gpio: 4
   available: false
@@ -105,6 +105,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Wipro-20W-LED-RGB-Batten-Light-DS22000
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Wipro-20W-LED-RGB-Batten-Light-DS22000/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Wipro-20W-LED-RGB-Batten-Light-DS22000/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 48cac83b51238a28bff53d7a8114eac8b1e64c86c666e93f62d5e48e8413b808

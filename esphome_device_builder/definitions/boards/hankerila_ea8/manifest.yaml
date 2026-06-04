@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Hankerila-EA8/hankerila-ea8.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Hankerila-EA8/hankerila-ea8.jpg
 tags:
 - relay
 pins:
@@ -274,6 +274,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Hankerila-EA8
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Hankerila-EA8/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Hankerila-EA8/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 0b4dcb3879db74a230c4c7d0ac5dd4395b81a8807eb9261a44b8f607e4800ca6

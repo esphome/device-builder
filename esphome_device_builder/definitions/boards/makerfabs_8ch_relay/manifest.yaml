@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Makerfabs-8CH-Relay/image_1.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Makerfabs-8CH-Relay/image_1.jpg
 tags:
 - relay
 pins:
@@ -132,6 +132,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Makerfabs-8CH-Relay
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Makerfabs-8CH-Relay/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Makerfabs-8CH-Relay/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: e0d06fe814c007665bc4a580503cf026ba48dd5e1b108a30eb0892bcacb2348e

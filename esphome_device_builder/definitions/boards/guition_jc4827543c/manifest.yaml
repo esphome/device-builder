@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Guition-JC4827543C/guition-jc4827w543c.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Guition-JC4827543C/guition-jc4827w543c-connector.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Guition-JC4827543C/guition-jc4827w543c.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Guition-JC4827543C/guition-jc4827w543c-connector.jpg
 pins:
 - gpio: 1
   available: false
@@ -64,6 +64,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Guition-JC4827543C
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Guition-JC4827543C/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Guition-JC4827543C/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: f61b99705fabd2c67e3690942e0c05cdf72b3d60742d963d7c5c21db188d3cb3

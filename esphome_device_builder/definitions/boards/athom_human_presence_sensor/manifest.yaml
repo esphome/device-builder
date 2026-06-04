@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Athom-Human-Presence-Sensor/Athom-Human-Presence-Sensor.webp
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Athom-Human-Presence-Sensor/Athom-Human-Presence-Sensor.webp
 pins:
 - gpio: 0
   available: false
@@ -103,6 +103,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Athom-Human-Presence-Sensor
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Athom-Human-Presence-Sensor/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Athom-Human-Presence-Sensor/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 1d88ce5c5392f31ee0bb1ee51f84057b890f2922ead6a9a5d9b763ab0edc8b55

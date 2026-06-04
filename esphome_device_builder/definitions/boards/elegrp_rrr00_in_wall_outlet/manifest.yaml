@@ -8,10 +8,10 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Elegrp-RRR00-in-wall-outlet/RRR00-front-amazon.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Elegrp-RRR00-in-wall-outlet/backDetail.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Elegrp-RRR00-in-wall-outlet/relays.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Elegrp-RRR00-in-wall-outlet/wifiModuleFront.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Elegrp-RRR00-in-wall-outlet/RRR00-front-amazon.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Elegrp-RRR00-in-wall-outlet/backDetail.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Elegrp-RRR00-in-wall-outlet/relays.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Elegrp-RRR00-in-wall-outlet/wifiModuleFront.jpg
 tags:
 - relay
 - compact
@@ -94,6 +94,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Elegrp-RRR00-in-wall-outlet
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Elegrp-RRR00-in-wall-outlet/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Elegrp-RRR00-in-wall-outlet/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: fe51ddb2b03ddb258ae8e585ff2ed0661cf98a83c89c647bd779ef78f8edb0bd

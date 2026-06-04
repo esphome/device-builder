@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Athom-E27-7W-Bulb/Athom-E27-7W-Bulb.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Athom-E27-7W-Bulb/Athom-E27-7W-Bulb.png
 pins:
 - gpio: 4
   available: false
@@ -88,6 +88,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Athom-E27-7W-Bulb
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Athom-E27-7W-Bulb/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Athom-E27-7W-Bulb/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: a43188c751351c34038ce517855c400ffb16d09d95e8f54718b43fb4a857846f

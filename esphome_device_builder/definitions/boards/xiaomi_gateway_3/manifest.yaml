@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Xiaomi-Gateway-3/image.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Xiaomi-Gateway-3/image.jpg
 pins:
 - gpio: 12
   available: false
@@ -88,6 +88,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Xiaomi-Gateway-3
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Xiaomi-Gateway-3/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Xiaomi-Gateway-3/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 378db1df646e07188fa892708988bde29d28ec107d670625b444c4517f2d1c1f

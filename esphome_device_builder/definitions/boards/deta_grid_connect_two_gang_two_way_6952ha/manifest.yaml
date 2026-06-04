@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/DETA-Grid-Connect-Two-Gang-Two-Way-6952HA/6952HA-packet.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/DETA-Grid-Connect-Two-Gang-Two-Way-6952HA/6952HA-manual-flashing.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/DETA-Grid-Connect-Two-Gang-Two-Way-6952HA/6952HA-packet.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/DETA-Grid-Connect-Two-Gang-Two-Way-6952HA/6952HA-manual-flashing.jpg
 docs_url: https://devices.esphome.io/devices/DETA-Grid-Connect-Two-Gang-Two-Way-6952HA/
 featured_components:
 - id: button_1
@@ -51,6 +51,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: DETA-Grid-Connect-Two-Gang-Two-Way-6952HA
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/DETA-Grid-Connect-Two-Gang-Two-Way-6952HA/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/DETA-Grid-Connect-Two-Gang-Two-Way-6952HA/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 5b14b6c374066ba4352cd33e95d88974d1c5fe6e4c5836f17fc36bac82780c8b

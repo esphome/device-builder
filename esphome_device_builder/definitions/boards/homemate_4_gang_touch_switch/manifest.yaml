@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/HomeMate-4-Gang-Touch-Switch/closeup.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/HomeMate-4-Gang-Touch-Switch/connection.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/HomeMate-4-Gang-Touch-Switch/closeup.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/HomeMate-4-Gang-Touch-Switch/connection.jpg
 pins:
 - gpio: 20
   available: false
@@ -82,6 +82,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: HomeMate-4-Gang-Touch-Switch
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/HomeMate-4-Gang-Touch-Switch/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/HomeMate-4-Gang-Touch-Switch/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 1f5c8d688bf091c5dd33138c68fb9ad1ee89bb54970c0caca75bf592a8911200

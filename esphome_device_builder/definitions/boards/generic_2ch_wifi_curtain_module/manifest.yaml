@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Generic-2CH-Wifi-Curtain-Module/device.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Generic-2CH-Wifi-Curtain-Module/inside.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Generic-2CH-Wifi-Curtain-Module/device.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Generic-2CH-Wifi-Curtain-Module/inside.jpg
 docs_url: https://devices.esphome.io/devices/Generic-2CH-Wifi-Curtain-Module/
 featured_components:
 - id: s1_open
@@ -91,6 +91,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Generic-2CH-Wifi-Curtain-Module
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Generic-2CH-Wifi-Curtain-Module/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Generic-2CH-Wifi-Curtain-Module/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 29a66255ec94efe299c0dd476793d68886c0229a86dabd166741a090ee33d7bf

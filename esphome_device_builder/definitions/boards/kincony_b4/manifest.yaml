@@ -10,7 +10,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-B4/B4-1.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-B4/B4-1.jpg
 tags:
 - relay
 pins:
@@ -273,6 +273,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: KinCony-B4
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-B4/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-B4/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: b47b7bffb76dd1b87045431ebed676032c9c5bad37fa82d70277c93ad62e9c16

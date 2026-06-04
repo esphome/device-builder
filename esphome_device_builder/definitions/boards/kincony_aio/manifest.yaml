@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-AIO/AIO-Hybrid-1.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-AIO/AIO-Hybrid_diagram.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-AIO/AIO-Hybrid-1.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-AIO/AIO-Hybrid_diagram.jpg
 tags:
 - relay
 pins:
@@ -417,6 +417,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: KinCony-AIO
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-AIO/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-AIO/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 45c42e7fc2c6a5b0d8e9bac576cf802882c6e7aefe78a55f7d6ed6ff534f21eb

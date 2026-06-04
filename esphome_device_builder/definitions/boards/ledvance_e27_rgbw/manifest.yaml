@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/LEDVANCE-E27-RGBW/ledvance-e27-rgbw.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/LEDVANCE-E27-RGBW/ledvance-e27-rgbw.jpg
 docs_url: https://devices.esphome.io/devices/LEDVANCE-E27-RGBW/
 featured_components:
 - id: light_rgbw
@@ -20,6 +20,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: LEDVANCE-E27-RGBW
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/LEDVANCE-E27-RGBW/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/LEDVANCE-E27-RGBW/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 90dd4887566ca965b435facec483e083e5595f5ff0029bb623aae97802a580a5

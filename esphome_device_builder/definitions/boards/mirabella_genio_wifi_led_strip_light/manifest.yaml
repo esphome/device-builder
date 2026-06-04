@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Mirabella-Genio-WiFi-LED-Strip-Light/Mirabella-Genio-WiFi-LED-Strip-Light.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Mirabella-Genio-WiFi-LED-Strip-Light/Mirabella-Genio-WiFi-LED-Strip-Light.jpg
 pins:
 - gpio: 0
   available: false
@@ -88,6 +88,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Mirabella-Genio-WiFi-LED-Strip-Light
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Mirabella-Genio-WiFi-LED-Strip-Light/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Mirabella-Genio-WiFi-LED-Strip-Light/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 0179382749064a63407e97fbdfdd42ca91201b15a4ff5c2fd2374966ab33d808

@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Arlec-Grid-Connect-Smart-9W-CCT-LED-Downlight/Arlec-Grid-Connect-Smart-9W-CCT-LED-Downlight.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Arlec-Grid-Connect-Smart-9W-CCT-LED-Downlight/Arlec-Grid-Connect-Smart-9W-CCT-LED-Downlight.jpg
 pins:
 - gpio: 4
   available: false
@@ -52,6 +52,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Arlec-Grid-Connect-Smart-9W-CCT-LED-Downlight
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Arlec-Grid-Connect-Smart-9W-CCT-LED-Downlight/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Arlec-Grid-Connect-Smart-9W-CCT-LED-Downlight/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 92baa9e4629d5fb00cc4dfbd9437c092a9eb576b4eced75048ab69891012828c

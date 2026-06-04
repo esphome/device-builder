@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Athom-BR30-Bulb/Athom-BR30-Bulb.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Athom-BR30-Bulb/Athom-BR30-Bulb.png
 pins:
 - gpio: 4
   available: false
@@ -92,6 +92,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Athom-BR30-Bulb
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Athom-BR30-Bulb/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Athom-BR30-Bulb/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 5903b9acdd01807b36d90f075d6029bf7e8623041bd491764b7201654921bdd5

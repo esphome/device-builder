@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Horus-Blind-Controller/module.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Horus-Blind-Controller/bottom-top-vew.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Horus-Blind-Controller/Wire-diagram.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Horus-Blind-Controller/module.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Horus-Blind-Controller/bottom-top-vew.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Horus-Blind-Controller/Wire-diagram.png
 pins:
 - gpio: 4
   available: false
@@ -80,6 +80,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Horus-Blind-Controller
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Horus-Blind-Controller/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Horus-Blind-Controller/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 5724028cf005532c2e617d71f3785af67188a6817aea78306d4525b26311afe8

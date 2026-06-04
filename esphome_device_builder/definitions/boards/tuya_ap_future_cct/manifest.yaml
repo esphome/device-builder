@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-AP-Future-CCT/Tuya-AP-Future-CCT.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-AP-Future-CCT/Tuya-AP-Future-CCT.png
 pins:
 - gpio: 5
   available: false
@@ -51,6 +51,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Tuya-AP-Future-CCT
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-AP-Future-CCT/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-AP-Future-CCT/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: e97c0a4e1d70c69fbea85259cc7d7ea4a401b394f9eb9f08ed3f1fb97d0bf6c7

@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Steren-RGBWW-Desk-Lamp/box.webp
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Steren-RGBWW-Desk-Lamp/open.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Steren-RGBWW-Desk-Lamp/pcb1.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Steren-RGBWW-Desk-Lamp/box.webp
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Steren-RGBWW-Desk-Lamp/open.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Steren-RGBWW-Desk-Lamp/pcb1.jpg
 docs_url: https://devices.esphome.io/devices/Steren-RGBWW-Desk-Lamp/
 featured_components:
 - id: rgb_light
@@ -25,6 +25,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Steren-RGBWW-Desk-Lamp
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Steren-RGBWW-Desk-Lamp/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Steren-RGBWW-Desk-Lamp/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 2b0b061a101feb9fc45a21f1f20f1ae4d3457a715ab1c22131a5f445a3c1e734

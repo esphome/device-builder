@@ -8,13 +8,13 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Geeni-6W8007-Smart-Wi-Fi-Outlet/geeni-6w8007-product-image.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Geeni-6W8007-Smart-Wi-Fi-Outlet/geeni-6w8007-1-back.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Geeni-6W8007-Smart-Wi-Fi-Outlet/geeni-6w8007-2-cover-off.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Geeni-6W8007-Smart-Wi-Fi-Outlet/geeni-6w8007-3-cover-off-front.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Geeni-6W8007-Smart-Wi-Fi-Outlet/geeni-6w8007-4-prying-out.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Geeni-6W8007-Smart-Wi-Fi-Outlet/geeni-6w8007-5-CB2S.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Geeni-6W8007-Smart-Wi-Fi-Outlet/geeni-6w8007-6-CB2S-pins.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Geeni-6W8007-Smart-Wi-Fi-Outlet/geeni-6w8007-product-image.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Geeni-6W8007-Smart-Wi-Fi-Outlet/geeni-6w8007-1-back.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Geeni-6W8007-Smart-Wi-Fi-Outlet/geeni-6w8007-2-cover-off.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Geeni-6W8007-Smart-Wi-Fi-Outlet/geeni-6w8007-3-cover-off-front.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Geeni-6W8007-Smart-Wi-Fi-Outlet/geeni-6w8007-4-prying-out.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Geeni-6W8007-Smart-Wi-Fi-Outlet/geeni-6w8007-5-CB2S.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Geeni-6W8007-Smart-Wi-Fi-Outlet/geeni-6w8007-6-CB2S-pins.jpg
 tags:
 - relay
 - compact
@@ -35,6 +35,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Geeni-6W8007-Smart-Wi-Fi-Outlet
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Geeni-6W8007-Smart-Wi-Fi-Outlet/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Geeni-6W8007-Smart-Wi-Fi-Outlet/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 88c58f1bc97409ef8ecdb492b44e9c64ab3fcf25c1171561a6c3b2837d3cea5c

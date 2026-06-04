@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/CloudFree-EU-Plug-P1EU/cloudfree_P1EU.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/CloudFree-EU-Plug-P1EU/cloudfree_P1EU_Reference.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/CloudFree-EU-Plug-P1EU/cloudfree_P1EU.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/CloudFree-EU-Plug-P1EU/cloudfree_P1EU_Reference.jpg
 tags:
 - relay
 - compact
@@ -110,6 +110,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: CloudFree-EU-Plug-P1EU
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/CloudFree-EU-Plug-P1EU/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/CloudFree-EU-Plug-P1EU/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 7a5eb5697540c39f63e0830d4046fc236c21e30888a1ba7e718dba7634b46520

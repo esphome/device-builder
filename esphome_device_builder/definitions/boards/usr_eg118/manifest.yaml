@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/USR-EG118/USR-EG118.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/USR-EG118/USR-M100-expansion.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/USR-EG118/USR-EG118.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/USR-EG118/USR-M100-expansion.png
 pins:
 - gpio: 1
   available: false
@@ -93,6 +93,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: USR-EG118
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/USR-EG118/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/USR-EG118/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 97ea9e3aa03fc8fccba4e779eb3d8de944654fe5565490885c7016bcfe66c10c

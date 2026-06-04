@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/AHRise-AHR-083/ahrise_ahr-083.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/AHRise-AHR-083/ahrise_ahr-083.jpg
 tags:
 - relay
 - compact
@@ -103,6 +103,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: AHRise-AHR-083
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/AHRise-AHR-083/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/AHRise-AHR-083/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: e70c9474ba5830b33a7987b9d87e44b997b883c4eda38d1f4d0c484c864aeed2

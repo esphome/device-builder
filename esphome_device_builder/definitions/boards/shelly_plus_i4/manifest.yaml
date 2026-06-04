@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Plus-i4/shelly_plus_i4.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Shelly-Plus-i4/shelly_plus_i4.jpg
 tags:
 - shelly
 pins:
@@ -83,6 +83,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Shelly-Plus-i4
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Shelly-Plus-i4/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Shelly-Plus-i4/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: bf23e6f27f9a7fe7c1d1bddaa789015ff0a2fa6eb1d2df9507390e73a0f76fbb

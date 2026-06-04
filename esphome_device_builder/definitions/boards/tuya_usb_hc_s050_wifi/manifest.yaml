@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-USB-HC-S050-WIFI/tuya-hc-s050-wifi.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-USB-HC-S050-WIFI/tuya-hc-s050-wifi-pcb-flashing.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-USB-HC-S050-WIFI/tuya-hc-s050-wifi.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-USB-HC-S050-WIFI/tuya-hc-s050-wifi-pcb-flashing.jpg
 tags:
 - relay
 docs_url: https://devices.esphome.io/devices/Tuya-USB-HC-S050-WIFI/
@@ -30,6 +30,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Tuya-USB-HC-S050-WIFI
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-USB-HC-S050-WIFI/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-USB-HC-S050-WIFI/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 7b4aab56389d8bd9457e493eb7606978095ae77b3124653fe1c5c2e1ef82251d

@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Acenx-SOP04-US/sop04-us.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Acenx-SOP04-US/sop04-us.jpg
 tags:
 - relay
 - compact
@@ -79,6 +79,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Acenx-SOP04-US
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Acenx-SOP04-US/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Acenx-SOP04-US/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: e0338729cd9b45e17a23c4583ed758d92d8c31d18d482f05c67ed88cf12c97fe

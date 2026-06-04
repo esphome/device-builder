@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Xiaomi-Philips-Zhirui-Downlight/xiaomi-philips-smart-2.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Xiaomi-Philips-Zhirui-Downlight/pinout.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Xiaomi-Philips-Zhirui-Downlight/xiaomi-philips-smart-2.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Xiaomi-Philips-Zhirui-Downlight/pinout.png
 pins:
 - gpio: 12
   available: false
@@ -52,6 +52,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Xiaomi-Philips-Zhirui-Downlight
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Xiaomi-Philips-Zhirui-Downlight/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Xiaomi-Philips-Zhirui-Downlight/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 1c72d1ffad8dc199945964b33d139f358c38d6acc3b988ee6e380c51b0776f2d

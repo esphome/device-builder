@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Athom-GU10-Bulb/Athom-GU10-Bulb.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Athom-GU10-Bulb/Athom-GU10-Bulb.png
 pins:
 - gpio: 4
   available: false
@@ -88,6 +88,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Athom-GU10-Bulb
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Athom-GU10-Bulb/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Athom-GU10-Bulb/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 3463543b649eca9bd234a82d7b2b53d0e33a268024f7dc1da1a167d5590591fb

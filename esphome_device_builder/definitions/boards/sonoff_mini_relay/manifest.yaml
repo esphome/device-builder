@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sonoff-Mini-Relay/Sonoff-Mini-Relay.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Sonoff-Mini-Relay/Sonoff-Mini-Relay.png
 tags:
 - relay
 - sonoff
@@ -88,6 +88,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Sonoff-Mini-Relay
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Sonoff-Mini-Relay/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Sonoff-Mini-Relay/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: fe5ab297af426e287a5999864874e747a4c3c543351e2c8d419dcefd71c42d9a

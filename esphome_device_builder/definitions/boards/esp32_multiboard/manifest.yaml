@@ -9,8 +9,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/ESP32-Multiboard/MultiBoard.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/ESP32-Multiboard/Multiboard_Pinout.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/ESP32-Multiboard/MultiBoard.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/ESP32-Multiboard/Multiboard_Pinout.png
 pins:
 - gpio: 25
   available: false
@@ -68,6 +68,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: ESP32-Multiboard
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/ESP32-Multiboard/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/ESP32-Multiboard/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 3814c448903357f223e7c95441b8bba20ccc9f94ba6ccf29169306b5c3a5270f

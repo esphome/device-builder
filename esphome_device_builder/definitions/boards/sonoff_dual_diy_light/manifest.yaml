@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sonoff-Dual-DIY-light/sonoff_dual_r2.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Sonoff-Dual-DIY-light/sonoff_dual_r2.jpg
 tags:
 - relay
 - sonoff
@@ -50,6 +50,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Sonoff-Dual-DIY-light
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Sonoff-Dual-DIY-light/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Sonoff-Dual-DIY-light/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: deb9007eb81ea0e2dace45f7dd44999cec616ad986eedb31578b61b7c5dad62a

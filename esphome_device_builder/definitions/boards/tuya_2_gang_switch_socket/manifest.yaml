@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-2-Gang-Switch-Socket/tyna-gpo-switch.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-2-Gang-Switch-Socket/tyna-gpo-switch.png
 docs_url: https://devices.esphome.io/devices/Tuya-2-Gang-Switch-Socket/
 featured_components:
 - id: button_1
@@ -33,6 +33,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Tuya-2-Gang-Switch-Socket
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-2-Gang-Switch-Socket/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-2-Gang-Switch-Socket/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: ab80d39c650865d38ae4f4dac38d9bb919f6cd80400b919743af7c6fe3abf9e8

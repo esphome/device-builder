@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Brilliant-Lighting-BL20925-Power-Monitoring-Plug/Brilliant-Lighting-BL20925-Power-Monitoring-Plug.jpeg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Brilliant-Lighting-BL20925-Power-Monitoring-Plug/Brilliant-Lighting-BL20925-Power-Monitoring-Plug.jpeg
 tags:
 - relay
 - compact
@@ -107,6 +107,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Brilliant-Lighting-BL20925-Power-Monitoring-Plug
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Brilliant-Lighting-BL20925-Power-Monitoring-Plug/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Brilliant-Lighting-BL20925-Power-Monitoring-Plug/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 1a727c82d5217e6f66f47ce9ef7dc0eb222960996ec0ec34faa45c45ea588ac6

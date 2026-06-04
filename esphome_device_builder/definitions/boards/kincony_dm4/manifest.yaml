@@ -10,7 +10,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-DM4/DM4-1.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-DM4/DM4-1.jpg
 pins:
 - gpio: 0
   available: false
@@ -284,6 +284,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: KinCony-DM4
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-DM4/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-DM4/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: d373adb661eda887178821c381a81dfcdb8450a56938f824d75dcfc3e17739ce

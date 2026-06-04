@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-B16M/ESP32-B16M-2.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-B16M/B16M-diagram.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-B16M/ESP32-B16M-2.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-B16M/B16M-diagram.jpg
 tags:
 - relay
 pins:
@@ -568,6 +568,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: KinCony-B16M
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-B16M/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-B16M/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: b5813c8f84ab35c876ca5b86bd6990bfcdbf98aac0fd48ffb3a59cb2a3f05275

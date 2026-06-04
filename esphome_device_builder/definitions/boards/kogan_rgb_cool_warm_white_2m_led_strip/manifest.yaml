@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Kogan-RGB-Cool-Warm-White-2m-LED-Strip/Kogan-RGB-Cool-Warm-White-2m-LED-Strip.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Kogan-RGB-Cool-Warm-White-2m-LED-Strip/Kogan-RGB-Cool-Warm-White-2m-LED-Strip.jpg
 pins:
 - gpio: 3
   available: false
@@ -102,6 +102,6 @@ featured_bundles:
 source:
   type: esphome-devices
   remote_id: Kogan-RGB-Cool-Warm-White-2m-LED-Strip
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Kogan-RGB-Cool-Warm-White-2m-LED-Strip/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Kogan-RGB-Cool-Warm-White-2m-LED-Strip/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 72af818b20d19a96e1132af9a7677e8246395a248b0560e2c8a26073a8d1ef98

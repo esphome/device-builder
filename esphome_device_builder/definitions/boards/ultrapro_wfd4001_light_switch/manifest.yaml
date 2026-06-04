@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/UltraPro-WFD4001-Light-Switch/ultrapro-wfd4001-light-switch-v1.1.14.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/UltraPro-WFD4001-Light-Switch/ultrapro-wfd4001-light-switch-v1.1.14.jpg
 docs_url: https://devices.esphome.io/devices/UltraPro-WFD4001-Light-Switch/
 featured_components:
 - id: blue_led
@@ -28,6 +28,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: UltraPro-WFD4001-Light-Switch
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/UltraPro-WFD4001-Light-Switch/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/UltraPro-WFD4001-Light-Switch/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 8984419f25e434a178253c9b33c9fc4d9251a2d63a9be8936e734370fedb88a3

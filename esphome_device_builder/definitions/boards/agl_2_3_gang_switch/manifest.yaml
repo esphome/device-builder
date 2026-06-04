@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/AGL-2-3-Gang-Switch/agl_1106062.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/AGL-2-3-Gang-Switch/back.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/AGL-2-3-Gang-Switch/open.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/AGL-2-3-Gang-Switch/agl_1106062.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/AGL-2-3-Gang-Switch/back.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/AGL-2-3-Gang-Switch/open.jpg
 pins:
 - gpio: 2
   available: false
@@ -81,6 +81,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: AGL-2-3-Gang-Switch
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/AGL-2-3-Gang-Switch/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/AGL-2-3-Gang-Switch/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 8c41c1b92ac49e2541dd04fe626a7a8322ae001b6d6a1aab5d733f567b66dbee

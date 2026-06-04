@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/TeXXmo-IoT-Button/button_s_a.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/TeXXmo-IoT-Button/schematic.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/TeXXmo-IoT-Button/button_s_a.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/TeXXmo-IoT-Button/schematic.png
 pins:
 - gpio: 5
   available: false
@@ -53,6 +53,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: TeXXmo-IoT-Button
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/TeXXmo-IoT-Button/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/TeXXmo-IoT-Button/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 95ddbc5585c56826fab57022896315e6a5bf62b967da328ab42ce0b25182d3da

@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Nous-A1t/neo_render4_tasmota.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Nous-A1t/neo_render4_tasmota.jpg
 tags:
 - relay
 - compact
@@ -110,6 +110,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Nous-A1t
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Nous-A1t/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Nous-A1t/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 4631a413d49172e71ff12240875f2038c33a1146f6cc68aa10fa1476128d0e59

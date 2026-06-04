@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Oyajia-LED-Ceiling-light-AS105/AS105.png
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Oyajia-LED-Ceiling-light-AS105/pinout.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Oyajia-LED-Ceiling-light-AS105/AS105.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Oyajia-LED-Ceiling-light-AS105/pinout.png
 docs_url: https://devices.esphome.io/devices/Oyajia-LED-Ceiling-light-AS105/
 featured_components:
 - id: white_light
@@ -31,6 +31,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Oyajia-LED-Ceiling-light-AS105
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Oyajia-LED-Ceiling-light-AS105/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Oyajia-LED-Ceiling-light-AS105/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: 1d2452f856bc69d6313d72dc6bf1407addcc7c5cd82a5f9c009abc0a8c8e915b

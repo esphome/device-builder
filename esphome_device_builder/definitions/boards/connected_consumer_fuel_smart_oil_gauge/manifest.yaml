@@ -8,13 +8,13 @@ hardware:
   connectivity:
   - wifi
 images:
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Connected-Consumer-Fuel-Smart-Oil-Gauge/Product-Image.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Connected-Consumer-Fuel-Smart-Oil-Gauge/Connections-Front.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Connected-Consumer-Fuel-Smart-Oil-Gauge/Connections-Back.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Connected-Consumer-Fuel-Smart-Oil-Gauge/Flashing-Front.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Connected-Consumer-Fuel-Smart-Oil-Gauge/Flashing-Edge.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Connected-Consumer-Fuel-Smart-Oil-Gauge/Ultrasonic.jpg
-- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Connected-Consumer-Fuel-Smart-Oil-Gauge/IC-Locations.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Connected-Consumer-Fuel-Smart-Oil-Gauge/Product-Image.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Connected-Consumer-Fuel-Smart-Oil-Gauge/Connections-Front.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Connected-Consumer-Fuel-Smart-Oil-Gauge/Connections-Back.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Connected-Consumer-Fuel-Smart-Oil-Gauge/Flashing-Front.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Connected-Consumer-Fuel-Smart-Oil-Gauge/Flashing-Edge.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Connected-Consumer-Fuel-Smart-Oil-Gauge/Ultrasonic.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Connected-Consumer-Fuel-Smart-Oil-Gauge/IC-Locations.jpg
 pins:
 - gpio: 2
   available: false
@@ -126,6 +126,6 @@ featured_components:
 source:
   type: esphome-devices
   remote_id: Connected-Consumer-Fuel-Smart-Oil-Gauge
-  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Connected-Consumer-Fuel-Smart-Oil-Gauge/index.md
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Connected-Consumer-Fuel-Smart-Oil-Gauge/index.md
   upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
   content_hash: ae7339c7490ada5d43e6f2ff03973325fb566bd7a4961e7d7371f9c253738f6a
