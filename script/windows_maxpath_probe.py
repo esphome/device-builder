@@ -46,6 +46,9 @@ _PROBE_YAML = textwrap.dedent(
       framework:
         type: esp-idf
     logger:
+    wifi:
+      ssid: "probe-ssid"
+      password: "probe-password"
     api:
       encryption:
         key: "bm90aGluZ3Rvc2VlaGVyZW5vdGhpbmd0b3NlZQ=="
