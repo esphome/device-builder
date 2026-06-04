@@ -1,1 +1,1 @@
-"""Windows-only MAX_PATH real-compile e2e (issue #1190)."""
+"""Windows-only MAX_PATH real-compile e2e."""

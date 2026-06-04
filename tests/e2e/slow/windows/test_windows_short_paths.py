@@ -1,13 +1,4 @@
-"""Real-compile pin: the Windows short-path layout builds a deep ESP-IDF config under MAX_PATH.
-
-Windows-only. Exercises the production
-:func:`helpers.windows_build_paths.apply_windows_short_build_paths` +
-:func:`controllers.firmware.cli.compose_subprocess_env` path, then runs a real
-``esphome compile`` of an ESP-IDF + ``api: encryption:`` config (the deep mbedtls /
-tf-psa-crypto tree that overflows ``MAX_PATH`` on the long default layout). Asserts the build
-succeeds, the deepest emitted path stays under 260, and the same path *without* the junction
-would exceed 260 -- so the junction is provably load-bearing, not incidental.
-"""
+"""Pins that the Windows short-path layout compiles a deep ESP-IDF config under MAX_PATH."""
 
 from __future__ import annotations
 
@@ -20,11 +11,7 @@ from pathlib import Path
 import pytest
 
 from esphome_device_builder.controllers.firmware.cli import compose_subprocess_env
-from esphome_device_builder.helpers.windows_build_paths import (
-    apply_windows_short_build_paths,
-    remove_windows_short_build_paths,
-    windows_pio_core_dir,
-)
+from esphome_device_builder.helpers.windows_build_paths import windows_short_build_paths
 from esphome_device_builder.models import FirmwareJob, JobType
 
 pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Windows MAX_PATH only")
@@ -55,24 +42,24 @@ _CONFIG = textwrap.dedent(
 
 
 @pytest.mark.timeout(2400)
-def test_windows_short_paths_compile_deep_idf(tmp_path: Path) -> None:
+def test_windows_short_paths_compile_deep_idf(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A deep ESP-IDF compile succeeds through the short-path layout and stays under MAX_PATH."""
     config_dir = tmp_path / _PAD / "esphome"
     config_dir.mkdir(parents=True, exist_ok=True)
     config = config_dir / "probe.yaml"
     config.write_text(_CONFIG, encoding="utf-8")
 
-    saved = {k: os.environ.get(k) for k in ("ESPHOME_DATA_DIR", "PLATFORMIO_CORE_DIR")}
-    os.environ.pop("ESPHOME_DATA_DIR", None)
-    try:
-        apply_windows_short_build_paths(config_dir)
+    monkeypatch.delenv("ESPHOME_DATA_DIR", raising=False)
+    with windows_short_build_paths(config_dir) as pio_core_dir:
         junction = Path(os.environ["ESPHOME_DATA_DIR"])
         real_data = config_dir / ".esphome"
-        assert windows_pio_core_dir() is not None, "PLATFORMIO_CORE_DIR not set up"
+        assert pio_core_dir is not None, "PLATFORMIO_CORE_DIR not set up"
 
         # Drive the real subprocess-env composition (a local COMPILE job).
         job = FirmwareJob(job_id="probe", configuration="probe.yaml", job_type=JobType.COMPILE)
-        env = compose_subprocess_env(job)
+        env = compose_subprocess_env(job, pio_core_dir)
 
         result = subprocess.run(  # noqa: S603
             [sys.executable, "-m", "esphome", "compile", str(config)],
@@ -97,13 +84,6 @@ def test_windows_short_paths_compile_deep_idf(tmp_path: Path) -> None:
             f"control check weak: canonical depth {deepest_canonical} did not exceed "
             f"{_MAX_PATH}; the test no longer proves the junction is required"
         )
-    finally:
-        remove_windows_short_build_paths()
-        for key, value in saved.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
 
 
 def _deepest(root: Path) -> int:

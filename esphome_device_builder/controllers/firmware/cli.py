@@ -13,7 +13,6 @@ from esphome.storage_json import StorageJSON
 
 from ...helpers.remote_build_layout import parse_from_configuration as parse_remote_build_path
 from ...helpers.storage_path import resolve_storage_path
-from ...helpers.windows_build_paths import windows_pio_core_dir
 from ...models import FirmwareJob, JobType
 from .constants import _OTA_ADDRESS_CACHE_JOB_TYPES, ESPHOME_SUBPROCESS_ENV
 from .helpers import _find_esptool_cmd
@@ -25,7 +24,9 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-def compose_subprocess_env(job: FirmwareJob) -> dict[str, str]:
+def compose_subprocess_env(
+    job: FirmwareJob, windows_pio_core_dir: Path | None = None
+) -> dict[str, str]:
     """
     Return the env dict for *job*'s ``esphome`` subprocess.
 
@@ -35,17 +36,17 @@ def compose_subprocess_env(job: FirmwareJob) -> dict[str, str]:
     artefacts land in one ``(dashboard_id, device)``-keyed dir.
 
     On Windows also pins ``PLATFORMIO_CORE_DIR`` to a real short dir
-    so the framework / mbedtls source paths stay under ``MAX_PATH``
-    (issue #1190); a junction would be canonicalized away by ESP-IDF.
-    ``ESPHOME_DATA_DIR`` is already short via the process env (see
+    so the framework / mbedtls source paths stay under ``MAX_PATH``;
+    a junction would be canonicalized away by ESP-IDF. The short
+    ``ESPHOME_DATA_DIR`` is already in the process env (see
     :mod:`helpers.windows_build_paths`), so it is inherited here.
     """
     env = {**os.environ, **ESPHOME_SUBPROCESS_ENV}
     remote_build_path = parse_remote_build_path(job.configuration)
     if remote_build_path is not None:
         env["ESPHOME_DATA_DIR"] = str(remote_build_path.data_dir(Path(CORE.data_dir)))
-    if (pio_core_dir := windows_pio_core_dir()) is not None:
-        env["PLATFORMIO_CORE_DIR"] = str(pio_core_dir)
+    if windows_pio_core_dir is not None:
+        env["PLATFORMIO_CORE_DIR"] = str(windows_pio_core_dir)
     return env
 
 

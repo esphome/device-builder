@@ -271,10 +271,7 @@ def main() -> None:
     from .controllers.config import DashboardSettings  # noqa: PLC0415
     from .device_builder import DeviceBuilder  # noqa: PLC0415
     from .helpers.single_instance import ensure_single_execution  # noqa: PLC0415
-    from .helpers.windows_build_paths import (  # noqa: PLC0415
-        apply_windows_short_build_paths,
-        remove_windows_short_build_paths,
-    )
+    from .helpers.windows_build_paths import windows_short_build_paths  # noqa: PLC0415
 
     settings = DashboardSettings()
     settings.parse_args(args)
@@ -291,16 +288,12 @@ def main() -> None:
     with ensure_single_execution(CORE.data_dir) as lock:
         if lock.exit_code is not None:
             sys.exit(lock.exit_code)
-        # Windows: route the build tree through a short junction so deep ESP-IDF
-        # builds stay under MAX_PATH (issue #1190). No-op elsewhere. Done inside
-        # the lock so only the running instance owns the junction; CORE.data_dir
-        # then resolves through it for the dashboard's reads and every compile.
-        apply_windows_short_build_paths(settings.config_dir)
-        try:
-            device_builder = DeviceBuilder(settings)
+        # On Windows, route the build tree through a short junction so deep
+        # builds stay under MAX_PATH; CORE.data_dir then resolves through it for
+        # the dashboard's reads and every compile. No-op on other platforms.
+        with windows_short_build_paths(settings.config_dir) as pio_core_dir:
+            device_builder = DeviceBuilder(settings, windows_pio_core_dir=pio_core_dir)
             device_builder.run()
-        finally:
-            remove_windows_short_build_paths()
 
 
 def _log_uncaught_exception(

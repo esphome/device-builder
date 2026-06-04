@@ -1,7 +1,7 @@
 name: Windows real-compile (MAX_PATH)
 
 # tests/e2e/slow/windows: a real ESP-IDF compile on a windows-latest runner that proves the
-# short-path MAX_PATH fix (issue #1190) builds and keeps building. A cold ESP-IDF toolchain
+# short-path MAX_PATH fix builds and keeps building. A cold ESP-IDF toolchain
 # download makes this a ~20-40 min job, so it is gated to changes that touch the mechanism plus
 # a weekly drift check rather than running on every PR. The default test matrix ignores
 # tests/e2e, so this workflow is the only place this e2e runs.

@@ -8,19 +8,16 @@ from pathlib import Path
 
 import pytest
 
-from esphome_device_builder.helpers.windows_build_paths import (
-    apply_windows_short_build_paths,
-    remove_windows_short_build_paths,
-    windows_pio_core_dir,
-)
+from esphome_device_builder.helpers.windows_build_paths import windows_short_build_paths
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="pins the off-Windows no-op contract")
-def test_apply_is_noop_off_windows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Off Windows the helper touches nothing: no env override, no recorded core dir."""
+def test_context_manager_is_noop_off_windows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Off Windows the context manager touches nothing and yields ``None``."""
     monkeypatch.delenv("ESPHOME_DATA_DIR", raising=False)
-    apply_windows_short_build_paths(tmp_path)
+    with windows_short_build_paths(tmp_path) as pio_core_dir:
+        assert pio_core_dir is None
+        assert "ESPHOME_DATA_DIR" not in os.environ
     assert "ESPHOME_DATA_DIR" not in os.environ
-    assert windows_pio_core_dir() is None
-    remove_windows_short_build_paths()  # also a no-op; must not raise
-    assert windows_pio_core_dir() is None
