@@ -566,24 +566,14 @@ def test_find_by_pio_board_scoped_miss_returns_none(catalog: BoardCatalog) -> No
 
 
 def test_find_all_by_pio_board_returns_every_sibling(catalog: BoardCatalog) -> None:
-    """All entries on a shared pio_board come back, generics last.
-
-    ``esp32-c3-devkitm-1`` is shared by the featured Seeed XIAO and the
-    generic fallback; both are valid swap targets, so both are returned,
-    ordered featured-first / generic-last like ``get_boards`` (the single
-    winner ``find_by_pio_board`` would pick is just the head of this list).
-    """
+    """Every entry on a shared pio_board is returned, generics last."""
     boards = catalog.find_all_by_pio_board("esp32-c3-devkitm-1")
 
     assert [b.id for b in boards] == ["seeed-xiao-esp32c3", "generic-esp32c3"]
 
 
 def test_find_all_by_pio_board_scopes_to_platform(catalog: BoardCatalog) -> None:
-    """A cross-platform sibling on the same pio_board is excluded.
-
-    nRF52 and rp2040 can ship the same PlatformIO board id; a swap across
-    platforms is never a valid target, so the platform scope drops it.
-    """
+    """``platform`` (enum or string) drops siblings on other platforms."""
     catalog._boards = [
         _board(
             board_id="adafruit_itsybitsy",
@@ -598,7 +588,6 @@ def test_find_all_by_pio_board_scopes_to_platform(catalog: BoardCatalog) -> None
     ]
 
     rp = catalog.find_all_by_pio_board("adafruit_itsybitsy", platform=Platform.RP2040)
-    # Accept a plain platform string too, like find_by_pio_board does.
     nrf = catalog.find_all_by_pio_board("adafruit_itsybitsy", platform="nrf52")
 
     assert [b.id for b in rp] == ["adafruit_itsybitsy"]
@@ -613,13 +602,7 @@ def test_find_all_by_pio_board_unknown_returns_empty(catalog: BoardCatalog) -> N
 async def test_get_compatible_boards_returns_siblings_including_self(
     catalog: BoardCatalog,
 ) -> None:
-    """The picker set for a board is every sibling on its pio target.
-
-    A device the re-derivation auto-migrated onto ``generic-esp32c3`` can
-    switch back to the Seeed XIAO: both share ``esp32-c3-devkitm-1``, so
-    both are offered. The current board is included; the frontend drops it.
-    Same ``PagedBoardsResponse`` envelope as ``get_boards``, in one page.
-    """
+    """Returns every sibling on the board's pio target, the board included."""
     response = await catalog.get_compatible_boards(board_id="generic-esp32c3")
 
     assert [b.id for b in response.boards] == ["seeed-xiao-esp32c3", "generic-esp32c3"]
@@ -629,11 +612,7 @@ async def test_get_compatible_boards_returns_siblings_including_self(
 async def test_get_compatible_boards_lone_board_returns_only_itself(
     catalog: BoardCatalog,
 ) -> None:
-    """A board with a unique pio target has no alternates but itself.
-
-    ``m5stack-cores3`` is the only entry on its pio_board, so the list is
-    just itself — the frontend then hides the "wrong board?" link.
-    """
+    """A board with a unique pio target comes back as just itself."""
     response = await catalog.get_compatible_boards(board_id="m5stack-cores3")
 
     assert [b.id for b in response.boards] == ["m5stack-cores3"]
