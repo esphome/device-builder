@@ -22,7 +22,7 @@ import logging
 import os
 import shutil
 from collections.abc import Iterator
-from contextlib import contextmanager, suppress
+from contextlib import contextmanager
 from pathlib import Path
 
 from .dashboard_identity import get_or_create_dashboard_id
@@ -52,26 +52,26 @@ def windows_short_build_paths(config_dir: Path) -> Iterator[None]:
         return
     root = _ROOT_BASE / f"esphb-{dashboard_id[:_DASHBOARD_ID_CHARS]}"
     pio = root / "pio"
-    if not _relocate_data(config_dir, root):
+    if not _relocate_into(config_dir / ".esphome", root):
         yield
         return
 
-    prior_pio = os.environ.get("PLATFORMIO_CORE_DIR")
     os.environ["ESPHOME_DATA_DIR"] = str(root)
-    use_pio = _relocate_toolchain(pio)
-    if use_pio:
+    # Relocate the toolchain unless the user deliberately set PLATFORMIO_CORE_DIR (leave their
+    # choice and their ~/.platformio untouched), or a corrupt partial copy can't be made clean.
+    user_set_pio = "PLATFORMIO_CORE_DIR" in os.environ
+    override_pio = not user_set_pio and _relocate_into(_platformio_dir(), pio)
+    if override_pio:
         os.environ["PLATFORMIO_CORE_DIR"] = str(pio)
-    _LOGGER.info("Windows build data at %s (core %s)", root, pio if use_pio else "default")
+    _LOGGER.info("Windows build data at %s (core %s)", root, pio if override_pio else "default")
     try:
         yield
     finally:
-        # ESPHOME_DATA_DIR was unset on entry (guarded above), so popping is the right restore.
+        # Both vars were unset on entry (ESPHOME_DATA_DIR guarded above; PLATFORMIO_CORE_DIR only
+        # overridden when it was absent), so popping is the right restore.
         os.environ.pop("ESPHOME_DATA_DIR", None)
-        if use_pio:
-            if prior_pio is None:
-                os.environ.pop("PLATFORMIO_CORE_DIR", None)
-            else:
-                os.environ["PLATFORMIO_CORE_DIR"] = prior_pio
+        if override_pio:
+            os.environ.pop("PLATFORMIO_CORE_DIR", None)
 
 
 # ---------------------------------------------------------------------------
@@ -89,80 +89,42 @@ def _platformio_dir() -> Path:
     return Path.home() / ".platformio"
 
 
-def _relocate_data(config_dir: Path, root: Path) -> bool:
+def _relocate_into(src: Path, dst: Path) -> bool:
     """
-    Move ``<config>/.esphome`` into *root* once; return whether *root* is safe as the data dir.
+    Move directory *src* into *dst* once; return whether *dst* is a complete, trusted relocation.
 
-    Returns ``False`` (caller stays on the original data dir, retries next run) when relocation is
-    incomplete: a partial *root* from an interrupted cross-volume move that we could not clear, or
-    a move that left the source behind. The completion marker is keyed off the *source* still
-    existing, not mere ``root.exists()``, so a marker write that crashed after a successful move
-    does not trigger a destructive re-relocation.
+    A ``.json`` completion marker under *dst* (preserved by esphome clean / clean-all) records a
+    finished move; it is keyed off *src* still existing, not bare ``dst.exists()``, so a marker
+    write lost after a successful move never triggers a destructive re-relocation. Returns
+    ``False`` when the move is incomplete -- a partial *dst* from an interrupted cross-volume copy
+    that could not be cleared, or a move that left *src* behind -- so the caller never points env
+    at incomplete data or a corrupt toolchain. Used for both the build root and the toolchain so
+    the two paths cannot drift apart.
     """
-    marker = root / _RELOCATED_MARKER
+    marker = dst / _RELOCATED_MARKER
     if marker.is_file():
-        return True  # already relocated; trust root, ignore any stale leftover at the old location
-    old_esphome = config_dir / ".esphome"
-    if old_esphome.is_dir():
-        # Source still present, so the move never completed. A partial root from an interrupted
+        return True  # already relocated; trust dst, ignore any stale leftover at the source
+    if src.is_dir():
+        # Source still present, so the move never completed. A partial dst from an interrupted
         # cross-volume copy would nest the retry, so discard it before re-moving.
-        if root.exists():
-            shutil.rmtree(root, ignore_errors=True)
-            if root.exists():
-                _LOGGER.warning(
-                    "Could not clear partial build root %s; staying on %s", root, old_esphome
-                )
+        if dst.exists():
+            shutil.rmtree(dst, ignore_errors=True)
+            if dst.exists():
+                _LOGGER.warning("Could not clear partial %s; leaving %s in place", dst, src)
                 return False
-        _try_move(old_esphome, root)
-        if old_esphome.is_dir():
-            _LOGGER.warning(
-                "Left Windows build data at %s; deep/spaced builds may fail", old_esphome
-            )
+        try:
+            shutil.move(str(src), str(dst))
+        except OSError:
+            _LOGGER.warning("Could not move %s to %s; it will be rebuilt", src, dst)
+        if src.is_dir():
+            _LOGGER.warning("%s not relocated; source remains at %s", dst, src)
             return False
-    # old_esphome gone here: it never existed (fresh), or the move just completed, or a prior run
-    # moved it and only the marker write was lost. root is authoritative either way.
+    # src gone here: it never existed, the move just completed, or a prior run moved it and only
+    # the marker write was lost. dst is authoritative either way.
     try:
-        root.mkdir(parents=True, exist_ok=True)
+        dst.mkdir(parents=True, exist_ok=True)
         marker.write_text("{}", encoding="utf-8")
     except OSError:
-        _LOGGER.exception("Could not create Windows build root; deep/spaced builds may fail")
+        _LOGGER.warning("Could not finalize relocation dir %s", dst)
         return False
     return True
-
-
-def _relocate_toolchain(pio: Path) -> bool:
-    """
-    Move ~/.platformio into *pio* once; return whether *pio* is safe as PLATFORMIO_CORE_DIR.
-
-    Best-effort and retried each run while *pio* is absent, so a crash before the toolchain lands
-    self-heals. Returns ``False`` (caller leaves PLATFORMIO_CORE_DIR untouched, so platformio uses
-    its default toolchain) only when an interrupted move left a half-copied *pio* we could not
-    discard -- a long default path beats building against a corrupt toolchain.
-    """
-    old_pio = _platformio_dir()
-    if not pio.exists():
-        _try_move(old_pio, pio)  # no-op when ~/.platformio is absent
-        if old_pio.is_dir():
-            _LOGGER.warning("Toolchain move from %s incomplete; discarding partial copy", old_pio)
-            shutil.rmtree(pio, ignore_errors=True)
-            if pio.exists() and any(pio.iterdir()):
-                _LOGGER.warning("Could not discard partial toolchain at %s; using default", pio)
-                return False
-    with suppress(OSError):
-        pio.mkdir(parents=True, exist_ok=True)  # platformio recreates it if this fails
-    return True
-
-
-def _try_move(src: Path, dst: Path) -> None:
-    """
-    Move directory *src* to *dst* if it exists; log and continue on failure.
-
-    A failed move never aborts relocation: the caller's guards decide what to do, so this never
-    leaves env pointed at incomplete data.
-    """
-    if not src.is_dir():
-        return
-    try:
-        shutil.move(str(src), str(dst))
-    except OSError:
-        _LOGGER.warning("Could not migrate %s to %s; it will be rebuilt", src, dst)

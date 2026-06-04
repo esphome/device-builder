@@ -79,14 +79,21 @@ def test_skips_relocation_when_user_set_data_dir(
     assert os.environ["ESPHOME_DATA_DIR"] == str(tmp_path / "chosen")
 
 
-def test_restores_prior_platformio_core_dir(
+def test_respects_user_set_platformio_core_dir(
     tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A pre-existing PLATFORMIO_CORE_DIR is restored verbatim on exit."""
-    monkeypatch.setenv("PLATFORMIO_CORE_DIR", str(tmp_path / "prior_pio"))
+    """A user-set PLATFORMIO_CORE_DIR is left alone (data still relocates); toolchain untouched."""
+    chosen = tmp_path / "chosen_pio"
+    home_pio = tmp_path / "home_platformio"
+    home_pio.mkdir()  # would be swept if we relocated; must stay put
+    monkeypatch.setenv("PLATFORMIO_CORE_DIR", str(chosen))
+    root = fake_windows / f"esphb-{_ID8}"
     with windows_short_build_paths(tmp_path / "First Last" / "esphome"):
-        assert os.environ["PLATFORMIO_CORE_DIR"] != str(tmp_path / "prior_pio")
-    assert os.environ["PLATFORMIO_CORE_DIR"] == str(tmp_path / "prior_pio")
+        assert os.environ["ESPHOME_DATA_DIR"] == str(root)  # data dir still relocated
+        assert os.environ["PLATFORMIO_CORE_DIR"] == str(chosen)  # user choice respected
+        assert not (root / "pio").exists()  # we did not create/override the toolchain dir
+    assert os.environ["PLATFORMIO_CORE_DIR"] == str(chosen)
+    assert home_pio.is_dir()  # user's toolchain left untouched
 
 
 def test_platformio_dir_defaults_under_home() -> None:
@@ -191,15 +198,13 @@ def test_retries_toolchain_move_when_pio_absent(tmp_path: Path, fake_windows: Pa
     assert not home_pio.exists()
 
 
-def test_partial_toolchain_move_is_discarded(
+def test_failed_toolchain_relocation_uses_default_core_dir(
     tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """An interrupted toolchain copy (source left, pio half-written) is discarded, not trusted."""
+    """An interrupted toolchain move leaves PLATFORMIO_CORE_DIR at the default, not corrupt."""
     config_dir = tmp_path / "First Last" / "esphome"
     (config_dir / ".esphome").mkdir(parents=True)
-    home_pio = tmp_path / "home_platformio"
-    home_pio.mkdir()
-    (home_pio / "tool.txt").write_text("toolchain", encoding="utf-8")
+    (tmp_path / "home_platformio").mkdir()
 
     real_move = wbp.shutil.move
 
@@ -216,19 +221,20 @@ def test_partial_toolchain_move_is_discarded(
     root = fake_windows / f"esphb-{_ID8}"
     with windows_short_build_paths(config_dir):
         assert os.environ["ESPHOME_DATA_DIR"] == str(root)  # build data still relocated
-        pio = root / "pio"
-        assert not (pio / "half.txt").exists()  # the half-copied tree was discarded
-        assert not any(pio.iterdir())  # left clean for platformio to re-download into
-    assert (home_pio / "tool.txt").is_file()  # source left untouched, just unused
+        assert "PLATFORMIO_CORE_DIR" not in os.environ  # corrupt toolchain not adopted
+    assert "PLATFORMIO_CORE_DIR" not in os.environ
 
 
-def test_partial_toolchain_discard_failure_uses_default_core_dir(
+def test_corrupt_partial_toolchain_not_trusted_across_runs(
     tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """If a half-copied pio cannot be discarded, env is left at the default, not the corrupt dir."""
+    """A half-copied toolchain left by one run is discarded next run, never trusted (the marker)."""
     config_dir = tmp_path / "First Last" / "esphome"
     (config_dir / ".esphome").mkdir(parents=True)
-    (tmp_path / "home_platformio").mkdir()
+    home_pio = tmp_path / "home_platformio"
+    home_pio.mkdir()
+    (home_pio / "tool.txt").write_text("toolchain", encoding="utf-8")
+    root = fake_windows / f"esphb-{_ID8}"
 
     real_move = wbp.shutil.move
 
@@ -240,13 +246,18 @@ def test_partial_toolchain_discard_failure_uses_default_core_dir(
             raise OSError(msg)
         return real_move(src, dst, *args, **kwargs)
 
+    # Run N: the toolchain move is interrupted, leaving a half-copied pio and the source intact.
     monkeypatch.setattr(wbp.shutil, "move", _interrupted)
-    monkeypatch.setattr(wbp.shutil, "rmtree", lambda *_a, **_k: None)  # discard can't remove it
-    root = fake_windows / f"esphb-{_ID8}"
     with windows_short_build_paths(config_dir):
-        assert os.environ["ESPHOME_DATA_DIR"] == str(root)  # build data still relocated
-        assert "PLATFORMIO_CORE_DIR" not in os.environ  # corrupt toolchain not adopted
-    assert "PLATFORMIO_CORE_DIR" not in os.environ
+        assert "PLATFORMIO_CORE_DIR" not in os.environ  # corrupt partial not adopted
+    assert (root / "pio" / "half.txt").exists()  # partial left behind this run
+
+    # Run N+1: the move works now; the stale, marker-less partial must be discarded, not trusted.
+    monkeypatch.setattr(wbp.shutil, "move", real_move)
+    with windows_short_build_paths(config_dir):
+        assert os.environ["PLATFORMIO_CORE_DIR"] == str(root / "pio")
+    assert (root / "pio" / "tool.txt").read_text(encoding="utf-8") == "toolchain"
+    assert not (root / "pio" / "half.txt").exists()  # stale partial discarded
 
 
 def test_partial_root_is_discarded_and_retried(tmp_path: Path, fake_windows: Path) -> None:
