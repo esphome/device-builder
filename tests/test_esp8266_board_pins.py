@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
-from esphome_device_builder.models import PinFeature
-from script.sync_boards import _derive_pins_from_aliases, build_catalog
+import pytest
+
+from esphome_device_builder.models import BoardCatalogResponse, PinFeature
+from script.sync_boards import _derive_pins_from_aliases
+
+pytestmark = pytest.mark.xdist_group("board_sync")
 
 
 def test_derive_tags_esp8266_base_pins() -> None:
@@ -25,8 +29,10 @@ def test_derive_tags_esp8266_base_pins() -> None:
     assert pins[1].notes == "UART TX"
 
 
-def test_catalog_generates_unmanifested_esp8266_board() -> None:
-    boards = {b.id: b for b in build_catalog().boards}
+def test_catalog_generates_unmanifested_esp8266_board(
+    generated_board_catalog: BoardCatalogResponse,
+) -> None:
+    boards = {b.id: b for b in generated_board_catalog.boards}
     # huzzah has no device-builder manifest but is in ESPHome's esp8266 BOARDS.
     assert "huzzah" in boards, "huzzah should be auto-generated from ESPHome board data"
     huzzah = boards["huzzah"]
@@ -35,24 +41,30 @@ def test_catalog_generates_unmanifested_esp8266_board() -> None:
     assert PinFeature.UART_TX in feats and PinFeature.I2C_SDA in feats
 
 
-def test_catalog_does_not_duplicate_manifested_esp8266_board() -> None:
+def test_catalog_does_not_duplicate_manifested_esp8266_board(
+    generated_board_catalog: BoardCatalogResponse,
+) -> None:
     # The curated d1_mini manifest uses the ESPHome board name as its id, so
     # id-dedup suppresses generating a second d1_mini entry.
-    ids = [b.id for b in build_catalog().boards if b.esphome.board == "d1_mini"]
+    ids = [b.id for b in generated_board_catalog.boards if b.esphome.board == "d1_mini"]
     assert ids.count("d1_mini") == 1
 
 
-def test_catalog_generates_canonical_board_only_referenced_by_products() -> None:
+def test_catalog_generates_canonical_board_only_referenced_by_products(
+    generated_board_catalog: BoardCatalogResponse,
+) -> None:
     # esp01_1m has no canonical manifest, only product manifests run on it
     # (board: esp01_1m). It must still get a canonical entry so find_by_pio_board
     # has a non-arbitrary target (issue #395).
-    boards = {b.id: b for b in build_catalog().boards}
+    boards = {b.id: b for b in generated_board_catalog.boards}
     assert "esp01_1m" in boards
     assert boards["esp01_1m"].esphome.board == "esp01_1m"
 
 
-def test_catalog_fills_empty_esp8266_product_manifest() -> None:
-    boards = {b.id: b for b in build_catalog().boards}
+def test_catalog_fills_empty_esp8266_product_manifest(
+    generated_board_catalog: BoardCatalogResponse,
+) -> None:
+    boards = {b.id: b for b in generated_board_catalog.boards}
     # mirabella_door_window_sensor (board: esp01_1m) ships ``pins: []``; the base
     # pinout is filled in so the visual editor offers real pins.
     pins = boards["mirabella_door_window_sensor"].pins

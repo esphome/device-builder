@@ -64,6 +64,7 @@ from esphome_device_builder.controllers.remote_build.peer_link_client import (
     _DownloadArtifactsState,
     _extract_receiver_esphome_version,
     drive_initiator_round_trip,
+    one_shot,
     preview_pair,
     request_pair,
 )
@@ -117,6 +118,21 @@ def bound_unused_tcp_port() -> Iterator[int]:
     """Yield a 127.0.0.1 port held bound (no ``listen``) for the test — no TOCTOU race."""
     with closing(get_unused_port_socket("127.0.0.1")) as sock:
         yield sock.getsockname()[1]
+
+
+@pytest.fixture
+def fast_unreachable_connect(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Shorten the one-shot connect budget so unreachable-receiver tests fail fast."""
+    # A bound-but-unlistened port RSTs instantly on Linux but BSD/macOS drops
+    # the SYN, so the connect hangs to the 10s budget; a timeout and a refusal
+    # both surface as PeerLinkClientError("...failed") / UNAVAILABLE.
+    real = one_shot.drive_initiator_round_trip
+
+    async def _fast(**kwargs: Any) -> Any:
+        kwargs.setdefault("timeout_seconds", 0.5)
+        return await real(**kwargs)
+
+    monkeypatch.setattr(one_shot, "drive_initiator_round_trip", _fast)
 
 
 def _make_controller(*, config_dir: Path) -> RemoteBuildController:
@@ -211,6 +227,7 @@ async def test_preview_pair_does_not_persist_state_on_receiver(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("fast_unreachable_connect")
 async def test_preview_pair_connection_refused_raises_client_error(
     tmp_path: Path,
     bound_unused_tcp_port: int,
@@ -763,6 +780,7 @@ async def test_controller_preview_pair_returns_receiver_pin(
     assert await _saved_pairings(offloader) == []
 
 
+@pytest.mark.usefixtures("fast_unreachable_connect")
 async def test_controller_preview_pair_unavailable_on_unreachable_receiver(
     offloader_controller_dir: Path,
     bound_unused_tcp_port: int,
@@ -860,6 +878,7 @@ async def test_controller_request_pair_closed_window_raises_no_pairing_window(
     assert exc.value.code == ErrorCode.NO_PAIRING_WINDOW
 
 
+@pytest.mark.usefixtures("fast_unreachable_connect")
 async def test_controller_request_pair_unavailable_on_unreachable_receiver(
     offloader_controller_dir: Path,
     bound_unused_tcp_port: int,
