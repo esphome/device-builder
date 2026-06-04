@@ -1274,8 +1274,9 @@ def test_generate_component_yaml_whitespace_and_control_chars_round_trip(value: 
     r"""Trailing-space / control-char field values survive a full re-parse.
 
     A trailing space is stripped on a plain round trip; an embedded
-    ``\n`` / ``\t`` / ``\r`` emitted bare produces invalid YAML (the
-    value splits across lines). The emitter must quote them, matching
+    ``\n`` / ``\t`` / ``\r`` emitted bare fails to round-trip — newlines
+    split the value across lines, and tabs/CRs produce invalid YAML or a
+    normalised value. The emitter must quote them, matching
     ``_safe_yaml_scalar`` — both take the same user-supplied field input.
     """
     component = _component(component_id="myc", category=ComponentCategory.MISC)
@@ -1562,7 +1563,7 @@ def test_generate_component_yaml_quotes_case_variant_keyword_strings(variant: st
     assert f'  v: "{variant}"' in out
 
 
-def test_generate_component_yaml_quotes_unparseable_string_starting_with_digit() -> None:
+def test_generate_component_yaml_emits_unparseable_digit_led_string_unquoted() -> None:
     r"""A digit-led string yaml can't parse (``"0\x7f"``) falls through unquoted.
 
     Exercises the ``yaml.YAMLError`` branch in
