@@ -518,6 +518,48 @@ def test_find_by_pio_board_returns_none_for_unknown(catalog: BoardCatalog) -> No
     assert catalog.find_by_pio_board("nonexistent-board") is None
 
 
+def test_find_by_pio_board_scopes_to_platform(catalog: BoardCatalog) -> None:
+    """``platform`` disambiguates a pio_board shared across platforms.
+
+    nRF52 and rp2040 both ship ``adafruit_itsybitsy``; a scoped lookup must
+    return the matching platform, not whichever entry iterates first.
+    """
+    catalog._boards = [
+        _board(
+            board_id="adafruit_itsybitsy",
+            platform=Platform.RP2040,
+            pio_board="adafruit_itsybitsy",
+        ),
+        _board(
+            board_id="adafruit_itsybitsy_nrf52",
+            platform=Platform.NRF52,
+            pio_board="adafruit_itsybitsy",
+        ),
+    ]
+    rp = catalog.find_by_pio_board("adafruit_itsybitsy", platform=Platform.RP2040)
+    nrf = catalog.find_by_pio_board("adafruit_itsybitsy", platform="nrf52")
+    assert rp is not None and rp.esphome.platform is Platform.RP2040
+    assert nrf is not None and nrf.esphome.platform is Platform.NRF52
+
+
+def test_find_by_pio_board_scoped_miss_returns_none(catalog: BoardCatalog) -> None:
+    """A pio_board that exists only on another platform → ``None`` when scoped.
+
+    The caller then falls back (free-text pin field) rather than being handed a
+    wrong-platform entry whose pins ESPHome would reject.
+    """
+    catalog._boards = [
+        _board(
+            board_id="adafruit_itsybitsy",
+            platform=Platform.RP2040,
+            pio_board="adafruit_itsybitsy",
+        ),
+    ]
+    assert catalog.find_by_pio_board("adafruit_itsybitsy", platform=Platform.NRF52) is None
+    # Unscoped still resolves (back-compat for callers without a platform).
+    assert catalog.find_by_pio_board("adafruit_itsybitsy") is not None
+
+
 # ---------------------------------------------------------------------------
 # find_by_platform_variant
 # ---------------------------------------------------------------------------

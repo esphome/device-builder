@@ -122,13 +122,25 @@ class BoardCatalog:
                 return board
         return None
 
-    def find_by_pio_board(self, pio_board: str, pio_variant: str = "") -> BoardCatalogIndex | None:
+    def find_by_pio_board(
+        self,
+        pio_board: str,
+        pio_variant: str = "",
+        platform: Platform | str | None = None,
+    ) -> BoardCatalogIndex | None:
         """
         Find a board by its PlatformIO board id, preferring a matching variant.
 
         Returns the slim index entry; the caller fetches the full
         body via :meth:`get_board` when it needs pins /
         featured_components / default_components.
+
+        ``platform`` scopes the match to one ESPHome platform. nRF52 and rp2040
+        both ship a PlatformIO board called ``adafruit_itsybitsy``; without the
+        scope an ``nrf52`` device would resolve to the rp2040 entry and serve its
+        ``GPIOn`` pins, which ESPHome's nRF52 validator rejects. A scoped miss
+        returns ``None`` so the caller falls back (a free-text pin field) rather
+        than wrong-platform pins.
 
         When multiple catalog entries share the same PlatformIO board
         id (e.g. several products are physically built on the same
@@ -148,6 +160,9 @@ class BoardCatalog:
         3. Fall back to the first match in iteration order.
         """
         matches = [b for b in self._boards if b.esphome.board == pio_board]
+        if platform is not None:
+            platform_value = platform.value if isinstance(platform, Platform) else platform
+            matches = [b for b in matches if b.esphome.platform.value == platform_value]
         if not matches:
             return None
         if pio_variant:
@@ -179,9 +194,7 @@ class BoardCatalog:
         """
         if not platform:
             return None
-        matches = [
-            b for b in self._boards if b.esphome.platform and b.esphome.platform.value == platform
-        ]
+        matches = [b for b in self._boards if b.esphome.platform.value == platform]
         if not matches:
             return None
         if variant:
