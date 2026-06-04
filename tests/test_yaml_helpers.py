@@ -717,17 +717,27 @@ def test_plain_fast_path_is_strict_subset_and_round_trips() -> None:
     Fuzzes a deterministic corpus over indicators, control chars,
     digits, whitespace and unicode. ``_plain_is_fast_safe`` returning
     True MUST imply ``_plain_is_safe`` (the PyYAML decision) is also
-    True — a violation would emit a value unquoted that the parser
+    True; a violation would emit a value unquoted that the parser
     rejects or rewrites. Every ``_safe_yaml_scalar`` result must also
-    survive a re-parse.
+    survive a re-parse; the round trip is batched into one document per
+    chunk so the fuzz stays fast.
     """
     rng = random.Random(20260604)  # noqa: S311, fuzz corpus, not cryptographic
     alphabet = string.ascii_letters + string.digits + "_-./ :#!%@&*,[]{}\"'~+\t\n\r\x00\x0b\x7fé好"
-    for _ in range(20000):
-        value = "".join(rng.choice(alphabet) for _ in range(rng.randint(0, 8)))
-        if _plain_is_fast_safe(value):
-            assert _plain_is_safe(value), f"fast path kept {value!r} plain but PyYAML quotes it"
-        assert yaml.safe_load(f"k: {_safe_yaml_scalar(value)}")["k"] == value
+
+    def _rand() -> str:
+        return "".join(rng.choice(alphabet) for _ in range(rng.randint(0, 8)))
+
+    for _ in range(40):
+        chunk = [_rand() for _ in range(500)]
+        lines = []
+        for i, value in enumerate(chunk):
+            if _plain_is_fast_safe(value):
+                assert _plain_is_safe(value), f"fast path kept {value!r} plain but PyYAML quotes it"
+            lines.append(f"k{i}: {_safe_yaml_scalar(value)}")
+        parsed = yaml.safe_load("\n".join(lines))
+        for i, value in enumerate(chunk):
+            assert parsed[f"k{i}"] == value
 
 
 @pytest.mark.parametrize(
