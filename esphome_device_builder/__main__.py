@@ -288,9 +288,7 @@ def main() -> None:
     with ensure_single_execution(CORE.data_dir) as lock:
         if lock.exit_code is not None:
             sys.exit(lock.exit_code)
-        # On Windows, route the build tree through a short junction so deep
-        # builds stay under MAX_PATH; CORE.data_dir then resolves through it for
-        # the dashboard's reads and every compile. No-op on other platforms.
+        # Windows: short-junction the build tree so deep builds stay under MAX_PATH.
         with windows_short_build_paths(settings.config_dir) as pio_core_dir:
             device_builder = DeviceBuilder(settings, windows_pio_core_dir=pio_core_dir)
             device_builder.run()

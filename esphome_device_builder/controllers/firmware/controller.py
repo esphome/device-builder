@@ -64,8 +64,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         self, device_builder: DeviceBuilder, windows_pio_core_dir: Path | None = None
     ) -> None:
         self._db = device_builder
-        # Real short PLATFORMIO_CORE_DIR on Windows (see helpers.windows_build_paths); ``None``
-        # elsewhere. Pinned per compile subprocess so deep ESP-IDF paths stay under MAX_PATH.
+        # Real short PLATFORMIO_CORE_DIR on Windows (helpers.windows_build_paths); None else.
         self._windows_pio_core_dir = windows_pio_core_dir
         self.state = FirmwareState()
         # Short-lived capability tokens for the HTTP artifact-download route.

@@ -1,10 +1,8 @@
 """Unit contract for the Windows short-build-paths helper.
 
-The off-Windows no-op runs everywhere. The Windows branches are driven off Windows by faking
-the platform gate and the junction syscall (a posix symlink stands in for the junction), so the
-env save/restore, reuse, collision-fallback, and OSError-fallback branches get coverage in the
-fast matrix rather than only the weekly Windows e2e. Those are skipped on Windows itself, where
-``os.symlink`` needs admin and the real e2e exercises the native junction.
+The nt-only branches are driven off Windows by faking the platform gate + junction syscall
+(a posix symlink stands in), so env save/restore, reuse, collision, and the fallbacks get
+fast-matrix coverage; skipped on Windows, where the real e2e exercises the native junction.
 """
 
 from __future__ import annotations

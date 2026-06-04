@@ -35,11 +35,8 @@ def compose_subprocess_env(
     to the per-build subtree under ``CORE.data_dir`` so per-config
     artefacts land in one ``(dashboard_id, device)``-keyed dir.
 
-    On Windows also pins ``PLATFORMIO_CORE_DIR`` to a real short dir
-    so the framework / mbedtls source paths stay under ``MAX_PATH``;
-    a junction would be canonicalized away by ESP-IDF. The short
-    ``ESPHOME_DATA_DIR`` is already in the process env (see
-    :mod:`helpers.windows_build_paths`), so it is inherited here.
+    On Windows also pins ``PLATFORMIO_CORE_DIR`` to *windows_pio_core_dir*
+    (a real short dir) so framework paths stay under ``MAX_PATH``.
     """
     env = {**os.environ, **ESPHOME_SUBPROCESS_ENV}
     remote_build_path = parse_remote_build_path(job.configuration)

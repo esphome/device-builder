@@ -197,9 +197,7 @@ class DeviceBuilder:
     ) -> None:
         """Initialize the Device Builder."""
         self.settings = settings
-        # Real short PLATFORMIO_CORE_DIR set up by ``windows_short_build_paths`` on Windows so
-        # deep ESP-IDF builds stay under MAX_PATH; ``None`` elsewhere. Threaded to the firmware
-        # controller for subprocess-env composition.
+        # Real short PLATFORMIO_CORE_DIR on Windows (helpers.windows_build_paths); None else.
         self.windows_pio_core_dir = windows_pio_core_dir
         self.bus = EventBus()
         self.peer_link_identity_store = PeerLinkIdentityStore(settings.config_dir)

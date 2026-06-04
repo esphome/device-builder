@@ -18,13 +18,9 @@ pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Windows MAX_PAT
 
 _MAX_PATH = 260
 
-# Pad the config dir so the *real* (canonical) build paths are long: without the junction the
-# deepest object path overflows MAX_PATH; through the junction it stays short.
-#
-# No space in the path: junction creation handles spaces (native _winapi API, pinned by a unit
-# test), but ESP-IDF passes the project dir unquoted into ``-fdebug-prefix-map``, so a space
-# anywhere in the path breaks the *compile* regardless of the junction — an upstream issue
-# orthogonal to MAX_PATH. A full-compile e2e therefore can't carry a space and stay green.
+# Long config dir so the un-junctioned path overflows MAX_PATH (the junction keeps it short).
+# No space: ESP-IDF breaks the compile on a spaced path via an unquoted -fdebug-prefix-map
+# (orthogonal to MAX_PATH; junction-handles-spaces is covered in the unit tests).
 _PAD = "padding-" * 9  # 72 chars
 
 _CONFIG = textwrap.dedent(
