@@ -1787,12 +1787,7 @@ async def test_request_pair_clears_offloader_alert_for_same_receiver(
 async def test_request_pair_approved_preserves_operator_enabled_and_version(
     offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Re-pair short-circuiting to APPROVED keeps the prior ``enabled`` toggle + version.
-
-    ``enabled`` is operator-set and never self-heals, so a
-    re-pair must not silently re-enable transparent-install
-    routing the operator turned off.
-    """
+    """Re-pair to APPROVED preserves operator ``enabled`` toggle + version."""
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
     offloader._db.bus = MagicMock()
     pubkey = b"\x44" * 32
