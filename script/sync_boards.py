@@ -194,19 +194,26 @@ def _resolve_board_pins(pin_map: dict[str, Any], name: str) -> dict[str, int] | 
     return value if isinstance(value, dict) else None
 
 
+def _meta_name(meta: Any, name: str) -> str:
+    """Display name from an ESPHome board's ``meta`` dict, falling back to the id."""
+    return meta.get("name", name) if isinstance(meta, dict) else name
+
+
 def _generated_board(
-    platform: str, name: str, meta: Any, pins: dict[str, int]
+    platform: Platform,
+    name: str,
+    display_name: str,
+    pins: list[BoardPin],
+    variant: Esp32Variant | None = None,
 ) -> BoardCatalogEntry:
-    """Build a minimal catalog entry (name + derived pins) for an unmanifested board."""
+    """Build a minimal catalog entry (identity + derived pins) for an unmanifested board."""
     return BoardCatalogEntry(
         id=name,
-        name=meta.get("name", name) if isinstance(meta, dict) else name,
+        name=display_name,
         description="",
         manufacturer="",
-        esphome=BoardEsphomeConfig(
-            platform=Platform(platform), board=name, variant=None, framework=None
-        ),
-        pins=_derive_pins_from_aliases(pins),
+        esphome=BoardEsphomeConfig(platform=platform, board=name, variant=variant, framework=None),
+        pins=pins,
     )
 
 
@@ -238,7 +245,14 @@ def _augment_libretiny_boards(boards: list[BoardCatalogEntry]) -> None:
                 continue
             pins = _resolve_board_pins(pin_map, name)
             if pins:
-                boards.append(_generated_board(platform, name, meta, pins))
+                boards.append(
+                    _generated_board(
+                        Platform(platform),
+                        name,
+                        _meta_name(meta, name),
+                        _derive_pins_from_aliases(pins),
+                    )
+                )
                 ids.add(name)
 
 
@@ -313,38 +327,6 @@ def _derive_rp2040_pins(board_pins: dict[str, int], max_pin: int) -> list[BoardP
     ]
 
 
-def _generated_rp2040_board(
-    name: str, meta: dict[str, Any], pins: list[BoardPin]
-) -> BoardCatalogEntry:
-    """Build a minimal catalog entry (name + matrix pins) for an unmanifested RP2040 board."""
-    return BoardCatalogEntry(
-        id=name,
-        name=meta.get("name", name),
-        description="",
-        manufacturer="",
-        esphome=BoardEsphomeConfig(
-            platform=Platform.RP2040, board=name, variant=None, framework=None
-        ),
-        pins=pins,
-    )
-
-
-def _generated_esp32_board(
-    name: str, meta: dict[str, Any], pins: list[BoardPin], variant: Esp32Variant
-) -> BoardCatalogEntry:
-    """Build a minimal catalog entry (name + variant + pins) for an unmanifested board."""
-    return BoardCatalogEntry(
-        id=name,
-        name=meta.get("name", name),
-        description="",
-        manufacturer="",
-        esphome=BoardEsphomeConfig(
-            platform=Platform("esp32"), board=name, variant=variant, framework=None
-        ),
-        pins=pins,
-    )
-
-
 def _augment_rp2040_boards(boards: list[BoardCatalogEntry]) -> None:
     """
     Add catalog entries for RP2040/RP2350 boards no manifest id covers.
@@ -361,7 +343,11 @@ def _augment_rp2040_boards(boards: list[BoardCatalogEntry]) -> None:
             continue
         max_pin = meta.get("max_pin", default_max_pin)
         pins = _resolve_board_pins(module.RP2040_BOARD_PINS, name) or {}
-        boards.append(_generated_rp2040_board(name, meta, _derive_rp2040_pins(pins, max_pin)))
+        boards.append(
+            _generated_board(
+                Platform.RP2040, name, _meta_name(meta, name), _derive_rp2040_pins(pins, max_pin)
+            )
+        )
         ids.add(name)
 
 
@@ -403,7 +389,9 @@ def _augment_esp32_boards(boards: list[BoardCatalogEntry]) -> None:
             if pins
             else [replace(p, features=list(p.features)) for p in generic_pins.get(variant, [])]
         )
-        boards.append(_generated_esp32_board(name, meta, derived, variant))
+        boards.append(
+            _generated_board(Platform("esp32"), name, _meta_name(meta, name), derived, variant)
+        )
         ids.add(name)
 
 
@@ -435,7 +423,14 @@ def _augment_esp8266_boards(boards: list[BoardCatalogEntry]) -> None:
         if name in ids:
             continue
         pins = _resolve_board_pins(pin_map, name)
-        boards.append(_generated_board("esp8266", name, meta, {**base, **(pins or {})}))
+        boards.append(
+            _generated_board(
+                Platform("esp8266"),
+                name,
+                _meta_name(meta, name),
+                _derive_pins_from_aliases({**base, **(pins or {})}),
+            )
+        )
         ids.add(name)
 
 
@@ -456,20 +451,6 @@ def _derive_nrf52_pins(adc_gpios: set[int]) -> list[BoardPin]:
         )
         for gpio in range(_NRF52_MAX_GPIO + 1)
     ]
-
-
-def _generated_nrf52_board(name: str, pins: list[BoardPin]) -> BoardCatalogEntry:
-    """Build a minimal catalog entry (name + matrix pins) for an unmanifested nRF52 board."""
-    return BoardCatalogEntry(
-        id=name,
-        name=_NRF52_BOARD_NAMES.get(name, name),
-        description="",
-        manufacturer="",
-        esphome=BoardEsphomeConfig(
-            platform=Platform.NRF52, board=name, variant=None, framework=None
-        ),
-        pins=pins,
-    )
 
 
 def _augment_nrf52_boards(boards: list[BoardCatalogEntry]) -> None:
@@ -499,7 +480,14 @@ def _augment_nrf52_boards(boards: list[BoardCatalogEntry]) -> None:
                     owner,
                 )
             continue
-        boards.append(_generated_nrf52_board(name, _derive_nrf52_pins(adc_gpios)))
+        boards.append(
+            _generated_board(
+                Platform.NRF52,
+                name,
+                _NRF52_BOARD_NAMES.get(name, name),
+                _derive_nrf52_pins(adc_gpios),
+            )
+        )
         platform_by_id[name] = _NRF52_PLATFORM
 
 
