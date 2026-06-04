@@ -46,6 +46,16 @@ restarts under the chosen backend and the tray badge updates to reflect
 which one is running. Switch back to **Classic ESPHome Dashboard** the
 same way.
 
+> **Windows build location.** On native Windows the dashboard puts its
+> build tree and PlatformIO toolchain under a short, space-free root,
+> `C:\esphb-<id>\` (rather than under your config / profile dir), so deep
+> ESP-IDF build paths stay under the 260-char `MAX_PATH` limit and clear of
+> spaces in your profile name (`C:\Users\First Last\…`). It is **not**
+> removed on uninstall — a reinstall keeps the warm toolchain; delete
+> `C:\esphb-*` by hand to reclaim the disk space. This applies only to
+> native Windows; running in a Linux Docker container (or the HA add-on)
+> uses the normal data dir.
+
 ### Standalone (PyPI)
 
 For developers, headless servers, or anyone running outside the

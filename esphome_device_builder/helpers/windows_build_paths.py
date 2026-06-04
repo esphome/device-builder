@@ -10,8 +10,10 @@ space-free, drive-root) for the ``with`` block: ``ESPHOME_DATA_DIR`` = that root
 ``CORE.data_dir`` resolves there for the dashboard's own reads *and* every compile subprocess)
 and the yielded ``PLATFORMIO_CORE_DIR`` = ``<root>\pio``. Existing ``<config>/.esphome`` and
 ``~/.platformio`` are moved in once so warm caches survive. Real dirs (no junction), so CMake's
-REALPATH can't reintroduce the original spaced/long path. The root lives outside the config dir;
-the esphome-desktop uninstaller reclaims ``C:\esphb-*``. No-op off Windows (yields ``None``).
+REALPATH can't reintroduce the original spaced/long path. The root lives outside the config dir
+and is left on uninstall (so a reinstall keeps the warm toolchain); delete ``C:\esphb-*`` by hand
+to reclaim the space. No-op off Windows -- including a Linux Docker container on Windows (the
+gate is ``os.name == "nt"``), which keeps its normal data dir.
 """
 
 from __future__ import annotations
