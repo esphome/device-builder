@@ -141,10 +141,8 @@ def _restore_to_lane(controller: FirmwareController, job: FirmwareJob) -> None:
     didn't succeed → the dependent can't run, so cancel it.
 
     A dependent already released before the restart (``dependency_released``)
-    goes onto its lane even when the prerequisite is gone: it completed once,
-    the build artifacts exist, and the prerequisite was merely cleared/pruned
-    from history. Without this latch the upload half of an install would be
-    wrongly cancelled after a ``clear`` + restart.
+    routes onto its lane even when the prerequisite is gone — it completed
+    once and the artifacts exist.
     """
     if controller.state.dependency_satisfied(job) or job.dependency_released:
         controller.state.place_on_lane(job)

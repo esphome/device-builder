@@ -68,10 +68,8 @@ class FirmwareState:
     def place_on_lane(self, job: FirmwareJob) -> None:
         """Put *job* onto the lane its type maps to, ready for that lane's consumer."""
         if job.depends_on:
-            # Every caller only places a dependent once its prerequisite is met
-            # (enqueue when already satisfied, release_dependents on completion,
-            # restore when satisfied/already-released); latch it so a later
-            # restart survives the prerequisite being cleared from history.
+            # place_on_lane is only reached once the dependency is satisfied;
+            # latch it so a restart survives the prerequisite being pruned.
             job.dependency_released = True
         self.lane_for(job).queue.put_nowait(job)
 
