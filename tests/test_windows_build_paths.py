@@ -146,3 +146,22 @@ def test_dangling_junction_is_replaced(
     with windows_short_build_paths(config_dir) as pio:
         assert pio is not None
         assert os.path.realpath(junction) == os.path.realpath(data)
+
+
+@_not_windows
+def test_space_bearing_target_passed_through_unmangled(
+    tmp_path: Path, fake_windows: list[tuple[Path, Path]]
+) -> None:
+    """A space-bearing target (Windows profile dir) reaches the junction call intact.
+
+    The native ``_winapi.CreateJunction`` takes the path as a direct argument, so unlike
+    ``cmd /c mklink`` a space can't split it. (A full ESP-IDF *compile* with a space still
+    fails upstream via ``-fdebug-prefix-map``; that's orthogonal to junction creation.)
+    """
+    config_dir = tmp_path / "First Last" / "esphome"
+    with windows_short_build_paths(config_dir) as pio:
+        assert pio is not None
+        assert len(fake_windows) == 1
+        _link, target = fake_windows[0]
+        assert target == config_dir / ".esphome"
+        assert " " in str(target)
