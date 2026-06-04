@@ -1378,6 +1378,44 @@ def test_generate_component_yaml_emits_list_of_dicts_as_block_sequence() -> None
     assert "      b: y" in out
 
 
+@pytest.mark.parametrize("key", ["on", "off", "yes", "no", "true", "false", "null"])
+def test_generate_component_yaml_quotes_reserved_word_map_keys(key: str) -> None:
+    """A user-typed map key that is a YAML 1.1 keyword round-trips as a string.
+
+    Map keys (``script.parameters``, ``api.variables``, ``mdns.txt``, …)
+    come straight from the frontend. Emitted bare, a key like ``on``
+    re-parses as the boolean ``True`` — ESPHome silently renames the
+    entry and the user's reference no longer resolves.
+    """
+    component = _component(component_id="myc", category=ComponentCategory.MISC)
+    out = generate_component_yaml(component, {"parameters": {key: "bool"}})
+    assert yaml.safe_load(out)["myc"]["parameters"] == {key: "bool"}
+
+
+@pytest.mark.parametrize(
+    "key",
+    ["", "a: b", "#x", "with space "],
+    ids=["empty", "colon", "hash", "trailing-space"],
+)
+def test_generate_component_yaml_quotes_special_char_map_keys(key: str) -> None:
+    """Map keys with YAML indicators emit valid YAML that preserves the key.
+
+    An empty key (an unfilled editor row) or one carrying ``:`` / `` #``
+    is emitted bare as ``: bool`` / ``a: b: bool`` / ``#x: bool`` — invalid
+    YAML or a dropped comment line that the next compile rejects.
+    """
+    component = _component(component_id="myc", category=ComponentCategory.MISC)
+    out = generate_component_yaml(component, {"parameters": {key: "bool"}})
+    assert yaml.safe_load(out)["myc"]["parameters"] == {key: "bool"}
+
+
+def test_generate_component_yaml_quotes_reserved_word_keys_in_list_of_dicts() -> None:
+    """Inner keys of a ``- mapping`` block-sequence item are quoted too."""
+    component = _component(component_id="myc", category=ComponentCategory.MISC)
+    out = generate_component_yaml(component, {"items": [{"on": "x"}]})
+    assert yaml.safe_load(out)["myc"]["items"] == [{"on": "x"}]
+
+
 def test_generate_component_yaml_emits_list_of_strings_as_flow_style() -> None:
     """A list of strings renders as ``[a, b]`` flow-style, not Python repr."""
     component = _component(component_id="myc", category=ComponentCategory.MISC)

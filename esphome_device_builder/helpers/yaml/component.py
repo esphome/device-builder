@@ -391,13 +391,14 @@ def _emit_field(key: str, value: Any, indent: str) -> list[str]:
     parent. Lists of dicts render as ``- mapping`` entries; lists of
     scalars render as ``[a, b, c]`` flow-style for compactness.
     """
+    safe_key = _safe_yaml_scalar(key)
     if isinstance(value, dict):
-        lines = [f"{indent}{key}:"]
+        lines = [f"{indent}{safe_key}:"]
         for sub_key, sub_value in value.items():
             lines.extend(_emit_field(sub_key, sub_value, indent + ESPHOME_YAML_INDENT))
         return lines
     if isinstance(value, list) and value and all(isinstance(item, dict) for item in value):
-        lines = [f"{indent}{key}:"]
+        lines = [f"{indent}{safe_key}:"]
         for item in value:
             first = True
             for sub_key, sub_value in item.items():
@@ -406,13 +407,14 @@ def _emit_field(key: str, value: Any, indent: str) -> list[str]:
                     if first
                     else f"{indent}{ESPHOME_YAML_INDENT * 2}"
                 )
-                lines.append(f"{prefix}{sub_key}: {_format_yaml_value(sub_value)}")
+                rendered = _format_yaml_value(sub_value)
+                lines.append(f"{prefix}{_safe_yaml_scalar(sub_key)}: {rendered}")
                 first = False
         return lines
     if isinstance(value, list):
         rendered = ", ".join(_format_flow_yaml_value(item) for item in value)
-        return [f"{indent}{key}: [{rendered}]"]
-    return [f"{indent}{key}: {_format_yaml_value(value)}"]
+        return [f"{indent}{safe_key}: [{rendered}]"]
+    return [f"{indent}{safe_key}: {_format_yaml_value(value)}"]
 
 
 def _generate_id(component_id: str, name: str | None = None) -> str:
