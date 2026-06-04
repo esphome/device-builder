@@ -118,6 +118,21 @@ every few minutes.
 
 </details>
 
+### Standard ESPHome container image
+
+The standard `ghcr.io/esphome/esphome` container doesn't carry the
+preview toggle yet (only the Home Assistant add-on image does). To run
+the new dashboard from it, override the entrypoint to install the wheel
+and launch it against your config dir:
+
+```bash
+uv pip install esphome-device-builder && exec esphome-device-builder /config
+```
+
+The wheel ships the prebuilt frontend, so there's nothing to build by
+hand. Point it at wherever your YAMLs are mounted (`/config` matches the
+standard image's layout).
+
 ## Username / password authentication
 
 The three install paths each handle network reach and the auth gate
