@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from esphome_device_builder.models import PinFeature
+import pytest
+
+from esphome_device_builder.models import BoardCatalogResponse, PinFeature
 from script.sync_boards import _derive_nrf52_pins, build_catalog
+
+pytestmark = pytest.mark.xdist_group("board_sync")
 
 
 def test_derive_nrf52_pins_tags_adc_and_labels_port_pin() -> None:
@@ -23,8 +27,10 @@ def test_derive_nrf52_pins_tags_adc_and_labels_port_pin() -> None:
     assert by_gpio[48].label == "P1.16"
 
 
-def test_catalog_generates_nrf52_boards() -> None:
-    boards = {b.esphome.board: b for b in build_catalog().boards}
+def test_catalog_generates_nrf52_boards(
+    generated_board_catalog: BoardCatalogResponse,
+) -> None:
+    boards = {b.esphome.board: b for b in generated_board_catalog.boards}
     assert "xiao_ble" in boards, "xiao_ble should be auto-generated from ESPHome board data"
     xiao = boards["xiao_ble"]
     assert xiao.esphome.platform.value == "nrf52"
@@ -34,12 +40,14 @@ def test_catalog_generates_nrf52_boards() -> None:
     assert adc_pins, "ADC-capable pins should be tagged"
 
 
-def test_nrf52_does_not_steal_rp2040_itsybitsy() -> None:
+def test_nrf52_does_not_steal_rp2040_itsybitsy(
+    generated_board_catalog: BoardCatalogResponse,
+) -> None:
     # `adafruit_itsybitsy` is a board id on both rp2040 and nRF52 (the nRF52 one
     # is the legacy alias of adafruit_itsybitsy_nrf52840). An id-keyed catalog
     # can't serve both, so the clash leaves rp2040's entry in place rather than
     # shadowing it onto nRF52 pins.
-    by_id = {b.id: b for b in build_catalog().boards}
+    by_id = {b.id: b for b in generated_board_catalog.boards}
     assert by_id["adafruit_itsybitsy"].esphome.platform.value == "rp2040"
     assert by_id["adafruit_itsybitsy_nrf52840"].esphome.platform.value == "nrf52"
 

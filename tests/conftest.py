@@ -52,6 +52,7 @@ from esphome_device_builder.helpers.event_bus import Event, EventBus
 from esphome_device_builder.helpers.peer_link_identity import PeerLinkIdentityStore
 from esphome_device_builder.models import (
     AdoptableDevice,
+    BoardCatalogResponse,
     Device,
     DeviceState,
     EventType,
@@ -483,6 +484,23 @@ def session_board_catalog() -> BoardCatalog:
     cat = BoardCatalog()
     cat.load()
     return cat
+
+
+@pytest.fixture(scope="session")
+def generated_board_catalog() -> BoardCatalogResponse:
+    """``script.sync_boards.build_catalog()`` run once per xdist worker.
+
+    Generation imports ESPHome's per-platform board modules and walks ~80
+    manifests; the board-pin test modules pin to one worker via
+    ``xdist_group("board_sync")`` so this runs a single time per suite.
+    Tests read the result only — do not mutate it.
+    """
+    # Imported lazily: ``script.sync_boards`` mutates ``sys.path`` at import
+    # time, so a top-level import would force that side effect on the whole
+    # suite during collection even when no test wants this fixture.
+    from script.sync_boards import build_catalog  # noqa: PLC0415
+
+    return build_catalog()
 
 
 @pytest.fixture(scope="session")

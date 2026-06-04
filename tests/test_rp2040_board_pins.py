@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
-from esphome_device_builder.models import PinFeature
-from script.sync_boards import _derive_rp2040_pins, build_catalog
+import pytest
+
+from esphome_device_builder.models import BoardCatalogResponse, PinFeature
+from script.sync_boards import _derive_rp2040_pins
+
+pytestmark = pytest.mark.xdist_group("board_sync")
 
 
 def test_derive_enumerates_full_gpio_matrix_with_pwm() -> None:
@@ -39,8 +43,10 @@ def test_led_becomes_occupied_and_virtual_pin_dropped() -> None:
     assert all(p.gpio <= 29 for p in pins)
 
 
-def test_catalog_generates_unmanifested_rp2040_board() -> None:
-    boards = {b.id: b for b in build_catalog().boards}
+def test_catalog_generates_unmanifested_rp2040_board(
+    generated_board_catalog: BoardCatalogResponse,
+) -> None:
+    boards = {b.id: b for b in generated_board_catalog.boards}
     # 0xcb_helios is in ESPHome's BOARDS but has no device-builder manifest.
     assert "0xcb_helios" in boards
     board = boards["0xcb_helios"]
@@ -48,7 +54,9 @@ def test_catalog_generates_unmanifested_rp2040_board() -> None:
     assert [p.gpio for p in board.pins] == list(range(30))
 
 
-def test_dedup_keeps_hand_curated_manifest() -> None:
-    boards = {b.id: b for b in build_catalog().boards}
+def test_dedup_keeps_hand_curated_manifest(
+    generated_board_catalog: BoardCatalogResponse,
+) -> None:
+    boards = {b.id: b for b in generated_board_catalog.boards}
     # rpipico stays the hand-curated entry — its built-in LED note survives.
     assert any(p.occupied_by == "Built-in LED" for p in boards["rpipico"].pins)
