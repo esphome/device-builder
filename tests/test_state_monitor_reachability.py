@@ -456,6 +456,24 @@ async def test_mdns_removed_clears_tracker_for_device() -> None:
     assert snap["ping_rtt_ms"] is None
 
 
+def test_forget_drops_source_ledger() -> None:
+    """``forget`` clears the precedence ledger so a reused name isn't gated by a stale source.
+
+    A deleted ping-only device that left ``state_source`` pinned to
+    ``mdns`` would otherwise block the re-added device's lower-priority
+    ping observation forever.
+    """
+    devices = [_make_device(state=DeviceState.ONLINE)]
+    monitor = _make_monitor(devices)
+
+    monitor.apply("kitchen", DeviceState.ONLINE, "mdns", claim=True)
+    assert monitor.state.state_source.get("kitchen") == "mdns"
+
+    monitor.forget("kitchen")
+
+    assert "kitchen" not in monitor.state.state_source
+
+
 async def test_mdns_removed_via_dispatch_clears_tracker() -> None:
     """The real browser-callback path (Removed) routes through to ``clear``.
 

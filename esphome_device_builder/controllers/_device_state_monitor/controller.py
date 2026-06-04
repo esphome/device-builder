@@ -194,6 +194,16 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         """
         return ReachabilitySource(self.state.state_source.get(name, ReachabilitySource.UNKNOWN))
 
+    def forget(self, name: str) -> None:
+        """
+        Drop the source-precedence ledger entry for a removed device.
+
+        Without this a deleted (or renamed) name keeps its stale
+        ``state_source`` entry, so a name reused by a re-added ping-only
+        device is gated by the old higher-priority source forever.
+        """
+        self.state.state_source.pop(name, None)
+
     def apply(self, name: str, state: DeviceState, source: str, *, claim: bool = False) -> bool:
         """
         Record a state observation from *source*.

@@ -145,6 +145,9 @@ class RecordingStateMonitor:
     def revisit_all_importables(self) -> None:
         self.calls.append(("revisit_all_importables",))
 
+    def forget(self, name: str) -> None:
+        self.calls.append(("forget", name))
+
     def get_importable_devices(self) -> list[AdoptableDevice]:
         self.calls.append(("get_importable_devices",))
         return list(self._importable)

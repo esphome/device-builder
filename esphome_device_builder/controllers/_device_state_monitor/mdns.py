@@ -255,7 +255,7 @@ class MdnsSource:
         if state_change == ServiceStateChange.Removed:
             monitor.apply(device_name, DeviceState.OFFLINE, "mdns")
             monitor.apply_ip(device_name, "")
-            monitor.state.state_source.pop(device_name, None)
+            monitor.forget(device_name)
             if monitor.state.reachability is not None:
                 monitor.state.reachability.clear(device_name)
             return

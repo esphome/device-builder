@@ -81,11 +81,14 @@ def on_scan_change(controller: DevicesController, kind: ScanChange, device: Devi
         # filters configured + ignored entries so re-emitting
         # the full set is cheap.
         controller._state_monitor.revisit_all_importables()
-        # Drop reachability history; the per-signal maps would
-        # otherwise accumulate one entry per device that's ever
-        # lived in the catalog (the mDNS Removed branch only
-        # fires on broadcast disappearance, not YAML deletion).
+        # Drop the monitor's per-name state. Both the reachability
+        # history and the source-precedence ledger would otherwise
+        # accumulate one entry per device that's ever lived in the
+        # catalog (the mDNS Removed branch only fires on broadcast
+        # disappearance, not YAML deletion); a stale state_source
+        # also gates a name reused by a later re-add.
         controller._reachability.clear(device.name)
+        controller._state_monitor.forget(device.name)
         # Idempotent for the controller-driven delete/archive
         # paths; the safety net is external ``rm`` / rename.
         controller._metadata_store.clear_volatile(device.configuration)

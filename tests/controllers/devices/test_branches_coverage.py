@@ -845,6 +845,17 @@ def test_on_scan_change_removed_revisits_importables(
     assert ("revisit_all_importables",) in controller._state_monitor.calls
 
 
+def test_on_scan_change_removed_forgets_monitor_state(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A device delete drops the monitor's per-name state so a reused name isn't gated."""
+    controller = make_controller(tmp_path, with_state_monitor=True, with_regenerate_state=True)
+
+    controller._on_scan_change(ScanChange.REMOVED, _device("kitchen"))
+
+    assert ("forget", "kitchen") in controller._state_monitor.calls
+
+
 def _adoptable(name: str) -> AdoptableDevice:
     return AdoptableDevice(
         name=name,
