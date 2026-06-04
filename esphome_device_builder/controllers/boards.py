@@ -29,6 +29,11 @@ _LOGGER = logging.getLogger(__name__)
 _BODY_CACHE_MAXSIZE = 128
 
 
+def _board_sort_key(board: BoardCatalogIndex) -> tuple[bool, bool, str]:
+    """Catalog display order: featured first, generics last, then by name."""
+    return (not board.featured, board.is_generic, board.name.lower())
+
+
 class BoardCatalog:
     """In-memory slim board index + lazy-loaded full bodies."""
 
@@ -106,10 +111,7 @@ class BoardCatalog:
                 or any(query_lower in t for t in b.tags)
             ]
 
-        results = sorted(
-            results,
-            key=lambda b: (not b.featured, b.is_generic, b.name.lower()),
-        )
+        results = sorted(results, key=_board_sort_key)
 
         total = len(results)
         page = results[offset : offset + limit]
@@ -209,10 +211,7 @@ class BoardCatalog:
         platform: Platform | str | None = None,
     ) -> list[BoardCatalogIndex]:
         """All catalog entries on the same PlatformIO board, featured first then generics last."""
-        return sorted(
-            self._matches_pio_board(pio_board, platform),
-            key=lambda b: (not b.featured, b.is_generic, b.name.lower()),
-        )
+        return sorted(self._matches_pio_board(pio_board, platform), key=_board_sort_key)
 
     def find_by_platform_variant(
         self,
