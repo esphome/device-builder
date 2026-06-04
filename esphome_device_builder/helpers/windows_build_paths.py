@@ -28,16 +28,19 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
-import subprocess
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
 _LOGGER = logging.getLogger(__name__)
 
-# Recognizable, short, collision-safe roots (``esphb`` = ESPHome builder). The per-install
-# suffix keeps two users / config dirs on one machine from sharing a junction.
+# Recognizable short root (``esphb`` = ESPHome builder). The per-install suffix keeps two
+# users / config dirs on one machine from sharing a junction.
 _ROOT_PREFIX = "esphb"
+
+# Drive root the short junction + toolchain dirs live under. A module attribute so tests can
+# point it at a tmp dir instead of ``C:\``.
+_JUNCTION_ROOT = Path("C:\\")
 
 
 @contextmanager
@@ -47,7 +50,7 @@ def windows_short_build_paths(config_dir: Path) -> Iterator[Path | None]:
     Yields the real short ``PLATFORMIO_CORE_DIR`` to thread onto app state, or ``None`` off
     Windows / when setup can't run.
     """
-    if os.name != "nt":
+    if not _is_windows():
         yield None
         return
 
@@ -56,16 +59,19 @@ def windows_short_build_paths(config_dir: Path) -> Iterator[Path | None]:
     real_data.mkdir(parents=True, exist_ok=True)
 
     suffix = _suffix(real_data)
-    data_junction = Path(f"C:\\{_ROOT_PREFIX}-{suffix}")
-    pio_dir = Path(f"C:\\{_ROOT_PREFIX}-{suffix}-pio")
+    data_junction = _JUNCTION_ROOT / f"{_ROOT_PREFIX}-{suffix}"
+    pio_dir = _JUNCTION_ROOT / f"{_ROOT_PREFIX}-{suffix}-pio"
 
     try:
         _ensure_junction(data_junction, real_data)
         pio_dir.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        # A locked-down host that refuses C:\ writes: leave the long default in place rather
-        # than crash. Deep ESP-IDF builds may still overflow, but the dashboard runs.
-        _LOGGER.warning("Could not set up short Windows build paths (%s); using defaults", exc)
+    except OSError:
+        # A locked-down host (or, vanishingly rarely, a suffix collision) leaves the long
+        # default in place. Logged at error so a later MAX_PATH compile failure can be traced
+        # back to this setup miss rather than read as a mysterious compiler error.
+        _LOGGER.exception(
+            "Could not set up short Windows build paths; deep ESP-IDF builds may overflow MAX_PATH"
+        )
         yield None
         return
 
@@ -87,31 +93,47 @@ def windows_short_build_paths(config_dir: Path) -> Iterator[Path | None]:
 # ---------------------------------------------------------------------------
 
 
+def _is_windows() -> bool:
+    """Whether the short-path machinery applies (split out so tests can drive the nt branch)."""
+    return os.name == "nt"
+
+
 def _suffix(real_data: Path) -> str:
-    """Stable 4-hex per-install suffix from the real data dir (case-folded for Windows)."""
+    """Stable 8-hex per-install suffix from the real data dir (case-folded for Windows).
+
+    8 hex chars (~32 bits) keeps the chance that two different config dirs collide onto the
+    same junction name negligible, so the collision fallback in :func:`_ensure_junction`
+    almost never fires.
+    """
     key = str(real_data.resolve()).lower().encode()
-    return hashlib.sha1(key).hexdigest()[:4]  # noqa: S324 — short non-crypto dir tag
+    return hashlib.sha1(key).hexdigest()[:8]  # noqa: S324 — short non-crypto dir tag
 
 
 def _ensure_junction(link: Path, target: Path) -> None:
-    """Create directory junction ``link`` -> ``target`` if absent or pointing elsewhere.
+    """Create directory junction ``link`` -> ``target`` if absent.
 
-    Synchronous on purpose: only runs at startup before the event loop, never from the
-    running loop, so it needs no executor hop.
+    Reuses an existing junction already pointing at *target* (our own, from a prior run). If
+    the name is held by a junction pointing elsewhere (a suffix collision with another config
+    dir), raises ``OSError`` so the caller falls back to long paths rather than stealing a
+    junction a concurrent instance may be building under.
+
+    Synchronous on purpose: only runs at startup before the event loop, never from the running
+    loop, so it needs no executor hop.
     """
     if link.exists():
         if os.path.realpath(link).lower() == os.path.realpath(target).lower():
             return
-        link.rmdir()
-    # ``mklink`` is a cmd builtin (no standalone exe); resolve COMSPEC so the executable is a
-    # full path. ``close_fds=False`` mirrors helpers.subprocess and controllers.version_history.
-    comspec = os.environ.get("COMSPEC", "cmd.exe")
-    result = subprocess.run(  # noqa: S603
-        [comspec, "/c", "mklink", "/J", str(link), str(target)],
-        capture_output=True,
-        text=True,
-        check=False,
-        close_fds=False,
-    )
-    if result.returncode != 0:
-        raise OSError(f"mklink /J {link} {target} failed: {result.stderr.strip()}")
+        msg = f"{link} already exists pointing elsewhere"
+        raise OSError(msg)
+    _create_junction(link, target)
+
+
+def _create_junction(link: Path, target: Path) -> None:
+    """Create a directory junction at *link* pointing to *target* via the Windows native API.
+
+    Uses ``_winapi.CreateJunction`` rather than ``cmd /c mklink`` so a space-bearing target
+    (common Windows profile dirs) can't be mangled by cmd.exe's quote-stripping.
+    """
+    import _winapi  # noqa: PLC0415 — Windows-only; imported lazily so off-Windows never loads it
+
+    _winapi.CreateJunction(str(target), str(link))  # type: ignore[attr-defined]
