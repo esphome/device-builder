@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import signal
 import sys
 import threading
 from contextlib import suppress
@@ -99,8 +100,22 @@ def _setup_logging(log_level: str, log_file: str | None = None) -> None:
     activate_log_queue_handler()
 
 
+def _exit_on_startup_sigterm(_signum: int, _frame: object) -> None:
+    """Exit cleanly (0) on a SIGTERM received before the run loop is up."""
+    raise SystemExit(0)
+
+
 def main() -> None:
     """Run the ESPHome Device Builder."""
+    # Trap SIGTERM for the whole startup phase. aiohttp installs the
+    # run-loop's handler only once the server is up; a SIGTERM landing in
+    # the seconds before that (slow esphome import, catalog load, mDNS
+    # bring-up) would otherwise hit the OS default disposition and exit
+    # 143, which a supervisor reports as "did not handle SIGTERM".
+    # ``web.run_app`` replaces this with its own graceful handler once
+    # serving begins.
+    signal.signal(signal.SIGTERM, _exit_on_startup_sigterm)
+
     parser = argparse.ArgumentParser(
         description="ESPHome Device Builder",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
