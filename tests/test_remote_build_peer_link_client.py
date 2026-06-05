@@ -839,7 +839,7 @@ async def test_controller_request_pair_fires_pairing_added_event(
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
     offloader._db.bus = MagicMock()
 
-    await offloader.request_pair(
+    summary = await offloader.request_pair(
         hostname="127.0.0.1",
         port=server.port,
         pin_sha256=expected_pin,
@@ -853,13 +853,7 @@ async def test_controller_request_pair_fires_pairing_added_event(
         if call.args[0] is EventType.OFFLOADER_PAIRING_ADDED
     ]
     assert len(added) == 1
-    payload = added[0]
-    assert payload["pin_sha256"] == expected_pin
-    assert payload["receiver_hostname"] == "127.0.0.1"
-    assert payload["receiver_port"] == server.port
-    assert payload["label"] == "my-receiver"
-    assert payload["status"] == "pending"
-    assert payload["enabled"] is True
+    assert added[0] == summary.to_dict()
 
 
 async def test_controller_request_pair_pin_mismatch_raises_precondition_failed(

@@ -34,19 +34,11 @@ class OffloaderPairStatusChangedData(TypedDict):
 
 class OffloaderPairingAddedData(TypedDict):
     """
-    Payload for ``EventType.OFFLOADER_PAIRING_ADDED``.
-
-    Fires from ``request_pair`` when a :class:`StoredPairing` row
-    is created (or re-created on a re-pair). ``OFFLOADER_PAIR_STATUS_CHANGED``
-    only marks status *flips* of an already-known row, so without
-    this event a second connected tab never learns of a pairing
-    the originating tab just made (it seeds its own row from the
-    command response) — cross-tab desync until reload.
-
-    Carries every :class:`PairingSummary` field so a subscriber
-    builds the row from the event alone. ``status`` is
-    ``"pending"`` for a fresh request or ``"approved"`` when the
-    receiver short-circuited the inbox dance on a re-pair.
+    Payload for ``EventType.OFFLOADER_PAIRING_ADDED`` (a row created
+    by ``request_pair``). Carries every :class:`PairingSummary` field
+    so a subscriber builds the row from the event alone. ``status`` is
+    ``"pending"`` for a fresh request, ``"approved"`` on a re-pair
+    short-circuit.
     """
 
     receiver_hostname: str
