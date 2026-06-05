@@ -30,13 +30,16 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import esphome_device_builder
+
 _LOGGER = logging.getLogger(__name__)
 
 # The installed Device Builder package dir. Only ever sits inside a source
 # checkout's git work tree, never under a user's /config — so it identifies the
 # one repo we must never adopt as a history store: a config dir kept inside the
 # clone (``--dev configs``) would otherwise commit user YAML into the project.
-_OWN_SOURCE_ROOT = Path(__file__).resolve().parents[2]
+# Resolved from the package itself so it survives this module being moved.
+_OWN_SOURCE_ROOT = Path(esphome_device_builder.__file__).resolve().parent
 
 # Errors a commit attempt raises for genuine git / environment reasons
 # (a failed ``git`` invocation, the binary vanishing) as opposed to a
