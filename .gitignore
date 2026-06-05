@@ -24,6 +24,7 @@ venv/
 Thumbs.db
 
 # Configs (user data, not shipped)
+config/
 configs/
 secrets.yaml
 
