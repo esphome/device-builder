@@ -63,6 +63,10 @@ class BuildSchedulerInputs:
     # empty string disables the gate.
     offloader_esphome_version: str = ""
     version_match_policy: VersionMatchPolicy = VersionMatchPolicy.ANY
+    # Pins of build servers already driving an in-flight job;
+    # excluded from ``eligible`` so a re-pick lands on a *free*
+    # server. Empty (the default) leaves every connected peer in play.
+    busy_build_server_pins: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -169,6 +173,10 @@ def _eligible_pairings(inputs: BuildSchedulerInputs) -> _FilterResult:
         intentional += 1
         if pin_sha256 not in inputs.open_peer_links:
             disconnected += 1
+            continue
+        if pin_sha256 in inputs.busy_build_server_pins:
+            # Already driving an in-flight job — connected and
+            # intended, just not free for another one this pass.
             continue
         if not version_satisfies_policy(
             inputs.offloader_esphome_version, pairing.esphome_version, policy

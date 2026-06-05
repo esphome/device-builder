@@ -87,6 +87,7 @@ def _inputs(
     peer_queue_status: dict[str, PeerQueueStatusSnapshotEntry] | None = None,
     offloader_esphome_version: str = "",
     version_match_policy: VersionMatchPolicy = VersionMatchPolicy.ANY,
+    busy_build_server_pins: set[str] | None = None,
 ) -> BuildSchedulerInputs:
     """Build :class:`BuildSchedulerInputs` with the test's slices.
 
@@ -104,6 +105,7 @@ def _inputs(
         peer_queue_status=peer_queue_status or {},
         offloader_esphome_version=offloader_esphome_version,
         version_match_policy=version_match_policy,
+        busy_build_server_pins=frozenset(busy_build_server_pins or set()),
     )
 
 
@@ -816,3 +818,53 @@ def test_exact_required_falls_through_when_only_pending_peers() -> None:
     decision = pick_build_path(inputs)
     assert decision.path is BuildPath.LOCAL
     assert decision.pin_sha256 is None
+
+
+# ---------------------------------------------------------------------------
+# busy_build_server_pins — the dispatcher's "this server already has a job"
+# exclusion so a re-pick spreads the next compile onto a free server.
+# ---------------------------------------------------------------------------
+
+
+def test_busy_build_server_pin_excluded_picks_next_eligible() -> None:
+    """A busy server is skipped so the next idle one wins, even when older."""
+    pin_a = "a" * 64
+    pin_b = "b" * 64
+    decision = pick_build_path(
+        _inputs(
+            pairings={
+                pin_a: _stub_pairing(pin_sha256=pin_a, paired_at=1.0),
+                pin_b: _stub_pairing(pin_sha256=pin_b, paired_at=2.0),
+            },
+            open_peer_links={pin_a, pin_b},
+            peer_queue_status={
+                pin_a: _stub_queue_status(pin_sha256=pin_a),
+                pin_b: _stub_queue_status(pin_sha256=pin_b),
+            },
+            # A is the oldest and idle, but the dispatcher already
+            # handed it the previous compile.
+            busy_build_server_pins={pin_a},
+        )
+    )
+    assert decision == BuildPathDecision.remote(pin_b)
+
+
+def test_all_build_servers_busy_returns_local() -> None:
+    """Every connected server already driving a job → LOCAL fallback (ANY policy)."""
+    pin_a = "a" * 64
+    pin_b = "b" * 64
+    decision = pick_build_path(
+        _inputs(
+            pairings={
+                pin_a: _stub_pairing(pin_sha256=pin_a, paired_at=1.0),
+                pin_b: _stub_pairing(pin_sha256=pin_b, paired_at=2.0),
+            },
+            open_peer_links={pin_a, pin_b},
+            peer_queue_status={
+                pin_a: _stub_queue_status(pin_sha256=pin_a),
+                pin_b: _stub_queue_status(pin_sha256=pin_b),
+            },
+            busy_build_server_pins={pin_a, pin_b},
+        )
+    )
+    assert decision == BuildPathDecision.local()
