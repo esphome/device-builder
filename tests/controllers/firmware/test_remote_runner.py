@@ -1009,11 +1009,7 @@ async def test_remote_compile_session_lost_raises_for_pool_retry(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
 ) -> None:
-    """With ``retry_on_server_loss=True`` a mid-build session loss raises rather than failing.
-
-    The dispatch pool catches ``RemoteServerLostError`` to re-route the compile
-    to another worker, so this path must not finalise the job locally.
-    """
+    """A mid-build session loss raises for pool retry instead of finalising locally."""
     controller = firmware_controller_factory(with_terminate=True)
     captured = _capture_local_events(controller)
     client = _make_client()
