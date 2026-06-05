@@ -62,11 +62,14 @@ async def begin_run(controller: FirmwareController, job: FirmwareJob) -> None:
 
 
 async def end_run(controller: FirmwareController, job: FirmwareJob) -> None:
-    """Terminal bookkeeping then persist — the shared ``finally`` tail.
+    """Terminal bookkeeping (trim + prune) then persist — the shared ``finally`` tail.
 
-    Caller releases its own slot (lane ``current_job`` / pool entry) first.
+    The trim/prune is a no-op while the job is still active. Caller releases its
+    own slot (lane ``current_job`` / pool entry) first.
     """
-    finalize_bookkeeping(controller, job)
+    if job.status in TERMINAL_JOB_STATUSES:
+        _trim_job_output(job)
+        controller._prune_history()
     await controller._persist_jobs()
 
 
@@ -84,17 +87,6 @@ def finalize_unexpected_error(
     else:
         controller._finalize_terminal(job, JobStatus.FAILED, error=str(exc))
         _LOGGER.exception("Job %s failed", job.job_id)
-
-
-def finalize_bookkeeping(controller: FirmwareController, job: FirmwareJob) -> None:
-    """Trim output and prune history once *job* is terminal; a no-op while it's still active.
-
-    The shared tail of both execution paths' ``finally`` (the lane runner
-    and the off-lane dispatch pool), run after each has released its slot.
-    """
-    if job.status in TERMINAL_JOB_STATUSES:
-        _trim_job_output(job)
-        controller._prune_history()
 
 
 def _release_lane_slot(controller: FirmwareController, job: FirmwareJob) -> None:

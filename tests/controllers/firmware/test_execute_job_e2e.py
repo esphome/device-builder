@@ -668,9 +668,9 @@ async def test_compile_inflight_output_trims_when_cap_exceeded(
             real_trim(job, keep=keep)
 
     # Patch both surfaces: the post-exit ``finally``-block call
-    # resolves through ``lifecycle.finalize_bookkeeping``, while the
-    # mid-run trim lands via the shared ``_ingest_output_line`` helper
-    # in ``helpers.py`` — each calls ``_trim_job_output`` from its own
+    # resolves through ``lifecycle.end_run``, while the mid-run trim
+    # lands via the shared ``_ingest_output_line`` helper in
+    # ``helpers.py`` — each calls ``_trim_job_output`` from its own
     # module scope. Without patching both, the mid-run branch escapes
     # the spy and the regression check goes silent.
     monkeypatch.setattr(lifecycle_module, "_trim_job_output", _spy_trim)
