@@ -87,6 +87,11 @@ _YAML_GLOBS = ("*.yaml", "*.yml")
 # younger than this a live git may still hold it, so we leave it alone.
 _STALE_LOCK_SECONDS = 30.0
 
+# Repo-local git-config flag stamped only when *we* initialise a repo. Read
+# back on the adopt path so ownership survives a restart (we own the repo
+# but re-discover it as "adopted"); an adopted user repo never carries it.
+_MANAGED_CONFIG_KEY = "device-builder.managed"
+
 # Written only when *we* create the repo and no ``.gitignore`` exists; a
 # pre-existing one is left untouched (the local exclude is what actually
 # protects the secrets above). ``secrets.yaml`` is ignored here — not in
@@ -138,10 +143,10 @@ class GitRepo:
     git_bin: str | None = None
     toplevel: Path | None = None
     enabled: bool = field(default=False)
-    # True only when *we* initialised the repo, never when adopting one.
-    # Gates stale-index.lock recovery so we never clear a lock in a user's
-    # own ``/config`` work tree.
-    created: bool = field(default=False)
+    # True for a repo *we* initialised, set from the persisted
+    # _MANAGED_CONFIG_KEY so it survives a restart's adopt path. Gates
+    # stale-index.lock recovery; an adopted user repo is never ours.
+    managed: bool = field(default=False)
 
     # ------------------------------------------------------------------
     # lifecycle
@@ -164,6 +169,7 @@ class GitRepo:
             if toplevel is not None and not _encloses_own_source(toplevel):
                 self.toplevel = toplevel
                 self.enabled = True
+                self.managed = self._adopt_ownership()
                 self._ensure_local_excludes()
                 _LOGGER.debug("Adopted existing git work tree at %s", toplevel)
                 return
@@ -203,7 +209,8 @@ class GitRepo:
         self._run(["init", str(self.config_dir)], cwd=self.config_dir, check=True)
         self.toplevel = self.config_dir
         self.enabled = True
-        self.created = True
+        self.managed = True
+        self._mark_managed()
         self._ensure_local_excludes()
         gitignore = self.config_dir / ".gitignore"
         if not gitignore.exists():
@@ -430,13 +437,14 @@ class GitRepo:
             self._run(args, check=True)
 
     def _clear_stale_index_lock(self, exc: subprocess.CalledProcessError) -> bool:
-        """Remove the index.lock blamed by *exc* iff it's stale; return whether removed.
+        """
+        Remove the index.lock blamed by *exc* iff it's stale; return whether removed.
 
-        Gated on ownership (only a repo we created, never an adopted
+        Gated on ownership (only a repo we manage, never an adopted
         ``/config``) and age (:data:`_STALE_LOCK_SECONDS`), so a lock a
         live git is actively holding is never deleted out from under it.
         """
-        if not self.created or "index.lock" not in (exc.stderr or ""):
+        if not self.managed or "index.lock" not in (exc.stderr or ""):
             return False
         lock = self._index_lock_path()
         if lock is None or not lock.exists():
@@ -454,6 +462,42 @@ class GitRepo:
             return False
         _LOGGER.warning("Removed stale git index.lock at %s (age %.0fs)", lock, age)
         return True
+
+    def _adopt_ownership(self) -> bool:
+        """Resolve whether an adopted repo is one we own, stamping the marker once.
+
+        New repos carry :data:`_MANAGED_CONFIG_KEY`. Repos we created before
+        that marker existed are recognised by their self-authored root
+        commit and stamped here, so the heal works after an upgrade too.
+        """
+        if self._read_managed_flag():
+            return True
+        if self._looks_self_initialised():
+            self._mark_managed()
+            return True
+        return False
+
+    def _mark_managed(self) -> None:
+        """Stamp the repo-local flag marking this as a repo we own."""
+        self._run(["config", "--local", _MANAGED_CONFIG_KEY, "true"], check=False)
+
+    def _read_managed_flag(self) -> bool:
+        """Whether a prior run stamped this (now adopted) repo as one we created."""
+        result = self._run(["config", "--local", "--get", _MANAGED_CONFIG_KEY], check=False)
+        return result.returncode == 0 and result.stdout.strip() == "true"
+
+    def _looks_self_initialised(self) -> bool:
+        """Whether a root commit was authored by our seed — backfill for pre-marker repos.
+
+        The ``Initialize version history`` seed is authored by our identity,
+        which an adopted user repo's root commit never is; git filters on
+        the author so we only ask whether such a root exists.
+        """
+        result = self._run(
+            ["log", "--max-parents=0", f"--author={_COMMIT_EMAIL}", "--format=%H"],
+            check=False,
+        )
+        return result.returncode == 0 and bool(result.stdout.strip())
 
     def _index_lock_path(self) -> Path | None:
         """Resolve the work tree's ``index.lock`` path (handles split git dirs)."""

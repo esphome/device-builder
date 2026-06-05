@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import shutil
 import subprocess
+import time
 from contextlib import suppress
 from pathlib import Path
 from types import SimpleNamespace
@@ -90,6 +92,49 @@ async def test_external_edit_committed_via_scanner_catch_all(
 
     versions = await controller.list_versions(configuration="kitchen.yaml")
     assert [v["message"] for v in versions] == ["Edit kitchen.yaml"]
+
+
+async def test_external_edit_self_heals_stale_index_lock_after_restart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """End to end: addon killed mid-commit, restart, next external edit clears the lock.
+
+    Boots once to create the repo, simulates a restart (a fresh controller
+    adopting the same dir as managed), drops an aged ``index.lock`` like a
+    SIGTERM'd git would, then drives the scanner catch-all and asserts the
+    commit lands through the full stack and the stale lock is gone.
+    """
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.version_history.controller._DEBOUNCE_SECONDS",
+        0.0,
+    )
+    # First boot initialises the repo (and stamps the managed marker).
+    first = _make_controller(tmp_path)
+    await first.start()
+    await first.stop()
+
+    # Restart: a fresh controller re-discovers the existing repo as managed.
+    controller = _make_controller(tmp_path)
+    await controller.start()
+    assert controller._repo.managed
+
+    # A git killed mid-commit left this behind; it blocks every future add.
+    lock = tmp_path / ".git" / "index.lock"
+    lock.write_text("", encoding="utf-8")
+    stale = time.time() - 3600
+    os.utime(lock, (stale, stale))
+
+    (tmp_path / "kitchen.yaml").write_text("v1\n", encoding="utf-8")
+    device = Device(name="kitchen", friendly_name="Kitchen", configuration="kitchen.yaml")
+    controller._db.bus.fire(EventType.DEVICE_UPDATED, DeviceEventData(device=device))
+    assert controller._flush_task is not None
+    await controller._flush_task
+
+    # The stale lock was cleared and the edit committed via the catch-all.
+    assert not lock.exists()
+    versions = await controller.list_versions(configuration="kitchen.yaml")
+    assert [v["message"] for v in versions] == ["Edit kitchen.yaml"]
+    await controller.stop()
 
 
 async def test_dashboard_commit_makes_catch_all_a_noop(

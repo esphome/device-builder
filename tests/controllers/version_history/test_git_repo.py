@@ -392,7 +392,7 @@ def test_commit_clears_stale_index_lock_and_retries(tmp_path: Path) -> None:
     """A repo we created self-heals a stale ``index.lock`` left by a killed git."""
     repo = GitRepo(config_dir=tmp_path)
     repo.discover_or_init()
-    assert repo.created
+    assert repo.managed
     yaml = tmp_path / "kitchen.yaml"
     yaml.write_text("v1\n", encoding="utf-8")
     lock = _index_lock(tmp_path, age_seconds=3600)
@@ -401,6 +401,46 @@ def test_commit_clears_stale_index_lock_and_retries(tmp_path: Path) -> None:
 
     assert sha
     assert not lock.exists()
+
+
+def test_managed_flag_survives_restart_and_heals(tmp_path: Path) -> None:
+    """A repo we created is re-adopted as managed on restart, so the heal still fires.
+
+    The headline scenario: the addon is SIGTERM'd mid-commit (leaving the
+    lock), then a fresh process re-discovers the existing ``.git``.
+    """
+    GitRepo(config_dir=tmp_path).discover_or_init()  # first boot: initialises
+
+    restarted = GitRepo(config_dir=tmp_path)
+    restarted.discover_or_init()  # re-discovers the existing repo via adopt
+    assert restarted.managed
+
+    yaml = tmp_path / "kitchen.yaml"
+    yaml.write_text("v1\n", encoding="utf-8")
+    lock = _index_lock(tmp_path, age_seconds=3600)
+
+    sha = restarted.commit_paths([yaml], "Create kitchen.yaml")
+
+    assert sha
+    assert not lock.exists()
+
+
+def test_pre_marker_repo_is_backfilled_as_managed(tmp_path: Path) -> None:
+    """A repo we created before the marker existed is recognised by its seed commit.
+
+    Simulates an upgrade: drop the marker our init wrote, then re-discover —
+    the self-authored ``Initialize version history`` root identifies it as
+    ours and the marker is stamped back.
+    """
+    GitRepo(config_dir=tmp_path).discover_or_init()
+    _git(tmp_path, "config", "--local", "--unset", "device-builder.managed")
+
+    upgraded = GitRepo(config_dir=tmp_path)
+    upgraded.discover_or_init()
+
+    assert upgraded.managed
+    # The backfill re-stamped the marker, so the next restart is cheap.
+    assert _git(tmp_path, "config", "--local", "--get", "device-builder.managed").strip() == "true"
 
 
 def test_commit_keeps_fresh_index_lock(tmp_path: Path) -> None:
@@ -421,7 +461,7 @@ def test_adopted_repo_never_clears_index_lock(tmp_path: Path) -> None:
     _make_repo(tmp_path)
     repo = GitRepo(config_dir=tmp_path)
     repo.discover_or_init()
-    assert not repo.created
+    assert not repo.managed
     yaml = tmp_path / "kitchen.yaml"
     yaml.write_text("v1\n", encoding="utf-8")
     lock = _index_lock(tmp_path, age_seconds=3600)
@@ -429,6 +469,72 @@ def test_adopted_repo_never_clears_index_lock(tmp_path: Path) -> None:
     with pytest.raises(subprocess.CalledProcessError):
         repo.commit_paths([yaml], "Create kitchen.yaml")
     assert lock.exists()
+
+
+def test_commit_raises_when_stale_lock_cannot_be_removed(tmp_path: Path) -> None:
+    """If the stale lock can't be unlinked (e.g. it's a directory), the write still raises."""
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+    yaml = tmp_path / "kitchen.yaml"
+    yaml.write_text("v1\n", encoding="utf-8")
+    # A directory at the lock path: aged-stale, but unlink() raises OSError.
+    lock_dir = tmp_path / ".git" / "index.lock"
+    lock_dir.mkdir()
+    stamp = time.time() - 3600
+    os.utime(lock_dir, (stamp, stamp))
+
+    with pytest.raises(subprocess.CalledProcessError):
+        repo.commit_paths([yaml], "Create kitchen.yaml")
+    assert lock_dir.exists()
+
+
+def test_clear_stale_index_lock_noop_when_lock_already_gone(tmp_path: Path) -> None:
+    """A race where the lock vanished before we looked is a clean no-op, not a crash."""
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+    exc = subprocess.CalledProcessError(128, ["git", "add"], stderr="fatal: ... index.lock")
+
+    assert repo._clear_stale_index_lock(exc) is False
+
+
+def test_clear_stale_index_lock_handles_stat_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stat() failure between the exists check and age read is swallowed, not raised."""
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+
+    class _BadLock:
+        def exists(self) -> bool:
+            return True
+
+        def stat(self) -> object:
+            raise OSError("stat failed")
+
+    monkeypatch.setattr(GitRepo, "_index_lock_path", lambda _self: _BadLock())
+    exc = subprocess.CalledProcessError(128, ["git", "add"], stderr="fatal: ... index.lock")
+
+    assert repo._clear_stale_index_lock(exc) is False
+
+
+def test_index_lock_path_none_when_rev_parse_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failing ``rev-parse --git-path`` yields no lock path rather than crashing."""
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+    real_run = subprocess.run
+
+    def _fail_git_path(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if "--git-path" in cmd:
+            return subprocess.CompletedProcess(cmd, 1, "", "")
+        return real_run(cmd, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.version_history.git_repo.subprocess.run", _fail_git_path
+    )
+
+    assert repo._index_lock_path() is None
 
 
 def test_reads_pass_no_optional_locks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
