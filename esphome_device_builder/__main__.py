@@ -102,9 +102,7 @@ def _setup_logging(log_level: str, log_file: str | None = None) -> None:
 
 def _exit_cleanly_on_signal(signum: int, _frame: object) -> None:
     """Exit 0 on a stop signal the event loop isn't trapping itself."""
-    logging.getLogger(_LOGGER_NAME).info(
-        "Received stop signal %s; shutting down cleanly", signum
-    )
+    logging.getLogger(_LOGGER_NAME).info("Received stop signal %s; shutting down cleanly", signum)
     raise SystemExit(0)
 
 
