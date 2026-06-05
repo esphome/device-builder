@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ...helpers.process import terminate_subtree_with_grace
-from ...models import TERMINAL_JOB_STATUSES, EventType, FirmwareJob, JobLifecycleData, JobStatus
-from .helpers import _mark_job_terminal, _trim_job_output
+from ...models import TERMINAL_JOB_STATUSES, EventType, FirmwareJob, JobStatus
+from .helpers import _fire_job_lifecycle, _mark_job_terminal, _trim_job_output
 
 if TYPE_CHECKING:
     from ._state import Lane
@@ -39,8 +39,7 @@ def finalize_terminal(controller: FirmwareController, job: FirmwareJob, status: 
     """
     _mark_job_terminal(job, status)
     _release_lane_slot(controller, job)
-    payload: JobLifecycleData = {"job": job}
-    controller._db.bus.fire(_STATUS_TO_TERMINAL_EVENT[status], payload)
+    _fire_job_lifecycle(job, controller._db.bus, _STATUS_TO_TERMINAL_EVENT[status])
     release_dependents(controller, job)
     # Wake an upload lane held behind a now-finished clean/reset (build gate).
     controller.state.build_gate.set()

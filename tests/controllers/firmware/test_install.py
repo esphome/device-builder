@@ -36,13 +36,15 @@ from esphome_device_builder.models import (
     JobStatus,
     JobType,
     PeerQueueStatusSnapshotEntry,
-    PeerStatus,
     StoredPairing,
 )
 from tests.controllers.firmware.conftest import (
     CaptureEnqueueOrderFactory,
     EnqueueStep,
     FirmwareControllerFactory,
+    build_scheduler_inputs,
+    stub_offloader,
+    stub_pairing,
 )
 from tests.controllers.firmware.conftest import (
     upload_of as _upload_of,
@@ -302,17 +304,8 @@ _PIN = "a" * 64
 
 
 def _make_pairing(label: str = "desktop", esphome_version: str = "") -> StoredPairing:
-    """Build a passing :class:`StoredPairing` for the scheduler tests."""
-    return StoredPairing(
-        receiver_hostname="build.local",
-        receiver_port=6055,
-        pin_sha256=_PIN,
-        static_x25519_pub=b"\x01" * 32,
-        label=label,
-        paired_at=1.0,
-        status=PeerStatus.APPROVED,
-        esphome_version=esphome_version,
-    )
+    """Build a passing :class:`StoredPairing` (fixed ``_PIN``) for the scheduler tests."""
+    return stub_pairing(pin_sha256=_PIN, label=label, esphome_version=esphome_version)
 
 
 def _stub_remote_build(
@@ -322,45 +315,20 @@ def _stub_remote_build(
     open_pins: frozenset[str] = frozenset(),
     idle_pins: frozenset[str] = frozenset(),
 ) -> None:
-    """
-    Wire a stub ``_db.remote_build_offloader`` with a scripted scheduler snapshot.
+    """Wire a stub ``_db.remote_build_offloader`` with a scripted scheduler snapshot.
 
-    The scheduler walks ``pairings`` (APPROVED-only) and
-    requires membership in ``open_pins`` for the peer-link
-    session gate. ``idle_pins`` controls which pairings get
-    an ``idle=True`` snapshot entry; pairings *not* listed in
-    ``idle_pins`` have no entry at all. Under the two-tier
-    scheduler policy the first pass picks oldest-idle and
-    the second pass queues on oldest-otherwise — so a busy
-    receiver (open + not idle) routes REMOTE on the second
-    pass when no idle candidate exists. Pre-two-tier this
-    helper's docstring claimed "open_pins + idle entry"
-    *gated* the candidate; that's no longer accurate. Tests
-    that want LOCAL routing have to omit the pairing from
-    ``open_pins`` or skip the pairing fixture entirely.
+    ``idle_pins`` get an ``idle=True`` queue entry; an open-but-not-idle
+    pairing still routes REMOTE (the scheduler's second pass), so LOCAL
+    routing means omitting the pairing from ``open_pins`` entirely.
     """
-    rows = pairings or []
-    pairings_map = {p.pin_sha256: p for p in rows}
-    queue_status = {
-        pin: PeerQueueStatusSnapshotEntry(
-            receiver_hostname="build.local",
-            receiver_port=6055,
-            pin_sha256=pin,
-            idle=True,
-            running=False,
-            queue_depth=0,
-        )
-        for pin in idle_pins
-    }
-    remote_build = MagicMock()
-    remote_build.build_scheduler_snapshot.return_value = BuildSchedulerInputs(
-        remote_builds_enabled=True,
-        pairings=pairings_map,
-        open_peer_links=open_pins,
-        peer_queue_status=queue_status,
+    stub_offloader(
+        controller,
+        build_scheduler_inputs(
+            pairings=pairings or [],
+            open_pins=set(open_pins),
+            idle_pins=set(idle_pins),
+        ),
     )
-    remote_build.get_pairing.side_effect = pairings_map.get
-    controller._db.remote_build_offloader = remote_build
 
 
 async def test_install_routes_to_local_when_no_paired_receivers(

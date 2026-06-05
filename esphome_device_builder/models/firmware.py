@@ -280,7 +280,10 @@ class FirmwareJob(DataClassORJSONMixin):
         - **Keeps ``output``** — the pre-crash log is useful
           diagnostic history. Appends a marker line so a
           follower tailing the merged buffer can see exactly
-          where the rebuild starts.
+          where the rebuild starts. (Re-routing a compile to
+          another build server uses :meth:`clear_run_state`
+          instead, so it doesn't claim a restart that didn't
+          happen.)
         - **Clears per-run state** — ``progress`` / ``error`` /
           ``started_at`` / ``completed_at`` / ``exit_code``
           back to their defaults.
@@ -299,6 +302,15 @@ class FirmwareJob(DataClassORJSONMixin):
           intact.
         """
         self.output = [*self.output, _RECOVERY_NOTICE]
+        self.clear_run_state()
+
+    def clear_run_state(self) -> None:
+        """Clear per-run fields (progress / error / timing / exit code); keeps output and identity.
+
+        ``reset`` is this plus a restart marker; a mid-build re-route to
+        another server calls this directly so the log isn't stamped with a
+        restart notice that never happened.
+        """
         self.progress = None
         self.error = None
         self.started_at = None

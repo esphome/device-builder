@@ -37,12 +37,17 @@ from esphome_device_builder.controllers.config import DashboardSettings
 from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.controllers.firmware._state import FirmwareState
 from esphome_device_builder.controllers.firmware.download import DownloadTokens
+from esphome_device_builder.helpers.build_scheduler import BuildSchedulerInputs
 from esphome_device_builder.helpers.event_bus import Event, EventBus
+from esphome_device_builder.helpers.version_compat import VersionMatchPolicy
 from esphome_device_builder.models import (
     TERMINAL_JOB_STATUSES,
     EventType,
     FirmwareJob,
     JobType,
+    PeerQueueStatusSnapshotEntry,
+    PeerStatus,
+    StoredPairing,
 )
 
 
@@ -463,3 +468,75 @@ async def run_until_terminal(
             await runner_task
 
     return captured
+
+
+# ---------------------------------------------------------------------------
+# Remote build-server stubs — shared by the install-routing and dispatch-pool
+# tests so the StoredPairing / scheduler-snapshot / offloader construction
+# lives in one place.
+# ---------------------------------------------------------------------------
+
+
+def stub_pairing(
+    *,
+    pin_sha256: str,
+    paired_at: float = 1.0,
+    label: str = "srv",
+    esphome_version: str = "",
+    status: PeerStatus = PeerStatus.APPROVED,
+    enabled: bool = True,
+) -> StoredPairing:
+    """Build a :class:`StoredPairing` for the build-scheduler tests."""
+    return StoredPairing(
+        receiver_hostname="build.local",
+        receiver_port=6055,
+        pin_sha256=pin_sha256,
+        static_x25519_pub=b"\x01" * 32,
+        label=label,
+        paired_at=paired_at,
+        status=status,
+        esphome_version=esphome_version,
+        enabled=enabled,
+    )
+
+
+def build_scheduler_inputs(
+    *,
+    pairings: list[StoredPairing],
+    open_pins: set[str],
+    idle_pins: set[str],
+    offloader_version: str = "",
+    policy: VersionMatchPolicy = VersionMatchPolicy.ANY,
+) -> BuildSchedulerInputs:
+    """Build the snapshot a stub offloader hands the scheduler; ``idle_pins`` get an idle entry."""
+    return BuildSchedulerInputs(
+        remote_builds_enabled=True,
+        pairings={p.pin_sha256: p for p in pairings},
+        open_peer_links=frozenset(open_pins),
+        peer_queue_status={
+            pin: PeerQueueStatusSnapshotEntry(
+                receiver_hostname="build.local",
+                receiver_port=6055,
+                pin_sha256=pin,
+                idle=True,
+                running=False,
+                queue_depth=0,
+            )
+            for pin in idle_pins
+        },
+        offloader_esphome_version=offloader_version,
+        version_match_policy=policy,
+    )
+
+
+def stub_offloader(controller: Any, snapshot: BuildSchedulerInputs) -> MagicMock:
+    """Wire ``_db.remote_build_offloader`` to return *snapshot*; ``get_pairing`` reads it live."""
+    offloader = MagicMock()
+    offloader.build_scheduler_snapshot.return_value = snapshot
+
+    def _get_pairing(pin: str) -> StoredPairing | None:
+        return offloader.build_scheduler_snapshot.return_value.pairings.get(pin)
+
+    offloader.get_pairing.side_effect = _get_pairing
+    controller._db.remote_build_offloader = offloader
+    return offloader

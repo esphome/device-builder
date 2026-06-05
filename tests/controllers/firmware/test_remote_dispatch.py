@@ -28,10 +28,11 @@ from esphome_device_builder.models import (
     JobSource,
     JobStatus,
     JobType,
-    PeerQueueStatusSnapshotEntry,
-    PeerStatus,
     StoredPairing,
 )
+
+from .conftest import build_scheduler_inputs, stub_offloader
+from .conftest import stub_pairing as _pairing_kw
 
 if TYPE_CHECKING:
     from .conftest import FirmwareControllerFactory
@@ -42,19 +43,13 @@ _PIN_A = "a" * 64
 _PIN_B = "b" * 64
 _PIN_C = "c" * 64
 
+# Thin positional-pin / ``version=`` adapters over the shared conftest
+# factories so the call sites below read compactly.
+_stub_offloader = stub_offloader
+
 
 def _pairing(pin: str, *, paired_at: float, label: str = "srv", version: str = "") -> StoredPairing:
-    """Build an APPROVED :class:`StoredPairing` for *pin*."""
-    return StoredPairing(
-        receiver_hostname="build.local",
-        receiver_port=6055,
-        pin_sha256=pin,
-        static_x25519_pub=b"\x01" * 32,
-        label=label,
-        paired_at=paired_at,
-        status=PeerStatus.APPROVED,
-        esphome_version=version,
-    )
+    return _pairing_kw(pin_sha256=pin, paired_at=paired_at, label=label, esphome_version=version)
 
 
 def _snapshot(
@@ -65,40 +60,13 @@ def _snapshot(
     offloader_version: str = "",
     policy: VersionMatchPolicy = VersionMatchPolicy.ANY,
 ) -> BuildSchedulerInputs:
-    """Build the scheduler snapshot the stub offloader hands back."""
-    return BuildSchedulerInputs(
-        remote_builds_enabled=True,
-        pairings={p.pin_sha256: p for p in pairings},
-        open_peer_links=frozenset(open_pins),
-        peer_queue_status={
-            pin: PeerQueueStatusSnapshotEntry(
-                receiver_hostname="build.local",
-                receiver_port=6055,
-                pin_sha256=pin,
-                idle=True,
-                running=False,
-                queue_depth=0,
-            )
-            for pin in idle_pins
-        },
-        offloader_esphome_version=offloader_version,
-        version_match_policy=policy,
+    return build_scheduler_inputs(
+        pairings=pairings,
+        open_pins=open_pins,
+        idle_pins=idle_pins,
+        offloader_version=offloader_version,
+        policy=policy,
     )
-
-
-def _stub_offloader(controller: object, snapshot: BuildSchedulerInputs) -> MagicMock:
-    """Wire ``_db.remote_build_offloader`` to return *snapshot*; ``get_pairing`` reads it."""
-    offloader = MagicMock()
-    offloader.build_scheduler_snapshot.return_value = snapshot
-
-    # Read the *current* snapshot so a test can swap servers in/out by
-    # reassigning ``build_scheduler_snapshot.return_value``.
-    def _get_pairing(pin: str) -> StoredPairing | None:
-        return offloader.build_scheduler_snapshot.return_value.pairings.get(pin)
-
-    offloader.get_pairing.side_effect = _get_pairing
-    controller._db.remote_build_offloader = offloader
-    return offloader
 
 
 def _add_pending(controller: object, job_id: str, *, config: str = "dev.yaml") -> FirmwareJob:
@@ -521,6 +489,8 @@ async def test_unpair_race_leaves_job_pending(
     pool = controller.state.remote_dispatch
     assert "j1" in pool.pending
     assert "j1" not in pool.in_flight
+    # Re-armed so a missed peer-link-close event can't strand the compile.
+    assert pool.wake.is_set()
 
 
 async def test_server_lost_mid_build_reroutes_to_another_worker(
@@ -564,6 +534,8 @@ async def test_server_lost_mid_build_reroutes_to_another_worker(
     assert "c1" in pool.pending
     assert "c1" not in pool.in_flight
     assert pool.retries["c1"] == 1
+    # A re-route is not a restart: the log must not claim the dashboard restarted.
+    assert not any("restarted mid-build" in line for line in job.output)
 
 
 async def test_server_loss_retry_is_bounded(

@@ -14,7 +14,6 @@ from ...helpers.subprocess import create_subprocess_exec, iter_lines_with_progre
 from ...models import (
     EventType,
     FirmwareJob,
-    JobLifecycleData,
     JobSource,
     JobStatus,
     JobType,
@@ -22,6 +21,7 @@ from ...models import (
 from . import lifecycle
 from .constants import _ERROR_PATTERNS
 from .helpers import (
+    _fire_job_lifecycle,
     _ingest_output_line,
     _is_no_module_named_esphome,
 )
@@ -75,8 +75,7 @@ async def execute_job(  # noqa: PLR0912, PLR0915, C901
         job.job_type,
         job.configuration,
     )
-    started_payload: JobLifecycleData = {"job": job}
-    controller._db.bus.fire(EventType.JOB_STARTED, started_payload)
+    _fire_job_lifecycle(job, controller._db.bus, EventType.JOB_STARTED)
     await controller._persist_jobs()
 
     try:

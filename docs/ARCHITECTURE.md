@@ -202,6 +202,10 @@ firmware/install {configuration} → QUEUED → RUNNING → output... → COMPLE
   splits into a COMPILE job + a dependent local UPLOAD job (`depends_on`):
   the upload is held until the compile succeeds, then runs on the upload
   lane; a cancelled/failed compile cascades to cancel the held upload.
+- Plus a **remote build-server pool** — a third consumer (`run_dispatch_loop`)
+  gathered alongside the two lanes. Compiles eligible for a paired server
+  hold here (off the single compile lane) and run concurrently, one per
+  connected server. See "Remote build-server pool" below.
 - Output buffered in `FirmwareJob.output` — survives disconnect
 - `firmware/follow_job` sends history then streams live
 - Error detection scans output for failure patterns (not just exit code)
@@ -532,7 +536,16 @@ The `OFFLOADER_JOB_*` events stay as the wire-layer fan-out used by the explicit
 
 The seam between compile and upload phases resets `job.progress` to 0 so the progress bar visibly transitions phases (#580) — the in-flight progress ingest is monotonically clamped, so without the explicit reset the upload's lower percents would all fall below the compile peak.
 
-**`firmware/install` routing (#568, #573).** The WS handler routes through `pick_build_path` instead of unconditionally going LOCAL. On `REMOTE(pin)` it constructs a `FirmwareJob` with `source=REMOTE` + `source_pin_sha256=<pin>` + `source_label=<receiver_label>` and queues it through the same primitive a local install uses. The runner's source-routed branch takes over from there. The install dialog reads `job.source_label` and renders the "Building on {receiver_label}" sub-line when present. E2e coverage round-trips both dispatch paths against a real `EventBus` so the dual-flow contract stays pinned.
+**`firmware/install` routing (#568, #573).** The WS handler routes through `pick_build_path` instead of unconditionally going LOCAL. When a paired server is eligible the COMPILE is marked `source=REMOTE_PENDING` (no pin yet — see the pool below); otherwise it stays LOCAL. The install dialog reads `job.source_label` and renders the "Building on {receiver_label}" sub-line once a server is bound. E2e coverage round-trips both dispatch paths against a real `EventBus` so the dual-flow contract stays pinned.
+
+**Remote build-server pool (#1229).** A paired offloader runs remote compiles across *all* connected build servers at once, and picks the server at dispatch (not submission) so a host paired or freed mid-queue is used. The model is one pool of capacity-1 workers; a local-only setup is just a pool of one (the existing compile lane, unchanged).
+
+- **`JobSource.REMOTE_PENDING`** is the transient between enqueue and dispatch. `resolve_install_source` decides remote-*eligibility* only (it still raises `NO_COMPATIBLE_PEER` synchronously under `EXACT_REQUIRED`); the pin/label/version bind at dispatch.
+- **Routing.** `place_on_lane` is the single router: a `REMOTE_PENDING` COMPILE holds in `RemoteDispatchState` (`pending` dict) instead of occupying the compile lane; everything else goes on its lane. `RemoteDispatchState` owns the pending → in-flight → free transitions as methods (`hold` / `start` / `release` / `drop`) so no caller juggles the dicts.
+- **The loop.** `run_dispatch_loop` (gathered in `_run_queue`) wakes on `OFFLOADER_PEER_LINK_OPENED` / `OFFLOADER_PEER_LINK_CLOSED` / `OFFLOADER_QUEUE_STATUS_CHANGED` and on a server freeing, re-snapshots, and matches each waiting compile to a free server via `pick_dispatch_target` (a 4-way `REMOTE` / `WAIT` / `LOCAL` / `NO_COMPATIBLE_PEER` decision — `WAIT` is the "all compatible servers busy, hold" state `pick_build_path` can't express). Servers already driving a job are excluded via `busy_build_server_pins`.
+- **Mid-build server loss** re-routes the compile to the next free worker (`run_remote_job(retry_on_server_loss=True)` raises `RemoteServerLostError`, the driver re-queues via `clear_run_state` — not `reset`, so no false "restarted" notice), bounded by `_MAX_SERVER_LOSS_RETRIES`; past the cap it fails. If no server remains it falls back to local (or fails under `EXACT_REQUIRED`).
+- **Restart.** A persisted `REMOTE_PENDING` (or interrupted `REMOTE`) COMPILE re-enters the pool with its pin cleared, so it re-routes against whatever servers reconnect. A `REMOTE` CLEAN fan-out job keeps its pin (it targets a specific server).
+- `JOB_STARTED` may fire more than once for a re-routed `job_id`; the frontend upserts jobs by `job_id`, so a repeat re-enters RUNNING idempotently.
 
 **Cancel translation.** The install dialog's existing Stop button cancels the `FirmwareJob`; for REMOTE jobs the runner fires `remote_build/cancel_job` against `source_pin_sha256` with the offloader-supplied `job_id`. The receiver's resulting `JOB_CANCELLED` flows back through `OFFLOADER_JOB_STATE_CHANGED{cancelled}`; the runner sees the terminal event and fires the local `JOB_CANCELLED` on its own lifecycle (same path the LOCAL branch uses for an operator-driven cancel of a local subprocess). No bridge, no id translation — just the runner reading and writing the same `FirmwareJob`. A user-driven cancel that races with the receiver's natural completion / failure is resolved by `_await_terminal`'s "user intent wins" rule: if `_cancel_requested` is set when the receiver's terminal frame arrives, the job finalises as CANCELLED regardless of the wire status. Mirrors the local subprocess path's contract.
 

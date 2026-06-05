@@ -26,6 +26,7 @@ from ...models import (
     ErrorCode,
     EventType,
     FirmwareJob,
+    JobLifecycleData,
     JobOutputData,
     JobProgressData,
     JobStatus,
@@ -313,6 +314,12 @@ def _fire_job_progress(job: FirmwareJob, bus: EventBus, progress: int) -> None:
     job.progress = progress
     payload: JobProgressData = {"job_id": job.job_id, "progress": progress}
     bus.fire(EventType.JOB_PROGRESS, payload)
+
+
+def _fire_job_lifecycle(job: FirmwareJob, bus: EventBus, event_type: EventType) -> None:
+    """Fire a ``JobLifecycleData`` event (QUEUED / STARTED / a terminal status) for *job*."""
+    payload: JobLifecycleData = {"job": job}
+    bus.fire(event_type, payload)
 
 
 def _ingest_output_line(job: FirmwareJob, bus: EventBus, line: str) -> None:

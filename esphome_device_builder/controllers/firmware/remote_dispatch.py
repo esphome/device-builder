@@ -31,11 +31,10 @@ from ...models import (
     EventType,
     FirmwareJob,
     JobBuildSource,
-    JobLifecycleData,
     JobStatus,
 )
 from . import lifecycle
-from .helpers import _ingest_output_line
+from .helpers import _fire_job_lifecycle, _ingest_output_line
 from .remote_runner import RemoteServerLostError, run_remote_job
 
 if TYPE_CHECKING:
@@ -134,8 +133,10 @@ def _dispatch_to_server(controller: FirmwareController, job: FirmwareJob, pin_sh
     offloader = controller._db.remote_build_offloader
     pairing = offloader.get_pairing(pin_sha256) if offloader is not None else None
     if pairing is None:
-        # Raced an unpair between snapshot and bind; leave it pending —
-        # the close event already woke us for a re-pass.
+        # Raced an unpair between snapshot and bind; leave it pending and
+        # re-arm the matcher ourselves so a missed peer-link-close event
+        # can't strand the compile (the next pass picks a live server).
+        controller.state.remote_dispatch.wake.set()
         return
     job.apply_build_source(
         JobBuildSource.for_server(
@@ -173,8 +174,7 @@ async def _drive_remote(controller: FirmwareController, job: FirmwareJob) -> Non
     """
     job.status = JobStatus.RUNNING
     job.started_at = datetime.now(UTC).isoformat()
-    started_payload: JobLifecycleData = {"job": job}
-    controller.bus.fire(EventType.JOB_STARTED, started_payload)
+    _fire_job_lifecycle(job, controller.bus, EventType.JOB_STARTED)
     await controller._persist_jobs()
     pool = controller.state.remote_dispatch
     try:
@@ -210,8 +210,12 @@ def _requeue_after_server_loss(
 
 
 def _return_to_pool(controller: FirmwareController, job: FirmwareJob) -> None:
-    """Reset a remote compile to ``REMOTE_PENDING`` and route it back to the pool."""
-    job.reset()
+    """Reset a remote compile to ``REMOTE_PENDING`` and route it back to the pool.
+
+    Uses ``clear_run_state`` (not ``reset``) so a server-loss re-route
+    doesn't stamp the log with a "dashboard restarted" notice.
+    """
+    job.clear_run_state()
     job.status = JobStatus.QUEUED
     job.apply_build_source(REMOTE_PENDING_JOB_BUILD_SOURCE)
     controller.state.place_on_lane(job)

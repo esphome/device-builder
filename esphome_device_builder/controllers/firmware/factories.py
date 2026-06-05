@@ -15,10 +15,9 @@ from ...models import (
     EventType,
     FirmwareJob,
     JobBuildSource,
-    JobLifecycleData,
     JobType,
 )
-from .helpers import _names_touched_by_job
+from .helpers import _fire_job_lifecycle, _names_touched_by_job
 
 if TYPE_CHECKING:
     from .controller import FirmwareController
@@ -121,8 +120,7 @@ def _place_and_announce(controller: FirmwareController, job: FirmwareJob) -> Non
     """
     if controller.state.dependency_satisfied(job):
         controller.state.place_on_lane(job)
-    queued_payload: JobLifecycleData = {"job": job}
-    controller._db.bus.fire(EventType.JOB_QUEUED, queued_payload)
+    _fire_job_lifecycle(job, controller._db.bus, EventType.JOB_QUEUED)
 
 
 async def enqueue_install_chain(

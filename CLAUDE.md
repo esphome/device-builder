@@ -294,6 +294,18 @@ against legacy behaviour before assuming the simpler version suffices.
   remote compile materialises artifacts locally, then the local upload lane
   flashes. Queue + output buffers survive restarts. See
   `controllers/firmware/`.
+- **Remote build-server pool (#1229).** A third queue consumer beside the two
+  lanes. A compile eligible for a paired server is marked
+  `JobSource.REMOTE_PENDING` at submit (pin bound at *dispatch*, not submit)
+  and holds in `RemoteDispatchState` instead of on the compile lane, so paired
+  servers compile concurrently and a host paired/freed mid-queue is used.
+  `run_dispatch_loop` (gathered in `_run_queue`) matches waiting compiles to
+  free servers via `pick_dispatch_target` (adds a `WAIT` outcome to
+  `pick_build_path`'s local/remote/raise); `place_on_lane` is the single router
+  and `RemoteDispatchState` owns the pending→in-flight→free transitions as
+  methods. A server lost mid-build re-routes to the next worker (bounded by
+  `_MAX_SERVER_LOSS_RETRIES`). Local-only is a pool of one — the lane path is
+  unchanged. Full write-up in `docs/ARCHITECTURE.md` "Remote build-server pool".
 - **Component catalog is generated**, not hand-edited. Source is
   ESPHome's pre-built schema bundle (https://schema.esphome.io) plus
   narrow live `esphome` introspection for what the schema doesn't carry

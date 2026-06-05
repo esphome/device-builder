@@ -12,12 +12,11 @@ from ...models import (
     ErrorCode,
     EventType,
     FirmwareJob,
-    JobLifecycleData,
     JobStatus,
 )
 from . import lifecycle
 from .constants import _ACTIVE_JOB_STATUSES
-from .helpers import _mark_job_terminal
+from .helpers import _fire_job_lifecycle, _mark_job_terminal
 
 if TYPE_CHECKING:
     from ._state import Lane
@@ -126,8 +125,7 @@ async def cancel(controller: FirmwareController, *, job_id: str) -> None:
         _mark_job_terminal(job, JobStatus.CANCELLED)
         controller._prune_history()
         await controller._persist_jobs()
-        cancelled_payload: JobLifecycleData = {"job": job}
-        controller._db.bus.fire(EventType.JOB_CANCELLED, cancelled_payload)
+        _fire_job_lifecycle(job, controller._db.bus, EventType.JOB_CANCELLED)
         # Cancel anything held on this job (an install's upload waits on its
         # compile) so a cancelled compile never goes on to flash the device.
         # Persist again when the cascade fired so the dependents' CANCELLED
