@@ -185,8 +185,7 @@ async def execute_job(  # noqa: PLR0915, C901
         # If the user cancelled this job mid-run, the subprocess
         # exits non-zero (terminated by signal). Honour that
         # intent rather than reporting it as a generic failure.
-        if job.job_id in controller.state.cancel_requested:
-            controller._finalize_cancelled(job)
+        if lifecycle.cancel_if_requested(controller, job):
             _LOGGER.info("Job %s cancelled mid-run (exit %s)", job.job_id, exit_code)
         else:
             success = exit_code == 0 and not has_error_in_output

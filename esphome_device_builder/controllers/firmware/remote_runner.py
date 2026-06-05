@@ -797,8 +797,7 @@ def _fail_locally(
     subprocess path's contract.
     """
     error = f"{_REMOTE_BUILD_ERROR_PREFIX}{reason}"
-    if job.job_id in controller.state.cancel_requested:
-        controller._finalize_cancelled(job)
+    if lifecycle.cancel_if_requested(controller, job):
         _LOGGER.info("Remote job %s cancelled (failure path: %s)", job.job_id, error)
         return
     controller._finalize_terminal(job, JobStatus.FAILED, error=error)
