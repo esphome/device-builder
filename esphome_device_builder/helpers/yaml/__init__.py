@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any
+
 import yaml
+from esphome import yaml_util
 
 # Prefer the libyaml-backed C loader when PyYAML was built against
 # libyaml. On the M5 MacBook Pro, parsing the full board catalog
@@ -59,3 +63,20 @@ from .substitution import rewrite_name_or_substitution as rewrite_name_or_substi
 from .top_block import (
     upsert_yaml_leaf_under_top_block as upsert_yaml_leaf_under_top_block,
 )
+
+
+def load_yaml_fast_then_esphome(path: Path) -> Any:
+    """
+    Load *path* with the fast C loader, retrying with ESPHome's loader.
+
+    The fast ``FastestSafeLoader`` handles a plain key/value file;
+    ESPHome tags (``!include`` / ``!secret``) and merge keys land in the
+    ``yaml.YAMLError`` fallback, where ``yaml_util.load_yaml`` resolves
+    them the way a compile does. Raises ``EsphomeError`` / ``OSError`` on
+    a genuinely broken or unreadable file.
+    """
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            return yaml.load(f, Loader=FastestSafeLoader)  # noqa: S506
+    except yaml.YAMLError:
+        return yaml_util.load_yaml(path)

@@ -27,10 +27,12 @@ from __future__ import annotations
 
 import random
 import string
+from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
+from esphome.core import EsphomeError
 
 from esphome_device_builder.helpers.yaml import (
     YamlUpsertNotSupportedError,
@@ -41,6 +43,7 @@ from esphome_device_builder.helpers.yaml import (
     _strip_yaml_quotes,
     generate_api_encryption_key,
     generate_component_yaml,
+    load_yaml_fast_then_esphome,
     merge_component_yaml,
     parse_substitution_ref,
     read_yaml_scalar,
@@ -1700,3 +1703,26 @@ def test_generate_component_yaml_id_falls_back_when_name_slug_is_empty() -> None
     # Auto-filled id is just the component stem — no trailing ``_``.
     assert "  id: hlw8012\n" in out
     assert "  id: hlw8012_\n" not in out
+
+
+def test_load_yaml_fast_then_esphome_fast_path(tmp_path: Path) -> None:
+    """A plain key/value file resolves through the fast loader."""
+    path = tmp_path / "secrets.yaml"
+    path.write_text("broker: 10.0.0.5\npw: shh\n")
+    assert load_yaml_fast_then_esphome(path) == {"broker": "10.0.0.5", "pw": "shh"}
+
+
+def test_load_yaml_fast_then_esphome_resolves_include_and_merge(tmp_path: Path) -> None:
+    """An ``!include`` + merge-key file falls back to ESPHome's loader."""
+    (tmp_path / "shared.yaml").write_text("broker: 10.0.0.9\n")
+    path = tmp_path / "secrets.yaml"
+    path.write_text("<<: !include shared.yaml\npw: shh\n")
+    assert load_yaml_fast_then_esphome(path) == {"broker": "10.0.0.9", "pw": "shh"}
+
+
+def test_load_yaml_fast_then_esphome_raises_on_broken_include(tmp_path: Path) -> None:
+    """A broken ``!include`` propagates ESPHome's ``EsphomeError``."""
+    path = tmp_path / "secrets.yaml"
+    path.write_text("<<: !include does_not_exist.yaml\n")
+    with pytest.raises(EsphomeError):
+        load_yaml_fast_then_esphome(path)

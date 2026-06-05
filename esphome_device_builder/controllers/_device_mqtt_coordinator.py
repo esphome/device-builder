@@ -16,9 +16,10 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from esphome.core import EsphomeError
 
 from ..helpers.device_yaml import load_device_yaml
-from ..helpers.yaml import FastestSafeLoader
+from ..helpers.yaml import FastestSafeLoader, load_yaml_fast_then_esphome
 from ..models import Device
 from ._device_mqtt_monitor import (
     DeviceMqttMonitor,
@@ -294,15 +295,14 @@ def _load_secrets(config_dir: Path) -> dict[str, Any]:
     if not secrets_path.exists():
         return {}
     try:
-        with secrets_path.open("r", encoding="utf-8") as f:
-            # ``FastestSafeLoader`` is libyaml's CSafeLoader — the C
-            # equivalent of SafeLoader. Same noqa rationale as the
-            # ``_TolerantYamlLoader`` call above.
-            data = yaml.load(f, Loader=FastestSafeLoader)  # noqa: S506
-    except yaml.YAMLError:
+        data = load_yaml_fast_then_esphome(secrets_path)
+    except (EsphomeError, yaml.YAMLError, OSError):
         _LOGGER.warning("Could not parse secrets.yaml — MQTT broker secrets unavailable")
         return {}
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict):
+        _LOGGER.warning("Could not parse secrets.yaml — MQTT broker secrets unavailable")
+        return {}
+    return data
 
 
 def _safe_mtime(path: Path) -> float:
