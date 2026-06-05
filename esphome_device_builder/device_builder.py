@@ -416,6 +416,7 @@ class DeviceBuilder:
 
     async def stop(self) -> None:  # noqa: C901
         """Shut down the application."""
+        _LOGGER.info("Shutting down ESPHome Device Builder")
         if self._bg_task:
             self._bg_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):

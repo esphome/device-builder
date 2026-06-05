@@ -100,21 +100,25 @@ def _setup_logging(log_level: str, log_file: str | None = None) -> None:
     activate_log_queue_handler()
 
 
-def _exit_on_startup_sigterm(_signum: int, _frame: object) -> None:
-    """Exit cleanly (0) on a SIGTERM received before the run loop is up."""
+def _exit_cleanly_on_signal(_signum: int, _frame: object) -> None:
+    """Exit 0 on a stop signal the event loop isn't trapping itself."""
     raise SystemExit(0)
 
 
 def main() -> None:
     """Run the ESPHome Device Builder."""
-    # Trap SIGTERM for the whole startup phase. aiohttp installs the
-    # run-loop's handler only once the server is up; a SIGTERM landing in
-    # the seconds before that (slow esphome import, catalog load, mDNS
-    # bring-up) would otherwise hit the OS default disposition and exit
-    # 143, which a supervisor reports as "did not handle SIGTERM".
-    # ``web.run_app`` replaces this with its own graceful handler once
-    # serving begins.
-    signal.signal(signal.SIGTERM, _exit_on_startup_sigterm)
+    # Trap the platform's stop signal so a quit exits cleanly instead of
+    # the OS default disposition. POSIX: a startup-window SIGTERM exits
+    # 143 ("did not handle SIGTERM") before aiohttp arms its run-loop
+    # handler; once serving, ``web.run_app`` replaces this with its own.
+    # Windows: aiohttp installs no handler at all, and the desktop quits
+    # the backend with CTRL_BREAK_EVENT (→ SIGBREAK; SIGTERM is
+    # uncatchable there), so without this the break default-terminates
+    # abruptly instead of draining. The Proactor loop's wakeup fd makes
+    # the break land promptly while serving.
+    signal.signal(signal.SIGTERM, _exit_cleanly_on_signal)
+    if sys.platform == "win32":
+        signal.signal(signal.SIGBREAK, _exit_cleanly_on_signal)
 
     parser = argparse.ArgumentParser(
         description="ESPHome Device Builder",
