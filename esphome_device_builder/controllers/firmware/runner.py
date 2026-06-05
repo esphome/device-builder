@@ -271,7 +271,7 @@ async def execute_remote_job(controller: FirmwareController, job: FirmwareJob) -
     flow.
 
     Terminal states are mapped through the same helpers the
-    local path uses (``_mark_job_terminal`` /
+    local path uses (``job.mark_terminal`` /
     ``_finalize_cancelled``), so the outer
     ``_execute_job``'s ``finally`` runs the shared
     ``_trim_job_output`` / ``_prune_history`` / persist

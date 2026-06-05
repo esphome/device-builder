@@ -204,7 +204,7 @@ def test_finalize_terminal_skips_release_when_job_not_current() -> None:
 def test_finalize_terminal_rejects_non_terminal_status() -> None:
     """Stamping a non-terminal status raises before the slot release.
 
-    Mirrors :func:`_mark_job_terminal`'s loud-fail guard — keeps
+    Mirrors ``FirmwareJob.mark_terminal``'s loud-fail guard — keeps
     a stray ``self._finalize_terminal(job, JobStatus.RUNNING)``
     from silently emitting a JOB_RUNNING event (which
     ``_STATUS_TO_TERMINAL_EVENT`` doesn't have a key for, so it

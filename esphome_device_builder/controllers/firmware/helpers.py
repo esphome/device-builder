@@ -14,7 +14,6 @@ import logging
 import os
 import re
 import sys
-from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -22,14 +21,12 @@ from typing import TYPE_CHECKING
 from ...helpers.api import CommandError
 from ...helpers.subprocess import run_subprocess_capture
 from ...models import (
-    TERMINAL_JOB_STATUSES,
     ErrorCode,
     EventType,
     FirmwareJob,
     JobLifecycleData,
     JobOutputData,
     JobProgressData,
-    JobStatus,
     JobType,
 )
 from .constants import (
@@ -102,37 +99,6 @@ def _trim_job_output(job: FirmwareJob, *, keep: int = _MAX_OUTPUT_LINES_RETAINED
         f"{_OUTPUT_TRIM_NOTICE_PREFIX} {total_elided} earlier line(s) elided]\n",
         *output[-keep:],
     ]
-
-
-def _mark_job_terminal(job: FirmwareJob, status: JobStatus) -> None:
-    """
-    Set *job* to a terminal *status* and stamp its completion time.
-
-    The two writes go together at every job-finalisation site
-    (queued cancel, mid-run cancel, normal completion, runner-shutdown
-    cancel, exception, reset-build-env cancel/complete), and forgetting
-    one or the other is a recurring footgun — a status without a
-    ``completed_at`` confuses the dashboard's relative-time tooltip,
-    and a ``completed_at`` without a status leaves the job stuck on
-    ``RUNNING`` even though the subprocess is gone.
-
-    Pulling them into one call keeps the call sites readable and the
-    pair atomic. Doesn't fire the lifecycle event — the call site
-    decides which event to fire and in what order relative to
-    ``_persist_jobs`` / ``_prune_history`` so the existing observable
-    sequencing is preserved.
-
-    Raises ``ValueError`` for any non-terminal *status* so a
-    stray call (e.g. ``_mark_job_terminal(job, JobStatus.RUNNING)``)
-    fails loudly instead of silently stamping ``completed_at`` on a
-    still-running job — that would mis-order the dashboard's
-    relative-time strings and confuse the prune-on-shutdown logic.
-    """
-    if status not in TERMINAL_JOB_STATUSES:
-        msg = f"_mark_job_terminal called with non-terminal status {status!r}"
-        raise ValueError(msg)
-    job.status = status
-    job.completed_at = datetime.now(UTC).isoformat()
 
 
 def _names_touched_by_job(job: FirmwareJob) -> set[str]:

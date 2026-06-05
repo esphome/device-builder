@@ -163,3 +163,9 @@ _MAX_OUTPUT_LINES_RETAINED = 2000
 _MAX_OUTPUT_LINES_INFLIGHT = _MAX_OUTPUT_LINES_RETAINED * 2
 _INFLIGHT_TRIM_KEEP = _MAX_OUTPUT_LINES_RETAINED
 _OUTPUT_TRIM_NOTICE_PREFIX = "... [output trimmed:"
+
+# Error stamped on a dependent (an install's UPLOAD) when its prerequisite
+# COMPILE didn't complete successfully — set at release time (cascade-cancel)
+# and at restore time (prerequisite pruned/gone). Shared so the two sites
+# stay in lockstep.
+_PREREQUISITE_FAILED_ERROR = "prerequisite job did not complete successfully"

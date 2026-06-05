@@ -12,6 +12,11 @@ from mashumaro.mixins.orjson import DataClassORJSONMixin
 from .common import EventType
 
 
+def _now_iso() -> str:
+    """Return the current UTC time as an ISO 8601 string (the job-timestamp format)."""
+    return datetime.now(UTC).isoformat()
+
+
 class QueueStatus(NamedTuple):
     """Snapshot of one firmware lane's RAM state.
 
@@ -308,7 +313,22 @@ class FirmwareJob(DataClassORJSONMixin):
     def mark_running(self) -> None:
         """Stamp this job RUNNING with the current start time."""
         self.status = JobStatus.RUNNING
-        self.started_at = datetime.now(UTC).isoformat()
+        self.started_at = _now_iso()
+
+    def mark_terminal(self, status: JobStatus, *, error: str | None = None) -> None:
+        """Set a terminal *status* (and *error* if given) and stamp completion time.
+
+        Raises ``ValueError`` on a non-terminal *status* so a stray call can't
+        stamp ``completed_at`` on a still-running job (which mis-orders the
+        dashboard's relative-time strings and confuses prune-on-shutdown).
+        """
+        if status not in TERMINAL_JOB_STATUSES:
+            msg = f"mark_terminal called with non-terminal status {status!r}"
+            raise ValueError(msg)
+        if error is not None:
+            self.error = error
+        self.status = status
+        self.completed_at = _now_iso()
 
     def revert_to_pending_remote(self) -> None:
         """Reset run state and re-mark ``REMOTE_PENDING`` so the pool re-routes this compile."""

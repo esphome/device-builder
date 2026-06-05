@@ -18,7 +18,7 @@ own dedicated test files:
 
 * ``_validate_port`` → ``test_install_to_specific_address.py``
 * ``_parse_progress`` → ``test_progress.py``
-* ``_mark_job_terminal`` → ``test_mark_job_terminal.py``
+* ``FirmwareJob.mark_terminal`` → ``tests/models/test_firmware_job.py``
 
 Per Copilot's review, this PR doesn't re-cover those — keeping
 expectations in one place avoids drift.

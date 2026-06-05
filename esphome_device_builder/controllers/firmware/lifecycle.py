@@ -7,7 +7,8 @@ from typing import TYPE_CHECKING
 
 from ...helpers.process import terminate_subtree_with_grace
 from ...models import TERMINAL_JOB_STATUSES, EventType, FirmwareJob, JobStatus
-from .helpers import _fire_job_lifecycle, _mark_job_terminal, _trim_job_output
+from .constants import _PREREQUISITE_FAILED_ERROR
+from .helpers import _fire_job_lifecycle, _trim_job_output
 
 if TYPE_CHECKING:
     from ._state import Lane
@@ -39,9 +40,7 @@ def finalize_terminal(
     first remote build, silently falling back to LOCAL on every
     subsequent install.
     """
-    if error is not None:
-        job.error = error
-    _mark_job_terminal(job, status)
+    job.mark_terminal(status, error=error)
     _release_lane_slot(controller, job)
     _fire_job_lifecycle(job, controller._db.bus, _STATUS_TO_TERMINAL_EVENT[status])
     release_dependents(controller, job)
@@ -123,8 +122,9 @@ def release_dependents(controller: FirmwareController, job: FirmwareJob) -> bool
         if job.status is JobStatus.COMPLETED:
             controller.state.place_on_lane(dep)
         else:
-            dep.error = "prerequisite job did not complete successfully"
-            controller._finalize_terminal(dep, JobStatus.CANCELLED)
+            controller._finalize_terminal(
+                dep, JobStatus.CANCELLED, error=_PREREQUISITE_FAILED_ERROR
+            )
     return acted
 
 

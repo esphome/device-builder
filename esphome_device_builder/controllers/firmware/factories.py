@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -17,6 +16,7 @@ from ...models import (
     JobBuildSource,
     JobType,
 )
+from ...models.firmware import _now_iso
 from .helpers import _fire_job_lifecycle, _names_touched_by_job
 
 if TYPE_CHECKING:
@@ -49,7 +49,7 @@ def create_job(
         job_id=uuid4().hex[:12],
         configuration=configuration,
         job_type=job_type,
-        created_at=datetime.now(UTC).isoformat(),
+        created_at=_now_iso(),
         port=port,
         new_name=new_name,
         depends_on=depends_on,

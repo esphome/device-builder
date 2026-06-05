@@ -16,7 +16,7 @@ from ...models import (
 )
 from . import lifecycle
 from .constants import _ACTIVE_JOB_STATUSES
-from .helpers import _fire_job_lifecycle, _mark_job_terminal
+from .helpers import _fire_job_lifecycle
 
 if TYPE_CHECKING:
     from ._state import Lane
@@ -124,7 +124,7 @@ async def cancel(controller: FirmwareController, *, job_id: str) -> None:
         # sees the job as CANCELLED. Spelled out rather than routed
         # through ``_finalize_terminal`` because we need to land
         # ``_persist_jobs`` between the mark and the fire.
-        _mark_job_terminal(job, JobStatus.CANCELLED)
+        job.mark_terminal(JobStatus.CANCELLED)
         controller._prune_history()
         await controller._persist_jobs()
         _fire_job_lifecycle(job, controller._db.bus, EventType.JOB_CANCELLED)

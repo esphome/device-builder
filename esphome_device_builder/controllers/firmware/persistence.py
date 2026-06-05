@@ -37,9 +37,9 @@ from .constants import (
     _JOBS_KEY,
     _MAX_AUX_TERMINAL_JOBS,
     _MAX_PRIMARY_TERMINAL_JOBS,
+    _PREREQUISITE_FAILED_ERROR,
     _PRIMARY_JOB_TYPES,
 )
-from .helpers import _mark_job_terminal
 
 if TYPE_CHECKING:
     from .controller import FirmwareController
@@ -180,8 +180,7 @@ def _restore_to_lane(controller: FirmwareController, job: FirmwareJob) -> None:
         job.depends_on,
         prereq_status,
     )
-    _mark_job_terminal(job, JobStatus.CANCELLED)
-    job.error = "prerequisite job did not complete successfully"
+    job.mark_terminal(JobStatus.CANCELLED, error=_PREREQUISITE_FAILED_ERROR)
 
 
 async def load_jobs(controller: FirmwareController) -> None:

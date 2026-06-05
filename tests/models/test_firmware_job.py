@@ -13,6 +13,7 @@ methods on it carry meaningful behaviour:
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 import pytest
@@ -196,6 +197,38 @@ def test_revert_to_pending_remote_clears_binding_and_run_state() -> None:
     assert job.source_pin_sha256 == ""
     assert job.started_at is None
     assert job.progress is None
+
+
+def test_mark_terminal_sets_status_and_completed_at() -> None:
+    """``mark_terminal`` stamps a terminal status plus a parseable completion time."""
+    job = _make_job(status=JobStatus.RUNNING, completed_at=None)
+
+    job.mark_terminal(JobStatus.COMPLETED)
+
+    assert job.status is JobStatus.COMPLETED
+    assert job.completed_at is not None
+    assert datetime.fromisoformat(job.completed_at).tzinfo is not None
+
+
+def test_mark_terminal_records_error_when_given() -> None:
+    """``mark_terminal(..., error=...)`` writes the failure message alongside the status."""
+    job = _make_job(status=JobStatus.RUNNING, error=None)
+
+    job.mark_terminal(JobStatus.FAILED, error="boom")
+
+    assert job.status is JobStatus.FAILED
+    assert job.error == "boom"
+
+
+def test_mark_terminal_rejects_non_terminal_status() -> None:
+    """A non-terminal status raises and leaves the job untouched (no stray completed_at)."""
+    job = _make_job(status=JobStatus.RUNNING, completed_at=None)
+
+    with pytest.raises(ValueError, match="non-terminal"):
+        job.mark_terminal(JobStatus.RUNNING)
+
+    assert job.completed_at is None
+    assert job.status is JobStatus.RUNNING
 
 
 # ---------------------------------------------------------------------------

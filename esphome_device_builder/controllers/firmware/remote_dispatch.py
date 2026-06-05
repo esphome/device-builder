@@ -52,7 +52,7 @@ _MAX_SERVER_LOSS_RETRIES = 3
 # peer-link handshakes take a moment). Without it, restored REMOTE_PENDING
 # compiles would fall back to LOCAL because no server is connected yet. Patched
 # to 0 in tests. Module constant so it can be tuned without touching the loop.
-_STARTUP_GRACE_SECONDS = 30.0
+_STARTUP_GRACE_SECONDS = 20.0
 
 # Offloader bus events that change which servers are available: a peer
 # connecting/leaving, a receiver flipping idle/busy, and pairing-lifecycle

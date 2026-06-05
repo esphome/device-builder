@@ -93,8 +93,8 @@ async def test_cancel_queued_job_marks_terminal_and_fires_event(
 ) -> None:
     """A queued job flips to ``CANCELLED`` immediately and broadcasts.
 
-    Goes through ``_mark_job_terminal`` (the shared helper that
-    stamps ``status`` + ``completed_at``); without it the panel
+    Goes through ``FirmwareJob.mark_terminal`` (which stamps
+    ``status`` + ``completed_at``); without it the panel
     would render the cancelled job with a stale ``"queued"``
     status until the next page refresh.
     """
@@ -198,7 +198,7 @@ async def test_cancel_running_job_does_not_fire_event_directly(
 
     Pin the responsibility split: ``cancel`` records intent and
     nudges the subprocess; the runner's ``finally`` finalises the
-    job (with ``_mark_job_terminal``) and fires the event. Firing
+    job (with ``mark_terminal``) and fires the event. Firing
     here AND there would double-fire and the all-jobs panel would
     see two cancels for one job.
     """
