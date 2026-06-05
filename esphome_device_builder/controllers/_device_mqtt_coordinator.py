@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from esphome import yaml_util
+from esphome.core import EsphomeError
 
 from ..helpers.device_yaml import load_device_yaml
 from ..helpers.yaml import FastestSafeLoader
@@ -300,9 +302,23 @@ def _load_secrets(config_dir: Path) -> dict[str, Any]:
             # ``_TolerantYamlLoader`` call above.
             data = yaml.load(f, Loader=FastestSafeLoader)  # noqa: S506
     except yaml.YAMLError:
-        _LOGGER.warning("Could not parse secrets.yaml — MQTT broker secrets unavailable")
-        return {}
+        # A plain secrets.yaml is key/value scalars the fast loader
+        # handles. ESPHome tags (``!include`` / ``!secret``) and merge
+        # keys are not — the documented HA-shared
+        # ``<<: !include ../secrets.yaml`` pattern lands here. Retry with
+        # ESPHome's loader, which resolves them the way a compile does.
+        data = _load_secrets_via_esphome(secrets_path)
     return data if isinstance(data, dict) else {}
+
+
+def _load_secrets_via_esphome(secrets_path: Path) -> dict[str, Any] | None:
+    """Load *secrets_path* with ESPHome's loader (``!include`` / merge keys)."""
+    try:
+        data = yaml_util.load_yaml(secrets_path)
+    except EsphomeError:
+        _LOGGER.warning("Could not parse secrets.yaml — MQTT broker secrets unavailable")
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def _safe_mtime(path: Path) -> float:
