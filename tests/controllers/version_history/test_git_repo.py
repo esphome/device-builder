@@ -10,8 +10,10 @@ The load-bearing guarantees these pin:
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -19,6 +21,15 @@ import pytest
 from esphome_device_builder.controllers.version_history.git_repo import GitRepo
 
 _GIT = shutil.which("git") or "git"
+
+
+def _index_lock(repo_root: Path, *, age_seconds: float) -> Path:
+    """Write a ``.git/index.lock`` aged *age_seconds* in the past."""
+    lock = repo_root / ".git" / "index.lock"
+    lock.write_text("", encoding="utf-8")
+    stamp = time.time() - age_seconds
+    os.utime(lock, (stamp, stamp))
+    return lock
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -375,6 +386,69 @@ def test_commit_paths_raises_on_git_error(tmp_path: Path, monkeypatch: pytest.Mo
     )
     with pytest.raises(subprocess.CalledProcessError):
         repo.commit_paths([yaml], "Create kitchen.yaml")
+
+
+def test_commit_clears_stale_index_lock_and_retries(tmp_path: Path) -> None:
+    """A repo we created self-heals a stale ``index.lock`` left by a killed git."""
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+    assert repo.created
+    yaml = tmp_path / "kitchen.yaml"
+    yaml.write_text("v1\n", encoding="utf-8")
+    lock = _index_lock(tmp_path, age_seconds=3600)
+
+    sha = repo.commit_paths([yaml], "Create kitchen.yaml")
+
+    assert sha
+    assert not lock.exists()
+
+
+def test_commit_keeps_fresh_index_lock(tmp_path: Path) -> None:
+    """A young ``index.lock`` (a live git may hold it) is left alone; the write raises."""
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+    yaml = tmp_path / "kitchen.yaml"
+    yaml.write_text("v1\n", encoding="utf-8")
+    lock = _index_lock(tmp_path, age_seconds=0)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        repo.commit_paths([yaml], "Create kitchen.yaml")
+    assert lock.exists()
+
+
+def test_adopted_repo_never_clears_index_lock(tmp_path: Path) -> None:
+    """An adopted work tree (user's ``/config``) is never auto-unlocked, even when stale."""
+    _make_repo(tmp_path)
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+    assert not repo.created
+    yaml = tmp_path / "kitchen.yaml"
+    yaml.write_text("v1\n", encoding="utf-8")
+    lock = _index_lock(tmp_path, age_seconds=3600)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        repo.commit_paths([yaml], "Create kitchen.yaml")
+    assert lock.exists()
+
+
+def test_reads_pass_no_optional_locks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every git invocation carries ``--no-optional-locks`` so reads can't grab index.lock."""
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+    calls: list[list[str]] = []
+    real_run = subprocess.run
+
+    def _record(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(cmd)
+        return real_run(cmd, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.version_history.git_repo.subprocess.run", _record
+    )
+    repo.log_file(tmp_path / "kitchen.yaml")
+
+    assert calls
+    assert all(cmd[1] == "--no-optional-locks" for cmd in calls)
 
 
 def test_run_surfaces_git_stderr_on_failure(tmp_path: Path) -> None:

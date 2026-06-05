@@ -27,6 +27,7 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -82,6 +83,10 @@ _SECRETS_FILENAME = "secrets.yaml"
 # Glob patterns for the YAML configs this feature versions.
 _YAML_GLOBS = ("*.yaml", "*.yml")
 
+# Min age before a leftover ``index.lock`` counts as stale and is cleared;
+# younger than this a live git may still hold it, so we leave it alone.
+_STALE_LOCK_SECONDS = 30.0
+
 # Written only when *we* create the repo and no ``.gitignore`` exists; a
 # pre-existing one is left untouched (the local exclude is what actually
 # protects the secrets above). ``secrets.yaml`` is ignored here — not in
@@ -133,6 +138,10 @@ class GitRepo:
     git_bin: str | None = None
     toplevel: Path | None = None
     enabled: bool = field(default=False)
+    # True only when *we* initialised the repo, never when adopting one.
+    # Gates stale-index.lock recovery so we never clear a lock in a user's
+    # own ``/config`` work tree.
+    created: bool = field(default=False)
 
     # ------------------------------------------------------------------
     # lifecycle
@@ -194,6 +203,7 @@ class GitRepo:
         self._run(["init", str(self.config_dir)], cwd=self.config_dir, check=True)
         self.toplevel = self.config_dir
         self.enabled = True
+        self.created = True
         self._ensure_local_excludes()
         gitignore = self.config_dir / ".gitignore"
         if not gitignore.exists():
@@ -300,11 +310,11 @@ class GitRepo:
         if not self.enabled or not paths:
             return None
         spec = [str(p) for p in paths]
-        self._run(["add", "-A", "--", *spec], check=True)
+        self._run_write(["add", "-A", "--", *spec])
         staged = self._run(["diff", "--cached", "--quiet", "--", *spec], check=False)
         if staged.returncode == 0:
             return None  # nothing staged for these paths
-        self._run(self._commit_argv(message, tuple(spec)), check=True)
+        self._run_write(self._commit_argv(message, tuple(spec)))
         head = self._run(["rev-parse", "HEAD"], check=False)
         return head.stdout.strip() if head.returncode == 0 else None
 
@@ -410,6 +420,51 @@ class GitRepo:
     # internals
     # ------------------------------------------------------------------
 
+    def _run_write(self, args: list[str]) -> None:
+        """Run a checked git write, clearing a *stale* index.lock and retrying once."""
+        try:
+            self._run(args, check=True)
+        except subprocess.CalledProcessError as exc:
+            if not self._clear_stale_index_lock(exc):
+                raise
+            self._run(args, check=True)
+
+    def _clear_stale_index_lock(self, exc: subprocess.CalledProcessError) -> bool:
+        """Remove the index.lock blamed by *exc* iff it's stale; return whether removed.
+
+        Gated on ownership (only a repo we created, never an adopted
+        ``/config``) and age (:data:`_STALE_LOCK_SECONDS`), so a lock a
+        live git is actively holding is never deleted out from under it.
+        """
+        if not self.created or "index.lock" not in (exc.stderr or ""):
+            return False
+        lock = self._index_lock_path()
+        if lock is None or not lock.exists():
+            return False
+        try:
+            age = time.time() - lock.stat().st_mtime
+        except OSError:
+            return False
+        if age < _STALE_LOCK_SECONDS:
+            return False  # fresh — a live git may hold it; don't clobber
+        try:
+            lock.unlink()
+        except OSError as unlink_exc:
+            _LOGGER.warning("Could not remove stale git index.lock at %s: %s", lock, unlink_exc)
+            return False
+        _LOGGER.warning("Removed stale git index.lock at %s (age %.0fs)", lock, age)
+        return True
+
+    def _index_lock_path(self) -> Path | None:
+        """Resolve the work tree's ``index.lock`` path (handles split git dirs)."""
+        result = self._run(["rev-parse", "--git-path", "index.lock"], check=False)
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+        lock = Path(result.stdout.strip())
+        if not lock.is_absolute():
+            lock = (self.toplevel or self.config_dir) / lock
+        return lock
+
     def _rel_to_toplevel(self, path: Path) -> str:
         """Return *path* relative to the work-tree root (git's pathspec base)."""
         assert self.toplevel is not None
@@ -439,8 +494,11 @@ class GitRepo:
         # close_fds=True makes the child iterate the fd table before
         # exec, which is pure overhead on memory-pressured systems; our
         # spawns don't rely on inherited fds being closed at the boundary.
+        # --no-optional-locks stops reads from grabbing index.lock for an
+        # optional refresh, so an unlocked read can't contend with a commit;
+        # the required lock add/commit take is unaffected.
         result = subprocess.run(  # noqa: S603
-            [self.git_bin, *args],
+            [self.git_bin, "--no-optional-locks", *args],
             cwd=str(cwd or self.toplevel or self.config_dir),
             capture_output=True,
             text=True,
