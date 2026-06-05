@@ -339,22 +339,10 @@ against legacy behaviour before assuming the simpler version suffices.
   fixtures in `tests/controllers/devices/conftest.py` and
   `tests/test_config_hash.py`.
 
-  **Native Windows auto-applies the `ESPHOME_DATA_DIR` override.** On
-  `os.name == "nt"`, `__main__` wraps startup in
-  `helpers/windows_build_paths.windows_short_build_paths`, which points
-  `ESPHOME_DATA_DIR` at `C:\esphb\<dashboard_id[:8]>` and
-  `PLATFORMIO_CORE_DIR` at `<root>\pio` — short, space-free **real** dirs
-  so deep ESP-IDF build paths clear `MAX_PATH` (260) and the pioarduino
-  whitespace guard (`C:\Users\First Last\…`). So a Windows build resolves
-  through the override row, not the default `<config_dir>/.esphome` row —
-  don't assume default-mode paths on Windows. The helper migrates a prior
-  layout in once (the original `<config>/.esphome` + `~/.platformio`, or
-  the first-release flat `C:\esphb-<id8>`) via same-volume rename; a
-  `.json` completion marker makes it idempotent across restarts. No-op off
-  Windows (incl. a Linux container on Windows) and when the user pre-set
-  `ESPHOME_DATA_DIR`. The relocation seam is unit-tested cross-platform
-  (`tests/test_windows_build_paths.py`) plus a real `windows-latest`
-  e2e (`tests/e2e/slow/windows/`).
+  Native Windows auto-applies the override row: `__main__` wraps startup
+  in `helpers/windows_build_paths` to relocate `CORE.data_dir` to
+  `C:\esphb\<id8>` (clears `MAX_PATH` + spaces), so don't assume
+  default-mode `<config>/.esphome` paths on Windows.
 - **`config_hash` source of truth is `build_info.json`.** ESPHome writes
   `<storage.build_path>/build_info.json` after every successful compile
   *and* every `--only-generate` (the `write_cpp(config)` call runs before
