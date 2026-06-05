@@ -295,8 +295,7 @@ def _load_secrets(config_dir: Path) -> dict[str, Any]:
     if not secrets_path.exists():
         return {}
     try:
-        data = load_yaml_fast_then_esphome(secrets_path)
-    except (EsphomeError, yaml.YAMLError, OSError) as err:
+    except (EsphomeError, yaml.YAMLError, OSError, UnicodeDecodeError) as err:
         _LOGGER.warning("Could not read secrets.yaml (%s) — MQTT broker secrets unavailable", err)
         return {}
     # An empty or comment-only secrets.yaml parses to None; that is a
