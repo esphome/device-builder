@@ -199,6 +199,25 @@ def test_revert_to_pending_remote_clears_binding_and_run_state() -> None:
     assert job.progress is None
 
 
+@pytest.mark.parametrize(
+    ("status", "terminal", "active"),
+    [
+        (JobStatus.QUEUED, False, True),
+        (JobStatus.RUNNING, False, True),
+        (JobStatus.COMPLETED, True, False),
+        (JobStatus.FAILED, True, False),
+        (JobStatus.CANCELLED, True, False),
+    ],
+)
+def test_is_terminal_is_active_partition_the_statuses(
+    status: JobStatus, terminal: bool, active: bool
+) -> None:
+    """``is_terminal`` / ``is_active`` are exact complements across every status."""
+    job = _make_job(status=status)
+    assert job.is_terminal is terminal
+    assert job.is_active is active
+
+
 def test_mark_terminal_sets_status_and_completed_at() -> None:
     """``mark_terminal`` stamps a terminal status plus a parseable completion time."""
     job = _make_job(status=JobStatus.RUNNING, completed_at=None)

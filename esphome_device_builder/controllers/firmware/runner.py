@@ -312,7 +312,7 @@ async def tracked_subprocess(
       handles the job-finalisation half and relies on this
       helper for the terminate.
 
-    Pairs with ``_raise_if_cancelled`` — wrap each spawn, then
+    Pairs with ``lifecycle.raise_if_cancelled`` — wrap each spawn, then
     call the helper after to short-circuit if the cancel landed
     between this subprocess and the next one.
     """

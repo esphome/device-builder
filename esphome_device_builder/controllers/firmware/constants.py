@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import re
 
-from ...models import JobStatus, JobType
+from ...models import JobType
 
 # Metadata key under which the firmware queue persists itself in
 # ``.device-builder.json``.
@@ -119,11 +119,6 @@ _MAX_AUX_TERMINAL_JOBS = 5
 _PRIMARY_JOB_TYPES: frozenset[JobType] = frozenset(
     {JobType.COMPILE, JobType.UPLOAD, JobType.INSTALL}
 )
-
-# Statuses considered "active" — queued for execution or
-# currently running. Re-queued on dashboard restart by
-# ``persistence.load_jobs``; exempt from history pruning.
-_ACTIVE_JOB_STATUSES: frozenset[JobStatus] = frozenset({JobStatus.QUEUED, JobStatus.RUNNING})
 
 # Job types eligible for ``--mdns/--dns-address-cache`` forwarding.
 _OTA_ADDRESS_CACHE_JOB_TYPES: frozenset[JobType] = frozenset(

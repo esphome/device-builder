@@ -6,7 +6,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from ...helpers.process import terminate_subtree_with_grace
-from ...models import TERMINAL_JOB_STATUSES, EventType, FirmwareJob, JobStatus
+from ...models import EventType, FirmwareJob, JobStatus
 from .constants import _PREREQUISITE_FAILED_ERROR
 from .helpers import _fire_job_lifecycle, _trim_job_output
 
@@ -67,7 +67,7 @@ async def end_run(controller: FirmwareController, job: FirmwareJob) -> None:
     The trim/prune is a no-op while the job is still active. Caller releases its
     own slot (lane ``current_job`` / pool entry) first.
     """
-    if job.status in TERMINAL_JOB_STATUSES:
+    if job.is_terminal:
         _trim_job_output(job)
         controller._prune_history()
     await controller._persist_jobs()

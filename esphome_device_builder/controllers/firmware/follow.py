@@ -10,7 +10,6 @@ from ...helpers.api import registered_stream
 from ...helpers.event_bus import StreamControls, stream_events
 from ...models import (
     TERMINAL_JOB_EVENTS,
-    TERMINAL_JOB_STATUSES,
     EventType,
     StreamEvent,
 )
@@ -143,7 +142,7 @@ async def _stream_job(
 ) -> None:
     """Replay history then tail live output for one job until it ends or is cancelled."""
     # Capture snapshot before ``stream_events`` attaches listeners.
-    is_terminal = job.status in TERMINAL_JOB_STATUSES
+    is_terminal = job.is_terminal
     snapshot = await _initial_snapshot(job, job_id)
     terminal_status = job.status.value if is_terminal else ""
     terminal_exit_code = job.exit_code
@@ -225,7 +224,7 @@ async def _initial_snapshot(job: Any, job_id: str) -> list[str]:
     output = job.output
     if output:
         return list(output)
-    if job.status in TERMINAL_JOB_STATUSES:
+    if job.is_terminal:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, read_job_output, job_id)
     return []

@@ -15,7 +15,6 @@ from ...models import (
     JobStatus,
 )
 from . import lifecycle
-from .constants import _ACTIVE_JOB_STATUSES
 from .helpers import _fire_job_lifecycle
 
 if TYPE_CHECKING:
@@ -59,7 +58,7 @@ def active_remote_peer_jobs(controller: FirmwareController) -> Iterator[Firmware
     reach into ``state.jobs`` directly.
     """
     for job in controller.state.jobs.values():
-        if job.status not in _ACTIVE_JOB_STATUSES:
+        if not job.is_active:
             continue
         if not job.remote_peer:
             continue

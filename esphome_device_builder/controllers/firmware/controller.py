@@ -404,9 +404,6 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     def _finalize_cancelled(self, job: FirmwareJob) -> None:
         lifecycle.finalize_cancelled(self, job)
 
-    def _raise_if_cancelled(self, job: FirmwareJob, phase: str) -> None:
-        lifecycle.raise_if_cancelled(self, job, phase)
-
     async def _terminate_current_process(self, lane: Lane) -> None:
         await lifecycle.terminate_current_process(self, lane)
 

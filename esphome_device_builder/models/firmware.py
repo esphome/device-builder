@@ -123,6 +123,9 @@ TERMINAL_JOB_STATUSES: frozenset[JobStatus] = frozenset(
     {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED}
 )
 
+# Active job states — queued or running (the complement of terminal).
+_ACTIVE_JOB_STATUSES: frozenset[JobStatus] = frozenset({JobStatus.QUEUED, JobStatus.RUNNING})
+
 # Lifecycle events that match ``TERMINAL_JOB_STATUSES``. The runner
 # fires exactly one of these per job, matching the status set
 # above — kept as a separate constant because subscriptions key
@@ -267,6 +270,16 @@ class FirmwareJob(DataClassORJSONMixin):
     # pairing hadn't yet completed a peer-link session (the
     # pairing field populates on every session-open).
     source_esphome_version: str = ""
+
+    @property
+    def is_terminal(self) -> bool:
+        """Whether the job has reached a terminal status (completed / failed / cancelled)."""
+        return self.status in TERMINAL_JOB_STATUSES
+
+    @property
+    def is_active(self) -> bool:
+        """Whether the job is still queued or running (not yet terminal)."""
+        return self.status in _ACTIVE_JOB_STATUSES
 
     def reset(self) -> None:
         """

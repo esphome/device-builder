@@ -14,6 +14,7 @@ from esphome.storage_json import StorageJSON
 from ...helpers.remote_build_layout import parse_from_configuration as parse_remote_build_path
 from ...helpers.storage_path import resolve_storage_path
 from ...models import FirmwareJob, JobType
+from . import lifecycle
 from .constants import _OTA_ADDRESS_CACHE_JOB_TYPES, ESPHOME_SUBPROCESS_ENV
 from .helpers import _find_esptool_cmd
 
@@ -144,7 +145,7 @@ async def verify_chip(controller: FirmwareController, job: FirmwareJob, lane: La
     # in ``_execute_job`` would otherwise let the full install run
     # before reporting CANCELLED). Reusing the ``ValueError`` shape
     # keeps the error path identical to a chip mismatch.
-    controller._raise_if_cancelled(job, "chip verification")
+    lifecycle.raise_if_cancelled(controller, job, "chip verification")
 
     # Parse "Detecting chip type... ESP32-C3"
     detected = ""

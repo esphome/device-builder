@@ -26,7 +26,6 @@ from typing import TYPE_CHECKING
 from ...helpers.build_scheduler import DispatchOutcome, pick_dispatch_target
 from ...models import (
     LOCAL_JOB_BUILD_SOURCE,
-    TERMINAL_JOB_STATUSES,
     EventType,
     FirmwareJob,
     JobBuildSource,
@@ -195,7 +194,7 @@ async def _drive_remote(controller: FirmwareController, job: FirmwareJob) -> Non
     terminal finalise and cancel.
     """
     pool = controller.state.remote_dispatch
-    if job.status in TERMINAL_JOB_STATUSES:
+    if job.is_terminal:
         # Cancelled / superseded in the window between dispatch and this task
         # running — don't start the build, just free the slot. (The eager
         # scheduler stamps RUNNING before the in-flight binding so this can't
@@ -216,7 +215,7 @@ async def _drive_remote(controller: FirmwareController, job: FirmwareJob) -> Non
         lifecycle.finalize_unexpected_error(controller, job, exc)
     finally:
         pool.release(job.job_id)
-        if job.status in TERMINAL_JOB_STATUSES:
+        if job.is_terminal:
             pool.forget_losses(job.job_id)
         await lifecycle.end_run(controller, job)
 

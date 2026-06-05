@@ -7,7 +7,6 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 
 from ...models import FirmwareJob, JobSource, JobStatus, JobType
-from .constants import _ACTIVE_JOB_STATUSES
 
 
 @dataclass
@@ -168,7 +167,7 @@ class FirmwareState:
 
     def active_jobs(self) -> Iterator[FirmwareJob]:
         """Yield the queued or running jobs (skips terminal history)."""
-        return (j for j in self.jobs.values() if j.status in _ACTIVE_JOB_STATUSES)
+        return (j for j in self.jobs.values() if j.is_active)
 
     def dependency_satisfied(self, job: FirmwareJob) -> bool:
         """Return whether *job* has no prerequisite, or its prerequisite has completed."""
