@@ -98,6 +98,22 @@ _DEFAULT_GITIGNORE = "".join(
 )
 
 
+class GitCommandError(subprocess.CalledProcessError):
+    """``CalledProcessError`` whose ``str`` carries git's stderr.
+
+    Plain ``CalledProcessError`` renders only the exit status, so a
+    logged ``exc_info`` drops the ``fatal:`` line that says *why* — the
+    one fact needed to triage a failed commit (stale ``index.lock``,
+    dubious ownership, disk full).
+    """
+
+    def __str__(self) -> str:
+        """Exit-status line followed by git's trimmed stderr, when present."""
+        detail = (self.stderr or "").strip()
+        base = super().__str__()
+        return f"{base}: {detail}" if detail else base
+
+
 @dataclass(slots=True)
 class CommitInfo:
     """One commit touching a file, as surfaced to the history UI."""
@@ -409,7 +425,12 @@ class GitRepo:
         check: bool,
         cwd: Path | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        """Run ``git`` with *args* in the work tree; capture text output."""
+        """Run ``git`` with *args* in the work tree; capture text output.
+
+        Checks the exit status here (rather than via ``check=True``) so a
+        failure raises :class:`GitCommandError`, whose ``str`` carries the
+        ``fatal:`` stderr line a bare ``CalledProcessError`` would drop.
+        """
         assert self.git_bin is not None
         # git_bin is a resolved absolute path from shutil.which and the
         # args are a fixed argv (never shell-interpreted), so the only
@@ -418,14 +439,19 @@ class GitRepo:
         # close_fds=True makes the child iterate the fd table before
         # exec, which is pure overhead on memory-pressured systems; our
         # spawns don't rely on inherited fds being closed at the boundary.
-        return subprocess.run(  # noqa: S603
+        result = subprocess.run(  # noqa: S603
             [self.git_bin, *args],
             cwd=str(cwd or self.toplevel or self.config_dir),
             capture_output=True,
             text=True,
-            check=check,
+            check=False,
             close_fds=False,
         )
+        if check and result.returncode != 0:
+            raise GitCommandError(
+                result.returncode, result.args, output=result.stdout, stderr=result.stderr
+            )
+        return result
 
 
 def _encloses_own_source(toplevel: Path) -> bool:

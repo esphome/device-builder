@@ -377,6 +377,25 @@ def test_commit_paths_raises_on_git_error(tmp_path: Path, monkeypatch: pytest.Mo
         repo.commit_paths([yaml], "Create kitchen.yaml")
 
 
+def test_run_surfaces_git_stderr_on_failure(tmp_path: Path) -> None:
+    """A checked git failure raises with the ``fatal:`` stderr line in ``str``.
+
+    Pins the triage path: a stale ``index.lock`` (or any fatal) must show
+    *why* in the log, not a bare ``exit status 128``.
+    """
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+    # Simulate the killed-mid-commit leftover that breaks every add.
+    (tmp_path / ".git" / "index.lock").write_text("", encoding="utf-8")
+    yaml = tmp_path / "kitchen.yaml"
+    yaml.write_text("v1\n", encoding="utf-8")
+
+    with pytest.raises(subprocess.CalledProcessError) as exc_info:
+        repo.commit_paths([yaml], "Create kitchen.yaml")
+
+    assert "index.lock" in str(exc_info.value)
+
+
 def test_file_at_returns_none_for_unknown_commit(tmp_path: Path) -> None:
     """Asking for a path at a commit that doesn't have it yields None, not a crash."""
     repo = GitRepo(config_dir=tmp_path)
