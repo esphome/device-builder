@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ...helpers.process import terminate_subtree_with_grace
-from ...models import EventType, FirmwareJob, JobLifecycleData, JobStatus
-from .helpers import _mark_job_terminal
+from ...models import TERMINAL_JOB_STATUSES, EventType, FirmwareJob, JobLifecycleData, JobStatus
+from .helpers import _mark_job_terminal, _trim_job_output
 
 if TYPE_CHECKING:
     from ._state import Lane
@@ -44,6 +44,17 @@ def finalize_terminal(controller: FirmwareController, job: FirmwareJob, status: 
     release_dependents(controller, job)
     # Wake an upload lane held behind a now-finished clean/reset (build gate).
     controller.state.build_gate.set()
+
+
+def finalize_bookkeeping(controller: FirmwareController, job: FirmwareJob) -> None:
+    """Trim output and prune history once *job* is terminal; a no-op while it's still active.
+
+    The shared tail of both execution paths' ``finally`` (the lane runner
+    and the off-lane dispatch pool), run after each has released its slot.
+    """
+    if job.status in TERMINAL_JOB_STATUSES:
+        _trim_job_output(job)
+        controller._prune_history()
 
 
 def _release_lane_slot(controller: FirmwareController, job: FirmwareJob) -> None:

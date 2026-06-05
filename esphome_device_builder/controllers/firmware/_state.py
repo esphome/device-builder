@@ -6,7 +6,7 @@ import asyncio
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 
-from ...models import FirmwareJob, JobStatus, JobType
+from ...models import FirmwareJob, JobSource, JobStatus, JobType
 from .constants import _ACTIVE_JOB_STATUSES
 
 
@@ -22,6 +22,64 @@ class Lane:
     queue: asyncio.Queue[FirmwareJob] = field(default_factory=asyncio.Queue)
     current_job: FirmwareJob | None = None
     current_process: asyncio.subprocess.Process | None = None
+
+
+@dataclass
+class RemoteDispatchState:
+    """The remote build-server pool — owned by ``remote_dispatch``.
+
+    A pooled compile moves through three states, each transition a method
+    here so callers never juggle the dicts in lock-step: ``hold`` (waiting
+    in ``pending``), ``start`` (in-flight on a server: ``in_flight`` task +
+    ``job_peer`` pin), and ``release`` / ``drop`` (gone). ``busy_pins`` is
+    the scheduler's exclusion set; ``record_loss`` / ``forget_losses`` cap
+    mid-build re-routes. ``wake`` kicks the matcher on every change.
+    """
+
+    pending: dict[str, FirmwareJob] = field(default_factory=dict)
+    in_flight: dict[str, asyncio.Task[None]] = field(default_factory=dict)
+    job_peer: dict[str, str] = field(default_factory=dict)
+    wake: asyncio.Event = field(default_factory=asyncio.Event)
+    retries: dict[str, int] = field(default_factory=dict)
+
+    def busy_pins(self) -> frozenset[str]:
+        """Pins driving an in-flight compile — the scheduler's busy set."""
+        return frozenset(self.job_peer.values())
+
+    def is_in_flight(self, job_id: str) -> bool:
+        """Whether *job_id* is an in-flight remote compile (off-lane, driven by a task)."""
+        return job_id in self.in_flight
+
+    def hold(self, job: FirmwareJob) -> None:
+        """Add *job* to the waiting set and wake the matcher."""
+        self.pending[job.job_id] = job
+        self.wake.set()
+
+    def drop(self, job_id: str) -> None:
+        """Remove a waiting job (cancel / supersede / re-routed to the lane)."""
+        self.pending.pop(job_id, None)
+        self.retries.pop(job_id, None)
+
+    def start(self, job: FirmwareJob, pin_sha256: str, task: asyncio.Task[None]) -> None:
+        """Move *job* from waiting to in-flight on server *pin_sha256*."""
+        self.pending.pop(job.job_id, None)
+        self.job_peer[job.job_id] = pin_sha256
+        self.in_flight[job.job_id] = task
+
+    def release(self, job_id: str) -> None:
+        """Clear an in-flight job's server binding and wake the matcher (its server freed)."""
+        self.in_flight.pop(job_id, None)
+        self.job_peer.pop(job_id, None)
+        self.wake.set()
+
+    def record_loss(self, job_id: str) -> int:
+        """Count a mid-build server loss for *job_id*; return the running total."""
+        self.retries[job_id] = self.retries.get(job_id, 0) + 1
+        return self.retries[job_id]
+
+    def forget_losses(self, job_id: str) -> None:
+        """Drop *job_id*'s loss counter once it reaches a real terminal."""
+        self.retries.pop(job_id, None)
 
 
 @dataclass
@@ -61,15 +119,28 @@ class FirmwareState:
     # (see ``upload_blocked`` / ``runner._await_build_gate``).
     build_gate: asyncio.Event = field(default_factory=asyncio.Event)
 
+    # Remote build-server pool (see :class:`RemoteDispatchState`).
+    remote_dispatch: RemoteDispatchState = field(default_factory=RemoteDispatchState)
+
     def lane_for(self, job: FirmwareJob) -> Lane:
         """Return the lane *job* runs on: UPLOAD on the network lane, else the compile lane."""
         return self.upload_lane if job.job_type is JobType.UPLOAD else self.compile_lane
 
     def place_on_lane(self, job: FirmwareJob) -> None:
-        """Put *job* onto the lane its type maps to, ready for that lane's consumer."""
+        """Route *job* to its worker: the remote pool for a pending remote compile, else its lane.
+
+        A ``REMOTE_PENDING`` compile holds in the pool for a free build
+        server instead of occupying the single compile lane; everything
+        else goes on its lane. The single router so a job is never left
+        double-tracked — anything bound for a lane is dropped from the pool.
+        """
         if job.depends_on:
             # Reached only once the dependency is satisfied; latch it.
             job.dependency_released = True
+        if job.source is JobSource.REMOTE_PENDING and job.job_type is JobType.COMPILE:
+            self.remote_dispatch.hold(job)
+            return
+        self.remote_dispatch.drop(job.job_id)
         self.lane_for(job).queue.put_nowait(job)
 
     def active_jobs(self) -> Iterator[FirmwareJob]:

@@ -19,11 +19,11 @@ from ...models import (
     JobStatus,
     JobType,
 )
+from . import lifecycle
 from .constants import _ERROR_PATTERNS
 from .helpers import (
     _ingest_output_line,
     _is_no_module_named_esphome,
-    _trim_job_output,
 )
 from .remote_runner import run_remote_job
 
@@ -244,13 +244,7 @@ async def execute_job(  # noqa: PLR0912, PLR0915, C901
     finally:
         lane.current_job = None
         lane.current_process = None
-        if job.status in (
-            JobStatus.COMPLETED,
-            JobStatus.FAILED,
-            JobStatus.CANCELLED,
-        ):
-            _trim_job_output(job)
-            controller._prune_history()
+        lifecycle.finalize_bookkeeping(controller, job)
         await controller._persist_jobs()
 
 

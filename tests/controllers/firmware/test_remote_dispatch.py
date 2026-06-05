@@ -1,0 +1,589 @@
+"""
+Tests for :mod:`controllers.firmware.remote_dispatch` — the build-server pool.
+
+Drive ``_dispatch_pending`` against a scripted offloader snapshot and
+assert how ``REMOTE_PENDING`` compiles bind to free servers: concurrent
+use of every connected server, mid-queue pickup of a new host, one job
+per server, the ``WAIT`` hold, and the LOCAL / NO_COMPATIBLE_PEER
+fallbacks. Cancel of a pending and an in-flight remote compile is
+pinned here too (the off-lane ``cancel`` branches).
+"""
+
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+from typing import TYPE_CHECKING
+from unittest.mock import MagicMock
+
+import pytest
+
+from esphome_device_builder.controllers.firmware import remote_dispatch
+from esphome_device_builder.controllers.firmware.remote_runner import RemoteServerLostError
+from esphome_device_builder.helpers.build_scheduler import BuildSchedulerInputs
+from esphome_device_builder.helpers.version_compat import VersionMatchPolicy
+from esphome_device_builder.models import (
+    EventType,
+    FirmwareJob,
+    JobSource,
+    JobStatus,
+    JobType,
+    PeerQueueStatusSnapshotEntry,
+    PeerStatus,
+    StoredPairing,
+)
+
+if TYPE_CHECKING:
+    from .conftest import FirmwareControllerFactory
+
+pytestmark = pytest.mark.asyncio
+
+_PIN_A = "a" * 64
+_PIN_B = "b" * 64
+_PIN_C = "c" * 64
+
+
+def _pairing(pin: str, *, paired_at: float, label: str = "srv", version: str = "") -> StoredPairing:
+    """Build an APPROVED :class:`StoredPairing` for *pin*."""
+    return StoredPairing(
+        receiver_hostname="build.local",
+        receiver_port=6055,
+        pin_sha256=pin,
+        static_x25519_pub=b"\x01" * 32,
+        label=label,
+        paired_at=paired_at,
+        status=PeerStatus.APPROVED,
+        esphome_version=version,
+    )
+
+
+def _snapshot(
+    pairings: list[StoredPairing],
+    *,
+    open_pins: set[str],
+    idle_pins: set[str],
+    offloader_version: str = "",
+    policy: VersionMatchPolicy = VersionMatchPolicy.ANY,
+) -> BuildSchedulerInputs:
+    """Build the scheduler snapshot the stub offloader hands back."""
+    return BuildSchedulerInputs(
+        remote_builds_enabled=True,
+        pairings={p.pin_sha256: p for p in pairings},
+        open_peer_links=frozenset(open_pins),
+        peer_queue_status={
+            pin: PeerQueueStatusSnapshotEntry(
+                receiver_hostname="build.local",
+                receiver_port=6055,
+                pin_sha256=pin,
+                idle=True,
+                running=False,
+                queue_depth=0,
+            )
+            for pin in idle_pins
+        },
+        offloader_esphome_version=offloader_version,
+        version_match_policy=policy,
+    )
+
+
+def _stub_offloader(controller: object, snapshot: BuildSchedulerInputs) -> MagicMock:
+    """Wire ``_db.remote_build_offloader`` to return *snapshot*; ``get_pairing`` reads it."""
+    offloader = MagicMock()
+    offloader.build_scheduler_snapshot.return_value = snapshot
+
+    # Read the *current* snapshot so a test can swap servers in/out by
+    # reassigning ``build_scheduler_snapshot.return_value``.
+    def _get_pairing(pin: str) -> StoredPairing | None:
+        return offloader.build_scheduler_snapshot.return_value.pairings.get(pin)
+
+    offloader.get_pairing.side_effect = _get_pairing
+    controller._db.remote_build_offloader = offloader
+    return offloader
+
+
+def _add_pending(controller: object, job_id: str, *, config: str = "dev.yaml") -> FirmwareJob:
+    """Register a ``REMOTE_PENDING`` compile in ``state.jobs`` and the pending pool."""
+    job = FirmwareJob(
+        job_id=job_id,
+        configuration=config,
+        job_type=JobType.COMPILE,
+        source=JobSource.REMOTE_PENDING,
+    )
+    controller.state.jobs[job_id] = job
+    controller.state.remote_dispatch.pending[job_id] = job
+    return job
+
+
+async def test_every_connected_server_compiles_concurrently(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """Three idle servers + a backlog → one pass binds one job to each, distinctly."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    snapshot = _snapshot(
+        [
+            _pairing(_PIN_A, paired_at=1.0),
+            _pairing(_PIN_B, paired_at=2.0),
+            _pairing(_PIN_C, paired_at=3.0),
+        ],
+        open_pins={_PIN_A, _PIN_B, _PIN_C},
+        idle_pins={_PIN_A, _PIN_B, _PIN_C},
+    )
+    _stub_offloader(controller, snapshot)
+    for jid in ("j1", "j2", "j3", "j4"):
+        _add_pending(controller, jid)
+
+    await remote_dispatch._dispatch_pending(controller)
+
+    pool = controller.state.remote_dispatch
+    assert set(pool.in_flight) == {"j1", "j2", "j3"}
+    assert set(pool.job_peer.values()) == {_PIN_A, _PIN_B, _PIN_C}
+    # Fourth waits: every server is busy this pass.
+    assert set(pool.pending) == {"j4"}
+
+
+async def test_host_added_mid_queue_is_used(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A server appearing between passes pulls a still-waiting compile."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    offloader = _stub_offloader(
+        controller,
+        _snapshot([_pairing(_PIN_A, paired_at=1.0)], open_pins={_PIN_A}, idle_pins={_PIN_A}),
+    )
+    _add_pending(controller, "j1")
+    _add_pending(controller, "j2")
+
+    await remote_dispatch._dispatch_pending(controller)
+    assert controller.state.remote_dispatch.job_peer == {"j1": _PIN_A}
+    assert set(controller.state.remote_dispatch.pending) == {"j2"}
+
+    # A second host connects; the next pass binds the waiting compile to it.
+    offloader.build_scheduler_snapshot.return_value = _snapshot(
+        [_pairing(_PIN_A, paired_at=1.0), _pairing(_PIN_B, paired_at=2.0)],
+        open_pins={_PIN_A, _PIN_B},
+        idle_pins={_PIN_A, _PIN_B},
+    )
+    await remote_dispatch._dispatch_pending(controller)
+
+    assert controller.state.remote_dispatch.job_peer["j2"] == _PIN_B
+    assert not controller.state.remote_dispatch.pending
+
+
+async def test_freed_server_pulls_next_compile(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """When the in-flight job finishes, the freed server takes the next waiter."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    _stub_offloader(
+        controller,
+        _snapshot([_pairing(_PIN_A, paired_at=1.0)], open_pins={_PIN_A}, idle_pins={_PIN_A}),
+    )
+    _add_pending(controller, "j1")
+    _add_pending(controller, "j2")
+
+    await remote_dispatch._dispatch_pending(controller)
+    assert controller.state.remote_dispatch.job_peer == {"j1": _PIN_A}
+
+    # Simulate j1 finishing: the driver's finally drops it from the pool.
+    pool = controller.state.remote_dispatch
+    pool.in_flight.pop("j1")
+    pool.job_peer.pop("j1")
+
+    await remote_dispatch._dispatch_pending(controller)
+    assert pool.job_peer == {"j2": _PIN_A}
+    assert not pool.pending
+
+
+async def test_one_job_per_server(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """One server, three waiting compiles → exactly one runs, two hold."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    _stub_offloader(
+        controller,
+        _snapshot([_pairing(_PIN_A, paired_at=1.0)], open_pins={_PIN_A}, idle_pins={_PIN_A}),
+    )
+    for jid in ("j1", "j2", "j3"):
+        _add_pending(controller, jid)
+
+    await remote_dispatch._dispatch_pending(controller)
+
+    pool = controller.state.remote_dispatch
+    assert set(pool.in_flight) == {"j1"}
+    assert set(pool.pending) == {"j2", "j3"}
+
+
+async def test_no_server_connected_falls_back_to_local(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """No reachable server → the compile flips LOCAL onto the compile lane, never stranded."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    # Paired but disconnected (not in open_peer_links).
+    _stub_offloader(
+        controller,
+        _snapshot([_pairing(_PIN_A, paired_at=1.0)], open_pins=set(), idle_pins=set()),
+    )
+    job = _add_pending(controller, "j1")
+
+    await remote_dispatch._dispatch_pending(controller)
+
+    assert job.source is JobSource.LOCAL
+    assert job.source_pin_sha256 == ""
+    assert "j1" not in controller.state.remote_dispatch.pending
+
+
+async def test_exact_required_no_server_fails_the_job(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """EXACT_REQUIRED with the only server gone fails the compile, not a silent local build."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    _stub_offloader(
+        controller,
+        _snapshot(
+            [_pairing(_PIN_A, paired_at=1.0, version="2026.5.0")],
+            open_pins=set(),
+            idle_pins=set(),
+            offloader_version="2026.5.0",
+            policy=VersionMatchPolicy.EXACT_REQUIRED,
+        ),
+    )
+    job = _add_pending(controller, "j1")
+
+    await remote_dispatch._dispatch_pending(controller)
+
+    assert job.status is JobStatus.FAILED
+    assert "exact_required" in (job.error or "")
+    assert job.source is not JobSource.LOCAL
+
+
+async def test_exact_required_busy_server_waits_not_fails(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """EXACT_REQUIRED with the only compatible server busy holds the job (no hard-fail)."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    _stub_offloader(
+        controller,
+        _snapshot(
+            [_pairing(_PIN_A, paired_at=1.0, version="2026.5.0")],
+            open_pins={_PIN_A},
+            idle_pins={_PIN_A},
+            offloader_version="2026.5.0",
+            policy=VersionMatchPolicy.EXACT_REQUIRED,
+        ),
+    )
+    # Server A is already driving another job.
+    controller.state.remote_dispatch.job_peer["other"] = _PIN_A
+    job = _add_pending(controller, "j1")
+
+    await remote_dispatch._dispatch_pending(controller)
+
+    assert job.status is JobStatus.QUEUED
+    assert "j1" in controller.state.remote_dispatch.pending
+
+
+async def test_supersede_drops_a_pending_remote_compile(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """Re-compiling the same config supersedes the still-pending remote compile out of the pool."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    _stub_offloader(
+        controller,
+        _snapshot([_pairing(_PIN_A, paired_at=1.0)], open_pins={_PIN_A}, idle_pins={_PIN_A}),
+    )
+    (tmp_path / "dev.yaml").write_text("")
+
+    first = await controller.compile(configuration="dev.yaml")
+    assert first.job_id in controller.state.remote_dispatch.pending
+
+    second = await controller.compile(configuration="dev.yaml")
+
+    assert first.status is JobStatus.CANCELLED
+    assert first.job_id not in controller.state.remote_dispatch.pending
+    assert second.job_id in controller.state.remote_dispatch.pending
+
+
+async def test_cancel_pending_remote_compile_never_dispatches(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """Cancelling a still-pending remote compile drops it from the pool before any dispatch."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    offloader = _stub_offloader(
+        controller,
+        _snapshot([_pairing(_PIN_A, paired_at=1.0)], open_pins={_PIN_A}, idle_pins={_PIN_A}),
+    )
+    job = _add_pending(controller, "j1")
+
+    await controller.cancel(job_id="j1")
+
+    assert job.status is JobStatus.CANCELLED
+    assert "j1" not in controller.state.remote_dispatch.pending
+    await remote_dispatch._dispatch_pending(controller)
+    offloader.get_pairing.assert_not_called()
+
+
+async def test_cancel_in_flight_remote_compile_signals_event(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """Cancelling an off-lane in-flight remote compile flags it and wakes its runner."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    job = FirmwareJob(
+        job_id="j1",
+        configuration="dev.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.RUNNING,
+        source=JobSource.REMOTE,
+    )
+    controller.state.jobs["j1"] = job
+    controller.state.remote_dispatch.in_flight["j1"] = MagicMock()
+    cancel_event = asyncio.Event()
+    controller.state.cancel_events["j1"] = cancel_event
+
+    await controller.cancel(job_id="j1")
+
+    assert "j1" in controller.state.cancel_requested
+    assert cancel_event.is_set()
+
+
+async def test_drive_remote_finalizes_cleans_pool_and_releases_dependent(
+    firmware_controller_factory: FirmwareControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The driver fires JOB_STARTED, finalises, frees the server, and lands the held upload."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    compile_job = FirmwareJob(
+        job_id="c1",
+        configuration="dev.yaml",
+        job_type=JobType.COMPILE,
+        source=JobSource.REMOTE,
+        source_pin_sha256=_PIN_A,
+    )
+    upload_job = FirmwareJob(
+        job_id="u1",
+        configuration="dev.yaml",
+        job_type=JobType.UPLOAD,
+        depends_on="c1",
+    )
+    controller.state.jobs = {"c1": compile_job, "u1": upload_job}
+    controller.state.remote_dispatch.in_flight["c1"] = MagicMock()
+    controller.state.remote_dispatch.job_peer["c1"] = _PIN_A
+
+    started: list[str] = []
+    controller.bus.add_listener(
+        EventType.JOB_STARTED, lambda event: started.append(event.data["job"].job_id)
+    )
+
+    async def _fake_run(ctrl: object, job: FirmwareJob, **_kw: object) -> None:
+        ctrl._finalize_terminal(job, JobStatus.COMPLETED)
+
+    monkeypatch.setattr(remote_dispatch, "run_remote_job", _fake_run)
+
+    await remote_dispatch._drive_remote(controller, compile_job)
+
+    assert started == ["c1"]
+    assert compile_job.status is JobStatus.COMPLETED
+    pool = controller.state.remote_dispatch
+    assert "c1" not in pool.in_flight
+    assert "c1" not in pool.job_peer
+    assert pool.wake.is_set()
+    # The compile completing released its dependent upload onto the upload lane.
+    assert controller.state.upload_lane.queue.qsize() == 1
+
+
+async def test_loop_dispatches_three_servers_concurrently(
+    firmware_controller_factory: FirmwareControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """End-to-end through the real loop: three idle servers run three compiles at once."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    _stub_offloader(
+        controller,
+        _snapshot(
+            [
+                _pairing(_PIN_A, paired_at=1.0),
+                _pairing(_PIN_B, paired_at=2.0),
+                _pairing(_PIN_C, paired_at=3.0),
+            ],
+            open_pins={_PIN_A, _PIN_B, _PIN_C},
+            idle_pins={_PIN_A, _PIN_B, _PIN_C},
+        ),
+    )
+    controller._db.create_background_task = asyncio.create_task
+
+    running_pins: list[str] = []
+    all_three = asyncio.Event()
+    release = asyncio.Event()
+
+    async def _fake_run(ctrl: object, job: FirmwareJob, **_kw: object) -> None:
+        running_pins.append(job.source_pin_sha256)
+        if len(running_pins) == 3:
+            all_three.set()
+        await release.wait()  # hold so all three overlap
+        ctrl._finalize_terminal(job, JobStatus.COMPLETED)
+
+    monkeypatch.setattr(remote_dispatch, "run_remote_job", _fake_run)
+
+    loop_task = asyncio.create_task(remote_dispatch.run_dispatch_loop(controller))
+    try:
+        for jid in ("j1", "j2", "j3"):
+            _add_pending(controller, jid)
+        controller.state.remote_dispatch.wake.set()
+
+        await asyncio.wait_for(all_three.wait(), timeout=2.0)
+        # All three servers are compiling at the same instant.
+        assert set(running_pins) == {_PIN_A, _PIN_B, _PIN_C}
+        assert len(controller.state.remote_dispatch.in_flight) == 3
+    finally:
+        release.set()
+        loop_task.cancel()
+        await asyncio.gather(loop_task, return_exceptions=True)
+
+
+async def test_loop_wakes_on_peer_link_opened_event(
+    firmware_controller_factory: FirmwareControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Firing ``OFFLOADER_PEER_LINK_OPENED`` (not a manual wake) drives a dispatch pass."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    _stub_offloader(
+        controller,
+        _snapshot([_pairing(_PIN_A, paired_at=1.0)], open_pins={_PIN_A}, idle_pins={_PIN_A}),
+    )
+    controller._db.create_background_task = asyncio.create_task
+    dispatched = asyncio.Event()
+
+    async def _fake_run(ctrl: object, job: FirmwareJob, **_kw: object) -> None:
+        dispatched.set()
+        ctrl._finalize_terminal(job, JobStatus.COMPLETED)
+
+    monkeypatch.setattr(remote_dispatch, "run_remote_job", _fake_run)
+
+    loop_task = asyncio.create_task(remote_dispatch.run_dispatch_loop(controller))
+    try:
+        await asyncio.sleep(0)  # let the loop attach its bus listeners and park
+        # ``_add_pending`` inserts without waking — only the bus event can.
+        _add_pending(controller, "j1")
+        controller.bus.fire(EventType.OFFLOADER_PEER_LINK_OPENED, {})
+        await asyncio.wait_for(dispatched.wait(), timeout=2.0)
+    finally:
+        loop_task.cancel()
+        await asyncio.gather(loop_task, return_exceptions=True)
+
+
+async def test_offloader_gone_flushes_pending_to_local(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """If remote build is torn down, waiting compiles run locally rather than strand."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    controller._db.remote_build_offloader = None
+    job = _add_pending(controller, "j1")
+
+    await remote_dispatch._dispatch_pending(controller)
+
+    assert job.source is JobSource.LOCAL
+    assert "j1" not in controller.state.remote_dispatch.pending
+
+
+async def test_stale_pending_job_is_dropped_not_dispatched(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A pending job that went terminal under us is dropped, never bound to a server."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    offloader = _stub_offloader(
+        controller,
+        _snapshot([_pairing(_PIN_A, paired_at=1.0)], open_pins={_PIN_A}, idle_pins={_PIN_A}),
+    )
+    job = _add_pending(controller, "j1")
+    job.status = JobStatus.CANCELLED  # finalised between waking and this pass
+
+    await remote_dispatch._dispatch_pending(controller)
+
+    assert "j1" not in controller.state.remote_dispatch.pending
+    assert "j1" not in controller.state.remote_dispatch.in_flight
+    offloader.get_pairing.assert_not_called()
+
+
+async def test_unpair_race_leaves_job_pending(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """The scheduler picks a pin but ``get_pairing`` returns None (raced unpair) → stay pending."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    offloader = MagicMock()
+    offloader.build_scheduler_snapshot.return_value = _snapshot(
+        [_pairing(_PIN_A, paired_at=1.0)], open_pins={_PIN_A}, idle_pins={_PIN_A}
+    )
+    offloader.get_pairing.return_value = None  # unpaired between snapshot and bind
+    controller._db.remote_build_offloader = offloader
+    _add_pending(controller, "j1")
+
+    await remote_dispatch._dispatch_pending(controller)
+
+    pool = controller.state.remote_dispatch
+    assert "j1" in pool.pending
+    assert "j1" not in pool.in_flight
+
+
+async def test_server_lost_mid_build_reroutes_to_another_worker(
+    firmware_controller_factory: FirmwareControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A compile whose server vanishes mid-build re-queues onto the next worker, not failed."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    _stub_offloader(
+        controller,
+        _snapshot(
+            [_pairing(_PIN_A, paired_at=1.0), _pairing(_PIN_B, paired_at=2.0)],
+            open_pins={_PIN_A, _PIN_B},
+            idle_pins={_PIN_A, _PIN_B},
+        ),
+    )
+    job = FirmwareJob(
+        job_id="c1",
+        configuration="dev.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.RUNNING,
+        source=JobSource.REMOTE,
+        source_pin_sha256=_PIN_A,
+    )
+    controller.state.jobs["c1"] = job
+    controller.state.remote_dispatch.in_flight["c1"] = MagicMock()
+    controller.state.remote_dispatch.job_peer["c1"] = _PIN_A
+
+    async def _server_a_drops(_ctrl: object, _job: FirmwareJob, **_kw: object) -> None:
+        raise RemoteServerLostError("transport_error")
+
+    monkeypatch.setattr(remote_dispatch, "run_remote_job", _server_a_drops)
+
+    await remote_dispatch._drive_remote(controller, job)
+
+    pool = controller.state.remote_dispatch
+    # Re-queued for re-dispatch, not failed; the old binding is cleared.
+    assert job.status is JobStatus.QUEUED
+    assert job.source is JobSource.REMOTE_PENDING
+    assert job.source_pin_sha256 == ""
+    assert "c1" in pool.pending
+    assert "c1" not in pool.in_flight
+    assert pool.retries["c1"] == 1
+
+
+async def test_server_loss_retry_is_bounded(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """Past the retry cap a repeatedly-lost compile fails instead of looping forever."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    job = FirmwareJob(
+        job_id="c1",
+        configuration="dev.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.RUNNING,
+        source=JobSource.REMOTE,
+        source_pin_sha256=_PIN_A,
+    )
+    controller.state.jobs["c1"] = job
+    controller.state.remote_dispatch.retries["c1"] = remote_dispatch._MAX_SERVER_LOSS_RETRIES
+
+    remote_dispatch._requeue_after_server_loss(controller, job, "transport_error")
+
+    assert job.status is JobStatus.FAILED
+    assert "c1" not in controller.state.remote_dispatch.pending
+    assert "c1" not in controller.state.remote_dispatch.retries

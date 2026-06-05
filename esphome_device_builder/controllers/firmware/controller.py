@@ -30,7 +30,7 @@ from ...models import (
     JobType,
     QueueStatus,
 )
-from . import bulk, cli, factories, follow, jobs, lifecycle, persistence, runner
+from . import bulk, cli, factories, follow, jobs, lifecycle, persistence, remote_dispatch, runner
 from . import clean as clean_mod
 from . import download as download_mod
 from ._state import FirmwareState, Lane
@@ -365,22 +365,25 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     # ------------------------------------------------------------------
 
     async def _run_queue(self) -> None:
-        """Run both lane consumers concurrently; drain both on any exit.
+        """Run both lane consumers + the remote-dispatch loop; drain all on any exit.
 
-        On shutdown-cancel or one lane raising, cancel and await both lane
-        tasks before the error propagates — else the sibling is left orphaned
-        mid-flight (subprocess not terminated, job not finalised).
+        On shutdown-cancel or one task raising, cancel and await all three
+        before the error propagates — else a sibling is left orphaned
+        mid-flight (subprocess not terminated, job not finalised). The
+        remote-dispatch loop never returns on its own; cancelling it
+        detaches its bus listeners.
         """
-        lane_tasks = [
+        queue_tasks = [
             create_eager_task(runner.run_lane(self, self.state.compile_lane)),
             create_eager_task(runner.run_lane(self, self.state.upload_lane)),
+            create_eager_task(remote_dispatch.run_dispatch_loop(self)),
         ]
         try:
-            await asyncio.gather(*lane_tasks)
+            await asyncio.gather(*queue_tasks)
         finally:
-            for task in lane_tasks:
+            for task in queue_tasks:
                 task.cancel()
-            await asyncio.gather(*lane_tasks, return_exceptions=True)
+            await asyncio.gather(*queue_tasks, return_exceptions=True)
 
     async def _execute_job(self, job: FirmwareJob, lane: Lane) -> None:
         await runner.execute_job(self, job, lane)

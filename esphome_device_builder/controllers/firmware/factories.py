@@ -10,12 +10,12 @@ from ...helpers.api import CommandError
 from ...helpers.build_scheduler import BuildPath, pick_build_path
 from ...models import (
     LOCAL_JOB_BUILD_SOURCE,
+    REMOTE_PENDING_JOB_BUILD_SOURCE,
     ErrorCode,
     EventType,
     FirmwareJob,
     JobBuildSource,
     JobLifecycleData,
-    JobSource,
     JobType,
 )
 from .helpers import _names_touched_by_job
@@ -57,13 +57,10 @@ def create_job(
         remote_peer=remote_peer,
         remote_peer_label=remote_peer_label,
         remote_job_id=remote_job_id,
-        source=build_source.source,
-        source_pin_sha256=build_source.source_pin_sha256,
-        source_label=build_source.source_label,
-        source_esphome_version=build_source.source_esphome_version,
         device_name=device_name,
         device_friendly_name=device_friendly_name,
     )
+    job.apply_build_source(build_source)
     controller.state.jobs[job.job_id] = job
     return job
 
@@ -71,26 +68,22 @@ def create_job(
 def resolve_install_source(
     controller: FirmwareController, *, force_local: bool = False
 ) -> JobBuildSource:
-    """Pick LOCAL or REMOTE from the scheduler snapshot; return the build source."""
+    """Decide LOCAL vs deferred-REMOTE for a new compile; the pin binds at dispatch.
+
+    Returns ``REMOTE_PENDING`` when a paired server is eligible — the
+    remote-dispatch pool picks *which* server when one frees, so a host
+    paired/freed mid-queue is used. ``EXACT_REQUIRED`` with no compatible
+    peer still raises ``NO_COMPATIBLE_PEER`` here for a synchronous toast.
+    """
     if force_local:
         return LOCAL_JOB_BUILD_SOURCE
     offloader = controller._db.remote_build_offloader
     if offloader is None:
         return LOCAL_JOB_BUILD_SOURCE
     decision = pick_build_path(offloader.build_scheduler_snapshot())
-    if decision.path is not BuildPath.REMOTE or decision.pin_sha256 is None:
-        return LOCAL_JOB_BUILD_SOURCE
-    pairing = offloader.get_pairing(decision.pin_sha256)
-    if pairing is None:
-        # Scheduler picked a pin that's no longer paired (race vs
-        # an ``unpair`` on the same loop tick).
-        return LOCAL_JOB_BUILD_SOURCE
-    return JobBuildSource(
-        source=JobSource.REMOTE,
-        source_pin_sha256=pairing.pin_sha256,
-        source_label=pairing.label,
-        source_esphome_version=pairing.esphome_version,
-    )
+    if decision.path is BuildPath.REMOTE:
+        return REMOTE_PENDING_JOB_BUILD_SOURCE
+    return LOCAL_JOB_BUILD_SOURCE
 
 
 async def enqueue(

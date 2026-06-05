@@ -70,10 +70,19 @@ class JobSource(StrEnum):
     fetched the artifacts from. Distinct from
     :class:`JobType` ("what operation: compile / upload /
     install"); ``source`` answers "who did the compile."
+
+    ``REMOTE_PENDING`` is the offloader-only transient between
+    enqueue and dispatch: a compile that *will* go to a paired
+    server, but whose server is chosen at dispatch (so a host
+    paired/freed mid-queue is picked up). The remote-dispatch
+    pool resolves it to ``REMOTE`` (with a pin) or, if no server
+    is reachable, to ``LOCAL`` before the build runs; it never
+    crosses the wire to a receiver.
     """
 
     LOCAL = "local"
     REMOTE = "remote"
+    REMOTE_PENDING = "remote_pending"
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,8 +94,21 @@ class JobBuildSource:
     source_label: str = ""
     source_esphome_version: str = ""
 
+    @classmethod
+    def for_server(cls, *, pin_sha256: str, label: str, esphome_version: str) -> JobBuildSource:
+        """Bundle a REMOTE source bound to build server *pin_sha256*."""
+        return cls(
+            source=JobSource.REMOTE,
+            source_pin_sha256=pin_sha256,
+            source_label=label,
+            source_esphome_version=esphome_version,
+        )
+
 
 LOCAL_JOB_BUILD_SOURCE = JobBuildSource()
+# Submit-time marker for "remote-eligible, server chosen at dispatch".
+# The pin/label/version stay empty until the dispatch pool resolves them.
+REMOTE_PENDING_JOB_BUILD_SOURCE = JobBuildSource(source=JobSource.REMOTE_PENDING)
 
 
 # Terminal job states — a job in any of these isn't running and
@@ -282,6 +304,13 @@ class FirmwareJob(DataClassORJSONMixin):
         self.started_at = None
         self.completed_at = None
         self.exit_code = None
+
+    def apply_build_source(self, build_source: JobBuildSource) -> None:
+        """Stamp this job's dispatch origin (source + pin / label / version) from *build_source*."""
+        self.source = build_source.source
+        self.source_pin_sha256 = build_source.source_pin_sha256
+        self.source_label = build_source.source_label
+        self.source_esphome_version = build_source.source_esphome_version
 
 
 _RECOVERY_NOTICE = (

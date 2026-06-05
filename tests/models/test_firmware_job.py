@@ -18,7 +18,9 @@ from typing import Any
 import pytest
 
 from esphome_device_builder.models.firmware import (
+    REMOTE_PENDING_JOB_BUILD_SOURCE,
     FirmwareJob,
+    JobBuildSource,
     JobSource,
     JobStatus,
     JobType,
@@ -158,6 +160,54 @@ def test_reset_preserves_dispatch_origin_fields() -> None:
     assert job.source_esphome_version == "2026.5.0"
     assert job.remote_peer == "alpha-dashboard-id"
     assert job.remote_job_id == "offloader-job-7"
+
+
+# ---------------------------------------------------------------------------
+# JobBuildSource.for_server / FirmwareJob.apply_build_source
+# ---------------------------------------------------------------------------
+
+
+def test_for_server_bundles_a_remote_source() -> None:
+    """``JobBuildSource.for_server`` bundles REMOTE plus the server's pin / label / version."""
+    build_source = JobBuildSource.for_server(
+        pin_sha256="a" * 64, label="desktop", esphome_version="2026.5.0"
+    )
+
+    assert build_source.source is JobSource.REMOTE
+    assert build_source.source_pin_sha256 == "a" * 64
+    assert build_source.source_label == "desktop"
+    assert build_source.source_esphome_version == "2026.5.0"
+
+
+def test_apply_build_source_stamps_the_job() -> None:
+    """``apply_build_source`` copies a bundle's source + pin / label / version onto the job."""
+    job = _make_job()
+
+    job.apply_build_source(
+        JobBuildSource.for_server(pin_sha256="a" * 64, label="desktop", esphome_version="2026.5.0")
+    )
+
+    assert job.source is JobSource.REMOTE
+    assert job.source_pin_sha256 == "a" * 64
+    assert job.source_label == "desktop"
+    assert job.source_esphome_version == "2026.5.0"
+
+
+def test_apply_build_source_clears_a_prior_binding() -> None:
+    """Applying ``REMOTE_PENDING_JOB_BUILD_SOURCE`` drops a prior server binding."""
+    job = _make_job(
+        source=JobSource.REMOTE,
+        source_pin_sha256="a" * 64,
+        source_label="desktop",
+        source_esphome_version="2026.5.0",
+    )
+
+    job.apply_build_source(REMOTE_PENDING_JOB_BUILD_SOURCE)
+
+    assert job.source is JobSource.REMOTE_PENDING
+    assert job.source_pin_sha256 == ""
+    assert job.source_label == ""
+    assert job.source_esphome_version == ""
 
 
 # ---------------------------------------------------------------------------

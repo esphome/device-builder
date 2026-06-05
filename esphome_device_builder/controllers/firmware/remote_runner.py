@@ -73,9 +73,20 @@ _LOGGER = logging.getLogger(__name__)
 _TERMINAL_WIRE_STATUSES: frozenset[str] = frozenset({"completed", "failed", "cancelled"})
 
 
+class RemoteServerLostError(Exception):
+    """The build server's peer-link session closed mid-build.
+
+    Raised by :func:`run_remote_job` only when ``retry_on_server_loss``
+    is set (the dispatch pool) so the job re-routes to another worker
+    instead of failing. The message is the close reason text.
+    """
+
+
 async def run_remote_job(  # noqa: C901
     controller: FirmwareController,
     job: FirmwareJob,
+    *,
+    retry_on_server_loss: bool = False,
 ) -> None:
     """
     Run a REMOTE-source firmware job and finalise *job* on the offloader bus.
@@ -85,6 +96,10 @@ async def run_remote_job(  # noqa: C901
     function is responsible for the entire run-and-finalise
     middle and leaves the outer ``finally`` block to clear
     ``_current_job`` / persist.
+
+    With ``retry_on_server_loss`` (the dispatch pool), a mid-build
+    peer-link close raises :class:`RemoteServerLostError` instead of
+    finalising FAILED, so the caller can re-route to another worker.
 
     Dispatches by ``job.job_type``:
 
@@ -202,6 +217,7 @@ async def run_remote_job(  # noqa: C901
                     terminal=terminal,
                     session_lost=session_lost,
                     cancel_event=cancel_event,
+                    retry_on_server_loss=retry_on_server_loss,
                 )
             except asyncio.CancelledError:
                 # Runner-task shutdown (controller stop). Mirror the
@@ -225,6 +241,7 @@ async def _dispatch_and_drive(
     terminal: asyncio.Future[OffloaderJobStateChangedData],
     session_lost: asyncio.Future[OffloaderPeerLinkClosedData],
     cancel_event: asyncio.Event,
+    retry_on_server_loss: bool = False,
 ) -> None:
     """Build the bundle, submit, then wait for the receiver's terminal frame.
 
@@ -250,6 +267,7 @@ async def _dispatch_and_drive(
         terminal=terminal,
         session_lost=session_lost,
         cancel_event=cancel_event,
+        retry_on_server_loss=retry_on_server_loss,
     )
     if wire_status != "completed":
         # ``_await_terminal`` already finalised the job.
@@ -375,6 +393,7 @@ async def _await_terminal(
     terminal: asyncio.Future[OffloaderJobStateChangedData],
     session_lost: asyncio.Future[OffloaderPeerLinkClosedData],
     cancel_event: asyncio.Event,
+    retry_on_server_loss: bool = False,
 ) -> str | None:
     """
     Wait for the receiver's terminal state, translating local cancel to the wire.
@@ -416,6 +435,10 @@ async def _await_terminal(
                 reason = closed["reason"]
                 detail = closed["error_detail"]
                 text = f"{reason}: {detail}" if detail else reason
+                # Pool dispatch re-routes to another worker rather than
+                # failing — but a pending cancel still wins.
+                if retry_on_server_loss and job.job_id not in controller.state.cancel_requested:
+                    raise RemoteServerLostError(text)
                 # Push a synthetic output line BEFORE firing
                 # JOB_FAILED so the live log stream ends with a
                 # clear explanation of what cut the build off,

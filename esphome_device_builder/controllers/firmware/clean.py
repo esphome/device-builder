@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 from ...models import (
     FirmwareJob,
     JobBuildSource,
-    JobSource,
     JobType,
 )
 from ...models.remote_build import PeerStatus
@@ -55,11 +54,10 @@ async def _fan_out_clean_to_connected_peers(
         remote_job = controller._create_job(
             configuration,
             JobType.CLEAN,
-            build_source=JobBuildSource(
-                source=JobSource.REMOTE,
-                source_pin_sha256=pairing.pin_sha256,
-                source_label=pairing.label,
-                source_esphome_version=pairing.esphome_version,
+            build_source=JobBuildSource.for_server(
+                pin_sha256=pairing.pin_sha256,
+                label=pairing.label,
+                esphome_version=pairing.esphome_version,
             ),
         )
         # ``supersede=False``: the fan-out batch is N+1 jobs sharing

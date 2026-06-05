@@ -1,0 +1,217 @@
+"""
+Remote build-server pool: bind ``REMOTE_PENDING`` compiles to a free server.
+
+A ``REMOTE_PENDING`` compile (``factories.resolve_install_source``)
+holds in ``state.remote_dispatch.pending`` instead of occupying the
+single compile lane. One long-lived loop (``run_dispatch_loop``,
+gathered in ``FirmwareController._run_queue``) wakes on enqueue, a
+peer connecting, or a server freeing, re-snapshots the offloader's
+live pairing/queue state, and matches each waiting compile to a free
+server — so paired servers compile concurrently and a host paired or
+freed mid-queue is used without a fresh ``firmware/install``.
+
+The *which-server* choice is made here at dispatch (not at submit),
+which is the whole point: ``pick_dispatch_target`` re-runs against the
+current pool every pass, with the servers already driving a job
+excluded via ``busy_build_server_pins``.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import replace
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
+
+from ...helpers.build_scheduler import DispatchOutcome, pick_dispatch_target
+from ...models import (
+    LOCAL_JOB_BUILD_SOURCE,
+    REMOTE_PENDING_JOB_BUILD_SOURCE,
+    TERMINAL_JOB_STATUSES,
+    EventType,
+    FirmwareJob,
+    JobBuildSource,
+    JobLifecycleData,
+    JobStatus,
+)
+from . import lifecycle
+from .helpers import _ingest_output_line
+from .remote_runner import RemoteServerLostError, run_remote_job
+
+if TYPE_CHECKING:
+    from ...helpers.build_scheduler import BuildSchedulerInputs
+    from ...helpers.event_bus import Event
+    from .controller import FirmwareController
+
+_LOGGER = logging.getLogger(__name__)
+
+# A compile whose server vanishes mid-build re-routes to another worker;
+# bound the re-routes so a single flapping server can't loop it forever.
+_MAX_SERVER_LOSS_RETRIES = 3
+
+# Offloader bus events that change which servers are free: a peer
+# connecting/leaving and a receiver flipping idle/busy. Each just
+# re-arms the matcher; the dispatch pass reads the fresh snapshot.
+_POOL_WAKE_EVENTS = (
+    EventType.OFFLOADER_PEER_LINK_OPENED,
+    EventType.OFFLOADER_PEER_LINK_CLOSED,
+    EventType.OFFLOADER_QUEUE_STATUS_CHANGED,
+)
+
+
+async def run_dispatch_loop(controller: FirmwareController) -> None:
+    """Match waiting remote compiles to free build servers until cancelled.
+
+    Subscribes to the pool-wake events for the loop's lifetime so a
+    newly-connected or freed server pulls the next pending compile;
+    the subscription detaches when the loop task is cancelled at
+    controller shutdown.
+    """
+    state = controller.state
+
+    def _wake(_event: Event[object]) -> None:
+        state.remote_dispatch.wake.set()
+
+    with controller.bus.listening(_POOL_WAKE_EVENTS, _wake):
+        while True:
+            await state.remote_dispatch.wake.wait()
+            state.remote_dispatch.wake.clear()
+            await _dispatch_pending(controller)
+
+
+async def _dispatch_pending(controller: FirmwareController) -> None:
+    """One matcher pass over the waiting compiles; persist if any landed terminal / local."""
+    offloader = controller._db.remote_build_offloader
+    if offloader is None:
+        await _flush_to_local(controller)
+        return
+    snapshot = offloader.build_scheduler_snapshot()
+    needs_persist = False
+    for job in list(controller.state.remote_dispatch.pending.values()):
+        needs_persist |= _dispatch_one(controller, job, snapshot)
+    if needs_persist:
+        await controller._persist_jobs()
+
+
+def _dispatch_one(
+    controller: FirmwareController, job: FirmwareJob, snapshot: BuildSchedulerInputs
+) -> bool:
+    """Act on one waiting compile; return whether it needs a persist (went local / failed)."""
+    pool = controller.state.remote_dispatch
+    if job.status is not JobStatus.QUEUED:
+        # Cancelled / superseded between waking and here; its own handler
+        # already finalised it, just drop the stale pool entry.
+        pool.drop(job.job_id)
+        return False
+    # Re-derive busy each call so two waiting compiles in one pass can't
+    # both grab the same just-freed server.
+    inputs = replace(snapshot, busy_build_server_pins=pool.busy_pins())
+    decision = pick_dispatch_target(inputs)
+    if decision.outcome is DispatchOutcome.REMOTE:
+        assert decision.pin_sha256 is not None  # narrowed by REMOTE
+        _dispatch_to_server(controller, job, decision.pin_sha256)
+        return False
+    if decision.outcome is DispatchOutcome.LOCAL:
+        _fallback_to_local(controller, job)
+        return True
+    if decision.outcome is DispatchOutcome.NO_COMPATIBLE_PEER:
+        _fail_no_compatible_peer(controller, job, decision.message)
+        return True
+    return False  # WAIT — every server busy; hold for the next pass
+
+
+async def _flush_to_local(controller: FirmwareController) -> None:
+    """Remote build went away entirely — run every waiting compile locally, never strand one."""
+    flushed = list(controller.state.remote_dispatch.pending.values())
+    for job in flushed:
+        _fallback_to_local(controller, job)
+    if flushed:
+        await controller._persist_jobs()
+
+
+def _dispatch_to_server(controller: FirmwareController, job: FirmwareJob, pin_sha256: str) -> None:
+    """Bind *job* to the server behind *pin_sha256* and spawn its driver."""
+    offloader = controller._db.remote_build_offloader
+    pairing = offloader.get_pairing(pin_sha256) if offloader is not None else None
+    if pairing is None:
+        # Raced an unpair between snapshot and bind; leave it pending —
+        # the close event already woke us for a re-pass.
+        return
+    job.apply_build_source(
+        JobBuildSource.for_server(
+            pin_sha256=pairing.pin_sha256,
+            label=pairing.label,
+            esphome_version=pairing.esphome_version,
+        )
+    )
+    task = controller._db.create_background_task(_drive_remote(controller, job))
+    controller.state.remote_dispatch.start(job, pin_sha256, task)
+
+
+def _fallback_to_local(controller: FirmwareController, job: FirmwareJob) -> None:
+    """Flip *job* to LOCAL and route it onto the compile lane (no server reachable)."""
+    job.apply_build_source(LOCAL_JOB_BUILD_SOURCE)
+    controller.state.place_on_lane(job)
+
+
+def _fail_no_compatible_peer(
+    controller: FirmwareController, job: FirmwareJob, message: str
+) -> None:
+    """Finalise *job* FAILED — EXACT_REQUIRED with no compatible server left."""
+    controller.state.remote_dispatch.drop(job.job_id)
+    job.error = message
+    controller._finalize_terminal(job, JobStatus.FAILED)
+    _LOGGER.warning("Remote compile %s failed: %s", job.job_id, message)
+
+
+async def _drive_remote(controller: FirmwareController, job: FirmwareJob) -> None:
+    """Run a bound remote compile off-lane, finalise, and free the server.
+
+    Mirrors the lane runner's RUNNING-stamp / JOB_STARTED fire and its
+    trim / prune / persist ``finally`` (minus the lane slot — there is
+    none); ``run_remote_job`` owns the terminal finalise and cancel.
+    """
+    job.status = JobStatus.RUNNING
+    job.started_at = datetime.now(UTC).isoformat()
+    started_payload: JobLifecycleData = {"job": job}
+    controller.bus.fire(EventType.JOB_STARTED, started_payload)
+    await controller._persist_jobs()
+    pool = controller.state.remote_dispatch
+    try:
+        await run_remote_job(controller, job, retry_on_server_loss=True)
+    except RemoteServerLostError as lost:
+        _requeue_after_server_loss(controller, job, str(lost))
+    finally:
+        pool.release(job.job_id)
+        if job.status in TERMINAL_JOB_STATUSES:
+            pool.forget_losses(job.job_id)
+        lifecycle.finalize_bookkeeping(controller, job)
+        await controller._persist_jobs()
+
+
+def _requeue_after_server_loss(
+    controller: FirmwareController, job: FirmwareJob, reason: str
+) -> None:
+    """Re-route a compile whose server vanished mid-build, or fail it past the retry cap."""
+    pool = controller.state.remote_dispatch
+    attempt = pool.record_loss(job.job_id)
+    if attempt > _MAX_SERVER_LOSS_RETRIES:
+        job.error = f"remote build: server lost mid-build {attempt}x ({reason})"
+        controller._finalize_terminal(job, JobStatus.FAILED)
+        pool.forget_losses(job.job_id)
+        return
+    _ingest_output_line(
+        job,
+        controller.bus,
+        f"\n*** build server lost ({reason}); re-routing to another worker ***\n",
+    )
+    _return_to_pool(controller, job)
+    _LOGGER.info("Remote compile %s: server lost, re-routing (attempt %d)", job.job_id, attempt)
+
+
+def _return_to_pool(controller: FirmwareController, job: FirmwareJob) -> None:
+    """Reset a remote compile to ``REMOTE_PENDING`` and route it back to the pool."""
+    job.reset()
+    job.status = JobStatus.QUEUED
+    job.apply_build_source(REMOTE_PENDING_JOB_BUILD_SOURCE)
+    controller.state.place_on_lane(job)

@@ -116,6 +116,9 @@ async def cancel(controller: FirmwareController, *, job_id: str) -> None:
         raise CommandError(ErrorCode.NOT_FOUND, msg)
 
     if job.status == JobStatus.QUEUED:
+        # A pending remote compile is QUEUED but held off-lane in the
+        # dispatch pool — drop it so the matcher can't bind it after.
+        controller.state.remote_dispatch.drop(job_id)
         # Mark + persist before fire so a restart-after-cancel reload
         # sees the job as CANCELLED. Spelled out rather than routed
         # through ``_finalize_terminal`` because we need to land
@@ -137,6 +140,15 @@ async def cancel(controller: FirmwareController, *, job_id: str) -> None:
         return
 
     if job.status == JobStatus.RUNNING:
+        if controller.state.remote_dispatch.is_in_flight(job_id):
+            # Off-lane remote compile: no subprocess to SIGTERM —
+            # ``run_remote_job`` parks on its cancel event, so flag the
+            # request and signal the event (it sends a wire ``cancel_job``).
+            controller.state.cancel_requested.add(job_id)
+            cancel_event = controller.state.cancel_events.get(job_id)
+            if cancel_event is not None:
+                cancel_event.set()
+            return
         lane = _running_lane(controller, job_id)
         if lane is None:
             msg = "Running job is not the active subprocess (state out of sync)"

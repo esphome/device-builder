@@ -60,7 +60,7 @@ import pytest
 from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.controllers.firmware._state import Lane
 from esphome_device_builder.controllers.firmware.persistence import read_job_output
-from esphome_device_builder.models import FirmwareJob, JobStatus, JobType
+from esphome_device_builder.models import FirmwareJob, JobSource, JobStatus, JobType
 from tests.controllers.firmware.conftest import FirmwareControllerFactory
 
 
@@ -624,3 +624,90 @@ async def test_released_upload_runs_after_prerequisite_cleared_then_restart(
     assert restored["released01"].error is None
     # Routed onto the upload lane to flash, not cancelled.
     assert not reader.state.upload_lane.queue.empty()
+
+
+async def test_pending_remote_compile_restores_into_the_pool(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_runtime: None,
+) -> None:
+    """A ``REMOTE_PENDING`` compile resumes in the dispatch pool, not on the compile lane."""
+    writer = _persistent_controller(firmware_controller_factory)
+    await writer._persist_jobs()
+    _inject_job(
+        tmp_path,
+        FirmwareJob(
+            job_id="c1",
+            configuration="dev.yaml",
+            job_type=JobType.COMPILE,
+            status=JobStatus.QUEUED,
+            source=JobSource.REMOTE_PENDING,
+        ),
+    )
+
+    reader = await _restart(firmware_controller_factory)
+
+    assert "c1" in reader.state.remote_dispatch.pending
+    assert reader.state.jobs["c1"].source is JobSource.REMOTE_PENDING
+    reader.state.compile_lane.queue.put_nowait.assert_not_called()
+
+
+async def test_remote_clean_keeps_its_server_on_restart(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_runtime: None,
+) -> None:
+    """A REMOTE CLEAN fan-out job keeps its pin on restart (only COMPILE re-pools)."""
+    writer = _persistent_controller(firmware_controller_factory)
+    await writer._persist_jobs()
+    _inject_job(
+        tmp_path,
+        FirmwareJob(
+            job_id="cl1",
+            configuration="dev.yaml",
+            job_type=JobType.CLEAN,
+            status=JobStatus.QUEUED,
+            source=JobSource.REMOTE,
+            source_pin_sha256="a" * 64,
+            source_label="srv",
+        ),
+    )
+
+    reader = await _restart(firmware_controller_factory)
+
+    restored = reader.state.jobs["cl1"]
+    assert restored.source is JobSource.REMOTE
+    assert restored.source_pin_sha256 == "a" * 64
+    assert "cl1" not in reader.state.remote_dispatch.pending
+    reader.state.compile_lane.queue.put_nowait.assert_called_once()
+
+
+async def test_interrupted_remote_compile_repools_and_clears_its_pin(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_runtime: None,
+) -> None:
+    """A RUNNING remote compile resets to ``REMOTE_PENDING`` (pin cleared) so it re-routes."""
+    writer = _persistent_controller(firmware_controller_factory)
+    await writer._persist_jobs()
+    _inject_job(
+        tmp_path,
+        FirmwareJob(
+            job_id="c1",
+            configuration="dev.yaml",
+            job_type=JobType.COMPILE,
+            status=JobStatus.RUNNING,
+            source=JobSource.REMOTE,
+            source_pin_sha256="a" * 64,
+            source_label="srv",
+        ),
+    )
+
+    reader = await _restart(firmware_controller_factory)
+
+    restored = reader.state.jobs["c1"]
+    assert restored.status == JobStatus.QUEUED
+    assert restored.source is JobSource.REMOTE_PENDING
+    assert restored.source_pin_sha256 == ""
+    assert "c1" in reader.state.remote_dispatch.pending
+    reader.state.compile_lane.queue.put_nowait.assert_not_called()
