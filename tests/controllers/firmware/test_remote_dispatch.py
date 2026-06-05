@@ -337,6 +337,63 @@ async def test_cancel_in_flight_remote_compile_signals_event(
     assert cancel_event.is_set()
 
 
+async def test_drive_remote_skips_build_when_already_terminal(
+    firmware_controller_factory: FirmwareControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A job cancelled in the dispatch window is skipped by its driver, slot freed, no build."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    started: list[str] = []
+
+    async def _spy_run(_ctrl: object, job: FirmwareJob, **_kw: object) -> None:
+        started.append(job.job_id)
+
+    monkeypatch.setattr(remote_dispatch, "run_remote_job", _spy_run)
+    job = FirmwareJob(
+        job_id="c1",
+        configuration="dev.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.CANCELLED,  # cancelled before this task ran
+        source=JobSource.REMOTE,
+        source_pin_sha256=_PIN_A,
+    )
+    controller.state.jobs["c1"] = job
+    pool = controller.state.remote_dispatch
+    pool.in_flight["c1"] = MagicMock()
+    pool.job_peer["c1"] = _PIN_A
+
+    await remote_dispatch._drive_remote(controller, job)
+
+    assert started == []  # run_remote_job never called
+    assert "c1" not in pool.in_flight
+    assert "c1" not in pool.job_peer
+
+
+async def test_cancel_queued_but_bound_in_flight_frees_the_server(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """Cancelling a QUEUED job that's already bound in-flight frees the server binding too."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    job = FirmwareJob(
+        job_id="c1",
+        configuration="dev.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.QUEUED,  # bound but not yet stamped RUNNING
+        source=JobSource.REMOTE,
+        source_pin_sha256=_PIN_A,
+    )
+    controller.state.jobs["c1"] = job
+    pool = controller.state.remote_dispatch
+    pool.in_flight["c1"] = MagicMock()
+    pool.job_peer["c1"] = _PIN_A
+
+    await controller.cancel(job_id="c1")
+
+    assert job.status is JobStatus.CANCELLED
+    assert "c1" not in pool.in_flight
+    assert pool.busy_pins() == frozenset()
+
+
 async def test_drive_remote_finalizes_cleans_pool_and_releases_dependent(
     firmware_controller_factory: FirmwareControllerFactory,
     monkeypatch: pytest.MonkeyPatch,

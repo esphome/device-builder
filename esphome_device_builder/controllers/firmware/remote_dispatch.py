@@ -177,8 +177,15 @@ async def _drive_remote(controller: FirmwareController, job: FirmwareJob) -> Non
     ``end_run`` (there's no lane slot here); ``run_remote_job`` owns the
     terminal finalise and cancel.
     """
-    await lifecycle.begin_run(controller, job)
     pool = controller.state.remote_dispatch
+    if job.status in TERMINAL_JOB_STATUSES:
+        # Cancelled / superseded in the window between dispatch and this task
+        # running — don't start the build, just free the slot. (The eager
+        # scheduler stamps RUNNING before the in-flight binding so this can't
+        # fire today, but it keeps the driver correct under any task timing.)
+        pool.release(job.job_id)
+        return
+    await lifecycle.begin_run(controller, job)
     try:
         await run_remote_job(controller, job, retry_on_server_loss=True)
     except RemoteServerLostError as lost:

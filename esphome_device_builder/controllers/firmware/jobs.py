@@ -115,9 +115,11 @@ async def cancel(controller: FirmwareController, *, job_id: str) -> None:
         raise CommandError(ErrorCode.NOT_FOUND, msg)
 
     if job.status == JobStatus.QUEUED:
-        # A pending remote compile is QUEUED but held off-lane in the
-        # dispatch pool — drop it so the matcher can't bind it after.
-        controller.state.remote_dispatch.drop(job_id)
+        # A pending remote compile is QUEUED but held off-lane in the dispatch
+        # pool — remove it so the matcher can't bind it after (and clear an
+        # in-flight binding for the non-eager bound-but-not-yet-RUNNING window;
+        # the driver's terminal guard then skips the build).
+        controller.state.remote_dispatch.discard(job_id)
         # Mark + persist before fire so a restart-after-cancel reload
         # sees the job as CANCELLED. Spelled out rather than routed
         # through ``_finalize_terminal`` because we need to land

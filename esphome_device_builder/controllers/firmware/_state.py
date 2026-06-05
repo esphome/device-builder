@@ -60,6 +60,17 @@ class RemoteDispatchState:
         self.pending.pop(job_id, None)
         self.retries.pop(job_id, None)
 
+    def discard(self, job_id: str) -> None:
+        """Remove *job_id* from the pool entirely — waiting *or* in-flight — and wake.
+
+        Used by cancel / supersede: ``drop`` handles the common waiting case,
+        but a job can be bound in-flight before it's stamped RUNNING under a
+        non-eager scheduler, so clear that binding too (the driver's terminal
+        guard then skips the build).
+        """
+        self.drop(job_id)
+        self.release(job_id)
+
     def start(self, job: FirmwareJob, pin_sha256: str, task: asyncio.Task[None]) -> None:
         """Move *job* from waiting to in-flight on server *pin_sha256*."""
         self.pending.pop(job.job_id, None)
