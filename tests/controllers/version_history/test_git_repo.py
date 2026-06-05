@@ -89,6 +89,49 @@ def test_adopts_repo_when_config_dir_is_subdir(tmp_path: Path) -> None:
     assert repo.toplevel == tmp_path
 
 
+def test_adopts_enclosing_repo_that_lacks_our_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An enclosing repo without our package source is still adopted (the ``/config`` case)."""
+    _make_repo(tmp_path)
+    sub = tmp_path / "esphome"
+    sub.mkdir()
+    # A normal pip / site-packages install: our package lives outside the
+    # user's repo, so the enclosing repo is the genuine adoption target.
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.version_history.git_repo._OWN_SOURCE_ROOT",
+        Path("/opt/site-packages/esphome_device_builder"),
+    )
+
+    repo = GitRepo(config_dir=sub)
+    repo.discover_or_init()
+
+    assert repo.enabled
+    assert repo.toplevel == tmp_path  # adopted the outer repo, not a nested one
+
+
+def test_declines_to_adopt_own_source_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Config dir inside the Device Builder source repo gets its own nested repo."""
+    _make_repo(tmp_path)  # stands in for the device-builder source checkout
+    pkg = tmp_path / "esphome_device_builder"
+    pkg.mkdir()
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.version_history.git_repo._OWN_SOURCE_ROOT",
+        pkg,
+    )
+    configs = tmp_path / "configs"
+    configs.mkdir()
+
+    repo = GitRepo(config_dir=configs)
+    repo.discover_or_init()
+
+    assert repo.enabled
+    assert repo.toplevel == configs  # nested repo, not the enclosing source repo
+    assert (configs / ".git").is_dir()
+
+
 def test_init_keeps_a_preexisting_gitignore(tmp_path: Path) -> None:
     """A .gitignore already sitting in a non-repo dir is committed, not overwritten."""
     (tmp_path / ".gitignore").write_text("user-rules/\n", encoding="utf-8")

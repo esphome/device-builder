@@ -36,11 +36,17 @@ def test_context_manager_is_noop_off_windows(
 
 @pytest.fixture
 def fake_windows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Drive the Windows branch off Windows; return the (real, space-free) root base."""
+    """
+    Drive the Windows branch off Windows; return the (real, space-free) drive base.
+
+    ``_ROOT_BASE`` is the nested parent (``<drive>/esphb``) and ``_LEGACY_ROOT_BASE`` the flat
+    drive root, so new roots are ``<drive>/esphb/<id8>`` and legacy ones ``<drive>/esphb-<id8>``.
+    """
     root_base = tmp_path / "drive"
     root_base.mkdir()
     monkeypatch.setattr(wbp, "_is_windows", lambda: True)
-    monkeypatch.setattr(wbp, "_ROOT_BASE", root_base)
+    monkeypatch.setattr(wbp, "_ROOT_BASE", root_base / "esphb")
+    monkeypatch.setattr(wbp, "_LEGACY_ROOT_BASE", root_base)
     monkeypatch.setattr(wbp, "get_or_create_dashboard_id", lambda _config_dir: _ID)
     monkeypatch.setattr(wbp, "_platformio_dir", lambda: tmp_path / "home_platformio")
     monkeypatch.delenv("ESPHOME_DATA_DIR", raising=False)
@@ -51,7 +57,7 @@ def fake_windows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def test_relocates_env_to_short_root_and_restores(tmp_path: Path, fake_windows: Path) -> None:
     """Inside the block both env vars point at the short root; both are cleared on exit."""
     config_dir = tmp_path / "First Last" / "esphome"
-    root = fake_windows / f"esphb-{_ID8}"
+    root = fake_windows / "esphb" / _ID8
     with windows_short_build_paths(config_dir):
         assert os.environ["ESPHOME_DATA_DIR"] == str(root)
         assert os.environ["PLATFORMIO_CORE_DIR"] == str(root / "pio")
@@ -62,10 +68,12 @@ def test_relocates_env_to_short_root_and_restores(tmp_path: Path, fake_windows: 
 
 
 def test_root_uses_first_8_chars_of_dashboard_id(tmp_path: Path, fake_windows: Path) -> None:
-    """The root suffix is exactly the first 8 chars of the dashboard_id."""
+    """The root is the esphb parent plus exactly the first 8 chars of the dashboard_id."""
     assert len(_ID) > 8, "stub id must exceed 8 chars to prove truncation"
     with windows_short_build_paths(tmp_path / "cfg"):
-        assert Path(os.environ["ESPHOME_DATA_DIR"]).name == f"esphb-{_ID[:8]}"
+        root = Path(os.environ["ESPHOME_DATA_DIR"])
+        assert root.name == _ID[:8]
+        assert root.parent.name == "esphb"
 
 
 def test_corrupt_dashboard_id_cannot_escape_the_root_segment(
@@ -75,8 +83,18 @@ def test_corrupt_dashboard_id_cannot_escape_the_root_segment(
     monkeypatch.setattr(wbp, "get_or_create_dashboard_id", lambda _config_dir: "..\\C:/evil")
     with windows_short_build_paths(tmp_path / "cfg"):
         root = Path(os.environ["ESPHOME_DATA_DIR"])
-        assert root.parent == fake_windows  # stays directly under the root base, no traversal
-        assert root.name == "esphb-Cevil"  # separators, dots, colon stripped; safe chars kept
+        assert root.parent == fake_windows / "esphb"  # stays under the esphb parent, no traversal
+        assert root.name == "Cevil"  # separators, dots, colon stripped; safe chars kept
+
+
+def test_fully_corrupt_dashboard_id_falls_back_to_noop(
+    tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    r"""An id sanitizing to empty must not collapse the root onto the shared C:\esphb parent."""
+    monkeypatch.setattr(wbp, "get_or_create_dashboard_id", lambda _config_dir: "../..")
+    with windows_short_build_paths(tmp_path / "cfg"):
+        assert "ESPHOME_DATA_DIR" not in os.environ
+    assert not (fake_windows / "esphb").exists()
 
 
 def test_skips_relocation_when_user_set_data_dir(
@@ -86,7 +104,7 @@ def test_skips_relocation_when_user_set_data_dir(
     monkeypatch.setenv("ESPHOME_DATA_DIR", str(tmp_path / "chosen"))
     with windows_short_build_paths(tmp_path / "First Last" / "esphome"):
         assert os.environ["ESPHOME_DATA_DIR"] == str(tmp_path / "chosen")
-        assert not (fake_windows / f"esphb-{_ID8}").exists()
+        assert not (fake_windows / "esphb" / _ID8).exists()
     assert os.environ["ESPHOME_DATA_DIR"] == str(tmp_path / "chosen")
 
 
@@ -98,7 +116,7 @@ def test_respects_user_set_platformio_core_dir(
     home_pio = tmp_path / "home_platformio"
     home_pio.mkdir()  # would be swept if we relocated; must stay put
     monkeypatch.setenv("PLATFORMIO_CORE_DIR", str(chosen))
-    root = fake_windows / f"esphb-{_ID8}"
+    root = fake_windows / "esphb" / _ID8
     with windows_short_build_paths(tmp_path / "First Last" / "esphome"):
         assert os.environ["ESPHOME_DATA_DIR"] == str(root)  # data dir still relocated
         assert os.environ["PLATFORMIO_CORE_DIR"] == str(chosen)  # user choice respected
@@ -121,12 +139,54 @@ def test_migrates_existing_data_and_toolchain(tmp_path: Path, fake_windows: Path
     home_pio.mkdir()
     (home_pio / "tool.txt").write_text("toolchain", encoding="utf-8")
 
-    root = fake_windows / f"esphb-{_ID8}"
+    root = fake_windows / "esphb" / _ID8
     with windows_short_build_paths(config_dir):
         assert (root / "marker.txt").read_text(encoding="utf-8") == "data"
         assert (root / "pio" / "tool.txt").read_text(encoding="utf-8") == "toolchain"
     assert not (config_dir / ".esphome").exists()
     assert not home_pio.exists()
+
+
+def test_migrates_from_legacy_flat_root(tmp_path: Path, fake_windows: Path) -> None:
+    r"""The flat ``C:\esphb-<id8>`` of the first relocation is moved under ``C:\esphb\<id8>``."""
+    legacy = fake_windows / f"esphb-{_ID8}"
+    (legacy / "pio").mkdir(parents=True)
+    (legacy / wbp._RELOCATED_MARKER).write_text("{}", encoding="utf-8")
+    (legacy / "pio" / wbp._RELOCATED_MARKER).write_text("{}", encoding="utf-8")
+    (legacy / "data.txt").write_text("built", encoding="utf-8")
+    (legacy / "pio" / "tool.txt").write_text("toolchain", encoding="utf-8")
+    # A migrated user's original config_dir/.esphome is already gone.
+    config_dir = tmp_path / "First Last" / "esphome"
+    config_dir.mkdir(parents=True)
+
+    new_root = fake_windows / "esphb" / _ID8
+    with windows_short_build_paths(config_dir):
+        assert os.environ["ESPHOME_DATA_DIR"] == str(new_root)
+        assert os.environ["PLATFORMIO_CORE_DIR"] == str(new_root / "pio")
+    assert (new_root / "data.txt").read_text(encoding="utf-8") == "built"  # build data moved
+    assert (new_root / "pio" / "tool.txt").read_text(encoding="utf-8") == "toolchain"  # toolchain
+    assert not legacy.exists()  # flat layout gone
+
+
+def test_legacy_migration_failure_falls_back_to_legacy_root(
+    tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If the flat root cannot be moved to the nested one, keep using it (its data is intact)."""
+    legacy = fake_windows / f"esphb-{_ID8}"
+    legacy.mkdir(parents=True)
+    (legacy / wbp._RELOCATED_MARKER).write_text("{}", encoding="utf-8")
+    (legacy / "data.txt").write_text("built", encoding="utf-8")
+    config_dir = tmp_path / "First Last" / "esphome"
+    config_dir.mkdir(parents=True)
+
+    def _boom(*_args: object, **_kwargs: object) -> None:
+        msg = "denied"
+        raise OSError(msg)
+
+    monkeypatch.setattr(wbp.shutil, "move", _boom)
+    with windows_short_build_paths(config_dir):
+        assert os.environ["ESPHOME_DATA_DIR"] == str(legacy)  # fell back to the intact flat root
+    assert (legacy / "data.txt").read_text(encoding="utf-8") == "built"  # data untouched
 
 
 def test_second_run_reuses_root_without_remigrating(tmp_path: Path, fake_windows: Path) -> None:
@@ -139,7 +199,7 @@ def test_second_run_reuses_root_without_remigrating(tmp_path: Path, fake_windows
     # New data written to the old location after the first relocation must NOT be swept in.
     (config_dir / ".esphome").mkdir(parents=True, exist_ok=True)
     (config_dir / ".esphome" / "new.txt").write_text("x", encoding="utf-8")
-    root = fake_windows / f"esphb-{_ID8}"
+    root = fake_windows / "esphb" / _ID8
     with windows_short_build_paths(config_dir):
         pass
     assert (config_dir / ".esphome" / "new.txt").exists()
@@ -181,7 +241,7 @@ def test_failed_toolchain_move_still_relocates(
         return real_move(src, dst, *args, **kwargs)
 
     monkeypatch.setattr(wbp.shutil, "move", _move)
-    root = fake_windows / f"esphb-{_ID8}"
+    root = fake_windows / "esphb" / _ID8
     with windows_short_build_paths(config_dir):
         assert os.environ["ESPHOME_DATA_DIR"] == str(root)
         assert (root / "marker.txt").read_text(encoding="utf-8") == "data"
@@ -196,7 +256,7 @@ def test_retries_toolchain_move_when_pio_absent(tmp_path: Path, fake_windows: Pa
     # First run relocates the build data; no toolchain exists yet.
     with windows_short_build_paths(config_dir):
         pass
-    root = fake_windows / f"esphb-{_ID8}"
+    root = fake_windows / "esphb" / _ID8
     shutil.rmtree(root / "pio", ignore_errors=True)  # simulate a crash before pio was populated
 
     # Toolchain now present and pio absent: the next run must still sweep it into the root.
@@ -229,7 +289,7 @@ def test_failed_toolchain_relocation_uses_default_core_dir(
         return real_move(src, dst, *args, **kwargs)
 
     monkeypatch.setattr(wbp.shutil, "move", _interrupted)
-    root = fake_windows / f"esphb-{_ID8}"
+    root = fake_windows / "esphb" / _ID8
     with windows_short_build_paths(config_dir):
         assert os.environ["ESPHOME_DATA_DIR"] == str(root)  # build data still relocated
         assert "PLATFORMIO_CORE_DIR" not in os.environ  # corrupt toolchain not adopted
@@ -245,7 +305,7 @@ def test_corrupt_partial_toolchain_not_trusted_across_runs(
     home_pio = tmp_path / "home_platformio"
     home_pio.mkdir()
     (home_pio / "tool.txt").write_text("toolchain", encoding="utf-8")
-    root = fake_windows / f"esphb-{_ID8}"
+    root = fake_windows / "esphb" / _ID8
 
     real_move = wbp.shutil.move
 
@@ -276,7 +336,7 @@ def test_partial_root_is_discarded_and_retried(tmp_path: Path, fake_windows: Pat
     config_dir = tmp_path / "First Last" / "esphome"
     (config_dir / ".esphome").mkdir(parents=True)
     (config_dir / ".esphome" / "real.txt").write_text("real", encoding="utf-8")
-    root = fake_windows / f"esphb-{_ID8}"
+    root = fake_windows / "esphb" / _ID8
     root.mkdir(parents=True)  # leftover partial root, no completion marker
     (root / "half.txt").write_text("partial", encoding="utf-8")
 
@@ -294,7 +354,7 @@ def test_partial_root_discard_failure_stays_on_old_dir(
     """If a partial root cannot be cleared, env is not set: stay on the original data dir."""
     config_dir = tmp_path / "First Last" / "esphome"
     (config_dir / ".esphome").mkdir(parents=True)
-    root = fake_windows / f"esphb-{_ID8}"
+    root = fake_windows / "esphb" / _ID8
     root.mkdir(parents=True)
     (root / "half.txt").write_text("partial", encoding="utf-8")
     monkeypatch.setattr(wbp.shutil, "rmtree", lambda *_a, **_k: None)  # discard fails to remove
@@ -311,7 +371,7 @@ def test_marker_loss_does_not_destroy_relocated_root(tmp_path: Path, fake_window
     with windows_short_build_paths(config_dir):  # first run relocates + writes the marker
         pass
 
-    root = fake_windows / f"esphb-{_ID8}"
+    root = fake_windows / "esphb" / _ID8
     (root / "data.txt").write_text("built", encoding="utf-8")  # real build output now under root
     (root / wbp._RELOCATED_MARKER).unlink()  # simulate a marker write that never landed
     with windows_short_build_paths(config_dir):  # source is gone; root must be trusted as-is

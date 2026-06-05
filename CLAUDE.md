@@ -338,6 +338,11 @@ against legacy behaviour before assuming the simpler version suffices.
   Tests need `CORE.config_path` set to a tmp-path sentinel — see autouse
   fixtures in `tests/controllers/devices/conftest.py` and
   `tests/test_config_hash.py`.
+
+  Native Windows auto-applies the override row: `__main__` wraps startup
+  in `helpers/windows_build_paths` to relocate `CORE.data_dir` to
+  `C:\esphb\<id8>` (clears `MAX_PATH` + spaces), so don't assume
+  default-mode `<config>/.esphome` paths on Windows.
 - **`config_hash` source of truth is `build_info.json`.** ESPHome writes
   `<storage.build_path>/build_info.json` after every successful compile
   *and* every `--only-generate` (the `write_cpp(config)` call runs before

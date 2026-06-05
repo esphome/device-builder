@@ -5,12 +5,14 @@ Native Windows ESP-IDF builds fail two ways from a normal config path: the 260-c
 limit on the deep build tree, and a pioarduino whitespace guard / gcc ``-fdebug-prefix-map``
 truncation when the path contains a space (common: ``C:\Users\First Last\...``).
 
-:func:`windows_short_build_paths` points the build tree at ``C:\esphb-<id8>`` for the ``with``
+:func:`windows_short_build_paths` points the build tree at ``C:\esphb\<id8>`` for the ``with``
 block by setting ``ESPHOME_DATA_DIR`` = that root and ``PLATFORMIO_CORE_DIR`` = ``<root>\pio`` in
-the process env (so ``CORE.data_dir`` and every compile subprocess resolve there). Existing
-``<config>/.esphome`` and ``~/.platformio`` are moved in once (best-effort) so warm caches
-survive. Real dirs (no junction), so CMake's REALPATH can't reintroduce the spaced/long path.
-The root is left on uninstall (a reinstall keeps the warm toolchain); delete ``C:\esphb-*`` by
+the process env (so ``CORE.data_dir`` and every compile subprocess resolve there). Per-dashboard
+roots nest under one ``C:\esphb`` parent rather than scattering ``C:\esphb-*`` across the drive
+root. Existing data is moved in once (best-effort) so warm caches survive: from the legacy flat
+``C:\esphb-<id8>`` of the first relocation release, else from ``<config>/.esphome`` +
+``~/.platformio``. Real dirs (no junction), so CMake's REALPATH can't reintroduce the spaced/long
+path. The tree is left on uninstall (a reinstall keeps the warm toolchain); delete ``C:\esphb`` by
 hand to reclaim space. No-op off Windows (including a Linux Docker container on Windows -- the
 gate is ``os.name == "nt"``), and skipped if the user already set ``ESPHOME_DATA_DIR`` (a
 deliberate path choice we don't override).
@@ -30,7 +32,9 @@ from .dashboard_identity import get_or_create_dashboard_id
 
 _LOGGER = logging.getLogger(__name__)
 
-_ROOT_BASE = Path("C:\\")
+_ROOT_BASE = Path("C:\\esphb")
+# Legacy flat base from the first relocation release (``C:\esphb-<id8>``); migrated in once.
+_LEGACY_ROOT_BASE = Path("C:\\")
 _DASHBOARD_ID_CHARS = 8
 # dashboard_id is base64url (token_urlsafe), so this is a no-op in practice; it guards a hand
 # -corrupted sidecar from injecting path separators / a drive prefix into the root segment.
@@ -54,17 +58,32 @@ def windows_short_build_paths(config_dir: Path) -> Iterator[None]:
         _LOGGER.exception("Could not resolve dashboard_id; deep/spaced builds may fail")
         yield
         return
-    root = _ROOT_BASE / f"esphb-{_safe_suffix(dashboard_id)}"
-    pio = root / "pio"
-    if not _relocate_into(config_dir / ".esphome", root):
+    suffix = _safe_suffix(dashboard_id)
+    if not suffix:
+        # A hand-corrupted sidecar whose chars are all stripped would collapse the root onto the
+        # shared C:\esphb parent; refuse rather than nest every dashboard inside one another.
+        _LOGGER.warning("dashboard_id sanitized to empty; skipping build relocation")
         yield
         return
+    new_root = _ROOT_BASE / suffix  # C:\esphb\<id8>
+    legacy_root = _LEGACY_ROOT_BASE / f"esphb-{suffix}"  # C:\esphb-<id8>, first-relocation layout
+    if _relocate_into(new_root, legacy_root, config_dir / ".esphome"):
+        root = new_root
+    elif (legacy_root / _RELOCATED_MARKER).is_file():
+        # Could not move to the tidy nested location, but the first-relocation data is intact;
+        # keep using it this session (a migrated config_dir/.esphome is empty, so no-op would miss).
+        _LOGGER.warning("Using legacy build root %s; could not move to %s", legacy_root, new_root)
+        root = legacy_root
+    else:
+        yield
+        return
+    pio = root / "pio"
 
     os.environ["ESPHOME_DATA_DIR"] = str(root)
     # Relocate the toolchain unless the user deliberately set PLATFORMIO_CORE_DIR (leave their
     # choice and their ~/.platformio untouched), or a corrupt partial copy can't be made clean.
     user_set_pio = "PLATFORMIO_CORE_DIR" in os.environ
-    override_pio = not user_set_pio and _relocate_into(_platformio_dir(), pio)
+    override_pio = not user_set_pio and _relocate_into(pio, _platformio_dir())
     if override_pio:
         os.environ["PLATFORMIO_CORE_DIR"] = str(pio)
     _LOGGER.info("Windows build data at %s (core %s)", root, pio if override_pio else "default")
@@ -98,22 +117,24 @@ def _platformio_dir() -> Path:
     return Path.home() / ".platformio"
 
 
-def _relocate_into(src: Path, dst: Path) -> bool:
+def _relocate_into(dst: Path, *sources: Path) -> bool:
     """
-    Move directory *src* into *dst* once; return whether *dst* is a complete, trusted relocation.
+    Move the first existing of *sources* into *dst* once; return whether *dst* is trusted.
 
-    A ``.json`` completion marker under *dst* (preserved by esphome clean / clean-all) records a
-    finished move; it is keyed off *src* still existing, not bare ``dst.exists()``, so a marker
-    write lost after a successful move never triggers a destructive re-relocation. Returns
-    ``False`` when the move is incomplete -- a partial *dst* from an interrupted cross-volume copy
-    that could not be cleared, or a move that left *src* behind -- so the caller never points env
-    at incomplete data or a corrupt toolchain. Used for both the build root and the toolchain so
-    the two paths cannot drift apart.
+    *sources* are tried in priority order (e.g. the legacy flat root, then the original
+    ``.esphome``); the first that exists is the authoritative copy and is moved in. A ``.json``
+    completion marker under *dst* (preserved by esphome clean / clean-all) records a finished move;
+    it is keyed off a source still existing, not bare ``dst.exists()``, so a marker write lost
+    after a successful move never triggers a destructive re-relocation. Returns ``False`` when the
+    move is incomplete -- a partial *dst* that could not be cleared, or a move that left the source
+    behind -- so the caller never points env at incomplete data or a corrupt toolchain. Used for
+    both the build root and the toolchain so the two paths cannot drift apart.
     """
     marker = dst / _RELOCATED_MARKER
     if marker.is_file():
         return True  # already relocated; trust dst, ignore any stale leftover at the source
-    if src.is_dir():
+    src = next((s for s in sources if s.is_dir()), None)
+    if src is not None:
         # Source still present, so the move never completed. A partial dst from an interrupted
         # cross-volume copy would nest the retry, so discard it before re-moving.
         if dst.exists():
@@ -122,13 +143,14 @@ def _relocate_into(src: Path, dst: Path) -> bool:
                 _LOGGER.warning("Could not clear partial %s; leaving %s in place", dst, src)
                 return False
         try:
+            dst.parent.mkdir(parents=True, exist_ok=True)  # nested rename target needs its parent
             shutil.move(str(src), str(dst))
         except OSError:
             _LOGGER.warning("Could not move %s to %s; it will be rebuilt", src, dst)
         if src.is_dir():
             _LOGGER.warning("%s not relocated; source remains at %s", dst, src)
             return False
-    # src gone here: it never existed, the move just completed, or a prior run moved it and only
+    # No source left here: none existed, the move just completed, or a prior run moved it and only
     # the marker write was lost. dst is authoritative either way.
     try:
         dst.mkdir(parents=True, exist_ok=True)
