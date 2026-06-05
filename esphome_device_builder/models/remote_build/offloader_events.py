@@ -34,11 +34,12 @@ class OffloaderPairStatusChangedData(TypedDict):
 
 class OffloaderPairingAddedData(TypedDict):
     """
-    Payload for ``EventType.OFFLOADER_PAIRING_ADDED`` (a row created
-    by ``request_pair``). Carries every :class:`PairingSummary` field
-    so a subscriber builds the row from the event alone. ``status`` is
-    ``"pending"`` for a fresh request, ``"approved"`` on a re-pair
-    short-circuit.
+    Payload for ``EventType.OFFLOADER_PAIRING_ADDED``.
+
+    Fires when ``request_pair`` creates a row. Carries every
+    :class:`PairingSummary` field so a subscriber builds the row from
+    the event alone. ``status`` is ``"pending"`` for a fresh request,
+    ``"approved"`` on a re-pair short-circuit.
     """
 
     receiver_hostname: str
