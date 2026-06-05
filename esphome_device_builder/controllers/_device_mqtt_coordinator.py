@@ -301,7 +301,7 @@ def _load_secrets(config_dir: Path) -> dict[str, Any]:
             # equivalent of SafeLoader. Same noqa rationale as the
             # ``_TolerantYamlLoader`` call above.
             data = yaml.load(f, Loader=FastestSafeLoader)  # noqa: S506
-    except yaml.YAMLError:
+    except (yaml.YAMLError, OSError):
         # A plain secrets.yaml is key/value scalars the fast loader
         # handles. ESPHome tags (``!include`` / ``!secret``) and merge
         # keys are not — the documented HA-shared
@@ -315,10 +315,13 @@ def _load_secrets_via_esphome(secrets_path: Path) -> dict[str, Any] | None:
     """Load *secrets_path* with ESPHome's loader (``!include`` / merge keys)."""
     try:
         data = yaml_util.load_yaml(secrets_path)
-    except EsphomeError:
+    except (EsphomeError, yaml.YAMLError, OSError):
         _LOGGER.warning("Could not parse secrets.yaml — MQTT broker secrets unavailable")
         return None
-    return data if isinstance(data, dict) else None
+    if not isinstance(data, dict):
+        _LOGGER.warning("Could not parse secrets.yaml — MQTT broker secrets unavailable")
+        return None
+    return data
 
 
 def _safe_mtime(path: Path) -> float:
