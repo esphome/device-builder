@@ -20,6 +20,7 @@ import pytest
 
 from esphome_device_builder.controllers.firmware import remote_dispatch
 from esphome_device_builder.controllers.firmware.remote_runner import RemoteServerLostError
+from esphome_device_builder.helpers.async_ import create_eager_task
 from esphome_device_builder.helpers.build_scheduler import BuildSchedulerInputs
 from esphome_device_builder.helpers.version_compat import VersionMatchPolicy
 from esphome_device_builder.models import (
@@ -200,18 +201,18 @@ async def test_no_server_connected_falls_back_to_local(
     assert "j1" not in controller.state.remote_dispatch.pending
 
 
-async def test_exact_required_no_server_fails_the_job(
+async def test_exact_required_connected_but_incompatible_fails_the_job(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
-    """EXACT_REQUIRED with the only server gone fails the compile, not a silent local build."""
+    """EXACT_REQUIRED with a connected-but-incompatible server fails (waiting can't fix it)."""
     controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
     _stub_offloader(
         controller,
         _snapshot(
-            [_pairing(_PIN_A, paired_at=1.0, version="2026.5.0")],
-            open_pins=set(),
-            idle_pins=set(),
-            offloader_version="2026.5.0",
+            [_pairing(_PIN_A, paired_at=1.0, version="2026.6.1")],
+            open_pins={_PIN_A},
+            idle_pins={_PIN_A},
+            offloader_version="2026.6.0",
             policy=VersionMatchPolicy.EXACT_REQUIRED,
         ),
     )
@@ -222,6 +223,29 @@ async def test_exact_required_no_server_fails_the_job(
     assert job.status is JobStatus.FAILED
     assert "exact_required" in (job.error or "")
     assert job.source is not JobSource.LOCAL
+
+
+async def test_exact_required_disconnected_server_waits_not_fails(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """EXACT_REQUIRED, only compatible server merely offline → holds the job (may reconnect)."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    _stub_offloader(
+        controller,
+        _snapshot(
+            [_pairing(_PIN_A, paired_at=1.0, version="2026.5.0")],
+            open_pins=set(),  # paired but its peer-link is down (transient drop)
+            idle_pins=set(),
+            offloader_version="2026.5.0",
+            policy=VersionMatchPolicy.EXACT_REQUIRED,
+        ),
+    )
+    job = _add_pending(controller, "j1")
+
+    await remote_dispatch._dispatch_pending(controller)
+
+    assert job.status is JobStatus.QUEUED
+    assert "j1" in controller.state.remote_dispatch.pending
 
 
 async def test_exact_required_busy_server_waits_not_fails(
@@ -491,6 +515,52 @@ async def test_unpair_race_leaves_job_pending(
     assert "j1" not in pool.in_flight
     # Re-armed so a missed peer-link-close event can't strand the compile.
     assert pool.wake.is_set()
+
+
+async def test_dispatch_leaves_consistent_inflight_state(
+    firmware_controller_factory: FirmwareControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """After dispatch the job is RUNNING + in-flight + JOB_STARTED-fired in one consistent step.
+
+    Pins the eager-task ordering: ``begin_run`` (RUNNING + JOB_STARTED) and
+    ``start()`` (in_flight) both run synchronously before any interleave, so a
+    cancel landing right after sees ``is_in_flight`` true and is accepted.
+    """
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    _stub_offloader(
+        controller,
+        _snapshot([_pairing(_PIN_A, paired_at=1.0)], open_pins={_PIN_A}, idle_pins={_PIN_A}),
+    )
+    # Production spawns eagerly, so the prologue runs before start() returns.
+    controller._db.create_background_task = create_eager_task
+    release = asyncio.Event()
+    started: list[str] = []
+    controller.bus.add_listener(
+        EventType.JOB_STARTED, lambda event: started.append(event.data["job"].job_id)
+    )
+
+    async def _block(ctrl: object, job: FirmwareJob, **_kw: object) -> None:
+        await release.wait()
+        ctrl._finalize_terminal(job, JobStatus.COMPLETED)
+
+    monkeypatch.setattr(remote_dispatch, "run_remote_job", _block)
+
+    job = _add_pending(controller, "j1")
+    await remote_dispatch._dispatch_pending(controller)
+    pool = controller.state.remote_dispatch
+    task = pool.in_flight["j1"]
+    try:
+        assert pool.is_in_flight("j1")
+        assert _PIN_A in pool.busy_pins()
+        assert job.status is JobStatus.RUNNING
+        assert started == ["j1"]
+        # Cancel in this window is accepted (is_in_flight true), no RuntimeError.
+        await controller.cancel(job_id="j1")
+        assert "j1" in controller.state.cancel_requested
+    finally:
+        release.set()
+        await task
 
 
 async def test_server_lost_mid_build_reroutes_to_another_worker(

@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from ...helpers.build_scheduler import DispatchOutcome, pick_dispatch_target
@@ -34,7 +33,7 @@ from ...models import (
     JobStatus,
 )
 from . import lifecycle
-from .helpers import _fire_job_lifecycle, _ingest_output_line
+from .helpers import _ingest_output_line
 from .remote_runner import RemoteServerLostError, run_remote_job
 
 if TYPE_CHECKING:
@@ -145,6 +144,12 @@ def _dispatch_to_server(controller: FirmwareController, job: FirmwareJob, pin_sh
             esphome_version=pairing.esphome_version,
         )
     )
+    # ``create_background_task`` is eager: ``_drive_remote`` runs its
+    # ``begin_run`` prologue (stamps RUNNING, fires JOB_STARTED) synchronously
+    # before ``start()`` records the in-flight entry. That's safe — no
+    # JOB_STARTED listener reads pool state, and a cancel can't interleave the
+    # sync prologue (it lands after ``start()``, where ``is_in_flight`` is true,
+    # and ``run_remote_job`` replays ``cancel_requested`` once its event exists).
     task = controller._db.create_background_task(_drive_remote(controller, job))
     controller.state.remote_dispatch.start(job, pin_sha256, task)
 
@@ -168,14 +173,11 @@ def _fail_no_compatible_peer(
 async def _drive_remote(controller: FirmwareController, job: FirmwareJob) -> None:
     """Run a bound remote compile off-lane, finalise, and free the server.
 
-    Mirrors the lane runner's RUNNING-stamp / JOB_STARTED fire and its
-    trim / prune / persist ``finally`` (minus the lane slot — there is
-    none); ``run_remote_job`` owns the terminal finalise and cancel.
+    Shares the lane runner's run ceremony via ``lifecycle.begin_run`` /
+    ``end_run`` (there's no lane slot here); ``run_remote_job`` owns the
+    terminal finalise and cancel.
     """
-    job.status = JobStatus.RUNNING
-    job.started_at = datetime.now(UTC).isoformat()
-    _fire_job_lifecycle(job, controller.bus, EventType.JOB_STARTED)
-    await controller._persist_jobs()
+    await lifecycle.begin_run(controller, job)
     pool = controller.state.remote_dispatch
     try:
         await run_remote_job(controller, job, retry_on_server_loss=True)
@@ -185,8 +187,7 @@ async def _drive_remote(controller: FirmwareController, job: FirmwareJob) -> Non
         pool.release(job.job_id)
         if job.status in TERMINAL_JOB_STATUSES:
             pool.forget_losses(job.job_id)
-        lifecycle.finalize_bookkeeping(controller, job)
-        await controller._persist_jobs()
+        await lifecycle.end_run(controller, job)
 
 
 def _requeue_after_server_loss(

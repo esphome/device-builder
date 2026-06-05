@@ -7,12 +7,10 @@ import logging
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from ...helpers.subprocess import create_subprocess_exec, iter_lines_with_progress
 from ...models import (
-    EventType,
     FirmwareJob,
     JobSource,
     JobStatus,
@@ -21,7 +19,6 @@ from ...models import (
 from . import lifecycle
 from .constants import _ERROR_PATTERNS
 from .helpers import (
-    _fire_job_lifecycle,
     _ingest_output_line,
     _is_no_module_named_esphome,
 )
@@ -66,8 +63,8 @@ async def execute_job(  # noqa: PLR0912, PLR0915, C901
     controller: FirmwareController, job: FirmwareJob, lane: Lane
 ) -> None:
     """Execute a single firmware job on *lane*."""
-    job.status = JobStatus.RUNNING
-    job.started_at = datetime.now(UTC).isoformat()
+    # Claim the lane slot before JOB_STARTED fires — the receiver's
+    # ``compile_queue_status`` reads ``current_job`` reactively on that event.
     lane.current_job = job
     _LOGGER.info(
         "Starting job %s: %s %s",
@@ -75,8 +72,7 @@ async def execute_job(  # noqa: PLR0912, PLR0915, C901
         job.job_type,
         job.configuration,
     )
-    _fire_job_lifecycle(job, controller._db.bus, EventType.JOB_STARTED)
-    await controller._persist_jobs()
+    await lifecycle.begin_run(controller, job)
 
     try:
         # Source-routed branch: REMOTE-source jobs dispatch via
@@ -243,8 +239,7 @@ async def execute_job(  # noqa: PLR0912, PLR0915, C901
     finally:
         lane.current_job = None
         lane.current_process = None
-        lifecycle.finalize_bookkeeping(controller, job)
-        await controller._persist_jobs()
+        await lifecycle.end_run(controller, job)
 
 
 async def execute_remote_job(controller: FirmwareController, job: FirmwareJob) -> None:

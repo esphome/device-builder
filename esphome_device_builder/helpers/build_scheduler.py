@@ -186,6 +186,13 @@ def pick_dispatch_target(inputs: BuildSchedulerInputs) -> DispatchDecision:
     if result.busy_eligible > 0:
         return DispatchDecision.wait()
     if result.intentional > 0 and inputs.version_match_policy is VersionMatchPolicy.EXACT_REQUIRED:
+        # EXACT_REQUIRED can't fall back to LOCAL, so don't hard-fail on a
+        # transient drop: an intended server that's merely offline may reconnect
+        # (a peer-link-open event re-wakes the matcher), so WAIT. Only fail when
+        # an intended server is genuinely connected-but-incompatible with none
+        # left to wait on — reconnecting wouldn't fix a version mismatch.
+        if result.disconnected > 0:
+            return DispatchDecision.wait()
         return DispatchDecision.no_compatible_peer(_no_compatible_peer_message(result, inputs))
     return DispatchDecision.local()
 

@@ -930,6 +930,21 @@ def test_dispatch_exact_required_no_server_returns_no_compatible_peer() -> None:
     assert "exact_required" in decision.message
 
 
+def test_dispatch_exact_required_disconnected_server_waits() -> None:
+    """EXACT_REQUIRED, compatible server merely offline -> WAIT (may reconnect), not fail."""
+    pin = "a" * 64
+    decision = pick_dispatch_target(
+        _inputs(
+            pairings={pin: _stub_pairing(pin_sha256=pin, esphome_version="2026.6.0")},
+            open_peer_links=set(),  # paired but disconnected
+            peer_queue_status={},
+            offloader_esphome_version="2026.6.0",
+            version_match_policy=VersionMatchPolicy.EXACT_REQUIRED,
+        )
+    )
+    assert decision.outcome is DispatchOutcome.WAIT
+
+
 def test_dispatch_exact_required_busy_server_waits() -> None:
     """EXACT_REQUIRED with the only compatible server busy → WAIT, never NO_COMPATIBLE_PEER."""
     pin = "a" * 64

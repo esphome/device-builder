@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from ...helpers.process import terminate_subtree_with_grace
@@ -43,6 +44,29 @@ def finalize_terminal(controller: FirmwareController, job: FirmwareJob, status: 
     release_dependents(controller, job)
     # Wake an upload lane held behind a now-finished clean/reset (build gate).
     controller.state.build_gate.set()
+
+
+async def begin_run(controller: FirmwareController, job: FirmwareJob) -> None:
+    """Stamp *job* RUNNING, fire ``JOB_STARTED``, and persist — the shared run prologue.
+
+    Both execution paths call this: the lane runner (after claiming its lane
+    slot, since the receiver's ``compile_queue_status`` reads ``current_job``
+    on ``JOB_STARTED``) and the off-lane dispatch pool. Keeping the prologue
+    here means a new field / gate is added once, not mirrored by hand.
+    """
+    job.status = JobStatus.RUNNING
+    job.started_at = datetime.now(UTC).isoformat()
+    _fire_job_lifecycle(job, controller._db.bus, EventType.JOB_STARTED)
+    await controller._persist_jobs()
+
+
+async def end_run(controller: FirmwareController, job: FirmwareJob) -> None:
+    """Terminal bookkeeping then persist — the shared ``finally`` tail.
+
+    Caller releases its own slot (lane ``current_job`` / pool entry) first.
+    """
+    finalize_bookkeeping(controller, job)
+    await controller._persist_jobs()
 
 
 def finalize_bookkeeping(controller: FirmwareController, job: FirmwareJob) -> None:
