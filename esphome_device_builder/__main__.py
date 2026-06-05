@@ -100,8 +100,11 @@ def _setup_logging(log_level: str, log_file: str | None = None) -> None:
     activate_log_queue_handler()
 
 
-def _exit_cleanly_on_signal(_signum: int, _frame: object) -> None:
+def _exit_cleanly_on_signal(signum: int, _frame: object) -> None:
     """Exit 0 on a stop signal the event loop isn't trapping itself."""
+    logging.getLogger(_LOGGER_NAME).info(
+        "Received stop signal %s; shutting down cleanly", signum
+    )
     raise SystemExit(0)
 
 
