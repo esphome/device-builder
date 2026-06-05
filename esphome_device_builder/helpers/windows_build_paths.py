@@ -59,6 +59,12 @@ def windows_short_build_paths(config_dir: Path) -> Iterator[None]:
         yield
         return
     suffix = _safe_suffix(dashboard_id)
+    if not suffix:
+        # A hand-corrupted sidecar whose chars are all stripped would collapse the root onto the
+        # shared C:\esphb parent; refuse rather than nest every dashboard inside one another.
+        _LOGGER.warning("dashboard_id sanitized to empty; skipping build relocation")
+        yield
+        return
     new_root = _ROOT_BASE / suffix  # C:\esphb\<id8>
     legacy_root = _LEGACY_ROOT_BASE / f"esphb-{suffix}"  # C:\esphb-<id8>, first-relocation layout
     if _relocate_into(new_root, legacy_root, config_dir / ".esphome"):

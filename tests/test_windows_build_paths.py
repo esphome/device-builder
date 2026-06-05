@@ -36,7 +36,8 @@ def test_context_manager_is_noop_off_windows(
 
 @pytest.fixture
 def fake_windows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Drive the Windows branch off Windows; return the (real, space-free) drive base.
+    """
+    Drive the Windows branch off Windows; return the (real, space-free) drive base.
 
     ``_ROOT_BASE`` is the nested parent (``<drive>/esphb``) and ``_LEGACY_ROOT_BASE`` the flat
     drive root, so new roots are ``<drive>/esphb/<id8>`` and legacy ones ``<drive>/esphb-<id8>``.
@@ -84,6 +85,16 @@ def test_corrupt_dashboard_id_cannot_escape_the_root_segment(
         root = Path(os.environ["ESPHOME_DATA_DIR"])
         assert root.parent == fake_windows / "esphb"  # stays under the esphb parent, no traversal
         assert root.name == "Cevil"  # separators, dots, colon stripped; safe chars kept
+
+
+def test_fully_corrupt_dashboard_id_falls_back_to_noop(
+    tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    r"""An id sanitizing to empty must not collapse the root onto the shared C:\esphb parent."""
+    monkeypatch.setattr(wbp, "get_or_create_dashboard_id", lambda _config_dir: "../..")
+    with windows_short_build_paths(tmp_path / "cfg"):
+        assert "ESPHOME_DATA_DIR" not in os.environ
+    assert not (fake_windows / "esphb").exists()
 
 
 def test_skips_relocation_when_user_set_data_dir(
