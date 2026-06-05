@@ -296,11 +296,15 @@ def _load_secrets(config_dir: Path) -> dict[str, Any]:
         return {}
     try:
         data = load_yaml_fast_then_esphome(secrets_path)
-    except (EsphomeError, yaml.YAMLError, OSError):
-        _LOGGER.warning("Could not parse secrets.yaml — MQTT broker secrets unavailable")
+    except (EsphomeError, yaml.YAMLError, OSError) as err:
+        _LOGGER.warning("Could not read secrets.yaml (%s) — MQTT broker secrets unavailable", err)
+        return {}
+    # An empty or comment-only secrets.yaml parses to None; that is a
+    # legitimate file, not a failure, so degrade silently.
+    if data is None:
         return {}
     if not isinstance(data, dict):
-        _LOGGER.warning("Could not parse secrets.yaml — MQTT broker secrets unavailable")
+        _LOGGER.warning("secrets.yaml is not a mapping — MQTT broker secrets unavailable")
         return {}
     return data
 

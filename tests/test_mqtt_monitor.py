@@ -345,7 +345,23 @@ async def test_coordinator_warns_when_secrets_unparseable_by_both_loaders(
     with caplog.at_level("WARNING"):
         await coord.reconcile()
     assert coord.active_brokers == 0
-    assert "Could not parse secrets.yaml" in caplog.text
+    assert "Could not read secrets.yaml" in caplog.text
+
+
+async def test_coordinator_empty_secrets_yaml_does_not_warn(
+    tmp_path: Path,
+    stub_monitor: type[_RecordingMonitor],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # An empty / comment-only secrets.yaml parses to None; that is a
+    # legitimate file and must not spam a warning on every poll.
+    (tmp_path / "secrets.yaml").write_text("# only a comment\n")
+    devices = [_write_device(tmp_path, "alpha", "mqtt:\n  broker: !secret mqtt_broker\n")]
+    coord = _make_coordinator(tmp_path, devices)
+    with caplog.at_level("WARNING"):
+        await coord.reconcile()
+    assert coord.active_brokers == 0
+    assert "secrets.yaml" not in caplog.text
 
 
 async def test_coordinator_resolves_broker_pulled_in_via_packages(
