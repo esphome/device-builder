@@ -231,6 +231,50 @@ def test_mark_terminal_rejects_non_terminal_status() -> None:
     assert job.status is JobStatus.RUNNING
 
 
+def test_restore_for_requeue_repools_a_running_remote_compile() -> None:
+    """A restored RUNNING remote compile re-queues as REMOTE_PENDING, pin + run cleared."""
+    job = _make_job(
+        status=JobStatus.RUNNING,
+        job_type=JobType.COMPILE,
+        source=JobSource.REMOTE,
+        source_pin_sha256="a" * 64,
+        started_at="2026-01-01T00:00:00Z",
+    )
+
+    job.restore_for_requeue()
+
+    assert job.status is JobStatus.QUEUED
+    assert job.source is JobSource.REMOTE_PENDING
+    assert job.source_pin_sha256 == ""
+    assert job.started_at is None  # reset cleared the interrupted run
+
+
+def test_restore_for_requeue_keeps_a_remote_clean_pinned() -> None:
+    """A restored REMOTE CLEAN keeps its server pin — it targets that server on purpose."""
+    job = _make_job(
+        status=JobStatus.QUEUED,
+        job_type=JobType.CLEAN,
+        source=JobSource.REMOTE,
+        source_pin_sha256="b" * 64,
+    )
+
+    job.restore_for_requeue()
+
+    assert job.status is JobStatus.QUEUED
+    assert job.source is JobSource.REMOTE
+    assert job.source_pin_sha256 == "b" * 64
+
+
+def test_restore_for_requeue_leaves_a_local_compile_local() -> None:
+    """A restored local compile re-queues without being pulled into the remote pool."""
+    job = _make_job(status=JobStatus.QUEUED, job_type=JobType.COMPILE, source=JobSource.LOCAL)
+
+    job.restore_for_requeue()
+
+    assert job.status is JobStatus.QUEUED
+    assert job.source is JobSource.LOCAL
+
+
 # ---------------------------------------------------------------------------
 # JobBuildSource.for_server / FirmwareJob.apply_build_source
 # ---------------------------------------------------------------------------

@@ -336,6 +336,23 @@ class FirmwareJob(DataClassORJSONMixin):
         self.status = JobStatus.QUEUED
         self.apply_build_source(REMOTE_PENDING_JOB_BUILD_SOURCE)
 
+    def restore_for_requeue(self) -> None:
+        """Prepare a restored active job for re-queue after a dashboard restart.
+
+        A RUNNING job gets a fresh run via ``reset`` (restart marker); a remote
+        COMPILE re-enters ``REMOTE_PENDING`` with its pin cleared so the dispatch
+        pool re-routes it to a live server, while a REMOTE CLEAN keeps its pin
+        (it targets a specific server on purpose).
+        """
+        if self.status is JobStatus.RUNNING:
+            self.reset()
+        self.status = JobStatus.QUEUED
+        if self.job_type is JobType.COMPILE and self.source in (
+            JobSource.REMOTE,
+            JobSource.REMOTE_PENDING,
+        ):
+            self.apply_build_source(REMOTE_PENDING_JOB_BUILD_SOURCE)
+
     def clear_run_state(self) -> None:
         """Clear per-run fields (progress / error / timing / exit code); keeps output and identity.
 

@@ -24,10 +24,8 @@ from esphome.core import CORE
 
 from ...helpers.atomic_io import atomic_write
 from ...models import (
-    REMOTE_PENDING_JOB_BUILD_SOURCE,
     TERMINAL_JOB_STATUSES,
     FirmwareJob,
-    JobSource,
     JobStatus,
     JobType,
 )
@@ -120,10 +118,7 @@ def _restore_job_entry(
         job = FirmwareJob.from_dict(job_data)  # type: ignore[arg-type]
         controller.state.jobs[job.job_id] = job
         if job.status in _ACTIVE_JOB_STATUSES:
-            if job.status == JobStatus.RUNNING:
-                job.reset()
-            job.status = JobStatus.QUEUED
-            _redispatch_remote_compile(job)
+            job.restore_for_requeue()
             active.append(job)
         elif job.output:
             # Cleared from RAM only after the sidecar write lands, so a
@@ -138,21 +133,6 @@ def _restore_job_entry(
             else f"<non-dict entry: {job_data!r}>"
         )
         _LOGGER.warning("Failed to restore job: %s", identity, exc_info=True)
-
-
-def _redispatch_remote_compile(job: FirmwareJob) -> None:
-    """Reset a restored remote *compile* back to ``REMOTE_PENDING`` so it re-routes.
-
-    A compile dispatched to a server before the restart had its pin baked
-    in; on reload that server may be gone or busy, so clear the binding and
-    let the dispatch pool pick a live one. Scoped to COMPILE — a REMOTE
-    CLEAN fan-out job targets a specific server on purpose and keeps its pin.
-    """
-    if job.job_type is not JobType.COMPILE:
-        return
-    if job.source not in (JobSource.REMOTE, JobSource.REMOTE_PENDING):
-        return
-    job.apply_build_source(REMOTE_PENDING_JOB_BUILD_SOURCE)
 
 
 def _restore_to_lane(controller: FirmwareController, job: FirmwareJob) -> None:
