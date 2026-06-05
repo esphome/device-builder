@@ -142,24 +142,15 @@ async def cancel(controller: FirmwareController, *, job_id: str) -> None:
     if job.status == JobStatus.RUNNING:
         if controller.state.remote_dispatch.is_in_flight(job_id):
             # Off-lane remote compile: no subprocess to SIGTERM —
-            # ``run_remote_job`` parks on its cancel event, so flag the
-            # request and signal the event (it sends a wire ``cancel_job``).
-            controller.state.cancel_requested.add(job_id)
-            cancel_event = controller.state.cancel_events.get(job_id)
-            if cancel_event is not None:
-                cancel_event.set()
+            # ``run_remote_job`` parks on its cancel event, which sends a wire
+            # ``cancel_job``.
+            controller.state.request_cancel(job_id)
             return
         lane = _running_lane(controller, job_id)
         if lane is None:
             msg = "Running job is not the active subprocess (state out of sync)"
             raise RuntimeError(msg)
-        controller.state.cancel_requested.add(job_id)
-        # Wake any runner parked on its cancel event — only the
-        # remote runner registers one; the local subprocess path's
-        # wake signal is SIGTERM on the spawned process.
-        cancel_event = controller.state.cancel_events.get(job_id)
-        if cancel_event is not None:
-            cancel_event.set()
+        controller.state.request_cancel(job_id)
         # Lane-scoped so cancelling an upload doesn't signal a concurrent compile.
         await controller._terminate_current_process(lane)
         return

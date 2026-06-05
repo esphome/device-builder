@@ -54,6 +54,7 @@ from ..remote_build.peer_link_client import (
     SubmitJobSessionLostError,
     SubmitJobTimeoutError,
 )
+from . import lifecycle
 from .constants import ESPHOME_SUBPROCESS_ENV
 from .helpers import _fire_job_progress, _ingest_output_line
 
@@ -497,13 +498,10 @@ async def _await_terminal(
             cancel_wait.cancel()
 
     data = terminal.result()
-    if job.job_id in controller.state.cancel_requested:
-        # User cancel beat the receiver's terminal frame to the
-        # loop (receiver completed / failed while our cancel was
-        # in flight). Mirror the local subprocess path: user
-        # intent wins, finalise as CANCELLED regardless of the
-        # status we received.
-        controller._finalize_cancelled(job)
+    if lifecycle.cancel_if_requested(controller, job):
+        # User cancel beat the receiver's terminal frame to the loop (receiver
+        # completed / failed while our cancel was in flight). User intent wins,
+        # finalise CANCELLED regardless of the status we received.
         return None
     status = data["status"]
     if status == "cancelled":
@@ -567,12 +565,9 @@ async def _fetch_and_materialise(
         _fail_locally(controller, job, reason=f"materialise IO error: {exc}")
         return False
 
-    # Honour a cancel that arrived between the receiver's
-    # completed frame and us getting here.
-    if job.job_id in controller.state.cancel_requested:
-        controller._finalize_cancelled(job)
-        return False
-    return True
+    # Honour a cancel that arrived between the receiver's completed frame and
+    # us getting here; otherwise staging succeeded.
+    return not lifecycle.cancel_if_requested(controller, job)
 
 
 async def _fetch_and_run_local_upload(
@@ -592,8 +587,7 @@ async def _fetch_and_run_local_upload(
     # Cancel that landed after ``_fetch_and_materialise``'s
     # own check returned True — same race window the old
     # one-shot helper covered.
-    if job.job_id in controller.state.cancel_requested:
-        controller._finalize_cancelled(job)
+    if lifecycle.cancel_if_requested(controller, job):
         return
 
     bus = controller.bus
@@ -705,8 +699,7 @@ async def _run_upload_subprocess(
 
         exit_code = await proc.wait()
 
-    if job.job_id in controller.state.cancel_requested:
-        controller._finalize_cancelled(job)
+    if lifecycle.cancel_if_requested(controller, job):
         return None
     job.exit_code = exit_code
     return exit_code

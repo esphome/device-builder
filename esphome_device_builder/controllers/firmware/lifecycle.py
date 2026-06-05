@@ -143,6 +143,20 @@ def finalize_cancelled(controller: FirmwareController, job: FirmwareJob) -> None
     controller._finalize_terminal(job, JobStatus.CANCELLED)
 
 
+def cancel_if_requested(controller: FirmwareController, job: FirmwareJob) -> bool:
+    """Finalize *job* CANCELLED if a cancel raced in mid-flow; return whether it did.
+
+    The remote runner re-checks at several post-await seams (a cancel can land
+    between the receiver's terminal frame and the artifact fetch / local flash);
+    each bails its own way, so this returns a flag rather than controlling flow.
+    """
+    if job.job_id in controller.state.cancel_requested:
+        # Delegate so a test patch on ``controller._finalize_cancelled`` still intercepts.
+        controller._finalize_cancelled(job)
+        return True
+    return False
+
+
 def raise_if_cancelled(controller: FirmwareController, job: FirmwareJob, phase: str) -> None:
     """Raise ``ValueError`` if a cancel landed mid-*phase*; else no-op.
 

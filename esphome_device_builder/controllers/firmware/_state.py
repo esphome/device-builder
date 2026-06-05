@@ -154,6 +154,18 @@ class FirmwareState:
         self.remote_dispatch.drop(job.job_id)
         self.lane_for(job).queue.put_nowait(job)
 
+    def request_cancel(self, job_id: str) -> None:
+        """Flag *job_id* for cancellation and wake any runner parked on its cancel event.
+
+        Only the remote runner registers a ``cancel_events`` entry; the local
+        subprocess path's wake is SIGTERM on the spawned process, so a missing
+        event is normal.
+        """
+        self.cancel_requested.add(job_id)
+        event = self.cancel_events.get(job_id)
+        if event is not None:
+            event.set()
+
     def active_jobs(self) -> Iterator[FirmwareJob]:
         """Yield the queued or running jobs (skips terminal history)."""
         return (j for j in self.jobs.values() if j.status in _ACTIVE_JOB_STATUSES)
