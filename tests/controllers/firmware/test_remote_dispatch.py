@@ -757,3 +757,53 @@ async def test_server_loss_retry_is_bounded(
     assert job.status is JobStatus.FAILED
     assert "c1" not in controller.state.remote_dispatch.pending
     assert "c1" not in controller.state.remote_dispatch.retries
+
+
+async def test_server_lost_mid_build_completes_on_alternate_server(
+    firmware_controller_factory: FirmwareControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """E2E: server A drops mid-build, the loop re-dispatches the compile to B, which finishes it."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    offloader = _stub_offloader(
+        controller,
+        _snapshot(
+            [_pairing(_PIN_A, paired_at=1.0), _pairing(_PIN_B, paired_at=2.0)],
+            open_pins={_PIN_A, _PIN_B},
+            idle_pins={_PIN_A, _PIN_B},
+        ),
+    )
+    controller._db.create_background_task = asyncio.create_task
+    monkeypatch.setattr(remote_dispatch, "_STARTUP_GRACE_SECONDS", 0)
+
+    runs: list[str] = []
+    done = asyncio.Event()
+
+    async def _fake_run(ctrl: object, job: FirmwareJob, **_kw: object) -> None:
+        runs.append(job.source_pin_sha256)  # bound pin at dispatch
+        if job.source_pin_sha256 == _PIN_A:
+            # A's peer-link drops mid-build: it leaves the pool, then the build fails.
+            offloader.build_scheduler_snapshot.return_value = _snapshot(
+                [_pairing(_PIN_B, paired_at=2.0)], open_pins={_PIN_B}, idle_pins={_PIN_B}
+            )
+            raise RemoteServerLostError("transport_error")
+        ctrl._finalize_terminal(job, JobStatus.COMPLETED)
+        done.set()
+
+    monkeypatch.setattr(remote_dispatch, "run_remote_job", _fake_run)
+
+    loop_task = asyncio.create_task(remote_dispatch.run_dispatch_loop(controller))
+    try:
+        job = _add_pending(controller, "c1")
+        controller.state.remote_dispatch.wake.set()
+        await asyncio.wait_for(done.wait(), timeout=2.0)
+    finally:
+        loop_task.cancel()
+        await asyncio.gather(loop_task, return_exceptions=True)
+
+    pool = controller.state.remote_dispatch
+    assert runs == [_PIN_A, _PIN_B]  # tried A, re-routed to the alternate B
+    assert job.status is JobStatus.COMPLETED
+    assert job.source_pin_sha256 == _PIN_B  # completed on the alternate server
+    assert "c1" not in pool.in_flight
+    assert "c1" not in pool.retries  # loss counter cleared on the real terminal
