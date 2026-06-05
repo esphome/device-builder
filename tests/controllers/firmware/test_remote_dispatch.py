@@ -373,6 +373,36 @@ async def test_drive_remote_finalizes_failed_on_unexpected_exception(
     assert pool.busy_pins() == frozenset()
 
 
+async def test_drive_remote_reraises_cancelled_error_and_frees_slot(
+    firmware_controller_factory: FirmwareControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A CancelledError out of run_remote_job propagates (shutdown), freeing the pool slot."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+
+    async def _cancelled(_ctrl: object, _job: FirmwareJob, **_kw: object) -> None:
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(remote_dispatch, "run_remote_job", _cancelled)
+    job = FirmwareJob(
+        job_id="c1",
+        configuration="dev.yaml",
+        job_type=JobType.COMPILE,
+        source=JobSource.REMOTE,
+        source_pin_sha256=_PIN_A,
+    )
+    controller.state.jobs["c1"] = job
+    pool = controller.state.remote_dispatch
+    pool.in_flight["c1"] = MagicMock()
+    pool.job_peer["c1"] = _PIN_A
+
+    with pytest.raises(asyncio.CancelledError):
+        await remote_dispatch._drive_remote(controller, job)
+
+    assert "c1" not in pool.in_flight  # finally still freed the slot
+    assert pool.busy_pins() == frozenset()
+
+
 async def test_drive_remote_skips_build_when_already_terminal(
     firmware_controller_factory: FirmwareControllerFactory,
     monkeypatch: pytest.MonkeyPatch,

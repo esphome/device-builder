@@ -1005,6 +1005,37 @@ async def test_remote_compile_session_lost_mid_build_fires_job_failed(
     ), output_lines
 
 
+async def test_remote_compile_session_lost_raises_for_pool_retry(
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_bundle: AsyncMock,
+) -> None:
+    """With ``retry_on_server_loss=True`` a mid-build session loss raises rather than failing.
+
+    The dispatch pool catches ``RemoteServerLostError`` to re-route the compile
+    to another worker, so this path must not finalise the job locally.
+    """
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = _capture_local_events(controller)
+    client = _make_client()
+    _wire_remote_build(controller, client=client)
+    job = _make_remote_job()
+
+    runner = asyncio.create_task(
+        remote_runner.run_remote_job(controller, job, retry_on_server_loss=True)
+    )
+    await _wait_until_dispatched(client)
+    _fire_session_closed(
+        controller, reason="transport_error", error_detail="Connection reset by peer"
+    )
+
+    with pytest.raises(remote_runner.RemoteServerLostError, match="transport_error"):
+        await asyncio.wait_for(runner, timeout=2.0)
+
+    # The pool driver owns the re-route; the runner must not have failed it.
+    assert job.status != JobStatus.FAILED
+    assert captured[EventType.JOB_FAILED] == []
+
+
 async def test_remote_compile_session_lost_synthetic_line_skips_leading_newline(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
