@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -12,6 +13,8 @@ from .helpers import _fire_job_lifecycle, _mark_job_terminal, _trim_job_output
 if TYPE_CHECKING:
     from ._state import Lane
     from .controller import FirmwareController
+
+_LOGGER = logging.getLogger(__name__)
 
 
 # Terminal :class:`JobStatus` -> the lifecycle event the runner
@@ -67,6 +70,23 @@ async def end_run(controller: FirmwareController, job: FirmwareJob) -> None:
     """
     finalize_bookkeeping(controller, job)
     await controller._persist_jobs()
+
+
+def finalize_unexpected_error(
+    controller: FirmwareController, job: FirmwareJob, exc: BaseException
+) -> None:
+    """Finalize *job* after an uncaught run exception — cancel intent wins, else FAILED.
+
+    Both execution paths guarantee terminality this way: an exception escaping
+    the run must still produce a terminal event, never a job stuck RUNNING.
+    """
+    if job.job_id in controller.state.cancel_requested:
+        finalize_cancelled(controller, job)
+        _LOGGER.info("Job %s cancelled before completion: %s", job.job_id, exc)
+    else:
+        job.error = str(exc)
+        controller._finalize_terminal(job, JobStatus.FAILED)
+        _LOGGER.exception("Job %s failed", job.job_id)
 
 
 def finalize_bookkeeping(controller: FirmwareController, job: FirmwareJob) -> None:

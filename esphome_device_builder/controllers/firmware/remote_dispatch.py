@@ -18,6 +18,7 @@ excluded via ``busy_build_server_pins``.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import replace
 from typing import TYPE_CHECKING
@@ -190,6 +191,13 @@ async def _drive_remote(controller: FirmwareController, job: FirmwareJob) -> Non
         await run_remote_job(controller, job, retry_on_server_loss=True)
     except RemoteServerLostError as lost:
         _requeue_after_server_loss(controller, job, str(lost))
+    except asyncio.CancelledError:
+        # run_remote_job already finalised CANCELLED on its way out; just unwind.
+        raise
+    except Exception as exc:  # noqa: BLE001 — terminality guarantee; helper logs + finalizes
+        # Mirror the lane runner: an unexpected raise must still finalize the
+        # job, never leave it stuck RUNNING with no JOB_FAILED.
+        lifecycle.finalize_unexpected_error(controller, job, exc)
     finally:
         pool.release(job.job_id)
         if job.status in TERMINAL_JOB_STATUSES:

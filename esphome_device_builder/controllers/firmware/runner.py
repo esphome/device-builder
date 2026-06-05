@@ -59,7 +59,7 @@ async def _await_build_gate(controller: FirmwareController, job: FirmwareJob) ->
         await controller.state.build_gate.wait()
 
 
-async def execute_job(  # noqa: PLR0912, PLR0915, C901
+async def execute_job(  # noqa: PLR0915, C901
     controller: FirmwareController, job: FirmwareJob, lane: Lane
 ) -> None:
     """Execute a single firmware job on *lane*."""
@@ -222,20 +222,12 @@ async def execute_job(  # noqa: PLR0912, PLR0915, C901
         controller._finalize_cancelled(job)
         _LOGGER.info("Job %s cancelled (runner shutdown)", job.job_id)
         raise
-    except Exception as exc:
-        # If a cancel was requested before this exception escaped,
-        # honour it as CANCELLED instead of FAILED. The
-        # ``_verify_chip`` early-cancel path raises ``ValueError``
-        # to short-circuit the install — without this branch
-        # that error would be reported as a generic failure
-        # rather than the user-driven cancel it actually is.
-        if job.job_id in controller.state.cancel_requested:
-            controller._finalize_cancelled(job)
-            _LOGGER.info("Job %s cancelled before subprocess wait: %s", job.job_id, exc)
-        else:
-            job.error = str(exc)
-            controller._finalize_terminal(job, JobStatus.FAILED)
-            _LOGGER.exception("Job %s failed", job.job_id)
+    except Exception as exc:  # noqa: BLE001 — terminality guarantee; helper logs + finalizes
+        # Cancel intent wins over the raise — e.g. ``_verify_chip``'s early-cancel
+        # path raises ``ValueError`` to short-circuit the install, which is a
+        # user-driven cancel, not a generic failure. Shared with the off-lane
+        # dispatch driver so both paths guarantee terminality identically.
+        lifecycle.finalize_unexpected_error(controller, job, exc)
     finally:
         lane.current_job = None
         lane.current_process = None

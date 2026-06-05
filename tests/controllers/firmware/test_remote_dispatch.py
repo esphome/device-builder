@@ -337,6 +337,42 @@ async def test_cancel_in_flight_remote_compile_signals_event(
     assert cancel_event.is_set()
 
 
+async def test_drive_remote_finalizes_failed_on_unexpected_exception(
+    firmware_controller_factory: FirmwareControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unexpected raise out of run_remote_job finalizes FAILED, never leaves the job RUNNING."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    failed: list[str] = []
+    controller.bus.add_listener(
+        EventType.JOB_FAILED, lambda event: failed.append(event.data["job"].job_id)
+    )
+
+    async def _boom(_ctrl: object, _job: FirmwareJob, **_kw: object) -> None:
+        raise KeyError("malformed wire frame")
+
+    monkeypatch.setattr(remote_dispatch, "run_remote_job", _boom)
+    job = FirmwareJob(
+        job_id="c1",
+        configuration="dev.yaml",
+        job_type=JobType.COMPILE,
+        source=JobSource.REMOTE,
+        source_pin_sha256=_PIN_A,
+    )
+    controller.state.jobs["c1"] = job
+    pool = controller.state.remote_dispatch
+    pool.in_flight["c1"] = MagicMock()
+    pool.job_peer["c1"] = _PIN_A
+
+    await remote_dispatch._drive_remote(controller, job)
+
+    assert job.status is JobStatus.FAILED
+    assert "malformed wire frame" in (job.error or "")
+    assert failed == ["c1"]
+    assert "c1" not in pool.in_flight
+    assert pool.busy_pins() == frozenset()
+
+
 async def test_drive_remote_skips_build_when_already_terminal(
     firmware_controller_factory: FirmwareControllerFactory,
     monkeypatch: pytest.MonkeyPatch,
