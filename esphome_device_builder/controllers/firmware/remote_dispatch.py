@@ -48,13 +48,26 @@ _LOGGER = logging.getLogger(__name__)
 # bound the re-routes so a single flapping server can't loop it forever.
 _MAX_SERVER_LOSS_RETRIES = 3
 
-# Offloader bus events that change which servers are free: a peer
-# connecting/leaving and a receiver flipping idle/busy. Each just
-# re-arms the matcher; the dispatch pass reads the fresh snapshot.
+# Hold the first dispatch pass this long after startup so paired build servers
+# have time to reconnect (offloader.start() runs after firmware.start(), and the
+# peer-link handshakes take a moment). Without it, restored REMOTE_PENDING
+# compiles would fall back to LOCAL because no server is connected yet. Patched
+# to 0 in tests. Module constant so it can be tuned without touching the loop.
+_STARTUP_GRACE_SECONDS = 30.0
+
+# Offloader bus events that change which servers are available: a peer
+# connecting/leaving, a receiver flipping idle/busy, and pairing-lifecycle
+# changes (add / approve / unpair / enable / disable). Each just re-arms the
+# matcher; the dispatch pass reads the fresh snapshot. The pairing events matter
+# because a job WAITing on a disconnected intended server must re-evaluate if
+# that server is then unpaired or disabled (no peer-link event fires then).
 _POOL_WAKE_EVENTS = (
     EventType.OFFLOADER_PEER_LINK_OPENED,
     EventType.OFFLOADER_PEER_LINK_CLOSED,
     EventType.OFFLOADER_QUEUE_STATUS_CHANGED,
+    EventType.OFFLOADER_PAIRING_ADDED,
+    EventType.OFFLOADER_PAIR_STATUS_CHANGED,
+    EventType.OFFLOADER_PAIRING_ENABLED_CHANGED,
 )
 
 
@@ -64,7 +77,9 @@ async def run_dispatch_loop(controller: FirmwareController) -> None:
     Subscribes to the pool-wake events for the loop's lifetime so a
     newly-connected or freed server pulls the next pending compile;
     the subscription detaches when the loop task is cancelled at
-    controller shutdown.
+    controller shutdown. Holds a startup grace before the first pass so
+    servers reconnecting after a restart are used instead of falling back
+    to local.
     """
     state = controller.state
 
@@ -72,6 +87,9 @@ async def run_dispatch_loop(controller: FirmwareController) -> None:
         state.remote_dispatch.wake.set()
 
     with controller.bus.listening(_POOL_WAKE_EVENTS, _wake):
+        # Listeners are attached first so a server connecting during the grace
+        # still arms the wake for the post-grace pass.
+        await asyncio.sleep(_STARTUP_GRACE_SECONDS)
         while True:
             await state.remote_dispatch.wake.wait()
             state.remote_dispatch.wake.clear()

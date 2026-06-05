@@ -507,6 +507,7 @@ async def test_loop_dispatches_three_servers_concurrently(
         ctrl._finalize_terminal(job, JobStatus.COMPLETED)
 
     monkeypatch.setattr(remote_dispatch, "run_remote_job", _fake_run)
+    monkeypatch.setattr(remote_dispatch, "_STARTUP_GRACE_SECONDS", 0)
 
     loop_task = asyncio.create_task(remote_dispatch.run_dispatch_loop(controller))
     try:
@@ -542,6 +543,7 @@ async def test_loop_wakes_on_peer_link_opened_event(
         ctrl._finalize_terminal(job, JobStatus.COMPLETED)
 
     monkeypatch.setattr(remote_dispatch, "run_remote_job", _fake_run)
+    monkeypatch.setattr(remote_dispatch, "_STARTUP_GRACE_SECONDS", 0)
 
     loop_task = asyncio.create_task(remote_dispatch.run_dispatch_loop(controller))
     try:
@@ -550,6 +552,39 @@ async def test_loop_wakes_on_peer_link_opened_event(
         _add_pending(controller, "j1")
         controller.bus.fire(EventType.OFFLOADER_PEER_LINK_OPENED, {})
         await asyncio.wait_for(dispatched.wait(), timeout=2.0)
+    finally:
+        loop_task.cancel()
+        await asyncio.gather(loop_task, return_exceptions=True)
+
+
+async def test_startup_grace_holds_restored_compiles_before_servers_connect(
+    firmware_controller_factory: FirmwareControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """During the startup grace a restored remote compile holds, not flushed to local.
+
+    Regression for the restart race: firmware.start() runs the loop before the
+    offloader loads its pairings, so without the grace the first pass would see
+    zero servers and fall the restored compile back to local.
+    """
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    # Offloader present but no servers connected yet (mid-startup).
+    _stub_offloader(
+        controller,
+        _snapshot([_pairing(_PIN_A, paired_at=1.0)], open_pins=set(), idle_pins=set()),
+    )
+    controller._db.create_background_task = asyncio.create_task
+    monkeypatch.setattr(remote_dispatch, "_STARTUP_GRACE_SECONDS", 30)
+    job = _add_pending(controller, "j1")
+    controller.state.remote_dispatch.wake.set()  # as a restore-time hold would
+
+    loop_task = asyncio.create_task(remote_dispatch.run_dispatch_loop(controller))
+    try:
+        await asyncio.sleep(0)  # loop starts and parks in the grace sleep
+        await asyncio.sleep(0)
+        # Still within the grace — the compile must not have run locally.
+        assert "j1" in controller.state.remote_dispatch.pending
+        assert job.source is JobSource.REMOTE_PENDING
     finally:
         loop_task.cancel()
         await asyncio.gather(loop_task, return_exceptions=True)
