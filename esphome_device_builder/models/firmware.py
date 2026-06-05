@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import NamedTuple, TypedDict
 
@@ -303,6 +304,17 @@ class FirmwareJob(DataClassORJSONMixin):
         """
         self.output = [*self.output, _RECOVERY_NOTICE]
         self.clear_run_state()
+
+    def mark_running(self) -> None:
+        """Stamp this job RUNNING with the current start time."""
+        self.status = JobStatus.RUNNING
+        self.started_at = datetime.now(UTC).isoformat()
+
+    def revert_to_pending_remote(self) -> None:
+        """Reset run state and re-mark ``REMOTE_PENDING`` so the pool re-routes this compile."""
+        self.clear_run_state()
+        self.status = JobStatus.QUEUED
+        self.apply_build_source(REMOTE_PENDING_JOB_BUILD_SOURCE)
 
     def clear_run_state(self) -> None:
         """Clear per-run fields (progress / error / timing / exit code); keeps output and identity.

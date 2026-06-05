@@ -801,6 +801,5 @@ def _fail_locally(
         controller._finalize_cancelled(job)
         _LOGGER.info("Remote job %s cancelled (failure path: %s)", job.job_id, error)
         return
-    job.error = error
-    controller._finalize_terminal(job, JobStatus.FAILED)
+    controller._finalize_terminal(job, JobStatus.FAILED, error=error)
     _LOGGER.warning("Remote job %s failed: %s", job.job_id, error)

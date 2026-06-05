@@ -396,8 +396,10 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     ) -> AbstractAsyncContextManager[asyncio.subprocess.Process]:
         return runner.tracked_subprocess(self, lane, *args, **kwargs)
 
-    def _finalize_terminal(self, job: FirmwareJob, status: JobStatus) -> None:
-        lifecycle.finalize_terminal(self, job, status)
+    def _finalize_terminal(
+        self, job: FirmwareJob, status: JobStatus, *, error: str | None = None
+    ) -> None:
+        lifecycle.finalize_terminal(self, job, status, error=error)
 
     def _finalize_cancelled(self, job: FirmwareJob) -> None:
         lifecycle.finalize_cancelled(self, job)

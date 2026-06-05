@@ -204,12 +204,12 @@ class _FilterResult:
     ``intentional`` counts every APPROVED + enabled pairing — including
     ineligible ones — since that's what drives the ``EXACT_REQUIRED``
     hard-fail. The per-reason counts (``version_filtered``,
-    ``disconnected``) are diagnostic only. ``eligible`` is a
-    ``tuple`` rather than ``list`` so ``frozen=True`` actually
-    freezes the held membership.
+    ``disconnected``) are diagnostic only. ``eligible`` is the
+    ``paired_at``-ordered tuple of dispatchable pins (a ``tuple`` so
+    ``frozen=True`` freezes the held membership).
     """
 
-    eligible: tuple[tuple[str, StoredPairing], ...]
+    eligible: tuple[str, ...]
     intentional: int
     version_filtered: int
     disconnected: int
@@ -228,13 +228,11 @@ def _pick_free_pin(
     version-compatible + not busy) and ``paired_at``-ordered, so the
     fallback ``eligible[0]`` is the oldest.
     """
-    for pin_sha256, _pairing in result.eligible:
+    for pin_sha256 in result.eligible:
         snapshot = peer_queue_status.get(pin_sha256)
         if snapshot is not None and snapshot["idle"]:
             return pin_sha256
-    if result.eligible:
-        return result.eligible[0][0]
-    return None
+    return result.eligible[0] if result.eligible else None
 
 
 def _no_compatible_peer_message(result: _FilterResult, inputs: BuildSchedulerInputs) -> str:
@@ -262,7 +260,7 @@ def _eligible_pairings(inputs: BuildSchedulerInputs) -> _FilterResult:
         key=lambda item: (item[1].paired_at, item[0]),
     )
     policy = inputs.version_match_policy
-    eligible: list[tuple[str, StoredPairing]] = []
+    eligible: list[str] = []
     intentional = 0
     version_filtered = 0
     disconnected = 0
@@ -291,7 +289,7 @@ def _eligible_pairings(inputs: BuildSchedulerInputs) -> _FilterResult:
             # in-flight job — eligible once it frees, not now.
             busy_eligible += 1
             continue
-        eligible.append((pin_sha256, pairing))
+        eligible.append(pin_sha256)
     if not eligible and version_filtered and policy is not VersionMatchPolicy.EXACT_REQUIRED:
         _LOGGER.info(
             "pick_build_path: version policy %s filtered %d peer(s); falling back to LOCAL",

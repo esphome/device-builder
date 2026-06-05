@@ -26,7 +26,6 @@ from typing import TYPE_CHECKING
 from ...helpers.build_scheduler import DispatchOutcome, pick_dispatch_target
 from ...models import (
     LOCAL_JOB_BUILD_SOURCE,
-    REMOTE_PENDING_JOB_BUILD_SOURCE,
     TERMINAL_JOB_STATUSES,
     EventType,
     FirmwareJob,
@@ -184,8 +183,7 @@ def _fail_no_compatible_peer(
 ) -> None:
     """Finalise *job* FAILED — EXACT_REQUIRED with no compatible server left."""
     controller.state.remote_dispatch.drop(job.job_id)
-    job.error = message
-    controller._finalize_terminal(job, JobStatus.FAILED)
+    controller._finalize_terminal(job, JobStatus.FAILED, error=message)
     _LOGGER.warning("Remote compile %s failed: %s", job.job_id, message)
 
 
@@ -230,8 +228,8 @@ def _requeue_after_server_loss(
     pool = controller.state.remote_dispatch
     attempt = pool.record_loss(job.job_id)
     if attempt > _MAX_SERVER_LOSS_RETRIES:
-        job.error = f"remote build: server lost mid-build {attempt}x ({reason})"
-        controller._finalize_terminal(job, JobStatus.FAILED)
+        error = f"remote build: server lost mid-build {attempt}x ({reason})"
+        controller._finalize_terminal(job, JobStatus.FAILED, error=error)
         pool.forget_losses(job.job_id)
         return
     _ingest_output_line(
@@ -244,12 +242,6 @@ def _requeue_after_server_loss(
 
 
 def _return_to_pool(controller: FirmwareController, job: FirmwareJob) -> None:
-    """Reset a remote compile to ``REMOTE_PENDING`` and route it back to the pool.
-
-    Uses ``clear_run_state`` (not ``reset``) so a server-loss re-route
-    doesn't stamp the log with a "dashboard restarted" notice.
-    """
-    job.clear_run_state()
-    job.status = JobStatus.QUEUED
-    job.apply_build_source(REMOTE_PENDING_JOB_BUILD_SOURCE)
+    """Reset a remote compile to ``REMOTE_PENDING`` and route it back to the pool."""
+    job.revert_to_pending_remote()
     controller.state.place_on_lane(job)

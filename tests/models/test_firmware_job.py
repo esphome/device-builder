@@ -163,6 +163,42 @@ def test_reset_preserves_dispatch_origin_fields() -> None:
 
 
 # ---------------------------------------------------------------------------
+# FirmwareJob.mark_running / revert_to_pending_remote
+# ---------------------------------------------------------------------------
+
+
+def test_mark_running_stamps_status_and_start_time() -> None:
+    """``mark_running`` sets RUNNING and an ISO 8601 ``started_at``."""
+    job = _make_job(status=JobStatus.QUEUED, started_at=None)
+
+    job.mark_running()
+
+    assert job.status is JobStatus.RUNNING
+    assert job.started_at is not None
+    assert job.started_at.endswith("+00:00")
+
+
+def test_revert_to_pending_remote_clears_binding_and_run_state() -> None:
+    """``revert_to_pending_remote`` resets run state and re-marks REMOTE_PENDING with no pin."""
+    job = _make_job(
+        status=JobStatus.RUNNING,
+        started_at="2026-01-01T00:00:00Z",
+        progress=42,
+        source=JobSource.REMOTE,
+        source_pin_sha256="a" * 64,
+        source_label="desktop",
+    )
+
+    job.revert_to_pending_remote()
+
+    assert job.status is JobStatus.QUEUED
+    assert job.source is JobSource.REMOTE_PENDING
+    assert job.source_pin_sha256 == ""
+    assert job.started_at is None
+    assert job.progress is None
+
+
+# ---------------------------------------------------------------------------
 # JobBuildSource.for_server / FirmwareJob.apply_build_source
 # ---------------------------------------------------------------------------
 

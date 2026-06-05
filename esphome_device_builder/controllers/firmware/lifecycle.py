@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from ...helpers.process import terminate_subtree_with_grace
@@ -27,8 +26,10 @@ _STATUS_TO_TERMINAL_EVENT: dict[JobStatus, EventType] = {
 }
 
 
-def finalize_terminal(controller: FirmwareController, job: FirmwareJob, status: JobStatus) -> None:
-    """Stamp *job* terminal, release the runner slot, fire the matching event.
+def finalize_terminal(
+    controller: FirmwareController, job: FirmwareJob, status: JobStatus, *, error: str | None = None
+) -> None:
+    """Stamp *job* terminal (with *error* if given), release the slot, fire the event.
 
     Step ordering matters: runner-slot release lands *before* the
     ``bus.fire`` so the ``queue_status`` broadcaster's sync
@@ -37,10 +38,9 @@ def finalize_terminal(controller: FirmwareController, job: FirmwareJob, status: 
     ``_peer_queue_status`` cache at ``running=True`` after the
     first remote build, silently falling back to LOCAL on every
     subsequent install.
-
-    Callers riding a payload field (e.g. ``job.error = "..."``)
-    must set it on the job before calling.
     """
+    if error is not None:
+        job.error = error
     _mark_job_terminal(job, status)
     _release_lane_slot(controller, job)
     _fire_job_lifecycle(job, controller._db.bus, _STATUS_TO_TERMINAL_EVENT[status])
@@ -57,8 +57,7 @@ async def begin_run(controller: FirmwareController, job: FirmwareJob) -> None:
     on ``JOB_STARTED``) and the off-lane dispatch pool. Keeping the prologue
     here means a new field / gate is added once, not mirrored by hand.
     """
-    job.status = JobStatus.RUNNING
-    job.started_at = datetime.now(UTC).isoformat()
+    job.mark_running()
     _fire_job_lifecycle(job, controller._db.bus, EventType.JOB_STARTED)
     await controller._persist_jobs()
 
@@ -84,8 +83,7 @@ def finalize_unexpected_error(
         finalize_cancelled(controller, job)
         _LOGGER.info("Job %s cancelled before completion: %s", job.job_id, exc)
     else:
-        job.error = str(exc)
-        controller._finalize_terminal(job, JobStatus.FAILED)
+        controller._finalize_terminal(job, JobStatus.FAILED, error=str(exc))
         _LOGGER.exception("Job %s failed", job.job_id)
 
 
