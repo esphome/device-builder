@@ -2704,7 +2704,14 @@ def _is_own_id_field(raw: dict) -> bool:
       - ``id_type: { class: ... }`` without ``use_id_type`` — required
         or optional id field whose type the schema knows but which is
         still the *component's own* identifier, not a reference.
+
+    A ``use_id_type`` always wins: ``cv.use_id`` cross-references
+    (``i2c_id``, ``uart_id``, …) are wrapped in ``cv.GenerateID(...)``
+    so their schema key is ``GeneratedID`` too, but they point at
+    *another* component and must keep ``references_component``.
     """
+    if raw.get("use_id_type"):
+        return False
     if raw.get("key") == "GeneratedID":
         return True
     return bool(isinstance(raw.get("id_type"), dict) and "use_id_type" not in raw)

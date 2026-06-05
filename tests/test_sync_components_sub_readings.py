@@ -7,6 +7,7 @@ from pathlib import Path
 
 from script.sync_components import (  # type: ignore[import-not-found]
     _convert_field,
+    _is_own_id_field,
 )
 
 _UNUSED_SCHEMA_DIR = Path("/unused")
@@ -69,6 +70,26 @@ def test_non_sub_reading_nested_keeps_default_advanced() -> None:
     assert _convert(raw)["advanced"] is True
 
 
+def test_use_id_reference_with_generated_key_keeps_reference() -> None:
+    """``cv.use_id`` cross-refs (``i2c_id``) keep ``references_component``.
+
+    The schema wraps them in ``cv.GenerateID(...)`` so ``key`` is
+    ``GeneratedID``, but ``use_id_type`` marks them as references, not
+    the component's own id.
+    """
+    raw = {"key": "GeneratedID", "type": "use_id", "use_id_type": "i2c::I2CBus"}
+    assert _is_own_id_field(raw) is False
+    entry = _convert_field("i2c_id", raw, _UNUSED_SCHEMA_DIR)
+    assert entry is not None
+    assert entry["type"] == "id"
+    assert entry["references_component"] == "i2c"
+
+
+def test_generated_id_without_use_id_stays_own_id() -> None:
+    """A bare ``GeneratedID`` (no ``use_id_type``) is still the own id."""
+    assert _is_own_id_field({"key": "GeneratedID", "type": "use_id"}) is True
+
+
 def test_no_extends_field_unaffected() -> None:
     """Fields with no ``extends`` reference are untouched by the override."""
     raw = {
@@ -92,7 +113,7 @@ def test_catalog_dht_sub_readings_not_advanced() -> None:
 
 
 def test_catalog_debug_sub_readings_not_advanced_but_id_stays() -> None:
-    """All 7 debug sub-readings surface; ``debug_id`` (an ID) stays advanced."""
+    """All 7 debug sub-readings surface; ``debug_id`` references the debug hub."""
     debug = _load_body("sensor.debug")
     by_key = {e["key"]: e for e in debug["config_entries"]}
     sub_readings = (
@@ -106,8 +127,8 @@ def test_catalog_debug_sub_readings_not_advanced_but_id_stays() -> None:
     )
     for key in sub_readings:
         assert by_key[key].get("advanced", False) is False, f"{key} should not be advanced"
-    # ``debug_id`` is the platform's GeneratedID field, not a
-    # sub-reading; the override doesn't reach it and the default
-    # classification still applies. ``True`` is non-default so the
-    # key is preserved on the catalog dict.
-    assert by_key["debug_id"]["advanced"] is True
+    # ``debug_id`` is a ``cv.use_id(DebugComponent)`` cross-reference
+    # (``GenerateID`` key + ``use_id_type``), not the platform's own id;
+    # it carries ``references_component`` and stays on the main form.
+    assert by_key["debug_id"]["references_component"] == "debug"
+    assert by_key["debug_id"].get("advanced", False) is False
