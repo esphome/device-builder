@@ -227,8 +227,13 @@ async def test_cold_connect_offloader_observes_initial_queue_status_then_picks_r
     # Wait for the offloader to observe the receiver's initial
     # ``queue_status`` push. Cold-connect contract:
     # the offloader's ``_peer_queue_status`` must populate from
-    # the wire without any local-side seeding.
-    await asyncio.wait_for(queue_status_landed.received.wait(), timeout=2.0)
+    # the wire without any local-side seeding. The push is a
+    # fire-and-forget background task scheduled at session
+    # registration, so under ``-n auto`` CI contention it can
+    # lag a couple event-loop turns behind session-open; a 2s
+    # ceiling tipped over on a loaded runner. The global
+    # ``--timeout=120`` still catches a truly broken push.
+    await asyncio.wait_for(queue_status_landed.received.wait(), timeout=10.0)
     payload = queue_status_landed[-1]
     assert payload["pin_sha256"] == paired_instances.pin_sha256
     assert payload["idle"] is True
