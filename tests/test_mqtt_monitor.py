@@ -364,6 +364,22 @@ async def test_coordinator_empty_secrets_yaml_does_not_warn(
     assert "secrets.yaml" not in caplog.text
 
 
+async def test_coordinator_warns_when_secrets_yaml_not_a_mapping(
+    tmp_path: Path,
+    stub_monitor: type[_RecordingMonitor],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # A secrets.yaml that parses to a list/scalar is structurally wrong;
+    # warn distinctly from a parse failure rather than degrade silently.
+    (tmp_path / "secrets.yaml").write_text("- not\n- a\n- mapping\n")
+    devices = [_write_device(tmp_path, "alpha", "mqtt:\n  broker: !secret mqtt_broker\n")]
+    coord = _make_coordinator(tmp_path, devices)
+    with caplog.at_level("WARNING"):
+        await coord.reconcile()
+    assert coord.active_brokers == 0
+    assert "secrets.yaml is not a mapping" in caplog.text
+
+
 async def test_coordinator_resolves_broker_pulled_in_via_packages(
     tmp_path: Path,
     stub_monitor: type[_RecordingMonitor],
