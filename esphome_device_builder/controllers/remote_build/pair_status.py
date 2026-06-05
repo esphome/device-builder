@@ -31,11 +31,13 @@ from typing import TYPE_CHECKING, Literal
 from ...models import (
     EventType,
     IntentResponse,
+    OffloaderPairingAddedData,
     OffloaderPairPeerRevokedData,
     OffloaderPairPinMismatchData,
     OffloaderPairStatusChangedData,
     OffloaderPeerRevokedAlert,
     OffloaderPinMismatchAlert,
+    PairingSummary,
     PeerStatus,
     StoredPairing,
 )
@@ -232,6 +234,30 @@ def fire_offloader_pair_status_changed(
         "status": status,
     }
     controller._db.bus.fire(EventType.OFFLOADER_PAIR_STATUS_CHANGED, payload)
+
+
+def fire_offloader_pairing_added(
+    controller: OffloaderController,
+    summary: PairingSummary,
+) -> None:
+    """Fire ``OFFLOADER_PAIRING_ADDED`` so other tabs build the new row."""
+    status: Literal["pending", "approved"] = (
+        "approved" if summary.status is PeerStatus.APPROVED else "pending"
+    )
+    payload: OffloaderPairingAddedData = {
+        "receiver_hostname": summary.receiver_hostname,
+        "receiver_port": summary.receiver_port,
+        "pin_sha256": summary.pin_sha256,
+        "label": summary.label,
+        "paired_at": summary.paired_at,
+        "status": status,
+        "connected": summary.connected,
+        "connecting": summary.connecting,
+        "last_connect_error": summary.last_connect_error,
+        "esphome_version": summary.esphome_version,
+        "enabled": summary.enabled,
+    }
+    controller._db.bus.fire(EventType.OFFLOADER_PAIRING_ADDED, payload)
 
 
 def _fire_offloader_pair_pin_mismatch(

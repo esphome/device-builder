@@ -87,6 +87,8 @@ class EventType(StrEnum):
     REMOTE_BUILD_PAIR_STATUS_CHANGED = "remote_build_pair_status_changed"
     # Offloader-side counterpart to REMOTE_BUILD_PAIR_STATUS_CHANGED
     OFFLOADER_PAIR_STATUS_CHANGED = "offloader_pair_status_changed"
+    # Offloader pairing row created (request_pair); STATUS_CHANGED only flips
+    OFFLOADER_PAIRING_ADDED = "offloader_pairing_added"
     # Offloader-side mDNS auto-rebind to a moved receiver endpoint
     OFFLOADER_PAIR_ENDPOINT_REBOUND = "offloader_pair_endpoint_rebound"
     # Pairing window opened/extended/closed

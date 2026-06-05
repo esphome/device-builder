@@ -32,6 +32,36 @@ class OffloaderPairStatusChangedData(TypedDict):
     status: Literal["approved", "removed"]
 
 
+class OffloaderPairingAddedData(TypedDict):
+    """
+    Payload for ``EventType.OFFLOADER_PAIRING_ADDED``.
+
+    Fires from ``request_pair`` when a :class:`StoredPairing` row
+    is created (or re-created on a re-pair). ``OFFLOADER_PAIR_STATUS_CHANGED``
+    only marks status *flips* of an already-known row, so without
+    this event a second connected tab never learns of a pairing
+    the originating tab just made (it seeds its own row from the
+    command response) — cross-tab desync until reload.
+
+    Carries every :class:`PairingSummary` field so a subscriber
+    builds the row from the event alone. ``status`` is
+    ``"pending"`` for a fresh request or ``"approved"`` when the
+    receiver short-circuited the inbox dance on a re-pair.
+    """
+
+    receiver_hostname: str
+    receiver_port: int
+    pin_sha256: str
+    label: str
+    paired_at: float
+    status: Literal["pending", "approved"]
+    connected: bool
+    connecting: bool
+    last_connect_error: str
+    esphome_version: str
+    enabled: bool
+
+
 class OffloaderPairEndpointReboundData(TypedDict):
     """
     Payload for ``EventType.OFFLOADER_PAIR_ENDPOINT_REBOUND``.

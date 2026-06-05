@@ -828,6 +828,40 @@ async def test_controller_request_pair_persists_pending_row(
     assert expected_pin in offloader.state.pairings
 
 
+async def test_controller_request_pair_fires_pairing_added_event(
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
+    offloader_controller_dir: Path,
+) -> None:
+    """``request_pair`` fires OFFLOADER_PAIRING_ADDED with the full row for other tabs."""
+    server, receiver_controller, expected_pin, _ = receiver_server
+    await receiver_controller.set_pairing_window(open=True, client="test-tab")
+
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+
+    await offloader.request_pair(
+        hostname="127.0.0.1",
+        port=server.port,
+        pin_sha256=expected_pin,
+        receiver_label="my-receiver",
+        offloader_label="my-builder",
+    )
+
+    added = [
+        call.args[1]
+        for call in offloader._db.bus.fire.call_args_list
+        if call.args[0] is EventType.OFFLOADER_PAIRING_ADDED
+    ]
+    assert len(added) == 1
+    payload = added[0]
+    assert payload["pin_sha256"] == expected_pin
+    assert payload["receiver_hostname"] == "127.0.0.1"
+    assert payload["receiver_port"] == server.port
+    assert payload["label"] == "my-receiver"
+    assert payload["status"] == "pending"
+    assert payload["enabled"] is True
+
+
 async def test_controller_request_pair_pin_mismatch_raises_precondition_failed(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     offloader_controller_dir: Path,

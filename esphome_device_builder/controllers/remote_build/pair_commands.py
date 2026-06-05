@@ -216,9 +216,14 @@ async def request_pair(
     if target_status is PeerStatus.APPROVED:
         controller._schedule_pairings_save()
         controller._spawn_peer_link_client(pairing)
-        return controller._pairing_summary_for(pairing)
-    controller._spawn_pair_status_listener(pairing)
-    return controller._pairing_summary_for(pairing)
+    else:
+        controller._spawn_pair_status_listener(pairing)
+    # Announce the created row so connected tabs that didn't issue
+    # this command build it from the event — OFFLOADER_PAIR_STATUS_CHANGED
+    # only marks later flips of an already-known row.
+    summary = controller._pairing_summary_for(pairing)
+    controller._fire_offloader_pairing_added(summary)
+    return summary
 
 
 async def unpair(controller: OffloaderController, *, pin_sha256: str) -> dict[str, bool]:

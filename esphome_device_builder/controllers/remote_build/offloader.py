@@ -624,6 +624,10 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
             self, receiver_hostname, receiver_port, pin_sha256, status
         )
 
+    def _fire_offloader_pairing_added(self, summary: PairingSummary) -> None:
+        """Fire ``OFFLOADER_PAIRING_ADDED`` so other tabs build the new row."""
+        pair_status.fire_offloader_pairing_added(self, summary)
+
     # ------------------------------------------------------------------
     # Identity — surface the receiver's own dashboard_id + cert pin to
     # the Settings UI without making it reach into the cert PEM
