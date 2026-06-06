@@ -165,7 +165,7 @@ def _upsert_component_on(
     target = resolve_component_target(yaml_text, location.component_id)
     if target is not None and target.is_sub_entity:
         return _upsert_subentity_on(yaml_text, tree, location, target)
-    instance_domain = _component_domain_from_yaml(yaml_text, location)
+    instance_domain = target.domain if target is not None else _component_domain(location)
     trigger = _require_trigger(instance_domain, location)
     if location.index is not None:
         return upsert_component_on_entry(
@@ -544,7 +544,7 @@ def _delete_component_on(
     target = resolve_component_target(yaml_text, location.component_id)
     if target is not None and target.is_sub_entity:
         return _delete_subentity_on(yaml_text, location, target)
-    instance_domain = _component_domain_from_yaml(yaml_text, location)
+    instance_domain = target.domain if target is not None else _component_domain(location)
     if location.index is not None:
         return delete_list_entry(
             yaml_text,
@@ -681,10 +681,14 @@ def _require_trigger(domain: str, location: ComponentOnLocation) -> AutomationTr
 
 
 def _subentity_context(target: ComponentTarget) -> tuple[str, str, str]:
-    """Unpack a sub-entity target's parent context (guaranteed by ``is_sub_entity``)."""
-    assert target.parent_domain is not None
-    assert target.parent_id is not None
-    assert target.sub_key is not None
+    """Parent context for a sub-entity target; raise if it's incomplete.
+
+    A raise (not ``assert``) so a broken invariant still surfaces under
+    ``python -O`` instead of leaking ``None`` into the splice.
+    """
+    if target.parent_domain is None or target.parent_id is None or target.sub_key is None:
+        msg = f"sub-entity target is missing parent context: {target!r}"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
     return target.parent_domain, target.parent_id, target.sub_key
 
 
@@ -698,10 +702,12 @@ def _component_domain(location: ComponentOnLocation) -> str:
     the first one. ``binary_sensor.on_press`` and ``switch.on_press``
     don't collide because their applies_to lists are disjoint.
 
-    Used as the fallback when the YAML hasn't been provided (no
-    ``yaml_text`` in scope) — see :func:`_component_domain_from_yaml`
-    for the disambiguated lookup the writer prefers when it has
-    the actual YAML.
+    Catalog-only fallback for when ``location.component_id`` isn't found in
+    the YAML (``resolve_component_target`` returned ``None``); the writer
+    prefers the resolved instance's actual domain when it has one. Picking
+    alphabetically here can mis-attribute a shared trigger key (``on_turn_on``
+    on ``fan`` vs ``switch``), but the upsert then surfaces a clear
+    "id not found" error.
     """
     matches = [
         t
@@ -718,31 +724,3 @@ def _component_domain(location: ComponentOnLocation) -> str:
         # tests are deterministic.
         matches.sort(key=lambda t: t.applies_to[0] if t.applies_to else "")
     return matches[0].applies_to[0] if matches[0].applies_to else ""
-
-
-def _component_domain_from_yaml(
-    yaml_text: str,
-    location: ComponentOnLocation,
-) -> str:
-    """Find the YAML domain that hosts ``location.component_id``.
-
-    Trigger keys like ``on_turn_on`` belong to multiple domains
-    (``switch``, ``fan``, ``light``, ``cover``, …). The catalog-only
-    fallback in :func:`_component_domain` picks one alphabetically,
-    which means a ``relay`` switch instance with an ``on_turn_on``
-    handler gets attributed to ``fan`` (alphabetically first), and
-    the writer then fails with "instance id='relay' not found
-    under 'fan'".
-
-    Resolve structurally against the parsed config — id-less and flat
-    singletons included — so only a declared instance id matches, never
-    an action *reference* to that id nested in another component's
-    handler. Falls back to the catalog guess when the id can't be
-    located (which also means the upsert won't find a splice
-    destination — the user gets a clearer "id not found" error from
-    ``upsert_inline_handler``).
-    """
-    domain = resolve_component_domain(yaml_text, location.component_id)
-    if domain is not None:
-        return domain
-    return _component_domain(location)

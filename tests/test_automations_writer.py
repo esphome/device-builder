@@ -24,6 +24,7 @@ from esphome_device_builder.controllers.automations.parsing import (
 )
 from esphome_device_builder.controllers.automations.writing import (
     _delete_subentity_on,
+    _subentity_context,
     _upsert_subentity_on,
     render_delete,
     render_upsert,
@@ -1805,3 +1806,9 @@ def test_delete_subentity_raises_when_parent_absent() -> None:
     loc = ComponentOnLocation(component_id="ghost_temperature", trigger="on_value_range")
     with pytest.raises(CommandError):
         _delete_subentity_on(_AHT10_NO_HUMIDITY, loc, target)
+
+
+def test_subentity_context_rejects_incomplete_target() -> None:
+    """A sub-entity target missing its parent context raises rather than leaking None."""
+    with pytest.raises(CommandError):
+        _subentity_context(ComponentTarget(domain="sensor", is_sub_entity=True))

@@ -253,6 +253,29 @@ async def test_get_available_surfaces_multi_entity_subentities(tmp_path: Path) -
     assert devices[("sensor", "aht20_humidity")]["parent_id"] == "aht20"
 
 
+async def test_get_available_idless_multi_entity_is_not_a_container(tmp_path: Path) -> None:
+    """A multi-entity platform with no ided readings stays a plain target.
+
+    Marking it a container would have the frontend hide it with no
+    sub-entity to redirect to, stranding the user.
+    """
+    config = tmp_path / "aht.yaml"
+    config.write_text(
+        "esphome:\n  name: d\n"
+        "sensor:\n"
+        "  - platform: aht10\n"
+        "    id: aht20\n"
+        "    temperature:\n      name: Just Temp\n"
+        "    humidity:\n      name: Just Humidity\n",
+        encoding="utf-8",
+    )
+    controller = _make_controller(tmp_path)
+    result = await controller.get_available(configuration="aht.yaml")
+    devices = {(d["component_id"], d["id"]): d for d in result["devices"]}
+    assert devices[("sensor.aht10", "aht20")]["is_entity_container"] is False
+    assert not any(d["component_id"] == "sensor" for d in result["devices"])
+
+
 async def test_get_available_skips_idless_subentity(tmp_path: Path) -> None:
     """A sub-entity block without its own id can't be targeted, so it's not surfaced."""
     config = tmp_path / "aht.yaml"

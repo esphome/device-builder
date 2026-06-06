@@ -376,14 +376,16 @@ def _scope_component_instances(
         if not isinstance(item, dict):
             continue
         catalog_id = parsing.catalog_id(domain, item.get("platform"))
-        is_container = bool(parsing.platform_subentity_keys(catalog_id))
+        subs = list(parsing.iter_subentities(domain, item))
         comp_id = item.get("id")
         if comp_id:
-            out.append(
-                _component_instance(catalog_id, str(comp_id), item, is_container=is_container)
-            )
+            # Mark a container only when it actually surfaces ided sub-entities;
+            # a multi-entity platform whose readings carry no id keeps its plain
+            # instance (the frontend hides containers, and would otherwise leave
+            # the user nothing to target).
+            out.append(_component_instance(catalog_id, str(comp_id), item, is_container=bool(subs)))
         parent_id = str(comp_id) if comp_id else f"{domain}_{idx}"
-        for sub_domain, sub, sub_id, _sub_key in parsing.iter_subentities(domain, item):
+        for sub_domain, sub, sub_id, _sub_key in subs:
             out.append(_component_instance(sub_domain, sub_id, sub, parent_id=parent_id))
     return out
 

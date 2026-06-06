@@ -342,25 +342,9 @@ def resolve_component_target(yaml_text: str, component_id: str) -> ComponentTarg
         root = yaml.load(yaml_text)
     except Exception:  # noqa: BLE001 — any load failure falls back to the catalog guess
         return None
-    if not isinstance(root, dict):
-        return None
-    for domain, section in root.items():
-        is_list = isinstance(section, list)
-        items = section if is_list else [section] if isinstance(section, dict) else []
-        for idx, instance in enumerate(items):
-            if not isinstance(instance, dict):
-                continue
-            if _instance_id(str(domain), instance, idx, is_list=is_list) == component_id:
-                return ComponentTarget(domain=str(domain))
-            for sub_domain, _sub, sub_id, sub_key in iter_subentities(str(domain), instance):
-                if sub_id == component_id:
-                    return ComponentTarget(
-                        domain=sub_domain,
-                        is_sub_entity=True,
-                        parent_domain=str(domain),
-                        parent_id=_instance_id(str(domain), instance, idx, is_list=is_list),
-                        sub_key=sub_key,
-                    )
+    for _domain, _instance, comp_id, target in _iter_instance_targets(root):
+        if comp_id == component_id:
+            return target
     return None
 
 
@@ -371,17 +355,18 @@ def _instance_id(domain: str, instance: dict, idx: int, *, is_list: bool) -> str
     return singleton_component_id(instance, domain)
 
 
-def _iter_component_instances(
+def _iter_instance_targets(
     root: Any,
-) -> Iterator[tuple[str, dict, str]]:
+) -> Iterator[tuple[str, dict, str, ComponentTarget]]:
     """
-    Yield ``(domain, instance, comp_id)`` for every configured component.
+    Yield ``(domain, instance, comp_id, target)`` for every instance + sub-entity.
 
-    Handles list-domain instances (``switch:`` is a list), flat singleton
-    components (``sun:`` / ``mqtt:``), and each instance's nested platform
-    sub-entities (``aht20_temperature`` under ``sensor.aht10``, yielded with
-    its ``platform_type`` as the domain). Shared by the inline-``on_*`` and
-    component-action-field passes so the instance-walk lives in one place.
+    The single source for the document walk shared by the parse passes
+    (:func:`_iter_component_instances`) and the writer's resolver
+    (:func:`resolve_component_target`), so the two never drift. Covers
+    list-domain instances, flat singletons, and each instance's nested
+    platform sub-entities (``aht20_temperature`` under ``sensor.aht10``,
+    carried as a sub-entity :class:`ComponentTarget`).
     """
     if not isinstance(root, dict):
         return
@@ -391,9 +376,29 @@ def _iter_component_instances(
         for idx, instance in enumerate(items):
             if not isinstance(instance, dict):
                 continue
-            yield str(domain), instance, _instance_id(str(domain), instance, idx, is_list=is_list)
-            for sub_domain, sub, sub_id, _sub_key in iter_subentities(str(domain), instance):
-                yield sub_domain, sub, sub_id
+            comp_id = _instance_id(str(domain), instance, idx, is_list=is_list)
+            yield str(domain), instance, comp_id, ComponentTarget(domain=str(domain))
+            for sub_domain, sub, sub_id, sub_key in iter_subentities(str(domain), instance):
+                yield (
+                    sub_domain,
+                    sub,
+                    sub_id,
+                    ComponentTarget(
+                        domain=sub_domain,
+                        is_sub_entity=True,
+                        parent_domain=str(domain),
+                        parent_id=comp_id,
+                        sub_key=sub_key,
+                    ),
+                )
+
+
+def _iter_component_instances(
+    root: Any,
+) -> Iterator[tuple[str, dict, str]]:
+    """Yield ``(domain, instance, comp_id)`` for every instance + sub-entity."""
+    for domain, instance, comp_id, _target in _iter_instance_targets(root):
+        yield domain, instance, comp_id
 
 
 def catalog_id(domain: str, platform: Any) -> str:
