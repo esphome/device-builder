@@ -322,8 +322,13 @@ class GitRepo:
         # editor briefly removed it. Drop those. A gone-but-tracked path stays
         # so its deletion is staged (git add -A picks up the removal). The
         # common create / edit case has no gone paths, so it skips git here.
-        spec = [str(p) for p in paths if p.exists()]
-        gone = [p for p in paths if not p.exists()]
+        spec: list[str] = []
+        gone: list[Path] = []
+        for p in paths:
+            if p.exists():
+                spec.append(str(p))
+            else:
+                gone.append(p)
         if gone:
             spec += [str(p) for p in self._tracked_subset(gone)]
         if not spec:
