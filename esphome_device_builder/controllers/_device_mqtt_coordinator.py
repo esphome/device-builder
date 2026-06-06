@@ -18,6 +18,7 @@ from typing import Any
 import yaml
 from esphome.core import EsphomeError
 
+from ..constants import SECRETS_FILENAME
 from ..helpers.device_yaml import load_device_yaml
 from ..helpers.yaml import FastestSafeLoader, load_yaml_fast_then_esphome
 from ..models import Device
@@ -107,7 +108,7 @@ class DeviceMqttCoordinator:
 
     def _collect_brokers(self) -> list[MqttBrokerConfig]:
         secrets_map = _load_secrets(self._config_dir)
-        secrets_mtime = _safe_mtime(self._config_dir / "secrets.yaml")
+        secrets_mtime = _safe_mtime(self._config_dir / SECRETS_FILENAME)
         seen: dict[tuple[str, int], MqttBrokerConfig] = {}
         seen_devices: set[str] = set()
         for device in self._get_devices():
@@ -291,7 +292,7 @@ def _broker_from_block(mqtt: dict) -> MqttBrokerConfig | None:
 
 
 def _load_secrets(config_dir: Path) -> dict[str, Any]:
-    secrets_path = config_dir / "secrets.yaml"
+    secrets_path = config_dir / SECRETS_FILENAME
     if not secrets_path.exists():
         return {}
     try:

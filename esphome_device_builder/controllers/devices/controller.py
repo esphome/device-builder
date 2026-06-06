@@ -18,6 +18,7 @@ from esphome.core import CORE
 from esphome.helpers import write_file as atomic_write_file
 from esphome.zeroconf import AsyncEsphomeZeroconf
 
+from ...constants import is_secrets_file
 from ...helpers.api import CommandError, api_command
 from ...helpers.build_size import BuildSizeRefreshResult
 from ...helpers.device_yaml import (
@@ -646,7 +647,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
                 f"refusing to write empty content to {configuration!r} to prevent "
                 "accidental data loss; use the delete action to remove a file",
             )
-        if Path(configuration).name == "secrets.yaml":
+        if is_secrets_file(configuration):
             try:
                 validate_secrets_content(content, self._db.settings.rel_path(configuration))
             except SecretsContentError as err:

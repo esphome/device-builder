@@ -7,6 +7,7 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any
 
+from ...constants import is_secrets_file
 from ...helpers.config_hash import read_build_info_hash
 from ...helpers.subprocess import create_subprocess_exec
 
@@ -33,6 +34,10 @@ def schedule(controller: DevicesController, configuration: str) -> None:
     (cross-restart, TTL-gated), and ``_regenerate_lock``
     serialising the subprocess itself.
     """
+    if is_secrets_file(configuration):
+        # Shared credentials, not a buildable config: no build dir to
+        # --only-generate, so a regen would only warn about a missing hash.
+        return
     if not controller.state.esphome_cmd:
         return  # ``start()`` hasn't run yet.
     if configuration in controller.state.regenerate_pending:

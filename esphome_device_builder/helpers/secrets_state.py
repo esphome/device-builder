@@ -28,6 +28,7 @@ from esphome.core import EsphomeError
 from esphome.helpers import write_file as atomic_write_file
 from ruamel.yaml import YAML
 
+from ..constants import SECRETS_FILENAME
 from .yaml import load_yaml_fast_then_esphome
 
 _LOGGER = logging.getLogger(__name__)
@@ -66,7 +67,7 @@ def read_secrets_yaml(config_dir: Path) -> dict | None:
     at type-check time instead of as an ``AttributeError`` slipping
     past the narrow ``EsphomeError`` catch below.
     """
-    secrets_path = config_dir / "secrets.yaml"
+    secrets_path = config_dir / SECRETS_FILENAME
     if not secrets_path.exists():
         return None
     try:
@@ -194,7 +195,7 @@ def write_wifi_secrets(config_dir: Path, ssid: str, password: str) -> None:
     it on startup, but a user who deleted it shouldn't be stuck
     here).
     """
-    secrets_path = config_dir / "secrets.yaml"
+    secrets_path = config_dir / SECRETS_FILENAME
     original = secrets_path.read_text(encoding="utf-8") if secrets_path.exists() else ""
 
     updated = _replace_or_append_secret(

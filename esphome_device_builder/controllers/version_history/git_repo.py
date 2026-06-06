@@ -33,6 +33,7 @@ from itertools import batched
 from pathlib import Path
 
 import esphome_device_builder
+from esphome_device_builder.constants import is_secrets_file
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -76,10 +77,10 @@ _EXCLUDE_MARKER = "# >>> ESPHome Device Builder (managed) >>>"
 _EXCLUDE_END = "# <<< ESPHome Device Builder (managed) <<<"
 
 # The seed must never capture the user's secrets file (credentials don't
-# belong in a repo that may be pushed to a remote). The CORE sentinel
-# (``controllers/config/settings.py``) is a virtual ``CORE.config_path``
-# value, never written to disk, so it can't be globbed and needs no filter.
-_SECRETS_FILENAME = "secrets.yaml"
+# belong in a repo that may be pushed to a remote); ``is_secrets_file``
+# filters it out. The CORE sentinel (``controllers/config/settings.py``) is
+# a virtual ``CORE.config_path`` value, never written to disk, so it can't
+# be globbed and needs no filter.
 
 # Fields ``git check-ignore -v -z`` emits per input path: source, linenum,
 # pattern, pathname. A non-empty pattern marks that path ignored.
@@ -239,7 +240,7 @@ class GitRepo:
             names += [
                 path.name
                 for path in sorted(self.config_dir.glob(pattern))
-                if path.name != _SECRETS_FILENAME
+                if not is_secrets_file(path)
             ]
         return [name for name in names if (self.config_dir / name).exists()]
 

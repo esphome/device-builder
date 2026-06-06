@@ -169,6 +169,22 @@ def test_regenerate_skips_when_esphome_cmd_unset(
     assert controller.state.regenerate_pending == set()
 
 
+def test_regenerate_skips_secrets_yaml(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """secrets.yaml is shared credentials, not a buildable config; regen is a no-op.
+
+    Even with esphome_cmd set (so a real config would schedule), secrets.yaml
+    has no build dir to --only-generate, so nothing is spawned.
+    """
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+
+    controller._schedule_storage_regenerate("secrets.yaml")
+
+    assert controller._spawned_tasks == []  # type: ignore[attr-defined]
+    assert controller.state.regenerate_pending == set()
+
+
 def test_regenerate_skips_duplicate_schedule(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:

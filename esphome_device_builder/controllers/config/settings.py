@@ -13,7 +13,7 @@ from esphome.core import CORE
 from esphome.helpers import get_bool_env
 from esphome.helpers import write_file as atomic_write_file
 
-from ...constants import DEFAULT_INGRESS_PORT, DEFAULT_REMOTE_BUILD_PORT
+from ...constants import DEFAULT_INGRESS_PORT, DEFAULT_REMOTE_BUILD_PORT, SECRETS_FILENAME
 from ...helpers.api import CommandError
 from ...helpers.auth import hash_password
 from ...helpers.secrets_state import PLACEHOLDER_WIFI_PASSWORD, PLACEHOLDER_WIFI_SSID
@@ -128,7 +128,7 @@ class DashboardSettings:
         # ``OnboardingController`` reads the same constants from
         # ``helpers.secrets_state`` to detect the unconfigured state
         # and surface the setup wizard.
-        secrets_path = self.config_dir / "secrets.yaml"
+        secrets_path = self.config_dir / SECRETS_FILENAME
         if not secrets_path.exists():
             atomic_write_file(
                 secrets_path,

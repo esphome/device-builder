@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 from esphome.core import EsphomeError
 from esphome.helpers import write_file as atomic_write_file
 
+from ...constants import SECRETS_FILENAME
 from ...helpers.api import CommandError
 from ...helpers.device_yaml import configuration_stem, parse_platform_from_yaml
 from ...helpers.secrets_state import merge_secrets_file
@@ -34,7 +35,6 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-_SECRETS_FILENAME = "secrets.yaml"
 # Compressed-upload cap. The 500 MB decompressed cap is enforced inside
 # esphome.bundle.extract_bundle; this guards the base64 payload itself.
 _MAX_BUNDLE_UPLOAD_BYTES = 64 * 1024 * 1024
@@ -175,7 +175,7 @@ def _stage_bundle(file_content_b64: str, config_dir: Path, overwrite: list[str] 
             if src.is_file() and (rel := src.relative_to(staging).as_posix()) != MANIFEST_FILENAME
         ]
         conflicts = sorted(
-            rel for rel, _ in placements if rel != _SECRETS_FILENAME and (config_dir / rel).exists()
+            rel for rel, _ in placements if rel != SECRETS_FILENAME and (config_dir / rel).exists()
         )
         if conflicts and overwrite is None:
             return _Outcome(
@@ -190,7 +190,7 @@ def _stage_bundle(file_content_b64: str, config_dir: Path, overwrite: list[str] 
         kept: list[str] = []
         for rel, src in placements:
             dest = config_dir / rel
-            if rel == _SECRETS_FILENAME:
+            if rel == SECRETS_FILENAME:
                 merge_secrets_file(src, dest)
                 continue
             # A conflicting file the user didn't pick is left as-is; record

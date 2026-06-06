@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 
 
 def _resolve_version() -> str:
@@ -24,6 +25,17 @@ __version__ = _resolve_version()
 
 DEFAULT_PORT = 6052
 DEFAULT_HOST = "0.0.0.0"
+
+# Shared credentials file in the config dir. It's not a buildable device
+# config (no build dir / build_info.json) and is kept out of version
+# history, so callers special-case it via ``is_secrets_file``.
+SECRETS_FILENAME = "secrets.yaml"
+
+
+def is_secrets_file(configuration: str | Path) -> bool:
+    """Return True when *configuration* names the shared secrets.yaml (by basename)."""
+    return Path(configuration).name == SECRETS_FILENAME
+
 
 # Trusted TCP site for HA Ingress. Bound only when ``--ha-addon`` is set,
 # on the supervisor's docker bridge network, and bypasses the password
