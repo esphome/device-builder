@@ -29,6 +29,7 @@ import shutil
 import subprocess
 import time
 from dataclasses import dataclass, field
+from itertools import batched
 from pathlib import Path
 
 import esphome_device_builder
@@ -79,6 +80,10 @@ _EXCLUDE_END = "# <<< ESPHome Device Builder (managed) <<<"
 # (``controllers/config/settings.py``) is a virtual ``CORE.config_path``
 # value, never written to disk, so it can't be globbed and needs no filter.
 _SECRETS_FILENAME = "secrets.yaml"
+
+# Fields ``git check-ignore -v -z`` emits per input path: source, linenum,
+# pattern, pathname. A non-empty pattern marks that path ignored.
+_CHECK_IGNORE_FIELDS = 4
 
 # Glob patterns for the YAML configs this feature versions.
 _YAML_GLOBS = ("*.yaml", "*.yml")
@@ -556,7 +561,8 @@ class GitRepo:
         return [p for p in paths if self._rel_to_toplevel(p) in tracked]
 
     def _ignored_subset(self, paths: list[Path]) -> list[Path]:
-        """Return the subset of *paths* git would refuse to ``add`` as ignored.
+        """
+        Return the subset of *paths* git would refuse to ``add`` as ignored.
 
         ``check-ignore`` honours the index, so a tracked path is never
         reported even if it matches a rule; the result is exactly the set
@@ -566,15 +572,33 @@ class GitRepo:
         """
         if not paths:
             return []
-        # ``check-ignore`` echoes each matching path verbatim, one per line;
-        # ``-z`` is rejected here (it's --stdin-only), and top-level config
-        # paths never contain newlines. Exit 0 = some ignored, 1 = none, and
+        # ``--stdin -v --non-matching -z`` emits one record per input path, in
+        # order, as four NUL-separated fields (source, linenum, pattern,
+        # pathname). We correlate by position and read the pattern field
+        # rather than comparing path strings: git echoes forward slashes while
+        # ``str(p)`` uses backslashes on Windows, so a string match is
+        # unreliable there. Exit 0/1 are both normal (some/none ignored);
         # anything else is a genuine failure we treat as "nothing ignored".
-        result = self._run(["check-ignore", "--", *(str(p) for p in paths)], check=False)
+        result = self._run(
+            ["check-ignore", "-z", "-v", "--non-matching", "--stdin"],
+            check=False,
+            input_text="\0".join(str(p) for p in paths),
+        )
         if result.returncode not in (0, 1):
             return []
-        ignored = {echoed for echoed in result.stdout.splitlines() if echoed}
-        return [p for p in paths if str(p) in ignored]
+        # One record per input path, in order; correlate by position. The
+        # trailing element from the final NUL is a short record zip() drops.
+        records = batched(result.stdout.split("\0"), _CHECK_IGNORE_FIELDS)
+        ignored: list[Path] = []
+        # strict=False: the split's trailing element is a short final record
+        # zip() stops before, since there's exactly one record per path.
+        for path, record in zip(paths, records, strict=False):
+            if len(record) != _CHECK_IGNORE_FIELDS:
+                continue
+            _source, _linenum, pattern, _pathname = record
+            if pattern:
+                ignored.append(path)
+        return ignored
 
     def _rel_to_toplevel(self, path: Path) -> str:
         """Return *path* relative to the work-tree root (git's pathspec base)."""
@@ -590,12 +614,15 @@ class GitRepo:
         *,
         check: bool,
         cwd: Path | None = None,
+        input_text: str | None = None,
     ) -> subprocess.CompletedProcess[str]:
         """Run ``git`` with *args* in the work tree; capture text output.
 
         Checks the exit status here (rather than via ``check=True``) so a
         failure raises :class:`GitCommandError`, whose ``str`` carries the
         ``fatal:`` stderr line a bare ``CalledProcessError`` would drop.
+        *input_text*, when set, is fed to the child's stdin (e.g. for
+        ``--stdin`` pathspecs).
         """
         assert self.git_bin is not None
         # git_bin is a resolved absolute path from shutil.which and the
@@ -611,6 +638,7 @@ class GitRepo:
         result = subprocess.run(  # noqa: S603
             [self.git_bin, "--no-optional-locks", *args],
             cwd=str(cwd or self.toplevel or self.config_dir),
+            input=input_text,
             capture_output=True,
             text=True,
             check=False,

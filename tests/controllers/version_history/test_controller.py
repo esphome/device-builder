@@ -61,6 +61,19 @@ async def test_start_enables_and_commits(tmp_path: Path) -> None:
     assert controller._flush_task is None
 
 
+async def test_record_configuration_skips_gitignored_secrets(tmp_path: Path) -> None:
+    """A gitignored secrets.yaml records as a clean no-op through the full async path."""
+    controller = _make_controller(tmp_path)
+    await controller.start()  # seeds a .gitignore that ignores secrets.yaml
+
+    (tmp_path / "secrets.yaml").write_text("wifi_password: hunter2\n", encoding="utf-8")
+    sha = await controller.record_configuration("secrets.yaml", "Update secrets")
+
+    assert sha is None  # nothing committed; credentials stay out of history
+    assert await controller.list_versions(configuration="secrets.yaml") == []
+    await controller.stop()
+
+
 async def test_disabled_when_no_git(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """No git binary → controller disabled, commit is a quiet no-op."""
     monkeypatch.setattr(shutil, "which", lambda _name: None)
