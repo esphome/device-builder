@@ -661,6 +661,30 @@ def test_commit_paths_no_change_returns_none(tmp_path: Path) -> None:
     assert repo.commit_paths([yaml], "Update kitchen.yaml") is None
 
 
+def test_commit_paths_untracked_and_deleted_returns_none(tmp_path: Path) -> None:
+    """Deleting a file the work tree/index never held is a no-op, not a git error."""
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+    gone = tmp_path / "ghost.yaml"
+
+    assert repo.commit_paths([gone], "Delete ghost.yaml") is None
+
+
+def test_commit_paths_records_deletion_of_tracked_file(tmp_path: Path) -> None:
+    """A gone-but-tracked file still records its deletion (file already unlinked)."""
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+    yaml = tmp_path / "kitchen.yaml"
+    yaml.write_text("v1\n", encoding="utf-8")
+    repo.commit_paths([yaml], "Create kitchen.yaml")
+
+    yaml.unlink()
+    sha = repo.commit_paths([yaml], "Delete kitchen.yaml")
+
+    assert sha
+    assert repo.log_file(yaml)[0].message == "Delete kitchen.yaml"
+
+
 def test_commit_paths_does_not_sweep_unrelated_staged_edits(tmp_path: Path) -> None:
     """Pathspec scoping: our commit must not fold in the user's staged work.
 

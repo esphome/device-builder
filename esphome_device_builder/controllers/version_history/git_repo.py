@@ -317,7 +317,14 @@ class GitRepo:
         """
         if not self.enabled or not paths:
             return None
-        spec = [str(p) for p in paths]
+        # A path that's gone from disk and untracked has nothing to commit:
+        # the dashboard delete already recorded the removal, or an atomic-save
+        # editor briefly removed it. Drop those. A gone-but-tracked path stays
+        # so its deletion is staged (git add -A picks up the removal); exists()
+        # short-circuits the git call for the common create / edit case.
+        spec = [str(p) for p in paths if p.exists() or self._is_tracked(p)]
+        if not spec:
+            return None
         self._run_write(["add", "-A", "--", *spec])
         staged = self._run(["diff", "--cached", "--quiet", "--", *spec], check=False)
         if staged.returncode == 0:
@@ -524,6 +531,11 @@ class GitRepo:
         if not lock.is_absolute():
             lock = (self.toplevel or self.config_dir) / lock
         return lock
+
+    def _is_tracked(self, path: Path) -> bool:
+        """Whether *path* is in git's index (tracked), vs untracked / never committed."""
+        result = self._run(["ls-files", "--error-unmatch", "--", str(path)], check=False)
+        return result.returncode == 0
 
     def _rel_to_toplevel(self, path: Path) -> str:
         """Return *path* relative to the work-tree root (git's pathspec base)."""
