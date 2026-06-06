@@ -3259,6 +3259,8 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     inclusive_groups = merge_from_platforms(_collect_inclusive_groups)
     required_groups = merge_from_platforms(_collect_required_groups)
     list_fields = merge_from_platforms(_collect_list_fields)
+    for path, value in _collect_registry_list_fields(component_id).items():
+        list_fields.setdefault(path, value)
 
     return {
         "multi_conf": bool(getattr(manifest, "multi_conf", False)),
@@ -3750,42 +3752,56 @@ def _walk_schema_keys(
 _NOT_A_LIST = object()
 
 
+def _branch_quantifier(validator: Any) -> Callable[[Iterable[object]], bool]:
+    """
+    Return ``all`` for a ``vol.Any`` union, ``any`` otherwise.
+
+    A ``vol.Any`` value satisfies a per-branch property only when *every*
+    branch does (a scalar-or-list union is not a list; a scalar-or-mapping
+    union is not a mapping); a ``vol.All`` value is constrained as soon as
+    *one* branch carries it.
+    """
+    return all if isinstance(validator, vol.Any) else any
+
+
 def _list_element(validator: Any) -> Any:
     """
     Element validator of a list, or ``_NOT_A_LIST``.
 
-    A bare ``[item]`` and a ``vol.All`` carrying a list branch (every branch
-    must pass, so the list branch constrains the value to a list) resolve to
-    the item. A ``vol.Any`` union only counts as a list when *every* branch
-    is a list — a scalar-or-list union (``vol.Any(str, [str])``) keeps its
-    scalar form and must not be forced into a list-only editor.
+    A bare ``[item]`` and a ``vol.All`` carrying a list branch (one list
+    branch constrains the value to a list) resolve to the item. A ``vol.Any``
+    union only counts as a list when *every* branch is a list — a
+    scalar-or-list union (``vol.Any(str, [str])``) keeps its scalar form and
+    must not be forced into a list-only editor.
     """
     if isinstance(validator, list):
         return validator[0] if validator else None
     branches = getattr(validator, "validators", None)
     if not branches:
         return _NOT_A_LIST
-    if isinstance(validator, vol.Any):
-        elements = [_list_element(b) for b in branches]
-        if any(e is _NOT_A_LIST for e in elements):
-            return _NOT_A_LIST
-        return elements[0]
-    # ``vol.All`` (and other all-must-pass combinators): one list branch
-    # is enough to constrain the value to a list.
-    for branch in branches:
-        element = _list_element(branch)
-        if element is not _NOT_A_LIST:
-            return element
+    elements = [_list_element(b) for b in branches]
+    present = [e for e in elements if e is not _NOT_A_LIST]
+    if _branch_quantifier(validator)(e is not _NOT_A_LIST for e in elements):
+        return present[0]
     return _NOT_A_LIST
 
 
 def _validates_mapping(validator: Any) -> bool:
-    """Report whether *validator* validates a YAML mapping (a list-of-dicts element)."""
+    """
+    Report whether *validator* validates a YAML mapping (a list-of-dicts element).
+
+    A ``vol.Any`` union is a mapping only when *every* branch is one — a
+    scalar-or-mapping union (``Any(int, time_period)``, whose ``time_period``
+    branch carries a ``{days, hours, ...}`` dict form) stays a scalar list.
+    Checked before the ``.schema`` fallback: a compiled compound validator's
+    ``.schema`` points at the outer schema, not the branch.
+    """
     if isinstance(validator, dict):
         return True
-    if isinstance(getattr(validator, "schema", None), dict):
-        return True
-    return any(_validates_mapping(v) for v in getattr(validator, "validators", None) or ())
+    branches = getattr(validator, "validators", None)
+    if branches:
+        return _branch_quantifier(validator)(_validates_mapping(b) for b in branches)
+    return isinstance(getattr(validator, "schema", None), dict)
 
 
 def _is_list_validator(validator: Any) -> bool:
@@ -5032,6 +5048,18 @@ def _apply_field_ranges(
     _walk_catalog_entries(entries, visit)
 
 
+def _list_fields_in_schema(schema: Any) -> dict[tuple[str, ...], bool]:
+    """``{key_path: True}`` for each bare-list field in a single voluptuous *schema*."""
+    out: dict[tuple[str, ...], bool] = {}
+
+    def visit(_key: Any, _key_name: str, val: Any, path: tuple[str, ...]) -> None:
+        if _is_list_validator(val):
+            out[path] = True
+
+    _walk_schema_keys(schema, visit)
+    return out
+
+
 def _collect_list_fields(manifest: Any) -> dict[tuple[str, ...], bool]:
     """Walk the live ``CONFIG_SCHEMA`` for bare-list fields the bundle missed.
 
@@ -5042,14 +5070,47 @@ def _collect_list_fields(manifest: Any) -> dict[tuple[str, ...], bool]:
     schema = getattr(manifest, "config_schema", None)
     if schema is None:
         return {}
+    return _list_fields_in_schema(schema)
+
+
+# Catalog components whose platform schema is a callable backed by an
+# ESPHome registry — the generic schema walker can't descend a callable
+# ``config_schema``, so the bare-list fields nested inside each registered
+# protocol (``remote_receiver``'s ``raw.code`` and friends) are recovered by
+# walking the live registry entries instead. Keyed by the component stem
+# ``introspect_component`` receives; value is the ``(module, attr)`` of the
+# ``Registry`` whose entries map to nested ``(protocol, field)`` catalog
+# paths.
+_PROTOCOL_REGISTRIES: dict[str, tuple[str, str]] = {
+    "remote_receiver": ("esphome.components.remote_base", "BINARY_SENSOR_REGISTRY"),
+}
+
+
+def _collect_registry_list_fields(component_id: str) -> dict[tuple[str, ...], bool]:
+    """Bare-list fields nested inside an ESPHome protocol registry.
+
+    A registry-backed platform schema is a callable the generic walker
+    can't descend; walk each registered entry's ``.schema`` directly and
+    key the result on ``(protocol, *field_path)`` to line up with the
+    nested catalog entries. Empty dict for components with no registry.
+    """
+    spec = _PROTOCOL_REGISTRIES.get(component_id)
+    if spec is None:
+        return {}
+    module_name, attr = spec
+    try:
+        registry = getattr(importlib.import_module(module_name), attr)
+    except Exception:
+        _LOGGER.debug("registry %s.%s unavailable", module_name, attr, exc_info=True)
+        return {}
 
     out: dict[tuple[str, ...], bool] = {}
-
-    def visit(_key: Any, _key_name: str, val: Any, path: tuple[str, ...]) -> None:
-        if _is_list_validator(val):
-            out[path] = True
-
-    _walk_schema_keys(schema, visit)
+    for name, entry in registry.items():
+        schema = getattr(entry, "schema", None)
+        if schema is None:
+            continue
+        for path in _list_fields_in_schema(schema):
+            out[(name, *path)] = True
     return out
 
 
