@@ -3259,8 +3259,6 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     inclusive_groups = merge_from_platforms(_collect_inclusive_groups)
     required_groups = merge_from_platforms(_collect_required_groups)
     list_fields = merge_from_platforms(_collect_list_fields)
-    for path, value in _collect_registry_list_fields(component_id).items():
-        list_fields.setdefault(path, value)
 
     return {
         "multi_conf": bool(getattr(manifest, "multi_conf", False)),
@@ -5060,57 +5058,51 @@ def _list_fields_in_schema(schema: Any) -> dict[tuple[str, ...], bool]:
     return out
 
 
+def _registry_from_schema(schema: Any) -> Any:
+    """
+    Return the ESPHome ``Registry`` a ``cv.validate_registry_entry`` schema closes over, or None.
+
+    A registry-typed platform schema (``remote_base``'s per-protocol
+    receiver schemas) is a closure the dict walker can't descend; the
+    registry it validates against lives in one of its closure cells.
+    """
+    if not callable(schema):
+        return None
+    try:
+        from esphome.util import Registry
+    except Exception:
+        return None
+    for cell in getattr(schema, "__closure__", None) or ():
+        try:
+            contents = cell.cell_contents
+        except ValueError:
+            continue
+        if isinstance(contents, Registry):
+            return contents
+    return None
+
+
 def _collect_list_fields(manifest: Any) -> dict[tuple[str, ...], bool]:
     """Walk the live ``CONFIG_SCHEMA`` for bare-list fields the bundle missed.
 
     Returns ``{key_path: True}`` for fields whose validator is a
-    voluptuous list (see :func:`_is_list_validator`). Empty dict when
-    the component has no schema.
+    voluptuous list (see :func:`_is_list_validator`). A registry-typed
+    schema is descended through the registry it closes over, keying each
+    entry's fields under the entry name to match the nested catalog
+    entries. Empty dict when the component has no schema.
     """
     schema = getattr(manifest, "config_schema", None)
     if schema is None:
         return {}
-    return _list_fields_in_schema(schema)
-
-
-# Catalog components whose platform schema is a callable backed by an
-# ESPHome registry — the generic schema walker can't descend a callable
-# ``config_schema``, so the bare-list fields nested inside each registered
-# protocol (``remote_receiver``'s ``raw.code`` and friends) are recovered by
-# walking the live registry entries instead. Keyed by the component stem
-# ``introspect_component`` receives; value is the ``(module, attr)`` of the
-# ``Registry`` whose entries map to nested ``(protocol, field)`` catalog
-# paths.
-_PROTOCOL_REGISTRIES: dict[str, tuple[str, str]] = {
-    "remote_receiver": ("esphome.components.remote_base", "BINARY_SENSOR_REGISTRY"),
-}
-
-
-def _collect_registry_list_fields(component_id: str) -> dict[tuple[str, ...], bool]:
-    """Bare-list fields nested inside an ESPHome protocol registry.
-
-    A registry-backed platform schema is a callable the generic walker
-    can't descend; walk each registered entry's ``.schema`` directly and
-    key the result on ``(protocol, *field_path)`` to line up with the
-    nested catalog entries. Empty dict for components with no registry.
-    """
-    spec = _PROTOCOL_REGISTRIES.get(component_id)
-    if spec is None:
-        return {}
-    module_name, attr = spec
-    try:
-        registry = getattr(importlib.import_module(module_name), attr)
-    except Exception:
-        _LOGGER.debug("registry %s.%s unavailable", module_name, attr, exc_info=True)
-        return {}
-
-    out: dict[tuple[str, ...], bool] = {}
-    for name, entry in registry.items():
-        schema = getattr(entry, "schema", None)
-        if schema is None:
-            continue
-        for path in _list_fields_in_schema(schema):
-            out[(name, *path)] = True
+    out = _list_fields_in_schema(schema)
+    registry = _registry_from_schema(schema)
+    if registry is not None:
+        for name, entry in registry.items():
+            entry_schema = getattr(entry, "schema", None)
+            if entry_schema is None:
+                continue
+            for path in _list_fields_in_schema(entry_schema):
+                out[(name, *path)] = True
     return out
 
 

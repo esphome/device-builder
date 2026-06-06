@@ -25,6 +25,7 @@ if str(_SCRIPT_DIR) not in sys.path:
 
 import esphome.config_validation as cv  # noqa: E402
 import sync_components  # noqa: E402
+from esphome.util import Registry  # noqa: E402
 
 
 def test_is_list_validator_detects_bare_list() -> None:
@@ -102,15 +103,24 @@ def test_collect_list_fields_empty_for_schemaless_manifest() -> None:
     assert sync_components._collect_list_fields(SimpleNamespace(config_schema=None)) == {}
 
 
-def test_collect_registry_list_fields_finds_remote_raw_code() -> None:
-    """``remote_receiver``'s protocol schemas live in a callable the walker can't descend."""
-    fields = sync_components._collect_registry_list_fields("remote_receiver")
+def test_collect_list_fields_descends_a_registry_schema() -> None:
+    """``remote_receiver``'s binary_sensor schema is a registry-entry callable."""
+    loader = sync_components._get_esphome_loader()
+    manifest = loader.get_platform("binary_sensor", "remote_receiver")
+    fields = sync_components._collect_list_fields(manifest)
     assert fields.get(("raw", "code")) is True
     assert ("rc_switch_raw", "code") not in fields
 
 
-def test_collect_registry_list_fields_empty_for_plain_component() -> None:
-    assert sync_components._collect_registry_list_fields("switch") == {}
+def test_registry_from_schema_finds_the_closed_over_registry() -> None:
+    loader = sync_components._get_esphome_loader()
+    manifest = loader.get_platform("binary_sensor", "remote_receiver")
+    assert isinstance(sync_components._registry_from_schema(manifest.config_schema), Registry)
+
+
+def test_registry_from_schema_none_for_a_plain_callable() -> None:
+    assert sync_components._registry_from_schema(lambda value: value) is None
+    assert sync_components._registry_from_schema("not callable") is None
 
 
 def test_introspect_component_surfaces_list_fields() -> None:
