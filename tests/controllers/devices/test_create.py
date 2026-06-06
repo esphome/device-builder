@@ -435,15 +435,7 @@ async def test_create_device_accepts_old_esphome_version_yaml(
 async def test_create_device_rejects_binary_file_content(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """A .tar.gz uploaded as ``file_content`` is refused, not written.
-
-    The wizard reads the picked file as text, so a gzip bundle
-    arrives as control bytes (magic 0x1f, NULs, U+FFFD from the
-    invalid-UTF-8 bytes). That can't open in the editor at all, so
-    it must fail with ``INVALID_ARGS`` rather than land an unparsable
-    .yaml. This is the binary-vs-text guard; it must not turn into
-    schema validation of legacy-but-textual configs.
-    """
+    """A .tar.gz read as text is refused with ``INVALID_ARGS``, not written."""
     ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
     # Mirror the frontend's readAsText of a gzip archive.
     bundle_bytes = gzip.compress(b"esphome:\n  name: kitchen\n")
