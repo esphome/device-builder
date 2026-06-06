@@ -167,15 +167,20 @@ def _stage_bundle(file_content_b64: str, config_dir: Path, overwrite: list[str] 
 
 def _decode_bundle(file_content_b64: str) -> bytes:
     """Base64-decode the upload; reject non-base64, oversize, or non-gzip."""
+    limit_mb = _MAX_BUNDLE_UPLOAD_BYTES // (1024 * 1024)
+    oversize = CommandError(
+        ErrorCode.INVALID_ARGS, f"Bundle exceeds the {limit_mb} MB upload limit."
+    )
+    # base64 inflates ~4/3, so reject an obviously-oversize payload by its
+    # encoded length before materialising the decoded bytes in memory.
+    if len(file_content_b64) > (_MAX_BUNDLE_UPLOAD_BYTES // 3 + 1) * 4:
+        raise oversize
     try:
         raw = base64.b64decode(file_content_b64, validate=True)
     except (binascii.Error, ValueError) as exc:
         raise CommandError(ErrorCode.INVALID_ARGS, "Bundle upload isn't valid base64.") from exc
     if len(raw) > _MAX_BUNDLE_UPLOAD_BYTES:
-        limit_mb = _MAX_BUNDLE_UPLOAD_BYTES // (1024 * 1024)
-        raise CommandError(
-            ErrorCode.INVALID_ARGS, f"Bundle exceeds the {limit_mb} MB upload limit."
-        )
+        raise oversize
     if raw[:2] != b"\x1f\x8b":
         raise CommandError(
             ErrorCode.INVALID_ARGS,
@@ -186,8 +191,17 @@ def _decode_bundle(file_content_b64: str) -> bytes:
 
 def _init_bundle_storage(config_dir: Path, config_filename: str) -> None:
     """Write a fresh StorageJSON sidecar from the imported config's own fields."""
-    content = (config_dir / config_filename).read_text("utf-8", errors="replace")
     name = configuration_stem(config_filename)
+    try:
+        # Strict decode: a non-UTF-8 main config is a real error, not
+        # something to mangle via errors="replace" into a bad sidecar.
+        content = (config_dir / config_filename).read_text("utf-8")
+    except (FileNotFoundError, UnicodeDecodeError):
+        # The sidecar is best-effort; the scanner re-derives metadata from
+        # the YAML on its next pass, so seed a minimal one rather than
+        # crashing the import on a missing/binary main config.
+        init_device_storage(config_filename, name, None, "")
+        return
     friendly = read_yaml_scalar(content, ("esphome", "friendly_name"))
     if friendly and "${" in friendly:
         friendly = None

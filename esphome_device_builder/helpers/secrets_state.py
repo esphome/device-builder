@@ -27,7 +27,8 @@ from esphome import yaml_util
 from esphome.core import EsphomeError
 from esphome.helpers import write_file as atomic_write_file
 from ruamel.yaml import YAML
-from ruamel.yaml.error import YAMLError
+
+from .yaml import load_yaml_fast_then_esphome
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -104,31 +105,39 @@ def is_wifi_unconfigured(secrets: dict | None) -> bool:
 
 
 def merge_secrets_file(src: Path, dest: Path) -> None:
-    """Merge *src* secrets into *dest*, keeping existing keys; create if absent."""
+    """
+    Merge *src* secrets into *dest*, adding only keys *dest* lacks.
+
+    Key sets are read with the tolerant loader so an HA-shared
+    ``secrets.yaml`` (``<<: !include`` / ``!secret`` tags) still merges
+    rather than silently no-op'ing on the unknown tag (#1220). New keys
+    are appended to *dest*'s text so its existing tags and comments
+    survive untouched; existing values are never changed. *dest* is left
+    untouched (with a warning) when either side can't be read as a
+    mapping, so a malformed file never silently drops the bundle's keys.
+    """
     if not dest.exists():
         atomic_write_file(dest, src.read_bytes())
         return
-    yaml = YAML()
     try:
-        existing = yaml.load(dest.read_text("utf-8")) or {}
-        incoming = yaml.load(src.read_text("utf-8")) or {}
-    except (YAMLError, OSError, UnicodeDecodeError):
-        # A non-YAML or tag-bearing secrets file; never risk clobbering
-        # the user's secrets, so leave the existing file untouched.
-        _LOGGER.warning("Couldn't parse secrets for merge; left %s untouched", dest)
+        existing = load_yaml_fast_then_esphome(dest) or {}
+        incoming = load_yaml_fast_then_esphome(src) or {}
+    except (EsphomeError, OSError, UnicodeDecodeError) as err:
+        _LOGGER.warning("Couldn't read secrets for merge (%s); left %s untouched", err, dest)
         return
     if not isinstance(existing, dict) or not isinstance(incoming, dict):
+        _LOGGER.warning("secrets.yaml isn't a mapping; left %s untouched", dest)
         return
-    added = False
-    for key, value in incoming.items():
-        if key not in existing:
-            existing[key] = value
-            added = True
-    if not added:
+    absent = {key: value for key, value in incoming.items() if key not in existing}
+    if not absent:
         return
+    # Append the new keys; never reparse/redump the existing file, so its
+    # tags and comments are preserved byte-for-byte.
     buf = io.StringIO()
-    yaml.dump(existing, buf)
-    atomic_write_file(dest, buf.getvalue())
+    YAML().dump(absent, buf)
+    existing_text = dest.read_text("utf-8")
+    separator = "" if not existing_text or existing_text.endswith("\n") else "\n"
+    atomic_write_file(dest, existing_text + separator + buf.getvalue())
 
 
 # ``key: value`` line. Captures: 1=indent, 2=key, 3=trailing

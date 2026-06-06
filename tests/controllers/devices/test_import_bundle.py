@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from esphome_device_builder.controllers.devices import mutations_import_bundle
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
 
@@ -172,6 +173,43 @@ async def test_import_bundle_merges_secrets_keeping_existing(
     assert "wifi_password: original" in merged  # existing value kept
     assert "api_key: new_key" in merged  # absent key added
     assert "from_bundle" not in merged
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers", "_bundle_storage_under_tmp")
+async def test_import_bundle_secrets_merge_preserves_comments(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """The merge appends absent keys without reformatting the existing file."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "secrets.yaml").write_text(
+        "# my secrets\nwifi_password: original  # home net\n", "utf-8"
+    )
+    bundle = _make_bundle(
+        {"kitchen.yaml": MAIN_YAML, "secrets.yaml": "wifi_password: x\napi_key: new_key\n"},
+        config_filename="kitchen.yaml",
+        has_secrets=True,
+    )
+
+    result = await ctrl.import_bundle(file_content_b64=_b64(bundle))
+
+    assert result.status == "imported"
+    merged = (tmp_path / "secrets.yaml").read_text("utf-8")
+    assert "# my secrets" in merged  # comment preserved
+    assert "wifi_password: original  # home net" in merged  # existing line untouched
+    assert "api_key: new_key" in merged  # absent key appended
+
+
+def test_decode_bundle_rejects_oversize_before_decode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An over-long base64 payload is rejected by encoded length, pre-decode."""
+    monkeypatch.setattr(mutations_import_bundle, "_MAX_BUNDLE_UPLOAD_BYTES", 16)
+
+    with pytest.raises(CommandError) as excinfo:
+        mutations_import_bundle._decode_bundle("A" * 200)
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "exceeds" in excinfo.value.message
 
 
 async def test_import_bundle_rejects_non_gzip(
