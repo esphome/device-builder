@@ -3664,7 +3664,40 @@ def _strip_entry_defaults(entry: dict) -> dict:
     return out
 
 
-def _walk_schema_keys(  # noqa: C901
+def _unwrap_schema_to_dict(node: Any) -> dict | None:
+    """
+    Peel ``vol.Schema`` / ``vol.All`` / ``vol.Any`` wrappers to the underlying dict, or None.
+
+    Compound validators (``vol.All`` / ``vol.Any``) get their ``.schema``
+    attribute set during voluptuous compilation to the *outer* ``Schema``
+    being compiled — not the inner sub-schema — via
+    ``_WithSubValidators.__voluptuous_compile__``; following it on a
+    compiled tree leads back to the outer schema, so the walker silently
+    stops descending into nested ``vol.All`` values like ``wifi.eap``.
+    Prefer the ``validators`` tuple (the source of truth on compound
+    validators), falling back to ``.schema`` for plain ``vol.Schema``.
+    """
+    for _ in range(8):
+        if isinstance(node, dict):
+            return node
+        inner = getattr(node, "validators", None)
+        if inner:
+            next_node = next(
+                (v for v in inner if isinstance(v, dict) or hasattr(v, "schema")),
+                None,
+            )
+            if next_node is None:
+                return None
+            node = next_node
+            continue
+        if hasattr(node, "schema"):
+            node = node.schema
+            continue
+        return None
+    return None
+
+
+def _walk_schema_keys(
     schema: Any,
     visit: Callable[[Any, str, Any, tuple[str, ...]], None],
 ) -> None:
@@ -3689,42 +3722,10 @@ def _walk_schema_keys(  # noqa: C901
     """
     visited: set[int] = set()
 
-    def unwrap_to_dict(node: Any) -> dict | None:
-        for _ in range(8):
-            if isinstance(node, dict):
-                return node
-            # Compound validators (``vol.All`` / ``vol.Any``) get their
-            # ``.schema`` attribute set during voluptuous compilation
-            # to the *outer* ``Schema`` being compiled — not the inner
-            # sub-schema — via ``_WithSubValidators.__voluptuous_compile__``.
-            # Following it on a compiled tree therefore leads back to
-            # the outer schema (already in ``visited``) and the walker
-            # silently stops descending into nested ``vol.All`` values
-            # like ``wifi.eap``. Prefer the ``validators`` tuple — the
-            # source of truth on compound validators — and fall back to
-            # ``.schema`` for plain ``vol.Schema`` wrappers that have no
-            # ``validators`` attribute.
-            inner = getattr(node, "validators", None)
-            if inner:
-                next_node = None
-                for v in inner:
-                    if isinstance(v, dict) or hasattr(v, "schema"):
-                        next_node = v
-                        break
-                if next_node is None:
-                    return None
-                node = next_node
-                continue
-            if hasattr(node, "schema"):
-                node = node.schema
-                continue
-            return None
-        return None
-
     def walk(node: Any, path: tuple[str, ...], depth: int) -> None:
         if depth > 6:
             return
-        candidate = unwrap_to_dict(node)
+        candidate = _unwrap_schema_to_dict(node)
         if candidate is None:
             return
         if id(candidate) in visited:
@@ -4659,34 +4660,11 @@ def _collect_required_groups(  # noqa: C901
                 return
             node = inner
 
-    def unwrap_to_dict(node: Any) -> dict | None:
-        # Same shape (and same vol-compile workaround) as
-        # :func:`_walk_schema_keys`'s ``unwrap_to_dict`` — prefer
-        # ``validators`` over ``.schema`` on compound validators.
-        for _ in range(8):
-            if isinstance(node, dict):
-                return node
-            inner = getattr(node, "validators", None)
-            if inner:
-                next_node = next(
-                    (v for v in inner if isinstance(v, dict) or hasattr(v, "schema")),
-                    None,
-                )
-                if next_node is None:
-                    return None
-                node = next_node
-                continue
-            if hasattr(node, "schema"):
-                node = node.schema
-                continue
-            return None
-        return None
-
     def walk(node: Any, path: tuple[str, ...], depth: int) -> None:
         if depth > 6:
             return
         collect_at(node, path)
-        target = unwrap_to_dict(node)
+        target = _unwrap_schema_to_dict(node)
         if target is None:
             return
         if id(target) in visited:
@@ -5643,7 +5621,7 @@ def _scan_schema_for_list_triggers(
     """Walk a live schema for ``on_*`` triggers, recording their bare-list params."""
     if depth > 6:
         return
-    candidate = _unwrap_live_schema(node)
+    candidate = _unwrap_schema_to_dict(node)
     if candidate is None or id(candidate) in seen:
         return
     seen.add(id(candidate))
@@ -5656,25 +5634,6 @@ def _scan_schema_for_list_triggers(
                     out.add((key_name, pname))
         else:
             _scan_schema_for_list_triggers(val, seen, out, depth + 1)
-
-
-def _unwrap_live_schema(node: Any) -> dict | None:
-    """Peel ``vol.Schema`` / ``vol.All`` wrappers to the underlying dict, or None."""
-    for _ in range(8):
-        if isinstance(node, dict):
-            return node
-        sub = getattr(node, "validators", None)
-        if sub:
-            nxt = next((v for v in sub if isinstance(v, dict) or hasattr(v, "schema")), None)
-            if nxt is None:
-                return None
-            node = nxt
-            continue
-        if hasattr(node, "schema"):
-            node = node.schema
-            continue
-        return None
-    return None
 
 
 # Automation-schema keys that are never user-typed params (the trigger's
