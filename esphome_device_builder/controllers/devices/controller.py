@@ -648,7 +648,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             )
         if Path(configuration).name == "secrets.yaml":
             try:
-                validate_secrets_content(content)
+                validate_secrets_content(content, self._db.settings.rel_path(configuration))
             except SecretsContentError as err:
                 raise CommandError(
                     ErrorCode.INVALID_ARGS,
