@@ -76,20 +76,26 @@ def upsert_subentity_handler(
     """
     Insert or replace ``<handler_key>:`` under a nested sub-entity block.
 
-    Multi-entity platform components (``sensor: - platform: aht10``) carry
-    their entity triggers on a nested sub-block (``temperature:`` /
-    ``humidity:``), not on the platform item itself. Locates the
-    ``<sub_key>:`` block inside the ``<parent_id>`` instance under
-    ``<parent_domain>:`` and splices the handler at the sub-block's child
-    indent, as a sibling of its nested ``id:``. Same return shape as
-    :func:`upsert_inline_handler`; ``None`` when the sub-block can't be
-    located.
+    Splices at the ``<sub_key>:`` block's child indent inside the
+    ``<parent_id>`` instance under ``<parent_domain>:``. Same return shape as
+    :func:`upsert_inline_handler`; ``None`` when the sub-block isn't found.
     """
     lines = yaml_text.splitlines(keepends=True)
     span = _locate_subentity_instance(lines, parent_domain, parent_id, sub_key)
     if span is None:
         return None
     return _apply_handler_upsert(lines, span, handler_key, rendered_yaml)
+
+
+def _block_end(lines: list[str], start: int, end_bound: int, indent: str) -> int:
+    """First line index after *start* whose indent is <= len(*indent*); *end_bound* if none."""
+    for idx in range(start + 1, end_bound):
+        content = lines[idx].rstrip("\n\r")
+        if not content:
+            continue
+        if len(content) - len(content.lstrip(" ")) <= len(indent):
+            return idx
+    return end_bound
 
 
 def _apply_handler_upsert(
@@ -110,18 +116,7 @@ def _apply_handler_upsert(
     for idx in range(instance_start, instance_end):
         if handler_re.match(lines[idx].rstrip("\n\r")):
             handler_start = idx
-            # Walk forward to find the first sibling-indented line
-            # (or instance end).
-            for jdx in range(idx + 1, instance_end):
-                content = lines[jdx].rstrip("\n\r")
-                if not content:
-                    continue
-                leading = len(content) - len(content.lstrip(" "))
-                if leading <= len(child_indent):
-                    handler_end = jdx
-                    break
-            if handler_end is None:
-                handler_end = instance_end
+            handler_end = _block_end(lines, idx, instance_end, child_indent)
             break
 
     rendered_lines = _indent_block(rendered_yaml, child_indent)
@@ -192,15 +187,7 @@ def _apply_handler_remove(
     for idx in range(instance_start, instance_end):
         if not handler_re.match(lines[idx].rstrip("\n\r")):
             continue
-        handler_end = instance_end
-        for jdx in range(idx + 1, instance_end):
-            content = lines[jdx].rstrip("\n\r")
-            if not content:
-                continue
-            leading = len(content) - len(content.lstrip(" "))
-            if leading <= len(child_indent):
-                handler_end = jdx
-                break
+        handler_end = _block_end(lines, idx, instance_end, child_indent)
         new_lines = [*lines[:idx], *lines[handler_end:]]
         return "".join(new_lines), idx + 1, handler_end
     return None
@@ -234,21 +221,15 @@ def _locate_subentity_instance(
             break
     if sub_start is None:
         return None
-    sub_end = instance_end
-    sub_child_indent: str | None = None
-    for idx in range(sub_start + 1, instance_end):
+    sub_end = _block_end(lines, sub_start, instance_end, parent_child_indent)
+    # Child indent = the first non-blank child's leading whitespace; for an
+    # empty sub-block (no fields yet) splice one indent level in.
+    sub_child_indent = parent_child_indent + ESPHOME_YAML_INDENT
+    for idx in range(sub_start + 1, sub_end):
         content = lines[idx].rstrip("\n\r")
-        if not content:
-            continue
-        leading = len(content) - len(content.lstrip(" "))
-        if leading <= len(parent_child_indent):
-            sub_end = idx
+        if content:
+            sub_child_indent = " " * (len(content) - len(content.lstrip(" ")))
             break
-        if sub_child_indent is None:
-            sub_child_indent = " " * leading
-    if sub_child_indent is None:
-        # Empty sub-block (no child fields yet) — splice one indent level in.
-        sub_child_indent = parent_child_indent + ESPHOME_YAML_INDENT
     return sub_start, sub_end, sub_child_indent
 
 

@@ -28,6 +28,7 @@ from ...models.automations import (
     ApiActionLocation,
     AutomationLocation,
     AutomationTree,
+    AutomationTrigger,
     ComponentActionFieldLocation,
     ComponentOnLocation,
     DeviceOnLocation,
@@ -165,10 +166,7 @@ def _upsert_component_on(
     if target is not None and target.is_sub_entity:
         return _upsert_subentity_on(yaml_text, tree, location, target)
     instance_domain = _component_domain_from_yaml(yaml_text, location)
-    trigger = catalog.trigger_by_id(f"{instance_domain}.{location.trigger}")
-    if trigger is None:
-        msg = f"Unknown trigger id {location.trigger!r} on component {location.component_id!r}"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    trigger = _require_trigger(instance_domain, location)
     if location.index is not None:
         return upsert_component_on_entry(
             yaml_text,
@@ -208,27 +206,21 @@ def _upsert_subentity_on(
     target: ComponentTarget,
 ) -> tuple[str, YamlDiff]:
     """Splice an ``on_*:`` handler under a nested sub-entity (``aht20_temperature``)."""
-    # is_sub_entity guarantees the parent context; narrow for the type checker.
-    assert target.parent_domain is not None
-    assert target.parent_id is not None
-    assert target.sub_key is not None
-    trigger = catalog.trigger_by_id(f"{target.domain}.{location.trigger}")
-    if trigger is None:
-        msg = f"Unknown trigger id {location.trigger!r} on component {location.component_id!r}"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    parent_domain, parent_id, sub_key = _subentity_context(target)
+    _require_trigger(target.domain, location)
     rendered = render_trigger_handler(tree, key=location.trigger)
     res = upsert_subentity_handler(
         yaml_text,
-        parent_domain=target.parent_domain,
-        parent_id=target.parent_id,
-        sub_key=target.sub_key,
+        parent_domain=parent_domain,
+        parent_id=parent_id,
+        sub_key=sub_key,
         handler_key=location.trigger,
         rendered_yaml=rendered,
     )
     if res is None:
         msg = (
             f"Sub-entity id={location.component_id!r} not found under "
-            f"{target.parent_domain!r}; can't splice handler {location.trigger!r}"
+            f"{parent_domain!r}; can't splice handler {location.trigger!r}"
         )
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     new_text, from_line, to_line, replacement = res
@@ -585,21 +577,18 @@ def _delete_subentity_on(
     target: ComponentTarget,
 ) -> tuple[str, YamlDiff]:
     """Drop an ``on_*:`` handler from a nested sub-entity (``aht20_temperature``)."""
-    # is_sub_entity guarantees the parent context; narrow for the type checker.
-    assert target.parent_domain is not None
-    assert target.parent_id is not None
-    assert target.sub_key is not None
+    parent_domain, parent_id, sub_key = _subentity_context(target)
     res = remove_subentity_handler(
         yaml_text,
-        parent_domain=target.parent_domain,
-        parent_id=target.parent_id,
-        sub_key=target.sub_key,
+        parent_domain=parent_domain,
+        parent_id=parent_id,
+        sub_key=sub_key,
         handler_key=location.trigger,
     )
     if res is None:
         msg = (
             f"Sub-entity id={location.component_id!r} not found under "
-            f"{target.parent_domain!r}; can't delete handler {location.trigger!r}"
+            f"{parent_domain!r}; can't delete handler {location.trigger!r}"
         )
         raise CommandError(ErrorCode.NOT_FOUND, msg)
     new_text, from_line, to_line = res
@@ -680,6 +669,23 @@ def _delete_api_action(
 # ---------------------------------------------------------------------------
 # Low-level utilities
 # ---------------------------------------------------------------------------
+
+
+def _require_trigger(domain: str, location: ComponentOnLocation) -> AutomationTrigger:
+    """Look up the catalog trigger for ``<domain>.<trigger>``; raise if unknown."""
+    trigger = catalog.trigger_by_id(f"{domain}.{location.trigger}")
+    if trigger is None:
+        msg = f"Unknown trigger id {location.trigger!r} on component {location.component_id!r}"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    return trigger
+
+
+def _subentity_context(target: ComponentTarget) -> tuple[str, str, str]:
+    """Unpack a sub-entity target's parent context (guaranteed by ``is_sub_entity``)."""
+    assert target.parent_domain is not None
+    assert target.parent_id is not None
+    assert target.sub_key is not None
+    return target.parent_domain, target.parent_id, target.sub_key
 
 
 def _component_domain(location: ComponentOnLocation) -> str:

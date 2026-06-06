@@ -430,10 +430,8 @@ class AvailableComponentInstance(DataClassORJSONMixin):
     """
     A configured component instance the user can target from an action.
 
-    A multi-entity platform component surfaces its container instance with
-    ``is_entity_container`` true and each nested entity (``aht20_temperature``)
-    as its own instance carrying ``parent_id``; the frontend offers entity
-    triggers on the sub-entities, not the container.
+    A multi-entity platform surfaces each nested entity as its own instance
+    (``parent_id`` set) plus a container instance (``is_entity_container``).
     """
 
     component_id: str

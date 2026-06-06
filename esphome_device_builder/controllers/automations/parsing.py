@@ -29,7 +29,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from functools import partial
 from importlib import resources
-from typing import Any
+from typing import Any, NamedTuple
 
 from ...helpers.api import CommandError
 from ...helpers.json import loads as json_loads
@@ -79,9 +79,13 @@ __all__ = [
     "_key_range",
     "_render_params",
     "_render_value",
+    "catalog_id",
+    "iter_subentities",
     "make_yaml",
     "parse_device_yaml",
+    "platform_subentity_keys",
     "resolve_component_domain",
+    "resolve_component_target",
     "singleton_component_id",
 ]
 
@@ -294,28 +298,77 @@ def singleton_component_id(section: dict, domain: str) -> str:
     return str(section.get("id") or domain)
 
 
+class ComponentTarget(NamedTuple):
+    """
+    Where a *component_id* resolves in the YAML.
+
+    A top-level instance, or a nested sub-entity carrying the parent context
+    (``parent_domain`` / ``parent_id`` / ``sub_key``) the writer splices under.
+    """
+
+    domain: str
+    is_sub_entity: bool = False
+    parent_domain: str | None = None
+    parent_id: str | None = None
+    sub_key: str | None = None
+
+
 def resolve_component_domain(yaml_text: str, component_id: str) -> str | None:
     """
     Return the top-level domain whose instance declares *component_id*.
 
-    Shares the :func:`_iter_component_instances` walk so the writer
-    attributes an id to the same domain/instance the parser did — list
-    instances on ``id`` (or the synthetic ``<domain>_<idx>``), flat
-    singletons on :func:`singleton_component_id`. Resolves any component
-    domain (not only trigger-hosting ones), so component action-list
-    fields on e.g. ``cover`` resolve too. Only declared instance ids
-    match; an action *reference* (``id:`` nested in a handler body)
-    never does. ``None`` when no instance matches or the YAML won't load.
+    Thin wrapper over :func:`resolve_component_target` returning the
+    top-level domain (the parent's for a sub-entity). ``None`` when no
+    instance matches or the YAML won't load.
+    """
+    target = resolve_component_target(yaml_text, component_id)
+    if target is None:
+        return None
+    return target.parent_domain or target.domain
+
+
+def resolve_component_target(yaml_text: str, component_id: str) -> ComponentTarget | None:
+    """
+    Resolve *component_id* to a top-level instance or a nested sub-entity.
+
+    Walks declared instance ids — list instances on ``id`` (or the synthetic
+    ``<domain>_<idx>``), flat singletons on :func:`singleton_component_id` —
+    and each instance's catalog sub-entity blocks. Only declared ids match;
+    an action *reference* nested in a handler body never does. ``None`` when
+    no instance matches or the YAML won't load.
     """
     yaml = make_yaml()
     try:
         root = yaml.load(yaml_text)
     except Exception:  # noqa: BLE001 — any load failure falls back to the catalog guess
         return None
-    for domain, _instance, comp_id in _iter_component_instances(root):
-        if comp_id == component_id:
-            return domain
+    if not isinstance(root, dict):
+        return None
+    for domain, section in root.items():
+        is_list = isinstance(section, list)
+        items = section if is_list else [section] if isinstance(section, dict) else []
+        for idx, instance in enumerate(items):
+            if not isinstance(instance, dict):
+                continue
+            if _instance_id(str(domain), instance, idx, is_list=is_list) == component_id:
+                return ComponentTarget(domain=str(domain))
+            for sub_domain, _sub, sub_id, sub_key in iter_subentities(str(domain), instance):
+                if sub_id == component_id:
+                    return ComponentTarget(
+                        domain=sub_domain,
+                        is_sub_entity=True,
+                        parent_domain=str(domain),
+                        parent_id=_instance_id(str(domain), instance, idx, is_list=is_list),
+                        sub_key=sub_key,
+                    )
     return None
+
+
+def _instance_id(domain: str, instance: dict, idx: int, *, is_list: bool) -> str:
+    """Reconstruct the id the parser attributes to one instance."""
+    if is_list:
+        return str(instance.get("id") or f"{domain}_{idx}")
+    return singleton_component_id(instance, domain)
 
 
 def _iter_component_instances(
@@ -324,22 +377,40 @@ def _iter_component_instances(
     """
     Yield ``(domain, instance, comp_id)`` for every configured component.
 
-    Handles list-domain instances (``switch:`` is a list) and flat
-    singleton components (``sun:`` / ``mqtt:`` are a single mapping).
-    The id matches what :func:`resolve_component_domain` reconstructs,
-    so the parser and writer attribute the same id to the same instance.
-    Shared by the inline-``on_*`` and component-action-field passes so
-    the instance-walk lives in one place.
+    Handles list-domain instances (``switch:`` is a list), flat singleton
+    components (``sun:`` / ``mqtt:``), and each instance's nested platform
+    sub-entities (``aht20_temperature`` under ``sensor.aht10``, yielded with
+    its ``platform_type`` as the domain). Shared by the inline-``on_*`` and
+    component-action-field passes so the instance-walk lives in one place.
     """
     if not isinstance(root, dict):
         return
     for domain, section in root.items():
-        if isinstance(section, list):
-            for idx, instance in enumerate(section):
-                if isinstance(instance, dict):
-                    yield str(domain), instance, str(instance.get("id") or f"{domain}_{idx}")
-        elif isinstance(section, dict):
-            yield str(domain), section, singleton_component_id(section, str(domain))
+        is_list = isinstance(section, list)
+        items = section if is_list else [section] if isinstance(section, dict) else []
+        for idx, instance in enumerate(items):
+            if not isinstance(instance, dict):
+                continue
+            yield str(domain), instance, _instance_id(str(domain), instance, idx, is_list=is_list)
+            for sub_domain, sub, sub_id, _sub_key in iter_subentities(str(domain), instance):
+                yield sub_domain, sub, sub_id
+
+
+def catalog_id(domain: str, platform: Any) -> str:
+    """Return the component's catalog id: ``<domain>.<platform>``, or the bare domain."""
+    return f"{domain}.{platform}" if isinstance(platform, str) and platform else domain
+
+
+def iter_subentities(
+    domain: str,
+    instance: dict,
+) -> Iterator[tuple[str, dict, str, str]]:
+    """Yield ``(platform_type, sub_instance, sub_id, sub_key)`` for ided sub-blocks."""
+    cat_id = catalog_id(domain, instance.get("platform"))
+    for sub_key, sub_domain in platform_subentity_keys(cat_id):
+        sub = instance.get(sub_key)
+        if isinstance(sub, dict) and sub.get("id") is not None:
+            yield sub_domain, sub, str(sub["id"]), sub_key
 
 
 def _parse_inline_component_triggers(root: Any) -> list[ParsedAutomation]:
@@ -403,10 +474,9 @@ def platform_subentity_keys(catalog_id: str) -> tuple[tuple[str, str], ...]:
     """
     Return ``(sub_key, platform_type)`` for *catalog_id*'s sub-entity blocks.
 
-    A sub-entity block is a top-level ``type: nested`` entry carrying a
-    ``platform_type`` and its own ``id`` (e.g. ``temperature`` on
-    ``sensor.aht10``). Plain nested groups (``availability:`` /
-    ``web_server:``) have no ``platform_type`` and are excluded.
+    A sub-entity block is a ``type: nested`` entry with a ``platform_type`` and
+    its own ``id`` (``temperature`` on ``sensor.aht10``); plain groups
+    (``availability:``) are excluded.
     """
     cached = _PLATFORM_SUBENTITY_INDEX.get(catalog_id)
     if cached is None:
@@ -446,12 +516,7 @@ def _parse_component_action_fields(root: Any) -> list[ParsedAutomation]:
     """
     out: list[ParsedAutomation] = []
     for domain, instance, comp_id in _iter_component_instances(root):
-        # Catalog id mirrors the sync's: ``<domain>.<platform>`` for a
-        # platform component (``cover: - platform: feedback``), the bare
-        # ``<domain>`` for a single-mapping hub (``opentherm:``).
-        platform = instance.get("platform")
-        catalog_id = f"{domain}.{platform}" if platform else domain
-        fields = _component_action_fields(catalog_id)
+        fields = _component_action_fields(catalog_id(domain, instance.get("platform")))
         if not fields:
             continue
         comp_name = str(instance.get("name") or comp_id)
