@@ -11,6 +11,7 @@ exception.
 from __future__ import annotations
 
 import asyncio
+import gzip
 import io
 import warnings
 from pathlib import Path
@@ -429,6 +430,47 @@ async def test_create_device_accepts_old_esphome_version_yaml(
     written = (tmp_path / "old-device.yaml").read_text("utf-8")
     assert written == legacy_yaml
     assert ctrl._scanner.calls == [("scan",)]
+
+
+async def test_create_device_rejects_binary_file_content(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A .tar.gz uploaded as ``file_content`` is refused, not written.
+
+    The wizard reads the picked file as text, so a gzip bundle
+    arrives as control bytes (magic 0x1f, NULs, U+FFFD from the
+    invalid-UTF-8 bytes). That can't open in the editor at all, so
+    it must fail with ``INVALID_ARGS`` rather than land an unparsable
+    .yaml. This is the binary-vs-text guard; it must not turn into
+    schema validation of legacy-but-textual configs.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    # Mirror the frontend's readAsText of a gzip archive.
+    bundle_bytes = gzip.compress(b"esphome:\n  name: kitchen\n")
+    file_content = bundle_bytes.decode("utf-8", "replace")
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.create_device(name="kitchen", file_content=file_content)
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "binary" in excinfo.value.message
+    assert not (tmp_path / "kitchen.yaml").exists()
+    assert ctrl._scanner.calls == []
+
+
+async def test_create_device_rejects_file_content_with_nul(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A lone NUL in otherwise-texty content is still refused (unparsable YAML)."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    content = "esphome:\n  name: kitchen\x00\n"
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.create_device(name="kitchen", file_content=content)
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert not (tmp_path / "kitchen.yaml").exists()
+    assert ctrl._scanner.calls == []
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")

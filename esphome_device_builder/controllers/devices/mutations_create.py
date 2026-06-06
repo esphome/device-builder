@@ -11,7 +11,7 @@ from ...helpers.api import CommandError
 from ...helpers.device_yaml import parse_platform_from_yaml
 from ...helpers.storage_path import resolve_storage_path
 from ...models import ErrorCode, WizardResponse
-from .helpers import clean_friendly_name, slugify_hostname
+from .helpers import _looks_binary, clean_friendly_name, slugify_hostname
 
 if TYPE_CHECKING:
     from .controller import DevicesController
@@ -93,7 +93,19 @@ async def create_device(  # noqa: C901
     # on disk. User uploads are deliberately skipped: the upload
     # flow exists so users can bring an existing (often older)
     # config into the builder and repair it in the editor.
-    if source != "user":
+    if source == "user":
+        # Schema validation stays off (an older-but-valid config must
+        # still land for repair), but a binary blob is a different
+        # failure: a .tar.gz read as text can't be opened in the editor
+        # at all, so refuse it instead of writing an unparsable .yaml.
+        if _looks_binary(yaml_content):
+            raise CommandError(
+                ErrorCode.INVALID_ARGS,
+                "This doesn't look like a text YAML configuration; it "
+                "contains binary data, for example a .tar.gz archive. "
+                "Upload a plain-text .yaml file.",
+            )
+    else:
         await controller._validate_rewritten_yaml_or_raise(
             filename,
             yaml_content,
