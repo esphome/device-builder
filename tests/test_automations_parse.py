@@ -676,6 +676,8 @@ def test_platform_subentity_keys_reads_nested_platform_blocks() -> None:
     assert platform_subentity_keys("sensor.adc") == ()
     # An absent body resolves to empty rather than raising.
     assert platform_subentity_keys("sensor.does_not_exist") == ()
+    # A traversal-shaped id is refused before any disk read.
+    assert platform_subentity_keys("../etc/passwd") == ()
 
 
 def test_resolve_component_target_maps_subentity_to_platform_type() -> None:

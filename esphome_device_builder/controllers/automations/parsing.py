@@ -440,7 +440,7 @@ def _component_body_entries(catalog_id: str) -> list[Any]:
         raw = resources.files(_COMPONENTS_PACKAGE).joinpath(f"{catalog_id}.json").read_bytes()
     except FileNotFoundError:
         return []
-    if not raw:
+    if not raw:  # pragma: no cover - shipped catalog bodies are never empty
         return []
     return json_loads(raw).get("config_entries") or []
 

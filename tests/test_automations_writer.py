@@ -18,8 +18,13 @@ from pathlib import Path
 import pytest
 
 from esphome_device_builder.controllers.automations import writing
-from esphome_device_builder.controllers.automations.parsing import parse_device_yaml
+from esphome_device_builder.controllers.automations.parsing import (
+    ComponentTarget,
+    parse_device_yaml,
+)
 from esphome_device_builder.controllers.automations.writing import (
+    _delete_subentity_on,
+    _upsert_subentity_on,
     render_delete,
     render_upsert,
 )
@@ -1753,3 +1758,50 @@ def test_two_subsensors_on_one_platform_target_independently() -> None:
     targeted = {(p.location.component_id, p.location.trigger) for p in parse_device_yaml(both)}
     assert ("aht20_temperature", "on_value_range") in targeted
     assert ("aht20_humidity", "on_value_range") in targeted
+
+
+_AHT10_NO_HUMIDITY = (
+    "sensor:\n  - platform: aht10\n    id: aht20\n    temperature:\n      id: aht20_temperature\n"
+)
+
+
+def test_upsert_subentity_raises_when_parent_absent() -> None:
+    """A sub-entity target whose parent isn't in the YAML can't be spliced."""
+    target = ComponentTarget(
+        domain="sensor",
+        is_sub_entity=True,
+        parent_domain="sensor",
+        parent_id="ghost",
+        sub_key="temperature",
+    )
+    loc = ComponentOnLocation(component_id="ghost_temperature", trigger="on_value_range")
+    with pytest.raises(CommandError):
+        _upsert_subentity_on(_AHT10_NO_HUMIDITY, _value_range_tree(), loc, target)
+
+
+def test_upsert_subentity_raises_when_subblock_absent() -> None:
+    """The parent exists but lacks the named sub-block — refuse, don't mis-splice."""
+    target = ComponentTarget(
+        domain="sensor",
+        is_sub_entity=True,
+        parent_domain="sensor",
+        parent_id="aht20",
+        sub_key="humidity",
+    )
+    loc = ComponentOnLocation(component_id="aht20_humidity", trigger="on_value_range")
+    with pytest.raises(CommandError):
+        _upsert_subentity_on(_AHT10_NO_HUMIDITY, _value_range_tree(), loc, target)
+
+
+def test_delete_subentity_raises_when_parent_absent() -> None:
+    """Deleting a sub-entity handler off a missing parent is a clean NOT_FOUND."""
+    target = ComponentTarget(
+        domain="sensor",
+        is_sub_entity=True,
+        parent_domain="sensor",
+        parent_id="ghost",
+        sub_key="temperature",
+    )
+    loc = ComponentOnLocation(component_id="ghost_temperature", trigger="on_value_range")
+    with pytest.raises(CommandError):
+        _delete_subentity_on(_AHT10_NO_HUMIDITY, loc, target)
