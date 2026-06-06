@@ -134,43 +134,30 @@ async def create_device(  # noqa: C901
         msg = f"Configuration {filename} already exists"
         raise CommandError(ErrorCode.INVALID_ARGS, msg) from exc
 
-    def _init_storage() -> None:
-        platform = str(board.esphome.platform) if board else parsed_platform
-        storage = StorageJSON(
-            storage_version=1,
-            name=name,
-            friendly_name=friendly,
-            comment=None,
-            esphome_version=None,
-            src_version=None,
-            address=f"{name}.local",
-            web_port=None,
-            target_platform=platform,
-            build_path=None,
-            firmware_bin_path=None,
-            loaded_integrations=[],
-            loaded_platforms=[],
-            no_mdns=False,
-        )
-        storage_path = resolve_storage_path(filename)
-        storage_path.parent.mkdir(parents=True, exist_ok=True)
-        storage.save(storage_path)
-
-    await loop.run_in_executor(None, _init_storage)
-    # Archive keeps identity for unarchive; a fresh device at the
-    # same filename must start clean or an archived board_id
-    # silently mis-binds.
-    await controller._delete_device_metadata(filename)
-    if board_id:
-        await controller._persist_device_metadata_async(
-            filename, board_id=board_id, board_id_user_set=True
-        )
-    await controller._commit_history(filename, f"Create {filename}")
-    # _scanner.scan fires _on_scan_change(ADDED) for the new
-    # YAML and that already runs probe_device; don't double-probe.
-    # file_content may carry an esphome.name that differs from
-    # the URL name, in which case the scan-change handler probes
-    # the YAML's name (the right one) and a second probe here
-    # would target the wrong service.
-    await controller._scanner.scan()
+    platform = str(board.esphome.platform) if board else parsed_platform
+    await loop.run_in_executor(None, init_device_storage, filename, name, friendly, platform)
+    await controller._register_new_device(filename, f"Create {filename}", board_id=board_id)
     return WizardResponse(configuration=filename)
+
+
+def init_device_storage(filename: str, name: str, friendly_name: str | None, platform: str) -> None:
+    """Write a fresh StorageJSON sidecar for a newly created / imported device."""
+    storage = StorageJSON(
+        storage_version=1,
+        name=name,
+        friendly_name=friendly_name,
+        comment=None,
+        esphome_version=None,
+        src_version=None,
+        address=f"{name}.local",
+        web_port=None,
+        target_platform=platform,
+        build_path=None,
+        firmware_bin_path=None,
+        loaded_integrations=[],
+        loaded_platforms=[],
+        no_mdns=False,
+    )
+    storage_path = resolve_storage_path(filename)
+    storage_path.parent.mkdir(parents=True, exist_ok=True)
+    storage.save(storage_path)

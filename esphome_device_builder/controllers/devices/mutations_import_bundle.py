@@ -16,20 +16,20 @@ import io
 import logging
 import tempfile
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from esphome.core import EsphomeError
 from esphome.helpers import write_file as atomic_write_file
-from esphome.storage_json import StorageJSON
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
 from ...helpers.api import CommandError
 from ...helpers.device_yaml import configuration_stem, parse_platform_from_yaml
-from ...helpers.storage_path import resolve_storage_path
 from ...helpers.yaml import read_yaml_scalar
 from ...models import ErrorCode, ImportBundleResponse
+from .helpers import _validate_archive_configuration
+from .mutations_create import init_device_storage
 
 if TYPE_CHECKING:
     from .controller import DevicesController
@@ -70,14 +70,10 @@ async def import_bundle(
             esphome_version=outcome.esphome_version,
         )
 
-    # The YAML is on disk; register it the same way create_device does so
-    # the device shows up immediately and stale archived metadata can't
-    # mis-bind a board_id to the fresh config.
-    await controller._delete_device_metadata(outcome.configuration)
-    await controller._commit_history(
+    # The YAML is on disk; register it the same way create_device does.
+    await controller._register_new_device(
         outcome.configuration, f"Import bundle {outcome.configuration}"
     )
-    await controller._scanner.scan()
     return ImportBundleResponse(
         status="imported",
         configuration=outcome.configuration,
@@ -131,7 +127,7 @@ def _stage_bundle(file_content_b64: str, config_dir: Path, overwrite: list[str] 
             ) from exc
 
         config_filename = manifest.config_filename
-        _validate_basename(config_filename)
+        _validate_archive_configuration(config_filename)
 
         staging = tmp_path / "staging"
         try:
@@ -193,21 +189,6 @@ def _decode_bundle(file_content_b64: str) -> bytes:
     return raw
 
 
-def _validate_basename(name: str) -> None:
-    """Reject a manifest config filename that isn't a plain basename."""
-    if (
-        not name
-        or name in (".", "..")
-        or "/" in name
-        or "\\" in name
-        or PurePosixPath(name).name != name
-    ):
-        raise CommandError(
-            ErrorCode.INVALID_ARGS,
-            f"Bundle manifest has an unsafe config filename: {name!r}",
-        )
-
-
 def _merge_secrets(src: Path, dest: Path) -> None:
     """Merge bundle secrets into *dest*, keeping existing keys; create if absent."""
     if not dest.exists():
@@ -237,29 +218,11 @@ def _merge_secrets(src: Path, dest: Path) -> None:
 
 
 def _init_bundle_storage(config_dir: Path, config_filename: str) -> None:
-    """Write a fresh StorageJSON sidecar so the first compile has metadata."""
+    """Write a fresh StorageJSON sidecar from the imported config's own fields."""
     content = (config_dir / config_filename).read_text("utf-8", errors="replace")
     name = configuration_stem(config_filename)
     friendly = read_yaml_scalar(content, ("esphome", "friendly_name"))
     if friendly and "${" in friendly:
         friendly = None
     platform, _pio_board, _variant = parse_platform_from_yaml(content)
-    storage = StorageJSON(
-        storage_version=1,
-        name=name,
-        friendly_name=friendly,
-        comment=None,
-        esphome_version=None,
-        src_version=None,
-        address=f"{name}.local",
-        web_port=None,
-        target_platform=platform,
-        build_path=None,
-        firmware_bin_path=None,
-        loaded_integrations=[],
-        loaded_platforms=[],
-        no_mdns=False,
-    )
-    storage_path = resolve_storage_path(config_filename)
-    storage_path.parent.mkdir(parents=True, exist_ok=True)
-    storage.save(storage_path)
+    init_device_storage(config_filename, name, friendly, platform)

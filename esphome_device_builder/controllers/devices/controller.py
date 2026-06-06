@@ -885,6 +885,26 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         # catch-all entry so its generic message can't supersede it.
         version_history.discard_pending(configuration)
 
+    async def _register_new_device(
+        self, configuration: str, commit_message: str, *, board_id: str | None = None
+    ) -> None:
+        """
+        Make a freshly written config visible: reset metadata, commit, scan.
+
+        Shared tail of ``create_device`` and ``import_bundle``. Clearing
+        metadata first stops an archived board_id from mis-binding to a
+        fresh device reusing the same filename; *board_id* is persisted
+        only when explicitly chosen. The scan fires ``_on_scan_change``
+        (ADDED), which probes the device, so callers must not double-probe.
+        """
+        await self._delete_device_metadata(configuration)
+        if board_id:
+            await self._persist_device_metadata_async(
+                configuration, board_id=board_id, board_id_user_set=True
+            )
+        await self._commit_history(configuration, commit_message)
+        await self._scanner.scan()
+
     @staticmethod
     async def _read_yaml_async(path: Path) -> str:
         """Read *path* as UTF-8 text off the executor."""

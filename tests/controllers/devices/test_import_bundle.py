@@ -69,7 +69,7 @@ def _bundle_storage_under_tmp(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
         return storage_dir / f"{configuration}.json"
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.mutations_import_bundle.resolve_storage_path",
+        "esphome_device_builder.controllers.devices.mutations_create.resolve_storage_path",
         _resolve,
     )
 
