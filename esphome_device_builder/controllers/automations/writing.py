@@ -44,19 +44,11 @@ from .emitter import (
 )
 from .parsing import make_yaml, resolve_component_domain
 from .writing_layout import (
-    build_diff_for_append as _build_diff_for_append,
-)
-from .writing_layout import (
-    indent_block as _indent_block,
-)
-from .writing_layout import (
-    indent_for_top_list as _indent_for_top_list,
-)
-from .writing_layout import (
-    locate_singleton_block as _locate_singleton_block,
-)
-from .writing_layout import (
-    locate_top_list_item as _locate_top_list_item,
+    _build_diff_for_append,
+    _indent_block,
+    _indent_for_top_list,
+    _locate_singleton_block,
+    _locate_top_list_item,
 )
 from .writing_lists import (
     delete_light_effect,

@@ -1,11 +1,4 @@
-"""
-Pure line/diff layout utilities for the automation writer.
-
-Locate top-level list items and singleton blocks, indent rendered
-blocks, and turn an append-style rewrite into a bounded
-:class:`YamlDiff`. No catalog or parsing dependencies — just text
-geometry — so the writer's splice paths share one home for them.
-"""
+"""Pure line/diff layout utilities for the automation writer."""
 
 from __future__ import annotations
 
@@ -14,7 +7,7 @@ from ...models.api import ErrorCode
 from ...models.automations import YamlDiff
 
 
-def indent_block(block_text: str, indent: str) -> list[str]:
+def _indent_block(block_text: str, indent: str) -> list[str]:
     """Prefix every non-empty line of *block_text* with *indent*."""
     out: list[str] = []
     for line in block_text.splitlines():
@@ -25,7 +18,7 @@ def indent_block(block_text: str, indent: str) -> list[str]:
     return out
 
 
-def indent_for_top_list(rendered_item: str) -> str:
+def _indent_for_top_list(rendered_item: str) -> str:
     """Indent *rendered_item* (one ``- ...`` block) for top-level list use."""
     # ``dump([item])`` already produces the dashed list form; we
     # use it as-is. The block is left at column-0 so it lands
@@ -35,7 +28,7 @@ def indent_for_top_list(rendered_item: str) -> str:
     return rendered_item
 
 
-def locate_top_list_item(  # noqa: C901
+def _locate_top_list_item(  # noqa: C901
     lines: list[str],
     domain: str,
     index: int,
@@ -79,7 +72,7 @@ def locate_top_list_item(  # noqa: C901
     return start, end
 
 
-def locate_singleton_block(
+def _locate_singleton_block(
     lines: list[str],
     block_key: str,
 ) -> tuple[int, int, str] | None:
@@ -109,7 +102,7 @@ def locate_singleton_block(
             # between two top-level blocks). A comment sitting
             # between a parent key and an indented child below is
             # a no-op — keep scanning.
-            if next_non_blank_at_col_zero(lines, idx + 1):
+            if _next_non_blank_at_col_zero(lines, idx + 1):
                 end = idx
                 break
             continue
@@ -119,7 +112,7 @@ def locate_singleton_block(
     return start, end, indent
 
 
-def next_non_blank_at_col_zero(lines: list[str], start: int) -> bool:
+def _next_non_blank_at_col_zero(lines: list[str], start: int) -> bool:
     """Return True iff the next non-blank line at *start* or later sits at column 0."""
     for idx in range(start, len(lines)):
         stripped = lines[idx].rstrip("\n\r")
@@ -129,7 +122,7 @@ def next_non_blank_at_col_zero(lines: list[str], start: int) -> bool:
     return False
 
 
-def build_diff_for_append(old_yaml: str, new_yaml: str) -> YamlDiff:
+def _build_diff_for_append(old_yaml: str, new_yaml: str) -> YamlDiff:
     """
     Build a diff describing the lines changed by an append-style write.
 
