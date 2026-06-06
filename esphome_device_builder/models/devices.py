@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 from mashumaro.mixins.orjson import DataClassORJSONMixin
 
@@ -243,6 +243,25 @@ class WizardResponse(DataClassORJSONMixin):
     """Response after creating a new device."""
 
     configuration: str
+
+
+@dataclass
+class ImportBundleResponse(DataClassORJSONMixin):
+    """
+    Result of a ``devices/import_bundle`` call.
+
+    ``status="conflicts"`` means nothing was written: *conflicts*
+    lists the bundle files that already exist on disk so the user
+    can pick which to overwrite and re-submit. ``status="imported"``
+    means the tree landed; *configuration* is the device's YAML.
+    ``secrets.yaml`` is always merged, never a conflict.
+    """
+
+    status: Literal["imported", "conflicts"]
+    configuration: str
+    conflicts: list[str] = field(default_factory=list)
+    has_secrets: bool = False
+    esphome_version: str = ""
 
 
 @dataclass

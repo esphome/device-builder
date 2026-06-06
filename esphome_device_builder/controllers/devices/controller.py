@@ -34,6 +34,7 @@ from ...models import (
     DeviceState,
     ErrorCode,
     EventType,
+    ImportBundleResponse,
     JobLifecycleData,
     UpdateDeviceResponse,
     WizardResponse,
@@ -54,6 +55,7 @@ from . import (
     logs,
     mutations_clone,
     mutations_create,
+    mutations_import_bundle,
     mutations_simple,
     mutations_yaml,
     reachability,
@@ -379,6 +381,21 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             ssid=ssid,
             psk=psk,
             file_content=file_content,
+        )
+
+    @api_command("devices/import_bundle")
+    async def import_bundle(
+        self,
+        *,
+        file_content_b64: str,
+        overwrite: list[str] | None = None,
+        **kwargs: Any,
+    ) -> ImportBundleResponse:
+        """Import an ``esphome bundle`` archive as a device."""
+        return await mutations_import_bundle.import_bundle(
+            self,
+            file_content_b64=file_content_b64,
+            overwrite=overwrite,
         )
 
     @api_command("devices/update")
