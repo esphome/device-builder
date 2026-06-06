@@ -283,3 +283,56 @@ async def test_import_bundle_rejects_malformed_tar(
 
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
     assert ctrl._scanner.calls == []
+
+
+async def test_import_bundle_rejects_path_traversal(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A traversal member trips upstream extraction, surfaced as INVALID_ARGS."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    bundle = _make_bundle(
+        {"kitchen.yaml": MAIN_YAML, "../evil.yaml": "x\n"},
+        config_filename="kitchen.yaml",
+    )
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.import_bundle(file_content_b64=_b64(bundle))
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert ctrl._scanner.calls == []
+
+
+def test_decode_bundle_rejects_oversize_after_decode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A payload that clears the encoded pre-check but decodes over the cap is rejected."""
+    monkeypatch.setattr(mutations_import_bundle, "_MAX_BUNDLE_UPLOAD_BYTES", 16)
+    # 24 base64 chars equal the encoded-length ceiling but decode to 18 bytes.
+    with pytest.raises(CommandError) as excinfo:
+        mutations_import_bundle._decode_bundle("A" * 24)
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "exceeds" in excinfo.value.message
+
+
+@pytest.mark.usefixtures("_bundle_storage_under_tmp")
+def test_init_bundle_storage_handles_missing_main_config(tmp_path: Path) -> None:
+    """A main config absent from disk seeds a minimal sidecar rather than crashing."""
+    mutations_import_bundle._init_bundle_storage(tmp_path, "ghost.yaml")
+
+    assert (tmp_path / ".esphome" / "storage" / "ghost.yaml.json").exists()
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers", "_bundle_storage_under_tmp")
+async def test_import_bundle_substitution_friendly_name(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A templated ``friendly_name: ${...}`` doesn't leak into the sidecar."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    main = "esphome:\n  name: kitchen\n  friendly_name: ${fn}\nesp32:\n  board: nodemcu-32s\n"
+    bundle = _make_bundle({"kitchen.yaml": main}, config_filename="kitchen.yaml")
+
+    result = await ctrl.import_bundle(file_content_b64=_b64(bundle))
+
+    assert result.status == "imported"
+    assert (tmp_path / "kitchen.yaml").read_text("utf-8") == main

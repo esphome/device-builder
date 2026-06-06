@@ -565,6 +565,22 @@ async def test_create_device_clears_residual_metadata_from_archived_same_name(
     assert post == {}
 
 
+async def test_create_device_write_race_surfaces_already_exists(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A file appearing between the pre-check and the exclusive write maps to ALREADY_EXISTS."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    fake = MagicMock()
+    fake.exists.return_value = False  # pre-check passes
+    fake.open.side_effect = FileExistsError  # the exclusive write loses the race
+    ctrl._db.settings.rel_path = lambda _filename: fake
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.create_device(name="kitchen", file_content=VALID_FILE_CONTENT)
+
+    assert excinfo.value.code == ErrorCode.ALREADY_EXISTS
+
+
 async def test_create_device_overwrite_preserves_metadata(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
