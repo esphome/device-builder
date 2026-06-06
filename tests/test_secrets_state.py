@@ -16,9 +16,11 @@ from esphome.core import EsphomeError
 from esphome_device_builder.helpers.secrets_state import (
     PLACEHOLDER_WIFI_PASSWORD,
     PLACEHOLDER_WIFI_SSID,
+    SecretsContentError,
     is_wifi_unconfigured,
     merge_secrets_file,
     read_secrets_yaml,
+    validate_secrets_content,
 )
 
 
@@ -116,6 +118,31 @@ def test_read_secrets_yaml_returns_dict_for_valid_file(tmp_path: Path) -> None:
     assert data is not None
     assert data["wifi_ssid"] == "home"
     assert data["api_key"] == "ABC"
+
+
+def test_validate_secrets_content_rejects_malformed_yaml() -> None:
+    """The issue's no-space-after-colon example raises with line info."""
+    bad = 'wifi_ssid: "myssid"\nwifi_password: "mypassword"\nxx:xxx\na:a\n'
+    with pytest.raises(SecretsContentError) as excinfo:
+        validate_secrets_content(bad)
+    assert "line 4" in str(excinfo.value)
+
+
+def test_validate_secrets_content_rejects_non_mapping_top_level() -> None:
+    """A list or scalar top level isn't the dict ``!secret`` lookups expect."""
+    with pytest.raises(SecretsContentError, match="mapping"):
+        validate_secrets_content("- a\n- b\n")
+    with pytest.raises(SecretsContentError, match="mapping"):
+        validate_secrets_content("just a scalar\n")
+
+
+def test_validate_secrets_content_accepts_valid_mapping() -> None:
+    validate_secrets_content("wifi_ssid: home\nwifi_password: secret\n")
+
+
+def test_validate_secrets_content_accepts_comment_only_file() -> None:
+    """A comment-only file parses to ``None`` and is a legitimate secrets.yaml."""
+    validate_secrets_content("# nothing here yet\n")
 
 
 def test_placeholder_password_constant_is_exported() -> None:
