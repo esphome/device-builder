@@ -322,13 +322,15 @@ class GitRepo:
         # editor briefly removed it. Drop those. A gone-but-tracked path stays
         # so its deletion is staged (git add -A picks up the removal). The
         # common create / edit case has no gone paths, so it skips git here.
-        spec: list[str] = []
+        present: list[Path] = []
         gone: list[Path] = []
         for p in paths:
-            if p.exists():
-                spec.append(str(p))
-            else:
-                gone.append(p)
+            (present if p.exists() else gone).append(p)
+        # Explicitly listing an untracked, gitignored path (e.g. secrets.yaml,
+        # which we deliberately keep out of history) makes ``git add`` fail, so
+        # drop those; a commit of only such paths is a clean no-op.
+        ignored = set(self._ignored_subset(present))
+        spec: list[str] = [str(p) for p in present if p not in ignored]
         if gone:
             spec += [str(p) for p in self._tracked_subset(gone)]
         if not spec:
@@ -552,6 +554,27 @@ class GitRepo:
         )
         tracked = {rel for rel in result.stdout.split("\0") if rel}
         return [p for p in paths if self._rel_to_toplevel(p) in tracked]
+
+    def _ignored_subset(self, paths: list[Path]) -> list[Path]:
+        """Return the subset of *paths* git would refuse to ``add`` as ignored.
+
+        ``check-ignore`` honours the index, so a tracked path is never
+        reported even if it matches a rule; the result is exactly the set
+        ``git add`` rejects with "paths are ignored". A non-0/1 exit (a
+        genuine failure) is treated as "nothing ignored" so a checkable
+        path is never silently dropped.
+        """
+        if not paths:
+            return []
+        # ``check-ignore`` echoes each matching path verbatim, one per line;
+        # ``-z`` is rejected here (it's --stdin-only), and top-level config
+        # paths never contain newlines. Exit 0 = some ignored, 1 = none, and
+        # anything else is a genuine failure we treat as "nothing ignored".
+        result = self._run(["check-ignore", "--", *(str(p) for p in paths)], check=False)
+        if result.returncode not in (0, 1):
+            return []
+        ignored = {echoed for echoed in result.stdout.splitlines() if echoed}
+        return [p for p in paths if str(p) in ignored]
 
     def _rel_to_toplevel(self, path: Path) -> str:
         """Return *path* relative to the work-tree root (git's pathspec base)."""

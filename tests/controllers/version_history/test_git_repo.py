@@ -404,6 +404,34 @@ def test_commit_clears_stale_index_lock_and_retries(tmp_path: Path) -> None:
     assert not lock.exists()
 
 
+def test_commit_paths_skips_gitignored_secrets(tmp_path: Path) -> None:
+    """A commit for a gitignored secrets.yaml is a clean no-op, not a git error."""
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()  # seeds a .gitignore that ignores secrets.yaml
+    secrets = tmp_path / "secrets.yaml"
+    secrets.write_text("wifi_password: hunter2\n", encoding="utf-8")
+
+    assert repo.commit_paths([secrets], "Update secrets") is None
+    assert "secrets.yaml" not in _git(tmp_path, "ls-files").split()
+
+
+def test_commit_paths_commits_others_alongside_an_ignored_one(tmp_path: Path) -> None:
+    """A mixed batch commits the trackable file and drops the ignored one."""
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+    kitchen = tmp_path / "kitchen.yaml"
+    kitchen.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    secrets = tmp_path / "secrets.yaml"
+    secrets.write_text("wifi_password: hunter2\n", encoding="utf-8")
+
+    sha = repo.commit_paths([kitchen, secrets], "Add kitchen + secrets")
+
+    assert sha
+    tracked = _git(tmp_path, "ls-files").split()
+    assert "kitchen.yaml" in tracked
+    assert "secrets.yaml" not in tracked
+
+
 def test_managed_flag_survives_restart_and_heals(tmp_path: Path) -> None:
     """A repo we created is re-adopted as managed on restart, so the stale-lock heal fires."""
     GitRepo(config_dir=tmp_path).discover_or_init()  # first boot: initialises
