@@ -11,12 +11,14 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 from esphome.core import EsphomeError
 
 from esphome_device_builder.helpers.secrets_state import (
     PLACEHOLDER_WIFI_PASSWORD,
     PLACEHOLDER_WIFI_SSID,
     SecretsContentError,
+    _format_yaml_error,
     is_wifi_unconfigured,
     merge_secrets_file,
     read_secrets_yaml,
@@ -143,6 +145,11 @@ def test_validate_secrets_content_accepts_valid_mapping() -> None:
 def test_validate_secrets_content_accepts_comment_only_file() -> None:
     """A comment-only file parses to ``None`` and is a legitimate secrets.yaml."""
     validate_secrets_content("# nothing here yet\n")
+
+
+def test_format_yaml_error_without_mark_falls_back_to_plain_message() -> None:
+    """A YAMLError carrying no ``problem_mark`` yields the bare message, no line/col."""
+    assert _format_yaml_error(yaml.YAMLError()) == "could not parse YAML"
 
 
 def test_placeholder_password_constant_is_exported() -> None:
