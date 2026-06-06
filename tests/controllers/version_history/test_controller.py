@@ -97,13 +97,7 @@ async def test_external_edit_committed_via_scanner_catch_all(
 async def test_external_edit_self_heals_stale_index_lock_after_restart(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """End to end: addon killed mid-commit, restart, next external edit clears the lock.
-
-    Boots once to create the repo, simulates a restart (a fresh controller
-    adopting the same dir as managed), drops an aged ``index.lock`` like a
-    SIGTERM'd git would, then drives the scanner catch-all and asserts the
-    commit lands through the full stack and the stale lock is gone.
-    """
+    """Catch-all commit clears a stale index.lock after a restart re-adopts the repo."""
     monkeypatch.setattr(
         "esphome_device_builder.controllers.version_history.controller._DEBOUNCE_SECONDS",
         0.0,

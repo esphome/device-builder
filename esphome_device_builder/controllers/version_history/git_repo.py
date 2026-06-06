@@ -464,7 +464,8 @@ class GitRepo:
         return True
 
     def _adopt_ownership(self) -> bool:
-        """Resolve whether an adopted repo is one we own, stamping the marker once.
+        """
+        Resolve whether an adopted repo is one we own, stamping the marker once.
 
         New repos carry :data:`_MANAGED_CONFIG_KEY`. Repos we created before
         that marker existed are recognised by their self-authored root
@@ -479,7 +480,13 @@ class GitRepo:
 
     def _mark_managed(self) -> None:
         """Stamp the repo-local flag marking this as a repo we own."""
-        self._run(["config", "--local", _MANAGED_CONFIG_KEY, "true"], check=False)
+        result = self._run(["config", "--local", _MANAGED_CONFIG_KEY, "true"], check=False)
+        if result.returncode != 0:
+            # Not fatal — ownership is re-derived from the seed root next
+            # start — but a dropped stamp should be observable.
+            _LOGGER.warning(
+                "Could not stamp managed flag on %s: %s", self.toplevel, result.stderr.strip()
+            )
 
     def _read_managed_flag(self) -> bool:
         """Whether a prior run stamped this (now adopted) repo as one we created."""
@@ -487,7 +494,8 @@ class GitRepo:
         return result.returncode == 0 and result.stdout.strip() == "true"
 
     def _looks_self_initialised(self) -> bool:
-        """Whether a root commit was authored by our seed — backfill for pre-marker repos.
+        """
+        Whether a root commit was authored by our seed — backfill for pre-marker repos.
 
         The ``Initialize version history`` seed is authored by our identity,
         which an adopted user repo's root commit never is; git filters on

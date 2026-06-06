@@ -10,6 +10,7 @@ The load-bearing guarantees these pin:
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import subprocess
@@ -404,11 +405,7 @@ def test_commit_clears_stale_index_lock_and_retries(tmp_path: Path) -> None:
 
 
 def test_managed_flag_survives_restart_and_heals(tmp_path: Path) -> None:
-    """A repo we created is re-adopted as managed on restart, so the heal still fires.
-
-    The headline scenario: the addon is SIGTERM'd mid-commit (leaving the
-    lock), then a fresh process re-discovers the existing ``.git``.
-    """
+    """A repo we created is re-adopted as managed on restart, so the stale-lock heal fires."""
     GitRepo(config_dir=tmp_path).discover_or_init()  # first boot: initialises
 
     restarted = GitRepo(config_dir=tmp_path)
@@ -426,12 +423,7 @@ def test_managed_flag_survives_restart_and_heals(tmp_path: Path) -> None:
 
 
 def test_pre_marker_repo_is_backfilled_as_managed(tmp_path: Path) -> None:
-    """A repo we created before the marker existed is recognised by its seed commit.
-
-    Simulates an upgrade: drop the marker our init wrote, then re-discover —
-    the self-authored ``Initialize version history`` root identifies it as
-    ours and the marker is stamped back.
-    """
+    """A pre-marker repo we created is recognised by its seed root commit and re-stamped."""
     GitRepo(config_dir=tmp_path).discover_or_init()
     _git(tmp_path, "config", "--local", "--unset", "device-builder.managed")
 
@@ -515,6 +507,26 @@ def test_clear_stale_index_lock_handles_stat_error(
     exc = subprocess.CalledProcessError(128, ["git", "add"], stderr="fatal: ... index.lock")
 
     assert repo._clear_stale_index_lock(exc) is False
+
+
+def test_mark_managed_warns_when_config_write_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A failed managed-flag stamp is logged, not silently dropped."""
+    real_run = subprocess.run
+
+    def _fail_mark(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if "config" in cmd and "device-builder.managed" in cmd and "true" in cmd:
+            return subprocess.CompletedProcess(cmd, 1, "", "config write failed")
+        return real_run(cmd, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.version_history.git_repo.subprocess.run", _fail_mark
+    )
+    with caplog.at_level(logging.WARNING):
+        GitRepo(config_dir=tmp_path).discover_or_init()
+
+    assert any("Could not stamp managed flag" in rec.message for rec in caplog.records)
 
 
 def test_index_lock_path_none_when_rev_parse_fails(
