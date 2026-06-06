@@ -427,11 +427,20 @@ class AvailableScript(DataClassORJSONMixin):
 
 @dataclass
 class AvailableComponentInstance(DataClassORJSONMixin):
-    """A configured component instance the user can target from an action."""
+    """
+    A configured component instance the user can target from an action.
+
+    A multi-entity platform component surfaces its container instance with
+    ``is_entity_container`` true and each nested entity (``aht20_temperature``)
+    as its own instance carrying ``parent_id``; the frontend offers entity
+    triggers on the sub-entities, not the container.
+    """
 
     component_id: str
     id: str
     name: str | None = None
+    is_entity_container: bool = False
+    parent_id: str | None = None
 
 
 @dataclass

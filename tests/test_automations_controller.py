@@ -223,6 +223,72 @@ async def test_get_available_lists_configured_component_instances(tmp_path: Path
     assert ("switch.gpio", "relay_one") in devices
     assert devices[("switch.gpio", "relay_one")]["name"] == "Relay 1"
     assert ("switch.gpio", "relay_two") in devices
+    # A single-reading platform with no sub-entity blocks is never a container.
+    assert devices[("switch.gpio", "relay_one")]["is_entity_container"] is False
+
+
+async def test_get_available_surfaces_multi_entity_subentities(tmp_path: Path) -> None:
+    """A multi-sensor platform surfaces each ided sub-sensor plus a flagged container."""
+    config = tmp_path / "aht.yaml"
+    config.write_text(
+        "esphome:\n  name: d\n"
+        "sensor:\n"
+        "  - platform: aht10\n"
+        "    id: aht20\n"
+        "    variant: AHT20\n"
+        "    temperature:\n      id: aht20_temperature\n      name: Kit Temp\n"
+        "    humidity:\n      id: aht20_humidity\n",
+        encoding="utf-8",
+    )
+    controller = _make_controller(tmp_path)
+    result = await controller.get_available(configuration="aht.yaml")
+    devices = {(d["component_id"], d["id"]): d for d in result["devices"]}
+    # The platform item is a flagged container, keyed on its catalog id.
+    assert devices[("sensor.aht10", "aht20")]["is_entity_container"] is True
+    # Each ided sub-sensor is its own bare-domain instance pointing at the parent.
+    temp = devices[("sensor", "aht20_temperature")]
+    assert temp["is_entity_container"] is False
+    assert temp["parent_id"] == "aht20"
+    assert temp["name"] == "Kit Temp"
+    assert devices[("sensor", "aht20_humidity")]["parent_id"] == "aht20"
+
+
+async def test_get_available_skips_idless_subentity(tmp_path: Path) -> None:
+    """A sub-entity block without its own id can't be targeted, so it's not surfaced."""
+    config = tmp_path / "aht.yaml"
+    config.write_text(
+        "esphome:\n  name: d\n"
+        "sensor:\n"
+        "  - platform: aht10\n"
+        "    id: aht20\n"
+        "    temperature:\n      id: aht20_temperature\n"
+        "    humidity:\n      name: Just Humidity\n",
+        encoding="utf-8",
+    )
+    controller = _make_controller(tmp_path)
+    result = await controller.get_available(configuration="aht.yaml")
+    ids = {d["id"] for d in result["devices"]}
+    assert "aht20_temperature" in ids
+    assert "aht20_humidity" not in ids
+
+
+async def test_get_available_ignores_non_platform_nested_blocks(tmp_path: Path) -> None:
+    """Nested groups without a ``platform_type`` (``availability:``) aren't sub-entities."""
+    config = tmp_path / "aht.yaml"
+    config.write_text(
+        "esphome:\n  name: d\n"
+        "sensor:\n"
+        "  - platform: aht10\n"
+        "    id: aht20\n"
+        "    temperature:\n      id: aht20_temperature\n",
+        encoding="utf-8",
+    )
+    controller = _make_controller(tmp_path)
+    result = await controller.get_available(configuration="aht.yaml")
+    # Only the container and the one ided sub-sensor — no spurious instance for
+    # the temperature block's own nested groups (availability / web_server).
+    sensor_ids = {(d["component_id"], d["id"]) for d in result["devices"]}
+    assert sensor_ids == {("sensor.aht10", "aht20"), ("sensor", "aht20_temperature")}
 
 
 async def test_get_available_surfaces_flat_singleton_instances(tmp_path: Path) -> None:

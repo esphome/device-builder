@@ -18,7 +18,9 @@ import pytest
 
 from esphome_device_builder.controllers.automations.parsing import (
     parse_device_yaml,
+    platform_subentity_keys,
     resolve_component_domain,
+    resolve_component_target,
 )
 from esphome_device_builder.helpers.api import CommandError
 
@@ -664,3 +666,53 @@ def test_resolve_domain_skips_non_dict_list_entry() -> None:
     """A non-mapping entry inside a domain list is skipped, not matched."""
     text = "switch:\n  - just-a-string\n  - platform: gpio\n    id: relay\n"
     assert resolve_component_domain(text, "relay") == "switch"
+
+
+def test_platform_subentity_keys_reads_nested_platform_blocks() -> None:
+    """``platform_subentity_keys`` finds id'd platform_type blocks, skips plain groups."""
+    pairs = dict(platform_subentity_keys("sensor.aht10"))
+    assert pairs == {"temperature": "sensor", "humidity": "sensor"}
+    # A single-reading sensor has no sub-entity blocks.
+    assert platform_subentity_keys("sensor.adc") == ()
+    # An absent body resolves to empty rather than raising.
+    assert platform_subentity_keys("sensor.does_not_exist") == ()
+
+
+def test_resolve_component_target_maps_subentity_to_platform_type() -> None:
+    """A nested sub-sensor id resolves to its platform_type domain + parent context."""
+    text = (
+        "sensor:\n"
+        "  - platform: aht10\n"
+        "    id: aht20\n"
+        "    temperature:\n      id: aht20_temperature\n"
+    )
+    target = resolve_component_target(text, "aht20_temperature")
+    assert target is not None
+    assert target.is_sub_entity is True
+    assert target.domain == "sensor"
+    assert target.parent_domain == "sensor"
+    assert target.parent_id == "aht20"
+    assert target.sub_key == "temperature"
+    # The container id resolves as a plain top-level instance.
+    container = resolve_component_target(text, "aht20")
+    assert container is not None
+    assert container.is_sub_entity is False
+
+
+def test_parse_recognises_hand_authored_subentity_handler() -> None:
+    """An ``on_value_range`` on a sub-sensor parses to its sub-entity location."""
+    text = (
+        "sensor:\n"
+        "  - platform: aht10\n"
+        "    id: aht20\n"
+        "    temperature:\n"
+        "      id: aht20_temperature\n"
+        "      on_value_range:\n"
+        "        above: 10\n"
+        "        then:\n"
+        "          - logger.log: hot\n"
+    )
+    parsed = parse_device_yaml(text)
+    assert len(parsed) == 1
+    assert parsed[0].location.component_id == "aht20_temperature"
+    assert parsed[0].location.trigger == "on_value_range"

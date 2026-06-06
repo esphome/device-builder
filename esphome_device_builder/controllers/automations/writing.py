@@ -19,7 +19,9 @@ from ...helpers.api import CommandError
 from ...helpers.yaml import (
     _splice_into_domain_block,
     remove_inline_handler,
+    remove_subentity_handler,
     upsert_inline_handler,
+    upsert_subentity_handler,
 )
 from ...models.api import ErrorCode
 from ...models.automations import (
@@ -42,7 +44,12 @@ from .emitter import (
     render_script_item,
     render_trigger_handler,
 )
-from .parsing import make_yaml, resolve_component_domain
+from .parsing import (
+    ComponentTarget,
+    make_yaml,
+    resolve_component_domain,
+    resolve_component_target,
+)
 from .writing_layout import (
     _build_diff_for_append,
     _indent_block,
@@ -154,6 +161,9 @@ def _upsert_component_on(
     location: ComponentOnLocation,
 ) -> tuple[str, YamlDiff]:
     """Splice an inline ``on_*:`` handler under a configured component."""
+    target = resolve_component_target(yaml_text, location.component_id)
+    if target is not None and target.is_sub_entity:
+        return _upsert_subentity_on(yaml_text, tree, location, target)
     instance_domain = _component_domain_from_yaml(yaml_text, location)
     trigger = catalog.trigger_by_id(f"{instance_domain}.{location.trigger}")
     if trigger is None:
@@ -189,6 +199,40 @@ def _upsert_component_on(
         toLine=to_line,
         replacement=replacement,
     )
+
+
+def _upsert_subentity_on(
+    yaml_text: str,
+    tree: AutomationTree,
+    location: ComponentOnLocation,
+    target: ComponentTarget,
+) -> tuple[str, YamlDiff]:
+    """Splice an ``on_*:`` handler under a nested sub-entity (``aht20_temperature``)."""
+    # is_sub_entity guarantees the parent context; narrow for the type checker.
+    assert target.parent_domain is not None
+    assert target.parent_id is not None
+    assert target.sub_key is not None
+    trigger = catalog.trigger_by_id(f"{target.domain}.{location.trigger}")
+    if trigger is None:
+        msg = f"Unknown trigger id {location.trigger!r} on component {location.component_id!r}"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    rendered = render_trigger_handler(tree, key=location.trigger)
+    res = upsert_subentity_handler(
+        yaml_text,
+        parent_domain=target.parent_domain,
+        parent_id=target.parent_id,
+        sub_key=target.sub_key,
+        handler_key=location.trigger,
+        rendered_yaml=rendered,
+    )
+    if res is None:
+        msg = (
+            f"Sub-entity id={location.component_id!r} not found under "
+            f"{target.parent_domain!r}; can't splice handler {location.trigger!r}"
+        )
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    new_text, from_line, to_line, replacement = res
+    return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement=replacement)
 
 
 def _upsert_component_action(
@@ -505,6 +549,9 @@ def _delete_component_on(
     location: ComponentOnLocation,
 ) -> tuple[str, YamlDiff]:
     """Drop an inline ``on_*:`` handler from a configured component."""
+    target = resolve_component_target(yaml_text, location.component_id)
+    if target is not None and target.is_sub_entity:
+        return _delete_subentity_on(yaml_text, location, target)
     instance_domain = _component_domain_from_yaml(yaml_text, location)
     if location.index is not None:
         return delete_list_entry(
@@ -526,6 +573,33 @@ def _delete_component_on(
         msg = (
             f"Component instance id={location.component_id!r} not found "
             f"under {domain!r}; can't delete handler {location.trigger!r}"
+        )
+        raise CommandError(ErrorCode.NOT_FOUND, msg)
+    new_text, from_line, to_line = res
+    return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement="")
+
+
+def _delete_subentity_on(
+    yaml_text: str,
+    location: ComponentOnLocation,
+    target: ComponentTarget,
+) -> tuple[str, YamlDiff]:
+    """Drop an ``on_*:`` handler from a nested sub-entity (``aht20_temperature``)."""
+    # is_sub_entity guarantees the parent context; narrow for the type checker.
+    assert target.parent_domain is not None
+    assert target.parent_id is not None
+    assert target.sub_key is not None
+    res = remove_subentity_handler(
+        yaml_text,
+        parent_domain=target.parent_domain,
+        parent_id=target.parent_id,
+        sub_key=target.sub_key,
+        handler_key=location.trigger,
+    )
+    if res is None:
+        msg = (
+            f"Sub-entity id={location.component_id!r} not found under "
+            f"{target.parent_domain!r}; can't delete handler {location.trigger!r}"
         )
         raise CommandError(ErrorCode.NOT_FOUND, msg)
     new_text, from_line, to_line = res
