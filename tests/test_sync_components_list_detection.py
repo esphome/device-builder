@@ -127,14 +127,14 @@ def test_collect_registry_members_returns_protocol_keys() -> None:
     """``remote_receiver`` binary_sensor is one-of its registered protocols."""
     loader = sync_components._get_esphome_loader()
     manifest = loader.get_platform("binary_sensor", "remote_receiver")
-    members = sync_components._collect_registry_members(manifest)
+    members = set(sync_components._collect_registry_members(manifest))
     assert {"raw", "nec", "jvc", "gobox"} <= members
     assert not ({"name", "icon", "receiver_id"} & members)
 
 
 def test_collect_registry_members_empty_for_plain_schema() -> None:
     schemaless = SimpleNamespace(config_schema=None)
-    assert sync_components._collect_registry_members(schemaless) == frozenset()
+    assert sync_components._collect_registry_members(schemaless) == {}
 
 
 def test_apply_exclusive_group_tags_only_members() -> None:
@@ -143,7 +143,7 @@ def test_apply_exclusive_group_tags_only_members() -> None:
         {"key": "raw", "type": "nested"},
         {"key": "nec", "type": "nested"},
     ]
-    sync_components._apply_exclusive_group(entries, frozenset({"raw", "nec"}), "grp")
+    sync_components._apply_exclusive_group(entries, {"raw": True, "nec": True}, "grp")
     by_key = {e["key"]: e for e in entries}
     assert by_key["raw"]["exclusive_group"] == "grp"
     assert by_key["nec"]["exclusive_group"] == "grp"
@@ -152,7 +152,7 @@ def test_apply_exclusive_group_tags_only_members() -> None:
 
 def test_apply_exclusive_group_noop_without_members() -> None:
     entries = [{"key": "raw", "type": "nested"}]
-    sync_components._apply_exclusive_group(entries, frozenset(), "grp")
+    sync_components._apply_exclusive_group(entries, {}, "grp")
     assert "exclusive_group" not in entries[0]
 
 

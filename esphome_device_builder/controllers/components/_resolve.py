@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from ...helpers.json import loads
@@ -234,39 +234,16 @@ def _materialise_entry(entry: ConfigEntry, target_platform: str | None) -> Confi
         if entry.config_entries
         else None
     )
-    return ConfigEntry(
-        key=entry.key,
-        type=entry.type,
-        label=entry.label,
-        description=entry.description,
-        required=entry.required,
+    # ``replace`` copies every other field verbatim, so a new ConfigEntry
+    # field flows through without being added here (the manual rebuild used
+    # to silently drop new fields). Only the resolved / fresh-copied fields
+    # are overridden.
+    return replace(
+        entry,
         default_value=default,
         platform_defaults=None,
-        options=entry.options,
-        allow_custom_value=entry.allow_custom_value,
-        range=entry.range,
-        display_format=entry.display_format,
-        registry=entry.registry,
-        unit_options=entry.unit_options,
-        multi_value=entry.multi_value,
-        templatable=entry.templatable,
-        exclusive_group=entry.exclusive_group,
-        depends_on=entry.depends_on,
-        depends_on_value=entry.depends_on_value,
-        depends_on_value_not=entry.depends_on_value_not,
-        depends_on_component=entry.depends_on_component,
-        references_component=entry.references_component,
-        pin_features=entry.pin_features,
-        pin_mode=entry.pin_mode,
-        advanced=entry.advanced,
-        hidden=entry.hidden,
-        help_link=entry.help_link,
-        translation_key=entry.translation_key,
-        translation_params=entry.translation_params,
         config_entries=nested,
-        platform_type=entry.platform_type,
         supported_platforms=list(entry.supported_platforms),
-        group=entry.group,
         required_groups=list(entry.required_groups),
     )
 

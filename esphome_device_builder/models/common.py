@@ -449,10 +449,8 @@ class ConfigEntry(DataClassORJSONMixin):
     templatable: bool = False
 
     # Sibling entries sharing a non-null value are mutually exclusive —
-    # exactly one may be set (e.g. a remote_receiver binary_sensor's
-    # protocol: one of raw / nec / jvc / ... per item). The frontend
-    # renders the group as a single pick-one discriminator dropdown
-    # instead of independently fillable nested groups.
+    # exactly one may be set (a remote_receiver binary_sensor's protocol).
+    # The frontend renders them as one pick-one dropdown.
     exclusive_group: str | None = None
 
     # === featured-component overlays ===
