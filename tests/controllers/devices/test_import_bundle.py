@@ -349,6 +349,20 @@ def test_init_bundle_storage_handles_missing_main_config(tmp_path: Path) -> None
     assert (tmp_path / ".esphome" / "storage" / "ghost.yaml.json").exists()
 
 
+@pytest.mark.usefixtures("_bundle_storage_under_tmp")
+def test_init_bundle_storage_warns_on_non_utf8_main_config(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A non-UTF-8 main config seeds a minimal sidecar and logs, not silently."""
+    (tmp_path / "binary.yaml").write_bytes(b"\xff\xfe\x00not utf8")
+
+    with caplog.at_level("WARNING"):
+        mutations_import_bundle._init_bundle_storage(tmp_path, "binary.yaml")
+
+    assert (tmp_path / ".esphome" / "storage" / "binary.yaml.json").exists()
+    assert any("binary.yaml" in r.message for r in caplog.records)
+
+
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers", "_bundle_storage_under_tmp")
 async def test_import_bundle_substitution_friendly_name(
     tmp_path: Path, make_controller: MakeControllerFactory

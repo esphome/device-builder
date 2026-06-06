@@ -45,7 +45,8 @@ async def create_device(  # noqa: C901, PLR0912
     each resolve against the current catalog. A filename collision
     raises ``ALREADY_EXISTS`` unless *overwrite* is set, which
     replaces the YAML in place and preserves the existing device's
-    metadata (labels / comment / board_id) and StorageJSON.
+    metadata (labels / comment, and its board_id unless a new
+    *board_id* is explicitly provided) and StorageJSON.
     """
     # The wizard passes the user's raw input here — capitalisation,
     # inter-word spaces, and unicode all stay intact. ``clean_friendly_name``

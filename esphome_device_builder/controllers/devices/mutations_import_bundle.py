@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import logging
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -30,6 +31,8 @@ from .mutations_create import init_device_storage
 
 if TYPE_CHECKING:
     from .controller import DevicesController
+
+_LOGGER = logging.getLogger(__name__)
 
 _SECRETS_FILENAME = "secrets.yaml"
 # Compressed-upload cap. The 500 MB decompressed cap is enforced inside
@@ -223,13 +226,15 @@ def _init_bundle_storage(config_dir: Path, config_filename: str) -> None:
     """Write a fresh StorageJSON sidecar from the imported config's own fields."""
     name = configuration_stem(config_filename)
     try:
-        # Strict decode: a non-UTF-8 main config is a real error, not
-        # something to mangle via errors="replace" into a bad sidecar.
+        # Strict decode: don't mangle a non-UTF-8 file via errors="replace"
+        # into a bad sidecar.
         content = (config_dir / config_filename).read_text("utf-8")
-    except (FileNotFoundError, UnicodeDecodeError):
+    except (FileNotFoundError, UnicodeDecodeError) as err:
         # The sidecar is best-effort; the scanner re-derives metadata from
         # the YAML on its next pass, so seed a minimal one rather than
-        # crashing the import on a missing/binary main config.
+        # failing an import whose files already landed. Logged so a missing
+        # / non-UTF-8 main config isn't invisible.
+        _LOGGER.warning("Couldn't read %s to seed its sidecar (%s)", config_filename, err)
         init_device_storage(config_filename, name, None, "")
         return
     friendly = read_yaml_scalar(content, ("esphome", "friendly_name"))
