@@ -253,13 +253,17 @@ class ImportBundleResponse(DataClassORJSONMixin):
     ``status="conflicts"`` means nothing was written: *conflicts*
     lists the bundle files that already exist on disk so the user
     can pick which to overwrite and re-submit. ``status="imported"``
-    means the tree landed; *configuration* is the device's YAML.
-    ``secrets.yaml`` is always merged, never a conflict.
+    means the tree landed; *configuration* is the device's YAML, and
+    *written* / *kept* report which files were placed vs left untouched
+    (a non-empty *kept* means a partial import). ``secrets.yaml`` is
+    always merged, never a conflict.
     """
 
     status: Literal["imported", "conflicts"]
     configuration: str
     conflicts: list[str] = field(default_factory=list)
+    written: list[str] = field(default_factory=list)
+    kept: list[str] = field(default_factory=list)
     has_secrets: bool = False
     esphome_version: str = ""
 

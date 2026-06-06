@@ -152,7 +152,33 @@ async def test_import_bundle_overwrite_replaces_only_chosen_files(
     # kitchen.yaml was chosen for overwrite; the include was not.
     assert (tmp_path / "kitchen.yaml").read_text("utf-8") == MAIN_YAML
     assert (tmp_path / "common" / "wifi.yaml").read_text("utf-8") == "KEEP\n"
+    # The response reports the partial import honestly.
+    assert result.written == ["kitchen.yaml"]
+    assert result.kept == ["common/wifi.yaml"]
     assert ctrl._scanner.calls == [("scan",)]
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers", "_bundle_storage_under_tmp")
+async def test_import_bundle_empty_overwrite_keeps_all_and_reports_it(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """``overwrite=[]`` is a resolved pass that keeps every conflict, reported in ``kept``."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "kitchen.yaml").write_text("OLD\n", "utf-8")
+    bundle = _make_bundle(
+        {"kitchen.yaml": MAIN_YAML, "common/new.yaml": "x\n"},
+        config_filename="kitchen.yaml",
+    )
+
+    result = await ctrl.import_bundle(file_content_b64=_b64(bundle), overwrite=[])
+
+    assert result.status == "imported"
+    # The existing main config was kept (not silently masked as a full import).
+    assert (tmp_path / "kitchen.yaml").read_text("utf-8") == "OLD\n"
+    assert result.kept == ["kitchen.yaml"]
+    # The non-conflicting include still landed.
+    assert (tmp_path / "common" / "new.yaml").read_text("utf-8") == "x\n"
+    assert result.written == ["common/new.yaml"]
 
 
 async def test_import_bundle_overwrite_main_preserves_metadata(

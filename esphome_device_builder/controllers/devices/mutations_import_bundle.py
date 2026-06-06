@@ -13,7 +13,7 @@ import asyncio
 import base64
 import binascii
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -49,7 +49,10 @@ async def import_bundle(
     Returns ``status="conflicts"`` (nothing written) when bundle files
     already exist and *overwrite* is ``None``; the caller re-submits the
     same bytes with the chosen paths in *overwrite*. ``secrets.yaml`` is
-    always merged, never reported as a conflict.
+    always merged, never reported as a conflict. On ``status="imported"``
+    the response carries ``written`` (files placed) and ``kept`` (existing
+    files the caller left untouched), so a partial import is never masked
+    as a full one.
     """
     config_dir = controller._db.settings.config_dir
     loop = asyncio.get_running_loop()
@@ -76,6 +79,8 @@ async def import_bundle(
         status="imported",
         configuration=outcome.configuration,
         conflicts=[],
+        written=outcome.written,
+        kept=outcome.kept,
         has_secrets=outcome.has_secrets,
         esphome_version=outcome.esphome_version,
     )
@@ -96,6 +101,11 @@ class _Outcome:
     # True when the main config already existed (overwrite of a live
     # device); its metadata + StorageJSON are then preserved.
     main_existed: bool = False
+    # Files placed (created or overwritten) and existing files left
+    # untouched on the resolved pass. ``kept`` is non-empty exactly when
+    # the import was partial, so the response can say so honestly.
+    written: list[str] = field(default_factory=list)
+    kept: list[str] = field(default_factory=list)
 
 
 def _stage_bundle(file_content_b64: str, config_dir: Path, overwrite: list[str] | None) -> _Outcome:
@@ -154,15 +164,21 @@ def _stage_bundle(file_content_b64: str, config_dir: Path, overwrite: list[str] 
                 main_existed=main_existed,
             )
 
+        written: list[str] = []
+        kept: list[str] = []
         for rel, src in placements:
             dest = config_dir / rel
             if rel == _SECRETS_FILENAME:
                 merge_secrets_file(src, dest)
                 continue
+            # A conflicting file the user didn't pick is left as-is; record
+            # it so the caller can tell a partial import from a full one.
             if dest.exists() and rel not in overwrite_set:
+                kept.append(rel)
                 continue
             dest.parent.mkdir(parents=True, exist_ok=True)
             atomic_write_file(dest, src.read_bytes())
+            written.append(rel)
 
         # A new device gets a fresh sidecar; overwriting a live one keeps
         # its existing StorageJSON (build state) and dashboard metadata.
@@ -171,6 +187,8 @@ def _stage_bundle(file_content_b64: str, config_dir: Path, overwrite: list[str] 
         return _Outcome(
             configuration=config_filename,
             conflicts=None,
+            written=sorted(written),
+            kept=sorted(kept),
             has_secrets=manifest.has_secrets,
             esphome_version=manifest.esphome_version,
             main_existed=main_existed,
