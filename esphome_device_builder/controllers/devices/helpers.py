@@ -51,6 +51,7 @@ __all__ = [
     "_apply_featured_presets",
     "_build_address_cache_args",
     "_drop_unconfigured_dependent_fields",
+    "_looks_binary",
     "_normalize_pin_value",
     "_redact_concealed_secrets",
     "_rewrite_required_yaml_leaf",
@@ -72,6 +73,15 @@ _LOGGER = logging.getLogger(__name__)
 # (``\n`` / ``\t`` / ``\r``) while emitting the rest (NUL, bell, …)
 # literally — a literal NUL alone makes the YAML unparsable.
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+# Any C0/C1 control or U+FFFD means non-text content; a text config
+# never carries these, but a .tar.gz read as text does (gzip magic 0x1f
+# at byte 0, then NULs and invalid-UTF-8 bytes readAsText turns into
+# U+FFFD). The YAML-safe whitespace (tab, LF, CR) is stripped by
+# ``_looks_binary`` before the match so the class can use the same
+# contiguous control range as ``_CONTROL_CHARS_RE``.
+_BINARY_CONTENT_RE = re.compile("[\x00-\x1f\x7f-\x9f\ufffd]")
+_YAML_SAFE_WHITESPACE = str.maketrans("", "", "\t\n\r")
 
 # ESPHome's ``validate_hostname`` caps the device name at 31 chars (24
 # with name_add_mac_suffix, which the create wizard never sets). Keep
@@ -112,6 +122,11 @@ def clean_friendly_name(value: str) -> str:
     if len(encoded) > FRIENDLY_NAME_MAX_LEN:
         cleaned = encoded[:FRIENDLY_NAME_MAX_LEN].decode("utf-8", "ignore").rstrip()
     return cleaned
+
+
+def _looks_binary(content: str) -> bool:
+    """Return True when *content* holds control/replacement chars no text YAML carries."""
+    return _BINARY_CONTENT_RE.search(content.translate(_YAML_SAFE_WHITESPACE)) is not None
 
 
 def _rewrite_required_yaml_leaf(
