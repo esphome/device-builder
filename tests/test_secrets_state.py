@@ -11,14 +11,17 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from esphome import yaml_util
 from esphome.core import EsphomeError
 
 from esphome_device_builder.helpers.secrets_state import (
     PLACEHOLDER_WIFI_PASSWORD,
     PLACEHOLDER_WIFI_SSID,
+    SecretsContentError,
     is_wifi_unconfigured,
     merge_secrets_file,
     read_secrets_yaml,
+    validate_secrets_content,
 )
 
 
@@ -116,6 +119,70 @@ def test_read_secrets_yaml_returns_dict_for_valid_file(tmp_path: Path) -> None:
     assert data is not None
     assert data["wifi_ssid"] == "home"
     assert data["api_key"] == "ABC"
+
+
+def test_validate_secrets_content_rejects_malformed_yaml(tmp_path: Path) -> None:
+    """The issue's no-space-after-colon example raises with line info."""
+    bad = 'wifi_ssid: "myssid"\nwifi_password: "mypassword"\nxx:xxx\na:a\n'
+    with pytest.raises(SecretsContentError) as excinfo:
+        validate_secrets_content(bad, tmp_path / "secrets.yaml")
+    assert "line 4" in str(excinfo.value)
+
+
+def test_validate_secrets_content_rejects_duplicate_keys(tmp_path: Path) -> None:
+    """ESPHome's loader rejects duplicate keys the plain SafeLoader would accept."""
+    with pytest.raises(SecretsContentError, match="Duplicate key"):
+        validate_secrets_content("wifi_ssid: a\nwifi_ssid: b\n", tmp_path / "secrets.yaml")
+
+
+def test_validate_secrets_content_rejects_non_mapping_top_level(tmp_path: Path) -> None:
+    """A list or scalar top level isn't the dict ``!secret`` lookups expect."""
+    secrets = tmp_path / "secrets.yaml"
+    with pytest.raises(SecretsContentError, match="mapping"):
+        validate_secrets_content("- a\n- b\n", secrets)
+    with pytest.raises(SecretsContentError, match="mapping"):
+        validate_secrets_content("just a scalar\n", secrets)
+
+
+def test_validate_secrets_content_accepts_valid_mapping(tmp_path: Path) -> None:
+    validate_secrets_content("wifi_ssid: home\nwifi_password: secret\n", tmp_path / "secrets.yaml")
+
+
+def test_validate_secrets_content_accepts_include_and_merge_keys(tmp_path: Path) -> None:
+    """HA-style secrets with ``!include`` and a merge key resolve, not rejected.
+
+    Includes resolve against the file's own dir, so a present sibling
+    passes; this guards the regression a plain SafeLoader would cause by
+    rejecting every tagged secrets file.
+    """
+    (tmp_path / "shared.yaml").write_text("shared_pw: abc\n", encoding="utf-8")
+    content = "<<: !include shared.yaml\nwifi_ssid: home\nca_cert: !include ca.pem\n"
+    validate_secrets_content(content, tmp_path / "secrets.yaml")
+
+
+def test_validate_secrets_content_rejects_missing_include_target(tmp_path: Path) -> None:
+    """A merge-key include of an absent file fails just like the real read would."""
+    secrets = tmp_path / "secrets.yaml"
+    with pytest.raises(SecretsContentError):
+        validate_secrets_content("<<: !include gone.yaml\nwifi_ssid: home\n", secrets)
+
+
+def test_validate_secrets_content_wraps_unexpected_loader_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-EsphomeError from the loader (self-referential !secret recurses) rejects, not 500s."""
+
+    def _boom(*_args: object, **_kwargs: object) -> None:
+        raise RecursionError("maximum recursion depth exceeded")
+
+    monkeypatch.setattr(yaml_util, "parse_yaml", _boom)
+    with pytest.raises(SecretsContentError, match="could not be parsed"):
+        validate_secrets_content("wifi_ssid: home\n", tmp_path / "secrets.yaml")
+
+
+def test_validate_secrets_content_accepts_comment_only_file(tmp_path: Path) -> None:
+    """A comment-only file (empty mapping) is a legitimate secrets.yaml."""
+    validate_secrets_content("# nothing here yet\n", tmp_path / "secrets.yaml")
 
 
 def test_placeholder_password_constant_is_exported() -> None:

@@ -24,6 +24,7 @@ from ...helpers.device_yaml import (
     configuration_stem,
 )
 from ...helpers.event_bus import Event
+from ...helpers.secrets_state import SecretsContentError, validate_secrets_content
 from ...helpers.storage import ShutdownCallback
 from ...models import (
     AddComponentResponse,
@@ -645,6 +646,14 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
                 f"refusing to write empty content to {configuration!r} to prevent "
                 "accidental data loss; use the delete action to remove a file",
             )
+        if Path(configuration).name == "secrets.yaml":
+            try:
+                validate_secrets_content(content, self._db.settings.rel_path(configuration))
+            except SecretsContentError as err:
+                raise CommandError(
+                    ErrorCode.INVALID_ARGS,
+                    f"refusing to save invalid secrets.yaml: {err}",
+                ) from err
         await self._persist_yaml_mutation(configuration, content, message=f"Edit {configuration}")
 
     async def apply_restored_yaml(

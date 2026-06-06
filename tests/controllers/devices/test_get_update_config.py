@@ -295,6 +295,90 @@ async def test_update_config_refuses_whitespace_only_content(
     assert controller._scanner.calls == []
 
 
+async def test_update_config_rejects_invalid_secrets_yaml(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A malformed ``secrets.yaml`` is rejected and the prior good file survives."""
+    controller = make_controller(tmp_path)
+    regenerated = _stub_regenerate(controller)
+    target = tmp_path / "secrets.yaml"
+    original = "wifi_ssid: home\nwifi_password: hunter2\n"
+    target.write_text(original, encoding="utf-8")
+    bad = 'wifi_ssid: "myssid"\nwifi_password: "mypassword"\nxx:xxx\na:a\n'
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.update_config(configuration="secrets.yaml", content=bad)
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "line" in excinfo.value.message
+    assert target.read_text(encoding="utf-8") == original
+    assert regenerated == []
+    assert controller._scanner.calls == []
+
+
+async def test_update_config_rejects_non_mapping_secrets_yaml(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A ``secrets.yaml`` whose top level is a list/scalar is rejected."""
+    controller = make_controller(tmp_path)
+    regenerated = _stub_regenerate(controller)
+    target = tmp_path / "secrets.yaml"
+    original = "wifi_ssid: home\n"
+    target.write_text(original, encoding="utf-8")
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.update_config(configuration="secrets.yaml", content="- a\n- b\n")
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "mapping" in excinfo.value.message
+    assert target.read_text(encoding="utf-8") == original
+    assert regenerated == []
+
+
+async def test_update_config_accepts_valid_secrets_yaml(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A well-formed ``secrets.yaml`` mapping writes through unchanged."""
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
+    content = "wifi_ssid: home\nwifi_password: hunter2\n"
+
+    await controller.update_config(configuration="secrets.yaml", content=content)
+
+    assert (tmp_path / "secrets.yaml").read_text(encoding="utf-8") == content
+
+
+async def test_update_config_accepts_comment_only_secrets_yaml(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A comment-only ``secrets.yaml`` (parses to ``None``) is a legitimate file."""
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
+    content = "# add your secrets below\n"
+
+    await controller.update_config(configuration="secrets.yaml", content=content)
+
+    assert (tmp_path / "secrets.yaml").read_text(encoding="utf-8") == content
+
+
+async def test_update_config_does_not_validate_device_yaml(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """Device YAML with ``!secret`` tags (not plain-safe-loadable) still writes.
+
+    The parse guard is scoped to ``secrets.yaml``; device configs carry
+    ESPHome tags a safe loader rejects and must land so the user can
+    repair them in the editor.
+    """
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
+    content = "wifi:\n  ssid: !secret wifi_ssid\n  password: !secret wifi_password\n"
+
+    await controller.update_config(configuration="kitchen.yaml", content=content)
+
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == content
+
+
 async def test_round_trip_update_then_get_returns_written_content(
     tmp_path: Path,
     make_controller: MakeControllerFactory,

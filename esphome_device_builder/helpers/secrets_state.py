@@ -76,6 +76,33 @@ def read_secrets_yaml(config_dir: Path) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
+class SecretsContentError(ValueError):
+    """``secrets.yaml`` content failed to parse or isn't a top-level mapping."""
+
+
+def validate_secrets_content(content: str, path: Path) -> None:
+    """
+    Raise ``SecretsContentError`` unless *content* is a valid ``secrets.yaml``.
+
+    Parsed through ESPHome's own loader, keyed on the real on-disk *path*,
+    so ``!include`` / ``!secret`` / merge keys resolve against the config
+    dir exactly as the saved file would be read, and duplicate keys the
+    plain ``SafeLoader`` silently accepts are rejected. A non-mapping top
+    level (list / scalar) is rejected. Any loader failure is surfaced as a
+    rejection rather than a 500; the message carries the line/column.
+    """
+    try:
+        data = yaml_util.parse_yaml(path, io.StringIO(content))
+    except EsphomeError as err:
+        raise SecretsContentError(str(err)) from err
+    except Exception as err:
+        # A self-referential ``!secret`` inside secrets.yaml recurses in the
+        # loader (it crashes the real reader too); reject instead of 500ing.
+        raise SecretsContentError(f"secrets.yaml could not be parsed: {err}") from err
+    if data is not None and not isinstance(data, dict):
+        raise SecretsContentError("secrets.yaml must be a top-level mapping of name: value entries")
+
+
 def is_wifi_unconfigured(secrets: dict | None) -> bool:
     """
     Return True when ``secrets.yaml``'s ``wifi_ssid`` is missing / empty / placeholder.
