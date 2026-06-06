@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import copy
+import importlib
 import inspect
 import json
 import logging
@@ -1801,6 +1802,7 @@ def build_component_entry(
     _apply_field_ranges(config_entries, introspection.get("field_ranges") or {})
     _apply_refined_types(config_entries, introspection.get("refined_types") or {})
     _apply_inclusive_groups(config_entries, introspection.get("inclusive_groups") or {})
+    _apply_list_fields(config_entries, introspection.get("list_fields") or {})
     _apply_pin_constraints(
         config_entries,
         _collect_pin_constraints(_get_esphome_loader(), domain, stem, top_key),
@@ -3256,6 +3258,7 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     field_ranges = merge_from_platforms(_collect_field_ranges)
     inclusive_groups = merge_from_platforms(_collect_inclusive_groups)
     required_groups = merge_from_platforms(_collect_required_groups)
+    list_fields = merge_from_platforms(_collect_list_fields)
 
     return {
         "multi_conf": bool(getattr(manifest, "multi_conf", False)),
@@ -3266,6 +3269,7 @@ def introspect_component(component_id: str) -> dict[str, Any]:
         "refined_types": refined_types,
         "inclusive_groups": inclusive_groups,
         "required_groups": required_groups,
+        "list_fields": list_fields,
         "auto_load": auto_load,
     }
 
@@ -3740,6 +3744,22 @@ def _walk_schema_keys(  # noqa: C901
         walk(schema, (), 0)
     except Exception:
         _LOGGER.debug("schema walk aborted on %r", schema, exc_info=True)
+
+
+def _is_list_validator(validator: Any) -> bool:
+    """
+    Report whether *validator* is a voluptuous list — bare ``[item]`` or ``vol.All`` wrapping one.
+
+    ESPHome marks a field ``is_list`` in the schema bundle only when it
+    flows through ``cv.ensure_list``; a raw ``[item]`` (often inside
+    ``cv.All([item], extra)`` — ``on_multi_click``'s ``timing``,
+    ``esp32_camera``'s ``data_pins``) bypasses that path, so the bundle
+    types it as a scalar. Recover the list shape from the live validator.
+    """
+    if isinstance(validator, list):
+        return True
+    sub = getattr(validator, "validators", None)
+    return bool(sub) and any(isinstance(v, list) for v in sub)
 
 
 def _collect_platform_defaults(manifest: Any) -> dict[tuple[str, ...], dict[str, Any]]:
@@ -4990,6 +5010,39 @@ def _apply_field_ranges(
     _walk_catalog_entries(entries, visit)
 
 
+def _collect_list_fields(manifest: Any) -> dict[tuple[str, ...], bool]:
+    """Walk the live ``CONFIG_SCHEMA`` for bare-list fields the bundle missed.
+
+    Returns ``{key_path: True}`` for fields whose validator is a
+    voluptuous list (see :func:`_is_list_validator`). Empty dict when
+    the component has no schema.
+    """
+    schema = getattr(manifest, "config_schema", None)
+    if schema is None:
+        return {}
+
+    out: dict[tuple[str, ...], bool] = {}
+
+    def visit(_key: Any, _key_name: str, val: Any, path: tuple[str, ...]) -> None:
+        if _is_list_validator(val):
+            out[path] = True
+
+    _walk_schema_keys(schema, visit)
+    return out
+
+
+def _apply_list_fields(entries: list[dict], list_fields: dict[tuple[str, ...], bool]) -> None:
+    """Mark schema-derived bare-list fields ``multi_value`` so the editor renders a list editor."""
+    if not list_fields:
+        return
+
+    def visit(entry: dict, path: tuple[str, ...]) -> None:
+        if list_fields.get(path):
+            entry["multi_value"] = True
+
+    _walk_catalog_entries(entries, visit)
+
+
 def _derive_supported_platforms(
     component_id: str,
     dependencies: list[str],
@@ -5556,6 +5609,104 @@ def _convert_light_effect(
     )
 
 
+def _automation_schema_dict(validator: Any) -> dict | None:
+    """Return a trigger validator's extra-keys schema via ``SCHEMA_EXTRACT``, or None.
+
+    ``automation.validate_automation`` returns a closure that yields its
+    own ``AUTOMATION_SCHEMA``-extended schema when called with the
+    ``SCHEMA_EXTRACT`` sentinel (the same hook ESPHome's schema dumper
+    uses). A ``then`` key marks it as an automation rather than some
+    other callable that happens to live under an ``on_*`` key.
+    """
+    from esphome import config_validation as cv
+
+    if not callable(validator):
+        return None
+    try:
+        extracted = validator(cv.SCHEMA_EXTRACT)
+    except Exception:
+        return None
+    schema = getattr(extracted, "schema", extracted)
+    if not isinstance(schema, dict):
+        return None
+    if not any((k.schema if hasattr(k, "schema") else str(k)) == "then" for k in schema):
+        return None
+    return schema
+
+
+def _scan_schema_for_list_triggers(
+    node: Any,
+    seen: set[int],
+    out: set[tuple[str, str]],
+    depth: int = 0,
+) -> None:
+    """Walk a live schema for ``on_*`` triggers, recording their bare-list params."""
+    if depth > 6:
+        return
+    candidate = _unwrap_live_schema(node)
+    if candidate is None or id(candidate) in seen:
+        return
+    seen.add(id(candidate))
+    for key, val in candidate.items():
+        key_name = key.schema if hasattr(key, "schema") else str(key)
+        if key_name.startswith("on_") and (schema := _automation_schema_dict(val)) is not None:
+            for pkey, pval in schema.items():
+                pname = pkey.schema if hasattr(pkey, "schema") else str(pkey)
+                if pname not in _AUTOMATION_RESERVED_KEYS and _is_list_validator(pval):
+                    out.add((key_name, pname))
+        else:
+            _scan_schema_for_list_triggers(val, seen, out, depth + 1)
+
+
+def _unwrap_live_schema(node: Any) -> dict | None:
+    """Peel ``vol.Schema`` / ``vol.All`` wrappers to the underlying dict, or None."""
+    for _ in range(8):
+        if isinstance(node, dict):
+            return node
+        sub = getattr(node, "validators", None)
+        if sub:
+            nxt = next((v for v in sub if isinstance(v, dict) or hasattr(v, "schema")), None)
+            if nxt is None:
+                return None
+            node = nxt
+            continue
+        if hasattr(node, "schema"):
+            node = node.schema
+            continue
+        return None
+    return None
+
+
+# Automation-schema keys that are never user-typed params (the trigger's
+# generated id and its action list).
+_AUTOMATION_RESERVED_KEYS = frozenset({"trigger_id", "automation_id", "then"})
+
+
+@cache
+def _live_trigger_list_params(top_key: str) -> frozenset[tuple[str, str]]:
+    """``(trigger_key, param_key)`` pairs for *top_key*'s bare-list trigger params.
+
+    Recovered live from ESPHome because the schema bundle dumps a bare
+    ``[item]`` validator (e.g. ``on_multi_click``'s ``timing``) as a
+    scalar — see :func:`_is_list_validator`. Best-effort: empty when
+    esphome or the component module isn't importable.
+    """
+    try:
+        module = importlib.import_module(f"esphome.components.{top_key}")
+    except Exception:
+        return frozenset()
+    out: set[tuple[str, str]] = set()
+    seen: set[int] = set()
+    for attr in dir(module):
+        try:
+            obj = getattr(module, attr)
+        except Exception:  # noqa: S112 — best-effort module-global scan
+            continue
+        if isinstance(obj, (vol.Schema, dict)):
+            _scan_schema_for_list_triggers(obj, seen, out)
+    return frozenset(out)
+
+
 def _extract_triggers_from_section(
     *,
     top_key: str,
@@ -5591,13 +5742,16 @@ def _extract_triggers_from_section(
                 raw.get("schema") if isinstance(raw.get("schema"), dict) else None,
                 schema_dir,
             )
+            trigger_id = key if is_device_level else f"{top_key}.{key}"
+            list_params = _live_trigger_list_params(top_key)
             # A trigger's own params (on_time's cron fields,
             # on_value_range's bounds) are its primary config, not
             # advanced knobs the name-based heuristic would hide; surface
             # them on the main form like multi-sensor sub-readings (#983).
             for entry in param_entries:
                 entry["advanced"] = False
-            trigger_id = key if is_device_level else f"{top_key}.{key}"
+                if (key, entry["key"]) in list_params:
+                    entry["multi_value"] = True
             out.append(
                 {
                     "id": trigger_id,

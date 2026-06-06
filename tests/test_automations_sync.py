@@ -297,6 +297,47 @@ def test_build_automations_trigger_params_are_not_advanced(tmp_path: Path) -> No
     assert not seconds.get("advanced")
 
 
+def test_build_automations_promotes_multi_click_timing_to_multi_value(tmp_path: Path) -> None:
+    """Live detection marks the bare-list ``timing`` param ``multi_value``, not a scalar sibling."""
+    # The synthetic bundle supplies the param *entries* (the dumper leaves
+    # both untyped); the ``multi_value`` signal comes from introspecting
+    # the live ``binary_sensor`` module, keyed on the real trigger/param
+    # names — so the same shape under a different name would not be promoted.
+    schema_dir = _write_schema(
+        tmp_path,
+        "binary_sensor.json",
+        {
+            "binary_sensor": {
+                "schemas": {
+                    "BINARY_SENSOR_SCHEMA": {
+                        "schema": {
+                            "config_vars": {
+                                "on_multi_click": {
+                                    "key": "Optional",
+                                    "type": "trigger",
+                                    "schema": {
+                                        "config_vars": {
+                                            "timing": {"key": "Required"},
+                                            "invalid_cooldown": {"key": "Optional"},
+                                            "then": {"type": "trigger"},
+                                        }
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    )
+    result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
+    trigger = next(t for t in result["triggers"] if t["id"] == "binary_sensor.on_multi_click")
+    entries = {e["key"]: e for e in trigger["config_entries"]}
+    assert entries["timing"]["multi_value"] is True
+    # ``invalid_cooldown`` is a scalar, not a bare list — detection is selective.
+    assert entries["invalid_cooldown"].get("multi_value") is not True
+
+
 def test_build_automations_derives_repeatable_from_per_entry_params(tmp_path: Path) -> None:
     """Per-entry params mark a component trigger repeatable; paramless and device-level don't."""
     _params = {"config_vars": {"seconds": {"key": "Optional"}, "then": {"type": "trigger"}}}
