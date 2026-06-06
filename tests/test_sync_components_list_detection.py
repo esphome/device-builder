@@ -64,7 +64,7 @@ def test_is_list_validator_accepts_a_scalar_or_time_period_list() -> None:
     assert sync_components._is_list_validator(cv.All([element], cv.Length(min=1))) is True
 
 
-def test_validates_mapping_union_needs_every_branch_a_mapping() -> None:
+def test_validates_mapping_union_needs_every_branch_to_be_a_mapping() -> None:
     """A union is a mapping only when no branch is a scalar."""
     schema = cv.Schema({cv.Optional("name"): cv.string})
     assert sync_components._validates_mapping(vol.Any(cv.int_, schema)) is False
