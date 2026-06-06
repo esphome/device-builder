@@ -49,8 +49,10 @@ from .component import generate_component_yaml as generate_component_yaml
 from .component import merge_component_yaml as merge_component_yaml
 from .inline import _indent_block as _indent_block
 from .inline import remove_inline_handler as remove_inline_handler
+from .inline import remove_subentity_handler as remove_subentity_handler
 from .inline import synthetic_instance_index as synthetic_instance_index
 from .inline import upsert_inline_handler as upsert_inline_handler
+from .inline import upsert_subentity_handler as upsert_subentity_handler
 from .scalar import ESPHOME_YAML_INDENT as ESPHOME_YAML_INDENT
 from .scalar import YamlUpsertNotSupportedError as YamlUpsertNotSupportedError
 from .scalar import _quote as _quote
