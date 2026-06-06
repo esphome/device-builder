@@ -320,9 +320,12 @@ class GitRepo:
         # A path that's gone from disk and untracked has nothing to commit:
         # the dashboard delete already recorded the removal, or an atomic-save
         # editor briefly removed it. Drop those. A gone-but-tracked path stays
-        # so its deletion is staged (git add -A picks up the removal); exists()
-        # short-circuits the git call for the common create / edit case.
-        spec = [str(p) for p in paths if p.exists() or self._is_tracked(p)]
+        # so its deletion is staged (git add -A picks up the removal). The
+        # common create / edit case has no gone paths, so it skips git here.
+        spec = [str(p) for p in paths if p.exists()]
+        gone = [p for p in paths if not p.exists()]
+        if gone:
+            spec += [str(p) for p in self._tracked_subset(gone)]
         if not spec:
             return None
         self._run_write(["add", "-A", "--", *spec])
@@ -532,10 +535,15 @@ class GitRepo:
             lock = (self.toplevel or self.config_dir) / lock
         return lock
 
-    def _is_tracked(self, path: Path) -> bool:
-        """Whether *path* is in git's index (tracked), vs untracked / never committed."""
-        result = self._run(["ls-files", "--error-unmatch", "--", str(path)], check=False)
-        return result.returncode == 0
+    def _tracked_subset(self, paths: list[Path]) -> list[Path]:
+        """Return the subset of *paths* git tracks in the index (one ls-files call)."""
+        result = self._run(
+            ["ls-files", "-z", "--full-name", "--", *(str(p) for p in paths)], check=False
+        )
+        if result.returncode != 0 or not result.stdout:
+            return []
+        tracked = {rel for rel in result.stdout.split("\0") if rel}
+        return [p for p in paths if self._rel_to_toplevel(p) in tracked]
 
     def _rel_to_toplevel(self, path: Path) -> str:
         """Return *path* relative to the work-tree root (git's pathspec base)."""
