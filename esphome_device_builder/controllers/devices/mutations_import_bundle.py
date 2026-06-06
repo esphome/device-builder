@@ -12,8 +12,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
-import io
-import logging
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,11 +19,10 @@ from typing import TYPE_CHECKING
 
 from esphome.core import EsphomeError
 from esphome.helpers import write_file as atomic_write_file
-from ruamel.yaml import YAML
-from ruamel.yaml.error import YAMLError
 
 from ...helpers.api import CommandError
 from ...helpers.device_yaml import configuration_stem, parse_platform_from_yaml
+from ...helpers.secrets_state import merge_secrets_file
 from ...helpers.yaml import read_yaml_scalar
 from ...models import ErrorCode, ImportBundleResponse
 from .helpers import _validate_archive_configuration
@@ -33,8 +30,6 @@ from .mutations_create import init_device_storage
 
 if TYPE_CHECKING:
     from .controller import DevicesController
-
-_LOGGER = logging.getLogger(__name__)
 
 _SECRETS_FILENAME = "secrets.yaml"
 # Compressed-upload cap. The 500 MB decompressed cap is enforced inside
@@ -154,7 +149,7 @@ def _stage_bundle(file_content_b64: str, config_dir: Path, overwrite: list[str] 
         for rel, src in placements:
             dest = config_dir / rel
             if rel == _SECRETS_FILENAME:
-                _merge_secrets(src, dest)
+                merge_secrets_file(src, dest)
                 continue
             if dest.exists() and rel not in overwrite_set:
                 continue
@@ -187,34 +182,6 @@ def _decode_bundle(file_content_b64: str) -> bytes:
             "Upload isn't a .tar.gz bundle (missing gzip header).",
         )
     return raw
-
-
-def _merge_secrets(src: Path, dest: Path) -> None:
-    """Merge bundle secrets into *dest*, keeping existing keys; create if absent."""
-    if not dest.exists():
-        atomic_write_file(dest, src.read_bytes())
-        return
-    yaml = YAML()
-    try:
-        existing = yaml.load(dest.read_text("utf-8")) or {}
-        incoming = yaml.load(src.read_text("utf-8")) or {}
-    except (YAMLError, OSError, UnicodeDecodeError):
-        # A non-YAML or tag-bearing secrets file; never risk clobbering
-        # the user's secrets, so leave the existing file untouched.
-        _LOGGER.warning("Couldn't parse secrets for merge; left %s untouched", dest)
-        return
-    if not isinstance(existing, dict) or not isinstance(incoming, dict):
-        return
-    added = False
-    for key, value in incoming.items():
-        if key not in existing:
-            existing[key] = value
-            added = True
-    if not added:
-        return
-    buf = io.StringIO()
-    yaml.dump(existing, buf)
-    atomic_write_file(dest, buf.getvalue())
 
 
 def _init_bundle_storage(config_dir: Path, config_filename: str) -> None:

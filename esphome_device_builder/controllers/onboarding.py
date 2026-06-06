@@ -20,14 +20,15 @@ who completed an earlier flow.
 from __future__ import annotations
 
 import asyncio
-import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from esphome.helpers import write_file as atomic_write_file
-
 from ..helpers.api import CommandError, api_command
-from ..helpers.secrets_state import is_wifi_unconfigured, read_secrets_yaml
+from ..helpers.secrets_state import (
+    is_wifi_unconfigured,
+    read_secrets_yaml,
+    write_wifi_secrets,
+)
 from ..models import (
     ErrorCode,
     OnboardingState,
@@ -148,7 +149,7 @@ class OnboardingController:
 
         loop = asyncio.get_running_loop()
         config_dir = self._db.settings.config_dir
-        await loop.run_in_executor(None, _write_wifi_secrets, config_dir, ssid, password)
+        await loop.run_in_executor(None, write_wifi_secrets, config_dir, ssid, password)
         return await self.get_state()
 
     @api_command("onboarding/mark_acknowledged")
@@ -175,23 +176,6 @@ class OnboardingController:
         return await self.get_state()
 
 
-# ``key: value`` line. Captures: 1=indent, 2=key, 3=trailing
-# ``  # comment`` (with at least one space before the ``#``).
-# Permissive on value shape so we match both ``wifi_ssid: ""``
-# and bare ``wifi_ssid:`` — the value itself is discarded on
-# rewrite, only indent / key / trailing comment carry over.
-#
-# Known limitation: a ``#`` *inside a quoted value* preceded by
-# whitespace (e.g. ``wifi_ssid: "foo # bar"``) is mis-parsed as
-# a trailing comment. The rewrite still produces valid YAML
-# because the new value is re-quoted, but the spurious tail is
-# preserved as a comment. See the dedicated regression test in
-# ``tests/test_onboarding_controller.py``. Realistic impact is
-# low — ``#`` in SSIDs is uncommon and the user's hand-edit has
-# to land before they re-run the wizard.
-_SECRET_LINE_RE = re.compile(r"^(\s*)([a-zA-Z_]\w*)\s*:[^#\n]*?(\s+#.*)?$")
-
-
 def _read_secrets_and_prefs(config_dir: Path) -> tuple[dict | None, UserPreferences]:
     """
     Read both ``secrets.yaml`` and user preferences in one executor hop.
@@ -201,72 +185,3 @@ def _read_secrets_and_prefs(config_dir: Path) -> tuple[dict | None, UserPreferen
     page load + after every secrets save, so the saved hop matters.
     """
     return read_secrets_yaml(config_dir), load_preferences(config_dir)
-
-
-def _write_wifi_secrets(config_dir: Path, ssid: str, password: str) -> None:
-    """
-    Update ``wifi_ssid`` and ``wifi_password`` in ``secrets.yaml`` in place.
-
-    Line-based rewrite preserves comments and any other secrets the
-    user has added. Falls back to creating the file with just the
-    two keys if it doesn't exist (the bootstrap should have created
-    it on startup, but a user who deleted it shouldn't be stuck
-    here).
-    """
-    secrets_path = config_dir / "secrets.yaml"
-    original = secrets_path.read_text(encoding="utf-8") if secrets_path.exists() else ""
-
-    updated = _replace_or_append_secret(
-        _replace_or_append_secret(original, "wifi_ssid", ssid),
-        "wifi_password",
-        password,
-    )
-    atomic_write_file(secrets_path, updated)
-
-
-def _replace_or_append_secret(content: str, key: str, value: str) -> str:
-    """
-    Set ``key`` to ``value`` in YAML *content*, in place.
-
-    Replaces the value on **every** line whose key matches — a
-    duplicated key in ``secrets.yaml`` is malformed (PyYAML keeps
-    only the last on read), but writing only the first match
-    would leave the stale duplicate as the live value and
-    onboarding would stay PENDING after a "successful" save. Any
-    inline ``# comment`` trailing the matched line is preserved
-    so a power-user with ``wifi_ssid: home  # Apt 4B router``
-    keeps the annotation. If no line matches, appends
-    ``key: "value"`` at the end with a trailing newline.
-    """
-    encoded = _quote_yaml_string(value)
-    lines = content.split("\n")
-    matched = False
-    for i, line in enumerate(lines):
-        m = _SECRET_LINE_RE.match(line)
-        if m and m.group(2) == key:
-            trailing_comment = m.group(3) or ""
-            lines[i] = f"{m.group(1)}{key}: {encoded}{trailing_comment}"
-            matched = True
-    if matched:
-        return "\n".join(lines)
-    # Append. Empty input gets the line on its own (no leading
-    # blank); any other input gets a single ``\n`` separator if it
-    # doesn't already end with one.
-    if not content:
-        return f"{key}: {encoded}\n"
-    if not content.endswith("\n"):
-        content = content + "\n"
-    return f"{content}{key}: {encoded}\n"
-
-
-def _quote_yaml_string(value: str) -> str:
-    r"""
-    Quote *value* as a YAML double-quoted scalar.
-
-    Always uses double quotes so the round-trip stays predictable
-    regardless of what characters the user typed. Escapes the two
-    characters that have meaning inside double-quoted strings
-    (``\`` and ``"``) — everything else passes through verbatim.
-    """
-    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-    return f'"{escaped}"'

@@ -1,21 +1,35 @@
 """
-Detection helpers for placeholder / empty secrets values.
+Shared ``secrets.yaml`` read / merge / write helpers.
 
-The dashboard's first-run bootstrap writes deterministic placeholder
-strings into ``secrets.yaml`` so ``!secret wifi_ssid`` references in
-generated YAML resolve cleanly through ESPHome's validator. The
-onboarding controller uses the same constants here to detect whether
-the user has supplied real values yet — keeping the bootstrap and
-the state-check anchored to one source of truth so a future change
-to the placeholder text doesn't desync the two.
+One home for every ``secrets.yaml`` touch so the bundle-import merge,
+the onboarding wifi writer, and the placeholder-state detection don't
+drift apart. The dashboard's first-run bootstrap writes deterministic
+placeholder strings into ``secrets.yaml`` so ``!secret wifi_ssid``
+references in generated YAML resolve cleanly through ESPHome's
+validator; the same constants here detect whether the user has
+supplied real values yet.
+
+Two mutation shapes live here on purpose:
+``_replace_or_append_secret`` / ``write_wifi_secrets`` *set* specific
+keys (line-based, preserving inline comments), while
+``merge_secrets_file`` *unions in* a whole incoming mapping keeping
+existing values on conflict (ruamel round-trip).
 """
 
 from __future__ import annotations
 
+import io
+import logging
+import re
 from pathlib import Path
 
 from esphome import yaml_util
 from esphome.core import EsphomeError
+from esphome.helpers import write_file as atomic_write_file
+from ruamel.yaml import YAML
+from ruamel.yaml.error import YAMLError
+
+_LOGGER = logging.getLogger(__name__)
 
 # Bootstrap placeholder strings. Upstream now exports these from
 # ``esphome.const``; fall back to local literals on older releases
@@ -87,3 +101,117 @@ def is_wifi_unconfigured(secrets: dict | None) -> bool:
     if not isinstance(val, str):
         return True
     return val.strip() in _UNCONFIGURED_WIFI_SSID_VALUES
+
+
+def merge_secrets_file(src: Path, dest: Path) -> None:
+    """Merge *src* secrets into *dest*, keeping existing keys; create if absent."""
+    if not dest.exists():
+        atomic_write_file(dest, src.read_bytes())
+        return
+    yaml = YAML()
+    try:
+        existing = yaml.load(dest.read_text("utf-8")) or {}
+        incoming = yaml.load(src.read_text("utf-8")) or {}
+    except (YAMLError, OSError, UnicodeDecodeError):
+        # A non-YAML or tag-bearing secrets file; never risk clobbering
+        # the user's secrets, so leave the existing file untouched.
+        _LOGGER.warning("Couldn't parse secrets for merge; left %s untouched", dest)
+        return
+    if not isinstance(existing, dict) or not isinstance(incoming, dict):
+        return
+    added = False
+    for key, value in incoming.items():
+        if key not in existing:
+            existing[key] = value
+            added = True
+    if not added:
+        return
+    buf = io.StringIO()
+    yaml.dump(existing, buf)
+    atomic_write_file(dest, buf.getvalue())
+
+
+# ``key: value`` line. Captures: 1=indent, 2=key, 3=trailing
+# ``  # comment`` (with at least one space before the ``#``).
+# Permissive on value shape so we match both ``wifi_ssid: ""``
+# and bare ``wifi_ssid:`` — the value itself is discarded on
+# rewrite, only indent / key / trailing comment carry over.
+#
+# Known limitation: a ``#`` *inside a quoted value* preceded by
+# whitespace (e.g. ``wifi_ssid: "foo # bar"``) is mis-parsed as
+# a trailing comment. The rewrite still produces valid YAML
+# because the new value is re-quoted, but the spurious tail is
+# preserved as a comment. See the dedicated regression test in
+# ``tests/test_onboarding_controller.py``. Realistic impact is
+# low — ``#`` in SSIDs is uncommon and the user's hand-edit has
+# to land before they re-run the wizard.
+_SECRET_LINE_RE = re.compile(r"^(\s*)([a-zA-Z_]\w*)\s*:[^#\n]*?(\s+#.*)?$")
+
+
+def write_wifi_secrets(config_dir: Path, ssid: str, password: str) -> None:
+    """
+    Update ``wifi_ssid`` and ``wifi_password`` in ``secrets.yaml`` in place.
+
+    Line-based rewrite preserves comments and any other secrets the
+    user has added. Falls back to creating the file with just the
+    two keys if it doesn't exist (the bootstrap should have created
+    it on startup, but a user who deleted it shouldn't be stuck
+    here).
+    """
+    secrets_path = config_dir / "secrets.yaml"
+    original = secrets_path.read_text(encoding="utf-8") if secrets_path.exists() else ""
+
+    updated = _replace_or_append_secret(
+        _replace_or_append_secret(original, "wifi_ssid", ssid),
+        "wifi_password",
+        password,
+    )
+    atomic_write_file(secrets_path, updated)
+
+
+def _replace_or_append_secret(content: str, key: str, value: str) -> str:
+    """
+    Set ``key`` to ``value`` in YAML *content*, in place.
+
+    Replaces the value on **every** line whose key matches — a
+    duplicated key in ``secrets.yaml`` is malformed (PyYAML keeps
+    only the last on read), but writing only the first match
+    would leave the stale duplicate as the live value and
+    onboarding would stay PENDING after a "successful" save. Any
+    inline ``# comment`` trailing the matched line is preserved
+    so a power-user with ``wifi_ssid: home  # Apt 4B router``
+    keeps the annotation. If no line matches, appends
+    ``key: "value"`` at the end with a trailing newline.
+    """
+    encoded = _quote_yaml_string(value)
+    lines = content.split("\n")
+    matched = False
+    for i, line in enumerate(lines):
+        m = _SECRET_LINE_RE.match(line)
+        if m and m.group(2) == key:
+            trailing_comment = m.group(3) or ""
+            lines[i] = f"{m.group(1)}{key}: {encoded}{trailing_comment}"
+            matched = True
+    if matched:
+        return "\n".join(lines)
+    # Append. Empty input gets the line on its own (no leading
+    # blank); any other input gets a single ``\n`` separator if it
+    # doesn't already end with one.
+    if not content:
+        return f"{key}: {encoded}\n"
+    if not content.endswith("\n"):
+        content = content + "\n"
+    return f"{content}{key}: {encoded}\n"
+
+
+def _quote_yaml_string(value: str) -> str:
+    r"""
+    Quote *value* as a YAML double-quoted scalar.
+
+    Always uses double quotes so the round-trip stays predictable
+    regardless of what characters the user typed. Escapes the two
+    characters that have meaning inside double-quoted strings
+    (``\`` and ``"``) — everything else passes through verbatim.
+    """
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'

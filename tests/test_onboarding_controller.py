@@ -22,12 +22,12 @@ from esphome_device_builder.controllers.config import (
 )
 from esphome_device_builder.controllers.onboarding import (
     OnboardingController,
-    _replace_or_append_secret,
 )
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.secrets_state import (
     PLACEHOLDER_WIFI_PASSWORD,
     PLACEHOLDER_WIFI_SSID,
+    _replace_or_append_secret,
 )
 from esphome_device_builder.models.onboarding import (
     ONBOARDING_VERSION,
