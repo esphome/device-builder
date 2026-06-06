@@ -16,8 +16,11 @@ venv/
 # IDE
 .vscode/
 .idea/
-*.swp
-*.swo
+# Editor swap & backup files. Vim rotates .swp/.swo/.swn/.swm/... and a
+# swap such as .secrets.yaml.swp can hold unsaved buffer contents,
+# including secrets, so the whole range must be ignored.
+*.sw[a-p]
+*~
 
 # OS
 .DS_Store
