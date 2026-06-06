@@ -220,19 +220,15 @@ async def test_cold_connect_offloader_observes_initial_queue_status_then_picks_r
     :func:`build_scheduler_snapshot` + :func:`pick_build_path`
     resolve to ``BuildPath.REMOTE`` against the same pin.
     """
-    queue_status_landed = capture_events(
-        paired_instances.offloader_bus, EventType.OFFLOADER_QUEUE_STATUS_CHANGED
-    )
+    # The capture is pre-rolled in the fixture, before the session
+    # opens. The receiver's one-shot ``queue_status`` push lands on
+    # a background task right after registration, so a listener
+    # attached in the test body could miss it entirely — the source
+    # of an earlier lost-event flake. Cold-connect contract: the
+    # offloader's ``_peer_queue_status`` populates from the wire
+    # with no local-side seeding.
+    queue_status_landed = paired_instances.offloader_queue_status
     await paired_instances.wait_until_session_opened()
-    # Wait for the offloader to observe the receiver's initial
-    # ``queue_status`` push. Cold-connect contract:
-    # the offloader's ``_peer_queue_status`` must populate from
-    # the wire without any local-side seeding. The push is a
-    # fire-and-forget background task scheduled at session
-    # registration, so under ``-n auto`` CI contention it can
-    # lag a couple event-loop turns behind session-open; a 2s
-    # ceiling tipped over on a loaded runner. The global
-    # ``--timeout=120`` still catches a truly broken push.
     await asyncio.wait_for(queue_status_landed.received.wait(), timeout=10.0)
     payload = queue_status_landed[-1]
     assert payload["pin_sha256"] == paired_instances.pin_sha256

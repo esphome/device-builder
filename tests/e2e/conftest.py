@@ -138,6 +138,11 @@ class PairedInstances:
     offloader_closed: _CapturedEvents
     receiver_opened: _CapturedEvents
     receiver_closed: _CapturedEvents
+    # The receiver's one-shot ``queue_status`` push lands on a
+    # background task right after the session opens, so it can
+    # fire before a test body attaches its own listener. Pre-roll
+    # it here for the same reason as the lifecycle events above.
+    offloader_queue_status: _CapturedEvents
 
     @property
     def offloader(self) -> OffloaderController:
@@ -241,6 +246,7 @@ async def _paired_instances_ctx(
     offloader_closed = capture_events(offloader_bus, EventType.OFFLOADER_PEER_LINK_CLOSED)
     receiver_opened = capture_events(receiver_bus, EventType.RECEIVER_PEER_LINK_SESSION_OPENED)
     receiver_closed = capture_events(receiver_bus, EventType.RECEIVER_PEER_LINK_SESSION_CLOSED)
+    offloader_queue_status = capture_events(offloader_bus, EventType.OFFLOADER_QUEUE_STATUS_CHANGED)
 
     # Stand up the receiver's peer-link WS endpoint on a real
     # TCP port. ``TestServer`` picks an ephemeral port; the
@@ -316,6 +322,7 @@ async def _paired_instances_ctx(
         offloader_closed=offloader_closed,
         receiver_opened=receiver_opened,
         receiver_closed=receiver_closed,
+        offloader_queue_status=offloader_queue_status,
     )
     try:
         yield instances
