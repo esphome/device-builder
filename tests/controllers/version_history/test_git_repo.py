@@ -422,6 +422,18 @@ def test_managed_flag_survives_restart_and_heals(tmp_path: Path) -> None:
     assert not lock.exists()
 
 
+def test_adopted_user_repo_caches_not_managed_verdict(tmp_path: Path) -> None:
+    """An adopted user repo records a ``false`` verdict so the seed-root scan runs once."""
+    _make_repo(tmp_path)  # root commit authored by someone other than us
+    GitRepo(config_dir=tmp_path).discover_or_init()
+    assert _git(tmp_path, "config", "--local", "--get", "device-builder.managed").strip() == "false"
+
+    # A restart reads the cached verdict rather than re-scanning history.
+    restarted = GitRepo(config_dir=tmp_path)
+    restarted.discover_or_init()
+    assert not restarted.managed
+
+
 def test_pre_marker_repo_is_backfilled_as_managed(tmp_path: Path) -> None:
     """A pre-marker repo we created is recognised by its seed root commit and re-stamped."""
     GitRepo(config_dir=tmp_path).discover_or_init()

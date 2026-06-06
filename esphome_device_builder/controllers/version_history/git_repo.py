@@ -87,9 +87,10 @@ _YAML_GLOBS = ("*.yaml", "*.yml")
 # younger than this a live git may still hold it, so we leave it alone.
 _STALE_LOCK_SECONDS = 30.0
 
-# Repo-local git-config flag stamped only when *we* initialise a repo. Read
-# back on the adopt path so ownership survives a restart (we own the repo
-# but re-discover it as "adopted"); an adopted user repo never carries it.
+# Repo-local git-config verdict (``true``/``false``) for whether we own a
+# repo. Written at init and cached on the first adopt so ownership survives a
+# restart and the seed-root backfill scan runs at most once per repo. Unset
+# means "not yet resolved"; an adopted user repo ends up cached ``false``.
 _MANAGED_CONFIG_KEY = "device-builder.managed"
 
 # Written only when *we* create the repo and no ``.gitignore`` exists; a
@@ -210,7 +211,7 @@ class GitRepo:
         self.toplevel = self.config_dir
         self.enabled = True
         self.managed = True
-        self._mark_managed()
+        self._mark_managed(managed=True)
         self._ensure_local_excludes()
         gitignore = self.config_dir / ".gitignore"
         if not gitignore.exists():
@@ -465,47 +466,54 @@ class GitRepo:
 
     def _adopt_ownership(self) -> bool:
         """
-        Resolve whether an adopted repo is one we own, stamping the marker once.
+        Resolve whether an adopted repo is one we own, caching the verdict once.
 
-        New repos carry :data:`_MANAGED_CONFIG_KEY`. Repos we created before
-        that marker existed are recognised by their self-authored root
-        commit and stamped here, so the heal works after an upgrade too.
+        A prior run's cached :data:`_MANAGED_CONFIG_KEY` short-circuits.
+        Otherwise the seed-root backfill identifies repos we created before
+        the marker existed; the verdict (ours or not) is stamped so the scan
+        runs at most once. A scan that couldn't run is left uncached.
         """
-        if self._read_managed_flag():
-            return True
-        if self._looks_self_initialised():
-            self._mark_managed()
-            return True
-        return False
+        cached = self._read_managed_flag()
+        if cached is not None:
+            return cached
+        owned = self._looks_self_initialised()
+        if owned is None:
+            return False  # couldn't determine; re-resolve next start
+        self._mark_managed(managed=owned)
+        return owned
 
-    def _mark_managed(self) -> None:
-        """Stamp the repo-local flag marking this as a repo we own."""
-        result = self._run(["config", "--local", _MANAGED_CONFIG_KEY, "true"], check=False)
+    def _mark_managed(self, *, managed: bool) -> None:
+        """Persist the ownership verdict so the next start skips re-deriving it."""
+        value = "true" if managed else "false"
+        result = self._run(["config", "--local", _MANAGED_CONFIG_KEY, value], check=False)
         if result.returncode != 0:
-            # Not fatal — ownership is re-derived from the seed root next
-            # start — but a dropped stamp should be observable.
             _LOGGER.warning(
                 "Could not stamp managed flag on %s: %s", self.toplevel, result.stderr.strip()
             )
 
-    def _read_managed_flag(self) -> bool:
-        """Whether a prior run stamped this (now adopted) repo as one we created."""
+    def _read_managed_flag(self) -> bool | None:
+        """Return the cached ownership verdict from a prior run, or ``None`` if unresolved."""
         result = self._run(["config", "--local", "--get", _MANAGED_CONFIG_KEY], check=False)
-        return result.returncode == 0 and result.stdout.strip() == "true"
+        if result.returncode != 0:
+            return None
+        return result.stdout.strip() == "true"
 
-    def _looks_self_initialised(self) -> bool:
+    def _looks_self_initialised(self) -> bool | None:
         """
         Whether a root commit was authored by our seed — backfill for pre-marker repos.
 
         The ``Initialize version history`` seed is authored by our identity,
         which an adopted user repo's root commit never is; git filters on
-        the author so we only ask whether such a root exists.
+        the author so we only ask whether such a root exists. ``None`` when
+        the query couldn't run (e.g. a repo with no commits yet).
         """
         result = self._run(
             ["log", "--max-parents=0", f"--author={_COMMIT_EMAIL}", "--format=%H"],
             check=False,
         )
-        return result.returncode == 0 and bool(result.stdout.strip())
+        if result.returncode != 0:
+            return None
+        return bool(result.stdout.strip())
 
     def _index_lock_path(self) -> Path | None:
         """Resolve the work tree's ``index.lock`` path (handles split git dirs)."""
