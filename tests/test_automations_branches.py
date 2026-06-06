@@ -47,9 +47,6 @@ from esphome_device_builder.controllers.automations.parsing import (
     parse_device_yaml,
 )
 from esphome_device_builder.controllers.automations.writing import (
-    _indent_block as _writer_indent_block,
-)
-from esphome_device_builder.controllers.automations.writing import (
     _indent_for_top_list,
     _locate_top_list_item,
     render_delete,
@@ -1164,11 +1161,6 @@ def test_delete_under_top_key_walk_skips_blank_lines() -> None:
 def test_indent_for_top_list_adds_trailing_newline() -> None:
     """The helper appends a trailing newline when the rendered item lacks one."""
     assert _indent_for_top_list("- foo: bar").endswith("\n")
-
-
-def test_indent_block_preserves_blank_lines() -> None:
-    """Blank lines in the rendered text pass through unchanged."""
-    assert _writer_indent_block("a\n\nb", "  ") == ["  a", "", "  b"]
 
 
 def test_locate_top_list_item_missing_domain_raises_not_found() -> None:

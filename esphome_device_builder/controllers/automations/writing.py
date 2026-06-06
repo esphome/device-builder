@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from ...helpers.api import CommandError
 from ...helpers.yaml import (
+    _block_end,
+    _indent_block,
     _splice_into_domain_block,
     remove_inline_handler,
     remove_subentity_handler,
@@ -53,7 +55,6 @@ from .parsing import (
 )
 from .writing_layout import (
     _build_diff_for_append,
-    _indent_block,
     _indent_for_top_list,
     _locate_singleton_block,
     _locate_top_list_item,
@@ -400,16 +401,7 @@ def _upsert_under_top_key(
         text = lines[idx].rstrip("\n\r")
         if text == handler_re_prefix or text.startswith(handler_re_prefix + " "):
             handler_start = idx
-            for jdx in range(idx + 1, end):
-                content = lines[jdx].rstrip("\n\r")
-                if not content:
-                    continue
-                leading = len(content) - len(content.lstrip(" "))
-                if leading <= len(indent):
-                    handler_end = jdx
-                    break
-            if handler_end is None:
-                handler_end = end
+            handler_end = _block_end(lines, idx, end, indent)
             break
     rendered_text = "\n".join(_indent_block(rendered_yaml, indent)) + "\n"
     if handler_start is not None and handler_end is not None:
@@ -517,15 +509,7 @@ def _delete_under_top_key(
     for idx in range(start + 1, end):
         text = lines[idx].rstrip("\n\r")
         if text == handler_prefix or text.startswith(handler_prefix + " "):
-            handler_end = end
-            for jdx in range(idx + 1, end):
-                content = lines[jdx].rstrip("\n\r")
-                if not content:
-                    continue
-                leading = len(content) - len(content.lstrip(" "))
-                if leading <= len(indent):
-                    handler_end = jdx
-                    break
+            handler_end = _block_end(lines, idx, end, indent)
             new_lines = [*lines[:idx], *lines[handler_end:]]
             return "".join(new_lines), YamlDiff(
                 fromLine=idx + 1,

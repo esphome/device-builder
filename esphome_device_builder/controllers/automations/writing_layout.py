@@ -7,17 +7,6 @@ from ...models.api import ErrorCode
 from ...models.automations import YamlDiff
 
 
-def _indent_block(block_text: str, indent: str) -> list[str]:
-    """Prefix every non-empty line of *block_text* with *indent*."""
-    out: list[str] = []
-    for line in block_text.splitlines():
-        if not line:
-            out.append("")
-            continue
-        out.append(indent + line)
-    return out
-
-
 def _indent_for_top_list(rendered_item: str) -> str:
     """Indent *rendered_item* (one ``- ...`` block) for top-level list use."""
     # ``dump([item])`` already produces the dashed list form; we
