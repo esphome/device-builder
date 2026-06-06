@@ -380,24 +380,21 @@ def test_decode_bundle_rejects_oversize_after_decode(
 
 
 @pytest.mark.usefixtures("_bundle_storage_under_tmp")
-def test_init_bundle_storage_handles_missing_main_config(tmp_path: Path) -> None:
-    """A main config absent from disk seeds a minimal sidecar rather than crashing."""
-    mutations_import_bundle._init_bundle_storage(tmp_path, "ghost.yaml")
-
-    assert (tmp_path / ".esphome" / "storage" / "ghost.yaml.json").exists()
-
-
-@pytest.mark.usefixtures("_bundle_storage_under_tmp")
-def test_init_bundle_storage_warns_on_non_utf8_main_config(
+def test_init_bundle_storage_skips_when_main_config_unreadable(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """A non-UTF-8 main config seeds a minimal sidecar and logs, not silently."""
+    """An unreadable main config writes no (degraded) sidecar and logs; no crash."""
     (tmp_path / "binary.yaml").write_bytes(b"\xff\xfe\x00not utf8")
 
     with caplog.at_level("WARNING"):
+        # Missing file and non-UTF-8 file both hit the OSError/decode safety net.
+        mutations_import_bundle._init_bundle_storage(tmp_path, "ghost.yaml")
         mutations_import_bundle._init_bundle_storage(tmp_path, "binary.yaml")
 
-    assert (tmp_path / ".esphome" / "storage" / "binary.yaml.json").exists()
+    # No degraded sidecar is persisted; the scanner re-derives metadata.
+    assert not (tmp_path / ".esphome" / "storage" / "ghost.yaml.json").exists()
+    assert not (tmp_path / ".esphome" / "storage" / "binary.yaml.json").exists()
+    assert any("ghost.yaml" in r.message for r in caplog.records)
     assert any("binary.yaml" in r.message for r in caplog.records)
 
 

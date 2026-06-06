@@ -243,19 +243,18 @@ def _decode_bundle(file_content_b64: str) -> bytes:
 
 def _init_bundle_storage(config_dir: Path, config_filename: str) -> None:
     """Write a fresh StorageJSON sidecar from the imported config's own fields."""
-    name = configuration_stem(config_filename)
     try:
         content = (config_dir / config_filename).read_text("utf-8")
-    except (FileNotFoundError, UnicodeDecodeError) as err:
+    except (OSError, UnicodeDecodeError) as err:
         # Safety net only: the main config was validated as UTF-8 before
-        # placement, so this is unreachable in the normal flow. The sidecar
-        # is best-effort (the scanner re-derives it), so seed a minimal one
-        # and log rather than crash an import whose files already landed.
-        _LOGGER.warning("Couldn't read %s to seed its sidecar (%s)", config_filename, err)
-        init_device_storage(config_filename, name, None, "")
+        # placement, so this is unreachable in the normal flow. Skip seeding
+        # rather than persist a degraded (empty-platform) sidecar or crash
+        # an import whose files already landed; the scanner derives the
+        # metadata from the YAML on its next pass.
+        _LOGGER.warning("Couldn't read %s to seed its sidecar (%s); skipping", config_filename, err)
         return
     friendly = read_yaml_scalar(content, ("esphome", "friendly_name"))
     if friendly and "${" in friendly:
         friendly = None
     platform, _pio_board, _variant = parse_platform_from_yaml(content)
-    init_device_storage(config_filename, name, friendly, platform)
+    init_device_storage(config_filename, configuration_stem(config_filename), friendly, platform)
