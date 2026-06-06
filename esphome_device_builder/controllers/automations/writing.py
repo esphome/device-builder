@@ -681,11 +681,7 @@ def _require_trigger(domain: str, location: ComponentOnLocation) -> AutomationTr
 
 
 def _subentity_context(target: ComponentTarget) -> tuple[str, str, str]:
-    """Parent context for a sub-entity target; raise if it's incomplete.
-
-    A raise (not ``assert``) so a broken invariant still surfaces under
-    ``python -O`` instead of leaking ``None`` into the splice.
-    """
+    """Parent context for a sub-entity target; raise if it's incomplete."""
     if target.parent_domain is None or target.parent_id is None or target.sub_key is None:
         msg = f"sub-entity target is missing parent context: {target!r}"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)

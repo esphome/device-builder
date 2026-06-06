@@ -361,12 +361,9 @@ def _iter_instance_targets(
     """
     Yield ``(domain, instance, comp_id, target)`` for every instance + sub-entity.
 
-    The single source for the document walk shared by the parse passes
-    (:func:`_iter_component_instances`) and the writer's resolver
-    (:func:`resolve_component_target`), so the two never drift. Covers
-    list-domain instances, flat singletons, and each instance's nested
-    platform sub-entities (``aht20_temperature`` under ``sensor.aht10``,
-    carried as a sub-entity :class:`ComponentTarget`).
+    The one document walk shared by :func:`_iter_component_instances` and
+    :func:`resolve_component_target` (list instances, flat singletons, nested
+    sub-entities).
     """
     if not isinstance(root, dict):
         return
