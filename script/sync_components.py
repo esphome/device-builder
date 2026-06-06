@@ -3751,12 +3751,31 @@ _NOT_A_LIST = object()
 
 
 def _list_element(validator: Any) -> Any:
-    """Element validator of a bare ``[item]`` / ``vol.All([item], …)``, or ``_NOT_A_LIST``."""
+    """
+    Element validator of a list, or ``_NOT_A_LIST``.
+
+    A bare ``[item]`` and a ``vol.All`` carrying a list branch (every branch
+    must pass, so the list branch constrains the value to a list) resolve to
+    the item. A ``vol.Any`` union only counts as a list when *every* branch
+    is a list — a scalar-or-list union (``vol.Any(str, [str])``) keeps its
+    scalar form and must not be forced into a list-only editor.
+    """
     if isinstance(validator, list):
         return validator[0] if validator else None
-    for v in getattr(validator, "validators", None) or ():
-        if isinstance(v, list):
-            return v[0] if v else None
+    branches = getattr(validator, "validators", None)
+    if not branches:
+        return _NOT_A_LIST
+    if isinstance(validator, vol.Any):
+        elements = [_list_element(b) for b in branches]
+        if not elements or any(e is _NOT_A_LIST for e in elements):
+            return _NOT_A_LIST
+        return elements[0]
+    # ``vol.All`` (and other all-must-pass combinators): one list branch
+    # is enough to constrain the value to a list.
+    for branch in branches:
+        element = _list_element(branch)
+        if element is not _NOT_A_LIST:
+            return element
     return _NOT_A_LIST
 
 

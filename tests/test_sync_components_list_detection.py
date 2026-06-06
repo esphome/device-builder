@@ -16,6 +16,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import voluptuous as vol
+
 _SCRIPT_DIR = Path(__file__).parent.parent / "script"
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
@@ -43,6 +45,15 @@ def test_is_list_validator_rejects_a_list_of_mappings() -> None:
     schema = cv.Schema({cv.Optional("name"): cv.string})
     assert sync_components._is_list_validator([schema]) is False
     assert sync_components._is_list_validator([{cv.Optional("name"): cv.string}]) is False
+
+
+def test_is_list_validator_rejects_a_scalar_or_list_union() -> None:
+    """``vol.Any(scalar, list)`` keeps its scalar form, so it must not be a list."""
+    assert sync_components._is_list_validator(vol.Any(cv.string, [cv.string])) is False
+
+
+def test_is_list_validator_accepts_a_union_where_every_branch_is_a_list() -> None:
+    assert sync_components._is_list_validator(vol.Any([cv.string], [cv.int_])) is True
 
 
 def test_apply_list_fields_marks_matching_path_multi_value() -> None:
