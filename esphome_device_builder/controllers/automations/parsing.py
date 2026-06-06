@@ -493,12 +493,13 @@ def platform_subentity_keys(catalog_id: str) -> tuple[tuple[str, str], ...]:
 
 def _is_subentity_block(entry: Any) -> bool:
     """Return True for a nested config entry that is itself an id'd platform sub-entity."""
+    if not isinstance(entry, dict) or entry.get("type") != "nested":
+        return False
+    platform_type = entry.get("platform_type")
     return (
-        isinstance(entry, dict)
-        and entry.get("type") == "nested"
-        and isinstance(entry.get("key"), str)
-        and bool(entry.get("platform_type"))
-        and isinstance(entry.get("platform_type"), str)
+        isinstance(entry.get("key"), str)
+        and isinstance(platform_type, str)
+        and bool(platform_type)
         and any(
             isinstance(sub, dict) and sub.get("key") == "id"
             for sub in entry.get("config_entries") or []
@@ -517,7 +518,12 @@ def _parse_component_action_fields(root: Any) -> list[ParsedAutomation]:
     inline ``on_*`` handlers (``trigger_id`` is ``None`` — no trigger).
     """
     out: list[ParsedAutomation] = []
-    for domain, instance, comp_id in _iter_component_instances(root):
+    for domain, instance, comp_id, target in _iter_instance_targets(root):
+        # Action-list fields (``open_action`` …) are a top-level-component
+        # concern; the shared walk also yields sub-entities (for inline
+        # ``on_*`` parsing), so skip them here to keep the scope unchanged.
+        if target.is_sub_entity:
+            continue
         fields = _component_action_fields(catalog_id(domain, instance.get("platform")))
         if not fields:
             continue
