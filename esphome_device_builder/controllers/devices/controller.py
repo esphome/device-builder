@@ -371,6 +371,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         ssid: str = "",
         psk: str = "",
         file_content: str | None = None,
+        overwrite: bool = False,
         **kwargs: Any,
     ) -> WizardResponse:
         """Create a new device configuration."""
@@ -381,6 +382,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             ssid=ssid,
             psk=psk,
             file_content=file_content,
+            overwrite=overwrite,
         )
 
     @api_command("devices/import_bundle")
@@ -886,18 +888,26 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         version_history.discard_pending(configuration)
 
     async def _register_new_device(
-        self, configuration: str, commit_message: str, *, board_id: str | None = None
+        self,
+        configuration: str,
+        commit_message: str,
+        *,
+        board_id: str | None = None,
+        clear_metadata: bool = True,
     ) -> None:
         """
         Make a freshly written config visible: reset metadata, commit, scan.
 
-        Shared tail of ``create_device`` and ``import_bundle``. Clearing
-        metadata first stops an archived board_id from mis-binding to a
-        fresh device reusing the same filename; *board_id* is persisted
+        Shared tail of ``create_device`` and ``import_bundle``. For a new
+        device, clearing metadata first stops an archived board_id from
+        mis-binding to a fresh device reusing the same filename. An
+        *overwrite* of an existing device passes ``clear_metadata=False``
+        so its labels / comment / board_id survive. *board_id* is persisted
         only when explicitly chosen. The scan fires ``_on_scan_change``
         (ADDED), which probes the device, so callers must not double-probe.
         """
-        await self._delete_device_metadata(configuration)
+        if clear_metadata:
+            await self._delete_device_metadata(configuration)
         if board_id:
             await self._persist_device_metadata_async(
                 configuration, board_id=board_id, board_id_user_set=True

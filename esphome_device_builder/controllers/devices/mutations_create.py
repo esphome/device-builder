@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
+from esphome.helpers import write_file as atomic_write_file
 from esphome.storage_json import StorageJSON
 
 from ...helpers.api import CommandError
@@ -17,7 +18,7 @@ if TYPE_CHECKING:
     from .controller import DevicesController
 
 
-async def create_device(  # noqa: C901
+async def create_device(  # noqa: C901, PLR0912
     controller: DevicesController,
     *,
     name: str,
@@ -25,6 +26,7 @@ async def create_device(  # noqa: C901
     ssid: str,
     psk: str,
     file_content: str | None,
+    overwrite: bool = False,
 ) -> WizardResponse:
     """
     Create a new device configuration.
@@ -40,7 +42,10 @@ async def create_device(  # noqa: C901
     still land in the editor for repair. ``board_id`` is
     persisted (as a deliberate user pick) only when explicitly
     provided; otherwise the scanner derives it from the YAML on
-    each resolve against the current catalog.
+    each resolve against the current catalog. A filename collision
+    raises ``ALREADY_EXISTS`` unless *overwrite* is set, which
+    replaces the YAML in place and preserves the existing device's
+    metadata (labels / comment / board_id) and StorageJSON.
     """
     # The wizard passes the user's raw input here — capitalisation,
     # inter-word spaces, and unicode all stay intact. ``clean_friendly_name``
@@ -66,12 +71,15 @@ async def create_device(  # noqa: C901
 
     # Fast collision check before the (~hundreds of ms) validator
     # round-trip so a duplicate-name attempt fails on the right
-    # diagnostic. The ``open(..., "x")`` further down is the
-    # actual race-safe write; the check here is a UX optimisation.
+    # diagnostic. ``ALREADY_EXISTS`` (not ``INVALID_ARGS``) so the
+    # frontend can offer an overwrite instead of a dead-end error. The
+    # write further down is the actual race-safe path; this is a UX
+    # optimisation.
     loop_for_check = asyncio.get_running_loop()
-    if await loop_for_check.run_in_executor(None, config_path.exists):
+    file_existed = await loop_for_check.run_in_executor(None, config_path.exists)
+    if file_existed and not overwrite:
         msg = f"Configuration {filename} already exists"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+        raise CommandError(ErrorCode.ALREADY_EXISTS, msg)
 
     # Surface user-correctable failures (unknown board) as typed
     # ``INVALID_ARGS`` so the wizard can show a specific message.
@@ -128,15 +136,29 @@ async def create_device(  # noqa: C901
         with config_path.open("x", encoding="utf-8") as f:
             f.write(yaml_content)
 
-    try:
-        await loop.run_in_executor(None, _write_exclusive)
-    except FileExistsError as exc:
-        msg = f"Configuration {filename} already exists"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg) from exc
+    overwriting = overwrite and file_existed
+    if overwriting:
+        # Atomic in-place rewrite (stage + move) so a crash can't leave a
+        # half-written config; the user explicitly confirmed the overwrite.
+        await loop.run_in_executor(None, atomic_write_file, config_path, yaml_content)
+    else:
+        try:
+            await loop.run_in_executor(None, _write_exclusive)
+        except FileExistsError as exc:
+            msg = f"Configuration {filename} already exists"
+            raise CommandError(ErrorCode.ALREADY_EXISTS, msg) from exc
 
-    platform = str(board.esphome.platform) if board else parsed_platform
-    await loop.run_in_executor(None, init_device_storage, filename, name, friendly, platform)
-    await controller._register_new_device(filename, f"Create {filename}", board_id=board_id)
+    # Overwriting an existing device keeps its StorageJSON (build state)
+    # and dashboard metadata; only a fresh device gets a new sidecar.
+    if not overwriting:
+        platform = str(board.esphome.platform) if board else parsed_platform
+        await loop.run_in_executor(None, init_device_storage, filename, name, friendly, platform)
+    await controller._register_new_device(
+        filename,
+        f"{'Overwrite' if overwriting else 'Create'} {filename}",
+        board_id=board_id,
+        clear_metadata=not overwriting,
+    )
     return WizardResponse(configuration=filename)
 
 

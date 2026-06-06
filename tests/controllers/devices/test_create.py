@@ -54,11 +54,11 @@ async def test_create_device_translates_file_exists_to_command_error(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """Re-creating an existing config raises ``INVALID_ARGS``, not ``INTERNAL_ERROR``.
+    """Re-creating an existing config raises ``ALREADY_EXISTS`` so the wizard can offer overwrite.
 
     Without the typed error, the WS dispatcher falls back to a generic
-    "Command failed" and the wizard can't tell the user the name is
-    already taken — they just see a 500-equivalent.
+    "Command failed"; the dedicated code lets the frontend route to its
+    overwrite-confirm step instead of a dead-end message.
     """
     ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", "utf-8")
@@ -66,7 +66,7 @@ async def test_create_device_translates_file_exists_to_command_error(
     with pytest.raises(CommandError) as excinfo:
         await ctrl.create_device(name="kitchen", file_content=VALID_FILE_CONTENT)
 
-    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert excinfo.value.code == ErrorCode.ALREADY_EXISTS
     assert "kitchen.yaml already exists" in excinfo.value.message
     # Nothing should hit the scanner when the pre-flight check fails.
     assert ctrl._scanner.calls == []
@@ -563,6 +563,37 @@ async def test_create_device_clears_residual_metadata_from_archived_same_name(
     # entry is absent (not just empty).
     post = await asyncio.to_thread(get_device_metadata, config_dir, "kitchen.yaml")
     assert post == {}
+
+
+async def test_create_device_overwrite_preserves_metadata(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """``overwrite=True`` replaces the YAML but keeps labels / comment / board_id."""
+    config_dir = tmp_path
+    (config_dir / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", "utf-8")
+    await asyncio.to_thread(
+        set_device_metadata,
+        config_dir,
+        "kitchen.yaml",
+        labels=["kitchen-label"],
+        comment="my note",
+        board_id="esp32-pick",
+        board_id_user_set=True,
+    )
+
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    ctrl._db.settings.config_dir = config_dir
+    new_content = "esphome:\n  name: kitchen\n  friendly_name: New\nesp32:\n  board: nodemcu-32s\n"
+
+    result = await ctrl.create_device(name="kitchen", file_content=new_content, overwrite=True)
+
+    assert result.configuration == "kitchen.yaml"
+    assert (config_dir / "kitchen.yaml").read_text("utf-8") == new_content
+    post = await asyncio.to_thread(get_device_metadata, config_dir, "kitchen.yaml")
+    assert post.get("labels") == ["kitchen-label"]
+    assert post.get("comment") == "my note"
+    assert post.get("board_id") == "esp32-pick"
+    assert ctrl._scanner.calls == [("scan",)]
 
 
 async def test_create_device_with_board_id_overwrites_archived_board_id(

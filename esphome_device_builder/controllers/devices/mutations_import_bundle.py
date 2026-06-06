@@ -66,8 +66,11 @@ async def import_bundle(
         )
 
     # The YAML is on disk; register it the same way create_device does.
+    # Overwriting a live device preserves its labels / comment / board_id.
     await controller._register_new_device(
-        outcome.configuration, f"Import bundle {outcome.configuration}"
+        outcome.configuration,
+        f"Import bundle {outcome.configuration}",
+        clear_metadata=not outcome.main_existed,
     )
     return ImportBundleResponse(
         status="imported",
@@ -90,6 +93,9 @@ class _Outcome:
     conflicts: list[str] | None
     has_secrets: bool
     esphome_version: str
+    # True when the main config already existed (overwrite of a live
+    # device); its metadata + StorageJSON are then preserved.
+    main_existed: bool = False
 
 
 def _stage_bundle(file_content_b64: str, config_dir: Path, overwrite: list[str] | None) -> _Outcome:
@@ -123,6 +129,7 @@ def _stage_bundle(file_content_b64: str, config_dir: Path, overwrite: list[str] 
 
         config_filename = manifest.config_filename
         _validate_archive_configuration(config_filename)
+        main_existed = (config_dir / config_filename).exists()
 
         staging = tmp_path / "staging"
         try:
@@ -144,6 +151,7 @@ def _stage_bundle(file_content_b64: str, config_dir: Path, overwrite: list[str] 
                 conflicts=conflicts,
                 has_secrets=manifest.has_secrets,
                 esphome_version=manifest.esphome_version,
+                main_existed=main_existed,
             )
 
         for rel, src in placements:
@@ -156,12 +164,16 @@ def _stage_bundle(file_content_b64: str, config_dir: Path, overwrite: list[str] 
             dest.parent.mkdir(parents=True, exist_ok=True)
             atomic_write_file(dest, src.read_bytes())
 
-        _init_bundle_storage(config_dir, config_filename)
+        # A new device gets a fresh sidecar; overwriting a live one keeps
+        # its existing StorageJSON (build state) and dashboard metadata.
+        if not main_existed:
+            _init_bundle_storage(config_dir, config_filename)
         return _Outcome(
             configuration=config_filename,
             conflicts=None,
             has_secrets=manifest.has_secrets,
             esphome_version=manifest.esphome_version,
+            main_existed=main_existed,
         )
 
 

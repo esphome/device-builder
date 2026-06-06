@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import gzip
 import io
@@ -11,6 +12,10 @@ from pathlib import Path
 
 import pytest
 
+from esphome_device_builder.controllers.config import (
+    get_device_metadata,
+    set_device_metadata,
+)
 from esphome_device_builder.controllers.devices import mutations_import_bundle
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
@@ -147,6 +152,35 @@ async def test_import_bundle_overwrite_replaces_only_chosen_files(
     # kitchen.yaml was chosen for overwrite; the include was not.
     assert (tmp_path / "kitchen.yaml").read_text("utf-8") == MAIN_YAML
     assert (tmp_path / "common" / "wifi.yaml").read_text("utf-8") == "KEEP\n"
+    assert ctrl._scanner.calls == [("scan",)]
+
+
+async def test_import_bundle_overwrite_main_preserves_metadata(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """Overwriting the main config keeps the device's labels / comment / board_id."""
+    config_dir = tmp_path
+    (config_dir / "kitchen.yaml").write_text("OLD\n", "utf-8")
+    await asyncio.to_thread(
+        set_device_metadata,
+        config_dir,
+        "kitchen.yaml",
+        labels=["lab"],
+        comment="note",
+        board_id="esp32-pick",
+        board_id_user_set=True,
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    bundle = _make_bundle({"kitchen.yaml": MAIN_YAML}, config_filename="kitchen.yaml")
+
+    result = await ctrl.import_bundle(file_content_b64=_b64(bundle), overwrite=["kitchen.yaml"])
+
+    assert result.status == "imported"
+    assert (config_dir / "kitchen.yaml").read_text("utf-8") == MAIN_YAML
+    post = await asyncio.to_thread(get_device_metadata, config_dir, "kitchen.yaml")
+    assert post.get("labels") == ["lab"]
+    assert post.get("comment") == "note"
+    assert post.get("board_id") == "esp32-pick"
     assert ctrl._scanner.calls == [("scan",)]
 
 
