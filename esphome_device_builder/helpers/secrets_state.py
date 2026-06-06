@@ -23,13 +23,12 @@ import logging
 import re
 from pathlib import Path
 
-import yaml
 from esphome import yaml_util
 from esphome.core import EsphomeError
 from esphome.helpers import write_file as atomic_write_file
 from ruamel.yaml import YAML
 
-from .yaml import FastestSafeLoader, load_yaml_fast_then_esphome
+from .yaml import load_yaml_fast_then_esphome
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -85,24 +84,17 @@ def validate_secrets_content(content: str) -> None:
     """
     Raise ``SecretsContentError`` unless *content* is a valid ``secrets.yaml``.
 
-    A comment-only file (parses to ``None``) is accepted; every other
-    non-mapping top level is rejected, matching the dict-shape ``!secret``
-    lookups require. The message carries the parser's 1-indexed line/column.
+    Parsed through ESPHome's own loader so validation matches how secrets
+    actually resolve at compile time, rejecting duplicate keys the plain
+    ``SafeLoader`` would silently accept. A non-mapping top level (list /
+    scalar) is rejected; the raised message carries the line/column.
     """
     try:
-        data = yaml.load(content, Loader=FastestSafeLoader)  # noqa: S506
-    except yaml.YAMLError as err:
-        raise SecretsContentError(_format_yaml_error(err)) from err
+        data = yaml_util.parse_yaml(Path(yaml_util.SECRET_YAML), io.StringIO(content))
+    except EsphomeError as err:
+        raise SecretsContentError(str(err)) from err
     if data is not None and not isinstance(data, dict):
         raise SecretsContentError("secrets.yaml must be a top-level mapping of name: value entries")
-
-
-def _format_yaml_error(err: yaml.YAMLError) -> str:
-    problem = getattr(err, "problem", None) or "could not parse YAML"
-    mark = getattr(err, "problem_mark", None)
-    if mark is None:
-        return problem
-    return f"{problem} at line {mark.line + 1}, column {mark.column + 1}"
 
 
 def is_wifi_unconfigured(secrets: dict | None) -> bool:
