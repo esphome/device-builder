@@ -46,3 +46,11 @@ htmlcov/
 !/README.md
 !/CLAUDE.md
 /*.png
+
+# Stray top-level YAML must never be committed: a misplaced device config
+# could leak secrets. Only the tooling configs below are tracked; nested
+# YAML (definitions/, .github/, board manifests) is unaffected.
+/*.yaml
+/*.yml
+!/.pre-commit-config.yaml
+!/codecov.yml
