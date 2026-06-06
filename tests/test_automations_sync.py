@@ -338,6 +338,26 @@ def test_build_automations_promotes_multi_click_timing_to_multi_value(tmp_path: 
     assert entries["invalid_cooldown"].get("multi_value") is not True
 
 
+def test_build_automations_skips_non_dict_schema_bodies_and_non_trigger_vars(
+    tmp_path: Path,
+) -> None:
+    """Malformed schema bodies and non-trigger config_vars are skipped, not emitted."""
+    schema_dir = _write_schema(
+        tmp_path,
+        "x.json",
+        {
+            "x": {
+                "schemas": {
+                    "BAD": "not a dict",
+                    "OK": {"schema": {"config_vars": {"foo": {"key": "Optional"}}}},
+                },
+            },
+        },
+    )
+    result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
+    assert all(t["id"] != "x.foo" for t in result["triggers"])
+
+
 def test_build_automations_derives_repeatable_from_per_entry_params(tmp_path: Path) -> None:
     """Per-entry params mark a component trigger repeatable; paramless and device-level don't."""
     _params = {"config_vars": {"seconds": {"key": "Optional"}, "then": {"type": "trigger"}}}

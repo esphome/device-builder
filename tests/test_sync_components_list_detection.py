@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import voluptuous as vol
 
@@ -82,3 +83,72 @@ def test_collect_list_fields_flags_data_pins() -> None:
     loader = sync_components._get_esphome_loader()
     manifest = loader.get_component("esp32_camera")
     assert ("data_pins",) in sync_components._collect_list_fields(manifest)
+
+
+def test_collect_list_fields_empty_for_schemaless_manifest() -> None:
+    assert sync_components._collect_list_fields(SimpleNamespace(config_schema=None)) == {}
+
+
+def test_introspect_component_surfaces_list_fields() -> None:
+    """The component introspection carries ``list_fields`` into the build path."""
+    introspection = sync_components.introspect_component("esp32_camera")
+    assert ("data_pins",) in introspection["list_fields"]
+
+
+def test_apply_list_fields_is_a_noop_without_fields() -> None:
+    entries = [{"key": "x", "multi_value": False}]
+    sync_components._apply_list_fields(entries, {})
+    assert entries[0]["multi_value"] is False
+
+
+def test_validates_mapping_recurses_into_a_combinator_branch() -> None:
+    """A mapping reached only through a combinator's ``validators`` still counts."""
+    assert sync_components._validates_mapping(SimpleNamespace(validators=({"k": cv.string},)))
+
+
+def test_automation_schema_dict_rejects_non_callable() -> None:
+    assert sync_components._automation_schema_dict(42) is None
+
+
+def test_automation_schema_dict_swallows_extraction_errors() -> None:
+    def boom(_value: object) -> object:
+        raise ValueError("nope")
+
+    assert sync_components._automation_schema_dict(boom) is None
+
+
+def test_automation_schema_dict_rejects_non_dict_and_thenless() -> None:
+    assert sync_components._automation_schema_dict(lambda _v: "scalar") is None
+    assert sync_components._automation_schema_dict(lambda _v: {"timing": [cv.string]}) is None
+
+
+def test_automation_schema_dict_returns_schema_with_a_then_key() -> None:
+    schema = {"then": object(), "timing": [cv.string]}
+    assert sync_components._automation_schema_dict(lambda _v: schema) is schema
+
+
+def test_scan_schema_for_list_triggers_stops_at_max_depth() -> None:
+    out: set[tuple[str, str]] = set()
+    sync_components._scan_schema_for_list_triggers({"on_x": "y"}, set(), out, depth=7)
+    assert out == set()
+
+
+def test_live_trigger_list_params_handles_an_unimportable_module() -> None:
+    assert sync_components._live_trigger_list_params("no_such_component_zzz") == frozenset()
+
+
+def test_live_trigger_list_params_skips_unreadable_module_globals(monkeypatch) -> None:
+    class FakeModule:
+        def __dir__(self) -> list[str]:
+            return ["boom", "ok"]
+
+        @property
+        def boom(self) -> object:
+            raise RuntimeError("unreadable")
+
+        @property
+        def ok(self) -> dict:
+            return {}  # a dict global with no ``on_*`` triggers
+
+    monkeypatch.setattr(sync_components.importlib, "import_module", lambda _name: FakeModule())
+    assert sync_components._live_trigger_list_params("fake_module_xyz") == frozenset()

@@ -3767,7 +3767,7 @@ def _list_element(validator: Any) -> Any:
         return _NOT_A_LIST
     if isinstance(validator, vol.Any):
         elements = [_list_element(b) for b in branches]
-        if not elements or any(e is _NOT_A_LIST for e in elements):
+        if any(e is _NOT_A_LIST for e in elements):
             return _NOT_A_LIST
         return elements[0]
     # ``vol.All`` (and other all-must-pass combinators): one list branch
