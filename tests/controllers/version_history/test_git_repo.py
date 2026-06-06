@@ -685,6 +685,51 @@ def test_commit_paths_records_deletion_of_tracked_file(tmp_path: Path) -> None:
     assert repo.log_file(yaml)[0].message == "Delete kitchen.yaml"
 
 
+def test_latest_content_walks_back_past_a_deletion(tmp_path: Path) -> None:
+    """latest_content returns the newest commit where the file still had content."""
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+    yaml = tmp_path / "kitchen.yaml"
+    yaml.write_text("v1\n", encoding="utf-8")
+    repo.commit_paths([yaml], "Create kitchen.yaml")
+    yaml.write_text("v2\n", encoding="utf-8")
+    repo.commit_paths([yaml], "Update kitchen.yaml")
+    yaml.unlink()
+    repo.commit_paths([yaml], "Delete kitchen.yaml")
+
+    result = repo.latest_content(yaml)
+
+    assert result is not None
+    _, content = result
+    assert content == "v2\n"  # skipped the contentless deletion commit
+
+
+def test_latest_content_none_when_no_history(tmp_path: Path) -> None:
+    """latest_content is None for a path git has never recorded."""
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+
+    assert repo.latest_content(tmp_path / "ghost.yaml") is None
+
+
+def test_index_lock_path_absolute_returned_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An absolute ``--git-path index.lock`` (split git dir) is used as-is."""
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+    abs_lock = tmp_path / ".git" / "index.lock"
+    monkeypatch.setattr(
+        GitRepo,
+        "_run",
+        lambda self, args, *, check, cwd=None: subprocess.CompletedProcess(
+            args, 0, stdout=f"{abs_lock}\n", stderr=""
+        ),
+    )
+
+    assert repo._index_lock_path() == abs_lock
+
+
 def test_commit_paths_does_not_sweep_unrelated_staged_edits(tmp_path: Path) -> None:
     """Pathspec scoping: our commit must not fold in the user's staged work.
 
