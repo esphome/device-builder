@@ -38,6 +38,13 @@ def test_is_list_validator_rejects_scalar_and_listless_all() -> None:
     assert sync_components._is_list_validator(cv.All(cv.string, cv.Length(min=1))) is False
 
 
+def test_is_list_validator_rejects_a_list_of_mappings() -> None:
+    """A list-of-dicts (``demo``'s entity lists) is not a scalar ``multi_value`` field."""
+    schema = cv.Schema({cv.Optional("name"): cv.string})
+    assert sync_components._is_list_validator([schema]) is False
+    assert sync_components._is_list_validator([{cv.Optional("name"): cv.string}]) is False
+
+
 def test_apply_list_fields_marks_matching_path_multi_value() -> None:
     entries = [
         {"key": "data_pins", "type": "string", "multi_value": False},

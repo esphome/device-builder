@@ -3747,20 +3747,45 @@ def _walk_schema_keys(
         _LOGGER.debug("schema walk aborted on %r", schema, exc_info=True)
 
 
+_NOT_A_LIST = object()
+
+
+def _list_element(validator: Any) -> Any:
+    """Element validator of a bare ``[item]`` / ``vol.All([item], …)``, or ``_NOT_A_LIST``."""
+    if isinstance(validator, list):
+        return validator[0] if validator else None
+    for v in getattr(validator, "validators", None) or ():
+        if isinstance(v, list):
+            return v[0] if v else None
+    return _NOT_A_LIST
+
+
+def _validates_mapping(validator: Any) -> bool:
+    """Report whether *validator* validates a YAML mapping (a list-of-dicts element)."""
+    if isinstance(validator, dict):
+        return True
+    if isinstance(getattr(validator, "schema", None), dict):
+        return True
+    return any(_validates_mapping(v) for v in getattr(validator, "validators", None) or ())
+
+
 def _is_list_validator(validator: Any) -> bool:
     """
-    Report whether *validator* is a voluptuous list — bare ``[item]`` or ``vol.All`` wrapping one.
+    Report whether *validator* is a *scalar* voluptuous list — bare ``[item]`` or ``vol.All`` wrapping one.
 
     ESPHome marks a field ``is_list`` in the schema bundle only when it
     flows through ``cv.ensure_list``; a raw ``[item]`` (often inside
     ``cv.All([item], extra)`` — ``on_multi_click``'s ``timing``,
     ``esp32_camera``'s ``data_pins``) bypasses that path, so the bundle
-    types it as a scalar. Recover the list shape from the live validator.
+    types it as a scalar. A list whose element is itself a *mapping*
+    (``demo``'s entity lists) is excluded: ``multi_value`` on a scalar
+    type would render one text input per dict, so it's left as the bundle
+    typed it rather than mislabelled.
     """
-    if isinstance(validator, list):
-        return True
-    sub = getattr(validator, "validators", None)
-    return bool(sub) and any(isinstance(v, list) for v in sub)
+    element = _list_element(validator)
+    if element is _NOT_A_LIST:
+        return False
+    return not _validates_mapping(element)
 
 
 def _collect_platform_defaults(manifest: Any) -> dict[tuple[str, ...], dict[str, Any]]:
