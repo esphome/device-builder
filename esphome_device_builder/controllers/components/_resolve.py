@@ -250,6 +250,7 @@ def _materialise_entry(entry: ConfigEntry, target_platform: str | None) -> Confi
         unit_options=entry.unit_options,
         multi_value=entry.multi_value,
         templatable=entry.templatable,
+        exclusive_group=entry.exclusive_group,
         depends_on=entry.depends_on,
         depends_on_value=entry.depends_on_value,
         depends_on_value_not=entry.depends_on_value_not,

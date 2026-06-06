@@ -5126,7 +5126,8 @@ def _apply_list_fields(entries: list[dict], list_fields: dict[tuple[str, ...], b
 
 
 def _collect_registry_members(manifest: Any) -> frozenset[str]:
-    """Entry keys of a ``cv.validate_registry_entry`` schema, else empty.
+    """
+    Entry keys of a ``cv.validate_registry_entry`` schema, else empty.
 
     A registry-backed platform schema (``remote_receiver``'s binary_sensor:
     one of ``raw`` / ``nec`` / ... per item) is mutually exclusive; the keys
