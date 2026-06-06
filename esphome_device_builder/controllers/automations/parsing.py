@@ -353,43 +353,85 @@ def _parse_inline_component_triggers(root: Any) -> list[ParsedAutomation]:
     return out
 
 
+def _component_body_entries(catalog_id: str) -> list[Any]:
+    """
+    Return *catalog_id*'s top-level ``config_entries`` list (``[]`` when absent).
+
+    Reads the shipped component body JSON (the same the components controller
+    serves). Only ``FileNotFoundError`` is swallowed — the expected "no shipped
+    catalog entry" case; a real read error or a missing definitions package
+    (``ModuleNotFoundError``, a packaging defect that would otherwise silently
+    disable the feature process-wide) propagates instead.
+    """
+    if is_unsafe_catalog_id(catalog_id):
+        return []
+    try:
+        raw = resources.files(_COMPONENTS_PACKAGE).joinpath(f"{catalog_id}.json").read_bytes()
+    except FileNotFoundError:
+        return []
+    if not raw:
+        return []
+    return json_loads(raw).get("config_entries") or []
+
+
 # Per-``<domain>.<platform>`` set of ``type: trigger`` action-list field
 # keys, read from the component bodies on first use (process cache).
 _ACTION_FIELD_INDEX: dict[str, frozenset[str]] = {}
 
 
 def _component_action_fields(catalog_id: str) -> frozenset[str]:
-    """
-    Return the ``type: trigger`` action-list field keys for *catalog_id*.
-
-    Reads the component body's top-level ``config_entries`` (the same
-    JSON the components controller serves) once per id. Empty when the
-    body is absent or carries no such field.
-    """
+    """Return the ``type: trigger`` action-list field keys for *catalog_id*."""
     cached = _ACTION_FIELD_INDEX.get(catalog_id)
-    if cached is not None:
-        return cached
-    fields: set[str] = set()
-    if not is_unsafe_catalog_id(catalog_id):
-        try:
-            raw = resources.files(_COMPONENTS_PACKAGE).joinpath(f"{catalog_id}.json").read_bytes()
-        except FileNotFoundError:
-            # Absent body — the expected "component has no shipped catalog
-            # entry" case. Only this is swallowed: a real read error or a
-            # missing definitions package (ModuleNotFoundError — a packaging
-            # defect that would otherwise silently disable the whole feature
-            # process-wide via the empty-set cache) propagates instead.
-            raw = b""
-        if raw:
-            body = json_loads(raw)
-            for entry in body.get("config_entries") or []:
-                if isinstance(entry, dict) and entry.get("type") == "trigger":
-                    key = entry.get("key")
-                    if isinstance(key, str):
-                        fields.add(key)
-    frozen = frozenset(fields)
-    _ACTION_FIELD_INDEX[catalog_id] = frozen
-    return frozen
+    if cached is None:
+        cached = frozenset(
+            entry["key"]
+            for entry in _component_body_entries(catalog_id)
+            if isinstance(entry, dict)
+            and entry.get("type") == "trigger"
+            and isinstance(entry.get("key"), str)
+        )
+        _ACTION_FIELD_INDEX[catalog_id] = cached
+    return cached
+
+
+# Per-``<domain>.<platform>`` tuple of ``(sub_key, platform_type)`` pairs for
+# the component's nested sub-entity blocks, read once per id (process cache).
+_PLATFORM_SUBENTITY_INDEX: dict[str, tuple[tuple[str, str], ...]] = {}
+
+
+def platform_subentity_keys(catalog_id: str) -> tuple[tuple[str, str], ...]:
+    """
+    Return ``(sub_key, platform_type)`` for *catalog_id*'s sub-entity blocks.
+
+    A sub-entity block is a top-level ``type: nested`` entry carrying a
+    ``platform_type`` and its own ``id`` (e.g. ``temperature`` on
+    ``sensor.aht10``). Plain nested groups (``availability:`` /
+    ``web_server:``) have no ``platform_type`` and are excluded.
+    """
+    cached = _PLATFORM_SUBENTITY_INDEX.get(catalog_id)
+    if cached is None:
+        cached = tuple(
+            (entry["key"], entry["platform_type"])
+            for entry in _component_body_entries(catalog_id)
+            if _is_subentity_block(entry)
+        )
+        _PLATFORM_SUBENTITY_INDEX[catalog_id] = cached
+    return cached
+
+
+def _is_subentity_block(entry: Any) -> bool:
+    """Return True for a nested config entry that is itself an id'd platform sub-entity."""
+    return (
+        isinstance(entry, dict)
+        and entry.get("type") == "nested"
+        and isinstance(entry.get("key"), str)
+        and bool(entry.get("platform_type"))
+        and isinstance(entry.get("platform_type"), str)
+        and any(
+            isinstance(sub, dict) and sub.get("key") == "id"
+            for sub in entry.get("config_entries") or []
+        )
+    )
 
 
 def _parse_component_action_fields(root: Any) -> list[ParsedAutomation]:
