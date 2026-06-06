@@ -325,15 +325,15 @@ class GitRepo:
         # A path that's gone from disk and untracked has nothing to commit:
         # the dashboard delete already recorded the removal, or an atomic-save
         # editor briefly removed it. Drop those. A gone-but-tracked path stays
-        # so its deletion is staged (git add -A picks up the removal). The
-        # common create / edit case has no gone paths, so it skips git here.
+        # so its deletion is staged (git add -A picks up the removal).
         present: list[Path] = []
         gone: list[Path] = []
         for p in paths:
             (present if p.exists() else gone).append(p)
-        # Explicitly listing an untracked, gitignored path (e.g. secrets.yaml,
-        # which we deliberately keep out of history) makes ``git add`` fail, so
-        # drop those; a commit of only such paths is a clean no-op.
+        # Drop present paths git would refuse as ignored (e.g. secrets.yaml,
+        # deliberately kept out of history); explicitly listing one makes
+        # ``git add`` fail, and a commit of only such paths is a clean no-op.
+        # Costs one ``check-ignore`` per save, ahead of the add/diff/commit.
         ignored = set(self._ignored_subset(present))
         spec: list[str] = [str(p) for p in present if p not in ignored]
         if gone:
