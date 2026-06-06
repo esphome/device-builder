@@ -57,6 +57,14 @@ async def import_bundle(
     files the caller left untouched), so a partial import is never masked
     as a full one.
     """
+    if overwrite is not None and (
+        not isinstance(overwrite, list) or not all(isinstance(p, str) for p in overwrite)
+    ):
+        # The WS layer doesn't coerce JSON types, so a malformed
+        # ``overwrite`` would otherwise reach ``set(...)`` and corrupt the
+        # keep/replace decision.
+        raise CommandError(ErrorCode.INVALID_ARGS, "overwrite must be a list of strings")
+
     config_dir = controller._db.settings.config_dir
     loop = asyncio.get_running_loop()
     outcome = await loop.run_in_executor(
@@ -150,6 +158,17 @@ def _stage_bundle(file_content_b64: str, config_dir: Path, overwrite: list[str] 
         except EsphomeError as exc:
             raise CommandError(ErrorCode.INVALID_ARGS, f"Couldn't extract bundle: {exc}") from exc
 
+        # Refuse a non-text main config before anything is placed, so a
+        # corrupt bundle is a clean error rather than a half-written tree
+        # with a degraded sidecar.
+        try:
+            (staging / config_filename).read_text("utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise CommandError(
+                ErrorCode.INVALID_ARGS,
+                f"The bundle's main config {config_filename} isn't valid UTF-8 text.",
+            ) from exc
+
         placements = [
             (rel, src)
             for src in sorted(staging.rglob("*"))
@@ -226,14 +245,12 @@ def _init_bundle_storage(config_dir: Path, config_filename: str) -> None:
     """Write a fresh StorageJSON sidecar from the imported config's own fields."""
     name = configuration_stem(config_filename)
     try:
-        # Strict decode: don't mangle a non-UTF-8 file via errors="replace"
-        # into a bad sidecar.
         content = (config_dir / config_filename).read_text("utf-8")
     except (FileNotFoundError, UnicodeDecodeError) as err:
-        # The sidecar is best-effort; the scanner re-derives metadata from
-        # the YAML on its next pass, so seed a minimal one rather than
-        # failing an import whose files already landed. Logged so a missing
-        # / non-UTF-8 main config isn't invisible.
+        # Safety net only: the main config was validated as UTF-8 before
+        # placement, so this is unreachable in the normal flow. The sidecar
+        # is best-effort (the scanner re-derives it), so seed a minimal one
+        # and log rather than crash an import whose files already landed.
         _LOGGER.warning("Couldn't read %s to seed its sidecar (%s)", config_filename, err)
         init_device_storage(config_filename, name, None, "")
         return

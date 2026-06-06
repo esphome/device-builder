@@ -311,6 +311,44 @@ async def test_import_bundle_rejects_malformed_tar(
     assert ctrl._scanner.calls == []
 
 
+async def test_import_bundle_rejects_non_list_overwrite(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A non-list ``overwrite`` is rejected at the boundary, not coerced into a set."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    bundle = _make_bundle({"kitchen.yaml": MAIN_YAML}, config_filename="kitchen.yaml")
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.import_bundle(
+            file_content_b64=_b64(bundle),
+            overwrite="kitchen.yaml",  # type: ignore[arg-type]
+        )
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "overwrite" in excinfo.value.message
+
+
+async def test_import_bundle_rejects_non_utf8_main_config(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A non-UTF-8 main config is refused before any file is placed."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    bundle = _make_bundle(
+        {"kitchen.yaml": b"\xff\xfe\x00not utf8", "common/extra.yaml": "x\n"},
+        config_filename="kitchen.yaml",
+    )
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.import_bundle(file_content_b64=_b64(bundle))
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "UTF-8" in excinfo.value.message
+    # Nothing was placed and no device registered.
+    assert not (tmp_path / "kitchen.yaml").exists()
+    assert not (tmp_path / "common").exists()
+    assert ctrl._scanner.calls == []
+
+
 async def test_import_bundle_rejects_path_traversal(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
