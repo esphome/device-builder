@@ -2,7 +2,7 @@
 
 Lands an ``esphome bundle`` archive (``.esphomebundle.tar.gz``) as a
 device: the main YAML plus its ``!include``s, local external components,
-and a merged ``secrets.yaml``. Two-phase by design — the first call
+and a merged ``secrets.yaml``. Two-phase by design: the first call
 reports any on-disk files the bundle would overwrite so the user picks
 which to replace, then re-submits with ``overwrite`` set.
 """
