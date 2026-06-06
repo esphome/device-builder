@@ -123,6 +123,39 @@ def test_registry_from_schema_none_for_a_plain_callable() -> None:
     assert sync_components._registry_from_schema("not callable") is None
 
 
+def test_collect_registry_members_returns_protocol_keys() -> None:
+    """``remote_receiver`` binary_sensor is one-of its registered protocols."""
+    loader = sync_components._get_esphome_loader()
+    manifest = loader.get_platform("binary_sensor", "remote_receiver")
+    members = sync_components._collect_registry_members(manifest)
+    assert {"raw", "nec", "jvc", "gobox"} <= members
+    assert not ({"name", "icon", "receiver_id"} & members)
+
+
+def test_collect_registry_members_empty_for_plain_schema() -> None:
+    schemaless = SimpleNamespace(config_schema=None)
+    assert sync_components._collect_registry_members(schemaless) == frozenset()
+
+
+def test_apply_exclusive_group_tags_only_members() -> None:
+    entries = [
+        {"key": "name", "type": "string"},
+        {"key": "raw", "type": "nested"},
+        {"key": "nec", "type": "nested"},
+    ]
+    sync_components._apply_exclusive_group(entries, frozenset({"raw", "nec"}), "grp")
+    by_key = {e["key"]: e for e in entries}
+    assert by_key["raw"]["exclusive_group"] == "grp"
+    assert by_key["nec"]["exclusive_group"] == "grp"
+    assert "exclusive_group" not in by_key["name"]
+
+
+def test_apply_exclusive_group_noop_without_members() -> None:
+    entries = [{"key": "raw", "type": "nested"}]
+    sync_components._apply_exclusive_group(entries, frozenset(), "grp")
+    assert "exclusive_group" not in entries[0]
+
+
 def test_introspect_component_surfaces_list_fields() -> None:
     """The component introspection carries ``list_fields`` into the build path."""
     introspection = sync_components.introspect_component("esp32_camera")

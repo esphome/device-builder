@@ -448,6 +448,13 @@ class ConfigEntry(DataClassORJSONMixin):
     # Most ESPHome fields are templatable.
     templatable: bool = False
 
+    # Sibling entries sharing a non-null value are mutually exclusive —
+    # exactly one may be set (e.g. a remote_receiver binary_sensor's
+    # protocol: one of raw / nec / jvc / ... per item). The frontend
+    # renders the group as a single pick-one discriminator dropdown
+    # instead of independently fillable nested groups.
+    exclusive_group: str | None = None
+
     # === featured-component overlays ===
     # Populated only on materialised featured components — the regular
     # catalog never sets these. ``locked=True`` tells the frontend to
