@@ -541,12 +541,15 @@ class GitRepo:
         return lock
 
     def _tracked_subset(self, paths: list[Path]) -> list[Path]:
-        """Return the subset of *paths* git tracks in the index (one ls-files call)."""
+        """Return the subset of *paths* git tracks in the index (one ls-files call).
+
+        Runs with ``check=True``: ``ls-files`` exits 0 (empty output) for an
+        untracked pathspec, so a non-zero exit is a genuine git failure and
+        must propagate rather than masquerade as "nothing tracked".
+        """
         result = self._run(
-            ["ls-files", "-z", "--full-name", "--", *(str(p) for p in paths)], check=False
+            ["ls-files", "-z", "--full-name", "--", *(str(p) for p in paths)], check=True
         )
-        if result.returncode != 0 or not result.stdout:
-            return []
         tracked = {rel for rel in result.stdout.split("\0") if rel}
         return [p for p in paths if self._rel_to_toplevel(p) in tracked]
 
