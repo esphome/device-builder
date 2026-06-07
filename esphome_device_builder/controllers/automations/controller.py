@@ -436,8 +436,7 @@ def _decode_location(raw: dict) -> AutomationLocation:
         msg = f"location must carry a 'kind' discriminator; got {raw!r}"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     kind = raw["kind"]
-    decoder = _LOCATION_DECODERS.get(kind)
-    if decoder is None:
+    if (decoder := _LOCATION_DECODERS.get(kind)) is None:
         msg = f"Unknown location kind: {kind!r}"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     return decoder(raw)
