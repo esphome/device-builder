@@ -273,38 +273,63 @@ async def _receive_loop(session: PeerLinkSession, controller: ReceiverController
             # the WS will drain via the next ``CLOSE`` frame.
             session._closing = True
             return
-        if msg_type == AppMessageType.SUBMIT_JOB.value:
-            # The ``cast`` is the dispatch boundary's "wire said
-            # submit_job; treat as the matching TypedDict"
-            # hand-off; receiver validates the fields.
-            await controller.get_submit_job_receiver().handle_submit_job(
-                session, cast(SubmitJobFrameData, parsed)
-            )
-            continue
-        if msg_type == AppMessageType.SUBMIT_JOB_CHUNK.value:
-            await controller.get_submit_job_receiver().handle_submit_job_chunk(
-                session, cast(SubmitJobChunkFrameData, parsed)
-            )
-            continue
-        if msg_type == AppMessageType.CANCEL_JOB.value:
-            # Cooperative cancel; fire-and-forget. The resulting
-            # ``JOB_CANCELLED`` bus event fans out
-            # ``job_state_changed{cancelled}`` which the offloader
-            # already plumbs — no ack frame needed.
-            await controller.handle_cancel_job(session, parsed)
-            continue
-        if msg_type == AppMessageType.DOWNLOAD_ARTIFACTS.value:
-            # Streams the completed build's artifacts back via
-            # ``artifacts_start`` → chunks → ``artifacts_end``.
-            await controller.get_artifacts_download_sender().handle_download_artifacts(
-                session, parsed
-            )
+        handler = _APP_FRAME_DISPATCH.get(msg_type) if isinstance(msg_type, str) else None
+        if handler is not None:
+            await handler(controller, session, parsed)
             continue
         _LOGGER.debug(
             "peer-link unknown app frame type %r from %s; ignoring",
             msg_type,
             session.dashboard_id,
         )
+
+
+async def _dispatch_submit_job(
+    controller: ReceiverController, session: PeerLinkSession, parsed: dict[str, Any]
+) -> None:
+    # The cast is the dispatch boundary's "wire said submit_job; treat as the
+    # matching TypedDict" hand-off; the receiver validates the fields.
+    await controller.get_submit_job_receiver().handle_submit_job(
+        session, cast(SubmitJobFrameData, parsed)
+    )
+
+
+async def _dispatch_submit_job_chunk(
+    controller: ReceiverController, session: PeerLinkSession, parsed: dict[str, Any]
+) -> None:
+    await controller.get_submit_job_receiver().handle_submit_job_chunk(
+        session, cast(SubmitJobChunkFrameData, parsed)
+    )
+
+
+async def _dispatch_cancel_job(
+    controller: ReceiverController, session: PeerLinkSession, parsed: dict[str, Any]
+) -> None:
+    # Cooperative cancel; fire-and-forget. The resulting JOB_CANCELLED bus
+    # event fans out job_state_changed{cancelled} which the offloader already
+    # plumbs, so no ack frame is needed.
+    await controller.handle_cancel_job(session, parsed)
+
+
+async def _dispatch_download_artifacts(
+    controller: ReceiverController, session: PeerLinkSession, parsed: dict[str, Any]
+) -> None:
+    # Streams the completed build's artifacts back via artifacts_start,
+    # chunks, then artifacts_end.
+    await controller.get_artifacts_download_sender().handle_download_artifacts(session, parsed)
+
+
+# Inbound app-frame type → async handler. PING / PONG / TERMINATE branch in
+# the receive loop body; they touch session-local state or close the loop and
+# don't fit the shared handler shape. Malformed frames branch upstream.
+_APP_FRAME_DISPATCH: dict[
+    str, Callable[[ReceiverController, PeerLinkSession, dict[str, Any]], Awaitable[None]]
+] = {
+    AppMessageType.SUBMIT_JOB.value: _dispatch_submit_job,
+    AppMessageType.SUBMIT_JOB_CHUNK.value: _dispatch_submit_job_chunk,
+    AppMessageType.CANCEL_JOB.value: _dispatch_cancel_job,
+    AppMessageType.DOWNLOAD_ARTIFACTS.value: _dispatch_download_artifacts,
+}
 
 
 def _monotonic() -> float:
