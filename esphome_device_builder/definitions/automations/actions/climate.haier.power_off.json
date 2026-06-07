@@ -1,0 +1,1 @@
+{"id":"climate.haier.power_off","name":"Climate.Haier → Power Off","description":"This action turns AC power off.","docs_url":"https://esphome.io/automations/actions","domain":"climate.haier","config_entries":[],"is_control_flow":false,"has_else_branch":false,"accepts_action_list":[],"scalar_shorthand_key":null}

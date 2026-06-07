@@ -512,6 +512,26 @@ def test_parse_isolates_unknown_action_id() -> None:
     assert [a.action_id for a in good.automation.actions] == ["logger.log"]
 
 
+def test_parse_resolves_platform_scoped_publish_action() -> None:
+    """``sensor.template.publish`` resolves to its catalog entry, not an unknown id (#1282)."""
+    yaml = (
+        "esphome:\n  name: x\n"
+        "sensor:\n"
+        "  - platform: template\n"
+        "    id: zeit\n"
+        "script:\n"
+        "  - id: adj\n"
+        "    then:\n"
+        "      - sensor.template.publish:\n"
+        "          id: zeit\n"
+        "          state: NaN\n"
+    )
+    parsed = parse_device_yaml(yaml)
+    block = next(p for p in parsed if p.location.kind == "script")
+    assert block.error is None
+    assert [a.action_id for a in block.automation.actions] == ["sensor.template.publish"]
+
+
 def test_parse_raises_on_unloadable_yaml() -> None:
     """A YAML that won't load at all is the one whole-document failure that raises."""
     with pytest.raises(CommandError):

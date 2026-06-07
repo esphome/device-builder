@@ -1,0 +1,1 @@
+{"id":"climate.haier.power_on","name":"Climate.Haier → Power On","description":"This action turns AC power on.","docs_url":"https://esphome.io/automations/actions","domain":"climate.haier","config_entries":[],"is_control_flow":false,"has_else_branch":false,"accepts_action_list":[],"scalar_shorthand_key":null}

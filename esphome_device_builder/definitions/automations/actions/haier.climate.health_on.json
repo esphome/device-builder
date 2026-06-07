@@ -1,1 +1,0 @@
-{"id":"haier.climate.health_on","name":"Climate.Haier → Health On","description":"Turn on health mode (UV light sterilization).","docs_url":"https://esphome.io/automations/actions","domain":"climate.haier","config_entries":[],"is_control_flow":false,"has_else_branch":false,"accepts_action_list":[],"scalar_shorthand_key":null}

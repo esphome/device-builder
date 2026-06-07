@@ -1,1 +1,0 @@
-{"id":"duty_time.sensor.is_not_running","name":"Sensor.Duty Time → Is Not Running","description":"","docs_url":"https://esphome.io/automations/actions","domain":"sensor.duty_time","config_entries":[],"accepts_condition_list":false,"scalar_shorthand_key":null}

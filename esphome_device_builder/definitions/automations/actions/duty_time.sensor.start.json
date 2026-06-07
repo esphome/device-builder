@@ -1,1 +1,0 @@
-{"id":"duty_time.sensor.start","name":"Sensor.Duty Time → Start","description":"This action starts/resume time tracking. In lambdas, you may use the `start()` method.","docs_url":"https://esphome.io/automations/actions","domain":"sensor.duty_time","config_entries":[],"is_control_flow":false,"has_else_branch":false,"accepts_action_list":[],"scalar_shorthand_key":null}

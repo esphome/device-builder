@@ -377,11 +377,8 @@ async def test_get_available_scopes_to_configured_platform(tmp_path: Path) -> No
     """Platform-specific catalog entries only surface for the matching platform.
 
     A switch with ``platform: gpio`` gets ``switch.turn_on`` but
-    NOT ``template.switch.publish`` (no template switch); adding a
-    template switch pulls the publish action in. Same shape on the
-    trigger side: ``template.switch.turn_on`` (the trigger fired
-    on a template switch's state-change automation) appears only
-    when ``platform: template`` is configured.
+    NOT ``switch.template.publish`` (no template switch); adding a
+    template switch pulls the publish action in.
     """
     gpio_only = tmp_path / "gpio.yaml"
     gpio_only.write_text(
@@ -392,7 +389,7 @@ async def test_get_available_scopes_to_configured_platform(tmp_path: Path) -> No
     gpio = await controller.get_available(configuration="gpio.yaml")
     gpio_actions = {a["id"] for a in gpio["actions"]}
     assert "switch.turn_on" in gpio_actions
-    assert "template.switch.publish" not in gpio_actions
+    assert "switch.template.publish" not in gpio_actions
 
     with_template = tmp_path / "tpl.yaml"
     with_template.write_text(
@@ -405,7 +402,7 @@ async def test_get_available_scopes_to_configured_platform(tmp_path: Path) -> No
     tpl = await controller.get_available(configuration="tpl.yaml")
     tpl_actions = {a["id"] for a in tpl["actions"]}
     assert "switch.turn_on" in tpl_actions
-    assert "template.switch.publish" in tpl_actions
+    assert "switch.template.publish" in tpl_actions
 
 
 async def test_get_available_tolerates_non_dict_items_in_component_lists(
@@ -442,11 +439,12 @@ async def test_get_available_surfaces_namespace_actions_on_base_domain(
     (``template.switch`` ⇒ ``switch.template``) with organisational
     namespaces (``page.display`` — no ``display.page`` component;
     ``date.datetime`` — no ``datetime.date`` component). The sync
-    flattens the latter to bare ``<base>`` so they surface for
-    any matching base domain. Configuring a display with
-    ``platform: ssd1306_i2c`` should expose ``page.display.show``
-    (display-page actions, sub-feature of any display) but
-    nothing platform-locked to a different platform.
+    flattens the latter's *domain* to bare ``<base>`` so they surface
+    for any matching base domain, while the *id* still flips to
+    ESPHome's wire form (``display.page.show``). Configuring a display
+    with ``platform: ssd1306_i2c`` should expose the display-page
+    actions (a sub-feature of any display) but nothing platform-locked
+    to a different platform.
     """
     config = tmp_path / "screen.yaml"
     config.write_text(
@@ -459,10 +457,10 @@ async def test_get_available_surfaces_namespace_actions_on_base_domain(
     controller = _make_controller(tmp_path)
     result = await controller.get_available(configuration="screen.yaml")
     action_ids = {a["id"] for a in result["actions"]}
-    assert "page.display.show" in action_ids
-    assert "page.display.show_next" in action_ids
+    assert "display.page.show" in action_ids
+    assert "display.page.show_next" in action_ids
     # Platform-locked display action stays out (we have ssd1306_i2c, not nextion).
-    assert "nextion.display.set_brightness" not in action_ids
+    assert "display.nextion.set_brightness" not in action_ids
 
 
 # ---------------------------------------------------------------------------

@@ -5374,6 +5374,13 @@ def build_automations(  # noqa: C901
     effects: list[dict] = []
     filters: list[dict] = []
 
+    # Domains that host platform components (``sensor`` from
+    # ``sensor.template``, ``display`` from ``display.ssd1306``, …);
+    # gates the action/condition id flip in :func:`_automation_id_prefix`.
+    # Derived from the just-built component set, not ``_PLATFORM_DOMAINS``,
+    # so the flip decision rests on the same evidence as ``_automation_domain``.
+    platform_domains = {cid.split(".", 1)[0] for cid in component_ids if "." in cid}
+
     for path in iter_schema_files(schema_dir):
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
@@ -5384,18 +5391,19 @@ def build_automations(  # noqa: C901
             if not isinstance(section, dict):
                 continue
             # ``top_key`` is the schema's raw ``<stem>.<base>`` form
-            # (e.g. ``template.switch``) — kept verbatim for entry
-            # ids so they match ESPHome's wire format
-            # (``template.switch.publish``). ``domain`` is the
-            # canonical ``<base>.<stem>`` form used for the
-            # metadata field that gets matched against the YAML
-            # scoping set.
+            # (e.g. ``template.switch``). ``wire_prefix`` flips it to
+            # ESPHome's registered ``<base>.<stem>`` action/condition id
+            # (``switch.template.publish``); ``domain`` is the canonical
+            # component id for the metadata field matched against the
+            # YAML scoping set.
             domain = _automation_domain(top_key, component_ids=component_ids)
+            wire_prefix = _automation_id_prefix(top_key, platform_domains=platform_domains)
             # Component-scoped action / condition registries.
             for name, body in (section.get("action") or {}).items():
                 entry = _convert_automation_action(
                     top_key=top_key,
                     domain=domain,
+                    wire_prefix=wire_prefix,
                     name=name,
                     body=body,
                     schema_dir=schema_dir,
@@ -5406,6 +5414,7 @@ def build_automations(  # noqa: C901
                 entry = _convert_automation_condition(
                     top_key=top_key,
                     domain=domain,
+                    wire_prefix=wire_prefix,
                     name=name,
                     body=body,
                     schema_dir=schema_dir,
@@ -5484,10 +5493,27 @@ def _automation_domain(top_key: str, *, component_ids: set[str]) -> str:
     return top_key
 
 
+def _automation_id_prefix(top_key: str, *, platform_domains: set[str]) -> str:
+    """
+    ESPHome wire prefix for an automation id from the schema *top_key*.
+
+    The schema dumps platform-scoped registries reversed
+    (``template.sensor``); ESPHome registers them ``<domain>.<platform>``
+    (``sensor.template.publish``). Flip when the base token is a real
+    platform domain; otherwise the dotted prefix is an in-component
+    namespace (``esp_ldo.voltage``, ``espnow.peer``), kept verbatim.
+    """
+    if top_key == "core" or "." not in top_key:
+        return top_key
+    stem, base = top_key.split(".", 1)
+    return f"{base}.{stem}" if base in platform_domains else top_key
+
+
 def _convert_automation_action(
     *,
     top_key: str,
     domain: str,
+    wire_prefix: str,
     name: str,
     body: dict,
     schema_dir: Path,
@@ -5508,7 +5534,7 @@ def _convert_automation_action(
     )
     is_control_flow = bool(accepts_action_list) or has_condition_gate
     has_else_branch = "else" in (accepts_action_list or [])
-    qualified = f"{top_key}.{name}" if top_key != "core" else name
+    qualified = f"{wire_prefix}.{name}" if top_key != "core" else name
     config_entries, scalar_shorthand_key = _resolve_automation_lambda(
         top_key=top_key,
         name=name,
@@ -5535,6 +5561,7 @@ def _convert_automation_condition(
     *,
     top_key: str,
     domain: str,
+    wire_prefix: str,
     name: str,
     body: dict,
     schema_dir: Path,
@@ -5547,7 +5574,7 @@ def _convert_automation_condition(
     config_entries, _accepts_action_list, _has_condition_gate = _extract_automation_param_schema(
         schema, schema_dir
     )
-    qualified = f"{top_key}.{name}" if top_key != "core" else name
+    qualified = f"{wire_prefix}.{name}" if top_key != "core" else name
     # Boolean combinators have ``is_list: true`` + ``registry:
     # condition`` directly on the body, not inside a ``schema``.
     is_condition = body.get("registry") == "condition"
