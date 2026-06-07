@@ -375,6 +375,14 @@ def test_emit_action_bare_scalar_action_collapses_synthetic_id() -> None:
     assert dump([emit_action_node(node)]).strip() == "- delay: 1s"
 
 
+def test_emit_action_unknown_id_does_not_collapse() -> None:
+    """An id absent from the catalog has no known shorthand, so it stays a mapping."""
+    node = ActionNode(action_id="not.a_real_action", params={"id": "x"})
+    out = dump([emit_action_node(node)])
+    assert "id: x" in out
+    assert "not.a_real_action: x" not in out
+
+
 def test_decompose_action_with_children_and_conditions() -> None:
     """``if`` decomposes its ``then`` / ``else`` / ``condition`` keys."""
     node = _decompose_action(
@@ -584,11 +592,7 @@ def test_emit_condition_node_bare_condition() -> None:
 
 
 def test_emit_condition_node_id_mapping_field_stays_mapping() -> None:
-    """A real ``id`` mapping field with no shorthand stays a mapping, not a scalar.
-
-    ``time.has_time`` has ``scalar_shorthand_key`` null and a genuine ``id`` field, so
-    it must emit ``id:`` rather than collapsing (esphome/device-builder#1289).
-    """
+    """A condition whose sole field is a real ``id`` mapping emits ``id:``, not a scalar."""
     node = ConditionNode(condition_id="time.has_time", params={"id": "id_time"})
     out = dump([emit_condition_node(node)])
     assert "id: id_time" in out

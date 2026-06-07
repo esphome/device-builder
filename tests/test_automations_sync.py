@@ -109,13 +109,7 @@ def test_build_automations_captures_value_and_absent_shorthand_keys(tmp_path: Pa
 
 
 def test_build_automations_inherits_shorthand_key_through_extends(tmp_path: Path) -> None:
-    """A ``maybe`` declared on an extended base surfaces as ``scalar_shorthand_key``.
-
-    Single-id actions wrap their schema with ``maybe_simple_id`` via a shared base
-    (``switch.SWITCH_ACTION_SCHEMA``), so the ``maybe`` lives on the extended schema,
-    not the action body. The plain ``id`` mapping (``time.has_time``, no ``maybe``
-    anywhere) must stay ``None`` (esphome/device-builder#1289).
-    """
+    """An extended base's ``maybe`` becomes ``scalar_shorthand_key``; a bare id stays ``None``."""
     schema_dir = _write_schema(
         tmp_path,
         "switch.json",
