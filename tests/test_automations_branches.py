@@ -230,6 +230,13 @@ def test_decode_location_unknown_kind_raises_invalid_args() -> None:
     assert err.value.code == ErrorCode.INVALID_ARGS
 
 
+def test_decode_location_unhashable_kind_raises_invalid_args() -> None:
+    """A non-string ``kind`` raises INVALID_ARGS, not TypeError."""
+    with pytest.raises(CommandError) as err:
+        _decode_location({"kind": []})
+    assert err.value.code == ErrorCode.INVALID_ARGS
+
+
 # ---------------------------------------------------------------------------
 # parsing.py
 # ---------------------------------------------------------------------------
