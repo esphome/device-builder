@@ -27,6 +27,7 @@ from .helpers.logging import activate_log_queue_handler
 
 if TYPE_CHECKING:
     from .controllers.config import DashboardSettings
+    from .device_builder import DeviceBuilder
 
 _FORMAT = "%(asctime)s.%(msecs)03d %(levelname)s (%(threadName)s) [%(name)s] %(message)s"
 _DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -345,19 +346,24 @@ def main() -> None:
     ):
         if lock.exit_code is not None:
             sys.exit(lock.exit_code)
-        device_builder = DeviceBuilder(settings)
-        try:
-            device_builder.run()
-        except Exception:
-            # A stop signal landing mid-``on_startup`` cancels aiohttp's
-            # main task while it's still in ``runner.setup()`` — outside
-            # ``run_app``'s cleanup try/finally — so a half-started
-            # controller's teardown can surface a non-``CancelledError``
-            # that escapes ``run_app``. If the user asked us to stop, that's
-            # a clean exit; only a crash with no stop pending propagates.
-            if not _stop_requested:
-                raise
-            logging.getLogger(_LOGGER_NAME).info("Stop signal interrupted startup; exiting cleanly")
+        _serve_until_stop(DeviceBuilder(settings))
+
+
+def _serve_until_stop(device_builder: DeviceBuilder) -> None:
+    """Run the dashboard; swallow a teardown error caused by a pending stop.
+
+    A stop signal landing mid-``on_startup`` cancels aiohttp's main task
+    while it's still in ``runner.setup()`` — outside ``run_app``'s cleanup
+    try/finally — so a half-started controller's teardown can surface a
+    non-``CancelledError`` that escapes ``run_app``. With a stop pending
+    that's a clean exit; a crash with no stop pending propagates.
+    """
+    try:
+        device_builder.run()
+    except Exception:
+        if not _stop_requested:
+            raise
+        logging.getLogger(_LOGGER_NAME).info("Stop signal interrupted startup; exiting cleanly")
 
 
 def _log_uncaught_exception(

@@ -15,6 +15,7 @@ import socket
 import subprocess
 import sys
 import time
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import pytest
@@ -56,6 +57,46 @@ def test_raise_graceful_exit_raises_graceful_exit() -> None:
     """The deferred callback raises aiohttp's ``GracefulExit``."""
     with pytest.raises(GracefulExit):
         main_module._raise_graceful_exit()
+
+
+def test_exit_cleanly_on_signal_sets_stop_requested(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The trap latches ``_stop_requested`` so ``main`` can recognise the stop."""
+    monkeypatch.setattr(main_module, "_stop_requested", False)
+    with pytest.raises(SystemExit):
+        main_module._exit_cleanly_on_signal(signal.SIGTERM, None)
+    assert main_module._stop_requested is True
+
+
+def test_serve_until_stop_returns_on_clean_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A normally-returning ``run`` propagates nothing."""
+    monkeypatch.setattr(main_module, "_stop_requested", False)
+    builder = SimpleNamespace(run=lambda: None)
+    main_module._serve_until_stop(builder)  # type: ignore[arg-type]
+
+
+def test_serve_until_stop_swallows_error_when_stop_requested(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A teardown error during a pending stop is a clean exit, not a crash."""
+    monkeypatch.setattr(main_module, "_stop_requested", True)
+
+    def _boom() -> None:
+        raise RuntimeError("half-started teardown failure")
+
+    main_module._serve_until_stop(SimpleNamespace(run=_boom))  # type: ignore[arg-type]
+
+
+def test_serve_until_stop_reraises_without_pending_stop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A genuine startup crash with no stop pending still propagates."""
+    monkeypatch.setattr(main_module, "_stop_requested", False)
+
+    def _boom() -> None:
+        raise RuntimeError("real startup failure")
+
+    with pytest.raises(RuntimeError, match="real startup failure"):
+        main_module._serve_until_stop(SimpleNamespace(run=_boom))  # type: ignore[arg-type]
 
 
 def test_main_installs_stop_signal_handlers_before_parsing(

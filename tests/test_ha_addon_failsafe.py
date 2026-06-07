@@ -73,10 +73,13 @@ def test_ha_addon_no_password_with_ingress_runs_ingress_only(
 
     captured: dict[str, object] = {}
 
-    def fake_run_app(app, *, host: list[str], port: int, **_: object) -> None:
+    def fake_run_app(
+        app, *, host: list[str], port: int, handle_signals: bool = True, **_: object
+    ) -> None:
         captured["host"] = host
         captured["port"] = port
         captured["trusted"] = bool(app.get("trusted_site"))
+        captured["handle_signals"] = handle_signals
 
     with (
         caplog.at_level("WARNING", logger="esphome_device_builder.device_builder"),
@@ -92,6 +95,7 @@ def test_ha_addon_no_password_with_ingress_runs_ingress_only(
     # uniformly when the operator passes an interface name.
     assert captured["host"] == ["0.0.0.0"]  # ingress_host fallback
     assert captured["trusted"] is True  # trusted=True (auth bypass)
+    assert captured["handle_signals"] is False  # we own the stop signal end-to-end
 
     # The single create_app call was for the trusted ingress, with
     # the ingress-site hook disabled (the app IS the ingress).
@@ -181,9 +185,12 @@ def test_non_ha_addon_binds_public_site_normally(make_settings: MakeSettingsFact
 
     captured: dict[str, object] = {}
 
-    def fake_run_app(app, *, host: list[str], port: int, **_: object) -> None:
+    def fake_run_app(
+        app, *, host: list[str], port: int, handle_signals: bool = True, **_: object
+    ) -> None:
         captured["host"] = host
         captured["port"] = port
+        captured["handle_signals"] = handle_signals
 
     with patch("esphome_device_builder.device_builder.web.run_app", fake_run_app):
         db.run()
@@ -192,6 +199,9 @@ def test_non_ha_addon_binds_public_site_normally(make_settings: MakeSettingsFact
     # default of "no auth required, user opts in via PASSWORD".
     assert captured["port"] == 6052
     assert captured["host"] == ["0.0.0.0"]
+    # We own the stop signal end-to-end (see DeviceBuilder.run); aiohttp
+    # must not install its own handler.
+    assert captured["handle_signals"] is False
 
 
 def test_public_run_refuses_port_zero_with_multi_host(
