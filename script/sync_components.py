@@ -760,6 +760,10 @@ _ADVANCED_IMPORTANT_KEYS: frozenset[str] = frozenset({"id"})
 def main() -> int:
     """Entry point — parse args, fetch schema, generate JSON."""
     logging.basicConfig(format="%(message)s", level=logging.INFO)
+    # The introspection sweep probes missing platform/stem combos via
+    # loader.get_platform; esphome.loader logs each expected miss at INFO.
+    # Mute that noise; genuine import failures still log at ERROR.
+    logging.getLogger("esphome.loader").setLevel(logging.WARNING)
 
     parser = argparse.ArgumentParser(
         description=(
