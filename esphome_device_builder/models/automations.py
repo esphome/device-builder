@@ -48,9 +48,12 @@ class AutomationTrigger(DataClassORJSONMixin):
     docs_url: str
     applies_to: list[str] = field(default_factory=list)
     is_device_level: bool = False
-    # True for a component trigger the wizard can stack by index (ESPHome
-    # accepts it as a list of per-entry-param entries).
-    repeatable: bool = False
+    # True when ESPHome's validate_automation is single=False, so a YAML list
+    # of handler entries is accepted; gates the "add another handler" wizard
+    # affordance and indexed-list editing. Per-entry-param richness is read
+    # separately from ``config_entries``. Conservative default False (set only
+    # when introspection positively reads single=False).
+    supports_list: bool = False
     config_entries: list[ConfigEntry] = field(default_factory=list)
 
 
@@ -170,7 +173,7 @@ class AutomationTriggerIndex(DataClassORJSONMixin):
     docs_url: str
     applies_to: list[str] = field(default_factory=list)
     is_device_level: bool = False
-    repeatable: bool = False
+    supports_list: bool = False
 
 
 @dataclass
@@ -282,10 +285,22 @@ class ComponentOnLocation(DataClassORJSONMixin):
 
 @dataclass
 class DeviceOnLocation(DataClassORJSONMixin):
-    """A device-level ``on_boot`` / ``on_loop`` / ``on_shutdown`` under ``esphome:``."""
+    """A device-level ``on_boot`` / ``on_loop`` / ``on_shutdown`` under ``esphome:``.
+
+    ``index`` is ``None`` for the single-handler mapping form; for the
+    list-of-handlers form (multiple ``on_boot`` priorities) it selects one entry.
+    """
 
     trigger: str
+    index: int | None = None
     kind: Literal["device_on"] = "device_on"
+
+    class Config(BaseConfig):
+        """Drop ``index`` from the wire for the single-handler form."""
+
+        # Mirror ComponentOnLocation: omit_none keeps the un-indexed key the
+        # frontend matches, without dropping the ``kind`` discriminator.
+        omit_none = True
 
 
 @dataclass

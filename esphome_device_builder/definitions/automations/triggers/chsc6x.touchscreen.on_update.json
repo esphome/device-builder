@@ -1,1 +1,1 @@
-{"id":"chsc6x.touchscreen.on_update","name":"Touchscreen.Chsc6X → On Update","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["touchscreen.chsc6x"],"is_device_level":false,"repeatable":false,"config_entries":[]}
+{"id":"chsc6x.touchscreen.on_update","name":"Touchscreen.Chsc6X → On Update","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["touchscreen.chsc6x"],"is_device_level":false,"supports_list":false,"config_entries":[]}

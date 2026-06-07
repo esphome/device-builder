@@ -1,1 +1,1 @@
-{"id":"pn532.on_finished_write","name":"Pn532 → On Finished Write","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["pn532"],"is_device_level":false,"repeatable":false,"config_entries":[]}
+{"id":"pn532.on_finished_write","name":"Pn532 → On Finished Write","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["pn532"],"is_device_level":false,"supports_list":true,"config_entries":[]}

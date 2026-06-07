@@ -1,1 +1,1 @@
-{"id":"datetime.on_value","name":"Datetime → On Value","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["datetime"],"is_device_level":false,"repeatable":false,"config_entries":[]}
+{"id":"datetime.on_value","name":"Datetime → On Value","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["datetime"],"is_device_level":false,"supports_list":true,"config_entries":[]}

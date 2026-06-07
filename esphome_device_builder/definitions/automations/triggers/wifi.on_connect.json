@@ -1,1 +1,1 @@
-{"id":"wifi.on_connect","name":"Wifi → On Connect","description":"An action to be performed when a connection is established.","docs_url":"https://esphome.io/components/wifi#configuration-variables","applies_to":["wifi"],"is_device_level":false,"repeatable":false,"config_entries":[]}
+{"id":"wifi.on_connect","name":"Wifi → On Connect","description":"An action to be performed when a connection is established.","docs_url":"https://esphome.io/components/wifi#configuration-variables","applies_to":["wifi"],"is_device_level":false,"supports_list":false,"config_entries":[]}

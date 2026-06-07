@@ -37,7 +37,7 @@ def wrap_handler_list_block(handler_key: str, rendered_list: str) -> str:
     return f"{handler_key}:\n" + rendered_list.rstrip() + "\n"
 
 
-def _drop_after_block_comment(entries: list) -> None:
+def drop_after_block_comment(entries: list) -> None:
     """
     Strip the comments ruamel bound to the last list entry.
 
@@ -110,6 +110,21 @@ def _resplice_list_block(
     return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement="")
 
 
+def apply_list_entry_upsert(entries: list, item: Any, index: int, *, label: str) -> None:
+    """Append (``index == len``), replace (in range), or raise (out of range).
+
+    The shared insert-or-replace-at-index step for every list-shaped handler
+    (component ``on_*``, light effects, device ``on_*``); mutates *entries*.
+    """
+    if index == len(entries):
+        entries.append(item)
+    elif 0 <= index < len(entries):
+        entries[index] = item
+    else:
+        msg = f"{label}[{index}] out of range (have {len(entries)})"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+
+
 def upsert_component_on_entry(
     yaml_text: str,
     *,
@@ -134,15 +149,8 @@ def upsert_component_on_entry(
         msg = f"{trigger_key}: is a single mapping, not a list; convert it to a list first"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     entries = existing if isinstance(existing, list) else []
-    _drop_after_block_comment(entries)
-    new_item = emit_trigger_list_item(tree)
-    if index == len(entries):
-        entries.append(new_item)
-    elif 0 <= index < len(entries):
-        entries[index] = new_item
-    else:
-        msg = f"{trigger_key}[{index}] out of range (have {len(entries)})"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    drop_after_block_comment(entries)
+    apply_list_entry_upsert(entries, emit_trigger_list_item(tree), index, label=trigger_key)
     return _resplice_list_block(
         yaml_text,
         domain=domain,
@@ -189,7 +197,7 @@ def delete_list_entry(
     if not isinstance(entries, list) or not 0 <= index < len(entries):
         msg = f"{handler_key}[{index}] not present on component id={component_id!r}"
         raise CommandError(ErrorCode.NOT_FOUND, msg)
-    _drop_after_block_comment(entries)
+    drop_after_block_comment(entries)
     del entries[index]
     return _resplice_list_block(
         yaml_text,
@@ -233,14 +241,8 @@ def upsert_light_effect(
         msg = "effects: is a single mapping, not a list; convert it to a list first"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     entries = existing if isinstance(existing, list) else []
-    _drop_after_block_comment(entries)
-    if location.index == len(entries):
-        entries.append(item)
-    elif 0 <= location.index < len(entries):
-        entries[location.index] = item
-    else:
-        msg = f"effects[{location.index}] out of range (have {len(entries)})"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    drop_after_block_comment(entries)
+    apply_list_entry_upsert(entries, item, location.index, label="effects")
     return _resplice_list_block(
         yaml_text,
         domain="light",

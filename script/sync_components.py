@@ -5856,6 +5856,140 @@ def _automation_schema_dict(validator: Any) -> dict | None:
     return schema
 
 
+def _validate_automation_single(validator: Any) -> bool | None:
+    """Read the ``single`` flag off a ``validate_automation`` closure, or None.
+
+    ``single=True`` means ESPHome accepts exactly one automation; ``single=False``
+    accepts a list of handler entries. Restricted to real functions: ESPHome's
+    ``MockObjClass`` auto-generates any attribute (``__code__`` etc.) on access,
+    so reading the closure off a non-function would explode rather than miss.
+    """
+    if not inspect.isfunction(validator):
+        return None
+    code = validator.__code__
+    closure = validator.__closure__
+    if closure is None or "single" not in code.co_freevars:
+        return None
+    value = closure[code.co_freevars.index("single")].cell_contents
+    return value if isinstance(value, bool) else None
+
+
+def _single_deep(validator: Any, depth: int = 0) -> bool | None:
+    """``validate_automation`` ``single`` flag, descending ``vol.All`` / ``vol.Any``.
+
+    Only descends real compound validators; ``MockObjClass`` values (cover's
+    ``TRIGGERS`` maps ``on_*`` to mock C++ trigger classes) auto-generate a
+    ``.validators`` attribute that would recurse forever.
+    """
+    if depth > 6:
+        return None
+    flag = _validate_automation_single(validator)
+    if flag is not None:
+        return flag
+    if isinstance(validator, (vol.All, vol.Any)):
+        for sub in validator.validators:
+            flag = _single_deep(sub, depth + 1)
+            if flag is not None:
+                return flag
+    return None
+
+
+def _scan_schema_for_trigger_singles(
+    node: Any,
+    seen: set[int],
+    out: dict[str, bool],
+    depth: int = 0,
+) -> None:
+    """Walk a live schema for ``on_*`` automation triggers, recording ``single``."""
+    if depth > 8:
+        return
+    candidate = _unwrap_schema_to_dict(node)
+    if candidate is None or id(candidate) in seen:
+        return
+    seen.add(id(candidate))
+    for key, val in candidate.items():
+        key_name = key.schema if hasattr(key, "schema") else str(key)
+        # ``_single_deep`` descends ``vol.All`` / ``vol.Any`` to the
+        # ``validate_automation`` closure; a non-None result is itself proof the
+        # ``on_*`` key is an automation (the ``single`` freevar is unique to it),
+        # recovering wrapped triggers a schema-extract check misses (on_click).
+        flag = _single_deep(val) if key_name.startswith("on_") else None
+        if flag is not None:
+            out.setdefault(key_name, flag)
+        else:
+            _scan_schema_for_trigger_singles(val, seen, out, depth + 1)
+
+
+def _import_trigger_module(top_key: str) -> Any:
+    """Import the module owning *top_key*'s triggers (core config for device-level)."""
+    name = (
+        "esphome.core.config" if top_key in {"esphome", "core"} else f"esphome.components.{top_key}"
+    )
+    try:
+        return importlib.import_module(name)
+    except Exception:
+        return None
+
+
+@cache
+def _live_trigger_singles(top_key: str) -> frozenset[tuple[str, bool]]:
+    """``(on_key, single)`` pairs for *top_key*'s automation triggers, live from ESPHome.
+
+    The schema bundle drops ``validate_automation``'s ``single`` flag, so recover
+    it from the live validator closures. Best-effort: empty when the module isn't
+    importable; a missing key falls through to the conservative non-list default.
+    """
+    from esphome.util import SimpleRegistry
+
+    module = _import_trigger_module(top_key)
+    if module is None:
+        return frozenset()
+    out: dict[str, bool] = {}
+    seen: set[int] = set()
+    # CONFIG_SCHEMA is often a ``vol.All`` (not a bare ``vol.Schema``), e.g.
+    # core config's device-level on_boot/on_loop/on_shutdown live there;
+    # ``_unwrap_schema_to_dict`` peels it.
+    config_schema = getattr(module, "CONFIG_SCHEMA", None)
+    if config_schema is not None:
+        _scan_schema_for_trigger_singles(config_schema, seen, out)
+    # One pass over module globals: schema-shaped globals carry component
+    # triggers (``_<NAME>_SCHEMA``); a ``SimpleRegistry`` carries
+    # registry-injected ones. Stay shallow (no submodule descent) to avoid
+    # forcing lazy imports across the dependency graph on every top_key.
+    registries: list[Any] = []
+    for attr in dir(module):
+        try:
+            obj = getattr(module, attr)
+        except Exception:  # noqa: S112 (best-effort module-global scan)
+            continue
+        if isinstance(obj, (vol.Schema, dict)):
+            _scan_schema_for_trigger_singles(obj, seen, out)
+        elif isinstance(obj, SimpleRegistry):
+            registries.append(obj)
+    # ``remote_receiver``'s per-protocol ``on_<proto>`` triggers live in
+    # ``remote_base.TRIGGER_REGISTRY`` (a referenced submodule), not its own
+    # schema; reach it directly rather than scanning every submodule.
+    remote_base = getattr(module, "remote_base", None)
+    reg = getattr(remote_base, "TRIGGER_REGISTRY", None) if remote_base is not None else None
+    if isinstance(reg, SimpleRegistry):
+        registries.append(reg)
+    for registry in registries:
+        _record_registry_singles(registry, out)
+    return frozenset(out.items())
+
+
+def _record_registry_singles(registry: Any, out: dict[str, bool]) -> None:
+    """Record ``single`` for a registry's ``on_*`` entries (``(build_fn, validator)``)."""
+    for key, value in registry.items():
+        key_name = str(key)
+        if not key_name.startswith("on_"):
+            continue
+        validator = value[-1] if isinstance(value, (tuple, list)) and value else value
+        flag = _single_deep(validator)
+        if flag is not None:
+            out.setdefault(key_name, flag)
+
+
 def _scan_schema_for_list_triggers(
     node: Any,
     seen: set[int],
@@ -5932,6 +6066,7 @@ def _extract_triggers_from_section(
     # (``binary_sensor`` for bare triggers; ``cover.template`` for
     # template-cover-only triggers).
     applies_to = [] if is_device_level or domain == "core" else [domain]
+    singles = dict(_live_trigger_singles(top_key))
     for schema_body in schemas.values():
         if not isinstance(schema_body, dict):
             continue
@@ -5947,6 +6082,7 @@ def _extract_triggers_from_section(
             )
             trigger_id = key if is_device_level else f"{top_key}.{key}"
             list_params = _live_trigger_list_params(top_key)
+            single = singles.get(key)
             # A trigger's own params (on_time's cron fields,
             # on_value_range's bounds) are its primary config, not
             # advanced knobs the name-based heuristic would hide; surface
@@ -5963,9 +6099,9 @@ def _extract_triggers_from_section(
                     "docs_url": docs.url or _CORE_AUTOMATION_DOCS,
                     "applies_to": applies_to,
                     "is_device_level": is_device_level,
-                    # Per-entry params mark a list-shaped trigger; only
-                    # component ones are wizard-stackable by index.
-                    "repeatable": bool(param_entries) and not is_device_level,
+                    # ESPHome single=False -> a YAML list of handlers is valid.
+                    # Conservative: True only when introspection confirms it.
+                    "supports_list": single is False,
                     "config_entries": [_strip_entry_defaults(e) for e in param_entries],
                 }
             )

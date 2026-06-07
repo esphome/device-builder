@@ -1,1 +1,1 @@
-{"id":"rf_bridge.on_advanced_code_received","name":"Rf Bridge → On Advanced Code Received","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["rf_bridge"],"is_device_level":false,"repeatable":false,"config_entries":[]}
+{"id":"rf_bridge.on_advanced_code_received","name":"Rf Bridge → On Advanced Code Received","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["rf_bridge"],"is_device_level":false,"supports_list":true,"config_entries":[]}

@@ -26,7 +26,7 @@ into the ordered :class:`ParsedAutomation` list.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from functools import partial
 from importlib import resources
 from typing import Any, NamedTuple
@@ -37,6 +37,7 @@ from ...helpers.lazy_catalog import is_unsafe_catalog_id
 from ...models.api import ErrorCode
 from ...models.automations import (
     ApiActionLocation,
+    AutomationLocation,
     AutomationTree,
     AutomationTrigger,
     ComponentActionFieldLocation,
@@ -92,9 +93,6 @@ __all__ = [
 # Package holding the per-component body JSON (``config_entries`` trees).
 _COMPONENTS_PACKAGE = "esphome_device_builder.definitions.components"
 
-# Device-level trigger keys under the ``esphome:`` block.
-_DEVICE_TRIGGER_KEYS: tuple[str, ...] = ("on_boot", "on_loop", "on_shutdown")
-
 
 def parse_device_yaml(yaml_text: str) -> list[ParsedAutomation]:
     """
@@ -130,35 +128,33 @@ def parse_device_yaml(yaml_text: str) -> list[ParsedAutomation]:
 # ---------------------------------------------------------------------------
 
 
-# Cache of component domains that host inline ``on_*:`` triggers,
-# derived from the catalog on first use.
-_COMPONENT_TRIGGER_DOMAINS: set[str] | None = None
-
-
-def _component_trigger_domains() -> set[str]:
-    """Return every top-level domain that hosts inline component triggers."""
-    global _COMPONENT_TRIGGER_DOMAINS  # noqa: PLW0603 — module-level cache
-    if _COMPONENT_TRIGGER_DOMAINS is not None:
-        return _COMPONENT_TRIGGER_DOMAINS
-    out: set[str] = set()
-    for trigger in catalog.all_triggers():
-        if trigger.is_device_level:
-            continue
-        out.update(trigger.applies_to)
-    _COMPONENT_TRIGGER_DOMAINS = out
-    return out
-
-
 def _parse_device_level(root: Any) -> list[ParsedAutomation]:
-    """Parse ``esphome.on_boot`` / ``on_loop`` / ``on_shutdown``."""
+    """Parse device-level ``esphome.on_*`` handlers (mapping or list form).
+
+    The device-trigger set is catalog-derived (``is_device_level``), not a hand
+    list, so a new device trigger flows in on the next sync. A list of handler
+    entries (multiple ``on_boot`` priorities) decomposes per entry; a mapping or
+    bare action list stays one automation.
+    """
     esphome = root.get("esphome") if isinstance(root, dict) else None
     if not isinstance(esphome, dict):
         return []
     out: list[ParsedAutomation] = []
-    for trigger_key in _DEVICE_TRIGGER_KEYS:
+    for trigger_key in catalog.device_trigger_ids():
         if trigger_key not in esphome:
             continue
         body = esphome[trigger_key]
+        trigger = catalog.trigger_by_id(trigger_key)
+        if trigger is not None and _is_list_form_trigger(body, trigger):
+            out.extend(
+                _parse_trigger_list(
+                    body,
+                    trigger_id=trigger_key,
+                    location_for=partial(DeviceOnLocation, trigger_key),
+                    label_prefix=_pretty_name(trigger_key),
+                )
+            )
+            continue
         from_line, to_line = _key_range(esphome, trigger_key)
         tree, error = _safe_tree(
             partial(_decompose_trigger_body, body, trigger_id=trigger_key),
@@ -417,7 +413,7 @@ def iter_subentities(
 
 def _parse_inline_component_triggers(root: Any) -> list[ParsedAutomation]:
     """Walk component instances for inline ``on_*:`` handlers."""
-    trigger_domains = _component_trigger_domains()
+    trigger_domains = catalog.component_trigger_domains()
     out: list[ParsedAutomation] = []
     for domain, instance, comp_id in _iter_component_instances(root):
         if domain not in trigger_domains:
@@ -594,8 +590,11 @@ def _parse_one_inline_trigger(
     """Parse one inline ``on_*:`` handler — single mapping or list-shaped."""
     trigger_id = trigger.id
     if _is_list_form_trigger(body, trigger):
-        return _parse_list_form_trigger(
-            body, comp_id=comp_id, comp_name=comp_name, key=key, trigger_id=trigger_id
+        return _parse_trigger_list(
+            body,
+            trigger_id=trigger_id,
+            location_for=partial(ComponentOnLocation, comp_id, key),
+            label_prefix=f"{comp_name} → {_pretty_name(key)}",
         )
     from_line, to_line = _key_range(instance, key)
     tree, error = _safe_tree(
@@ -648,15 +647,20 @@ def _is_trigger_entry(item: Any, trigger: AutomationTrigger) -> bool:
     return any(key in cron_keys for key in item)
 
 
-def _parse_list_form_trigger(
+def _parse_trigger_list(
     body: list,
     *,
-    comp_id: str,
-    comp_name: str,
-    key: str,
-    trigger_id: str,
+    trigger_id: str | None,
+    location_for: Callable[[int], AutomationLocation],
+    label_prefix: str,
 ) -> list[ParsedAutomation]:
-    """Emit one :class:`ParsedAutomation` per entry of a list-shaped trigger."""
+    """Emit one :class:`ParsedAutomation` per entry of a list-shaped handler.
+
+    Shared by the device-level (``esphome.on_boot``) and inline-component
+    (``time.on_time``) paths; *location_for* maps an index to the entry's
+    location (a :func:`functools.partial` of the location class), *label_prefix*
+    heads the per-entry ``"<prefix> #<n>"`` label.
+    """
     out: list[ParsedAutomation] = []
     for index, entry in enumerate(body):
         from_line, to_line = _item_range(body, index)
@@ -666,12 +670,8 @@ def _parse_list_form_trigger(
         )
         out.append(
             ParsedAutomation(
-                location=ComponentOnLocation(
-                    component_id=comp_id,
-                    trigger=key,
-                    index=index,
-                ),
-                label=f"{comp_name} → {_pretty_name(key)} #{index + 1}",
+                location=location_for(index),
+                label=f"{label_prefix} #{index + 1}",
                 automation=tree,
                 from_line=from_line,
                 to_line=to_line,

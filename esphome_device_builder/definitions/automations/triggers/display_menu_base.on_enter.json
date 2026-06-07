@@ -1,1 +1,1 @@
-{"id":"display_menu_base.on_enter","name":"Display Menu Base → On Enter","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["display_menu_base"],"is_device_level":false,"repeatable":false,"config_entries":[]}
+{"id":"display_menu_base.on_enter","name":"Display Menu Base → On Enter","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["display_menu_base"],"is_device_level":false,"supports_list":true,"config_entries":[]}

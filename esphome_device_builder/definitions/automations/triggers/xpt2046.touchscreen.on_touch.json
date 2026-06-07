@@ -1,1 +1,1 @@
-{"id":"xpt2046.touchscreen.on_touch","name":"Touchscreen.Xpt2046 → On Touch","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["touchscreen.xpt2046"],"is_device_level":false,"repeatable":false,"config_entries":[]}
+{"id":"xpt2046.touchscreen.on_touch","name":"Touchscreen.Xpt2046 → On Touch","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["touchscreen.xpt2046"],"is_device_level":false,"supports_list":false,"config_entries":[]}

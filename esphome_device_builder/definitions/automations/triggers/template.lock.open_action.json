@@ -1,1 +1,1 @@
-{"id":"template.lock.open_action","name":"Lock.Template → Open Action","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["lock.template"],"is_device_level":false,"repeatable":false,"config_entries":[]}
+{"id":"template.lock.open_action","name":"Lock.Template → Open Action","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["lock.template"],"is_device_level":false,"supports_list":false,"config_entries":[]}

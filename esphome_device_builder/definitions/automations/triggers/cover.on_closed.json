@@ -1,1 +1,1 @@
-{"id":"cover.on_closed","name":"Cover → On Closed","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["cover"],"is_device_level":false,"repeatable":false,"config_entries":[]}
+{"id":"cover.on_closed","name":"Cover → On Closed","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["cover"],"is_device_level":false,"supports_list":true,"config_entries":[]}

@@ -1,1 +1,1 @@
-{"id":"msa3xx.on_tap","name":"Msa3Xx → On Tap","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["msa3xx"],"is_device_level":false,"repeatable":false,"config_entries":[]}
+{"id":"msa3xx.on_tap","name":"Msa3Xx → On Tap","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["msa3xx"],"is_device_level":false,"supports_list":false,"config_entries":[]}

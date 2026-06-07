@@ -113,6 +113,84 @@ def test_delete_device_on_boot_drops_the_block() -> None:
     assert diff.replacement == ""
 
 
+_LIST_ON_BOOT = (
+    "esphome:\n  name: x\n"
+    "  on_boot:\n"
+    "    - priority: -300\n"
+    "      then:\n"
+    "        - logger.log: first\n"
+)
+
+
+def test_upsert_device_on_boot_appends_list_entry() -> None:
+    """An index past the end appends a second on_boot handler as a list entry."""
+    tree = AutomationTree(
+        trigger_id="on_boot",
+        trigger_params={"priority": 200},
+        actions=[ActionNode(action_id="delay", params={"id": "1s"})],
+    )
+    new_text, _ = render_upsert(
+        _LIST_ON_BOOT, tree=tree, location=DeviceOnLocation(trigger="on_boot", index=1)
+    )
+    parsed = parse_device_yaml(new_text)
+    assert [p.location.index for p in parsed] == [0, 1]
+    assert parsed[1].automation.trigger_params == {"priority": 200}
+
+
+def test_upsert_device_on_boot_replaces_list_entry() -> None:
+    """An in-range index replaces that entry, leaving siblings intact."""
+    tree = AutomationTree(
+        trigger_id="on_boot",
+        trigger_params={"priority": -300},
+        actions=[ActionNode(action_id="logger.log", params={"format": "second"})],
+    )
+    new_text, _ = render_upsert(
+        _LIST_ON_BOOT, tree=tree, location=DeviceOnLocation(trigger="on_boot", index=0)
+    )
+    parsed = parse_device_yaml(new_text)
+    assert len(parsed) == 1
+    assert parsed[0].automation.actions[0].params == {"format": "second"}
+
+
+def test_delete_device_on_boot_list_entry() -> None:
+    """Deleting one entry of a multi-handler on_boot keeps the rest as a list."""
+    two = _LIST_ON_BOOT + "    - priority: 200\n      then:\n        - delay: 1s\n"
+    new_text, _ = render_delete(two, location=DeviceOnLocation(trigger="on_boot", index=0))
+    parsed = parse_device_yaml(new_text)
+    assert len(parsed) == 1
+    assert parsed[0].automation.trigger_params == {"priority": 200}
+
+
+def test_delete_last_device_on_boot_list_entry_removes_block() -> None:
+    """Deleting the only entry of a list-form on_boot removes the handler key."""
+    loc = DeviceOnLocation(trigger="on_boot", index=0)
+    new_text, _ = render_delete(_LIST_ON_BOOT, location=loc)
+    assert "on_boot:" not in new_text
+
+
+def test_delete_device_on_boot_list_entry_out_of_range_raises() -> None:
+    """Deleting an out-of-range on_boot list index raises NOT_FOUND."""
+    with pytest.raises(CommandError):
+        render_delete(_LIST_ON_BOOT, location=DeviceOnLocation(trigger="on_boot", index=5))
+
+
+def test_upsert_device_on_boot_index_out_of_range_raises() -> None:
+    """An index beyond append position is rejected."""
+    tree = AutomationTree(trigger_id="on_boot", actions=[ActionNode(action_id="delay", params={})])
+    with pytest.raises(CommandError):
+        render_upsert(
+            _LIST_ON_BOOT, tree=tree, location=DeviceOnLocation(trigger="on_boot", index=5)
+        )
+
+
+def test_upsert_device_on_boot_indexed_refuses_single_mapping() -> None:
+    """An indexed upsert against a single-mapping on_boot refuses rather than rewriting it."""
+    text = _load("device_on_boot.yaml")  # single-mapping form
+    tree = AutomationTree(trigger_id="on_boot", actions=[ActionNode(action_id="delay", params={})])
+    with pytest.raises(CommandError):
+        render_upsert(text, tree=tree, location=DeviceOnLocation(trigger="on_boot", index=1))
+
+
 # ---------------------------------------------------------------------------
 # Inline component
 # ---------------------------------------------------------------------------
@@ -1510,8 +1588,8 @@ def test_round_trip_on_time_list_entry_is_stable() -> None:
     assert reparsed[0].automation.trigger_params == {"seconds": 0, "minutes": 30, "hours": 8}
 
 
-def test_upsert_appends_entry_for_non_on_time_repeatable_trigger() -> None:
-    """A second entry on a non-on_time repeatable trigger appends, not overwrites."""
+def test_upsert_appends_entry_for_non_on_time_list_trigger() -> None:
+    """A second entry on a non-on_time list-form trigger appends, not overwrites."""
     yaml_text = (
         "sensor:\n"
         "  - platform: template\n"

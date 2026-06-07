@@ -49,6 +49,56 @@ def test_parse_device_on_boot_with_priority_param() -> None:
     assert [a.action_id for a in actions] == ["delay", "light.turn_on"]
     assert actions[0].params == {"id": "1s"}
     assert actions[1].params == {"id": "living_room"}
+    # The single-mapping form carries no list index.
+    assert item.location.index is None
+
+
+def test_parse_device_on_boot_list_form_yields_indexed_entries() -> None:
+    """A list of ``{priority, then}`` handlers parses per entry, not as actions (#1283)."""
+    yaml = (
+        "esphome:\n  name: x\n"
+        "  on_boot:\n"
+        "    - priority: -300\n"
+        "      then:\n"
+        "        - logger.log: first\n"
+        "    - priority: 200\n"
+        "      then:\n"
+        "        - delay: 1s\n"
+    )
+    parsed = parse_device_yaml(yaml)
+    assert len(parsed) == 2
+    assert [p.error for p in parsed] == [None, None]
+    assert [p.location.index for p in parsed] == [0, 1]
+    assert all(p.location.kind == "device_on" and p.location.trigger == "on_boot" for p in parsed)
+    assert parsed[0].automation.trigger_params == {"priority": -300}
+    assert [a.action_id for a in parsed[0].automation.actions] == ["logger.log"]
+    assert parsed[1].automation.trigger_params == {"priority": 200}
+
+
+def test_parse_device_on_boot_bare_action_list_is_one_automation() -> None:
+    """A bare action list under on_boot stays one automation (no ``priority`` misread)."""
+    yaml = "esphome:\n  name: x\n  on_boot:\n    - delay: 1s\n    - logger.log: hi\n"
+    parsed = parse_device_yaml(yaml)
+    assert len(parsed) == 1
+    assert parsed[0].error is None
+    assert parsed[0].location.index is None
+    assert [a.action_id for a in parsed[0].automation.actions] == ["delay", "logger.log"]
+
+
+def test_parse_single_handler_trigger_as_one_element_list_parses() -> None:
+    """A single-handler trigger written as a 1-element list still parses (not gated off)."""
+    yaml = (
+        "binary_sensor:\n"
+        "  - platform: gpio\n    id: b\n    name: B\n"
+        "    on_state:\n"
+        "      - then:\n"
+        "          - logger.log: hi\n"
+    )
+    parsed = parse_device_yaml(yaml)
+    on_state = [p for p in parsed if p.location.trigger == "on_state"]
+    assert len(on_state) == 1
+    assert on_state[0].error is None
+    assert [a.action_id for a in on_state[0].automation.actions] == ["logger.log"]
 
 
 # ---------------------------------------------------------------------------

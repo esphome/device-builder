@@ -1,1 +1,1 @@
-{"id":"valve.on_closed","name":"Valve → On Closed","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["valve"],"is_device_level":false,"repeatable":false,"config_entries":[]}
+{"id":"valve.on_closed","name":"Valve → On Closed","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["valve"],"is_device_level":false,"supports_list":true,"config_entries":[]}

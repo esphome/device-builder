@@ -1,1 +1,1 @@
-{"id":"pn7150_i2c.on_finished_write","name":"Pn7150 I2C → On Finished Write","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["pn7150_i2c"],"is_device_level":false,"repeatable":false,"config_entries":[]}
+{"id":"pn7150_i2c.on_finished_write","name":"Pn7150 I2C → On Finished Write","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["pn7150_i2c"],"is_device_level":false,"supports_list":true,"config_entries":[]}

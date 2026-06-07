@@ -196,6 +196,40 @@ def all_triggers() -> list[AutomationTriggerIndex]:
     return list(_slim_triggers())
 
 
+@cache
+def _device_trigger_ids() -> tuple[str, ...]:
+    return tuple(t.id for t in _slim_triggers() if t.is_device_level)
+
+
+def device_trigger_ids() -> tuple[str, ...]:
+    """Ids of device-level triggers (``esphome`` on_boot / on_loop / on_shutdown)."""
+    return _device_trigger_ids()
+
+
+@cache
+def _list_supporting_trigger_ids() -> frozenset[str]:
+    return frozenset(t.id for t in _slim_triggers() if t.supports_list)
+
+
+def trigger_supports_list(trigger_id: str) -> bool:
+    """Return True when ESPHome accepts a list of handlers for *trigger_id*."""
+    return trigger_id in _list_supporting_trigger_ids()
+
+
+@cache
+def _component_trigger_domains() -> frozenset[str]:
+    out: set[str] = set()
+    for trigger in _slim_triggers():
+        if not trigger.is_device_level:
+            out.update(trigger.applies_to)
+    return frozenset(out)
+
+
+def component_trigger_domains() -> frozenset[str]:
+    """Domains that host inline component ``on_*`` triggers."""
+    return _component_trigger_domains()
+
+
 def all_actions() -> list[AutomationActionIndex]:
     """Return the slim action catalog (picker fields, no config_entries)."""
     return list(_editable_actions())

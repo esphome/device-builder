@@ -1,1 +1,1 @@
-{"id":"wifi.on_disconnect","name":"Wifi → On Disconnect","description":"An action to be performed when the connection is dropped.","docs_url":"https://esphome.io/components/wifi#configuration-variables","applies_to":["wifi"],"is_device_level":false,"repeatable":false,"config_entries":[]}
+{"id":"wifi.on_disconnect","name":"Wifi → On Disconnect","description":"An action to be performed when the connection is dropped.","docs_url":"https://esphome.io/components/wifi#configuration-variables","applies_to":["wifi"],"is_device_level":false,"supports_list":false,"config_entries":[]}
