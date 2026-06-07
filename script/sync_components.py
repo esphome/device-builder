@@ -1080,7 +1080,32 @@ def build_catalog(
     if not limit:
         _inject_umbrella_entries(out)
 
+    _resolve_provides(out, schema_dir)
+
     return out
+
+
+def _resolve_provides(entries: list[dict], schema_dir: Path) -> None:
+    """
+    Fill each component's ``provides`` from referenced interface classes.
+
+    Provides ``ns`` when an id class is a referenced ``use_id`` target
+    whose namespace differs from the component's own domain — same-domain
+    refs (``i2c``, ``sensor``) already resolve via the top-level-key scan,
+    leaving only homeless interfaces like ``voltage_sampler``. Pops the
+    ``_impl_classes`` scratch field. In-place.
+    """
+    referenced = _collect_referenced_classes(schema_dir)
+    for entry in entries:
+        impl = entry.pop("_impl_classes", set())
+        own_domain = entry["id"].split(".", 1)[0]
+        entry["provides"] = sorted(
+            {
+                namespace
+                for cls in impl & referenced
+                if (namespace := _reference_namespace(cls)) and namespace != own_domain
+            }
+        )
 
 
 # Matches a description that is actually the first bullet of an MDX
@@ -1827,8 +1852,12 @@ def build_component_entry(
             dependencies,
             introspection,
         ),
+        # Resolved against referenced classes in ``build_catalog``; the
+        # raw class set is stashed under ``_impl_classes`` until then.
+        "provides": [],
         "config_entries": config_entries,
     }
+    component["_impl_classes"] = _implemented_classes(section)
     # Required-groups straddle the component root (path ``()``) and
     # nested ``NESTED`` entries; the applier needs the whole
     # component dict to stamp both locations.
@@ -1882,9 +1911,7 @@ def _extract_config_entries(
     ``component_id`` is used to filter ``_DEPRECATED_FIELDS`` at the
     top level only — nested fields with the same name are unaffected.
     """
-    schemas = section.get("schemas") or {}
-    config_schema = schemas.get("CONFIG_SCHEMA") or {}
-    schema = config_schema.get("schema") or {}
+    schema = _config_schema(section).get("schema") or {}
     if not schema:
         return []
     entries = _convert_config_vars(schema, schema_dir, component_id=component_id)
@@ -2685,6 +2712,16 @@ def _extract_default(raw: dict, key: str = "") -> tuple[Any, str | None]:
     return _coerce_default(raw.get("default")), None
 
 
+def _reference_namespace(qualified: str) -> str | None:
+    """Catalog reference domain for a ``'ns::Class'``; None if unqualified."""
+    # Shared by the reference side (use_id_type) and provider side (id
+    # parents) so the two always map a namespace the same way.
+    if not isinstance(qualified, str) or "::" not in qualified:
+        return None
+    namespace = qualified.split("::", 1)[0]
+    return _USE_ID_NAMESPACE_OVERRIDES.get(namespace, namespace)
+
+
 def _resolve_use_id_reference(raw: dict) -> str | None:
     """Map ``use_id_type: 'ns::Class'`` to a component domain.
 
@@ -2694,11 +2731,7 @@ def _resolve_use_id_reference(raw: dict) -> str | None:
     this field *creates* (its own id) — those are free-form strings,
     not references.
     """
-    use_id_type = raw.get("use_id_type")
-    if not isinstance(use_id_type, str) or "::" not in use_id_type:
-        return None
-    namespace = use_id_type.split("::", 1)[0]
-    return _USE_ID_NAMESPACE_OVERRIDES.get(namespace, namespace)
+    return _reference_namespace(raw.get("use_id_type"))
 
 
 def _is_own_id_field(raw: dict) -> bool:
@@ -2720,6 +2753,58 @@ def _is_own_id_field(raw: dict) -> bool:
     if raw.get("key") == "GeneratedID":
         return True
     return bool(isinstance(raw.get("id_type"), dict) and "use_id_type" not in raw)
+
+
+def _config_schema(section: dict) -> dict:
+    """Return the component's ``CONFIG_SCHEMA`` node (carries ``schema`` + ``types``)."""
+    return (section.get("schemas") or {}).get("CONFIG_SCHEMA") or {}
+
+
+def _implemented_classes(section: dict) -> set[str]:
+    """
+    Full ``ns::Class`` set the component's id(s) implement (class + parents).
+
+    Matched against referenced classes whole, not by namespace, so a
+    ``cst226::CST226ButtonListener`` can't pose as the referenced
+    ``cst226::CST226Touchscreen``. Covers discriminated ``types.*`` ids
+    (``ads1118``'s per-channel adc/temperature).
+    """
+    config_schema = _config_schema(section)
+    out: set[str] = set()
+
+    def _add(id_field: Any) -> None:
+        id_type = (id_field or {}).get("id_type")
+        if not isinstance(id_type, dict):
+            return
+        if isinstance(cls := id_type.get("class"), str):
+            out.add(cls)
+        out.update(p for p in id_type.get("parents") or [] if isinstance(p, str))
+
+    _add((config_schema.get("schema", {}).get("config_vars") or {}).get("id"))
+    for variant in (config_schema.get("types") or {}).values():
+        if isinstance(variant, dict):
+            _add((variant.get("config_vars") or {}).get("id"))
+    return out
+
+
+def _collect_referenced_classes(schema_dir: Path) -> set[str]:
+    """Every full ``ns::Class`` named by a ``use_id`` reference in the bundle."""
+    referenced: set[str] = set()
+    for path in iter_schema_files(schema_dir):
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        stack: list[Any] = [raw]
+        while stack:
+            node = stack.pop()
+            if isinstance(node, dict):
+                if isinstance(use_id := node.get("use_id_type"), str):
+                    referenced.add(use_id)
+                stack.extend(node.values())
+            elif isinstance(node, list):
+                stack.extend(node)
+    return referenced
 
 
 _PIN_FEATURE_VALUES = frozenset(f.value for f in PinFeature)
@@ -3490,6 +3575,7 @@ _COMPONENT_DEFAULTS: dict[str, Any] = {
     "dependencies": [],
     "multi_conf": False,
     "supported_platforms": [],
+    "provides": [],
     "config_entries": [],
     "required_groups": [],
 }

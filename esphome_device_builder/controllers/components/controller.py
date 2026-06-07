@@ -301,6 +301,7 @@ class ComponentCatalog:
         exclude_category: ComponentCategory | str | list[str] | None = None,
         platform: str | None = None,
         board_id: str | None = None,
+        provides: str | None = None,
         offset: int = 0,
         limit: int = 50,
         **kwargs: Any,
@@ -324,6 +325,11 @@ class ComponentCatalog:
         plus the platform-domain umbrellas ``ota`` / ``time`` /
         ``update``). Both filters can be combined though that's
         unusual.
+
+        ``provides`` filters to components that can be referenced *as*
+        the given interface (e.g. ``provides="voltage_sampler"`` returns
+        the ADC-family sensors), so the Add-component picker can offer
+        valid targets for a cross-domain ``references_component`` field.
 
         Featured components are surfaced **only** when ``category``
         explicitly includes ``featured`` and ``board_id`` is set — the
@@ -350,6 +356,10 @@ class ComponentCatalog:
             if include_featured and board_id is not None
             else []
         )
+        # ``provides`` narrows both result sets so a featured-category query
+        # stays consistent with the regular catalog.
+        if provides:
+            featured_entries = [c for c in featured_entries if provides in c.provides]
 
         # Featured entries live in their own registry, never in
         # ``self._components``; strip the synthetic category before applying
@@ -372,6 +382,8 @@ class ComponentCatalog:
                     for c in results
                     if not c.supported_platforms or target_platform in c.supported_platforms
                 ]
+            if provides:
+                results = [c for c in results if provides in c.provides]
             if query:
                 query_lower = query.lower()
                 results = [

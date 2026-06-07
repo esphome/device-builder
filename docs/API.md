@@ -217,13 +217,15 @@ Board catalog dataclasses (`BoardCatalogIndex`, `BoardCatalogEntry`, `BoardHardw
 | Command | Args | Response | Description |
 |---------|------|----------|-------------|
 | `components/get_categories` | `{board_id?}` | `[{id, name, count}]` | List categories with counts |
-| `components/get_components` | `{query?, category?, exclude_category?, platform?, board_id?, offset?, limit?}` | `PagedComponentsResponse` | Search/list components |
+| `components/get_components` | `{query?, category?, exclude_category?, platform?, board_id?, provides?, offset?, limit?}` | `PagedComponentsResponse` | Search/list components |
 | `components/get_component_bodies` | `{component_ids, platform?, board_id?}` | `{component_id: ComponentCatalogEntry}` | Hydrate one or many bodies; missing ids omitted |
 | `components/get_pin_registry_modes` | _none_ | `{provider_key: [mode_flag, …]}` | Allowed long-form pin `mode` flags per external pin provider; empty when the artefact is missing |
 
 `platform` filters to components compatible with the given target platform; components with an empty `supported_platforms` list are platform-agnostic and always included. `board_id` is a convenience — the boards catalog resolves it to a platform; `platform` wins when both are passed. The platform is also used to materialise each entry's `platform_defaults` into `default_value`.
 
 `category` / `exclude_category` accept either a single category or a list. Use `exclude_category` for the regular catalog selector to hide entries that belong to the dedicated "Add core configuration" dialog.
+
+`provides` filters to components that can be referenced *as* the given interface (e.g. `provides=voltage_sampler` returns the ADC-family sensors), matching `ComponentCatalogIndexEntry.provides`. Powers the Add-component picker for a cross-domain `references_component` field whose providers live under a different top-level block (a `ct_clamp` sensor reference resolves to ADC sensors under `sensor:`, not a `voltage_sampler:` block).
 
 **Pin registry modes.** A long-form pin on an external provider accepts only a subset of `mode` flags: an I2C expander like `pca9554` permits `input` / `output`, a shift register `sn74hc595` only `output`. `get_pin_registry_modes` returns the `{provider_key: [mode_flag, …]}` map (derived from ESPHome's `PIN_SCHEMA_REGISTRY` at sync time, excluding native target platforms which allow every flag) so the visual editor can hide the unsupported flag checkboxes. The key is the provider key that appears in the pin value (`pca9554`). Native pins (no provider key) and a missing artefact both fall back to showing every flag.
 

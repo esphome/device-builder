@@ -58,6 +58,7 @@ def _make_entry(
     category: ComponentCategory = ComponentCategory.MISC,
     docs_url: str = "",
     supported_platforms: list[str] | None = None,
+    provides: list[str] | None = None,
 ) -> ComponentCatalogIndexEntry:
     """Build a minimal ``ComponentCatalogIndexEntry`` for catalog-state tests.
 
@@ -75,6 +76,7 @@ def _make_entry(
         dependencies=[],
         multi_conf=False,
         supported_platforms=supported_platforms or [],
+        provides=provides or [],
     )
 
 
@@ -216,6 +218,71 @@ async def test_get_components_exclude_category_drops_matching_entries() -> None:
     ids = {c.id for c in res.components}
     assert "wifi" not in ids
     assert {"dht", "gpio"} <= ids
+
+
+async def test_get_components_provides_filters_to_interface_providers() -> None:
+    """``provides`` returns only components advertising the requested interface.
+
+    Cross-domain reference fields (ct_clamp's ``sensor`` →
+    ``voltage_sampler``) drive the Add-component picker through this
+    filter, since the providers live under ``sensor:``, not a
+    ``voltage_sampler:`` block.
+    """
+    cat = ComponentCatalog()
+    cat._components = [
+        _make_entry(
+            entry_id="sensor.adc", category=ComponentCategory.SENSOR, provides=["voltage_sampler"]
+        ),
+        _make_entry(
+            entry_id="sensor.ads1115",
+            category=ComponentCategory.SENSOR,
+            provides=["voltage_sampler"],
+        ),
+        _make_entry(entry_id="sensor.dht", category=ComponentCategory.SENSOR),
+    ]
+    cat._by_id = {c.id: c for c in cat._components}
+    res = await cat.get_components(provides="voltage_sampler")
+    assert {c.id for c in res.components} == {"sensor.adc", "sensor.ads1115"}
+    # Combines with the category filter rather than overriding it.
+    res = await cat.get_components(
+        provides="voltage_sampler", category=ComponentCategory.SWITCH.value
+    )
+    assert res.components == []
+
+
+async def test_get_components_provides_filters_featured_entries() -> None:
+    """``provides`` narrows featured entries too, keeping both result sets consistent.
+
+    A ``category=featured`` query carrying ``provides`` must drop a
+    featured card whose underlying component doesn't advertise the
+    interface, not pass it through unfiltered.
+    """
+    cat = ComponentCatalog()
+    cat._by_id = {
+        "sensor.adc": _make_entry(
+            entry_id="sensor.adc", category=ComponentCategory.SENSOR, provides=["voltage_sampler"]
+        ),
+        "sensor.dht": _make_entry(entry_id="sensor.dht", category=ComponentCategory.SENSOR),
+    }
+    cat._featured_by_id = {
+        "featured.b.adc": _FeaturedRecord(
+            full_id="featured.b.adc",
+            board_id="b",
+            featured=FeaturedComponent(id="adc", component_id="sensor.adc"),
+            underlying_id="sensor.adc",
+        ),
+        "featured.b.dht": _FeaturedRecord(
+            full_id="featured.b.dht",
+            board_id="b",
+            featured=FeaturedComponent(id="dht", component_id="sensor.dht"),
+            underlying_id="sensor.dht",
+        ),
+    }
+    cat._featured_by_board = {"b": ["featured.b.adc", "featured.b.dht"]}
+    res = await cat.get_components(
+        category=ComponentCategory.FEATURED.value, board_id="b", provides="voltage_sampler"
+    )
+    assert {c.id for c in res.components} == {"featured.b.adc"}
 
 
 async def test_get_components_query_matches_name_description_or_id() -> None:

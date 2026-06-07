@@ -115,6 +115,7 @@ def _materialise_featured_index(
         dependencies=list(underlying.dependencies),
         multi_conf=underlying.multi_conf,
         supported_platforms=list(underlying.supported_platforms),
+        provides=list(underlying.provides),
     )
 
 

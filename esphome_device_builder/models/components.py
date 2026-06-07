@@ -96,6 +96,11 @@ class ComponentCatalogIndexEntry(DataClassORJSONMixin):
     dependencies: list[str] = field(default_factory=list)
     multi_conf: bool = False
     supported_platforms: list[str] = field(default_factory=list)
+    # Interface namespaces this component can be referenced *as* beyond
+    # its own domain (e.g. an ``adc`` sensor provides ``voltage_sampler``).
+    # Lets the frontend resolve cross-domain ``references_component``
+    # fields whose providers don't live under a matching top-level key.
+    provides: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -143,6 +148,13 @@ class ComponentCatalogEntry(DataClassORJSONMixin):
     # ESP32-only hardware features). Frontend uses this to filter the
     # available components based on the device's selected board.
     supported_platforms: list[str] = field(default_factory=list)
+
+    # Interface namespaces this component can be referenced *as* beyond
+    # its own domain (e.g. an ``adc`` sensor provides ``voltage_sampler``,
+    # so it satisfies ``ct_clamp``'s ``sensor:`` reference). Frontend
+    # joins this against a field's ``references_component`` to find
+    # valid targets that live under a different domain.
+    provides: list[str] = field(default_factory=list)
 
     # The component's own configuration fields. Nested config blocks
     # (e.g. ``esp32_ble_tracker.scan_parameters``) and entity
