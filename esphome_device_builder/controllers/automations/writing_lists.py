@@ -205,7 +205,12 @@ def upsert_light_effect(
     tree: AutomationTree,
     location: LightEffectLocation,
 ) -> tuple[str, YamlDiff]:
-    """Splice an ``effects:`` list item under a configured light."""
+    """
+    Splice an ``effects:`` list item under a configured light at ``location.index``.
+
+    ``index == len(effects)`` appends; an in-range index replaces. Sibling
+    effects are preserved — only the targeted entry changes.
+    """
     # The tree carries the effect id under ``trigger_params`` (one
     # key mapping to its params dict). Reverse the parser's shape.
     if not tree.trigger_params or len(tree.trigger_params) != 1:
@@ -216,20 +221,29 @@ def upsert_light_effect(
     if catalog_entry is None:
         msg = f"Unknown light effect id: {effect_id!r}"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    _require_instance(
+    instance = _require_instance(
         yaml_text,
         domain="light",
         component_id=location.component_id,
         error_code=ErrorCode.INVALID_ARGS,
     )
     item = emit_effect_item(catalog_entry, str(effect_id), params or {})
-    # Effects upsert replaces the whole block with the one rendered entry.
+    existing = instance.get("effects")
+    entries = existing if isinstance(existing, list) else []
+    _drop_after_block_comment(entries)
+    if location.index == len(entries):
+        entries.append(item)
+    elif 0 <= location.index < len(entries):
+        entries[location.index] = item
+    else:
+        msg = f"effects[{location.index}] out of range (have {len(entries)})"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
     return _resplice_list_block(
         yaml_text,
         domain="light",
         component_id=location.component_id,
         handler_key="effects",
-        entries=[item],
+        entries=entries,
     )
 
 
