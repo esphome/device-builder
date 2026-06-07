@@ -62,12 +62,13 @@ from .writing_layout import (
     _locate_top_list_item,
 )
 from .writing_lists import (
-    apply_list_entry_upsert,
+    ListContainerStrategy,
     delete_light_effect,
     delete_list_entry,
-    drop_after_block_comment,
+    delete_list_entry_for,
     upsert_component_on_entry,
     upsert_light_effect,
+    upsert_list_entry,
     wrap_handler_list_block,
 )
 
@@ -164,6 +165,33 @@ def _upsert_device_on(
     return _upsert_under_top_key(yaml_text, "esphome", location.trigger, rendered)
 
 
+def _esphome_container(yaml_text: str, _error_code: ErrorCode) -> dict | None:
+    """Return the ``esphome:`` mapping, or ``None`` when absent (never raises)."""
+    data = make_yaml().load(yaml_text) or {}
+    esphome = data.get("esphome") if isinstance(data, dict) else None
+    return esphome if isinstance(esphome, dict) else None
+
+
+def _esphome_resplice(yaml_text: str, handler_key: str, entries: list) -> tuple[str, YamlDiff]:
+    """Re-emit a device handler list under ``esphome:``; remove the key when emptied."""
+    if entries:
+        rendered = wrap_handler_list_block(handler_key, dump(entries))
+        return _upsert_under_top_key(yaml_text, "esphome", handler_key, rendered)
+    return _delete_under_top_key(yaml_text, "esphome", handler_key)
+
+
+def _esphome_not_present_msg(key: str, index: int) -> str:
+    """Delete not-found message for a device-level list handler."""
+    return f"{key}[{index}] not present"
+
+
+_DEVICE_STRATEGY = ListContainerStrategy(
+    locate=_esphome_container,
+    resplice=_esphome_resplice,
+    not_present_msg=_esphome_not_present_msg,
+)
+
+
 def _upsert_device_on_entry(
     yaml_text: str,
     tree: AutomationTree,
@@ -172,22 +200,17 @@ def _upsert_device_on_entry(
 ) -> tuple[str, YamlDiff]:
     """Insert or replace one entry of a list-form device handler (``esphome.on_boot``).
 
-    ``index == len(entries)`` appends; an in-range index replaces. Refuses to
-    grow a single mapping into a list (the user picked that shape). No
-    ``supports_list`` gate here: every device-level trigger is list-capable, and
-    the wizard already withholds the affordance for any that are not.
+    Refuses to grow a single mapping into a list (the user picked that shape).
+    No ``supports_list`` gate here: every device-level trigger is list-capable,
+    and the wizard already withholds the affordance for any that are not.
     """
-    data = make_yaml().load(yaml_text) or {}
-    esphome = data.get("esphome") if isinstance(data, dict) else None
-    existing = esphome.get(trigger) if isinstance(esphome, dict) else None
-    if existing is not None and not isinstance(existing, list):
-        msg = f"{trigger}: is a single mapping, not a list; convert it to a list first"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    entries = existing if isinstance(existing, list) else []
-    drop_after_block_comment(entries)
-    apply_list_entry_upsert(entries, emit_trigger_list_item(tree), index, label=trigger)
-    rendered = wrap_handler_list_block(trigger, dump(entries))
-    return _upsert_under_top_key(yaml_text, "esphome", trigger, rendered)
+    return upsert_list_entry(
+        yaml_text,
+        key=trigger,
+        item=emit_trigger_list_item(tree),
+        index=index,
+        strategy=_DEVICE_STRATEGY,
+    )
 
 
 def _delete_device_on_entry(
@@ -196,18 +219,12 @@ def _delete_device_on_entry(
     index: int,
 ) -> tuple[str, YamlDiff]:
     """Drop one entry of a list-form device handler; remove the key when emptied."""
-    data = make_yaml().load(yaml_text) or {}
-    esphome = data.get("esphome") if isinstance(data, dict) else None
-    entries = esphome.get(trigger) if isinstance(esphome, dict) else None
-    if not isinstance(entries, list) or not 0 <= index < len(entries):
-        msg = f"{trigger}[{index}] not present"
-        raise CommandError(ErrorCode.NOT_FOUND, msg)
-    drop_after_block_comment(entries)
-    del entries[index]
-    if entries:
-        rendered = wrap_handler_list_block(trigger, dump(entries))
-        return _upsert_under_top_key(yaml_text, "esphome", trigger, rendered)
-    return _delete_under_top_key(yaml_text, "esphome", trigger)
+    return delete_list_entry_for(
+        yaml_text,
+        key=trigger,
+        index=index,
+        strategy=_DEVICE_STRATEGY,
+    )
 
 
 def _upsert_component_on(
