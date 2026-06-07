@@ -108,6 +108,65 @@ def test_build_automations_captures_value_and_absent_shorthand_keys(tmp_path: Pa
     assert actions["logger.set_level"]["scalar_shorthand_key"] is None
 
 
+def test_build_automations_inherits_shorthand_key_through_extends(tmp_path: Path) -> None:
+    """A ``maybe`` declared on an extended base surfaces as ``scalar_shorthand_key``.
+
+    Single-id actions wrap their schema with ``maybe_simple_id`` via a shared base
+    (``switch.SWITCH_ACTION_SCHEMA``), so the ``maybe`` lives on the extended schema,
+    not the action body. The plain ``id`` mapping (``time.has_time``, no ``maybe``
+    anywhere) must stay ``None`` (esphome/device-builder#1289).
+    """
+    schema_dir = _write_schema(
+        tmp_path,
+        "switch.json",
+        {
+            "switch": {
+                "action": {
+                    "toggle": {
+                        "schema": {"extends": ["switch.SWITCH_ACTION_SCHEMA"]},
+                        "type": "schema",
+                        "docs": "Toggle the switch.",
+                    },
+                },
+                "schemas": {
+                    "SWITCH_ACTION_SCHEMA": {
+                        "maybe": "id",
+                        "schema": {
+                            "config_vars": {
+                                "id": {"key": "Required", "type": "use_id"},
+                            },
+                        },
+                        "type": "schema",
+                    },
+                },
+            },
+        },
+    )
+    _write_schema(
+        tmp_path,
+        "time.json",
+        {
+            "time": {
+                "condition": {
+                    "has_time": {
+                        "schema": {
+                            "config_vars": {"id": {"key": "GeneratedID", "type": "use_id"}},
+                        },
+                        "type": "schema",
+                        "docs": "Check time is valid.",
+                    },
+                },
+                "schemas": {},
+            },
+        },
+    )
+    result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
+    actions = {a["id"]: a for a in result["actions"]}
+    conditions = {c["id"]: c for c in result["conditions"]}
+    assert actions["switch.toggle"]["scalar_shorthand_key"] == "id"
+    assert conditions["time.has_time"]["scalar_shorthand_key"] is None
+
+
 def test_build_automations_strips_then_from_control_flow_action_params(
     tmp_path: Path,
 ) -> None:

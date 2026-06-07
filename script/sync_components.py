@@ -2039,30 +2039,29 @@ def _convert_config_vars(  # noqa: C901
     return _sort_entries(out)
 
 
-def _resolve_extends(ref: str, schema_dir: Path) -> dict[str, dict]:  # noqa: C901
-    """Look up an ``extends`` reference and return its config_vars.
+def _lookup_schema_ref(ref: str, schema_dir: Path) -> dict | None:
+    """Resolve an ``extends`` reference to its target schema body.
 
     *ref* is shaped ``<file>.<schema_name>`` — e.g.
-    ``sensor._SENSOR_SCHEMA``, ``core.positive_time_period_milliseconds``.
-    For schemas that themselves carry ``extends`` we recurse so the full
-    ancestry is flattened into one config_vars dict.
+    ``sensor._SENSOR_SCHEMA``, ``switch.SWITCH_ACTION_SCHEMA``. Returns the
+    referenced schema's body dict (the ``{maybe?, schema, type}`` node), or
+    ``None`` when the reference can't be located.
+
+    ``<file_name>.json`` is the obvious lookup, but a few shared scopes are
+    housed in ``esphome.json`` under a top-level key matching their ref prefix
+    — most importantly ``core``, which holds ``ENTITY_BASE_SCHEMA`` (the
+    inheritance source for the entity-level ``name`` / ``icon`` / ``internal``
+    / ``disabled_by_default`` / ``entity_category`` fields). Without the
+    esphome.json fallback those fields silently disappear from every
+    entity-platform component (binary_sensor.gpio, output.gpio, sensor.aht10,
+    ...).
     """
     parts = ref.split(".")
     if len(parts) < 2:
-        return {}
+        return None
     file_name = parts[0]
     schema_name = ".".join(parts[1:])
 
-    # ``<file_name>.json`` is the obvious lookup, but a few shared
-    # scopes are housed in ``esphome.json`` under a top-level key
-    # matching their ref prefix — most importantly ``core``, which
-    # holds ``ENTITY_BASE_SCHEMA`` (the inheritance source for the
-    # entity-level ``name`` / ``icon`` / ``internal`` /
-    # ``disabled_by_default`` / ``entity_category`` fields). Without
-    # the esphome.json fallback those fields silently disappear from
-    # every entity-platform component (binary_sensor.gpio,
-    # output.gpio, sensor.aht10, ...).
-    candidates: list[dict] = []
     for path in (schema_dir / f"{file_name}.json", schema_dir / "esphome.json"):
         if not path.exists():
             continue
@@ -2072,13 +2071,19 @@ def _resolve_extends(ref: str, schema_dir: Path) -> dict[str, dict]:  # noqa: C9
                 continue
             schemas = top_value.get("schemas") or {}
             if schema_name in schemas:
-                candidates.append(schemas[schema_name])
-        if candidates:
-            break
+                return schemas[schema_name]
+    return None
 
-    if not candidates:
+
+def _resolve_extends(ref: str, schema_dir: Path) -> dict[str, dict]:
+    """Look up an ``extends`` reference and return its config_vars.
+
+    For schemas that themselves carry ``extends`` we recurse so the full
+    ancestry is flattened into one config_vars dict.
+    """
+    target = _lookup_schema_ref(ref, schema_dir)
+    if target is None:
         return {}
-    target = candidates[0]
     schema_node = target.get("schema") or {}
     inner = dict(schema_node.get("config_vars") or {})
     # Recurse into nested extends so the merged map carries everything.
@@ -2086,6 +2091,28 @@ def _resolve_extends(ref: str, schema_dir: Path) -> dict[str, dict]:  # noqa: C9
         for k, v in _resolve_extends(sub, schema_dir).items():
             inner.setdefault(k, v)
     return inner
+
+
+def _resolve_extends_maybe(ref: str, schema_dir: Path) -> str | None:
+    """Return the ``maybe_simple_value`` key declared on an extended schema.
+
+    Single-id actions wrap their schema with ``maybe_simple_id`` via a shared
+    base (e.g. ``switch.SWITCH_ACTION_SCHEMA``), so the ``maybe`` field lives on
+    the base's body rather than the action body. Recurse through nested
+    ``extends`` so an inherited shorthand surfaces regardless of depth.
+    """
+    target = _lookup_schema_ref(ref, schema_dir)
+    if target is None:
+        return None
+    maybe = target.get(_SCHEMA_MAYBE_FIELD)
+    if isinstance(maybe, str):
+        return maybe
+    schema_node = target.get("schema") or {}
+    for sub in schema_node.get("extends") or []:
+        inherited = _resolve_extends_maybe(sub, schema_dir)
+        if inherited is not None:
+            return inherited
+    return None
 
 
 def _convert_field(  # noqa: PLR0912, PLR0915, C901
@@ -5546,6 +5573,7 @@ def _convert_automation_action(
         docs=docs,
         config_entries=config_entries,
         body=body,
+        schema_dir=schema_dir,
     )
     return {
         "id": qualified,
@@ -5592,6 +5620,7 @@ def _convert_automation_condition(
         docs=docs,
         config_entries=config_entries,
         body=body,
+        schema_dir=schema_dir,
     )
     return {
         "id": qualified,
@@ -5605,16 +5634,30 @@ def _convert_automation_condition(
     }
 
 
-def _scalar_shorthand_key(body: dict) -> str | None:
+def _scalar_shorthand_key(body: dict, schema_dir: Path) -> str | None:
     """
     Return the config key a bare-scalar shorthand maps to.
 
     The schema bundle records ESPHome's ``maybe_simple_value`` key on the
     registry body's ``maybe`` field (``logger.log`` → ``format``,
     ``light.turn_on`` → ``id``); absent for actions with no scalar shorthand.
+
+    Single-id actions (``switch.toggle`` …) wrap their schema with
+    ``maybe_simple_id`` through a shared base (``switch.SWITCH_ACTION_SCHEMA``),
+    so the ``maybe`` lives on the *extended* schema, not the action body —
+    follow ``extends`` to surface it. Entries with no ``maybe`` anywhere
+    (``time.has_time``, whose sole field is a real ``id`` mapping) stay
+    ``None`` and must render as a mapping.
     """
     maybe = body.get(_SCHEMA_MAYBE_FIELD)
-    return maybe if isinstance(maybe, str) else None
+    if isinstance(maybe, str):
+        return maybe
+    schema_node = body.get("schema") or {}
+    for ref in schema_node.get("extends") or []:
+        inherited = _resolve_extends_maybe(ref, schema_dir)
+        if inherited is not None:
+            return inherited
+    return None
 
 
 def _is_scalar_extends_schema(schema: dict | None) -> bool:
@@ -5644,6 +5687,7 @@ def _resolve_automation_lambda(
     docs: CleanedDocs,
     config_entries: list[dict],
     body: dict,
+    schema_dir: Path,
 ) -> tuple[list[dict], str | None]:
     """Resolve an action/condition's ``(config_entries, scalar_shorthand_key)``.
 
@@ -5672,7 +5716,7 @@ def _resolve_automation_lambda(
             "help_link": _CORE_LAMBDA_DOCS,
         }
         return [entry], _LAMBDA_REGISTRY_ID
-    return config_entries, _scalar_shorthand_key(body)
+    return config_entries, _scalar_shorthand_key(body, schema_dir)
 
 
 def _scalar_value_type_for_schema(name: str, schema: dict | None) -> str | None:

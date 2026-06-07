@@ -363,6 +363,18 @@ def test_emit_action_single_value_param_collapses_to_shorthand() -> None:
     assert dump([emit_action_node(node)]).strip() == "- logger.log: hi"
 
 
+def test_emit_action_id_shorthand_collapses() -> None:
+    """A maybe_simple_id action (``switch.toggle``) collapses ``id`` to a scalar."""
+    node = ActionNode(action_id="switch.toggle", params={"id": "relay"})
+    assert dump([emit_action_node(node)]).strip() == "- switch.toggle: relay"
+
+
+def test_emit_action_bare_scalar_action_collapses_synthetic_id() -> None:
+    """``delay`` has no ``id`` field; its synthetic ``id`` param round-trips as a scalar."""
+    node = ActionNode(action_id="delay", params={"id": "1s"})
+    assert dump([emit_action_node(node)]).strip() == "- delay: 1s"
+
+
 def test_decompose_action_with_children_and_conditions() -> None:
     """``if`` decomposes its ``then`` / ``else`` / ``condition`` keys."""
     node = _decompose_action(
@@ -569,6 +581,24 @@ def test_emit_condition_node_bare_condition() -> None:
     """A condition with no params and no children renders as a bare key."""
     out = emit_condition_node(ConditionNode(condition_id="some_condition"))
     assert out["some_condition"] is None
+
+
+def test_emit_condition_node_id_mapping_field_stays_mapping() -> None:
+    """A real ``id`` mapping field with no shorthand stays a mapping, not a scalar.
+
+    ``time.has_time`` has ``scalar_shorthand_key`` null and a genuine ``id`` field, so
+    it must emit ``id:`` rather than collapsing (esphome/device-builder#1289).
+    """
+    node = ConditionNode(condition_id="time.has_time", params={"id": "id_time"})
+    out = dump([emit_condition_node(node)])
+    assert "id: id_time" in out
+    assert "time.has_time: id_time" not in out
+
+
+def test_emit_condition_node_value_shorthand_collapses() -> None:
+    """A value-shorthand condition still collapses to its bare scalar."""
+    node = ConditionNode(condition_id="display.is_displaying_page", params={"page_id": "home"})
+    assert dump([emit_condition_node(node)]).strip() == "- display.is_displaying_page: home"
 
 
 def test_emit_condition_node_with_multi_param_body() -> None:
