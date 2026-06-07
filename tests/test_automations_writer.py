@@ -152,6 +152,23 @@ def test_upsert_device_on_boot_replaces_list_entry() -> None:
     assert parsed[0].automation.actions[0].params == {"format": "second"}
 
 
+def test_upsert_device_on_boot_replace_keeps_sibling_entries() -> None:
+    """Replacing one entry of a 2-entry on_boot leaves the sibling untouched."""
+    two = _LIST_ON_BOOT + "    - priority: 200\n      then:\n        - delay: 1s\n"
+    tree = AutomationTree(
+        trigger_id="on_boot",
+        trigger_params={"priority": -300},
+        actions=[ActionNode(action_id="logger.log", params={"format": "second"})],
+    )
+    new_text, _ = render_upsert(
+        two, tree=tree, location=DeviceOnLocation(trigger="on_boot", index=0)
+    )
+    parsed = parse_device_yaml(new_text)
+    assert [p.location.index for p in parsed] == [0, 1]
+    assert parsed[0].automation.actions[0].params == {"format": "second"}
+    assert parsed[1].automation.trigger_params == {"priority": 200}
+
+
 def test_delete_device_on_boot_list_entry() -> None:
     """Deleting one entry of a multi-handler on_boot keeps the rest as a list."""
     two = _LIST_ON_BOOT + "    - priority: 200\n      then:\n        - delay: 1s\n"

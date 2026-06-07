@@ -132,8 +132,11 @@ def apply_list_entry_upsert(entries: list, item: Any, index: int, *, label: str)
 class ListContainerStrategy:
     """How to find the dict holding a handler list and how to re-emit it.
 
-    ``locate`` returns the container dict or ``None``, or raises with the
-    passed ``error_code``; ``not_present_msg`` builds the delete error.
+    ``locate`` returns ``None`` only when an absent container should be
+    auto-created on resplice (device ``esphome:``); it raises with the
+    passed ``error_code`` when the container is a hard prerequisite
+    (a configured component instance). ``not_present_msg`` builds the
+    delete error.
     """
 
     locate: Callable[[str, ErrorCode], dict | None]
