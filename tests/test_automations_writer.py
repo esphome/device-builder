@@ -578,6 +578,27 @@ def test_upsert_light_effect_out_of_range_raises_invalid_args() -> None:
     assert exc.value.code == ErrorCode.INVALID_ARGS
 
 
+def test_upsert_light_effect_non_list_effects_raises_invalid_args() -> None:
+    """A present-but-non-list ``effects:`` is refused, not silently overwritten."""
+    list_text = _load("light_effects.yaml")
+    target = _effect_parse(list_text, 0)
+    mapping_text = (
+        "esphome:\n"
+        "  name: x\n"
+        "light:\n"
+        "  - platform: binary\n"
+        "    name: 'Lamp'\n"
+        "    id: my_lamp\n"
+        "    output: lamp_out\n"
+        "    effects:\n"
+        "      flicker:\n"
+        "        alpha: 0.9\n"
+    )
+    with pytest.raises(CommandError) as exc:
+        render_upsert(mapping_text, tree=target.automation, location=target.location)
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+
+
 # ---------------------------------------------------------------------------
 # Component action-list config fields (``open_action:`` etc.)
 # ---------------------------------------------------------------------------

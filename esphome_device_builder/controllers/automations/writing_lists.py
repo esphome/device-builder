@@ -229,6 +229,9 @@ def upsert_light_effect(
     )
     item = emit_effect_item(catalog_entry, str(effect_id), params or {})
     existing = instance.get("effects")
+    if existing is not None and not isinstance(existing, list):
+        msg = "effects: is a single mapping, not a list; convert it to a list first"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
     entries = existing if isinstance(existing, list) else []
     _drop_after_block_comment(entries)
     if location.index == len(entries):
