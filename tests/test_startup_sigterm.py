@@ -8,6 +8,7 @@ that lands while serving drains ``on_cleanup`` (``stop()``) before exiting.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import signal
 import socket
@@ -17,6 +18,7 @@ import time
 from typing import TYPE_CHECKING
 
 import pytest
+from aiohttp.web import GracefulExit
 
 from esphome_device_builder import __main__ as main_module
 
@@ -32,11 +34,28 @@ windows_only = pytest.mark.skipif(sys.platform != "win32", reason="Windows CTRL_
 _DRAIN_MARKER = "Shutting down ESPHome Device Builder"
 
 
-def test_exit_cleanly_on_signal_raises_zero() -> None:
-    """The handler raises ``SystemExit(0)`` so the interpreter exits cleanly."""
+def test_exit_cleanly_on_signal_without_loop_raises_zero() -> None:
+    """With no running loop the handler raises ``SystemExit(0)``."""
     with pytest.raises(SystemExit) as excinfo:
         main_module._exit_cleanly_on_signal(signal.SIGTERM, None)
     assert excinfo.value.code == 0
+
+
+async def test_exit_cleanly_on_signal_with_loop_defers_graceful_exit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With a running loop the handler defers ``GracefulExit`` instead of raising inline."""
+    scheduled: list[object] = []
+    loop = asyncio.get_running_loop()
+    monkeypatch.setattr(loop, "call_soon_threadsafe", lambda cb, *a: scheduled.append(cb))
+    main_module._exit_cleanly_on_signal(signal.SIGTERM, None)
+    assert scheduled == [main_module._raise_graceful_exit]
+
+
+def test_raise_graceful_exit_raises_graceful_exit() -> None:
+    """The deferred callback raises aiohttp's ``GracefulExit``."""
+    with pytest.raises(GracefulExit):
+        main_module._raise_graceful_exit()
 
 
 def test_main_installs_stop_signal_handlers_before_parsing(
@@ -59,7 +78,7 @@ def test_main_installs_stop_signal_handlers_before_parsing(
 
 
 def _spawn_dashboard(
-    config_dir: Path, *, creationflags: int = 0
+    config_dir: Path, *, creationflags: int = 0, env: dict[str, str] | None = None
 ) -> tuple[subprocess.Popen[str], int]:
     """Launch the dashboard on an ephemeral port; return ``(proc, port)``."""
     with socket.socket() as probe:
@@ -80,22 +99,69 @@ def _spawn_dashboard(
         stderr=subprocess.STDOUT,
         text=True,
         creationflags=creationflags,
+        env=env,
     )
     return proc, port
 
 
-def _wait_for_startup_window(proc: subprocess.Popen[str]) -> None:
+# Holds the loop running but with our pre-serving SIGTERM trap still the active
+# handler — the exact "startup crack" window before aiohttp's AppRunner.setup
+# arms its own handler. Writing it via PYTHONPATH/sitecustomize makes the
+# otherwise timing-dependent race deterministic so CI exercises it every run.
+_CRACK_SITECUSTOMIZE = """
+import asyncio, time as _t
+_orig = asyncio.unix_events._UnixSelectorEventLoop.add_signal_handler
+def _slow(self, sig, callback, *args):
+    print("CRACK_OPEN", flush=True)
+    _t.sleep(2.0)
+    return _orig(self, sig, callback, *args)
+asyncio.unix_events._UnixSelectorEventLoop.add_signal_handler = _slow
+"""
+
+
+def _crack_env(tmp_path: Path) -> dict[str, str]:
+    """Build an env whose sitecustomize widens the startup crack."""
+    shim = tmp_path / "crack_shim"
+    shim.mkdir(exist_ok=True)
+    (shim / "sitecustomize.py").write_text(_CRACK_SITECUSTOMIZE)
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join([str(shim), env.get("PYTHONPATH", "")])
+    return env
+
+
+def _wait_for_startup_window(proc: subprocess.Popen[str]) -> list[str]:
     """Block until the first log line, marking the pre-serving startup window.
 
     Logging is configured *below* the stop-signal trap in ``main``, so any
     output proves the trap is armed; the server binds ~1s later, so a signal
     sent now deterministically lands pre-serving on slow and fast runners.
+    Returns the lines consumed so the caller can fold them into a full
+    transcript for failure diagnostics.
     """
     assert proc.stdout is not None
+    consumed: list[str] = []
     deadline = time.monotonic() + 15
-    while not proc.stdout.readline().strip():
+    while True:
+        line = proc.stdout.readline()
+        consumed.append(line)
+        if line.strip():
+            return consumed
         assert proc.poll() is None, "process exited during startup"
         assert time.monotonic() < deadline, "no startup output before deadline"
+
+
+def _wait_for_crack(proc: subprocess.Popen[str]) -> list[str]:
+    """Block until the child prints CRACK_OPEN; return the lines consumed."""
+    assert proc.stdout is not None
+    consumed: list[str] = []
+    deadline = time.monotonic() + 20
+    while True:
+        line = proc.stdout.readline()
+        consumed.append(line)
+        if "CRACK_OPEN" in line:
+            return consumed
+        assert line or proc.poll() is None, "process exited before the crack"
+        assert time.monotonic() < deadline, "no CRACK_OPEN before deadline"
 
 
 def _wait_until_serving(proc: subprocess.Popen[str], port: int) -> None:
@@ -116,20 +182,72 @@ def _wait_until_serving(proc: subprocess.Popen[str], port: int) -> None:
 def test_sigterm_during_startup_exits_zero(tmp_path: Path) -> None:
     """A real SIGTERM landing mid-startup (pre-serving) exits 0, not 143."""
     proc, _ = _spawn_dashboard(tmp_path)
+    captured = _wait_for_startup_window(proc)
     try:
-        _wait_for_startup_window(proc)
         proc.send_signal(signal.SIGTERM)
         try:
-            proc.communicate(timeout=30)
+            out, _ = proc.communicate(timeout=30)
+            captured.append(out)
         except subprocess.TimeoutExpired:
-            pytest.fail("dashboard did not exit within 30s of SIGTERM")
+            proc.kill()
+            out, _ = proc.communicate()
+            captured.append(out)
+            pytest.fail(
+                "dashboard did not exit within 30s of SIGTERM\n"
+                f"--- child transcript ---\n{''.join(captured)}"
+            )
     finally:
         if proc.poll() is None:
             proc.kill()
             proc.communicate()
     # A negative code is death by signal: -SIGTERM (== shell 143) is the
     # regression this test guards.
-    assert proc.returncode == 0, f"expected clean exit 0, got {proc.returncode}"
+    assert proc.returncode == 0, (
+        f"expected clean exit 0, got {proc.returncode}\n"
+        f"--- child transcript ---\n{''.join(captured)}"
+    )
+
+
+@posix_only
+@pytest.mark.timeout(120)
+def test_sigterm_in_startup_crack_exits_zero(tmp_path: Path) -> None:
+    """A SIGTERM landing in the loop-startup crack exits 0, not hang or 143."""
+    # The crack (loop running, our trap still active before aiohttp arms its
+    # own handler) is timing-dependent in the wild; the shim widens it so CI
+    # hits it deterministically. The transcript surfaces the child traceback
+    # on failure. Looped a few times to also shake out the signal-context
+    # reentrancy that only bites when the stop lands mid-log-write.
+    env = _crack_env(tmp_path)
+    for i in range(3):
+        config_dir = tmp_path / f"crack{i}"
+        config_dir.mkdir()
+        proc, _ = _spawn_dashboard(config_dir, env=env)
+        captured = _wait_for_crack(proc)
+        time.sleep(0.3)  # land the signal mid the shim's 2s widening sleep
+        try:
+            proc.send_signal(signal.SIGTERM)
+            try:
+                out, _ = proc.communicate(timeout=30)
+                captured.append(out)
+                returncode: int | None = proc.returncode
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                out, _ = proc.communicate()
+                captured.append(out)
+                returncode = None
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.communicate()
+        transcript = "".join(captured)
+        assert returncode is not None, (
+            f"iteration {i}: dashboard did not exit within 30s of SIGTERM\n"
+            f"--- child transcript ---\n{transcript}"
+        )
+        assert returncode == 0, (
+            f"iteration {i}: expected clean exit 0, got {returncode}\n"
+            f"--- child transcript ---\n{transcript}"
+        )
 
 
 @posix_only

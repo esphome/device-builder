@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import logging
 import os
 import signal
@@ -100,10 +101,31 @@ def _setup_logging(log_level: str, log_file: str | None = None) -> None:
     activate_log_queue_handler()
 
 
-def _exit_cleanly_on_signal(signum: int, _frame: object) -> None:
-    """Exit 0 on a stop signal the event loop isn't trapping itself."""
-    logging.getLogger(_LOGGER_NAME).info("Received stop signal %s; shutting down cleanly", signum)
-    raise SystemExit(0)
+def _exit_cleanly_on_signal(_signum: int, _frame: object) -> None:
+    """Exit 0 on a stop signal the event loop isn't trapping itself.
+
+    Runs in signal context (between bytecodes on the main thread, possibly
+    mid-logging-write), so it must do no logging and no real work — that
+    would re-enter the stream/queue and deadlock or raise (a stop landing
+    while the startup banner is being emitted hit
+    ``RuntimeError: reentrant call inside <_io.BufferedWriter>``). With no
+    running loop (pre-serving cold start) raise ``SystemExit(0)``;
+    otherwise hand off to the loop, which runs ``_raise_graceful_exit`` at
+    a safe point so ``run_app`` drains ``on_cleanup``.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        raise SystemExit(0) from None
+    loop.call_soon_threadsafe(_raise_graceful_exit)
+
+
+def _raise_graceful_exit() -> None:
+    """Loop-context callback: log the stop and raise ``GracefulExit`` so ``run_app`` drains."""
+    from aiohttp.web import GracefulExit  # noqa: PLC0415
+
+    logging.getLogger(_LOGGER_NAME).info("Received stop signal; shutting down cleanly")
+    raise GracefulExit
 
 
 def main() -> None:
