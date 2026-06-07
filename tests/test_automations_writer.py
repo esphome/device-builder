@@ -20,6 +20,7 @@ import pytest
 from esphome_device_builder.controllers.automations import writing
 from esphome_device_builder.controllers.automations.parsing import (
     ComponentTarget,
+    ParsedAutomation,
     parse_device_yaml,
 )
 from esphome_device_builder.controllers.automations.writing import (
@@ -533,7 +534,7 @@ def test_delete_light_effect_removes_one_list_item() -> None:
     assert "pulse" in new_text
 
 
-def _effect_parse(text: str, index: int):
+def _effect_parse(text: str, index: int) -> ParsedAutomation:
     """Return the parsed light-effect entry at *index*."""
     return next(
         p
