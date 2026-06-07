@@ -277,7 +277,10 @@ async def test_data_func_called_at_flush_not_scheduling(
 
     store.async_delay_save(_read, delay=0.05)
     state[:] = b"after-mutation"
-    await _drain_loop_until(store_path.exists, timeout=1.0)
+    # 2s rather than the 1s default; busy Windows xdist workers can take
+    # longer than 1s for the executor hop + atomic rename after the 50ms
+    # timer fires.
+    await _drain_loop_until(store_path.exists, timeout=2.0)
     assert store_path.read_bytes() == b"after-mutation"
 
 
