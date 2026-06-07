@@ -48,6 +48,10 @@ _LOG_COLORS = {
     "CRITICAL": "red",
 }
 
+# Set by the stop-signal trap so ``main`` can tell a user-requested
+# shutdown apart from a genuine startup crash when ``run_app`` propagates.
+_stop_requested = False
+
 
 def _setup_logging(log_level: str, log_file: str | None = None) -> None:
     """Set up logging with a coloured console handler and an optional rotating file."""
@@ -113,6 +117,8 @@ def _exit_cleanly_on_signal(_signum: int, _frame: object) -> None:
     otherwise hand off to the loop, which runs ``_raise_graceful_exit`` at
     a safe point so ``run_app`` drains ``on_cleanup``.
     """
+    global _stop_requested  # noqa: PLW0603 — process-wide stop latch
+    _stop_requested = True
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -132,13 +138,16 @@ def main() -> None:
     """Run the ESPHome Device Builder."""
     # Trap the platform's stop signal so a quit exits cleanly instead of
     # the OS default disposition. POSIX: a startup-window SIGTERM exits
-    # 143 ("did not handle SIGTERM") before aiohttp arms its run-loop
-    # handler; once serving, ``web.run_app`` replaces this with its own.
-    # Windows: aiohttp installs no handler at all, and the desktop quits
-    # the backend with CTRL_BREAK_EVENT (→ SIGBREAK; SIGTERM is
-    # uncatchable there), so without this the break default-terminates
-    # abruptly instead of draining. The Proactor loop's wakeup fd makes
-    # the break land promptly while serving.
+    # 143 ("did not handle SIGTERM") before aiohttp would arm its own
+    # handler. We run ``web.run_app(handle_signals=False)`` so this trap
+    # stays the sole handler for the whole lifecycle — otherwise aiohttp's
+    # ``add_signal_handler`` (armed in ``runner.setup`` before ``on_startup``)
+    # would replace it, and a stop landing mid-startup would skip the
+    # clean-exit bookkeeping below. Windows: aiohttp installs no handler at
+    # all, and the desktop quits the backend with CTRL_BREAK_EVENT
+    # (→ SIGBREAK; SIGTERM is uncatchable there), so without this the break
+    # default-terminates abruptly instead of draining. The Proactor loop's
+    # wakeup fd makes the break land promptly while serving.
     signal.signal(signal.SIGTERM, _exit_cleanly_on_signal)
     if sys.platform == "win32":
         signal.signal(signal.SIGBREAK, _exit_cleanly_on_signal)
@@ -337,7 +346,18 @@ def main() -> None:
         if lock.exit_code is not None:
             sys.exit(lock.exit_code)
         device_builder = DeviceBuilder(settings)
-        device_builder.run()
+        try:
+            device_builder.run()
+        except Exception:
+            # A stop signal landing mid-``on_startup`` cancels aiohttp's
+            # main task while it's still in ``runner.setup()`` — outside
+            # ``run_app``'s cleanup try/finally — so a half-started
+            # controller's teardown can surface a non-``CancelledError``
+            # that escapes ``run_app``. If the user asked us to stop, that's
+            # a clean exit; only a crash with no stop pending propagates.
+            if not _stop_requested:
+                raise
+            logging.getLogger(_LOGGER_NAME).info("Stop signal interrupted startup; exiting cleanly")
 
 
 def _log_uncaught_exception(

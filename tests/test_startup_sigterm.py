@@ -104,18 +104,19 @@ def _spawn_dashboard(
     return proc, port
 
 
-# Holds the loop running but with our pre-serving SIGTERM trap still the active
-# handler — the exact "startup crack" window before aiohttp's AppRunner.setup
-# arms its own handler. Writing it via PYTHONPATH/sitecustomize makes the
-# otherwise timing-dependent race deterministic so CI exercises it every run.
+# Holds the loop running mid-``AppRunner.setup`` with our SIGTERM trap active —
+# the pre-serving startup window. We run ``run_app(handle_signals=False)`` so the
+# trap is our handler the whole way; the blocking sleep inside ``setup`` makes a
+# signal land here deterministically so CI exercises the window every run.
 _CRACK_SITECUSTOMIZE = """
-import asyncio, time as _t
-_orig = asyncio.unix_events._UnixSelectorEventLoop.add_signal_handler
-def _slow(self, sig, callback, *args):
+import time as _t
+from aiohttp import web_runner as _wr
+_orig = _wr.AppRunner.setup
+async def _slow(self):
     print("CRACK_OPEN", flush=True)
     _t.sleep(2.0)
-    return _orig(self, sig, callback, *args)
-asyncio.unix_events._UnixSelectorEventLoop.add_signal_handler = _slow
+    return await _orig(self)
+_wr.AppRunner.setup = _slow
 """
 
 
@@ -124,6 +125,34 @@ def _crack_env(tmp_path: Path) -> dict[str, str]:
     shim = tmp_path / "crack_shim"
     shim.mkdir(exist_ok=True)
     (shim / "sitecustomize.py").write_text(_CRACK_SITECUSTOMIZE)
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join([str(shim), env.get("PYTHONPATH", "")])
+    return env
+
+
+# Holds the process inside ``on_startup`` (catalogs loaded, devices not yet)
+# and makes the half-started controller's teardown raise a non-CancelledError
+# when the stop-driven cancellation lands — the shape that escaped ``run_app``
+# and exited 1 instead of 0. Deterministic stand-in for whichever real
+# controller's cancel-time teardown raised on the CI runner.
+_TEARDOWN_FAIL_SITECUSTOMIZE = """
+import asyncio
+import esphome_device_builder.controllers.devices.controller as _c
+async def _start(self):
+    print("STARTUP_HELD", flush=True)
+    try:
+        await asyncio.sleep(30)
+    except asyncio.CancelledError:
+        raise RuntimeError("simulated half-started teardown failure") from None
+_c.DevicesController.start = _start
+"""
+
+
+def _teardown_fail_env(tmp_path: Path) -> dict[str, str]:
+    """Build an env whose sitecustomize fails a controller's cancel teardown."""
+    shim = tmp_path / "teardown_fail_shim"
+    shim.mkdir(exist_ok=True)
+    (shim / "sitecustomize.py").write_text(_TEARDOWN_FAIL_SITECUSTOMIZE)
     env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join([str(shim), env.get("PYTHONPATH", "")])
     return env
@@ -211,10 +240,10 @@ def test_sigterm_during_startup_exits_zero(tmp_path: Path) -> None:
 @posix_only
 @pytest.mark.timeout(120)
 def test_sigterm_in_startup_crack_exits_zero(tmp_path: Path) -> None:
-    """A SIGTERM landing in the loop-startup crack exits 0, not hang or 143."""
-    # The crack (loop running, our trap still active before aiohttp arms its
-    # own handler) is timing-dependent in the wild; the shim widens it so CI
-    # hits it deterministically. The transcript surfaces the child traceback
+    """A SIGTERM landing while the loop is mid-startup exits 0, not hang or 143."""
+    # The window (loop running, our trap active, pre-serving) is timing-
+    # dependent in the wild; the shim's blocking sleep inside setup widens it so
+    # CI hits it deterministically. The transcript surfaces the child traceback
     # on failure. Looped a few times to also shake out the signal-context
     # reentrancy that only bites when the stop lands mid-log-write.
     env = _crack_env(tmp_path)
@@ -248,6 +277,47 @@ def test_sigterm_in_startup_crack_exits_zero(tmp_path: Path) -> None:
             f"iteration {i}: expected clean exit 0, got {returncode}\n"
             f"--- child transcript ---\n{transcript}"
         )
+
+
+@posix_only
+@pytest.mark.timeout(60)
+def test_sigterm_during_startup_with_failing_teardown_exits_zero(tmp_path: Path) -> None:
+    """A stop interrupting on_startup exits 0 even if a half-started teardown raises."""
+    # aiohttp runs on_startup outside its cleanup try/finally, so a stop-driven
+    # cancellation mid-startup can surface a non-CancelledError that escapes
+    # run_app. ``main`` treats that as a clean exit because a stop was pending.
+    proc, _ = _spawn_dashboard(tmp_path, env=_teardown_fail_env(tmp_path))
+    assert proc.stdout is not None
+    captured: list[str] = []
+    deadline = time.monotonic() + 20
+    while True:
+        line = proc.stdout.readline()
+        captured.append(line)
+        if "STARTUP_HELD" in line:
+            break
+        assert line or proc.poll() is None, "process exited before startup hold"
+        assert time.monotonic() < deadline, "no STARTUP_HELD before deadline"
+    try:
+        proc.send_signal(signal.SIGTERM)
+        try:
+            out, _ = proc.communicate(timeout=30)
+            captured.append(out)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            out, _ = proc.communicate()
+            captured.append(out)
+            pytest.fail(
+                "dashboard did not exit within 30s of SIGTERM\n"
+                f"--- child transcript ---\n{''.join(captured)}"
+            )
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.communicate()
+    assert proc.returncode == 0, (
+        f"expected clean exit 0, got {proc.returncode}\n"
+        f"--- child transcript ---\n{''.join(captured)}"
+    )
 
 
 @posix_only

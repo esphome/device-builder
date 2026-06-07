@@ -837,16 +837,26 @@ class DeviceBuilder:
                 host=hosts,
                 port=settings.ingress_port,
                 shutdown_timeout=_SHUTDOWN_TIMEOUT_SECONDS,
+                handle_signals=False,
             )
             return
         app = self.create_app()
         hosts = resolve_bind_host(settings.host)
         ensure_single_host_for_ephemeral_port(hosts, settings.port, "--port")
+        # ``handle_signals=False``: keep our ``__main__`` SIGTERM/SIGBREAK trap
+        # as the sole handler for the whole lifecycle. aiohttp's own
+        # ``add_signal_handler`` is armed inside ``runner.setup()`` *before*
+        # ``on_startup`` runs and would otherwise replace our trap, so a stop
+        # landing mid-startup would take aiohttp's path and bypass the
+        # clean-exit bookkeeping in ``main``. Our trap defers ``GracefulExit``
+        # to the loop just the same, so ``run_app`` still drains ``on_cleanup``
+        # while serving.
         web.run_app(
             app,
             host=hosts,
             port=settings.port,
             shutdown_timeout=_SHUTDOWN_TIMEOUT_SECONDS,
+            handle_signals=False,
         )
 
     @staticmethod
