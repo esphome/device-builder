@@ -18,6 +18,7 @@ from esphome_device_builder.helpers.secrets_state import (
     PLACEHOLDER_WIFI_PASSWORD,
     PLACEHOLDER_WIFI_SSID,
     SecretsContentError,
+    _quote_yaml_string,
     is_valid_secret_key,
     is_wifi_unconfigured,
     merge_secrets_file,
@@ -325,10 +326,14 @@ def test_write_secret_no_overwrite_creates_absent_key(tmp_path: Path) -> None:
 
 
 def test_write_secret_round_trips_a_multiline_value_without_folding(tmp_path: Path) -> None:
-    """A value with newlines/tabs reads back byte-for-byte, not folded to spaces."""
-    value = "-----BEGIN-----\nline2\twith-tab\r\n-----END-----"
+    """A value with newlines/tabs/control chars reads back byte-for-byte, not folded."""
+    value = "-----BEGIN-----\nline2\twith-tab\x07bell\r\n-----END-----"
     write_secret(tmp_path, "cert", value)
     assert read_secrets_yaml(tmp_path) == {"cert": value}
+
+
+def test_quote_yaml_string_escapes_named_and_hex_control_chars() -> None:
+    assert _quote_yaml_string("a\nb\tc\x07d") == '"a\\nb\\tc\\x07d"'
 
 
 @pytest.mark.parametrize("key", ["wifi_ssid", "_x", "ABC123", "a"])
