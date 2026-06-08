@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Any
 
+from ruamel.yaml.comments import CommentedMap
+
 from ...helpers.api import CommandError
 from ...helpers.yaml import (
     remove_inline_handler,
@@ -25,12 +27,13 @@ from ...helpers.yaml import (
 from ...models.api import ErrorCode
 from ...models.automations import (
     AutomationTree,
+    AutomationTrigger,
     LightEffectLocation,
     YamlDiff,
 )
 from . import catalog
 from .emitter import dump, emit_effect_item, emit_trigger_list_item
-from .parsing import make_yaml
+from .parsing import _is_trigger_entry, make_yaml
 
 # The YAML field naming a component instance's id.
 _ID_KEY = "id"
@@ -154,6 +157,7 @@ def upsert_list_entry(
     item: Any,
     index: int,
     strategy: ListContainerStrategy,
+    trigger: AutomationTrigger | None = None,
 ) -> tuple[str, YamlDiff]:
     """
     Insert or replace one entry of a list-shaped handler at *index*.
@@ -161,6 +165,11 @@ def upsert_list_entry(
     ``index == len(entries)`` appends; an in-range index replaces. Refuses
     when the existing handler is a single mapping rather than a list — the
     user picked that shape, so don't silently rewrite it.
+
+    When *trigger* is given and the existing list body is the bare
+    action-list shorthand (one handler whose items aren't trigger
+    entries), wrap it as a single ``then:`` entry before applying, so a
+    new handler appends instead of overwriting an action (#1305).
     """
     container = strategy.locate(yaml_text, ErrorCode.INVALID_ARGS)
     existing = container.get(key) if container is not None else None
@@ -169,6 +178,10 @@ def upsert_list_entry(
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     entries = existing if isinstance(existing, list) else []
     drop_after_block_comment(entries)
+    if entries and trigger is not None and not all(_is_trigger_entry(e, trigger) for e in entries):
+        wrapped = CommentedMap()
+        wrapped["then"] = entries
+        entries = [wrapped]
     apply_list_entry_upsert(entries, item, index, label=key)
     return strategy.resplice(yaml_text, key, entries)
 
@@ -211,6 +224,7 @@ def upsert_component_on_entry(
     domain: str,
     component_id: str,
     trigger_key: str,
+    trigger: AutomationTrigger,
     index: int,
 ) -> tuple[str, YamlDiff]:
     """Insert or replace one entry of a list-shaped trigger (``time.on_time``)."""
@@ -220,6 +234,7 @@ def upsert_component_on_entry(
         item=emit_trigger_list_item(tree),
         index=index,
         strategy=_component_strategy(domain, component_id),
+        trigger=trigger,
     )
 
 
