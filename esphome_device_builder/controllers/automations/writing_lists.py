@@ -32,6 +32,9 @@ from . import catalog
 from .emitter import dump, emit_effect_item, emit_trigger_list_item
 from .parsing import make_yaml
 
+# The YAML field naming a component instance's id.
+_ID_KEY = "id"
+
 
 def wrap_handler_list_block(handler_key: str, rendered_list: str) -> str:
     """Prefix a rendered dashed list with its ``<handler_key>:`` header."""
@@ -233,15 +236,26 @@ def _require_instance(
     section = data.get(domain) if isinstance(data, dict) else None
     if isinstance(section, list):
         for instance in section:
-            if isinstance(instance, dict) and str(instance.get("id", "")) == component_id:
+            if isinstance(instance, dict) and str(instance.get(_ID_KEY, "")) == component_id:
                 return instance
         # Fall back to the parser's positional ``<domain>_<idx>`` label for
         # an id-less instance (only when that instance is genuinely id-less).
         idx = synthetic_instance_index(domain, component_id)
         if idx is not None and idx < len(section):
             candidate = section[idx]
-            if isinstance(candidate, dict) and "id" not in candidate:
+            if isinstance(candidate, dict) and _ID_KEY not in candidate:
                 return candidate
+    elif isinstance(section, dict):
+        # Flat singleton block (``logger:`` / ``mqtt:`` / ``sun:``): the block
+        # is the instance. Match its declared ``id``, else the domain name when
+        # the ``id`` key is absent (key presence, not value, so ``id: null``
+        # isn't treated as id-less; mirrors the list branch and the text-layer
+        # ``_locate_singleton_instance``).
+        if _ID_KEY in section:
+            if str(section[_ID_KEY]) == component_id:
+                return section
+        elif component_id == domain:
+            return section
     msg = f"Component instance id={component_id!r} not found under {domain!r}"
     raise CommandError(error_code, msg)
 

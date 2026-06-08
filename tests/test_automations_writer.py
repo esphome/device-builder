@@ -455,6 +455,117 @@ def test_upsert_flat_singleton_unknown_id_raises() -> None:
     assert err.value.code == ErrorCode.INVALID_ARGS
 
 
+def test_upsert_list_form_trigger_on_idd_singleton() -> None:
+    """A list-form trigger (carries an index) adds under a flat singleton with an id (#1297)."""
+    text = "logger:\n  level: DEBUG\n  id: logger_id\n"
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id="logger.on_message",
+            actions=[ActionNode(action_id="logger.log", params={"format": "hi"})],
+        ),
+        location=ComponentOnLocation(component_id="logger_id", trigger="on_message", index=0),
+    )
+    assert "level: DEBUG" in new_text
+    assert "id: logger_id" in new_text
+    parsed = parse_device_yaml(new_text)
+    assert len(parsed) == 1
+    loc = parsed[0].location
+    assert (loc.component_id, loc.trigger, loc.index) == ("logger_id", "on_message", 0)
+
+
+def test_upsert_list_form_trigger_on_idless_singleton() -> None:
+    """A list-form trigger adds under an id-less singleton (``component_id == domain``)."""
+    text = "logger:\n  level: DEBUG\n"
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id="logger.on_message",
+            actions=[ActionNode(action_id="logger.log", params={"format": "hi"})],
+        ),
+        location=ComponentOnLocation(component_id="logger", trigger="on_message", index=0),
+    )
+    assert "level: DEBUG" in new_text
+    parsed = parse_device_yaml(new_text)
+    assert len(parsed) == 1
+    assert parsed[0].location.component_id == "logger"
+    assert parsed[0].location.index == 0
+
+
+def test_upsert_list_form_trigger_appends_second_entry_on_singleton() -> None:
+    """Upserting at the list length appends a second entry under the singleton."""
+    text = (
+        "logger:\n"
+        "  level: DEBUG\n"
+        "  id: logger_id\n"
+        "  on_message:\n"
+        "    - then:\n"
+        "        - logger.log: first\n"
+    )
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id="logger.on_message",
+            actions=[ActionNode(action_id="logger.log", params={"format": "second"})],
+        ),
+        location=ComponentOnLocation(component_id="logger_id", trigger="on_message", index=1),
+    )
+    assert "first" in new_text
+    assert "second" in new_text
+    assert [p.location.index for p in parse_device_yaml(new_text)] == [0, 1]
+
+
+def test_upsert_list_form_trigger_on_null_id_singleton_raises() -> None:
+    """An explicit ``id: null`` is not treated as id-less; domain-name match is refused."""
+    text = "logger:\n  level: DEBUG\n  id: null\n"
+    with pytest.raises(CommandError) as err:
+        render_upsert(
+            text,
+            tree=AutomationTree(trigger_id="logger.on_message", actions=[]),
+            location=ComponentOnLocation(component_id="logger", trigger="on_message", index=0),
+        )
+    assert err.value.code == ErrorCode.INVALID_ARGS
+
+
+def test_upsert_list_form_trigger_on_ambiguous_key_singleton() -> None:
+    """A list-form trigger with an ambiguous key resolves to its singleton (mqtt)."""
+    text = "mqtt:\n  broker: 192.168.1.10\n"
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id="mqtt.on_message",
+            actions=[ActionNode(action_id="logger.log", params={"format": "hi"})],
+        ),
+        location=ComponentOnLocation(component_id="mqtt", trigger="on_message", index=0),
+    )
+    assert "broker: 192.168.1.10" in new_text
+    parsed = parse_device_yaml(new_text)
+    assert [(p.location.component_id, p.location.trigger, p.location.index) for p in parsed] == [
+        ("mqtt", "on_message", 0),
+    ]
+
+
+def test_delete_list_form_trigger_entry_on_singleton() -> None:
+    """Deleting the only list-form entry drops the handler key but keeps config."""
+    text = (
+        "logger:\n"
+        "  level: DEBUG\n"
+        "  id: logger_id\n"
+        "  on_message:\n"
+        "    - then:\n"
+        "        - logger.log: only\n"
+    )
+    new_text, diff = render_delete(
+        text,
+        location=ComponentOnLocation(component_id="logger_id", trigger="on_message", index=0),
+    )
+    assert "on_message:" not in new_text
+    assert "level: DEBUG" in new_text
+    assert "id: logger_id" in new_text
+    assert parse_device_yaml(new_text) == []
+    assert diff.replacement == ""
+
+
 def test_stale_positional_id_on_idd_instance_is_refused() -> None:
     """A ``<domain>_<idx>`` id pointing at an instance with a real id is refused."""
     text = "esphome:\n  name: x\nbinary_sensor:\n  - platform: gpio\n    id: real\n    pin: GPIO0\n"
