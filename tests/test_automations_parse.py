@@ -329,13 +329,7 @@ def test_parse_oversized_lvgl_shorthand_is_flagged_unsupported() -> None:
 
 def test_parse_unknown_action_shorthand_is_not_flagged_unsupported() -> None:
     """A non-catalogued key in shorthand form is a trigger param, never unsupported."""
-    yaml = (
-        "esphome:\n"
-        "  name: x\n"
-        "  on_boot:\n"
-        "    not_a_real.action:\n"
-        "      foo: bar\n"
-    )
+    yaml = "esphome:\n  name: x\n  on_boot:\n    not_a_real.action:\n      foo: bar\n"
     parsed = parse_device_yaml(yaml)
     assert len(parsed) == 1
     assert parsed[0].unsupported is False
