@@ -430,11 +430,26 @@ _UART_DEBUG_OVERRIDE: dict[str, Any] = {
 }
 
 
-# Per-(component, field) entry overrides for cases where the prebuilt
-# schema doesn't correctly capture the field's structure. Each value
-# is a partial ConfigEntry dict that overrides the schema-derived one.
-# Keep this list small and targeted — every entry is a workaround for
-# an upstream schema generator gap.
+# LEGACY — DO NOT EXTEND unless there is genuinely no other option.
+#
+# Per-(component, field) overrides that hand-author the ConfigEntry the
+# prebuilt schema fails to model: a custom ESPHome validator erases the
+# inner schema upstream, so the bundle emits a bare string / opaque dict
+# and we patch the real shape back in here. Each value is a partial
+# ConfigEntry dict merged over the schema-derived one.
+#
+# Why this is a code smell: the data is hand-maintained and frozen, so
+# it drifts from the live schema as ESPHome evolves — the override keeps
+# winning even after upstream learns to emit the field correctly, and
+# nobody notices until the rendered form is wrong. Every entry is a
+# standing maintenance liability, not a feature.
+#
+# Before adding an entry, exhaust the alternatives: fix the upstream
+# schema generator, recover the type in ``_convert_config_vars`` /
+# ``_convert_field``, or backfill via ``_backfill_descriptions_from_mdx``.
+# Only when none of those can express the field does a new override
+# belong here — and then document the exact upstream gap that forces it,
+# as the existing entries do.
 _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
     # ``api.encryption`` is validated by a custom function in ESPHome
     # so the schema generator emits only ``{key: Optional, docs: ...}``
