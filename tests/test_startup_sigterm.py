@@ -182,7 +182,9 @@ import esphome_device_builder.controllers.devices.controller as _c
 async def _start(self):
     print("STARTUP_HELD", flush=True)
     try:
-        await asyncio.sleep(30)
+        # 5s only bounds the worst-case lost-wakeup fallback under the test's
+        # 30s communicate timeout; a prompt SIGTERM cancels this far sooner.
+        await asyncio.sleep(5)
     except asyncio.CancelledError:
         raise RuntimeError("simulated half-started teardown failure") from None
 _c.DevicesController.start = _start
