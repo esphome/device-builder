@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from unittest.mock import patch
 
 import pytest
+from ruamel.yaml.comments import TaggedScalar
 from ruamel.yaml.scalarstring import LiteralScalarString
 
 from esphome_device_builder.controllers.automations import catalog
@@ -476,10 +477,10 @@ def test_render_value_passes_lists_through_recursively() -> None:
 
 
 def test_render_value_handles_tagged_lambda_scalar() -> None:
-    """A ruamel ``!lambda``-tagged plain scalar surfaces as the lambda sentinel."""
+    """A ruamel ``!lambda``-tagged plain scalar surfaces with the ``_tag`` marker."""
     yaml = make_yaml()
     data = yaml.load('a: !lambda ESP_LOGI("x");\n')
-    assert _render_value(data["a"]) == {"_lambda": 'ESP_LOGI("x");'}
+    assert _render_value(data["a"]) == {"_lambda": 'ESP_LOGI("x");', "_tag": "!lambda"}
 
 
 def test_render_value_falls_back_to_str_for_unknown_tagged_scalar() -> None:
@@ -643,6 +644,24 @@ def test_encode_value_lambda_with_trailing_newline_preserved() -> None:
     out = encode_value({"_lambda": 'ESP_LOGI("x");\n'})
     assert isinstance(out, LiteralScalarString)
     assert str(out) == 'ESP_LOGI("x");\n'
+
+
+def test_encode_value_tagged_lambda_single_line_emits_plain() -> None:
+    """A tagged single-line sentinel becomes a plain ``!lambda`` scalar."""
+    out = encode_value({"_lambda": "return 0;", "_tag": "!lambda"})
+    assert isinstance(out, TaggedScalar)
+    assert str(out.tag) == "!lambda"
+    assert out.style is None
+    assert str(out) == "return 0;"
+
+
+def test_encode_value_tagged_lambda_multiline_emits_block() -> None:
+    """A tagged multi-line sentinel becomes a ``!lambda |`` block scalar."""
+    out = encode_value({"_lambda": "uint8_t a = 1;\nreturn {a};", "_tag": "!lambda"})
+    assert isinstance(out, TaggedScalar)
+    assert str(out.tag) == "!lambda"
+    assert out.style == "|"
+    assert str(out) == "uint8_t a = 1;\nreturn {a};\n"
 
 
 def test_encode_value_recursive_list() -> None:

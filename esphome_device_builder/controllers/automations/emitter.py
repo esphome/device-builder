@@ -27,8 +27,9 @@ from __future__ import annotations
 from io import StringIO
 from typing import Any
 
-from ruamel.yaml.comments import CommentedMap, CommentedSeq
+from ruamel.yaml.comments import CommentedMap, CommentedSeq, TaggedScalar
 from ruamel.yaml.scalarstring import LiteralScalarString
+from ruamel.yaml.tag import Tag
 
 from ...models.automations import (
     ActionNode,
@@ -209,25 +210,17 @@ def encode_value(value: Any) -> Any:
     """
     Encode a JSON-wire value back into a ruamel-native scalar.
 
-    The lambda sentinel (``{"_lambda": "..."}``) becomes a
-    :class:`LiteralScalarString` (``|`` block scalar); nested
-    dicts and lists recurse.
+    The lambda sentinel (``{"_lambda": "..."}``) becomes a ruamel
+    scalar; an ``"_tag": "!lambda"`` marker re-emits the ``!lambda``
+    tag (dropping it would turn the C++ lambda into a string literal,
+    silently breaking the firmware). Nested dicts and lists recurse.
     """
-    # ESPHome treats unquoted ``|`` block scalars on templatable
-    # fields as lambdas without needing an explicit ``!lambda``
-    # tag — matching that shape on fresh writes so a freshly-emitted
-    # YAML doesn't gain a tag the user wouldn't have typed. The
-    # parser still detects both bare-block and ``!lambda``-tagged
-    # forms, so a hand-tagged input round-trips intact.
     if (
         isinstance(value, dict)
-        and set(value.keys()) == {"_lambda"}
-        and isinstance(value["_lambda"], str)
+        and value.keys() <= {"_lambda", "_tag"}
+        and isinstance(value.get("_lambda"), str)
     ):
-        body = value["_lambda"]
-        if not body.endswith("\n"):
-            body += "\n"
-        return LiteralScalarString(body)
+        return _encode_lambda(value["_lambda"], value.get("_tag"))
     if isinstance(value, dict):
         out = CommentedMap()
         for k, v in value.items():
@@ -247,3 +240,24 @@ def dump(value: Any) -> str:
     buf = StringIO()
     yaml.dump(value, buf)
     return buf.getvalue()
+
+
+def _encode_lambda(body: str, tag: str | None) -> Any:
+    """
+    Build a ruamel scalar for a lambda sentinel body.
+
+    ``tag == "!lambda"`` re-emits the explicit tag — multi-line bodies
+    as a ``|`` block, single-line bodies plain (``!lambda return 0;``).
+    Untagged bodies stay bare ``|`` block scalars, the shape ESPHome
+    auto-detects as a lambda on ``lambda:``-keyed fields.
+    """
+    if tag != "!lambda":
+        if not body.endswith("\n"):
+            body += "\n"
+        return LiteralScalarString(body)
+    if "\n" in body.rstrip("\n"):
+        scalar = TaggedScalar(value=body if body.endswith("\n") else body + "\n", style="|")
+    else:
+        scalar = TaggedScalar(value=body.rstrip("\n"), style=None)
+    scalar.yaml_set_ctag(Tag(suffix="!lambda"))
+    return scalar

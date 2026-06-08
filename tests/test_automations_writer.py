@@ -2085,3 +2085,70 @@ def test_subentity_context_rejects_incomplete_target() -> None:
     """A sub-entity target missing its parent context raises rather than leaking None."""
     with pytest.raises(CommandError):
         _subentity_context(ComponentTarget(domain="sensor", is_sub_entity=True))
+
+
+# ---------------------------------------------------------------------------
+# !lambda tag preservation (issue #1306)
+# ---------------------------------------------------------------------------
+
+
+def test_round_trip_component_action_lambda_keeps_tag() -> None:
+    """A ``!lambda`` action value re-emits its tag, not a bare ``|`` string.
+
+    Dropping ``!lambda`` would compile the body as a plain string
+    literal instead of a C++ lambda, silently breaking the firmware.
+    """
+    text = (
+        "esphome:\n  name: x\n\n"
+        "number:\n"
+        "  - platform: template\n"
+        "    name: Blockade Time\n"
+        "    id: Blockade_Time\n"
+        "    optimistic: true\n"
+        "    set_action:\n"
+        "      - uart.write: !lambda\n"
+        '          std::string b = "x";\n'
+        "          return std::vector<uint8_t>(b.begin(), b.end());\n"
+    )
+    parsed = parse_device_yaml(text)[0]
+    new_text, diff = render_upsert(text, tree=parsed.automation, location=parsed.location)
+    assert "!lambda" in diff.replacement
+    # Re-parsing yields the same tagged sentinel — a stable round-trip.
+    reparsed = parse_device_yaml(new_text)[0]
+    field = reparsed.automation.actions[0].params["data"]
+    assert field["_tag"] == "!lambda"
+
+
+def test_round_trip_block_tagged_lambda_keeps_newlines() -> None:
+    """A ``!lambda |`` block keeps its tag and its line breaks."""
+    text = (
+        "esphome:\n  name: x\n\n"
+        "interval:\n"
+        "  - interval: 5s\n"
+        "    then:\n"
+        "      - uart.write: !lambda |-\n"
+        "          uint8_t a = 1;\n"
+        "          uint8_t b = 2;\n"
+        "          return {a, b};\n"
+    )
+    parsed = parse_device_yaml(text)[0]
+    _new_text, diff = render_upsert(text, tree=parsed.automation, location=parsed.location)
+    assert "!lambda |" in diff.replacement
+    assert "uint8_t a = 1;\n" in diff.replacement
+    assert "uint8_t b = 2;\n" in diff.replacement
+
+
+def test_round_trip_delay_lambda_stays_plain_lambda() -> None:
+    """``delay: !lambda return 0;`` round-trips as a plain ``!lambda`` (not a ``|`` string)."""
+    text = _load("lambda_tagged_scalars.yaml")
+    script = next(p for p in parse_device_yaml(text) if p.location.kind == "script")
+    _new_text, diff = render_upsert(text, tree=script.automation, location=script.location)
+    assert "delay: !lambda return 0;" in diff.replacement
+
+
+def test_round_trip_untagged_lambda_stays_bare() -> None:
+    """An untagged ``lambda: |`` block doesn't gain a ``!lambda`` tag on write."""
+    text = _load("lambda_action.yaml")
+    parsed = parse_device_yaml(text)[0]
+    _new_text, diff = render_upsert(text, tree=parsed.automation, location=parsed.location)
+    assert "!lambda" not in diff.replacement

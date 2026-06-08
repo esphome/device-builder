@@ -9,8 +9,9 @@ left untouched. Delete is the inverse splice.
 
 Trigger handlers always emit the explicit ``then:`` form — the
 parser accepts both shortcut forms but emitting one shape keeps
-round-trips deterministic. Lambdas render as ruamel
-:class:`LiteralScalarString` block scalars.
+round-trips deterministic. Untagged lambdas render as ruamel
+:class:`LiteralScalarString` block scalars; an ``!lambda``-tagged
+value re-emits its tag (see :func:`emitter.encode_value`).
 """
 
 from __future__ import annotations

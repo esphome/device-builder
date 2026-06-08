@@ -231,18 +231,20 @@ def _render_value(value: Any) -> Any:
     """
     Convert a ruamel-parsed value to its JSON-wire shape.
 
-    Lambda block scalars (``|`` or ``!lambda`` tagged) become the
-    ``{"_lambda": "<source>"}`` sentinel; ruamel maps and lists
-    become plain dicts/lists, recursively. Tagged scalars from
-    ruamel are not JSON-serialisable on their own, so any
-    unrecognised tag falls back to its plain string value.
+    Lambda block scalars become the ``{"_lambda": "<source>"}``
+    sentinel; an ``!lambda``-tagged value additionally carries
+    ``"_tag": "!lambda"`` so the emitter re-emits the tag (dropping it
+    turns the C++ lambda into a plain string literal). ruamel maps and
+    lists become plain dicts/lists, recursively. Tagged scalars from
+    ruamel are not JSON-serialisable on their own, so any unrecognised
+    tag falls back to its plain string value.
     """
     if isinstance(value, LiteralScalarString):
         return {"_lambda": str(value)}
     if isinstance(value, TaggedScalar):
         tag = getattr(value.tag, "value", "") if value.tag is not None else ""
         if tag == "!lambda":
-            return {"_lambda": str(value)}
+            return {"_lambda": str(value), "_tag": "!lambda"}
         return str(value)
     if isinstance(value, dict):
         return {k: _render_value(v) for k, v in value.items()}
