@@ -206,6 +206,9 @@ class DeviceBuilder:
         # pair so a quiet network with no observers generates no
         # ICMP traffic.
         self.subscriber_presence = SubscriberPresence()
+        # Serialises every secrets.yaml read-modify-write across
+        # controllers so concurrent per-key mutations can't lose updates.
+        self.secrets_write_lock = asyncio.Lock()
         self.loop: asyncio.AbstractEventLoop | None = None
         # Held so ``stop()`` can shut the pool down explicitly. Created
         # eagerly here (not in start()) so a test or caller that probes

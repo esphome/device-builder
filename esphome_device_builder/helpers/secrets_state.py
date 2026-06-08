@@ -222,8 +222,8 @@ def write_secret(config_dir: Path, key: str, value: str, *, overwrite: bool = Tr
 
     With ``overwrite=False`` an existing key is left untouched (the
     create-if-absent path). The read-modify-write is **not** locked here —
-    the caller must hold the write lock so concurrent single-key sets don't
-    lose each other's update (issue #1334).
+    the caller must hold the shared secrets write lock so concurrent
+    single-key sets don't lose each other's update.
     """
     secrets_path = config_dir / SECRETS_FILENAME
     original = secrets_path.read_text(encoding="utf-8") if secrets_path.exists() else ""

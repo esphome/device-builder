@@ -276,7 +276,7 @@ def test_merge_secrets_leaves_unreadable_untouched(
 
 
 # ---------------------------------------------------------------------------
-# write_secret — single-key setter (issue #1334)
+# write_secret — single-key setter
 # ---------------------------------------------------------------------------
 
 

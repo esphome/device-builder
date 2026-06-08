@@ -42,6 +42,7 @@ def _make_controller(config_dir: Path) -> OnboardingController:
     controller._db = MagicMock()
     controller._db.settings.config_dir = config_dir
     controller._db.settings.absolute_config_dir = config_dir.resolve()
+    controller._db.secrets_write_lock = asyncio.Lock()
     return controller
 
 

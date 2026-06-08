@@ -102,7 +102,7 @@ def _make_controller(config_dir: Path) -> ConfigController:
     controller._db.settings.config_dir = config_dir
     controller._db.settings.absolute_config_dir = config_dir.resolve()
     controller._db.settings.rel_path = config_dir.joinpath
-    controller._secrets_write_lock = asyncio.Lock()
+    controller._db.secrets_write_lock = asyncio.Lock()
     return controller
 
 
@@ -897,13 +897,25 @@ async def test_set_secret_rejects_non_string_value(tmp_path: Path) -> None:
 
 
 async def test_set_secret_concurrent_writes_do_not_lose_updates(tmp_path: Path) -> None:
-    """Two concurrent single-key writes both land — the #1334 lost-update."""
+    """Two concurrent single-key writes both land, no lost update."""
     controller = _make_controller(tmp_path)
     await asyncio.gather(
         controller.set_secret(key="foo", value="1"),
         controller.set_secret(key="bar", value="2"),
     )
     assert await asyncio.to_thread(read_secrets_yaml, tmp_path) == {"foo": "1", "bar": "2"}
+
+
+async def test_set_secret_waits_on_the_shared_lock(tmp_path: Path) -> None:
+    """The command serialises on ``db.secrets_write_lock`` (shared with onboarding)."""
+    controller = _make_controller(tmp_path)
+    lock = controller._db.secrets_write_lock
+    await lock.acquire()
+    task = asyncio.create_task(controller.set_secret(key="api_key", value="ABC"))
+    await asyncio.sleep(0)  # let the task reach the lock and block
+    assert not task.done()
+    lock.release()
+    assert await task == {"created": True}
 
 
 async def test_get_info_returns_storage_metadata_dict(

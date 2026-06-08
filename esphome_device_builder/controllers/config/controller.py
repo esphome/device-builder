@@ -13,6 +13,7 @@ from esphome.util import get_serial_ports
 from ...constants import __version__ as server_version
 from ...helpers.api import CommandError, api_command
 from ...helpers.secrets_state import (
+    SecretsContentError,
     is_valid_secret_key,
     read_secrets_yaml,
     write_secret,
@@ -36,11 +37,6 @@ class ConfigController:
 
     def __init__(self, device_builder: DeviceBuilder) -> None:
         self._db = device_builder
-        # Serialises the read-modify-write of the single shared secrets.yaml so
-        # two concurrent ``config/set_secret`` calls can't lose each other's
-        # key (issue #1334). The backend runs one event loop, so the lock plus
-        # an atomic write makes the whole update atomic.
-        self._secrets_write_lock = asyncio.Lock()
 
     @api_command("config/version")
     async def get_version(self, **kwargs: Any) -> dict:
@@ -136,21 +132,28 @@ class ConfigController:
         """
         Atomically set one key in ``secrets.yaml``; return ``{created}``.
 
-        The read-modify-write runs under a per-controller lock so concurrent
-        single-key writes don't clobber each other (issue #1334).
+        The read-modify-write runs under the shared secrets write lock so
+        concurrent secrets.yaml mutations don't clobber each other.
         ``overwrite=False`` leaves an existing key untouched (create-if-absent).
         """
         if not is_valid_secret_key(key):
             raise CommandError(ErrorCode.INVALID_ARGS, "invalid secret key")
         if not isinstance(value, str):
             raise CommandError(ErrorCode.INVALID_ARGS, "value must be a string")
+        if not isinstance(overwrite, bool):
+            raise CommandError(ErrorCode.INVALID_ARGS, "overwrite must be a boolean")
         loop = asyncio.get_running_loop()
         config_dir = self._db.settings.config_dir
-        async with self._secrets_write_lock:
-            created = await loop.run_in_executor(
-                None,
-                partial(write_secret, config_dir, key, value, overwrite=bool(overwrite)),
-            )
+        async with self._db.secrets_write_lock:
+            try:
+                created = await loop.run_in_executor(
+                    None,
+                    partial(write_secret, config_dir, key, value, overwrite=overwrite),
+                )
+            except SecretsContentError as err:
+                raise CommandError(
+                    ErrorCode.INVALID_ARGS, f"refusing to save invalid secrets.yaml: {err}"
+                ) from err
         return {"created": created}
 
     @api_command("config/get_info")
