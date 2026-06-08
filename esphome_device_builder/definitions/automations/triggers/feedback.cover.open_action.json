@@ -1,1 +1,0 @@
-{"id":"feedback.cover.open_action","name":"Cover.Feedback → Open Action","description":"The action that should be performed when the remote requests the cover to be opened.","docs_url":"https://esphome.io/components/cover/feedback#configuration-variables","applies_to":["cover.feedback"],"is_device_level":false,"supports_list":false,"config_entries":[]}

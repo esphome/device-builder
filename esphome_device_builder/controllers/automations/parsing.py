@@ -32,6 +32,7 @@ from importlib import resources
 from typing import Any, NamedTuple
 
 from ...helpers.api import CommandError
+from ...helpers.automation_keys import is_trigger_key
 from ...helpers.json import loads as json_loads
 from ...helpers.lazy_catalog import is_unsafe_catalog_id
 from ...models.api import ErrorCode
@@ -555,7 +556,7 @@ def _parse_instance_triggers(
     comp_name = str(instance.get("name") or comp_id)
     out: list[ParsedAutomation] = []
     for key, body in list(instance.items()):
-        if not key.startswith("on_"):
+        if not is_trigger_key(key):
             continue
         trigger = catalog.trigger_by_id(f"{domain}.{key}")
         if trigger is None:

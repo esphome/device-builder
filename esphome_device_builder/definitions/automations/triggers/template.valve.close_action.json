@@ -1,1 +1,0 @@
-{"id":"template.valve.close_action","name":"Valve.Template → Close Action","description":"The action that should be performed when the remote requests the valve to be closed.","docs_url":"https://esphome.io/components/valve/template#configuration-variables","applies_to":["valve.template"],"is_device_level":false,"supports_list":false,"config_entries":[]}

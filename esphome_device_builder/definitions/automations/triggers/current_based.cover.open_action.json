@@ -1,1 +1,0 @@
-{"id":"current_based.cover.open_action","name":"Cover.Current Based → Open Action","description":"The action that should be performed when the remote requests the cover to be opened.","docs_url":"https://esphome.io/components/cover/current_based#configuration-variables","applies_to":["cover.current_based"],"is_device_level":false,"supports_list":false,"config_entries":[]}

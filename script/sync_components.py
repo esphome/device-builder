@@ -110,6 +110,7 @@ from _catalog_split import (  # noqa: E402
 from esphome_device_builder.controllers.components import (  # noqa: E402
     INTERNAL_COMPONENT_IDS as _INTERNAL_COMPONENT_IDS,
 )
+from esphome_device_builder.helpers.automation_keys import is_trigger_key  # noqa: E402
 from esphome_device_builder.models import (  # noqa: E402
     AutomationAction,
     AutomationActionIndex,
@@ -591,12 +592,6 @@ _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
         ),
     },
 }
-
-# Key-name prefixes for automation triggers (``on_press``, ``on_value``,
-# ``on_state_change``, ...). These are config-variables in YAML but the
-# frontend's form editor isn't where users wire automations — the
-# automation editor is. Skip them.
-_AUTOMATION_KEY_PREFIXES: tuple[str, ...] = ("on_",)
 
 # Base-schema references that mark a field as a *sub-reading* of a
 # multi-sensor platform (DHT exposes ``temperature:`` / ``humidity:``;
@@ -2012,7 +2007,9 @@ def _convert_config_vars(  # noqa: C901
             continue
         if (component_id, key) in _DEPRECATED_FIELDS:
             continue
-        if any(key.startswith(p) for p in _AUTOMATION_KEY_PREFIXES):
+        # ``on_*`` keys are inline automation triggers wired in the
+        # automation editor, not the component form — skip them here.
+        if is_trigger_key(key):
             continue
         # ``component_id`` is set only for a component's own config_vars
         # (the top-level build call), not the recursive nested calls — so
@@ -5915,7 +5912,7 @@ def _scan_schema_for_trigger_singles(
         # ``validate_automation`` closure; a non-None result is itself proof the
         # ``on_*`` key is an automation (the ``single`` freevar is unique to it),
         # recovering wrapped triggers a schema-extract check misses (on_click).
-        flag = _single_deep(val) if key_name.startswith("on_") else None
+        flag = _single_deep(val) if is_trigger_key(key_name) else None
         if flag is not None:
             out.setdefault(key_name, flag)
         else:
@@ -5984,7 +5981,7 @@ def _record_registry_singles(registry: Any, out: dict[str, bool]) -> None:
     """Record ``single`` for a registry's ``on_*`` entries (``(build_fn, validator)``)."""
     for key, value in registry.items():
         key_name = str(key)
-        if not key_name.startswith("on_"):
+        if not is_trigger_key(key_name):
             continue
         validator = value[-1] if isinstance(value, (tuple, list)) and value else value
         flag = _single_deep(validator)
@@ -6007,7 +6004,7 @@ def _scan_schema_for_list_triggers(
     seen.add(id(candidate))
     for key, val in candidate.items():
         key_name = key.schema if hasattr(key, "schema") else str(key)
-        if key_name.startswith("on_") and (schema := _automation_schema_dict(val)) is not None:
+        if is_trigger_key(key_name) and (schema := _automation_schema_dict(val)) is not None:
             for pkey, pval in schema.items():
                 pname = pkey.schema if hasattr(pkey, "schema") else str(pkey)
                 if pname not in _AUTOMATION_RESERVED_KEYS and _is_list_validator(pval):
@@ -6075,7 +6072,11 @@ def _extract_triggers_from_section(
         inner = schema_body.get("schema") if isinstance(schema_body.get("schema"), dict) else None
         cvs = (inner or {}).get("config_vars") or {}
         for key, raw in cvs.items():
-            if not isinstance(raw, dict) or raw.get("type") != "trigger":
+            # Action-fields (``set_action``, ``open_action``, ``*_mode``) are
+            # ``type: trigger`` in the schema too, but the component performs
+            # them on command — they're edited as component action-list fields,
+            # not event triggers. Only ``on_*`` keys are real trigger hooks.
+            if not isinstance(raw, dict) or raw.get("type") != "trigger" or not is_trigger_key(key):
                 continue
             docs = clean_docs(raw.get("docs"))
             param_entries, _accepts, _cond_gate = _extract_automation_param_schema(
@@ -6156,10 +6157,10 @@ def _extract_automation_param_schema(
             has_condition_gate = True
             raw_entries = [e for e in raw_entries if e.get("key") != key]
             continue
-    # The walker uses ``_AUTOMATION_KEY_PREFIXES`` to skip ``on_``
-    # config_vars, which is correct for the *component form* path but
-    # wrong here — a triggered automation has no ``on_`` keys as
-    # parameters anyway, so it's a no-op for us.
+    # The walker uses ``is_trigger_key`` to skip ``on_`` config_vars,
+    # which is correct for the *component form* path but wrong here — a
+    # triggered automation has no ``on_`` keys as parameters anyway, so
+    # it's a no-op for us.
     out.extend(raw_entries)
     return out, accepts_action_list, has_condition_gate
 

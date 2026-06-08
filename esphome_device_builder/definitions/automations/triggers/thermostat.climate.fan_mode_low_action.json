@@ -1,1 +1,0 @@
-{"id":"thermostat.climate.fan_mode_low_action","name":"Climate.Thermostat → Fan Mode Low Action","description":"The action to call when the fan should run at its minimum speed.","docs_url":"https://esphome.io/components/climate/thermostat#configuration-variables","applies_to":["climate.thermostat"],"is_device_level":false,"supports_list":false,"config_entries":[]}

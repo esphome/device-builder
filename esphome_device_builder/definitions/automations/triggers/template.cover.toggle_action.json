@@ -1,1 +1,0 @@
-{"id":"template.cover.toggle_action","name":"Cover.Template → Toggle Action","description":"The action that should be performed when the remote requests to toggle the cover.","docs_url":"https://esphome.io/components/cover/template#configuration-variables","applies_to":["cover.template"],"is_device_level":false,"supports_list":false,"config_entries":[]}
