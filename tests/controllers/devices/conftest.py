@@ -36,7 +36,7 @@ from esphome_device_builder.helpers.hostname import normalize_hostname
 from esphome_device_builder.models import AdoptableDevice, Device, DeviceState, EventType
 from tests._recording_scanner import RecordingScanner
 from tests._storage_fixtures import write_storage_json
-from tests.conftest import make_device
+from tests.conftest import make_device, wire_secrets_writer
 
 
 class RecordingStateMonitor:
@@ -456,6 +456,7 @@ def make_controller() -> MakeControllerFactory:
         controller.state = DevicesState()
         controller._yaml_write_locks = {}
         controller._db.secrets_write_lock = asyncio.Lock()
+        wire_secrets_writer(controller._db)
         controller._db.settings.config_dir = config_dir
         controller._db.settings.rel_path = lambda configuration: config_dir / configuration
         # Version history off by default — a MagicMock's

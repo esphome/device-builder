@@ -12,6 +12,7 @@ import contextlib
 import html
 import logging
 import re
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from pathlib import Path
@@ -49,6 +50,7 @@ from .helpers.event_bus import Event, EventBus, StreamControls, stream_events
 from .helpers.json import cors_middleware
 from .helpers.network_interfaces import ensure_single_host_for_ephemeral_port, resolve_bind_host
 from .helpers.peer_link_identity import PeerLinkIdentityStore
+from .helpers.secrets_state import write_secrets_locked
 from .helpers.subscriber_presence import SubscriberPresence
 from .models import EventType
 
@@ -271,6 +273,23 @@ class DeviceBuilder:
     async def reload_remote_build_identity(self) -> bool:
         """Rebuild the peer-link listener after an X25519 identity rotation."""
         return await self._remote_build_lifecycle.reload_identity()
+
+    def invalidate_editor_cache(self) -> None:
+        """Drop the editor's validate cache after a config-dir write; no-op pre-start."""
+        if self.editor is not None:
+            self.editor.invalidate_cache()
+
+    async def write_secrets_locked[T](self, fn: Callable[..., T], *args: Any) -> T:
+        """
+        Run a ``secrets.yaml`` mutator under the shared lock, then drop the editor cache.
+
+        The single funnel for secrets writes: routing every writer through here
+        couples the cache invalidation to the write, so a new secrets path can't
+        forget that an open editor's ``!secret`` lint just went stale.
+        """
+        result = await write_secrets_locked(self.secrets_write_lock, fn, *args)
+        self.invalidate_editor_cache()
+        return result
 
     def _install_default_executor(self) -> None:
         """Register the dashboard's executor as the loop's default.

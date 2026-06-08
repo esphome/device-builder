@@ -91,6 +91,20 @@ class EditorController:
         for session in sessions:
             await self._terminate_subprocess(session)
 
+    def invalidate_cache(self) -> None:
+        """
+        Drop every session's cached validation after a config-dir write.
+
+        Cleared for all sessions, not just the written file: a referenced
+        file (secrets, ``!include``, ``packages``) the content-hash key
+        can't see affects any open device's validation.
+        """
+        # Snapshot the values: this is await-free so the dict can't change
+        # under us today, but the copy keeps it safe if a future caller adds
+        # a suspension point mid-clear.
+        for session in tuple(self._sessions.values()):
+            session.cached = None
+
     # ------------------------------------------------------------------
     # Subprocess management
     # ------------------------------------------------------------------

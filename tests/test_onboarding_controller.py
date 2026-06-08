@@ -36,6 +36,8 @@ from esphome_device_builder.models.onboarding import (
 )
 from esphome_device_builder.models.preferences import Theme, UserPreferences
 
+from .conftest import wire_secrets_writer
+
 
 def _make_controller(config_dir: Path) -> OnboardingController:
     controller = OnboardingController.__new__(OnboardingController)
@@ -43,6 +45,7 @@ def _make_controller(config_dir: Path) -> OnboardingController:
     controller._db.settings.config_dir = config_dir
     controller._db.settings.absolute_config_dir = config_dir.resolve()
     controller._db.secrets_write_lock = asyncio.Lock()
+    wire_secrets_writer(controller._db)
     return controller
 
 

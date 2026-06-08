@@ -50,6 +50,7 @@ from esphome_device_builder.controllers.remote_build import (
 )
 from esphome_device_builder.helpers.event_bus import Event, EventBus
 from esphome_device_builder.helpers.peer_link_identity import PeerLinkIdentityStore
+from esphome_device_builder.helpers.secrets_state import write_secrets_locked
 from esphome_device_builder.models import (
     AdoptableDevice,
     BoardCatalogResponse,
@@ -955,3 +956,18 @@ def record_scheduled_coros(coros: list[object]) -> Callable[[object], object]:
         return close_scheduled_coro(coro)
 
     return _impl
+
+
+def wire_secrets_writer(db_mock: Any) -> None:
+    """Make a mocked ``DeviceBuilder.write_secrets_locked`` run the real funnel.
+
+    Controllers now route secrets writes through
+    ``self._db.write_secrets_locked``; tests that mock ``_db`` need it to
+    actually run the write under the mock's ``secrets_write_lock`` (the
+    editor-cache drop the real wrapper also does is a no-op on the mock).
+    """
+
+    async def _run(fn: Callable[..., Any], *args: Any) -> Any:
+        return await write_secrets_locked(db_mock.secrets_write_lock, fn, *args)
+
+    db_mock.write_secrets_locked = _run

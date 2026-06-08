@@ -92,7 +92,7 @@ from esphome_device_builder.models.preferences import (
 )
 
 from ._storage_fixtures import write_storage_json
-from .conftest import MakeSettingsFactory
+from .conftest import MakeSettingsFactory, wire_secrets_writer
 
 
 def _make_controller(config_dir: Path) -> ConfigController:
@@ -103,6 +103,7 @@ def _make_controller(config_dir: Path) -> ConfigController:
     controller._db.settings.absolute_config_dir = config_dir.resolve()
     controller._db.settings.rel_path = config_dir.joinpath
     controller._db.secrets_write_lock = asyncio.Lock()
+    wire_secrets_writer(controller._db)
     return controller
 
 

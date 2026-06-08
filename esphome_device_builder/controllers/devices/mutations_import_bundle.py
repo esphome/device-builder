@@ -23,7 +23,7 @@ from esphome.helpers import write_file as atomic_write_file
 from ...constants import SECRETS_FILENAME
 from ...helpers.api import CommandError
 from ...helpers.device_yaml import configuration_stem, parse_platform_from_yaml
-from ...helpers.secrets_state import merge_secrets_file, write_secrets_locked
+from ...helpers.secrets_state import merge_secrets_file
 from ...helpers.yaml import read_yaml_scalar
 from ...models import ErrorCode, ImportBundleResponse
 from .helpers import _validate_archive_configuration
@@ -65,10 +65,11 @@ async def import_bundle(
         raise CommandError(ErrorCode.INVALID_ARGS, "overwrite must be a list of strings")
 
     config_dir = controller._db.settings.config_dir
-    # Staging merges secrets.yaml; route it through the shared lock so that
-    # merge can't interleave with a concurrent config/set_secret and lose a key.
-    outcome = await write_secrets_locked(
-        controller._db.secrets_write_lock, _stage_bundle, file_content_b64, config_dir, overwrite
+    # Staging writes the bundle's files (secrets, !include fragments, packages,
+    # external_components). Funnel through the shared lock + editor-cache drop so
+    # any of those overwrites refreshes an open editor's lint, not just secrets.
+    outcome = await controller._db.write_secrets_locked(
+        _stage_bundle, file_content_b64, config_dir, overwrite
     )
     if outcome.conflicts is not None:
         return ImportBundleResponse(

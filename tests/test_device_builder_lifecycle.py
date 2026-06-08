@@ -55,6 +55,54 @@ def test_init_leaves_controllers_unset(make_settings: MakeSettingsFactory) -> No
     assert db._executor is not None
 
 
+def test_invalidate_editor_cache_noop_before_start(
+    make_settings: MakeSettingsFactory,
+) -> None:
+    """The helper is a no-op while ``editor`` is unset (pre-start)."""
+    db = DeviceBuilder(make_settings(with_core_path=True))
+    assert db.editor is None
+    db.invalidate_editor_cache()  # must not raise
+
+
+def test_invalidate_editor_cache_delegates_to_editor(
+    make_settings: MakeSettingsFactory,
+) -> None:
+    """Once ``editor`` exists, the helper clears its cache."""
+    db = DeviceBuilder(make_settings(with_core_path=True))
+    calls = 0
+
+    class _Editor:
+        def invalidate_cache(self) -> None:
+            nonlocal calls
+            calls += 1
+
+    db.editor = _Editor()  # type: ignore[assignment]
+    db.invalidate_editor_cache()
+    assert calls == 1
+
+
+async def test_write_secrets_locked_runs_fn_then_invalidates(
+    make_settings: MakeSettingsFactory,
+) -> None:
+    """The wrapper runs the mutator under the lock, returns it, and drops the cache."""
+    db = DeviceBuilder(make_settings(with_core_path=True))
+    invalidations = 0
+
+    class _Editor:
+        def invalidate_cache(self) -> None:
+            nonlocal invalidations
+            invalidations += 1
+
+    db.editor = _Editor()  # type: ignore[assignment]
+
+    def _mutator(a: int, b: int) -> int:
+        return a + b
+
+    result = await db.write_secrets_locked(_mutator, 2, 3)
+    assert result == 5
+    assert invalidations == 1
+
+
 # ---------------------------------------------------------------------------
 # start()
 # ---------------------------------------------------------------------------

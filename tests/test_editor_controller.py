@@ -916,3 +916,42 @@ async def test_validate_yaml_inner_lock_recheck_coalesces_concurrent_calls(
 
     assert calls == 1
     assert results[0] == results[1] == {"yaml_errors": [], "validation_errors": []}
+
+
+async def test_invalidate_cache_drops_cached_result(tmp_path: Path) -> None:
+    """After invalidate, the next call re-runs ``_validate_locked``."""
+    controller = _make_controller(tmp_path)
+    calls: list[str] = []
+
+    async def _record(session: Any, configuration: str, content: str) -> dict:
+        calls.append(content)
+        return {"yaml_errors": [], "validation_errors": []}
+
+    controller._validate_locked = _record  # type: ignore[method-assign]
+    content = "esphome:\n  name: kitchen\n"
+
+    await controller.validate_yaml(configuration="kitchen.yaml", content=content)
+    controller.invalidate_cache()
+    await controller.validate_yaml(configuration="kitchen.yaml", content=content)
+
+    assert calls == [content, content]
+
+
+async def test_invalidate_cache_clears_every_session(tmp_path: Path) -> None:
+    """A secrets write must clear the *device* session's cache, not just its own."""
+    controller = _make_controller(tmp_path)
+    calls: list[str] = []
+
+    async def _record(session: Any, configuration: str, content: str) -> dict:
+        calls.append(configuration)
+        return {"yaml_errors": [], "validation_errors": []}
+
+    controller._validate_locked = _record  # type: ignore[method-assign]
+    await controller.validate_yaml(configuration="kitchen.yaml", content="esphome:\n")
+    await controller.validate_yaml(configuration="bedroom.yaml", content="esphome:\n")
+
+    controller.invalidate_cache()
+    await controller.validate_yaml(configuration="kitchen.yaml", content="esphome:\n")
+    await controller.validate_yaml(configuration="bedroom.yaml", content="esphome:\n")
+
+    assert calls == ["kitchen.yaml", "bedroom.yaml", "kitchen.yaml", "bedroom.yaml"]

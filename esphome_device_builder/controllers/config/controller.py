@@ -17,7 +17,6 @@ from ...helpers.secrets_state import (
     is_valid_secret_key,
     read_secrets_yaml,
     write_secret,
-    write_secrets_locked,
 )
 from ...helpers.storage_path import resolve_storage_path
 from ...models import ErrorCode, UserPreferences
@@ -145,8 +144,9 @@ class ConfigController:
             raise CommandError(ErrorCode.INVALID_ARGS, "overwrite must be a boolean")
         config_dir = self._db.settings.config_dir
         try:
-            created = await write_secrets_locked(
-                self._db.secrets_write_lock,
+            # Funnel through DeviceBuilder so the editor's now-stale !secret
+            # lint is dropped along with the write (see write_secrets_locked).
+            created = await self._db.write_secrets_locked(
                 partial(write_secret, config_dir, key, value, overwrite=overwrite),
             )
         except SecretsContentError as err:

@@ -27,7 +27,6 @@ from ..helpers.api import CommandError, api_command
 from ..helpers.secrets_state import (
     is_wifi_unconfigured,
     read_secrets_yaml,
-    write_secrets_locked,
     write_wifi_secrets,
 )
 from ..models import (
@@ -149,9 +148,7 @@ class OnboardingController:
                 )
 
         config_dir = self._db.settings.config_dir
-        await write_secrets_locked(
-            self._db.secrets_write_lock, write_wifi_secrets, config_dir, ssid, password
-        )
+        await self._db.write_secrets_locked(write_wifi_secrets, config_dir, ssid, password)
         return await self.get_state()
 
     @api_command("onboarding/mark_acknowledged")

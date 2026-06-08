@@ -867,6 +867,10 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         async with self._yaml_write_lock(configuration):
             await self._write_yaml_atomic_async(self._db.settings.rel_path(configuration), content)
             await self._commit_history(configuration, message or f"Update {configuration}")
+        # A write here (device YAML, or the whole-file secrets.yaml editor)
+        # can change what any open editor's lint resolves; clear the caches
+        # so the next validate re-reads disk instead of the stale result.
+        self._db.invalidate_editor_cache()
         self._scanner.request(configuration)
         # Mirrors the upstream dashboard's
         # ``async_schedule_storage_json_update``; without it
