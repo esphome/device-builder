@@ -455,6 +455,7 @@ def make_controller() -> MakeControllerFactory:
         controller._db = MagicMock()
         controller.state = DevicesState()
         controller._yaml_write_locks = {}
+        controller._db.secrets_write_lock = asyncio.Lock()
         controller._db.settings.config_dir = config_dir
         controller._db.settings.rel_path = lambda configuration: config_dir / configuration
         # Version history off by default — a MagicMock's

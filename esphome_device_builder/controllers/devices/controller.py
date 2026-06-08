@@ -655,6 +655,14 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
                     ErrorCode.INVALID_ARGS,
                     f"refusing to save invalid secrets.yaml: {err}",
                 ) from err
+            # Hold the shared lock so a whole-file save can't interleave with a
+            # per-key config/set_secret. A full save still replaces the document
+            # (last-write-wins by design); the lock only prevents torn writes.
+            async with self._db.secrets_write_lock:
+                await self._persist_yaml_mutation(
+                    configuration, content, message=f"Edit {configuration}"
+                )
+            return
         await self._persist_yaml_mutation(configuration, content, message=f"Edit {configuration}")
 
     async def apply_restored_yaml(

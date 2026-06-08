@@ -279,14 +279,31 @@ def _replace_or_append_secret(content: str, key: str, value: str) -> str:
     return f"{content}{key}: {encoded}\n"
 
 
+_YAML_DQ_ESCAPES: dict[str, str] = {
+    "\\": "\\\\",
+    '"': '\\"',
+    "\n": "\\n",
+    "\t": "\\t",
+    "\r": "\\r",
+}
+
+
 def _quote_yaml_string(value: str) -> str:
     r"""
-    Quote *value* as a YAML double-quoted scalar.
+    Quote *value* as a YAML double-quoted scalar that round-trips exactly.
 
-    Always uses double quotes so the round-trip stays predictable
-    regardless of what characters the user typed. Escapes the two
-    characters that have meaning inside double-quoted strings
-    (``\`` and ``"``) — everything else passes through verbatim.
+    Escapes ``\`` and ``"``, plus the control characters a literal would
+    otherwise fold or mangle on read — newline/tab/CR get their named
+    escapes and any other C0/DEL byte becomes ``\xHH``. Without this a
+    secret containing a real newline writes a multi-line scalar that
+    folds back to a space on read (silent round-trip corruption).
     """
-    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-    return f'"{escaped}"'
+    out: list[str] = []
+    for ch in value:
+        if ch in _YAML_DQ_ESCAPES:
+            out.append(_YAML_DQ_ESCAPES[ch])
+        elif ord(ch) < 0x20 or ord(ch) == 0x7F:
+            out.append(f"\\x{ord(ch):02x}")
+        else:
+            out.append(ch)
+    return f'"{"".join(out)}"'

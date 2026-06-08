@@ -324,6 +324,13 @@ def test_write_secret_no_overwrite_creates_absent_key(tmp_path: Path) -> None:
     assert read_secrets_yaml(tmp_path) == {"api_key": "KEEP", "mqtt_pw": "secret"}
 
 
+def test_write_secret_round_trips_a_multiline_value_without_folding(tmp_path: Path) -> None:
+    """A value with newlines/tabs reads back byte-for-byte, not folded to spaces."""
+    value = "-----BEGIN-----\nline2\twith-tab\r\n-----END-----"
+    write_secret(tmp_path, "cert", value)
+    assert read_secrets_yaml(tmp_path) == {"cert": value}
+
+
 @pytest.mark.parametrize("key", ["wifi_ssid", "_x", "ABC123", "a"])
 def test_is_valid_secret_key_accepts_identifier_keys(key: str) -> None:
     assert is_valid_secret_key(key) is True

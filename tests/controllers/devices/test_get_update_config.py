@@ -295,6 +295,20 @@ async def test_update_config_refuses_whitespace_only_content(
     assert controller._scanner.calls == []
 
 
+async def test_update_config_writes_valid_secrets_yaml(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A valid whole-file secrets.yaml save lands on disk (via the shared lock branch)."""
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
+    content = "wifi_ssid: home\nwifi_password: hunter2\n"
+
+    result = await controller.update_config(configuration="secrets.yaml", content=content)
+
+    assert result is None
+    assert (tmp_path / "secrets.yaml").read_text(encoding="utf-8") == content
+
+
 async def test_update_config_rejects_invalid_secrets_yaml(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
