@@ -143,13 +143,13 @@ def test_scope_skips_non_dict_component_instances() -> None:
     assert [d.id for d in scoped.devices] == ["real"]
 
 
-def test_scope_skips_component_instance_without_id() -> None:
-    """A configured component without an ``id`` doesn't surface in the picker."""
+def test_scope_surfaces_idless_component_instance() -> None:
+    """An id-less leaf surfaces under its positional synthetic id beside ided ones."""
     scoped = _scope_from_yaml(
         "binary_sensor:\n  - platform: gpio\n    pin: GPIO0\n"
         "  - platform: gpio\n    id: real\n    pin: GPIO1\n",
     )
-    assert [d.id for d in scoped.devices] == ["real"]
+    assert [d.id for d in scoped.devices] == ["binary_sensor_0", "real"]
 
 
 @pytest.mark.parametrize(
