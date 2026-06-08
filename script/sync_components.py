@@ -5703,6 +5703,60 @@ def _scalar_value_type_for_schema(name: str, schema: dict | None) -> str | None:
     return types[0]
 
 
+# ``vol.Coerce`` target type -> the ``value_type`` string; the whole
+# vocabulary, no per-validator allowlist. Keyed on ``object`` since
+# ``Coerce.type`` may be a callable (which just misses the lookup).
+_PY_TYPE_TO_VALUE_TYPE: dict[object, str] = {float: "float", int: "integer", str: "string"}
+
+
+def _classify_scalar_validator(validator: Any, _depth: int = 0) -> str | None:
+    """
+    Derive the scalar value type a (possibly wrapped) validator accepts, or None.
+
+    Reads the ``vol.Coerce`` target (``cv.float_`` is ``Coerce(float)``), peeling
+    ``Schema`` / ``templatable`` / ``All`` wrappers. ``vol.Any`` is left alone so
+    a scalar-or-list filter stays unclassified; depth guard stops cycles.
+    """
+    if validator is None or _depth > 8:
+        return None
+    if isinstance(validator, vol.Coerce):
+        return _PY_TYPE_TO_VALUE_TYPE.get(validator.type)
+    inner = getattr(validator, "schema", None)
+    if inner is not None and inner is not validator:
+        return _classify_scalar_validator(inner, _depth + 1)
+    # Recurse into a templatable closure's captured inner or an All refinement
+    # chain. Any is deliberately skipped (a scalar-or-list filter stays None).
+    children: tuple[Any, ...] = ()
+    if "templatable" in (getattr(validator, "__qualname__", "") or ""):
+        children = tuple(c.cell_contents for c in getattr(validator, "__closure__", None) or ())
+    elif isinstance(validator, vol.All):
+        children = tuple(validator.validators)
+    for child in children:
+        found = _classify_scalar_validator(child, _depth + 1)
+        if found:
+            return found
+    return None
+
+
+@cache
+def _filter_value_type_live(domain: str, name: str) -> str | None:
+    """
+    Recover a filter's scalar value type from the live ``FILTER_REGISTRY``.
+
+    The bundle dumps templatable scalar filters (``multiply`` / ``offset``)
+    type-less, so introspect the registered validator. None if not a scalar.
+    """
+    try:
+        module = importlib.import_module(f"esphome.components.{domain}")
+        registry = getattr(module, "FILTER_REGISTRY", None)
+        if registry is None or name not in registry:
+            return None
+        schema = getattr(registry[name], "schema", None)
+    except Exception:
+        return None
+    return _classify_scalar_validator(schema)
+
+
 # Per-filter field overrides for shapes the upstream schema bundle
 # can't surface because the validator is a custom callable (e.g.
 # ``ntc_process_calibration``) instead of a structural cv.*
@@ -5735,13 +5789,21 @@ def _convert_registry_entry(
     label_domain: str,
     applies_to: list[str],
     schema_dir: Path,
+    live_value_type: str | None = None,
 ) -> dict | None:
-    """Build a registry catalog dict (id, name, config_entries, applies_to, value_type)."""
+    """
+    Build a registry catalog dict (id, name, config_entries, applies_to, value_type).
+
+    ``live_value_type`` is a fallback the caller recovered by live
+    introspection for scalar entries the schema bundle dumps type-less
+    (templatable ``multiply`` / ``offset``); used only when the bundle
+    schema yields no ``value_type``.
+    """
     if not isinstance(body, dict):
         return None
     docs = clean_docs(body.get("docs"))
     schema = body.get("schema") if isinstance(body.get("schema"), dict) else None
-    value_type = _scalar_value_type_for_schema(name, schema)
+    value_type = _scalar_value_type_for_schema(name, schema) or live_value_type
     has_config_vars = bool(schema and schema.get("config_vars"))
     if value_type is not None and not has_config_vars:
         # Pure scalar shorthand (``delayed_on: 50ms``).
@@ -5758,13 +5820,18 @@ def _convert_registry_entry(
             extract_schema = {k: v for k, v in schema.items() if k != "extends"}
         config_entries, _alist, _hcg = _extract_automation_param_schema(extract_schema, schema_dir)
         config_entries = _apply_field_overrides(name, config_entries)
-    return {
+    entry = {
         "id": name,
         "name": _automation_label(label_domain, name, docs.name),
         "config_entries": [_strip_entry_defaults(e) for e in config_entries],
         "applies_to": applies_to,
         "value_type": value_type,
     }
+    # Surface the bundle's templatable flag so the frontend offers a lambda
+    # toggle on the scalar value (``multiply: !lambda``). Omitted when false.
+    if body.get("templatable"):
+        entry["templatable"] = True
+    return entry
 
 
 # Shared by `_automation_label` (producer) and `_dedupe_filters`
@@ -5786,6 +5853,7 @@ def _convert_filter(
         label_domain=domain,
         applies_to=[domain],
         schema_dir=schema_dir,
+        live_value_type=_filter_value_type_live(domain, name),
     )
 
 

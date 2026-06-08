@@ -13,11 +13,16 @@ import asyncio
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import voluptuous as vol
+
 from esphome_device_builder.controllers.components import ComponentCatalog
 from script.sync_components import (  # type: ignore[import-not-found]
+    _classify_scalar_validator,
     _convert_field,
+    _convert_filter,
     _convert_registry_entry,
     _dedupe_filters,
+    _filter_value_type_live,
     _is_scalar_extends_schema,
 )
 
@@ -394,3 +399,77 @@ def test_to_ntc_temperature_calibration_promoted_to_multi_value() -> None:
     assert entry is not None
     cal = next(c for c in entry["config_entries"] if c["key"] == "calibration")
     assert cal["multi_value"] is True
+
+
+# ---------------------------------------------------------------------------
+# Scalar value-type recovery for templatable filters (#1304)
+# ---------------------------------------------------------------------------
+
+
+def test_classify_scalar_validator_reads_coerce_target() -> None:
+    """The value type is derived from the Coerce target, not a name list."""
+    import esphome.config_validation as cv  # noqa: PLC0415
+
+    assert _classify_scalar_validator(cv.float_) == "float"
+    assert _classify_scalar_validator(vol.Coerce(int)) == "integer"
+    assert _classify_scalar_validator(vol.Coerce(str)) == "string"
+    # All(Coerce, Range) refinement chains unwrap to the inner Coerce. Built
+    # here rather than off ``cv.positive_float`` whose internal shape varies
+    # across esphome versions.
+    assert _classify_scalar_validator(vol.All(vol.Coerce(float), vol.Range(min=0))) == "float"
+
+
+def test_classify_scalar_validator_skips_polymorphic_any() -> None:
+    """vol.Any (scalar-or-list) is not forced to a bare scalar."""
+    assert _classify_scalar_validator(vol.Any(vol.Coerce(float), [vol.Coerce(float)])) is None
+    assert _classify_scalar_validator(lambda v: v) is None
+
+
+def test_filter_value_type_live_recovers_multiply_offset() -> None:
+    """Multiply / offset are templatable floats the bundle dumps type-less."""
+    assert _filter_value_type_live("sensor", "multiply") == "float"
+    assert _filter_value_type_live("sensor", "offset") == "float"
+    # filter_out is scalar-or-list; must not collapse to a bare scalar.
+    assert _filter_value_type_live("sensor", "filter_out") is None
+    assert _filter_value_type_live("sensor", "does_not_exist") is None
+
+
+def test_convert_filter_recovers_scalar_value_type_and_templatable() -> None:
+    """A bundle entry with only {templatable, docs} gains value_type + templatable."""
+    entry = _convert_filter(
+        name="multiply",
+        body={"templatable": True, "docs": "Multiplies each value by a templatable value."},
+        domain="sensor",
+        schema_dir=_UNUSED_SCHEMA_DIR,
+    )
+    assert entry is not None
+    assert entry["value_type"] == "float"
+    assert entry["config_entries"] == []
+    assert entry["templatable"] is True
+
+
+def test_convert_filter_omits_templatable_when_absent() -> None:
+    """A non-templatable filter carries no templatable key."""
+    entry = _convert_filter(
+        name="lambda",
+        body={"docs": "..."},
+        domain="sensor",
+        schema_dir=_UNUSED_SCHEMA_DIR,
+    )
+    assert entry is not None
+    assert entry["value_type"] == "lambda"
+    assert "templatable" not in entry
+
+
+def test_bundle_value_type_wins_over_live_fallback() -> None:
+    """A schema-typed filter keeps its bundle value_type; live is only a fallback."""
+    entry = _convert_registry_entry(
+        name="multiply",
+        body={"schema": {"extends": ["core.positive_time_period_milliseconds"]}, "type": "schema"},
+        label_domain="sensor",
+        applies_to=["sensor"],
+        schema_dir=_UNUSED_SCHEMA_DIR,
+        live_value_type="float",
+    )
+    assert entry is not None
+    assert entry["value_type"] == "time_period"
