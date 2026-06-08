@@ -86,7 +86,7 @@ async def test_async_delay_save_writes_after_delay(store_path: Path, store: Stor
     # longer than 1s for the executor hop + atomic rename after the 50ms
     # timer fires.
     await _drain_loop_until(store_path.exists, timeout=2.0)
-    assert read_bytes_with_retry(store_path) == b"delayed"
+    assert await asyncio.to_thread(read_bytes_with_retry, store_path) == b"delayed"
 
 
 async def test_async_delay_save_collapses_within_window(
@@ -111,7 +111,7 @@ async def test_async_delay_save_collapses_within_window(
     store.async_delay_save(_capture, delay=0.1)
 
     await _drain_loop_until(store_path.exists, timeout=2.0)
-    assert read_bytes_with_retry(store_path) == b"final"
+    assert await asyncio.to_thread(read_bytes_with_retry, store_path) == b"final"
 
 
 async def test_async_delay_save_extends_deadline_on_later_call(
@@ -133,7 +133,7 @@ async def test_async_delay_save_extends_deadline_on_later_call(
     await _drain_loop_until(store_path.exists, timeout=2.0)
     elapsed = loop.time() - started
     assert elapsed >= 0.18, f"wrote too early: {elapsed:.3f}s"
-    assert read_bytes_with_retry(store_path) == b"late"
+    assert await asyncio.to_thread(read_bytes_with_retry, store_path) == b"late"
 
 
 async def test_async_delay_save_earlier_call_replaces_handle(
@@ -157,7 +157,7 @@ async def test_async_delay_save_earlier_call_replaces_handle(
     await _drain_loop_until(store_path.exists, timeout=4.0)
     elapsed = loop.time() - started
     assert elapsed < 1.5, f"earlier handle did not replace later: {elapsed:.3f}s"
-    assert read_bytes_with_retry(store_path) == b"earlier"
+    assert await asyncio.to_thread(read_bytes_with_retry, store_path) == b"earlier"
 
 
 async def test_async_save_now_flushes_pending_save(store_path: Path, store: Store[bytes]) -> None:
@@ -165,7 +165,7 @@ async def test_async_save_now_flushes_pending_save(store_path: Path, store: Stor
     store.async_delay_save(lambda: b"pending", delay=10.0)
     assert not store_path.exists()
     await store.async_save_now()
-    assert read_bytes_with_retry(store_path) == b"pending"
+    assert await asyncio.to_thread(read_bytes_with_retry, store_path) == b"pending"
 
 
 async def test_async_save_now_is_noop_when_empty(store_path: Path, store: Store[bytes]) -> None:
@@ -216,7 +216,7 @@ async def test_async_save_now_awaits_inflight_write(tmp_path: Path) -> None:
 
     assert seen == [b"first", b"second"]
     # Final disk content reflects the *last* write.
-    assert read_bytes_with_retry(store_path) == b"second"
+    assert await asyncio.to_thread(read_bytes_with_retry, store_path) == b"second"
 
 
 async def test_write_failure_logged_and_swallowed(
@@ -282,7 +282,7 @@ async def test_data_func_called_at_flush_not_scheduling(
     # longer than 1s for the executor hop + atomic rename after the 50ms
     # timer fires.
     await _drain_loop_until(store_path.exists, timeout=2.0)
-    assert read_bytes_with_retry(store_path) == b"after-mutation"
+    assert await asyncio.to_thread(read_bytes_with_retry, store_path) == b"after-mutation"
 
 
 async def test_atomic_write_creates_parent_directory(tmp_path: Path) -> None:
@@ -299,7 +299,7 @@ async def test_atomic_write_creates_parent_directory(tmp_path: Path) -> None:
     # the parent-directory mkdir on top of the atomic write can tip
     # this past 1s on loaded Windows runners.
     await _drain_loop_until(store_path.exists, timeout=2.0)
-    assert read_bytes_with_retry(store_path) == b"nested"
+    assert await asyncio.to_thread(read_bytes_with_retry, store_path) == b"nested"
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows doesn't honor POSIX mode bits")
@@ -388,7 +388,7 @@ async def test_constructor_registers_shutdown_callback(
     assert len(recorder.shutdown_callbacks) == 1
     store.async_delay_save(lambda: b"via-shutdown", delay=10.0)
     await recorder.shutdown_callbacks[0]()
-    assert read_bytes_with_retry(store_path) == b"via-shutdown"
+    assert await asyncio.to_thread(read_bytes_with_retry, store_path) == b"via-shutdown"
 
 
 async def test_lifecycle_walk_flushes_pending_saves_across_stores(
@@ -428,8 +428,8 @@ async def test_lifecycle_walk_flushes_pending_saves_across_stores(
     for cb in callbacks:
         await cb()
 
-    assert read_bytes_with_retry(pairings_path) == b"pairings-final"
-    assert read_bytes_with_retry(peers_path) == b"peers-final"
+    assert await asyncio.to_thread(read_bytes_with_retry, pairings_path) == b"pairings-final"
+    assert await asyncio.to_thread(read_bytes_with_retry, peers_path) == b"peers-final"
 
 
 async def test_save_now_skips_when_no_pending_data_after_drain(
@@ -440,7 +440,7 @@ async def test_save_now_skips_when_no_pending_data_after_drain(
     await _drain_loop_until(store_path.exists, timeout=1.0)
     await store.async_save_now()
     # Disk content unchanged — the second flush had nothing to do.
-    assert read_bytes_with_retry(store_path) == b"v"
+    assert await asyncio.to_thread(read_bytes_with_retry, store_path) == b"v"
 
 
 async def test_extend_then_save_now_picks_up_latest(store_path: Path, store: Store[bytes]) -> None:
@@ -449,7 +449,7 @@ async def test_extend_then_save_now_picks_up_latest(store_path: Path, store: Sto
     store.async_delay_save(lambda: b"b", delay=10.0)
     store.async_delay_save(lambda: b"c", delay=10.0)
     await store.async_save_now()
-    assert read_bytes_with_retry(store_path) == b"c"
+    assert await asyncio.to_thread(read_bytes_with_retry, store_path) == b"c"
 
 
 async def test_handle_write_returns_early_when_data_func_already_drained(
