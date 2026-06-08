@@ -139,6 +139,10 @@ def _slim_filters() -> list[FilterIndex]:
 # dispatch rather than a lambda + cached function call.
 _TRIGGER_IDS: frozenset[str] = frozenset(t.id for t in _slim_triggers())
 _ACTION_IDS: frozenset[str] = frozenset(a.id for a in _editable_actions())
+# Every catalogued action id, including those dropped from the picker for
+# being form_editable=False — lets the parser tell a known-but-unsupported
+# action apart from a genuine typo.
+_ALL_ACTION_IDS: frozenset[str] = frozenset(a.id for a in _slim_actions())
 _CONDITION_IDS: frozenset[str] = frozenset(c.id for c in _slim_conditions())
 _LIGHT_EFFECT_IDS: frozenset[str] = frozenset(e.id for e in _slim_light_effects())
 _FILTER_IDS: frozenset[str] = frozenset(f.id for f in _slim_filters())
@@ -264,6 +268,11 @@ def trigger_by_id(trigger_id: str) -> AutomationTrigger | None:
 def action_by_id(action_id: str) -> AutomationAction | None:
     """Look up one action's full body by qualified id (e.g. ``light.turn_on``)."""
     return _ACTION_STORE.get_sync(action_id)
+
+
+def is_known_action(action_id: str) -> bool:
+    """Return True when *action_id* is catalogued, even if not form-editable."""
+    return action_id in _ALL_ACTION_IDS
 
 
 def condition_by_id(condition_id: str) -> AutomationCondition | None:

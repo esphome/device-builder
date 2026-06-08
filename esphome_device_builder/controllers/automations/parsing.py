@@ -157,7 +157,7 @@ def _parse_device_level(root: Any) -> list[ParsedAutomation]:
             )
             continue
         from_line, to_line = _key_range(esphome, trigger_key)
-        tree, error = _safe_tree(
+        tree, error, unsupported = _safe_tree(
             partial(_decompose_trigger_body, body, trigger_id=trigger_key),
             trigger_id=trigger_key,
         )
@@ -170,6 +170,7 @@ def _parse_device_level(root: Any) -> list[ParsedAutomation]:
                 to_line=to_line,
                 raw_yaml=_dump_slice({trigger_key: body}),
                 error=error,
+                unsupported=unsupported,
             )
         )
     return out
@@ -188,7 +189,7 @@ def _parse_top_level_scripts(root: Any) -> list[ParsedAutomation]:
             continue
         script_id = item.get("id") or f"script_{idx}"
         from_line, to_line = _item_range(scripts, idx)
-        tree, error = _safe_tree(
+        tree, error, unsupported = _safe_tree(
             partial(
                 _block_tree,
                 _collect_block_params(item, action_list_keys={"then"}),
@@ -205,6 +206,7 @@ def _parse_top_level_scripts(root: Any) -> list[ParsedAutomation]:
                 to_line=to_line,
                 raw_yaml=_dump_slice([item]),
                 error=error,
+                unsupported=unsupported,
             )
         )
     return out
@@ -224,7 +226,7 @@ def _parse_top_level_intervals(root: Any) -> list[ParsedAutomation]:
         from_line, to_line = _item_range(intervals, idx)
         every = item.get("interval")
         label = f"Interval: every {every}" if every else f"Interval #{idx + 1}"
-        tree, error = _safe_tree(
+        tree, error, unsupported = _safe_tree(
             partial(
                 _block_tree,
                 _collect_block_params(item, action_list_keys={"then"}),
@@ -241,6 +243,7 @@ def _parse_top_level_intervals(root: Any) -> list[ParsedAutomation]:
                 to_line=to_line,
                 raw_yaml=_dump_slice([item]),
                 error=error,
+                unsupported=unsupported,
             )
         )
     return out
@@ -272,7 +275,7 @@ def _parse_api_actions(root: Any) -> list[ParsedAutomation]:
         if not action_name:
             continue
         from_line, to_line = _item_range(actions, idx)
-        tree, error = _safe_tree(
+        tree, error, unsupported = _safe_tree(
             partial(_block_tree, _collect_api_action_params(item), item.get("then")),
             trigger_id=None,
         )
@@ -285,6 +288,7 @@ def _parse_api_actions(root: Any) -> list[ParsedAutomation]:
                 to_line=to_line,
                 raw_yaml=_dump_slice([item]),
                 error=error,
+                unsupported=unsupported,
             )
         )
     return out
@@ -529,7 +533,7 @@ def _parse_component_action_fields(root: Any) -> list[ParsedAutomation]:
             if key not in fields:
                 continue
             from_line, to_line = _key_range(instance, key)
-            tree, error = _safe_tree(
+            tree, error, unsupported = _safe_tree(
                 partial(_decompose_trigger_body, body, trigger_id=None),
                 trigger_id=None,
             )
@@ -542,6 +546,7 @@ def _parse_component_action_fields(root: Any) -> list[ParsedAutomation]:
                     to_line=to_line,
                     raw_yaml=_dump_slice({key: body}),
                     error=error,
+                    unsupported=unsupported,
                 )
             )
     return out
@@ -598,7 +603,7 @@ def _parse_one_inline_trigger(
             label_prefix=f"{comp_name} → {_pretty_name(key)}",
         )
     from_line, to_line = _key_range(instance, key)
-    tree, error = _safe_tree(
+    tree, error, unsupported = _safe_tree(
         partial(_decompose_trigger_body, body, trigger_id=trigger_id),
         trigger_id=trigger_id,
     )
@@ -611,6 +616,7 @@ def _parse_one_inline_trigger(
             to_line=to_line,
             raw_yaml=_dump_slice({key: body}),
             error=error,
+            unsupported=unsupported,
         )
     ]
 
@@ -665,7 +671,7 @@ def _parse_trigger_list(
     out: list[ParsedAutomation] = []
     for index, entry in enumerate(body):
         from_line, to_line = _item_range(body, index)
-        tree, error = _safe_tree(
+        tree, error, unsupported = _safe_tree(
             partial(_decompose_trigger_mapping, entry, trigger_id=trigger_id),
             trigger_id=trigger_id,
         )
@@ -678,6 +684,7 @@ def _parse_trigger_list(
                 to_line=to_line,
                 raw_yaml=_dump_slice([entry]),
                 error=error,
+                unsupported=unsupported,
             )
         )
     return out

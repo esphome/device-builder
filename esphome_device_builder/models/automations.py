@@ -414,6 +414,9 @@ class ParsedAutomation(DataClassORJSONMixin):
     ``error`` is set when this one automation failed to decompose
     (unknown action/condition id); siblings still parse, and the
     frontend renders it read-only rather than editing an empty tree.
+    ``unsupported`` narrows that: the failure was a *known* action with
+    no structured form (an oversized LVGL ``*.update``), so the frontend
+    shows the neutral "edit in YAML" hint rather than an error alert.
     """
 
     location: AutomationLocation
@@ -423,6 +426,7 @@ class ParsedAutomation(DataClassORJSONMixin):
     to_line: int
     raw_yaml: str
     error: str | None = None
+    unsupported: bool = False
 
 
 # ---------------------------------------------------------------------------
