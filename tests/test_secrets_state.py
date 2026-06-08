@@ -18,10 +18,12 @@ from esphome_device_builder.helpers.secrets_state import (
     PLACEHOLDER_WIFI_PASSWORD,
     PLACEHOLDER_WIFI_SSID,
     SecretsContentError,
+    is_valid_secret_key,
     is_wifi_unconfigured,
     merge_secrets_file,
     read_secrets_yaml,
     validate_secrets_content,
+    write_secret,
 )
 
 
@@ -271,3 +273,62 @@ def test_merge_secrets_leaves_unreadable_untouched(
     merge_secrets_file(src, dest)
 
     assert dest.read_text("utf-8") == original
+
+
+# ---------------------------------------------------------------------------
+# write_secret — single-key setter (issue #1334)
+# ---------------------------------------------------------------------------
+
+
+def _secrets(tmp_path: Path) -> Path:
+    return tmp_path / "secrets.yaml"
+
+
+def test_write_secret_creates_file_and_key(tmp_path: Path) -> None:
+    created = write_secret(tmp_path, "api_key", "ABC")
+    assert created is True
+    assert read_secrets_yaml(tmp_path) == {"api_key": "ABC"}
+
+
+def test_write_secret_appends_to_existing_file(tmp_path: Path) -> None:
+    _secrets(tmp_path).write_text("wifi_ssid: home\n", "utf-8")
+    created = write_secret(tmp_path, "api_key", "ABC")
+    assert created is True
+    assert read_secrets_yaml(tmp_path) == {"wifi_ssid": "home", "api_key": "ABC"}
+
+
+def test_write_secret_overwrites_existing_key_and_returns_not_created(tmp_path: Path) -> None:
+    _secrets(tmp_path).write_text("wifi_ssid: home\napi_key: OLD\n", "utf-8")
+    created = write_secret(tmp_path, "api_key", "NEW")
+    assert created is False
+    assert read_secrets_yaml(tmp_path) == {"wifi_ssid": "home", "api_key": "NEW"}
+
+
+def test_write_secret_preserves_other_secrets_and_inline_comment(tmp_path: Path) -> None:
+    _secrets(tmp_path).write_text("wifi_ssid: home  # Apt 4B\napi_key: OLD\n", "utf-8")
+    write_secret(tmp_path, "wifi_ssid", "office")
+    assert _secrets(tmp_path).read_text("utf-8") == 'wifi_ssid: "office"  # Apt 4B\napi_key: OLD\n'
+
+
+def test_write_secret_no_overwrite_leaves_existing_value(tmp_path: Path) -> None:
+    _secrets(tmp_path).write_text("api_key: KEEP\n", "utf-8")
+    created = write_secret(tmp_path, "api_key", "NEW", overwrite=False)
+    assert created is False
+    assert read_secrets_yaml(tmp_path) == {"api_key": "KEEP"}
+
+
+def test_write_secret_no_overwrite_creates_absent_key(tmp_path: Path) -> None:
+    _secrets(tmp_path).write_text("api_key: KEEP\n", "utf-8")
+    created = write_secret(tmp_path, "mqtt_pw", "secret", overwrite=False)
+    assert created is True
+    assert read_secrets_yaml(tmp_path) == {"api_key": "KEEP", "mqtt_pw": "secret"}
+
+
+@pytest.mark.parametrize("key", ["wifi_ssid", "_x", "ABC123", "a"])
+def test_is_valid_secret_key_accepts_identifier_keys(key: str) -> None:
+    assert is_valid_secret_key(key) is True
+
+
+@pytest.mark.parametrize("key", ["", "1abc", "with-dash", "has space", "a:b", "x\n", "no#hash"])
+def test_is_valid_secret_key_rejects_non_identifier_keys(key: str) -> None:
+    assert is_valid_secret_key(key) is False

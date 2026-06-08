@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from esphome.const import __version__ as esphome_version
@@ -11,7 +12,11 @@ from esphome.util import get_serial_ports
 
 from ...constants import __version__ as server_version
 from ...helpers.api import CommandError, api_command
-from ...helpers.secrets_state import read_secrets_yaml
+from ...helpers.secrets_state import (
+    is_valid_secret_key,
+    read_secrets_yaml,
+    write_secret,
+)
 from ...helpers.storage_path import resolve_storage_path
 from ...models import ErrorCode, UserPreferences
 from .chip_detect import (
@@ -31,6 +36,11 @@ class ConfigController:
 
     def __init__(self, device_builder: DeviceBuilder) -> None:
         self._db = device_builder
+        # Serialises the read-modify-write of the single shared secrets.yaml so
+        # two concurrent ``config/set_secret`` calls can't lose each other's
+        # key (issue #1334). The backend runs one event loop, so the lock plus
+        # an atomic write makes the whole update atomic.
+        self._secrets_write_lock = asyncio.Lock()
 
     @api_command("config/version")
     async def get_version(self, **kwargs: Any) -> dict:
@@ -118,6 +128,30 @@ class ConfigController:
         # to string keys before sorting — non-string keys aren't
         # usable in ``!secret`` references anyway.
         return sorted(k for k in data if isinstance(k, str))
+
+    @api_command("config/set_secret")
+    async def set_secret(
+        self, *, key: str, value: str, overwrite: bool = True, **kwargs: Any
+    ) -> dict:
+        """
+        Atomically set one key in ``secrets.yaml``; return ``{created}``.
+
+        The read-modify-write runs under a per-controller lock so concurrent
+        single-key writes don't clobber each other (issue #1334).
+        ``overwrite=False`` leaves an existing key untouched (create-if-absent).
+        """
+        if not is_valid_secret_key(key):
+            raise CommandError(ErrorCode.INVALID_ARGS, "invalid secret key")
+        if not isinstance(value, str):
+            raise CommandError(ErrorCode.INVALID_ARGS, "value must be a string")
+        loop = asyncio.get_running_loop()
+        config_dir = self._db.settings.config_dir
+        async with self._secrets_write_lock:
+            created = await loop.run_in_executor(
+                None,
+                partial(write_secret, config_dir, key, value, overwrite=bool(overwrite)),
+            )
+        return {"created": created}
 
     @api_command("config/get_info")
     async def get_info(self, *, configuration: str, **kwargs: Any) -> dict | None:

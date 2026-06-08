@@ -184,6 +184,16 @@ def merge_secrets_file(src: Path, dest: Path) -> None:
 # to land before they re-run the wizard.
 _SECRET_LINE_RE = re.compile(r"^(\s*)([a-zA-Z_]\w*)\s*:[^#\n]*?(\s+#.*)?$")
 
+# A settable secret key. Anchored to the same shape ``_SECRET_LINE_RE``'s key
+# group matches, so "what we accept" tracks "what the line-based setter can
+# find and replace" — a key the setter could never locate must not be written.
+_SECRET_KEY_RE = re.compile(r"[a-zA-Z_]\w*\Z")
+
+
+def is_valid_secret_key(key: str) -> bool:
+    """Whether *key* is a writable ``!secret`` name (identifier-shaped)."""
+    return isinstance(key, str) and _SECRET_KEY_RE.match(key) is not None
+
 
 def write_wifi_secrets(config_dir: Path, ssid: str, password: str) -> None:
     """
@@ -204,6 +214,34 @@ def write_wifi_secrets(config_dir: Path, ssid: str, password: str) -> None:
         password,
     )
     atomic_write_file(secrets_path, updated)
+
+
+def write_secret(config_dir: Path, key: str, value: str, *, overwrite: bool = True) -> bool:
+    """
+    Set one *key* in ``secrets.yaml`` in place; return True when newly created.
+
+    With ``overwrite=False`` an existing key is left untouched (the
+    create-if-absent path). The read-modify-write is **not** locked here —
+    the caller must hold the write lock so concurrent single-key sets don't
+    lose each other's update (issue #1334).
+    """
+    secrets_path = config_dir / SECRETS_FILENAME
+    original = secrets_path.read_text(encoding="utf-8") if secrets_path.exists() else ""
+    existed = _has_secret_key(original, key)
+    if existed and not overwrite:
+        return False
+    updated = _replace_or_append_secret(original, key, value)
+    validate_secrets_content(updated, secrets_path)
+    atomic_write_file(secrets_path, updated)
+    return not existed
+
+
+def _has_secret_key(content: str, key: str) -> bool:
+    """Whether *content* already defines top-level *key* (setter's match rule)."""
+    return any(
+        (m := _SECRET_LINE_RE.match(line)) is not None and m.group(2) == key
+        for line in content.split("\n")
+    )
 
 
 def _replace_or_append_secret(content: str, key: str, value: str) -> str:

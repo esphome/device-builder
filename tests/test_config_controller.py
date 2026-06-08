@@ -76,6 +76,7 @@ from esphome_device_builder.controllers.config import (
     update_preferences,
 )
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.secrets_state import read_secrets_yaml
 from esphome_device_builder.models import (
     DEFAULT_CLEANUP_TTL_SECONDS,
     MAX_CLEANUP_TTL_SECONDS,
@@ -101,6 +102,7 @@ def _make_controller(config_dir: Path) -> ConfigController:
     controller._db.settings.config_dir = config_dir
     controller._db.settings.absolute_config_dir = config_dir.resolve()
     controller._db.settings.rel_path = config_dir.joinpath
+    controller._secrets_write_lock = asyncio.Lock()
     return controller
 
 
@@ -852,6 +854,53 @@ async def test_get_secrets_returns_sorted_keys(tmp_path: Path) -> None:
 
     keys = await controller.get_secrets()
     assert keys == ["api_key", "wifi_password", "wifi_ssid"]
+
+
+async def test_set_secret_creates_key(tmp_path: Path) -> None:
+    controller = _make_controller(tmp_path)
+    result = await controller.set_secret(key="api_key", value="ABC")
+    assert result == {"created": True}
+    assert read_secrets_yaml(tmp_path) == {"api_key": "ABC"}
+
+
+async def test_set_secret_overwrites_existing_key(tmp_path: Path) -> None:
+    (tmp_path / "secrets.yaml").write_text("api_key: OLD\nwifi_ssid: home\n", "utf-8")
+    controller = _make_controller(tmp_path)
+    result = await controller.set_secret(key="api_key", value="NEW")
+    assert result == {"created": False}
+    assert read_secrets_yaml(tmp_path) == {"api_key": "NEW", "wifi_ssid": "home"}
+
+
+async def test_set_secret_no_overwrite_leaves_existing(tmp_path: Path) -> None:
+    (tmp_path / "secrets.yaml").write_text("api_key: KEEP\n", "utf-8")
+    controller = _make_controller(tmp_path)
+    result = await controller.set_secret(key="api_key", value="NEW", overwrite=False)
+    assert result == {"created": False}
+    assert read_secrets_yaml(tmp_path) == {"api_key": "KEEP"}
+
+
+async def test_set_secret_rejects_invalid_key(tmp_path: Path) -> None:
+    controller = _make_controller(tmp_path)
+    with pytest.raises(CommandError) as excinfo:
+        await controller.set_secret(key="has-dash", value="x")
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+
+
+async def test_set_secret_rejects_non_string_value(tmp_path: Path) -> None:
+    controller = _make_controller(tmp_path)
+    with pytest.raises(CommandError) as excinfo:
+        await controller.set_secret(key="api_key", value=42)  # type: ignore[arg-type]
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+
+
+async def test_set_secret_concurrent_writes_do_not_lose_updates(tmp_path: Path) -> None:
+    """Two concurrent single-key writes both land — the #1334 lost-update."""
+    controller = _make_controller(tmp_path)
+    await asyncio.gather(
+        controller.set_secret(key="foo", value="1"),
+        controller.set_secret(key="bar", value="2"),
+    )
+    assert read_secrets_yaml(tmp_path) == {"foo": "1", "bar": "2"}
 
 
 async def test_get_info_returns_storage_metadata_dict(

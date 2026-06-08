@@ -282,6 +282,7 @@ Parsing and writing live on the backend: the frontend exchanges structured `Auto
 | `config/get_preferences` | — | `UserPreferences` | Get user preferences |
 | `config/set_preferences` | `{theme?, dashboard_view?, ...}` | `UserPreferences` | Update preferences (partial) |
 | `config/get_secrets` | — | `[string]` | List secret key names |
+| `config/set_secret` | `{key, value, overwrite?}` | `{created}` | Atomically set one secret in secrets.yaml under a write lock; `overwrite=false` is create-if-absent |
 
 ### Onboarding
 
