@@ -41,10 +41,7 @@ async def write_secrets_locked[T](lock: asyncio.Lock, fn: Callable[..., T], *arg
     """
     Run a blocking ``secrets.yaml`` mutator under *lock*, off the event loop.
 
-    The single funnel for the executor-based secrets.yaml writers so the
-    shared-lock-plus-``run_in_executor`` invariant lives in one place — a
-    new writer that takes neither is the exact lost-update regression this
-    guards against. Pre-bind keyword args with ``functools.partial``.
+    Pre-bind keyword args with ``functools.partial``.
     """
     loop = asyncio.get_running_loop()
     async with lock:
