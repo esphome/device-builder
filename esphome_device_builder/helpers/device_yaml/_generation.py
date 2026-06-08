@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import secrets
+import string
 from typing import TYPE_CHECKING, Any
 
 from ..yaml import _safe_yaml_scalar, merge_component_yaml
@@ -49,6 +50,20 @@ except ImportError:
 
 _FALLBACK_WIFI_FIRST_PLATFORMS: frozenset[str] = frozenset(
     {"esp8266", "bk72xx", "rtl87xx", "ln882x", "libretiny"}
+)
+
+# Fallback-hotspot psk alphabet + length, mirroring esphome's wizard.
+_AP_PSK_ALPHABET = string.ascii_letters + string.digits
+_AP_PSK_LENGTH = 12
+
+# ESPHome's ``cv.ssid`` caps an AP ssid at 32 bytes.
+_AP_SSID_MAX_LEN = 32
+
+# Platforms supporting ``captive_portal:`` (esphome's ``cv.only_on``
+# allowlist). The fallback is emitted only here; a bare ``ap:`` without
+# a portal can't recover credentials, so other platforms get neither.
+_CAPTIVE_PORTAL_PLATFORMS: frozenset[str] = frozenset(
+    {"esp8266", "esp32", "bk72xx", "ln882x", "rp2040", "rtl87xx"}
 )
 
 # TODO comment block emitted by ``generate_device_yaml`` for
@@ -231,7 +246,7 @@ def generate_device_yaml(
         else:
             lines.append("  ssid: !secret wifi_ssid")
             lines.append("  password: !secret wifi_password")
-        lines.append("")
+        lines.extend(_fallback_recovery_lines(friendly_name or name, platform))
     else:
         # No native Wi-Fi → leave a TODO so the user knows what they
         # need to configure before adding ``api:`` / ``ota:``. Both
@@ -343,6 +358,7 @@ def generate_minimal_stub_yaml(name: str, friendly_name: str) -> str:
     about to edit.
     """
     api_key = base64.b64encode(secrets.token_bytes(32)).decode()
+    recovery = "\n".join(_fallback_recovery_lines(friendly_name or name, "esp32"))
     return (
         f"esphome:\n  name: {name}\n"
         f"  friendly_name: {_safe_yaml_scalar(friendly_name)}\n\n"
@@ -355,4 +371,33 @@ def generate_minimal_stub_yaml(name: str, friendly_name: str) -> str:
         "wifi:\n"
         "  ssid: !secret wifi_ssid\n"
         "  password: !secret wifi_password\n"
+        f"{recovery}"
     )
+
+
+def _fallback_recovery_lines(label: str, platform: str) -> list[str]:
+    """Fallback hotspot + ``captive_portal:`` recovery lines; bare separator where unsupported."""
+    if platform not in _CAPTIVE_PORTAL_PLATFORMS:
+        # No captive portal → no fallback, but keep the wifi block's
+        # trailing blank-line separator from the unconditional old path.
+        return [""]
+    psk = "".join(secrets.choice(_AP_PSK_ALPHABET) for _ in range(_AP_PSK_LENGTH))
+    return [
+        "  ap:",
+        f"    ssid: {_safe_yaml_scalar(_fallback_ap_ssid(label))}",
+        f'    password: "{psk}"',
+        "",
+        "captive_portal:",
+        "",
+    ]
+
+
+def _fallback_ap_ssid(label: str) -> str:
+    """AP ssid ``<label> Fallback Hotspot``; trims <label> so the marker survives the cap."""
+    base = label.strip() or "ESPHome"
+    suffix = " Fallback Hotspot"
+    # Trim the name, not the marker (esphome's wizard drops the whole
+    # marker here), so the recovery AP stays identifiable for long names.
+    if len(base) + len(suffix) > _AP_SSID_MAX_LEN:
+        base = base[: _AP_SSID_MAX_LEN - len(suffix)]
+    return f"{base}{suffix}"

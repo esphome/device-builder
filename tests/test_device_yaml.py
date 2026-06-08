@@ -107,6 +107,8 @@ def test_generate_minimal_stub_yaml_has_required_blocks() -> None:
     assert "Replace this with your actual platform" in out
     assert 'api:\n  encryption:\n    key: "' in out
     assert "ota:\n  - platform: esphome\n" in out
+    assert "  ap:\n    ssid: Kitchen Lamp Fallback Hotspot\n" in out
+    assert "\ncaptive_portal:\n" in out
 
 
 def test_generate_minimal_stub_yaml_emits_per_device_encryption_key() -> None:
@@ -993,6 +995,51 @@ def test_generate_device_yaml_quotes_wifi_credentials(ssid: str, psk: str) -> No
     assert parsed["wifi"]["password"] == psk
 
 
+def test_generate_device_yaml_emits_fallback_ap_and_captive_portal() -> None:
+    """ESP32 wizard YAML carries the fallback hotspot ssid + a captive_portal block."""
+    board = _make_esp32_board(variant=Esp32Variant.ESP32)
+    text = generate_device_yaml("kitchen", "Kitchen Lamp", board, ssid="Net", psk="pw")
+
+    parsed = yaml.safe_load(text)
+    assert parsed["wifi"]["ap"]["ssid"] == "Kitchen Lamp Fallback Hotspot"
+    assert parsed["wifi"]["ap"]["password"]
+    assert "captive_portal" in parsed
+
+
+def test_generate_device_yaml_fallback_ap_password_is_per_device() -> None:
+    """The fallback-hotspot psk is freshly generated each call."""
+    board = _make_esp32_board(variant=Esp32Variant.ESP32)
+    a = yaml.safe_load(generate_device_yaml("k", "K", board, ssid="N", psk="p"))
+    b = yaml.safe_load(generate_device_yaml("k", "K", board, ssid="N", psk="p"))
+    assert a["wifi"]["ap"]["password"] != b["wifi"]["ap"]["password"]
+
+
+@pytest.mark.parametrize(
+    ("friendly_name", "expected"),
+    [
+        pytest.param("Kitchen", "Kitchen Fallback Hotspot", id="short_keeps_full_name"),
+        pytest.param(
+            "Living Room Lamp", "Living Room Lam Fallback Hotspot", id="mid_trims_name_keeps_marker"
+        ),
+        pytest.param(
+            "Living Room Ceiling Light Controller",
+            "Living Room Cei Fallback Hotspot",
+            id="long_trims_name_keeps_marker",
+        ),
+    ],
+)
+def test_generate_device_yaml_fallback_ap_ssid_respects_32_char_cap(
+    friendly_name: str, expected: str
+) -> None:
+    """AP ssid keeps the " Fallback Hotspot" marker, trimming the name to stay within 32 chars."""
+    board = _make_esp32_board(variant=Esp32Variant.ESP32)
+    text = generate_device_yaml("dev", friendly_name, board, ssid="Net", psk="pw")
+    ap_ssid = yaml.safe_load(text)["wifi"]["ap"]["ssid"]
+    assert ap_ssid == expected
+    assert len(ap_ssid) <= 32
+    assert ap_ssid.endswith("Fallback Hotspot")
+
+
 # ---------------------------------------------------------------------------
 # generate_device_yaml — wifi-block inference for boards without an
 # explicit ``connectivity`` claim. Preempts the silent generation of
@@ -1028,6 +1075,39 @@ def _make_board(
         ),
         hardware=BoardHardware(connectivity=connectivity or []),
     )
+
+
+@pytest.mark.parametrize(
+    ("board", "expect_fallback"),
+    [
+        pytest.param(
+            _make_board(platform=Platform.ESP32, variant=Esp32Variant.ESP32C3), True, id="esp32"
+        ),
+        pytest.param(
+            _make_board(platform=Platform.RP2040, pio_board="rpipicow"), True, id="rp2040_picow"
+        ),
+        pytest.param(
+            _make_board(platform=Platform.ESP32, variant=Esp32Variant.ESP32H2),
+            False,
+            id="esp32h2_no_wifi",
+        ),
+        # Wi-Fi claimed off the captive_portal allowlist: wifi block is
+        # emitted, fallback withheld (a bare ``ap:`` can't recover creds).
+        pytest.param(
+            _make_board(platform=Platform.NRF52, connectivity=[Connectivity.WIFI]),
+            False,
+            id="wifi_without_captive_portal_support",
+        ),
+    ],
+)
+def test_generate_device_yaml_fallback_recovery_by_platform(
+    board: BoardCatalogEntry, expect_fallback: bool
+) -> None:
+    """Fallback hotspot + ``captive_portal:`` emitted only where esphome supports captive_portal."""
+    text = generate_device_yaml("dev", "Dev Board", board, ssid="Net", psk="pw")
+    lines = text.splitlines()
+    assert ("  ap:" in lines) is expect_fallback
+    assert ("captive_portal:" in lines) is expect_fallback
 
 
 def test_generate_yaml_omits_wifi_for_esp32h2_without_explicit_connectivity() -> None:
