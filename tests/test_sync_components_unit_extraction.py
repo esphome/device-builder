@@ -23,6 +23,7 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _collect_refined_types,
     _enumerate_platform_manifests,
     _extract_validator_units,
+    _present_non_introspectable_units,
 )
 
 
@@ -92,6 +93,55 @@ def test_extract_units_for_framerate(cv) -> None:
     assert set(units) >= {"FPS", "Hz"}
 
 
+def test_extract_units_for_resistance(cv) -> None:
+    """`cv.resistance` (not on any hand-maintained list) is discovered as metric Ω."""
+    assert _extract_validator_units(cv.resistance) == [
+        "Ω",
+        "nΩ",
+        "µΩ",
+        "mΩ",
+        "kΩ",
+        "MΩ",
+        "GΩ",
+    ]
+
+
+def test_extract_units_for_current(cv) -> None:
+    """`cv.current` is discovered as a metric-prefixed A list."""
+    assert _extract_validator_units(cv.current) == [
+        "A",
+        "nA",
+        "µA",
+        "mA",
+        "kA",
+        "MA",
+        "GA",
+    ]
+
+
+def test_extract_units_for_bps(cv) -> None:
+    """`cv.bps` is discovered as a metric-prefixed bit-rate list."""
+    units = _extract_validator_units(cv.bps)
+    assert units is not None
+    assert units[0] == "bps"
+    assert {"kbps", "Mbps", "Gbps"} <= set(units)
+
+
+def test_extract_units_for_decibel(cv) -> None:
+    """`cv.decibel` is a non-metric unit: distinct dB / dBm, no prefixes."""
+    units = _extract_validator_units(cv.decibel)
+    assert units is not None
+    assert set(units) == {"dB", "dBm"}
+    assert units[0] == "dB"
+
+
+def test_extract_units_for_angle(cv) -> None:
+    """`cv.angle` is a non-metric unit: ° / deg, no prefixes."""
+    units = _extract_validator_units(cv.angle)
+    assert units is not None
+    assert set(units) == {"°", "deg"}
+
+
 def test_extract_units_returns_none_for_non_closure() -> None:
     """A plain function (no compiled-regex closure) returns None."""
 
@@ -104,8 +154,8 @@ def test_extract_units_returns_none_for_non_closure() -> None:
 def test_audit_warns_on_unit_suffixed_string_default(caplog) -> None:
     """Audit fires on float/integer entries with non-numeric string defaults.
 
-    Actionable telemetry to add the validator to
-    `_FLOAT_WITH_UNIT_VALIDATORS` (or `_UNIT_FALLBACKS`).
+    Actionable telemetry for a hand-rolled validator that needs a
+    `_NON_INTROSPECTABLE_UNITS` entry.
     """
     catalog = [
         {
@@ -245,6 +295,36 @@ def test_platform_manifest_refines_unit_coerced_field(loader) -> None:
         )
     assert voltage.type == "float_with_unit"
     assert voltage.unit_options is not None and "V" in voltage.unit_options
+
+
+def test_resistance_sensor_resistor_refines_to_float_with_unit(loader) -> None:
+    """`resistance.sensor.resistor` refines to `float_with_unit` with Ω units."""
+    refined = {}
+    for platform_manifest in _enumerate_platform_manifests(loader, "resistance"):
+        refined.update(_collect_refined_types(platform_manifest))
+    resistor = refined.get(("resistor",))
+    if resistor is None:
+        pytest.skip(
+            "esphome version doesn't expose resistance.sensor.resistor "
+            "via the live-introspection walker — guard, not a regression"
+        )
+    assert resistor.type == "float_with_unit"
+    assert resistor.unit_options is not None and "Ω" in resistor.unit_options
+
+
+def test_missing_non_introspectable_validator_warns(caplog) -> None:
+    """A removed hand-maintained validator warns and is dropped, not silently missing."""
+
+    class _StubCV:
+        data_size = object()
+        temperature = object()
+        # temperature_delta removed
+
+    with caplog.at_level(logging.WARNING, logger="sync_components"):
+        present = _present_non_introspectable_units(_StubCV())
+    assert "temperature_delta" in caplog.text
+    assert "temperature_delta" not in present
+    assert {"data_size", "temperature"} <= present.keys()
 
 
 def test_audit_silent_when_no_mismatches(caplog) -> None:

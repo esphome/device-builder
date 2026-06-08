@@ -42,6 +42,7 @@ import logging
 import re
 import shutil
 import sys
+import unicodedata
 import urllib.request
 import zipfile
 from collections.abc import Callable, Iterable
@@ -50,7 +51,7 @@ from enum import StrEnum
 from functools import cache
 from io import BytesIO
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, Literal, NamedTuple
 
 import orjson
 import voluptuous as vol
@@ -3408,10 +3409,11 @@ def _audit_catalog_for_unit_mismatches(catalog: list[dict]) -> None:
     ``default_value`` is a unit-suffixed string the frontend's
     number input won't accept.
 
-    Surfacing as a sync-time WARNING gives actionable telemetry to
-    add the validator to ``_FLOAT_WITH_UNIT_VALIDATORS`` (or
-    ``_UNIT_FALLBACKS``) before users hit the silent-validation
-    failure on the affected fields.
+    Surfacing as a sync-time WARNING gives actionable telemetry:
+    ``float_with_unit`` validators are discovered automatically, so a
+    hit here is usually a hand-rolled validator that needs a
+    ``_NON_INTROSPECTABLE_UNITS`` entry before users hit the silent-
+    validation failure on the affected fields.
     """
     mismatches: list[tuple[str, str, str]] = []
     for component in catalog:
@@ -3433,9 +3435,9 @@ def _audit_catalog_for_unit_mismatches(catalog: list[dict]) -> None:
         "Catalog audit: %d float/integer entries have non-numeric string "
         "defaults — likely a unit-coerced cv.* validator the introspection "
         "walker didn't recognise. The frontend's number input will reject "
-        "these defaults as NaN. Add the validator to "
-        "_FLOAT_WITH_UNIT_VALIDATORS (or _UNIT_FALLBACKS for hand-rolled "
-        "ones) in script/sync_components.py.",
+        "these defaults as NaN. If it's a hand-rolled (non-closure) "
+        "validator, add it to _NON_INTROSPECTABLE_UNITS in "
+        "script/sync_components.py.",
         len(mismatches),
     )
     for component_id, dotted_path, default in mismatches:
@@ -3990,79 +3992,49 @@ class RefinedType(NamedTuple):
     unit_options: list[str] | None = None
 
 
-# ``cv.*`` validators built on ``cv.float_with_unit``. Their unit
-# choices come from the validator's compiled regex at runtime —
-# never a hand-maintained list — so the catalog stays in sync with
-# ESPHome without anyone having to remember to update us.
-#
-# Metric prefixes the frontend's unit picker offers when the
-# validator allows them. ``cv.METRIC_SUFFIXES`` accepts every SI
-# prefix from quecto (1e-30) through quetta (1e30) plus a few non-
-# standard ones (deca, hecto, deci, centi); a picker exposing all
-# 26 entries — half of which describe scales below the noise floor
-# of an MCU, the other half above the diameter of the observable
-# universe — is unusable. This list is the IoT-relevant subset:
-# nano (cap, ns), micro (V, A, F, s), milli, base, kilo, mega, giga.
-# Both ``µ`` and ``u`` resolve to 1e-6 in ESPHome — only ``µ`` is
-# emitted (the SI canonical form) so the picker doesn't show two
-# entries that mean the same thing.
-#
-# A future per-quantity override list (frequencies don't need ``n``;
-# voltages don't need ``G``) is reasonable, but the current list is
-# already a strict superset of what every real ESPHome config in the
-# wild uses.
-# Base unit ("") comes first so the canonical unit (per the model
-# docs: "first entry is the canonical unit") is the un-prefixed
-# form — `Hz` not `nHz`. The remaining prefixes follow in
-# magnitude order.
+# IoT-relevant subset of ``cv.METRIC_SUFFIXES`` (which spans 1e-30..1e30).
+# Base ("") first so ``unit_options[0]`` is the canonical un-prefixed form;
+# ``µ`` not ``u`` (both 1e-6, only the SI form is shown).
 _COMMON_METRIC_PREFIXES = ["", "n", "µ", "m", "k", "M", "G"]
 
-# Names of the ``cv.*`` validators we know are built on
-# ``cv.float_with_unit``. Each comes through the live-introspection
-# walker via ``getattr(cv, name)`` so the catalog tracks ESPHome's
-# actual surface — adding a validator here only matters when ESPHome
-# adds one upstream. ``cv.time_period`` is intentionally absent: its
-# grammar (``1h30s``) and unit set are richer than the
-# ``float_with_unit`` widget can express, so it keeps its own
-# ``time_period`` type.
-_FLOAT_WITH_UNIT_VALIDATORS = (
-    "frequency",
-    "data_size",
-    "framerate",
-    "voltage",
-    "distance",
-    "temperature",
-    "temperature_delta",
-)
+# Unit symbols (casefolded) that don't take SI prefixes; everything else
+# defaults to metric. Not derivable from the regex (every float_with_unit
+# carries the same prefix group), and keyed on the unit so a new validator
+# reusing these symbols needs no code change.
+_NON_METRIC_UNITS = frozenset({"fps", "°", "deg", "db", "dbm"})
 
-# Validators that accept METRIC prefixes on their base unit. Order
-# matters: the first entry's compiled value is the canonical unit
-# the picker defaults to.
-_METRIC_PREFIX_VALIDATORS = frozenset({"frequency", "voltage", "data_size", "distance"})
-# Validators whose suffix is a fixed list rather than
-# metric-prefix-able (e.g. temperature has only °C / °F / K, not
-# m°C). The compiled regex's alternation captures the full set.
-_FIXED_UNIT_VALIDATORS = frozenset({"framerate", "temperature", "temperature_delta"})
-
-# Fallback unit lists for validators we can't introspect. Kept as
-# small as possible — only validators that fail
-# ``_extract_validator_units`` need an entry here. ``cv.validate_bytes``
-# uses an inline regex inside the function body (not a closure
-# pattern); ``cv.temperature`` / ``cv.temperature_delta`` are hand-
-# rolled functions that compose multiple ``float_with_unit`` sub-
-# validators sequentially. The unit set for these is stable across
-# ESPHome releases — they're physical-unit definitions — so the
-# brittleness cost is low. If ESPHome ever changes them, the
-# catalog sync produces stale options but the user-visible result
-# is just a missing or extra item in the unit picker.
-_UNIT_FALLBACKS: dict[str, list[str]] = {
+# Unit-coerced validators ESPHome builds WITHOUT a float_with_unit closure
+# (inline-regex ``validate_bytes``, hand-rolled ``temperature*``), so there's
+# no regex to introspect; the only hand-maintained unit lists.
+_NON_INTROSPECTABLE_UNITS: dict[str, list[str]] = {
     "data_size": ["B", "kB", "MB", "GB"],
     "temperature": ["°C", "°F", "K"],
     "temperature_delta": ["°C", "°F", "K"],
 }
 
+# Normalisation applied to every discovered unit symbol. Only matters for
+# the ohm: esphome's regex lists U+2126 OHM SIGN, which NFC folds to the
+# canonical U+03A9 GREEK CAPITAL OMEGA (what a user types); a no-op for the rest.
+_UNIT_NORMALIZATION: Literal["NFC"] = "NFC"
 
-def _extract_validator_units(validator: Any) -> list[str] | None:  # noqa: PLR0911, C901
+
+@cache
+def _present_non_introspectable_units(cv: Any) -> dict[str, list[str]]:
+    """``_NON_INTROSPECTABLE_UNITS`` entries still present in *cv*; warn on any gone.
+
+    A renamed/removed validator can't be rediscovered (no regex), so surface
+    it as sync-time telemetry rather than a silently missing picker.
+    """
+    present: dict[str, list[str]] = {}
+    for name, units in _NON_INTROSPECTABLE_UNITS.items():
+        if getattr(cv, name, None) is None:
+            _LOGGER.warning("hand-maintained unit validator cv.%s is gone; picker dropped", name)
+        else:
+            present[name] = units
+    return present
+
+
+def _extract_validator_units(validator: Any) -> list[str] | None:
     """Pull the unit option list out of a ``cv.float_with_unit`` validator.
 
     Inspects the closure cells produced by ``float_with_unit``: a
@@ -4077,13 +4049,11 @@ def _extract_validator_units(validator: Any) -> list[str] | None:  # noqa: PLR09
         return None
     closure = getattr(validator, "__closure__", None) or ()
     pattern = None
-    quantity = None
     for cell in closure:
         contents = cell.cell_contents
         if isinstance(contents, re.Pattern):
             pattern = contents
-        elif isinstance(contents, str):
-            quantity = contents
+            break
     if pattern is None:
         return None
     # The validator's regex ends with a final group capturing the
@@ -4095,7 +4065,9 @@ def _extract_validator_units(validator: Any) -> list[str] | None:  # noqa: PLR09
     match = re.search(r"\(([^)]+)\)\??\$", pattern.pattern)
     if not match:
         return None
-    raw_alternatives = [alt for alt in match.group(1).split("|") if alt]
+    raw_alternatives = [
+        unicodedata.normalize(_UNIT_NORMALIZATION, alt) for alt in match.group(1).split("|") if alt
+    ]
     if not raw_alternatives:
         return None
     # Prefer an alternative containing uppercase letters when one
@@ -4109,9 +4081,11 @@ def _extract_validator_units(validator: Any) -> list[str] | None:  # noqa: PLR09
         raw_alternatives[0],
     )
     raw_alternatives = [canonical, *(a for a in raw_alternatives if a != canonical)]
-    if quantity in _FIXED_UNIT_VALIDATORS:
-        # Each alternative is a distinct unit (``°C``, ``°F``,
-        # ``K``). Deduplicate case variants by lowercasing.
+    if any(a.casefold() in _NON_METRIC_UNITS for a in raw_alternatives):
+        # Distinct units (FPS vs Hz, dB vs dBm), not a prefixable base:
+        # return the casefold-deduped alternatives, canonical first. Check
+        # every alternative, not just canonical, so an order change can't
+        # misroute (framerate stays fixed even if ``Hz`` wins canonical).
         seen: set[str] = set()
         units: list[str] = []
         for alt in raw_alternatives:
@@ -4121,18 +4095,12 @@ def _extract_validator_units(validator: Any) -> list[str] | None:  # noqa: PLR09
             seen.add(key)
             units.append(alt)
         return units
-    if quantity in _METRIC_PREFIX_VALIDATORS:
-        # Pick the first alternative as the canonical base unit
-        # (``Hz`` from ``Hz|HZ|hz``) and combine with metric
-        # prefixes. Returns ``["Hz", "mHz", "kHz", "MHz", "GHz"]``.
-        base_unit = raw_alternatives[0]
-        metric_suffixes = getattr(cv, "METRIC_SUFFIXES", {"": 1.0})
-        return [
-            f"{prefix}{base_unit}"
-            for prefix in _COMMON_METRIC_PREFIXES
-            if prefix in metric_suffixes
-        ]
-    return None
+    # Default: metric prefixes on the canonical base unit.
+    base_unit = raw_alternatives[0]
+    metric_suffixes = getattr(cv, "METRIC_SUFFIXES", {"": 1.0})
+    return [
+        f"{prefix}{base_unit}" for prefix in _COMMON_METRIC_PREFIXES if prefix in metric_suffixes
+    ]
 
 
 def _collect_refined_types(  # noqa: C901
@@ -4174,19 +4142,9 @@ def _collect_refined_types(  # noqa: C901
     add("boolean", RefinedType("boolean"), "boolean")
     add("float_", RefinedType("float"), "float_", "positive_float", "negative_float")
     add("float_range", RefinedType("float"), "float_range")
-    # Unit-coerced validators — render as a number input + unit
-    # picker on the frontend. The validator's runtime type is a
-    # float, but the YAML shape is ``"<value><unit>"``. Pull the
-    # unit list from the validator's compiled regex at runtime so
-    # the catalog stays in sync with ESPHome without a
-    # hand-maintained table to forget about.
-    for validator_name in _FLOAT_WITH_UNIT_VALIDATORS:
-        validator = getattr(cv, validator_name, None)
-        if validator is None:
-            continue
-        units = _extract_validator_units(validator) or _UNIT_FALLBACKS.get(validator_name)
-        if not units:
-            continue
+    # Non-closure unit validators only; real float_with_unit ones are
+    # discovered in ``classify`` below via ``__qualname__``.
+    for validator_name, units in _present_non_introspectable_units(cv).items():
         add(
             validator_name,
             RefinedType("float_with_unit", unit_options=units),
