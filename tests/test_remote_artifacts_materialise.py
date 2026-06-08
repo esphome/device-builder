@@ -26,6 +26,7 @@ from unittest.mock import patch
 
 import pytest
 from esphome.core import CORE
+from esphome.storage_json import StorageJSON
 
 from esphome_device_builder.controllers.remote_build.artifacts_tarball import (
     BUILD_INFO_MEMBER_NAME,
@@ -701,6 +702,31 @@ def test_materialise_rejects_pio_tarball_missing_firmware(tmp_path: Path) -> Non
     tarball = _synthetic_tarball(storage=storage)
     with pytest.raises(MaterialiseError, match="missing its firmware binary"):
         _materialise_in_tmp(tarball, tmp_path)
+
+
+def test_materialise_remaps_posix_receiver_on_separator_mangling_offloader(
+    paired_roots: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """firmware_bin_path remaps from the raw string on a separator-mangling offloader (#1340)."""
+    receiver_root, offloader_root = paired_roots
+    tarball = _pack_in_tmp(receiver_root)  # POSIX receiver, firmware.bin present
+
+    real_load = StorageJSON.load
+
+    def _mangling_load(path: Path) -> StorageJSON | None:
+        # Simulate a Windows offloader: Path(posix_str) is a WindowsPath whose
+        # str() swaps / for \. The remap must not depend on that round-trip.
+        storage = real_load(path)
+        if storage is not None and storage.firmware_bin_path is not None:
+            storage.firmware_bin_path = PureWindowsPath(
+                str(storage.firmware_bin_path).replace("/", "\\")
+            )
+        return storage
+
+    monkeypatch.setattr(StorageJSON, "load", _mangling_load)
+    build_path = _materialise_in_tmp(tarball, offloader_root)
+    assert (build_path / ".pioenvs" / "kitchen" / "firmware.bin").is_file()
 
 
 @pytest.mark.skipif(
