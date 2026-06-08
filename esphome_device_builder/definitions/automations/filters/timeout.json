@@ -1,1 +1,1 @@
-{"id":"timeout","name":"Timeout","config_entries":[],"applies_to":["binary_sensor","sensor"],"value_type":"time_period"}
+{"id":"timeout","name":"Timeout","config_entries":[],"applies_to":["binary_sensor","sensor"],"value_type":"time_period","templatable":true}

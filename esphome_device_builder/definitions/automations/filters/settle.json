@@ -1,1 +1,1 @@
-{"id":"settle","name":"Binary Sensor → Settle","config_entries":[],"applies_to":["binary_sensor"],"value_type":"time_period"}
+{"id":"settle","name":"Binary Sensor → Settle","config_entries":[],"applies_to":["binary_sensor"],"value_type":"time_period","templatable":true}
