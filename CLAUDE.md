@@ -188,6 +188,27 @@ site-packages dir the backend reads via `_get_frontend_dir`; no proxy,
 browse to `http://localhost:6052/`. Use dev-server for fast iteration,
 built path to verify the bundle the user actually receives.
 
+### Driving the browser headlessly (CDP + puppeteer)
+
+`npm i puppeteer` (downloads its own browser, no OS-specific path) and
+drive the dashboard with `headless:true`. The non-obvious bits:
+
+- Deep-link an editor at `/device/<configuration>.yaml`; drop repro
+  configs in `configs/` (gitignored).
+- The SPA is Lit + Web Awesome, so everything is in **shadow DOM** that
+  ordinary selectors miss: walk shadow roots to find nodes. Drive a
+  `wa-select` by setting `.value` to a `wa-option`'s `value` and
+  dispatching `change` + `input` (`{bubbles: true, composed: true}`); a
+  dependent select populates only after the one it depends on fires.
+- To prove a backend command without fighting the wizard DOM, open a
+  `WebSocket` to `/ws` in `page.evaluate` and send the frame the frontend
+  does (`{command, message_id, args}`, shape in the frontend repo's
+  `src/api/esphome-api.ts`); gate the send on the first server frame
+  (`server_version`); replies are `{result}` or `{error_code, details}`.
+- For a before/after, run the backend on pre-fix code without touching
+  your branch: `git show origin/main:<path> > <path>`, restart, then
+  `git checkout HEAD -- <path>`.
+
 ## Comparison with the legacy esphome dashboard
 
 The legacy Tornado dashboard (`esphome/dashboard/` upstream) is the
