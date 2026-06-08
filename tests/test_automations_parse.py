@@ -310,6 +310,37 @@ def test_parse_unknown_action_id_is_not_flagged_unsupported() -> None:
     assert parsed[0].unsupported is False
 
 
+def test_parse_oversized_lvgl_shorthand_is_flagged_unsupported() -> None:
+    """The single-action shorthand form also flags a known-but-unsupported action."""
+    yaml = (
+        "esphome:\n"
+        "  name: x\n"
+        "  on_boot:\n"
+        "    lvgl.label.update:\n"
+        "      id: my_label\n"
+        "      text: hello\n"
+    )
+    parsed = parse_device_yaml(yaml)
+    assert len(parsed) == 1
+    assert parsed[0].error is not None
+    assert parsed[0].unsupported is True
+    assert parsed[0].automation.actions == []
+
+
+def test_parse_unknown_action_shorthand_is_not_flagged_unsupported() -> None:
+    """A non-catalogued key in shorthand form is a trigger param, never unsupported."""
+    yaml = (
+        "esphome:\n"
+        "  name: x\n"
+        "  on_boot:\n"
+        "    not_a_real.action:\n"
+        "      foo: bar\n"
+    )
+    parsed = parse_device_yaml(yaml)
+    assert len(parsed) == 1
+    assert parsed[0].unsupported is False
+
+
 # ---------------------------------------------------------------------------
 # Top-level blocks
 # ---------------------------------------------------------------------------

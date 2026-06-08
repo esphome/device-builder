@@ -100,8 +100,12 @@ def _decompose_trigger_mapping(body: dict[str, Any], *, trigger_id: str | None) 
         # trigger params and known catalog action ids.
         # ``_collect_block_params`` naively absorbed both; pull
         # the action keys back out by catalog lookup and rebuild
-        # ``trigger_params`` without them.
-        action_body = {k: v for k, v in body.items() if catalog.action_by_id(k) is not None}
+        # ``trigger_params`` without them. ``is_known_action`` (not
+        # ``action_by_id``) so a known-but-non-editable action
+        # (oversized LVGL ``*.update``) is pulled out and routed to
+        # the ``UnsupportedActionError`` fallback rather than silently
+        # mislabelled a trigger param.
+        action_body = {k: v for k, v in body.items() if catalog.is_known_action(k)}
         actions = []
         if action_body:
             actions = _decompose_action_list([action_body])
