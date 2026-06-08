@@ -379,15 +379,17 @@ def _scope_component_instances(
         catalog_id = parsing.catalog_id(domain, item.get("platform"))
         subs = list(parsing.iter_subentities(domain, item))
         comp_id = item.get("id")
-        if comp_id:
-            # Mark a container only when it actually surfaces ided sub-entities;
-            # a multi-entity platform whose readings carry no id keeps its plain
-            # instance (the frontend hides containers, and would otherwise leave
-            # the user nothing to target).
-            out.append(_component_instance(catalog_id, str(comp_id), item, is_container=bool(subs)))
-        parent_id = str(comp_id) if comp_id else f"{domain}_{idx}"
+        instance_id = str(comp_id) if comp_id else f"{domain}_{idx}"
+        # Surface the instance as a target unless it's an id-less container —
+        # an id-less leaf (a gpio binary_sensor, an uptime sensor) keys on the
+        # same f"{domain}_{idx}" synthetic id the parser and writer use, so it
+        # round-trips. Mark a container only when it surfaces ided sub-entities;
+        # the frontend hides containers and redirects to those sub-entities, so
+        # an id-less container has nothing to redirect to and is left out.
+        if comp_id or not subs:
+            out.append(_component_instance(catalog_id, instance_id, item, is_container=bool(subs)))
         for sub_domain, sub, sub_id, _sub_key in subs:
-            out.append(_component_instance(sub_domain, sub_id, sub, parent_id=parent_id))
+            out.append(_component_instance(sub_domain, sub_id, sub, parent_id=instance_id))
     return out
 
 

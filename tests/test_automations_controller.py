@@ -295,6 +295,48 @@ async def test_get_available_skips_idless_subentity(tmp_path: Path) -> None:
     assert "aht20_humidity" not in ids
 
 
+async def test_get_available_surfaces_idless_binary_sensor_leaf(tmp_path: Path) -> None:
+    """An id-less binary_sensor leaf is targetable via its positional synthetic id."""
+    config = tmp_path / "bs.yaml"
+    config.write_text(
+        "esphome:\n  name: d\n"
+        "binary_sensor:\n"
+        "  - platform: status\n    name: Status\n"
+        '  - platform: gpio\n    pin: GPIO9\n    name: "Button"\n'
+        "  - platform: gpio\n    pin: GPIO3\n    name: Pir Sensor\n    id: pir\n",
+        encoding="utf-8",
+    )
+    controller = _make_controller(tmp_path)
+    result = await controller.get_available(configuration="bs.yaml")
+    devices = {(d["component_id"], d["id"]): d for d in result["devices"]}
+    button = devices[("binary_sensor.gpio", "binary_sensor_1")]
+    assert button["name"] == "Button"
+    assert button["is_entity_container"] is False
+    assert ("binary_sensor.status", "binary_sensor_0") in devices
+    assert ("binary_sensor.gpio", "pir") in devices
+    trigger_ids = {t["id"] for t in result["triggers"]}
+    assert {"binary_sensor.on_press", "binary_sensor.on_multi_click"} <= trigger_ids
+
+
+async def test_get_available_surfaces_idless_sensor_leaves(tmp_path: Path) -> None:
+    """Named id-less sensor leaves (uptime / template) become positional targets."""
+    config = tmp_path / "sensor.yaml"
+    config.write_text(
+        "esphome:\n  name: d\n"
+        "sensor:\n"
+        "  - platform: uptime\n    name: Uptime\n"
+        "  - platform: template\n    name: Free Memory\n"
+        "    lambda: return 0;\n",
+        encoding="utf-8",
+    )
+    controller = _make_controller(tmp_path)
+    result = await controller.get_available(configuration="sensor.yaml")
+    devices = {(d["component_id"], d["id"]): d for d in result["devices"]}
+    assert devices[("sensor.uptime", "sensor_0")]["name"] == "Uptime"
+    assert devices[("sensor.template", "sensor_1")]["name"] == "Free Memory"
+    assert "sensor.on_value" in {t["id"] for t in result["triggers"]}
+
+
 async def test_get_available_ignores_non_platform_nested_blocks(tmp_path: Path) -> None:
     """Nested groups without a ``platform_type`` (``availability:``) aren't sub-entities."""
     config = tmp_path / "aht.yaml"
