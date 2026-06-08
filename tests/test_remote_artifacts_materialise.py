@@ -26,6 +26,7 @@ from unittest.mock import patch
 
 import pytest
 from esphome.core import CORE
+from esphome.storage_json import StorageJSON
 
 from esphome_device_builder.controllers.remote_build.artifacts_tarball import (
     BUILD_INFO_MEMBER_NAME,
@@ -117,6 +118,21 @@ def _synthetic_tarball(
             info.size = len(member_payload)
             tar.addfile(info, io.BytesIO(member_payload))
     return buf.getvalue()
+
+
+def _synthetic_tarball_with_bin(**kwargs: Any) -> bytes:
+    """Synthetic tarball carrying a firmware bin, so it clears the landed check."""
+    storage = {
+        "storage_version": 1,
+        "name": "kitchen",
+        "build_path": _FAKE_BUILD_PATH,
+        "firmware_bin_path": f"{_FAKE_BUILD_PATH}/.pioenvs/kitchen/firmware.bin",
+    }
+    return _synthetic_tarball(
+        storage=storage,
+        extra_members=[(".pioenvs/kitchen/firmware.bin", b"FW")],
+        **kwargs,
+    )
 
 
 @pytest.fixture
@@ -675,6 +691,44 @@ def test_materialise_rejects_native_idf_tarball_missing_firmware(tmp_path: Path)
         _materialise_in_tmp(tarball, tmp_path)
 
 
+def test_materialise_rejects_pio_tarball_missing_firmware(tmp_path: Path) -> None:
+    """A PlatformIO tarball with metadata but no firmware binary raises (#1340)."""
+    storage = {
+        "storage_version": 1,
+        "name": "kitchen",
+        "build_path": _FAKE_BUILD_PATH,
+        "firmware_bin_path": f"{_FAKE_BUILD_PATH}/.pioenvs/kitchen/firmware.bin",
+    }
+    tarball = _synthetic_tarball(storage=storage)
+    with pytest.raises(MaterialiseError, match="missing its firmware binary"):
+        _materialise_in_tmp(tarball, tmp_path)
+
+
+def test_materialise_remaps_posix_receiver_on_separator_mangling_offloader(
+    paired_roots: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """firmware_bin_path remaps from the raw string on a separator-mangling offloader (#1340)."""
+    receiver_root, offloader_root = paired_roots
+    tarball = _pack_in_tmp(receiver_root)  # POSIX receiver, firmware.bin present
+
+    real_load = StorageJSON.load
+
+    def _mangling_load(path: Path) -> StorageJSON | None:
+        # Simulate a Windows offloader: Path(posix_str) is a WindowsPath whose
+        # str() swaps / for \. The remap must not depend on that round-trip.
+        storage = real_load(path)
+        if storage is not None and storage.firmware_bin_path is not None:
+            storage.firmware_bin_path = PureWindowsPath(
+                str(storage.firmware_bin_path).replace("/", "\\")
+            )
+        return storage
+
+    monkeypatch.setattr(StorageJSON, "load", _mangling_load)
+    build_path = _materialise_in_tmp(tarball, offloader_root)
+    assert (build_path / ".pioenvs" / "kitchen" / "firmware.bin").is_file()
+
+
 @pytest.mark.skipif(
     not HAS_NATIVE_IDF_TOOLCHAIN, reason="esphome lacks the native ESP-IDF toolchain (< 2026.5.0)"
 )
@@ -738,14 +792,14 @@ def test_materialise_rejects_non_dict_storage(tmp_path: Path) -> None:
 
 def test_materialise_rejects_non_json_idedata(tmp_path: Path) -> None:
     """idedata.json that isn't parseable JSON raises."""
-    tarball = _synthetic_tarball(idedata=b"{not-json")
+    tarball = _synthetic_tarball_with_bin(idedata=b"{not-json")
     with pytest.raises(MaterialiseError, match=r"idedata.*not valid JSON"):
         _materialise_in_tmp(tarball, tmp_path)
 
 
 def test_materialise_rejects_non_dict_idedata(tmp_path: Path) -> None:
     """idedata.json that parses to a non-dict raises MaterialiseError."""
-    tarball = _synthetic_tarball(idedata=b"null")
+    tarball = _synthetic_tarball_with_bin(idedata=b"null")
     with pytest.raises(MaterialiseError, match=r"is not a JSON object"):
         _materialise_in_tmp(tarball, tmp_path)
 

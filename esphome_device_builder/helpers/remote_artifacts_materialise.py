@@ -133,6 +133,7 @@ def _open_and_extract_build_tree(tarball: bytes, configuration: str) -> _Extract
             receiver_storage = _parse_storage_json(storage_bytes)
             device_name = _device_name_from_storage(receiver_storage)
             receiver_build_path = _receiver_build_path_from_storage(receiver_storage)
+            receiver_firmware_bin = receiver_storage.get("firmware_bin_path")
 
             build_path = resolve_data_dir(configuration) / "build" / device_name
             # Stage the rewritten sidecar before deciding the wipe so
@@ -145,6 +146,7 @@ def _open_and_extract_build_tree(tarball: bytes, configuration: str) -> _Extract
             new_storage = _stage_offloader_storage(
                 configuration=configuration,
                 receiver_storage_bytes=storage_bytes,
+                receiver_firmware_bin_path=receiver_firmware_bin,
                 receiver_build_path=receiver_build_path,
                 offloader_build_path=build_path,
             )
@@ -184,12 +186,13 @@ def _open_and_extract_build_tree(tarball: bytes, configuration: str) -> _Extract
             )
         if idedata_bytes is None:
             raise MaterialiseError(f"tarball missing required {IDEDATA_MEMBER_NAME!r} member")
-    elif new_storage.firmware_bin_path is None or not new_storage.firmware_bin_path.is_file():
-        # Native ESP-IDF has no platformio.ini / idedata to validate against,
-        # so confirm its firmware binary actually landed -- a truncated
-        # tarball that kept storage.json but lost the build/ tree would
-        # otherwise materialise empty and surface only as a 404 download later.
-        raise MaterialiseError("native ESP-IDF tarball missing its firmware binary")
+    # The bin must have landed (PIO and native-IDF alike); a build tree that
+    # didn't extract otherwise materialises empty and surfaces only as an empty
+    # download list later (#1340), with the job still reporting success.
+    if new_storage.firmware_bin_path is None or not new_storage.firmware_bin_path.is_file():
+        raise MaterialiseError(
+            f"tarball missing its firmware binary: {new_storage.firmware_bin_path}"
+        )
     return _ExtractedTarball(
         storage_bytes=storage_bytes,
         idedata_bytes=idedata_bytes,
@@ -327,6 +330,7 @@ def _stage_offloader_storage(
     *,
     configuration: str,
     receiver_storage_bytes: bytes,
+    receiver_firmware_bin_path: str | None,
     receiver_build_path: PurePath,
     offloader_build_path: Path,
 ) -> StorageJSON:
@@ -339,12 +343,14 @@ def _stage_offloader_storage(
         raise MaterialiseError(
             f"StorageJSON.load returned None for the staged sidecar at {storage_path}"
         )
-    if storage.firmware_bin_path is not None:
-        # ``str()`` round-trips the receiver-flavour string back out
-        # of the (possibly broken-on-this-OS) ``Path`` so
-        # ``_remap_to_offloader`` re-parses it with the right flavour.
+    if receiver_firmware_bin_path is not None:
+        # Remap from the raw receiver string, NOT str(storage.firmware_bin_path):
+        # StorageJSON.load parsed it into an offloader-OS Path, and on a Windows
+        # offloader str() of a POSIX receiver path swaps / for \, defeating
+        # _remap_to_offloader's receiver-flavour reparse and stranding the path
+        # unremapped (#1340).
         storage.firmware_bin_path = _remap_to_offloader(
-            str(storage.firmware_bin_path),
+            receiver_firmware_bin_path,
             receiver_build_path,
             offloader_build_path,
         )
