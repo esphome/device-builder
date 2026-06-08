@@ -362,15 +362,54 @@ def _esp32_generic_pins_by_variant(
     }
 
 
+def _esp32_board_pins(generic: list[BoardPin], board_pins: dict[str, int] | None) -> list[BoardPin]:
+    """
+    Variant pinout enriched with a board's ESP32_BOARD_PINS aliases.
+
+    Returns the generic-<variant> pinout with the board's LED flagged occupied
+    and fixed-bus aliases adding a feature plus note. Pins the variant marks
+    unavailable (flash) keep their generic definition; aliases on them are
+    ignored. Bare alias derivation is the fallback for a variant with no
+    generic manifest.
+    """
+    board_pins = board_pins or {}
+    if not generic:
+        return _derive_pins_from_aliases(board_pins)
+    overlay = {p.gpio: p for p in _derive_pins_from_aliases(board_pins)}
+    led = {gpio for alias, gpio in board_pins.items() if alias == "LED"}
+    out: list[BoardPin] = []
+    for base in generic:
+        extra = overlay.get(base.gpio)
+        if base.available is False:
+            # Flash pins stay authoritative; an alias must not list a bus on one.
+            out.append(replace(base, features=list(base.features)))
+            continue
+        # Preserve the curated generic order; board aliases append after it.
+        features = list(base.features)
+        notes = [base.notes] if base.notes else []
+        if extra is not None:
+            features += [f for f in extra.features if f not in features]
+            if extra.notes and extra.notes not in notes:
+                notes.append(extra.notes)
+        out.append(
+            replace(
+                base,
+                features=features,
+                notes=" • ".join(notes) or None,
+                occupied_by=base.occupied_by or (_BUILTIN_LED if base.gpio in led else None),
+            )
+        )
+    return out
+
+
 def _augment_esp32_boards(boards: list[BoardCatalogEntry]) -> None:
     """
     Generate ESP32 entries for the boards manifests don't cover.
 
     ``BOARDS`` lists every esp32 board ESPHome knows; the manifests cover only a
-    curated subset. For each uncovered board, derive pins from
-    ``ESP32_BOARD_PINS`` when present, else fall back to the chip's
-    ``generic-<variant>`` pinout (GPIO capability is variant-defined). Dedup is
-    on board ``id`` — the unique key — so a board referenced only by vendor
+    curated subset. Each uncovered board takes its chip's ``generic-<variant>``
+    pinout, enriched with any named ``ESP32_BOARD_PINS`` aliases. Dedup is on
+    board ``id`` (the unique key), so a board referenced only by vendor
     manifests still gets its own canonical entry.
     """
     ids = {b.id for b in boards}
@@ -384,11 +423,7 @@ def _augment_esp32_boards(boards: list[BoardCatalogEntry]) -> None:
             continue
         variant = Esp32Variant(meta["variant"].lower())
         pins = _resolve_board_pins(pin_map, name)
-        derived = (
-            _derive_pins_from_aliases(pins)
-            if pins
-            else [replace(p, features=list(p.features)) for p in generic_pins.get(variant, [])]
-        )
+        derived = _esp32_board_pins(generic_pins.get(variant, []), pins)
         boards.append(
             _generated_board(Platform("esp32"), name, _meta_name(meta, name), derived, variant)
         )
