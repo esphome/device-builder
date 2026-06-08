@@ -622,17 +622,17 @@ def _is_list_form_trigger(body: Any, trigger: AutomationTrigger) -> bool:
     A bare action list (``on_press: [{light.turn_on: id}, ...]``) is *not*
     list-form: every item there is a known action id. List-form requires a
     non-empty list whose every item is trigger-shaped (see
-    :func:`_is_trigger_entry`), so the conservative default keeps the
+    :func:`is_trigger_entry`), so the conservative default keeps the
     existing bare-action-list behaviour intact.
     """
     return (
         isinstance(body, list)
         and bool(body)
-        and all(_is_trigger_entry(item, trigger) for item in body)
+        and all(is_trigger_entry(item, trigger) for item in body)
     )
 
 
-def _is_trigger_entry(item: Any, trigger: AutomationTrigger) -> bool:
+def is_trigger_entry(item: Any, trigger: AutomationTrigger) -> bool:
     """
     Report whether *item* looks like one entry of a list-shaped trigger.
 

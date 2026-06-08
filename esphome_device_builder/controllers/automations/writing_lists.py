@@ -33,7 +33,7 @@ from ...models.automations import (
 )
 from . import catalog
 from .emitter import dump, emit_effect_item, emit_trigger_list_item
-from .parsing import _is_trigger_entry, make_yaml
+from .parsing import is_trigger_entry, make_yaml
 
 # The YAML field naming a component instance's id.
 _ID_KEY = "id"
@@ -178,7 +178,7 @@ def upsert_list_entry(
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     entries = existing if isinstance(existing, list) else []
     drop_after_block_comment(entries)
-    if entries and trigger is not None and not all(_is_trigger_entry(e, trigger) for e in entries):
+    if entries and trigger is not None and not all(is_trigger_entry(e, trigger) for e in entries):
         wrapped = CommentedMap()
         wrapped["then"] = entries
         entries = [wrapped]

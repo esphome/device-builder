@@ -200,6 +200,20 @@ def test_upsert_device_on_boot_index_out_of_range_raises() -> None:
         )
 
 
+def test_indexed_upsert_wraps_device_shorthand_action_list() -> None:
+    """A 2nd on_boot handler wraps the bare action-list body, preserving actions (#1305)."""
+    text = "esphome:\n  name: x\n  on_boot:\n    - delay: 1s\n    - delay: 2s\n"
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(trigger_id="on_boot", trigger_params={}, actions=[]),
+        location=DeviceOnLocation(trigger="on_boot", index=1),
+    )
+    parsed = parse_device_yaml(new_text)
+    assert len(parsed) == 2
+    assert [a.action_id for a in parsed[0].automation.actions] == ["delay", "delay"]
+    assert parsed[1].automation.actions == []
+
+
 def test_upsert_device_on_boot_indexed_refuses_single_mapping() -> None:
     """An indexed upsert against a single-mapping on_boot refuses rather than rewriting it."""
     text = _load("device_on_boot.yaml")  # single-mapping form
