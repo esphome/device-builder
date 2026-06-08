@@ -184,12 +184,11 @@ def _open_and_extract_build_tree(tarball: bytes, configuration: str) -> _Extract
             )
         if idedata_bytes is None:
             raise MaterialiseError(f"tarball missing required {IDEDATA_MEMBER_NAME!r} member")
-    elif new_storage.firmware_bin_path is None or not new_storage.firmware_bin_path.is_file():
-        # Native ESP-IDF has no platformio.ini / idedata to validate against,
-        # so confirm its firmware binary actually landed -- a truncated
-        # tarball that kept storage.json but lost the build/ tree would
-        # otherwise materialise empty and surface only as a 404 download later.
-        raise MaterialiseError("native ESP-IDF tarball missing its firmware binary")
+    # The bin must have landed (PIO and native-IDF alike); a build tree that
+    # didn't extract otherwise materialises empty and surfaces only as an empty
+    # download list later (#1340), with the job still reporting success.
+    if new_storage.firmware_bin_path is None or not new_storage.firmware_bin_path.is_file():
+        raise MaterialiseError("tarball missing its firmware binary")
     return _ExtractedTarball(
         storage_bytes=storage_bytes,
         idedata_bytes=idedata_bytes,
