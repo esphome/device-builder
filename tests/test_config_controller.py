@@ -860,7 +860,7 @@ async def test_set_secret_creates_key(tmp_path: Path) -> None:
     controller = _make_controller(tmp_path)
     result = await controller.set_secret(key="api_key", value="ABC")
     assert result == {"created": True}
-    assert read_secrets_yaml(tmp_path) == {"api_key": "ABC"}
+    assert await asyncio.to_thread(read_secrets_yaml, tmp_path) == {"api_key": "ABC"}
 
 
 async def test_set_secret_overwrites_existing_key(tmp_path: Path) -> None:
@@ -868,7 +868,10 @@ async def test_set_secret_overwrites_existing_key(tmp_path: Path) -> None:
     controller = _make_controller(tmp_path)
     result = await controller.set_secret(key="api_key", value="NEW")
     assert result == {"created": False}
-    assert read_secrets_yaml(tmp_path) == {"api_key": "NEW", "wifi_ssid": "home"}
+    assert await asyncio.to_thread(read_secrets_yaml, tmp_path) == {
+        "api_key": "NEW",
+        "wifi_ssid": "home",
+    }
 
 
 async def test_set_secret_no_overwrite_leaves_existing(tmp_path: Path) -> None:
@@ -876,7 +879,7 @@ async def test_set_secret_no_overwrite_leaves_existing(tmp_path: Path) -> None:
     controller = _make_controller(tmp_path)
     result = await controller.set_secret(key="api_key", value="NEW", overwrite=False)
     assert result == {"created": False}
-    assert read_secrets_yaml(tmp_path) == {"api_key": "KEEP"}
+    assert await asyncio.to_thread(read_secrets_yaml, tmp_path) == {"api_key": "KEEP"}
 
 
 async def test_set_secret_rejects_invalid_key(tmp_path: Path) -> None:
@@ -900,7 +903,7 @@ async def test_set_secret_concurrent_writes_do_not_lose_updates(tmp_path: Path) 
         controller.set_secret(key="foo", value="1"),
         controller.set_secret(key="bar", value="2"),
     )
-    assert read_secrets_yaml(tmp_path) == {"foo": "1", "bar": "2"}
+    assert await asyncio.to_thread(read_secrets_yaml, tmp_path) == {"foo": "1", "bar": "2"}
 
 
 async def test_get_info_returns_storage_metadata_dict(
