@@ -67,9 +67,12 @@ async def import_bundle(
 
     config_dir = controller._db.settings.config_dir
     loop = asyncio.get_running_loop()
-    outcome = await loop.run_in_executor(
-        None, _stage_bundle, file_content_b64, config_dir, overwrite
-    )
+    # Staging merges secrets.yaml; hold the shared lock so that merge can't
+    # interleave with a concurrent config/set_secret and lose a key.
+    async with controller._db.secrets_write_lock:
+        outcome = await loop.run_in_executor(
+            None, _stage_bundle, file_content_b64, config_dir, overwrite
+        )
     if outcome.conflicts is not None:
         return ImportBundleResponse(
             status="conflicts",
