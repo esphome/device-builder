@@ -33,6 +33,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+import ast
 import contextlib
 import copy
 import importlib
@@ -42,6 +43,7 @@ import logging
 import re
 import shutil
 import sys
+import textwrap
 import unicodedata
 import urllib.request
 import zipfile
@@ -4145,6 +4147,52 @@ def _extract_validator_units(validator: Any) -> list[str] | None:
     ]
 
 
+def _validator_branches_dict_and_list(src: str) -> bool:
+    """Report whether *src* tests both ``isinstance(_, dict)`` and ``isinstance(_, list)``."""
+    try:
+        tree = ast.parse(textwrap.dedent(src))
+    except (SyntaxError, ValueError):
+        return False
+    kinds: set[str] = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "isinstance"
+            and len(node.args) >= 2
+        ):
+            target = node.args[1]
+            names = (
+                [target.id]
+                if isinstance(target, ast.Name)
+                else [e.id for e in getattr(target, "elts", []) if isinstance(e, ast.Name)]
+            )
+            kinds.update(k for k in ("dict", "list") if k in names)
+    return {"dict", "list"} <= kinds
+
+
+def _is_dict_list_union(validator: Any) -> bool:
+    """
+    Detect a component validator that accepts a mapping or a list.
+
+    ESPHome's ``cv.ensure_list`` tests the same types to reshape one item into
+    a list, so it is excluded by its ``esphome.config_validation`` module, as
+    are structural validators (Schema / All / Any) the peel above handles.
+    """
+    if not callable(validator) or isinstance(validator, vol.Schema):
+        return False
+    if getattr(validator, "validators", None):
+        return False
+    module = getattr(validator, "__module__", "") or ""
+    if module.startswith("voluptuous") or module == "esphome.config_validation":
+        return False
+    try:
+        src = inspect.getsource(validator)
+    except (OSError, TypeError):
+        return False
+    return _validator_branches_dict_and_list(src)
+
+
 def _collect_refined_types(  # noqa: C901
     manifest: Any,
 ) -> dict[tuple[str, ...], RefinedType]:
@@ -4236,6 +4284,8 @@ def _collect_refined_types(  # noqa: C901
         t = classify(val)
         if t is not None:
             out[path] = t
+        elif _is_dict_list_union(val):
+            out[path] = RefinedType("unknown")
 
     _walk_schema_keys(schema, visit)
     return out
@@ -4453,6 +4503,10 @@ def _apply_refined_types(
     technically the runtime type after coercion, but the YAML shape
     the user types is a string with a unit suffix; the
     ``float_with_unit`` type captures both halves.
+
+    An ``unknown`` refinement (a mapping-or-list union) is the other
+    exception: it overrides any guessed scalar (``float`` included) so
+    the field renders YAML-only, but never a structural entry.
     """
     if not refined:
         return
@@ -4466,6 +4520,11 @@ def _apply_refined_types(
             # the schema bundle can't represent.
             entry["type"] = new_type.type
             entry["unit_options"] = list(new_type.unit_options or [])
+        elif new_type.type == "unknown":
+            # Mapping-or-list union: force YAML-only, but not over a
+            # structural entry that already carries a real shape.
+            if not entry.get("config_entries"):
+                entry["type"] = "unknown"
         elif entry.get("type") == "string":
             entry["type"] = new_type.type
 
