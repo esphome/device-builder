@@ -896,6 +896,22 @@ async def test_set_secret_rejects_non_string_value(tmp_path: Path) -> None:
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
 
 
+async def test_set_secret_rejects_non_bool_overwrite(tmp_path: Path) -> None:
+    controller = _make_controller(tmp_path)
+    with pytest.raises(CommandError) as excinfo:
+        await controller.set_secret(key="api_key", value="x", overwrite="yes")  # type: ignore[arg-type]
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+
+
+async def test_set_secret_maps_corrupt_secrets_to_invalid_args(tmp_path: Path) -> None:
+    """A pre-corrupt secrets.yaml that won't re-validate surfaces as INVALID_ARGS."""
+    (tmp_path / "secrets.yaml").write_text("dup: 1\ndup: 2\n", "utf-8")  # duplicate keys
+    controller = _make_controller(tmp_path)
+    with pytest.raises(CommandError) as excinfo:
+        await controller.set_secret(key="api_key", value="x")
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+
+
 async def test_set_secret_concurrent_writes_do_not_lose_updates(tmp_path: Path) -> None:
     """Two concurrent single-key writes both land, no lost update."""
     controller = _make_controller(tmp_path)
