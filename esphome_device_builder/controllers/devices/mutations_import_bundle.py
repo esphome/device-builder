@@ -9,7 +9,6 @@ which to replace, then re-submits with ``overwrite`` set.
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import binascii
 import logging
@@ -24,7 +23,7 @@ from esphome.helpers import write_file as atomic_write_file
 from ...constants import SECRETS_FILENAME
 from ...helpers.api import CommandError
 from ...helpers.device_yaml import configuration_stem, parse_platform_from_yaml
-from ...helpers.secrets_state import merge_secrets_file
+from ...helpers.secrets_state import merge_secrets_file, write_secrets_locked
 from ...helpers.yaml import read_yaml_scalar
 from ...models import ErrorCode, ImportBundleResponse
 from .helpers import _validate_archive_configuration
@@ -66,13 +65,11 @@ async def import_bundle(
         raise CommandError(ErrorCode.INVALID_ARGS, "overwrite must be a list of strings")
 
     config_dir = controller._db.settings.config_dir
-    loop = asyncio.get_running_loop()
-    # Staging merges secrets.yaml; hold the shared lock so that merge can't
-    # interleave with a concurrent config/set_secret and lose a key.
-    async with controller._db.secrets_write_lock:
-        outcome = await loop.run_in_executor(
-            None, _stage_bundle, file_content_b64, config_dir, overwrite
-        )
+    # Staging merges secrets.yaml; route it through the shared lock so that
+    # merge can't interleave with a concurrent config/set_secret and lose a key.
+    outcome = await write_secrets_locked(
+        controller._db.secrets_write_lock, _stage_bundle, file_content_b64, config_dir, overwrite
+    )
     if outcome.conflicts is not None:
         return ImportBundleResponse(
             status="conflicts",

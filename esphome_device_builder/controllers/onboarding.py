@@ -27,6 +27,7 @@ from ..helpers.api import CommandError, api_command
 from ..helpers.secrets_state import (
     is_wifi_unconfigured,
     read_secrets_yaml,
+    write_secrets_locked,
     write_wifi_secrets,
 )
 from ..models import (
@@ -147,12 +148,10 @@ class OnboardingController:
                     f"{label} can't contain control characters.",
                 )
 
-        loop = asyncio.get_running_loop()
         config_dir = self._db.settings.config_dir
-        # Shared lock so this write can't interleave with a concurrent
-        # config/set_secret and lose one side's update.
-        async with self._db.secrets_write_lock:
-            await loop.run_in_executor(None, write_wifi_secrets, config_dir, ssid, password)
+        await write_secrets_locked(
+            self._db.secrets_write_lock, write_wifi_secrets, config_dir, ssid, password
+        )
         return await self.get_state()
 
     @api_command("onboarding/mark_acknowledged")

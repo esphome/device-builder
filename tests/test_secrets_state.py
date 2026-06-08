@@ -8,6 +8,7 @@ a non-string typo.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -25,6 +26,7 @@ from esphome_device_builder.helpers.secrets_state import (
     read_secrets_yaml,
     validate_secrets_content,
     write_secret,
+    write_secrets_locked,
 )
 
 
@@ -334,6 +336,17 @@ def test_write_secret_round_trips_a_multiline_value_without_folding(tmp_path: Pa
 
 def test_quote_yaml_string_escapes_named_and_hex_control_chars() -> None:
     assert _quote_yaml_string("a\nb\tc\x07d") == '"a\\nb\\tc\\x07d"'
+
+
+async def test_write_secrets_locked_runs_under_the_lock_and_returns() -> None:
+    """The funnel holds the lock (blocking a held one) and returns the fn's result."""
+    lock = asyncio.Lock()
+    await lock.acquire()
+    task = asyncio.create_task(write_secrets_locked(lock, lambda: "done"))
+    await asyncio.sleep(0)
+    assert not task.done()  # blocked on the held lock
+    lock.release()
+    assert await task == "done"
 
 
 @pytest.mark.parametrize("key", ["wifi_ssid", "_x", "ABC123", "a"])

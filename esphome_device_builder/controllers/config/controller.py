@@ -17,6 +17,7 @@ from ...helpers.secrets_state import (
     is_valid_secret_key,
     read_secrets_yaml,
     write_secret,
+    write_secrets_locked,
 )
 from ...helpers.storage_path import resolve_storage_path
 from ...models import ErrorCode, UserPreferences
@@ -142,18 +143,16 @@ class ConfigController:
             raise CommandError(ErrorCode.INVALID_ARGS, "value must be a string")
         if not isinstance(overwrite, bool):
             raise CommandError(ErrorCode.INVALID_ARGS, "overwrite must be a boolean")
-        loop = asyncio.get_running_loop()
         config_dir = self._db.settings.config_dir
-        async with self._db.secrets_write_lock:
-            try:
-                created = await loop.run_in_executor(
-                    None,
-                    partial(write_secret, config_dir, key, value, overwrite=overwrite),
-                )
-            except SecretsContentError as err:
-                raise CommandError(
-                    ErrorCode.INVALID_ARGS, f"refusing to save invalid secrets.yaml: {err}"
-                ) from err
+        try:
+            created = await write_secrets_locked(
+                self._db.secrets_write_lock,
+                partial(write_secret, config_dir, key, value, overwrite=overwrite),
+            )
+        except SecretsContentError as err:
+            raise CommandError(
+                ErrorCode.INVALID_ARGS, f"refusing to save invalid secrets.yaml: {err}"
+            ) from err
         return {"created": created}
 
     @api_command("config/get_info")

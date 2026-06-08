@@ -18,10 +18,13 @@ existing values on conflict (ruamel round-trip).
 
 from __future__ import annotations
 
+import asyncio
 import io
 import logging
 import re
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from esphome import yaml_util
 from esphome.core import EsphomeError
@@ -32,6 +35,21 @@ from ..constants import SECRETS_FILENAME
 from .yaml import load_yaml_fast_then_esphome
 
 _LOGGER = logging.getLogger(__name__)
+
+
+async def write_secrets_locked[T](lock: asyncio.Lock, fn: Callable[..., T], *args: Any) -> T:
+    """
+    Run a blocking ``secrets.yaml`` mutator under *lock*, off the event loop.
+
+    The single funnel for the executor-based secrets.yaml writers so the
+    shared-lock-plus-``run_in_executor`` invariant lives in one place — a
+    new writer that takes neither is the exact lost-update regression this
+    guards against. Pre-bind keyword args with ``functools.partial``.
+    """
+    loop = asyncio.get_running_loop()
+    async with lock:
+        return await loop.run_in_executor(None, fn, *args)
+
 
 # Bootstrap placeholder strings. Upstream now exports these from
 # ``esphome.const``; fall back to local literals on older releases
