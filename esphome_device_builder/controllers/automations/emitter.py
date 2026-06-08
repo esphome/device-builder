@@ -139,12 +139,14 @@ def _shorthand_key(entry: AutomationAction | AutomationCondition | None) -> str 
 def emit_action_node(node: ActionNode) -> CommentedMap:
     """Build one ``{<action_id>: <body>}`` mapping for an action node."""
     body = CommentedMap()
+    # Condition gate leads the body: ``if`` / ``while`` want it before
+    # ``then`` / ``else``, ``wait_until`` before its ``timeout:`` param.
+    if node.conditions:
+        body["condition"] = emit_condition_seq(node.conditions)
     for key, value in node.params.items():
         body[key] = encode_value(value)
     for child_key in sorted(node.children.keys(), key=lambda k: (k != "then", k)):
         body[child_key] = emit_action_seq(node.children[child_key])
-    if node.conditions:
-        body["condition"] = emit_condition_seq(node.conditions)
     out = CommentedMap()
     shorthand = _shorthand_key(catalog.action_by_id(node.action_id))
     if (

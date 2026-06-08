@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 from esphome_device_builder.controllers.automations import writing
+from esphome_device_builder.controllers.automations.emitter import dump, emit_action_node
 from esphome_device_builder.controllers.automations.parsing import (
     ComponentTarget,
     ParsedAutomation,
@@ -38,6 +39,7 @@ from esphome_device_builder.models.automations import (
     AutomationTree,
     ComponentActionFieldLocation,
     ComponentOnLocation,
+    ConditionNode,
     DeviceOnLocation,
     IntervalLocation,
     LightEffectLocation,
@@ -786,6 +788,41 @@ def test_round_trip_if_then_else_preserves_recursive_actions() -> None:
     assert [c.condition_id for c in if_second.conditions] == [
         c.condition_id for c in if_first.conditions
     ]
+
+
+def test_if_emits_condition_before_then_else() -> None:
+    """``if`` re-renders ``condition:`` ahead of ``then:`` / ``else:``."""
+    text = _load("if_then_else.yaml")
+    parsed = parse_device_yaml(text)[0]
+    new_text, _diff = render_upsert(
+        text,
+        tree=parsed.automation,
+        location=parsed.location,
+    )
+    body = new_text[new_text.index("if:") :]
+    assert body.index("condition:") < body.index("then:") < body.index("else:")
+
+
+def test_while_emits_condition_before_then() -> None:
+    """``while`` emits ``condition:`` ahead of its ``then:`` branch."""
+    node = ActionNode(
+        action_id="while",
+        children={"then": [ActionNode(action_id="logger.log", params={"format": "x"})]},
+        conditions=[ConditionNode(condition_id="switch.is_on", params={"id": "relay1"})],
+    )
+    text = dump(emit_action_node(node))
+    assert text.index("condition:") < text.index("then:")
+
+
+def test_wait_until_emits_condition_before_timeout() -> None:
+    """``wait_until`` emits ``condition:`` ahead of its ``timeout:`` param."""
+    node = ActionNode(
+        action_id="wait_until",
+        params={"timeout": "8s"},
+        conditions=[ConditionNode(condition_id="binary_sensor.is_on", params={"id": "occ"})],
+    )
+    text = dump(emit_action_node(node))
+    assert text.index("condition:") < text.index("timeout:")
 
 
 # ---------------------------------------------------------------------------
