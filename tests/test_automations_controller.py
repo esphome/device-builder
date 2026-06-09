@@ -449,6 +449,37 @@ async def test_get_available_scopes_actions_and_conditions_to_present_domains(
     assert "binary_sensor.is_on" not in condition_ids
 
 
+def test_component_actions_survive_empty_domain_set() -> None:
+    """component.* is universal: present even when no domain matches."""
+    actions = catalog.actions_for_domains([])
+    action_ids = [a.id for a in actions]
+    condition_ids = {c.id for c in catalog.conditions_for_domains([])}
+    assert {"component.update", "component.suspend", "component.resume"} <= set(action_ids)
+    assert "component.is_idle" in condition_ids
+    # A genuinely domain-scoped action still gates on its YAML block.
+    assert "switch.turn_on" not in action_ids
+    # Core control flow stays ahead of the universal component.* family.
+    assert action_ids.index("delay") < action_ids.index("component.update")
+
+
+async def test_get_available_surfaces_component_actions_without_component_block(
+    tmp_path: Path,
+) -> None:
+    """component.* surfaces from get_available though no component: key exists."""
+    config = tmp_path / "c.yaml"
+    # The issue's shape: a button + text_sensor, no component domain.
+    config.write_text(
+        "esphome:\n  name: c\n"
+        "button:\n  - platform: template\n    name: B\n    id: b\n"
+        "text_sensor:\n  - platform: template\n    name: T\n    id: t\n",
+        encoding="utf-8",
+    )
+    controller = _make_controller(tmp_path)
+    result = await controller.get_available(configuration="c.yaml")
+    assert "component.update" in {a["id"] for a in result["actions"]}
+    assert "component.is_idle" in {c["id"] for c in result["conditions"]}
+
+
 async def test_get_available_scopes_to_configured_platform(tmp_path: Path) -> None:
     """Platform-specific catalog entries only surface for the matching platform.
 

@@ -353,6 +353,10 @@ async def get_bodies(refs: list[AutomationBodyRef]) -> dict[str, dict]:
 # Domain-scoped slim filters — used by the WS picker endpoints.
 # ---------------------------------------------------------------------------
 
+# Domains always offered regardless of the device YAML: core control flow,
+# and component.* which targets any component (no component: key gates it).
+_UNIVERSAL_DOMAINS = frozenset({"core", "component"})
+
 
 def triggers_for_domains(domains: Iterable[str]) -> list[AutomationTriggerIndex]:
     """Device-level triggers + every trigger applying to *domains*."""
@@ -369,12 +373,12 @@ def triggers_for_domains(domains: Iterable[str]) -> list[AutomationTriggerIndex]
 
 
 def actions_for_domains(domains: Iterable[str]) -> list[AutomationActionIndex]:
-    """``core`` actions + every action whose ``domain`` is in *domains*."""
+    """Core/universal actions + every action whose ``domain`` is in *domains*."""
     return _filter_by_domain_slim(_editable_actions(), set(domains))
 
 
 def conditions_for_domains(domains: Iterable[str]) -> list[AutomationConditionIndex]:
-    """``core`` conditions + every condition whose ``domain`` is in *domains*."""
+    """Core/universal conditions + every condition whose ``domain`` is in *domains*."""
     return _filter_by_domain_slim(_slim_conditions(), set(domains))
 
 
@@ -382,12 +386,15 @@ def _filter_by_domain_slim[T: (AutomationActionIndex, AutomationConditionIndex)]
     items: list[T],
     domain_set: set[str],
 ) -> list[T]:
-    """Partition *items* into core-first then component, by ``.domain``."""
+    """Order *items* core-first, then universal component.*, then domain-scoped."""
     core: list[T] = []
-    component: list[T] = []
+    universal: list[T] = []
+    scoped: list[T] = []
     for item in items:
         if item.domain == "core":
             core.append(item)
+        elif item.domain in _UNIVERSAL_DOMAINS:
+            universal.append(item)
         elif item.domain in domain_set:
-            component.append(item)
-    return core + component
+            scoped.append(item)
+    return core + universal + scoped
