@@ -142,6 +142,7 @@ class AutomationsController:
         self,
         *,
         configuration: str,
+        yaml: str | None = None,
         **_kwargs: Any,
     ) -> dict:
         """
@@ -155,8 +156,12 @@ class AutomationsController:
         configured. ``core`` items (control flow, lambda,
         combinators) are always included. ``scripts`` and
         ``devices`` feed the context-aware param dropdowns.
+
+        With ``yaml=`` set, scope that text instead of reading
+        *configuration* from disk (same override as ``parse`` /
+        ``upsert`` / ``delete``).
         """
-        text = await self._read_config(configuration)
+        text = yaml if yaml is not None else await self._read_config(configuration)
         loop = asyncio.get_running_loop()
         scoped = await loop.run_in_executor(None, _scope_from_yaml, text)
         return AvailableAutomations(
