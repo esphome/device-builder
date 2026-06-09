@@ -111,5 +111,5 @@ source:
   type: esphome-devices
   remote_id: ESP32E-Relay-X8
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/ESP32E-Relay-X8/index.md
-  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
+  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
   content_hash: b32129130884012a296ff196e9a192c0395bab84549494ba0ddc80d5e30b0b35

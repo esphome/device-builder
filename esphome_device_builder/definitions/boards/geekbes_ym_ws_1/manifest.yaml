@@ -54,5 +54,5 @@ source:
   type: esphome-devices
   remote_id: Geekbes-YM-WS-1
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Geekbes-YM-WS-1/index.md
-  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
+  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
   content_hash: aa985c3aee8aad4cea8dc52e65e5bdc1ce42ec188f5e0d18a96f4a15ca899872

@@ -51,5 +51,5 @@ source:
   type: esphome-devices
   remote_id: Aspen-ASP-200-Smart-Window-Fan
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Aspen-ASP-200-Smart-Window-Fan/index.md
-  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
+  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
   content_hash: 30106bcff542e9024d443580cbeef3348398abe0af9aebf75a12f5aa670e2f91

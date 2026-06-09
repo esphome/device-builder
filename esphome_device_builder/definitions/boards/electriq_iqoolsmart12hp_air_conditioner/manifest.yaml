@@ -64,5 +64,5 @@ source:
   type: esphome-devices
   remote_id: Electriq-IQoolsmart12hp-air-conditioner
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Electriq-IQoolsmart12hp-air-conditioner/index.md
-  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
+  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
   content_hash: d9ffd8072434ce2a2743089215cfe12d2677b19517a7b128cc0912c57af3ef7d

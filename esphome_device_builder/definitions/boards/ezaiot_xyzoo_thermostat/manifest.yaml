@@ -39,5 +39,5 @@ source:
   type: esphome-devices
   remote_id: EZAIOT-XYZOO-Thermostat
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/EZAIOT-XYZOO-Thermostat/index.md
-  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
+  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
   content_hash: 87eb7b9ed1472daf6475ed1463e87ae99679c6bd01a90dd7f3a2596cc3d22529

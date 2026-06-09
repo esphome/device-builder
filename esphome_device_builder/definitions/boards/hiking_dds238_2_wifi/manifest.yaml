@@ -78,5 +78,5 @@ source:
   type: esphome-devices
   remote_id: Hiking-DDS238-2-WIFI
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Hiking-DDS238-2-WIFI/index.md
-  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
+  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
   content_hash: a8ab767e492c2e4d1d0890d9974737c50382d33838391442e47dc2859265bd2f

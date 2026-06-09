@@ -99,5 +99,5 @@ source:
   type: esphome-devices
   remote_id: KMC-Smart-Tap
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KMC-Smart-Tap/index.md
-  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
+  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
   content_hash: 04f6c42ed46f43ad04bd937b6c851f4ea60f2c08563d5275749518e2985ecae9

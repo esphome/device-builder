@@ -58,5 +58,5 @@ source:
   type: esphome-devices
   remote_id: Azpen-Home-With-USB
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Azpen-Home-With-USB/index.md
-  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
+  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
   content_hash: d0b1f74d3e7d3d5a6c3c8a8e6342c7b65f21e44c8ee32fc043b2d6d9cccc433c

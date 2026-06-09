@@ -95,5 +95,5 @@ source:
   type: esphome-devices
   remote_id: Maxcio-RMC020
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Maxcio-RMC020/index.md
-  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
+  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
   content_hash: 8837481612b75328b64e2949e53e309544546e1971658c2e6bcd3a0fba04193a

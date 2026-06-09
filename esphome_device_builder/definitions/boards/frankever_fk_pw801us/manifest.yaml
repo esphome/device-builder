@@ -57,5 +57,5 @@ source:
   type: esphome-devices
   remote_id: FrankEver-FK-PW801US
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/FrankEver-FK-PW801US/index.md
-  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
+  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
   content_hash: 46a6502999ab9be807e7a12905e6bd186c8a2b31f4929ac893abdeb2219a55d9

@@ -29,5 +29,5 @@ source:
   type: esphome-devices
   remote_id: ESP-12F-Relay-X1
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/ESP-12F-Relay-X1/index.md
-  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
+  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
   content_hash: b4576535bac716e4f60dd4f76ba0ce950ff843e1fdecce3d2d16da99a96cd96a

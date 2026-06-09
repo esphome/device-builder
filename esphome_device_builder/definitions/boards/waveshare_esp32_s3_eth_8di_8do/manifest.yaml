@@ -303,5 +303,5 @@ source:
   type: esphome-devices
   remote_id: Waveshare-ESP32-S3-ETH-8DI-8DO
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Waveshare-ESP32-S3-ETH-8DI-8DO/index.md
-  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
+  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
   content_hash: 3137339f13de36a9e54b6430077039bf01468d05ca7364a32cf8accebce8cdf8

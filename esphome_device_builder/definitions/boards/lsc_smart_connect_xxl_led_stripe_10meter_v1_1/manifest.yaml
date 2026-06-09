@@ -49,5 +49,5 @@ source:
   type: esphome-devices
   remote_id: LSC-Smart-Connect-XXL-LED-Stripe-10Meter-v1.1
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/LSC-Smart-Connect-XXL-LED-Stripe-10Meter-v1.1/index.md
-  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
+  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
   content_hash: bf88529865c3a10917618f0a0c3cacb7d9f17abdc76ff4b7bc10f098c42d6981

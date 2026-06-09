@@ -48,5 +48,5 @@ source:
   type: esphome-devices
   remote_id: Moes-edm-03aa-eu
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Moes-edm-03aa-eu/index.md
-  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
+  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
   content_hash: e921fb945aa1ea7a1f15e1b008379bcd774a6ed81a803f8265a195822828c895

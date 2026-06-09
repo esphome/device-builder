@@ -25,5 +25,5 @@ source:
   type: esphome-devices
   remote_id: LEDVANCE-SMART+-TABLE-FRAME-MULTICOLOR
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/LEDVANCE-SMART+-TABLE-FRAME-MULTICOLOR/index.md
-  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
+  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
   content_hash: c5937a18411336d3677942de2b2095f044b430005f5b09bd378a68c493fc781b

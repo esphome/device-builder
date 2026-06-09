@@ -521,5 +521,5 @@ source:
   type: esphome-devices
   remote_id: ES32A08
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/ES32A08/index.md
-  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
+  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
   content_hash: f8b62b7122fb6c20f888f3e996474b079acf4197e6d89df36ad87f007549ec4d

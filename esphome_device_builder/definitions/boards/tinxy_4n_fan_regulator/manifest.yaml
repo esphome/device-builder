@@ -37,5 +37,5 @@ source:
   type: esphome-devices
   remote_id: Tinxy-4N-Fan-Regulator
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tinxy-4N-Fan-Regulator/index.md
-  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
+  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
   content_hash: acb5de132566181a4c387fdfe3989d297eca09b691c0cac48f6e00fa489775f0

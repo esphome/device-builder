@@ -59,5 +59,5 @@ source:
   type: esphome-devices
   remote_id: Sinilink-XY-VFMS
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Sinilink-XY-VFMS/index.md
-  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
-  content_hash: 75ba05686a47e7dcfb62e0aa75d9daab98649e0b5319a278875c50e252b9f5a5
+  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  content_hash: 5509edaf29f82dbd58fa680398b84c27382a0590c87f6bc4d70a54cccb662d37
