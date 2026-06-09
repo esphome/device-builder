@@ -1217,7 +1217,7 @@ def _make_record(  # noqa: C901, PLR0911 — distinct skip reasons each get thei
     if not isinstance(title, str) or not title.strip():
         return None, "no frontmatter title"
     if src.config_yaml is None:
-        return None, "no parseable inline yaml"
+        return None, "no parseable yaml config"
     if not src.images:
         return None, "no local images"
     # ``type:`` is optional — only used downstream for tag inference.
