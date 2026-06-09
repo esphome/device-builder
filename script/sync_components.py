@@ -1125,8 +1125,7 @@ def _fix_borrowed_page_titles(entries: list[dict]) -> None:
         stem = cid.split(".", 1)[-1]
         slug = (entry.get("docs_url") or "").rstrip("/").rsplit("/", 1)[-1]
         # Same page or a same-family variant (``pn532_spi`` -> ``pn532``): the
-        # shared title is correct. (Those guards also make ``slug != cid``
-        # below redundant — slug never equals this entry's own id here.)
+        # shared title is correct.
         if not slug or slug == stem or stem.startswith(slug):
             continue
         if slug in ids:
