@@ -882,13 +882,7 @@ def test_generate_api_encryption_key_yields_distinct_base64_values() -> None:
 
 
 def test_generate_component_yaml_preserves_lambda_filter_tag() -> None:
-    """A templatable filter lambda sentinel emits as a ``!lambda |-`` block.
-
-    The frontend sends a lambda-toggled filter value as the
-    ``{_lambda, _tag}`` sentinel; dropping the ``!lambda`` tag would
-    turn the C++ body into a string literal and break the firmware
-    (issue #1351).
-    """
+    """A templatable filter lambda sentinel emits as a ``!lambda |-`` block."""
     component = _component(component_id="sensor.template", category=ComponentCategory.SENSOR)
     fields: dict[str, Any] = {
         "name": "Test Sensor",
@@ -905,6 +899,20 @@ def test_generate_component_yaml_preserves_lambda_filter_tag() -> None:
     loader.add_constructor("!lambda", lambda ldr, node: ldr.construct_scalar(node))
     loaded = yaml.load(result, Loader=loader)  # noqa: S506 - scoped test loader
     assert loaded["sensor"][0]["filters"][0]["multiply"] == "return 0.01;"
+
+
+def test_generate_component_yaml_preserves_direct_lambda_field_tag() -> None:
+    """A scalar field holding a lambda sentinel emits a multi-line ``!lambda |-`` block."""
+    component = _component(component_id="sensor.template", category=ComponentCategory.SENSOR)
+    fields: dict[str, Any] = {
+        "name": "Test Sensor",
+        "lambda": {"_lambda": "auto x = id(t).state;\nreturn x + 1;", "_tag": "!lambda"},
+    }
+
+    result = generate_component_yaml(component, fields)
+
+    assert "    lambda: !lambda |-\n      auto x = id(t).state;\n      return x + 1;" in result
+    assert "_lambda" not in result
 
 
 def test_merge_component_yaml_appends_first_platform_block() -> None:
