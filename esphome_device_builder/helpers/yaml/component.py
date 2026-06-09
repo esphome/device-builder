@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any
 
+from ...models.automations import is_lambda_sentinel
 from ...models.common import ConfigEntryType
 from .scalar import ESPHOME_YAML_INDENT, _quote, _safe_yaml_scalar, block_body_is_list
 
@@ -382,6 +383,19 @@ def _format_flow_yaml_value(value: Any) -> str:
     return formatted
 
 
+def _emit_lambda_lines(header_prefix: str, body_indent: str, value: dict[str, Any]) -> list[str]:
+    """
+    Emit a ``{_lambda, _tag}`` sentinel as a ``!lambda |-`` block scalar.
+
+    ``_tag: "!lambda"`` re-emits the tag so the body compiles as a
+    lambda; an untagged sentinel emits a bare ``|-``.
+    """
+    header = "!lambda |-" if value.get("_tag") == "!lambda" else "|-"
+    lines = [f"{header_prefix}{header}"]
+    lines.extend(f"{body_indent}{line}" if line else "" for line in value["_lambda"].split("\n"))
+    return lines
+
+
 def _emit_field(key: str, value: Any, indent: str) -> list[str]:
     """
     Emit a single ``key: value`` pair as one or more YAML lines.
@@ -390,8 +404,11 @@ def _emit_field(key: str, value: Any, indent: str) -> list[str]:
     ConfigEntry with type=NESTED renders as a YAML mapping under its
     parent. Lists of dicts render as ``- mapping`` entries; lists of
     scalars render as ``[a, b, c]`` flow-style for compactness.
+    Lambda sentinels (``{_lambda, _tag}``) emit a ``!lambda |-`` block.
     """
     safe_key = _safe_yaml_scalar(key)
+    if is_lambda_sentinel(value):
+        return _emit_lambda_lines(f"{indent}{safe_key}: ", indent + ESPHOME_YAML_INDENT, value)
     if isinstance(value, dict):
         lines = [f"{indent}{safe_key}:"]
         for sub_key, sub_value in value.items():
@@ -399,6 +416,9 @@ def _emit_field(key: str, value: Any, indent: str) -> list[str]:
         return lines
     if isinstance(value, list) and value and all(isinstance(item, dict) for item in value):
         lines = [f"{indent}{safe_key}:"]
+        # Block-scalar lambda bodies under a list item indent three
+        # steps past the field key (matches the frontend serializer).
+        body_indent = indent + ESPHOME_YAML_INDENT * 3
         for item in value:
             first = True
             for sub_key, sub_value in item.items():
@@ -407,8 +427,13 @@ def _emit_field(key: str, value: Any, indent: str) -> list[str]:
                     if first
                     else f"{indent}{ESPHOME_YAML_INDENT * 2}"
                 )
-                rendered = _format_yaml_value(sub_value)
-                lines.append(f"{prefix}{_safe_yaml_scalar(sub_key)}: {rendered}")
+                safe_sub = _safe_yaml_scalar(sub_key)
+                if is_lambda_sentinel(sub_value):
+                    lines.extend(
+                        _emit_lambda_lines(f"{prefix}{safe_sub}: ", body_indent, sub_value)
+                    )
+                else:
+                    lines.append(f"{prefix}{safe_sub}: {_format_yaml_value(sub_value)}")
                 first = False
         return lines
     if isinstance(value, list):

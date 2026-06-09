@@ -881,6 +881,32 @@ def test_generate_api_encryption_key_yields_distinct_base64_values() -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_generate_component_yaml_preserves_lambda_filter_tag() -> None:
+    """A templatable filter lambda sentinel emits as a ``!lambda |-`` block.
+
+    The frontend sends a lambda-toggled filter value as the
+    ``{_lambda, _tag}`` sentinel; dropping the ``!lambda`` tag would
+    turn the C++ body into a string literal and break the firmware
+    (issue #1351).
+    """
+    component = _component(component_id="sensor.template", category=ComponentCategory.SENSOR)
+    fields: dict[str, Any] = {
+        "name": "Test Sensor",
+        "filters": [{"multiply": {"_lambda": "return 0.01;", "_tag": "!lambda"}}],
+    }
+
+    result = generate_component_yaml(component, fields)
+
+    assert "      - multiply: !lambda |-\n          return 0.01;" in result
+    # No sentinel leak as a nested mapping.
+    assert "_lambda" not in result
+    # The emitted block is valid YAML once the ``!lambda`` tag is known.
+    loader = type("_LambdaLoader", (yaml.SafeLoader,), {})
+    loader.add_constructor("!lambda", lambda ldr, node: ldr.construct_scalar(node))
+    loaded = yaml.load(result, Loader=loader)  # noqa: S506 - scoped test loader
+    assert loaded["sensor"][0]["filters"][0]["multiply"] == "return 0.01;"
+
+
 def test_merge_component_yaml_appends_first_platform_block() -> None:
     """First sensor in a YAML with no ``sensor:`` section gets appended.
 

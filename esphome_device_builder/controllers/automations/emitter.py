@@ -38,6 +38,7 @@ from ...models.automations import (
     AutomationTree,
     ConditionNode,
     LightEffect,
+    is_lambda_sentinel,
 )
 from . import catalog
 from .parsing import DEFAULT_SHORTHAND_KEY, make_yaml
@@ -217,11 +218,7 @@ def encode_value(value: Any) -> Any:
     tag (dropping it would turn the C++ lambda into a string literal,
     silently breaking the firmware). Nested dicts and lists recurse.
     """
-    if (
-        isinstance(value, dict)
-        and value.keys() <= {"_lambda", "_tag"}
-        and isinstance(value.get("_lambda"), str)
-    ):
+    if is_lambda_sentinel(value):
         return _encode_lambda(value["_lambda"], value.get("_tag"))
     if isinstance(value, dict):
         out = CommentedMap()

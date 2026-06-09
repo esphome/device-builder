@@ -25,6 +25,16 @@ from mashumaro.types import Discriminator
 
 from .common import ConfigEntry
 
+
+def is_lambda_sentinel(value: Any) -> bool:
+    """Return True for the frontend's ``{_lambda, _tag}`` lambda wire-sentinel."""
+    return (
+        isinstance(value, dict)
+        and value.keys() <= {"_lambda", "_tag"}
+        and isinstance(value.get("_lambda"), str)
+    )
+
+
 # ---------------------------------------------------------------------------
 # Catalog
 # ---------------------------------------------------------------------------
