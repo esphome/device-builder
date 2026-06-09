@@ -46,12 +46,13 @@ jobs:
           python-version: "3.13"
           cache: pip
 
-      - name: Install package
+      - name: Install package (with esphome extra)
         run: |
           python -m pip install --upgrade pip
-          # The device sync only needs the base package (pyyaml +
-          # component catalog reader). No esphome introspection here.
-          pip install -e '.[test]'
+          # ``sync_boards.py`` introspects ESPHome's per-platform board
+          # modules to regenerate board pins, so the esphome extra is
+          # required; ``test`` carries jsonschema for validate_definitions.
+          pip install -e '.[esphome,test]'
 
       - name: Run sync_esphome_devices
         run: python script/sync_esphome_devices.py
