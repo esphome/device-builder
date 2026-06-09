@@ -166,5 +166,5 @@ source:
   type: esphome-devices
   remote_id: Petkit-Fresh-Element-Solo-Pet-Feeder
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Petkit-Fresh-Element-Solo-Pet-Feeder/index.md
-  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
+  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
   content_hash: c35c5bbe258d03e0a17e1237fb164cfb2464c354aad475936377f6491c21c5e7

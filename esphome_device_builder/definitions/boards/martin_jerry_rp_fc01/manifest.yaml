@@ -15,7 +15,6 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Martin-Jerry-RP-FC01/rp-fc01-board.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Martin-Jerry-RP-FC01/rp-fc01-flash-diagram.png
 docs_url: https://devices.esphome.io/devices/Martin-Jerry-RP-FC01/
-product_url: https://github.com/esphome/devices.esphome.io
 featured_components:
 - id: mcu_fan
   component_id: fan.tuya
@@ -35,5 +34,5 @@ source:
   type: esphome-devices
   remote_id: Martin-Jerry-RP-FC01
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Martin-Jerry-RP-FC01/index.md
-  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
-  content_hash: 85b521a2e268a5d3060cd34b24b9f73fb413ebf1ebb17ac592cee9183e65f0b9
+  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  content_hash: a228e4d40d29860be3ab7b05c25e8f178fdac746585fb6e05b6c50a51e938484

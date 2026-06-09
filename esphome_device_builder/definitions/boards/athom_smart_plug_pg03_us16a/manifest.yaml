@@ -104,5 +104,5 @@ source:
   type: esphome-devices
   remote_id: Athom-Smart-Plug-PG03-US16A
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Athom-Smart-Plug-PG03-US16A/index.md
-  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
+  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
   content_hash: 8f90f9dc4b36de25ddf0d432727adf8ab0749afc46910ba3123916d6b10dc4c8

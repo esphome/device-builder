@@ -98,5 +98,5 @@ source:
   type: esphome-devices
   remote_id: BlitzWolf-BH-AP2501
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/BlitzWolf-BH-AP2501/index.md
-  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
+  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
   content_hash: a0d8a536420deaade585252c76b352fdd89dd111bd482d4604aa4d4b3ad7e6f5

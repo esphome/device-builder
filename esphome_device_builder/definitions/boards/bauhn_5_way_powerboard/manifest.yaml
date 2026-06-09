@@ -57,5 +57,5 @@ source:
   type: esphome-devices
   remote_id: bauhn-5-way-powerboard
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/bauhn-5-way-powerboard/index.md
-  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
+  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
   content_hash: 8dcef732e1b47c1b0bda56485d1bff6fc5a098e77188df2ab34c079915e8c746

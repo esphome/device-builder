@@ -84,5 +84,5 @@ source:
   type: esphome-devices
   remote_id: Sonoff-MINIR4M
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Sonoff-MINIR4M/index.md
-  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
+  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
   content_hash: 65168d49ea9ec9bb1b98bcf8076fac94f6ecf3e343a5532a06c6bd1092cdcc89

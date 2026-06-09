@@ -77,5 +77,5 @@ source:
   type: esphome-devices
   remote_id: Jeeo-TF-SH330
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Jeeo-TF-SH330/index.md
-  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
+  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
   content_hash: ff7d8f41c55974f97d9e3229655a6302f5c156605f673f3220f908ccb33ae8ec

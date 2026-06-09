@@ -87,5 +87,5 @@ source:
   type: esphome-devices
   remote_id: Nexx-NXG-100
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Nexx-NXG-100/index.md
-  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
+  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
   content_hash: 211cb58f17370ca2d44d64bcc12efe013755bb7b0e23b75860b21fb26a95cf67

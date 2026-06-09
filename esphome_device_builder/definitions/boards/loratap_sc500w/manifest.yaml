@@ -103,5 +103,5 @@ source:
   type: esphome-devices
   remote_id: LoraTap-SC500W
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/LoraTap-SC500W/index.md
-  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
+  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
   content_hash: fd330abaaa1bd8fbab4be9fd14fb9ed532a55d7a6df6a0b0108e59e837b0c6de

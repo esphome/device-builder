@@ -49,5 +49,5 @@ source:
   type: esphome-devices
   remote_id: Sonoff-S60TPF
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Sonoff-S60TPF/index.md
-  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
+  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
   content_hash: b9e6d57c92b4fe51ef0b958b79e54e49a3a0f32edf6e13b899b5b8e44bc9eee8

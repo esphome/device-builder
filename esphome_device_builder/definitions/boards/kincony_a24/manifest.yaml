@@ -771,5 +771,5 @@ source:
   type: esphome-devices
   remote_id: KinCony-A24
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-A24/index.md
-  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
+  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
   content_hash: f19ed0d73c2099cd40699e672e0f36a3f45a1c74a170ee3749b3105ac481eeac

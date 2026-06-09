@@ -26,5 +26,5 @@ source:
   type: esphome-devices
   remote_id: Tuya-Smart-Plug-20A-EU_BL0942
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-Smart-Plug-20A-EU_BL0942/index.md
-  upstream_revision: e7c5d63c35def22506f48f48bd7b99b87f533195
+  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
   content_hash: da909b7e086760b77ebdad47047f210ad147b8448e79f7a76f49bb7c5f3c172c
