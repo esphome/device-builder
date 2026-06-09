@@ -88,12 +88,3 @@ def test_ble_nus_debug_override_shares_uart_debug_shape() -> None:
     assert ble_override["config_entries"] == uart_override["config_entries"]
     assert ble_override["description"] != uart_override["description"]
     assert "BLE NUS" in ble_override["description"]
-
-
-def test_modbus_item_address_overrides_force_hex_on_every_platform() -> None:
-    """The modbus register ``address`` renders hex on each item platform (#1350)."""
-    platforms = ("binary_sensor", "number", "select", "sensor", "switch", "text_sensor")
-    for platform in platforms:
-        override = _FIELD_OVERRIDES.get((f"{platform}.modbus_controller", "address"))
-        assert override is not None, f"missing {platform}.modbus_controller address override"
-        assert override["display_format"] == "hex"

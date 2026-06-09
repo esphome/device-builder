@@ -432,16 +432,6 @@ _UART_DEBUG_OVERRIDE: dict[str, Any] = {
 }
 
 
-# modbus_controller item ``address`` is the register address. Upstream
-# validates it with ``cv.positive_int`` (``ModbusItemBaseSchema``), which
-# carries no hex marker, so the bundle types it plain decimal — yet
-# register addresses are conventionally written in hex and the docs say
-# the value "can be decimal or hexadecimal". (The hub's own ``address`` is
-# ``cv.hex_uint8_t`` and already renders hex.) Until upstream narrows the
-# item validator to a ``cv.hex_uint*`` type, force the hex-capable input.
-_MODBUS_ITEM_ADDRESS_OVERRIDE: dict[str, Any] = {"display_format": "hex"}
-
-
 # LEGACY — DO NOT EXTEND unless there is genuinely no other option.
 #
 # Per-(component, field) overrides that hand-author the ConfigEntry the
@@ -618,12 +608,6 @@ _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
             "Bare `debug:` enables hex logging with sensible defaults."
         ),
     },
-    ("binary_sensor.modbus_controller", "address"): _MODBUS_ITEM_ADDRESS_OVERRIDE,
-    ("number.modbus_controller", "address"): _MODBUS_ITEM_ADDRESS_OVERRIDE,
-    ("select.modbus_controller", "address"): _MODBUS_ITEM_ADDRESS_OVERRIDE,
-    ("sensor.modbus_controller", "address"): _MODBUS_ITEM_ADDRESS_OVERRIDE,
-    ("switch.modbus_controller", "address"): _MODBUS_ITEM_ADDRESS_OVERRIDE,
-    ("text_sensor.modbus_controller", "address"): _MODBUS_ITEM_ADDRESS_OVERRIDE,
 }
 
 # Base-schema references that mark a field as a *sub-reading* of a
@@ -1890,9 +1874,9 @@ def build_component_entry(
     field_ranges = introspection.get("field_ranges") or {}
     if domain:
         # Platform build: drop hub-bounded ranges that bleed onto a
-        # platform field the platform redefines unbounded (e.g. the
+        # platform field this domain redefines unbounded (e.g. the
         # modbus_controller item ``address``). Hub builds keep them.
-        bleed = introspection.get("field_range_bleed_keys") or set()
+        bleed = (introspection.get("field_range_bleed_keys") or {}).get(domain, set())
         field_ranges = {k: v for k, v in field_ranges.items() if k not in bleed}
     _apply_field_ranges(config_entries, field_ranges)
     _apply_refined_types(config_entries, introspection.get("refined_types") or {})
@@ -3449,7 +3433,8 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     # specific fields (``reference_voltage``, etc.). Walk the
     # platform manifests too so unit-coerced validators on those
     # fields get refined like the bus-component ones.
-    platform_manifests = _enumerate_platform_manifests(loader, component_id)
+    platform_manifests_by_domain = _enumerate_platform_manifests_by_domain(loader, component_id)
+    platform_manifests = [pm for _domain, pm in platform_manifests_by_domain]
 
     raw_auto_load = manifest.auto_load
     auto_load: list[str] = list(raw_auto_load) if isinstance(raw_auto_load, list) else []
@@ -3483,12 +3468,18 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     # ``cv.positive_int`` register address. Flag hub-bounded keys that a
     # platform schema redefines without bounding so platform builds can
     # drop them (``build_component_entry``); hub builds keep them.
+    #
+    # Keyed per platform domain, not aggregated: one platform bounding a
+    # key must not spare a sibling platform that leaves the same key
+    # unbounded from shedding the hub's bound.
     hub_ranges = _collect_field_ranges(manifest)
-    platform_keys = _platform_field_keys(platform_manifests)
-    platform_bounded = {path for pm in platform_manifests for path in _collect_field_ranges(pm)}
-    field_range_bleed_keys = {
-        path for path in hub_ranges if path in platform_keys and path not in platform_bounded
-    }
+    field_range_bleed_keys: dict[str, set[tuple[str, ...]]] = {}
+    for domain, platform_manifest in platform_manifests_by_domain:
+        keys = _platform_field_keys([platform_manifest])
+        bounded = set(_collect_field_ranges(platform_manifest))
+        bled = {path for path in hub_ranges if path in keys and path not in bounded}
+        if bled:
+            field_range_bleed_keys[domain] = bled
 
     return {
         "multi_conf": bool(getattr(manifest, "multi_conf", False)),
@@ -3639,7 +3630,12 @@ def _enumerate_platform_manifests(loader: Any, stem: str) -> list[Any]:
     ``setdefault`` keep-first downstream picks whichever domain
     came up first).
     """
-    out: list[Any] = []
+    return [pm for _domain, pm in _enumerate_platform_manifests_by_domain(loader, stem)]
+
+
+def _enumerate_platform_manifests_by_domain(loader: Any, stem: str) -> list[tuple[str, Any]]:
+    """``(domain, manifest)`` pairs for *stem*'s platform schemas (sorted)."""
+    out: list[tuple[str, Any]] = []
     for domain in sorted(_PLATFORM_DOMAINS):
         try:
             platform_manifest = loader.get_platform(domain, stem)
@@ -3647,7 +3643,7 @@ def _enumerate_platform_manifests(loader: Any, stem: str) -> list[Any]:
             continue
         if platform_manifest is None:
             continue
-        out.append(platform_manifest)
+        out.append((domain, platform_manifest))
     return out
 
 
