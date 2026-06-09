@@ -640,6 +640,27 @@ async def test_parse_uses_yaml_override_when_provided(tmp_path: Path) -> None:
     assert parsed["automation"]["trigger_params"]["interval"] == "30s"
 
 
+async def test_get_available_uses_yaml_override_when_provided(tmp_path: Path) -> None:
+    """Scoping honours ``yaml=`` so a wizard-added component's triggers surface pre-save."""
+    config = tmp_path / "draft.yaml"
+    # On disk: only a sensor. The draft adds a binary_sensor whose
+    # on_press trigger must surface from the override, not disk.
+    config.write_text(
+        "esphome:\n  name: draft\nsensor:\n  - platform: template\n    name: s\n    id: s\n",
+        encoding="utf-8",
+    )
+    controller = _make_controller(tmp_path)
+    draft = (
+        "esphome:\n  name: draft\n"
+        "binary_sensor:\n  - platform: gpio\n    name: b\n    id: btn\n    pin: GPIO0\n"
+    )
+    result = await controller.get_available(configuration="draft.yaml", yaml=draft)
+    trigger_ids = {t["id"] for t in result["triggers"]}
+    assert "binary_sensor.on_press" in trigger_ids
+    # The on-disk-only sensor is absent: scoping read the override.
+    assert "sensor.on_value" not in trigger_ids
+
+
 async def test_upsert_uses_yaml_override_when_provided(tmp_path: Path) -> None:
     """Passing ``yaml=`` makes the writer splice into the override text.
 
