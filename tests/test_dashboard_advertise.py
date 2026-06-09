@@ -1094,7 +1094,13 @@ async def test_device_builder_advertises_in_ha_addon_mode(
     try:
         await db.start()
         assert len(instances) == 1
-        instances[0].register.assert_awaited_once_with(fake_zc)  # type: ignore[attr-defined]
+        adv = instances[0]
+        adv.register.assert_awaited_once_with(fake_zc)  # type: ignore[attr-defined]
+        # Discovery-only: the addon's peer-link receiver stays
+        # default-off, so no pin / port is pushed into the advertise.
+        adv.set_pin_sha256.assert_not_called()  # type: ignore[attr-defined]
+        adv.set_remote_build_port.assert_not_called()  # type: ignore[attr-defined]
+        adv.refresh.assert_not_awaited()  # type: ignore[attr-defined]
     finally:
         await db.stop()
 
