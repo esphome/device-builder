@@ -1089,6 +1089,9 @@ def build_catalog(
     # ``ota.http_request``).
     _backfill_descriptions_from_mdx(out)
 
+    # After the MDX backfill so a real MDX title still wins.
+    _fix_borrowed_page_titles(out)
+
     # Synthesise umbrella entries for legacy bare-key domains so that
     # ``get_component("ota")`` / ``get_component("time")`` resolve for
     # users still on the pre-platform YAML form. Runs after MDX
@@ -1107,6 +1110,26 @@ def build_catalog(
     _resolve_provides(out, schema_dir)
 
     return out
+
+
+def _fix_borrowed_page_titles(entries: list[dict]) -> None:
+    """
+    Re-derive a name borrowed from another component's docs page.
+
+    Rewrites an entry whose page slug is owned by a different component and
+    whose own stem is unrelated to that slug. In-place.
+    """
+    ids = {entry["id"] for entry in entries}
+    for entry in entries:
+        cid = entry["id"]
+        stem = cid.split(".", 1)[-1]
+        slug = (entry.get("docs_url") or "").rstrip("/").rsplit("/", 1)[-1]
+        # Same page or a same-family variant (``pn532_spi`` -> ``pn532``): the
+        # shared title is correct.
+        if not slug or slug == stem or stem.startswith(slug):
+            continue
+        if slug in ids:
+            entry["name"] = _name_from_stem(stem)
 
 
 def _resolve_provides(entries: list[dict], schema_dir: Path) -> None:
@@ -3234,6 +3257,16 @@ _ACRONYM_NORMALISATIONS: dict[str, str] = {
 }
 
 
+def _name_from_stem(stem: str) -> str:
+    """Title-case a stem with acronyms restored (``pwm`` -> ``PWM``); the no-link fallback."""
+    name = stem.replace("_", " ").title()
+    for k, v in _ACRONYM_NORMALISATIONS.items():
+        # Word-boundary replace so "Pwm" -> "PWM" but "Pwms" doesn't
+        # accidentally match.
+        name = re.sub(rf"\b{re.escape(k)}\b", v, name)
+    return name
+
+
 def _resolve_name(component_id: str, stem: str, doc_name: str | None) -> str:
     """Produce a human label for the component.
 
@@ -3245,12 +3278,7 @@ def _resolve_name(component_id: str, stem: str, doc_name: str | None) -> str:
     """
     if doc_name:
         return doc_name
-    name = stem.replace("_", " ").title()
-    for k, v in _ACRONYM_NORMALISATIONS.items():
-        # Word-boundary replace so "Pwm" -> "PWM" but "Pwms" doesn't
-        # accidentally match.
-        name = re.sub(rf"\b{re.escape(k)}\b", v, name)
-    return name
+    return _name_from_stem(stem)
 
 
 # Category overrides for non-platform components — matches the legacy
