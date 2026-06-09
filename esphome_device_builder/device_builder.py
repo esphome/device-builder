@@ -346,24 +346,20 @@ class DeviceBuilder:
         # Reuses the state monitor's zeroconf instance so the
         # responder count stays at one per process.
         #
-        # Skipped in two cases:
-        #   * Zeroconf failed to bind — device discovery already
-        #     fails soft here, the advertise follows the same rule.
-        #   * HA addon — by default the addon container's port 6052
-        #     is not exposed to the LAN (ingress-only on 8099) AND
-        #     mDNS announcements would carry the container's docker
-        #     IP rather than the host's, so a peer that found the
-        #     listing couldn't connect anyway. A future setting can
-        #     opt back in once we know how to expose the addon's
-        #     host port deliberately.
+        # Advertised in HA addon mode too: the addon runs with host
+        # networking, so the announce carries the host's LAN IP (the
+        # ``hassio`` Supervisor bridge is filtered out in
+        # ``_local_addresses``) and reaches peers. The advertise is
+        # discovery-only — it tells the Desktop a builder exists; it
+        # does not imply a peer-link receiver is bound (that stays
+        # default-off on the addon, see ``maybe_start`` below).
+        #
+        # Skipped only when zeroconf failed to bind — device
+        # discovery already fails soft here, the advertise follows
+        # the same rule.
         zeroconf = self.devices.zeroconf
         if zeroconf is None:
             _LOGGER.debug("Skipping dashboard mDNS advertise: zeroconf is unavailable")
-        elif self.settings.on_ha_addon:
-            _LOGGER.debug(
-                "Skipping dashboard mDNS advertise: running as HA addon "
-                "(ingress-only; port 6052 not LAN-reachable)"
-            )
         else:
             # ``dashboard_id`` makes the SRV target collision-free
             # ({short_hostname}-{short_dashboard_id}.local) so two

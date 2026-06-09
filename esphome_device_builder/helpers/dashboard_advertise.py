@@ -121,9 +121,13 @@ def _is_loopback_adapter(adapter: ifaddr.Adapter) -> bool:
 # Interface-name prefixes for virtualisation / container bridges.
 # Their IPs are host-namespace-scoped; advertising e.g. ``docker0``
 # at ``172.17.0.1`` directs peers with the same Docker default
-# subnet at their own bridge gateway.
+# subnet at their own bridge gateway. The HA addon runs with host
+# networking, so the container also sees the Supervisor ``hassio``
+# bridge (``172.30.32.0/23``); it is host-internal like ``docker0``
+# and must not reach the wire.
 _VIRTUAL_BRIDGE_PREFIXES: tuple[str, ...] = (
     "docker",  # docker0, docker_gwbridge
+    "hassio",  # HA Supervisor internal bridge (172.30.32.0/23)
     "veth",  # virtual ethernet pair peer
     "cni",  # Kubernetes CNI plugin bridges
     "virbr",  # libvirt default bridges

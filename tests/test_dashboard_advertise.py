@@ -317,12 +317,13 @@ def test_local_addresses_drops_loopback_ip_on_real_adapter(monkeypatch: pytest.M
     [
         "docker0",
         "docker_gwbridge",
+        "hassio",
         "br-1a2b3c4d5e6f",
         "veth1234abcd",
         "cni0",
         "virbr0",
     ],
-    ids=["docker0", "docker-named", "br-userdef", "veth-peer", "cni0", "virbr0"],
+    ids=["docker0", "docker-named", "hassio", "br-userdef", "veth-peer", "cni0", "virbr0"],
 )
 def test_local_addresses_drops_virtual_bridge_by_name(
     monkeypatch: pytest.MonkeyPatch, bridge_name: str
@@ -334,6 +335,18 @@ def test_local_addresses_drops_virtual_bridge_by_name(
     ]
     monkeypatch.setattr(dashboard_advertise.ifaddr, "get_adapters", lambda: adapters)
     assert _local_addresses() == ["192.168.1.10"]
+
+
+def test_local_addresses_ha_addon_layout(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Host-networking addon: only the real LAN NIC survives, not the Supervisor bridges."""
+    adapters = [
+        _adapter("enp89s0", ips=["192.168.208.10"]),
+        _adapter("hassio", ips=["172.30.32.1"]),
+        _adapter("docker0", ips=["172.30.232.1"]),
+        _adapter("veth3eb170d", ips=["169.254.0.1"]),
+    ]
+    monkeypatch.setattr(dashboard_advertise.ifaddr, "get_adapters", lambda: adapters)
+    assert _local_addresses() == ["192.168.208.10"]
 
 
 def test_local_addresses_drops_hyperv_virtual_switch_by_nice_name(
@@ -1045,38 +1058,45 @@ async def test_device_builder_skips_advertise_when_zeroconf_unavailable(
     assert constructed == [], "advertise must skip when zeroconf is None"
 
 
-async def test_device_builder_skips_advertise_in_ha_addon_mode(
+async def test_device_builder_advertises_in_ha_addon_mode(
     monkeypatch: pytest.MonkeyPatch,
     make_settings,
     _hermetic_lifecycle,
 ) -> None:
-    """``on_ha_addon=True`` → advertise is skipped even with zeroconf up.
+    """``on_ha_addon=True`` → advertise still registers (host-networking addon).
 
     Mocks the state monitor's ``zeroconf`` accessor to return a live
-    object so the only thing standing between ``start()`` and a
-    ``DashboardAdvertiser`` construction is the addon-mode guard.
+    object; the addon-mode advertise is discovery-only and no longer
+    gated, so ``start()`` must construct and register the advertiser.
     """
-    constructed: list[object] = []
+    fake_zc = MagicMock()
+    instances: list[object] = []
 
     class _FakeAdvertiser:
         def __init__(self, **kwargs: object) -> None:
-            constructed.append(kwargs)
+            self.kwargs = kwargs
             self.register = AsyncMock()
             self.registered = False
             self.unregister = AsyncMock()
+            self.set_pin_sha256 = MagicMock()
+            self.set_remote_build_port = MagicMock()
+            self.refresh = AsyncMock()
+            instances.append(self)
 
     monkeypatch.setattr(db_module, "DashboardAdvertiser", _FakeAdvertiser)
-    monkeypatch.setattr(DeviceStateMonitor, "zeroconf", property(lambda self: MagicMock()))
+    monkeypatch.setattr(DeviceStateMonitor, "zeroconf", property(lambda self: fake_zc))
 
     settings = make_settings(with_core_path=True)
     settings.on_ha_addon = True
+    # Ephemeral peer-link port so an opportunistic bind can't collide.
+    settings.remote_build_port = 0
     db = DeviceBuilder(settings)
     try:
         await db.start()
+        assert len(instances) == 1
+        instances[0].register.assert_awaited_once_with(fake_zc)  # type: ignore[attr-defined]
     finally:
         await db.stop()
-
-    assert constructed == [], "advertise must be skipped in HA addon mode"
 
 
 async def test_device_builder_constructs_advertiser_when_zeroconf_present(
