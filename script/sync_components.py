@@ -432,6 +432,16 @@ _UART_DEBUG_OVERRIDE: dict[str, Any] = {
 }
 
 
+# modbus_controller item ``address`` is the register address. Upstream
+# validates it with ``cv.positive_int`` (``ModbusItemBaseSchema``), which
+# carries no hex marker, so the bundle types it plain decimal — yet
+# register addresses are conventionally written in hex and the docs say
+# the value "can be decimal or hexadecimal". (The hub's own ``address`` is
+# ``cv.hex_uint8_t`` and already renders hex.) Until upstream narrows the
+# item validator to a ``cv.hex_uint*`` type, force the hex-capable input.
+_MODBUS_ITEM_ADDRESS_OVERRIDE: dict[str, Any] = {"display_format": "hex"}
+
+
 # LEGACY — DO NOT EXTEND unless there is genuinely no other option.
 #
 # Per-(component, field) overrides that hand-author the ConfigEntry the
@@ -608,6 +618,12 @@ _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
             "Bare `debug:` enables hex logging with sensible defaults."
         ),
     },
+    ("binary_sensor.modbus_controller", "address"): _MODBUS_ITEM_ADDRESS_OVERRIDE,
+    ("number.modbus_controller", "address"): _MODBUS_ITEM_ADDRESS_OVERRIDE,
+    ("select.modbus_controller", "address"): _MODBUS_ITEM_ADDRESS_OVERRIDE,
+    ("sensor.modbus_controller", "address"): _MODBUS_ITEM_ADDRESS_OVERRIDE,
+    ("switch.modbus_controller", "address"): _MODBUS_ITEM_ADDRESS_OVERRIDE,
+    ("text_sensor.modbus_controller", "address"): _MODBUS_ITEM_ADDRESS_OVERRIDE,
 }
 
 # Base-schema references that mark a field as a *sub-reading* of a
@@ -1848,7 +1864,14 @@ def build_component_entry(
     introspection = introspect_component(stem if domain else top_key)
     _apply_platform_defaults(config_entries, introspection.get("platform_defaults") or {})
     _apply_platform_constraints(config_entries, introspection.get("platform_constraints") or {})
-    _apply_field_ranges(config_entries, introspection.get("field_ranges") or {})
+    field_ranges = introspection.get("field_ranges") or {}
+    if domain:
+        # Platform build: drop hub-bounded ranges that bleed onto a
+        # platform field the platform redefines unbounded (e.g. the
+        # modbus_controller item ``address``). Hub builds keep them.
+        bleed = introspection.get("field_range_bleed_keys") or set()
+        field_ranges = {k: v for k, v in field_ranges.items() if k not in bleed}
+    _apply_field_ranges(config_entries, field_ranges)
     _apply_refined_types(config_entries, introspection.get("refined_types") or {})
     _apply_inclusive_groups(config_entries, introspection.get("inclusive_groups") or {})
     _apply_list_fields(config_entries, introspection.get("list_fields") or {})
@@ -3425,12 +3448,27 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     list_fields = merge_from_platforms(_collect_list_fields)
     registry_members = merge_from_platforms(_collect_registry_members)
 
+    # A range bounded on the bare/hub manifest must not bleed onto a
+    # platform component's same-named-but-different field. ``address`` is
+    # the canonical case: the modbus_controller hub's ``cv.hex_uint8_t``
+    # device address (0–255) collides with the items' unbounded
+    # ``cv.positive_int`` register address. Flag hub-bounded keys that a
+    # platform schema redefines without bounding so platform builds can
+    # drop them (``build_component_entry``); hub builds keep them.
+    hub_ranges = _collect_field_ranges(manifest)
+    platform_keys = _platform_field_keys(platform_manifests)
+    platform_bounded = {path for pm in platform_manifests for path in _collect_field_ranges(pm)}
+    field_range_bleed_keys = {
+        path for path in hub_ranges if path in platform_keys and path not in platform_bounded
+    }
+
     return {
         "multi_conf": bool(getattr(manifest, "multi_conf", False)),
         "is_target_platform": bool(getattr(manifest, "is_target_platform", False)),
         "platform_defaults": _collect_platform_defaults(manifest),
         "platform_constraints": platform_constraints,
         "field_ranges": field_ranges,
+        "field_range_bleed_keys": field_range_bleed_keys,
         "refined_types": refined_types,
         "inclusive_groups": inclusive_groups,
         "required_groups": required_groups,
@@ -5203,6 +5241,17 @@ def _collect_field_ranges(
 
     _walk_schema_keys(schema, visit)
     return out
+
+
+def _platform_field_keys(platform_manifests: list[Any]) -> set[tuple[str, ...]]:
+    """Every config-var key path defined across *platform_manifests*' schemas."""
+    keys: set[tuple[str, ...]] = set()
+    for manifest in platform_manifests:
+        schema = getattr(manifest, "config_schema", None)
+        if schema is None:
+            continue
+        _walk_schema_keys(schema, lambda _k, _kn, _v, path: keys.add(path))
+    return keys
 
 
 def _apply_field_ranges(
