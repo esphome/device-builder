@@ -3472,6 +3472,12 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     # Keyed per platform domain, not aggregated: one platform bounding a
     # key must not spare a sibling platform that leaves the same key
     # unbounded from shedding the hub's bound.
+    #
+    # Only an *unbounded* platform redefinition is shed (the ``not in
+    # bounded`` guard). A platform that re-bounds a shared key
+    # differently would still inherit the hub's bound, since
+    # ``merge_from_platforms`` is keep-first on the hub's field_ranges;
+    # no catalog component hits that case today.
     hub_ranges = _collect_field_ranges(manifest)
     field_range_bleed_keys: dict[str, set[tuple[str, ...]]] = {}
     for domain, platform_manifest in platform_manifests_by_domain:
