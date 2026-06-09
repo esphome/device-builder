@@ -4,11 +4,12 @@ Generate ``definitions/boards/<id>/manifest.yaml`` from devices.esphome.io.
 
 The upstream repo (https://github.com/esphome/devices.esphome.io) is a
 Docusaurus site whose 760+ device pages each have YAML front matter
-plus an inline ``yaml`` config. This script clones the repo, walks
-the device pages, and emits one ``boards/<id>/manifest.yaml`` per
-device that meets the strict acceptance bar (parseable inline yaml,
-identifiable board id, at least one local image, at least one
-extractable featured component).
+plus a ``yaml`` config, either inline or referenced from a sibling file
+(``yaml file=config.yaml``). This script clones the repo, walks the
+device pages, and emits one ``boards/<id>/manifest.yaml`` per device
+that meets the strict acceptance bar (parseable yaml config, identifiable
+board id, at least one local image, at least one extractable featured
+component).
 
 Imported manifests carry a ``source:`` block. Hand-curated manifests
 in ``boards/`` (no ``source:``) are never read or written; the
@@ -251,7 +252,7 @@ class _DeviceSource:
     frontmatter: dict[str, Any]
     body: str
     content_hash: str
-    inline_yaml: dict[str, Any] | None
+    config_yaml: dict[str, Any] | None  # from the inline fence or a file= sibling
     images: list[str]  # filenames relative to the device folder
 
 
@@ -414,7 +415,11 @@ def _get_repo_revision(repo: Path) -> str:
 
 
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n(.*)$", re.DOTALL)
-_YAML_FENCE_RE = re.compile(r"```ya?ml\s*\n(.*?)\n```", re.DOTALL)
+# Capture the fence info string (group 1) so a ``file=`` reference is
+# honoured; group 2 is the inline body, which is empty for a file-backed
+# fence (``\n?`` makes the body and its trailing newline optional).
+_YAML_FENCE_RE = re.compile(r"```ya?ml([^\n]*)\n(.*?)\n?```", re.DOTALL)
+_FENCE_FILE_RE = re.compile(r"\bfile=(\S+)")
 _IMAGE_REF_RE = re.compile(r"!\[[^\]]*\]\(([^)\s]+?)(?:\s+\"[^\"]*\")?\)")
 
 
@@ -433,12 +438,37 @@ def _split_frontmatter(text: str) -> tuple[dict[str, Any] | None, str]:
     return {str(k).lower(): v for k, v in parsed.items()}, body
 
 
-def _extract_first_yaml_block(body: str) -> dict[str, Any] | None:
-    """Find the first fenced ```yaml block in *body* and parse it."""
+def _resolve_fenced_yaml(info: str, inline: str, device_dir: Path) -> str | None:
+    """
+    YAML text for a ``yaml`` fence, following a ``file=`` info attribute.
+
+    Pages may keep their config in a sibling file (``yaml file=config.yaml``)
+    that the rendered site inlines; read it so those devices aren't dropped.
+    Traversal-guarded like image refs. A ``url=`` ref points off-repo and
+    falls through to the inline body (empty), so url-backed pages still skip.
+    """
+    match = _FENCE_FILE_RE.search(info)
+    if match is None:
+        return inline
+    ref = match.group(1).removeprefix("./")
+    if "/" in ref or "\\" in ref or ".." in ref:
+        return None
+    path = device_dir / ref
+    try:
+        return path.read_text(encoding="utf-8") if path.is_file() else None
+    except OSError:
+        return None
+
+
+def _first_config_yaml(body: str, device_dir: Path) -> tuple[dict[str, Any], str] | None:
+    """First parseable ``yaml`` config fence as ``(parsed, raw_text)``, following ``file=``."""
     for match in _YAML_FENCE_RE.finditer(body):
-        parsed = _safe_load_yaml(match.group(1))
+        text = _resolve_fenced_yaml(match.group(1), match.group(2), device_dir)
+        if text is None:
+            continue
+        parsed = _safe_load_yaml(text)
         if isinstance(parsed, dict):
-            return parsed
+            return parsed, text
     return None
 
 
@@ -491,13 +521,19 @@ def _iter_devices(repo: Path) -> Iterator[_DeviceSource]:
         frontmatter, body = _split_frontmatter(text)
         if frontmatter is None:
             continue
+        config = _first_config_yaml(body, device_dir)
+        # Fold a ``file=``-referenced config into the hash so a config-
+        # only edit still changes the recorded source hash; an inline
+        # config is already part of *text*.
+        config_text = config[1] if config is not None else None
+        hash_src = text if config_text is None or config_text in text else f"{text}\n{config_text}"
         yield _DeviceSource(
             folder_name=device_dir.name,
             page_path=page_path,
             frontmatter=frontmatter,
             body=body,
-            content_hash=_hash_content(text),
-            inline_yaml=_extract_first_yaml_block(body),
+            content_hash=_hash_content(hash_src),
+            config_yaml=config[0] if config is not None else None,
             images=_extract_local_images(body, device_dir),
         )
 
@@ -1180,7 +1216,7 @@ def _make_record(  # noqa: C901, PLR0911 — distinct skip reasons each get thei
     title = fm.get("title")
     if not isinstance(title, str) or not title.strip():
         return None, "no frontmatter title"
-    if src.inline_yaml is None:
+    if src.config_yaml is None:
         return None, "no parseable inline yaml"
     if not src.images:
         return None, "no local images"
@@ -1188,7 +1224,7 @@ def _make_record(  # noqa: C901, PLR0911 — distinct skip reasons each get thei
     # A page without it is still importable.
     type_field = fm.get("type") if isinstance(fm.get("type"), str) else None
 
-    soc, soc_block = _resolve_soc(fm, src.inline_yaml)
+    soc, soc_block = _resolve_soc(fm, src.config_yaml)
     if soc is None:
         return None, "soc family not in upstream enum"
     board, variant, framework = _resolve_board_and_variant(soc, soc_block)
@@ -1196,7 +1232,7 @@ def _make_record(  # noqa: C901, PLR0911 — distinct skip reasons each get thei
         return None, f"no concrete board id for {soc}"
 
     featured, bundles, gpio_occupancy = _extract_featured_components(
-        src.inline_yaml, components_index
+        src.config_yaml, components_index
     )
     if not featured:
         return None, "no extractable featured components"
