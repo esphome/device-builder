@@ -450,19 +450,22 @@ async def test_get_available_scopes_actions_and_conditions_to_present_domains(
 
 
 def test_component_actions_survive_empty_domain_set() -> None:
-    """component.* is universal: present even when no domain matches (#1349)."""
-    action_ids = {a.id for a in catalog.actions_for_domains([])}
+    """component.* is universal: present even when no domain matches."""
+    actions = catalog.actions_for_domains([])
+    action_ids = [a.id for a in actions]
     condition_ids = {c.id for c in catalog.conditions_for_domains([])}
-    assert {"component.update", "component.suspend", "component.resume"} <= action_ids
+    assert {"component.update", "component.suspend", "component.resume"} <= set(action_ids)
     assert "component.is_idle" in condition_ids
     # A genuinely domain-scoped action still gates on its YAML block.
     assert "switch.turn_on" not in action_ids
+    # Core control flow stays ahead of the universal component.* family.
+    assert action_ids.index("delay") < action_ids.index("component.update")
 
 
 async def test_get_available_surfaces_component_actions_without_component_block(
     tmp_path: Path,
 ) -> None:
-    """component.* surfaces from get_available though no component: key exists (#1349)."""
+    """component.* surfaces from get_available though no component: key exists."""
     config = tmp_path / "c.yaml"
     # The issue's shape: a button + text_sensor, no component domain.
     config.write_text(

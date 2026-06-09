@@ -386,12 +386,15 @@ def _filter_by_domain_slim[T: (AutomationActionIndex, AutomationConditionIndex)]
     items: list[T],
     domain_set: set[str],
 ) -> list[T]:
-    """Partition *items* into universal-first then domain-scoped, by ``.domain``."""
+    """Order *items* core-first, then universal component.*, then domain-scoped."""
+    core: list[T] = []
     universal: list[T] = []
     scoped: list[T] = []
     for item in items:
-        if item.domain in _UNIVERSAL_DOMAINS:
+        if item.domain == "core":
+            core.append(item)
+        elif item.domain in _UNIVERSAL_DOMAINS:
             universal.append(item)
         elif item.domain in domain_set:
             scoped.append(item)
-    return universal + scoped
+    return core + universal + scoped
