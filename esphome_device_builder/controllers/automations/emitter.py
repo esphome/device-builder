@@ -31,6 +31,7 @@ from ruamel.yaml.comments import CommentedMap, CommentedSeq, TaggedScalar
 from ruamel.yaml.scalarstring import LiteralScalarString
 from ruamel.yaml.tag import Tag
 
+from ...helpers.yaml.scalar import is_lambda_sentinel
 from ...models.automations import (
     ActionNode,
     AutomationAction,
@@ -38,7 +39,6 @@ from ...models.automations import (
     AutomationTree,
     ConditionNode,
     LightEffect,
-    is_lambda_sentinel,
 )
 from . import catalog
 from .parsing import DEFAULT_SHORTHAND_KEY, make_yaml

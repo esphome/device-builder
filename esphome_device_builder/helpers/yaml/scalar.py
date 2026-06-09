@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import io
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import yaml
 from yaml.emitter import Emitter
@@ -12,6 +12,15 @@ from yaml.resolver import Resolver
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
+
+
+def is_lambda_sentinel(value: Any) -> bool:
+    """Return True for the frontend's ``{_lambda, _tag}`` lambda wire-sentinel."""
+    return (
+        isinstance(value, dict)
+        and value.keys() <= {"_lambda", "_tag"}
+        and isinstance(value.get("_lambda"), str)
+    )
 
 
 # Canonical ESPHome YAML indent: two spaces per level. Mirrors the

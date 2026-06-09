@@ -5,9 +5,14 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any
 
-from ...models.automations import is_lambda_sentinel
 from ...models.common import ConfigEntryType
-from .scalar import ESPHOME_YAML_INDENT, _quote, _safe_yaml_scalar, block_body_is_list
+from .scalar import (
+    ESPHOME_YAML_INDENT,
+    _quote,
+    _safe_yaml_scalar,
+    block_body_is_list,
+    is_lambda_sentinel,
+)
 
 if TYPE_CHECKING:
     from ...models import ComponentCatalogEntry
