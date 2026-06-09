@@ -440,18 +440,19 @@ def _split_frontmatter(text: str) -> tuple[dict[str, Any] | None, str]:
 
 def _resolve_fenced_yaml(info: str, inline: str, device_dir: Path) -> str | None:
     """
-    YAML text for a ``yaml`` fence, following a ``file=`` info attribute.
+    YAML for a ``yaml`` fence; a ``file=`` ref reads the sibling, traversal-guarded.
 
-    Pages may keep their config in a sibling file (``yaml file=config.yaml``)
-    that the rendered site inlines; read it so those devices aren't dropped.
-    Traversal-guarded like image refs. A ``url=`` ref points off-repo and
-    falls through to the inline body (empty), so url-backed pages still skip.
+    ``url=`` and absent refs return the inline body; a guarded or missing
+    ``file=`` returns ``None``.
     """
     match = _FENCE_FILE_RE.search(info)
     if match is None:
         return inline
     ref = match.group(1).removeprefix("./")
     if "/" in ref or "\\" in ref or ".." in ref:
+        # Same single-folder scope as image refs; warn so the resulting
+        # drop is diagnosable instead of a silent "no config" skip.
+        _LOGGER.warning("ignoring out-of-folder file= config ref %r (%s)", ref, device_dir.name)
         return None
     path = device_dir / ref
     try:

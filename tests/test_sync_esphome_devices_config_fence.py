@@ -59,3 +59,19 @@ def test_rejects_path_traversal(tmp_path: Path) -> None:
     (tmp_path.parent / "secret.yaml").write_text("esphome:\n  name: leak\n")
     body = "```yaml file=../secret.yaml\n```\n"
     assert _first_config_yaml(body, tmp_path) is None
+
+
+def test_rejects_subdirectory_reference(tmp_path: Path) -> None:
+    sub = tmp_path / "configs"
+    sub.mkdir()
+    (sub / "device.yaml").write_text("esphome:\n  name: x\nbk72xx:\n  board: cb2s\n")
+    body = "```yaml file=configs/device.yaml\n```\n"
+    assert _first_config_yaml(body, tmp_path) is None
+
+
+def test_strips_dot_slash_prefix(tmp_path: Path) -> None:
+    (tmp_path / "config.yaml").write_text("esphome:\n  name: x\nbk72xx:\n  board: cb2s\n")
+    body = "```yaml file=./config.yaml\n```\n"
+    parsed = _first_config_yaml(body, tmp_path)
+    assert parsed is not None
+    assert parsed[0]["bk72xx"]["board"] == "cb2s"
