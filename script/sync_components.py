@@ -2117,10 +2117,16 @@ def _convert_config_vars(  # noqa: C901
 def _lookup_schema_ref(ref: str, schema_dir: Path) -> dict | None:
     """Resolve an ``extends`` reference to its target schema body.
 
-    *ref* is shaped ``<file>.<schema_name>`` — e.g.
+    *ref* is shaped ``<domain>.<schema_name>`` — e.g.
     ``sensor._SENSOR_SCHEMA``, ``switch.SWITCH_ACTION_SCHEMA``. Returns the
     referenced schema's body dict (the ``{maybe?, schema, type}`` node), or
     ``None`` when the reference can't be located.
+
+    ``<domain>`` may itself be dotted (a platform sub-namespace):
+    ``speaker.media_player.PIPELINE_SCHEMA`` is keyed bare as
+    ``PIPELINE_SCHEMA`` under the ``speaker.media_player`` top-level key.
+    Resolve by the last segment, preferring the entry whose key matches the
+    full dotted domain.
 
     ``<file_name>.json`` is the obvious lookup, but a few shared scopes are
     housed in ``esphome.json`` under a top-level key matching their ref prefix
@@ -2135,12 +2141,19 @@ def _lookup_schema_ref(ref: str, schema_dir: Path) -> dict | None:
     if len(parts) < 2:
         return None
     file_name = parts[0]
-    schema_name = ".".join(parts[1:])
+    domain = ".".join(parts[:-1])
+    schema_name = parts[-1]
 
     for path in (schema_dir / f"{file_name}.json", schema_dir / "esphome.json"):
         if not path.exists():
             continue
         raw = json.loads(path.read_text(encoding="utf-8"))
+        # Exact dotted-domain key first; the fallback then matches the bare
+        # schema name across all entries (the long-standing 2-segment
+        # behaviour) — intentionally name-only, don't re-narrow it.
+        exact = raw.get(domain)
+        if isinstance(exact, dict) and schema_name in (exact.get("schemas") or {}):
+            return exact["schemas"][schema_name]
         for top_value in raw.values():
             if not isinstance(top_value, dict):
                 continue
