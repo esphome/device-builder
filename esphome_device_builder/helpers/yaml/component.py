@@ -152,21 +152,25 @@ def generate_component_yaml(  # noqa: C901, PLR0912
     # empty. ESPHome multi-sensor parents (HLW8012, BME280, ...)
     # expose their readings as ``platform_type``-tagged ConfigEntry
     # blocks; an unnamed sub-sensor won't surface in HA, and one
-    # without an id can't be referenced from automations.
+    # without an id can't be referenced from automations. Only fill a
+    # field the sub-schema declares: config sub-blocks like the speaker
+    # media_player ``announcement_pipeline`` are ``platform_type``-tagged
+    # too but take no ``name``.
     for entry in component.config_entries:
         if not entry.platform_type or not entry.config_entries:
             continue
         sub = fields.get(entry.key)
         if not isinstance(sub, dict):
             continue
+        sub_keys = {c.key for c in entry.config_entries}
         if sub.get("name") and sub.get("id"):
             continue
         # Build a fresh dict with name/id at the front so the emitted
         # YAML reads naturally (humans put name/id first).
         autofill: dict[str, Any] = {}
-        if not sub.get("name"):
+        if "name" in sub_keys and not sub.get("name"):
             autofill["name"] = entry.label or entry.key.replace("_", " ").title()
-        if not sub.get("id"):
+        if "id" in sub_keys and not sub.get("id"):
             autofill["id"] = f"{parent_id}_{entry.key}"
         autofill.update(sub)
         fields[entry.key] = autofill

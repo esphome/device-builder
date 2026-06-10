@@ -915,6 +915,38 @@ def test_generate_component_yaml_preserves_direct_lambda_field_tag() -> None:
     assert "_lambda" not in result
 
 
+def test_generate_component_yaml_skips_name_autofill_without_name_field() -> None:
+    """A ``platform_type`` sub-block whose sub-schema omits ``name`` gets only an id."""
+    pipeline = ConfigEntry(
+        key="announcement_pipeline",
+        type=ConfigEntryType.NESTED,
+        label="Announcement Pipeline",
+        platform_type="speaker",
+        config_entries=[
+            ConfigEntry(key="speaker", type=ConfigEntryType.ID, label="Speaker"),
+            ConfigEntry(key="id", type=ConfigEntryType.ID, label="ID"),
+        ],
+    )
+    component = ComponentCatalogEntry(
+        id="media_player.speaker",
+        name="Speaker Audio Media Player",
+        description="",
+        category=ComponentCategory.MEDIA_PLAYER,
+        config_entries=[pipeline],
+    )
+
+    result = generate_component_yaml(
+        component,
+        {"name": "My Speaker", "announcement_pipeline": {"speaker": "spk"}},
+    )
+
+    assert "announcement_pipeline:" in result
+    assert "speaker: spk" in result
+    assert "id: speaker_my_speaker_announcement_pipeline" in result
+    # The label-derived name must not leak into the name-less sub-block.
+    assert "name: Announcement Pipeline" not in result
+
+
 def test_merge_component_yaml_appends_first_platform_block() -> None:
     """First sensor in a YAML with no ``sensor:`` section gets appended.
 
