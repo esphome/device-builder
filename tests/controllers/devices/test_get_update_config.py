@@ -96,22 +96,22 @@ async def test_get_config_decodes_utf8_with_unicode(
     assert result == yaml_content
 
 
-async def test_get_config_propagates_file_not_found(
+async def test_get_config_missing_file_raises_not_found(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """Missing file → ``FileNotFoundError`` bubbles to the dispatcher.
+    """Missing file → ``CommandError(NOT_FOUND)``, not a generic internal error.
 
-    The api dispatcher catches it and turns it into a generic
-    error frame; we don't try to swallow / map it here. Pin the
-    pass-through so a defensive refactor that returned ``""``
-    instead would surface (the editor would silently load an
-    empty buffer for a typo'd configuration).
+    Pin the typed mapping so a defensive refactor that returned ``""``
+    instead would surface (the editor would silently load an empty
+    buffer for a typo'd configuration), and so the dispatcher no longer
+    reports the miss as an opaque ``internal_error``.
     """
     controller = make_controller(tmp_path)
     _stub_regenerate(controller)
 
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(CommandError) as excinfo:
         await controller.get_config(configuration="ghost.yaml")
+    assert excinfo.value.code == ErrorCode.NOT_FOUND
 
 
 # ---------------------------------------------------------------------------
