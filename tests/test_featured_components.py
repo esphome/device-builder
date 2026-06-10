@@ -34,8 +34,9 @@ from esphome_device_builder.definitions import (
     _load_featured_bundle,
     _load_featured_component,
 )
+from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.yaml import generate_component_yaml
-from esphome_device_builder.models import ComponentCategory
+from esphome_device_builder.models import ComponentCategory, ErrorCode
 from esphome_device_builder.models.common import FieldPreset
 
 # Pin every test in the file onto the same xdist worker as the rest of
@@ -716,15 +717,16 @@ async def test_add_component_featured_keeps_user_typed_id(
 async def test_add_component_featured_unknown_id_raises(
     catalog: ComponentCatalog, tmp_path: Any
 ) -> None:
-    """An unknown ``featured.*`` id surfaces as a clear ValueError."""
+    """An unknown ``featured.*`` id surfaces as a ``CommandError(INVALID_ARGS)``."""
     ctrl = _make_controller(catalog, tmp_path)
 
-    with pytest.raises(ValueError, match="Unknown featured component"):
+    with pytest.raises(CommandError, match="Unknown featured component") as exc:
         await ctrl.add_component(
             configuration="plug.yaml",
             component_id="featured.no-such-board.x",
             fields={},
         )
+    assert exc.value.code is ErrorCode.INVALID_ARGS
 
 
 async def test_add_component_featured_missing_body_raises(
@@ -739,12 +741,13 @@ async def test_add_component_featured_missing_body_raises(
     """
     ctrl = _make_controller(catalog, tmp_path)
     monkeypatch.setattr(catalog, "get_body", AsyncMock(return_value=None))
-    with pytest.raises(ValueError, match="Unknown component body for featured ref"):
+    with pytest.raises(CommandError, match="Unknown component body for featured ref") as exc:
         await ctrl.add_component(
             configuration="plug.yaml",
             component_id="featured.sonoff-basic.relay",
             fields={},
         )
+    assert exc.value.code is ErrorCode.INVALID_ARGS
 
 
 async def test_add_component_featured_emits_explicit_name_and_id(

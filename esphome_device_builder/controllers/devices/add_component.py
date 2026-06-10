@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from ...helpers.api import CommandError
 from ...helpers.yaml import merge_component_yaml
-from ...models import AddComponentResponse
+from ...models import AddComponentResponse, ErrorCode
 from .helpers import _apply_featured_presets, _drop_unconfigured_dependent_fields
 
 if TYPE_CHECKING:
@@ -46,12 +47,12 @@ async def add_component(
         record = controller._db.components.get_featured_record(component_id)
         if record is None:
             msg = f"Unknown featured component: {component_id}"
-            raise ValueError(msg)
+            raise CommandError(ErrorCode.INVALID_ARGS, msg)
         underlying_component_id = record.underlying_id
         underlying_body = await controller._db.components.get_body(underlying_component_id)
         if underlying_body is None:
             msg = f"Unknown component body for featured ref: {underlying_component_id}"
-            raise ValueError(msg)
+            raise CommandError(ErrorCode.INVALID_ARGS, msg)
         fields = _apply_featured_presets(record, fields, underlying_body)
         # The frontend's featured-id suggestion contains the board's
         # dashes (e.g. ``featured_athom-smart-plug-v3_power_monitor_1``),
@@ -64,12 +65,12 @@ async def add_component(
     component = await controller._db.components.get_component(component_id=underlying_component_id)
     if component is None:
         msg = f"Unknown component: {underlying_component_id}"
-        raise ValueError(msg)
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
     for entry in component.config_entries:
         if entry.required and entry.key not in fields:
-            msg = f"Missing required field: {entry.key}"
-            raise ValueError(msg)
+            msg = f"Missing required field: {entry.label or entry.key}"
+            raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
     if yaml is None:
         config_path = controller._db.settings.rel_path(configuration)

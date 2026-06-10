@@ -34,6 +34,7 @@ import pytest
 
 import esphome_device_builder.controllers.devices.api_key as api_key_mod
 from esphome_device_builder.controllers._device_scanner import ScanChange
+from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.build_size import BuildDirSignal, BuildSizeRefreshResult
 from esphome_device_builder.helpers.event_bus import Event
 from esphome_device_builder.models import (
@@ -44,6 +45,7 @@ from esphome_device_builder.models import (
     ConfigEntryType,
     Device,
     DeviceState,
+    ErrorCode,
     EventType,
     JobStatus,
     JobType,
@@ -461,7 +463,7 @@ async def test_get_api_key_fallback_skipped_when_esphome_cmd_unset(
 async def test_add_component_unknown_id_raises(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """An unknown component id raises ``ValueError`` before touching the YAML.
+    """An unknown component id raises ``CommandError(INVALID_ARGS)`` before touching the YAML.
 
     Frontend should never send an unknown id (the catalog is the
     source of suggestions), but pin the guard so a desync between
@@ -473,24 +475,25 @@ async def test_add_component_unknown_id_raises(
     controller._db.components.get_component = AsyncMock(return_value=None)
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
-    with pytest.raises(ValueError, match="Unknown component: never-heard-of-this"):
+    with pytest.raises(CommandError, match="Unknown component: never-heard-of-this") as exc:
         await controller.add_component(
             configuration="kitchen.yaml",
             component_id="never-heard-of-this",
         )
+    assert exc.value.code is ErrorCode.INVALID_ARGS
 
 
 async def test_add_component_missing_required_field_raises(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """A required field absent from ``fields`` raises before serialising.
+    """A missing required field raises ``CommandError(INVALID_ARGS)`` before serialising.
 
     The frontend's input form already enforces required fields
     via the schema, but the backend's guard catches API clients
     bypassing the form (the WS surface is public). Pin it so a
     regression that defaulted required fields silently can't slip
     through and produce an invalid YAML the user has to discover
-    at compile time.
+    at compile time. The message carries the field's human label.
     """
     controller = make_controller(tmp_path)
     component = MagicMock()
@@ -502,12 +505,13 @@ async def test_add_component_missing_required_field_raises(
     controller._db.components.get_component = AsyncMock(return_value=component)
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
-    with pytest.raises(ValueError, match="Missing required field: pin"):
+    with pytest.raises(CommandError, match="Missing required field: Pin") as exc:
         await controller.add_component(
             configuration="kitchen.yaml",
             component_id="dht",
             fields={"name": "Bedroom Temp"},
         )
+    assert exc.value.code is ErrorCode.INVALID_ARGS
 
 
 # ---------------------------------------------------------------------------
