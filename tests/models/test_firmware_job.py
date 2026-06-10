@@ -431,5 +431,5 @@ def test_malformed_source_value_rejected_on_load() -> None:
         '"source": "intergalactic"}'
     )
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="invalid value"):
         FirmwareJob.from_json(raw)

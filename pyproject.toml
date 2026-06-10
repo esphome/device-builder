@@ -195,6 +195,7 @@ select = [
   "PTH", # flake8-use-pathlib — prefer pathlib over os.path/os primitives
   "PLR0904", # too-many-public-methods (preview) — cap new god-classes at 20
   "PLW1514", # unspecified-encoding (preview) — force explicit encoding= on open/read_text/write_text so non-ASCII doesn't mangle under Windows cp1252
+  "PT011", # flake8-pytest-style — flag ``pytest.raises(ValueError)`` etc. without a ``match=`` so the assertion pins the actual error
   "PYI", # flake8-pyi — type-stub correctness (collapses ``int | float`` to ``float``, etc.)
   "Q", # flake8-quotes — pin quote style; ruff format already enforces double, this catches escape-only deviations
   "RET", # flake8-return

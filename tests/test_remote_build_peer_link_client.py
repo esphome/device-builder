@@ -560,16 +560,14 @@ def test_build_ws_url_brackets_ipv6_literal() -> None:
 def test_build_ws_url_rejects_pathological_host() -> None:
     """Yarl raises ``ValueError`` on path-injection attempts in the host position.
 
-    The error message text is yarl's own and not part of our
-    contract (could change between yarl versions); just assert
-    the type. ``drive_initiator_round_trip`` catches this
-    ``ValueError`` and maps it to ``PeerLinkClientError`` →
-    ``UNAVAILABLE`` so a frontend that forwarded an unvalidated
-    host gets a "couldn't reach receiver" toast rather than an
-    internal-error stack trace; that path is covered by
+    ``drive_initiator_round_trip`` catches this ``ValueError`` and
+    maps it to ``PeerLinkClientError`` → ``UNAVAILABLE`` so a
+    frontend that forwarded an unvalidated host gets a "couldn't
+    reach receiver" toast rather than an internal-error stack
+    trace; that path is covered by
     ``test_drive_initiator_round_trip_maps_pathological_host_to_client_error``.
     """
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="cannot contain"):
         _build_ws_url("evil/path", 6055)
 
 
