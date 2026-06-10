@@ -300,7 +300,7 @@ async def edit_friendly_name(
     # ``# Board:`` at column 0, treated it as a fresh top-level
     # key, dropped the ``esphome:`` context, and silently lost
     # ``friendly_name`` on every load.
-    _, parsed_friendly, _, _ = parse_esphome_meta(new_content)
+    _, parsed_friendly, _, _, _ = parse_esphome_meta(new_content)
     if parsed_friendly != new_friendly_name:
         raise CommandError(
             ErrorCode.INTERNAL_ERROR,

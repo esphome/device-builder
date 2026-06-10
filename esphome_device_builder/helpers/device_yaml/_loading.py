@@ -182,6 +182,9 @@ def load_device_from_storage(
     # cover older builds and never-compiled devices.
     storage_area = getattr(storage, "area", None) if storage else None
     area = _pick_meta(yaml_meta.area, cfg_meta.area, storage_area) or ""
+    has_publish_command = bool(
+        _pick_meta(yaml_meta.publish_shell_command, cfg_meta.publish_shell_command, None)
+    )
 
     yaml_mtime = path.stat().st_mtime if path.exists() else None
     bin_mtime: float | None = None
@@ -307,6 +310,7 @@ def load_device_from_storage(
         configuration=filename,
         comment=comment,
         area=area,
+        has_publish_command=has_publish_command,
         board_id=board_id,
         target_platform=target_platform,
         # StorageJSON only exists after a successful compile, so a

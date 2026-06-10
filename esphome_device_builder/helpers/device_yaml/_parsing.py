@@ -16,6 +16,7 @@ class EsphomeMeta(NamedTuple):
     friendly_name: str | None
     comment: str | None
     area: str | None
+    publish_shell_command: str | None
 
 
 _PLATFORM_KEYS = frozenset({"esp32", "esp8266", "rp2040", "bk72xx", "rtl87xx", "ln882x", "nrf52"})
@@ -265,7 +266,7 @@ def parse_esphome_meta(
     extra_substitutions: dict[str, str] | None = None,
 ) -> EsphomeMeta:
     """
-    Parse the top-level ``esphome:`` block for ``(name, friendly_name, comment, area)``.
+    Parse the top-level ``esphome:`` block into an :class:`EsphomeMeta` tuple.
 
     Returns ``None`` for any field that isn't present in the YAML so
     callers can distinguish "key absent" (fall through to storage) from
@@ -327,7 +328,13 @@ def parse_esphome_meta(
         for field in _ESPHOME_META_FIELDS:
             meta[field] = _resolve_substitutions(meta[field], merged)
 
-    return EsphomeMeta(meta["name"], meta["friendly_name"], meta["comment"], meta["area"])
+    return EsphomeMeta(
+        meta["name"],
+        meta["friendly_name"],
+        meta["comment"],
+        meta["area"],
+        meta["publish_shell_command"],
+    )
 
 
 def extract_esphome_meta_from_config(
@@ -335,16 +342,16 @@ def extract_esphome_meta_from_config(
     extra_substitutions: dict[str, str] | None = None,
 ) -> EsphomeMeta:
     """
-    Read ``(name, friendly_name, comment, area)`` off a resolved config's ``esphome:`` block.
+    Read an :class:`EsphomeMeta` tuple off a resolved config's ``esphome:`` block.
 
     ``None`` for any field absent. ``$var`` / ``${var}`` resolve against
     *extra_substitutions*; tokens the resolver can't expand are left intact.
     """
     if not isinstance(config, dict):
-        return EsphomeMeta(None, None, None, None)
+        return EsphomeMeta(None, None, None, None, None)
     esphome = config.get(const.CONF_ESPHOME)
     if not isinstance(esphome, dict):
-        return EsphomeMeta(None, None, None, None)
+        return EsphomeMeta(None, None, None, None, None)
     subs = extra_substitutions or {}
 
     def _resolved(value: str | None) -> str | None:
@@ -355,6 +362,8 @@ def extract_esphome_meta_from_config(
         _resolved(_str_or_none(esphome.get(const.CONF_FRIENDLY_NAME))),
         _resolved(_str_or_none(esphome.get(const.CONF_COMMENT))),
         _resolved(_area_name_from_config(esphome.get(const.CONF_AREA))),
+        # TODO: replace with const.CONF_PUBLISH_SHELL_COMMAND once the esphome change is merged
+        _resolved(_str_or_none(esphome.get("publish_shell_command"))),
     )
 
 
@@ -431,7 +440,7 @@ def _parse_inline_value(raw: str) -> str:
 
 _FLOW_AREA_NAME_RE = re.compile(r"""\bname\s*:\s*("[^"]*"|'[^']*'|[^,}]+)""")
 
-_ESPHOME_META_FIELDS = ("name", "friendly_name", "comment", "area")
+_ESPHOME_META_FIELDS = ("name", "friendly_name", "comment", "area", "publish_shell_command")
 
 
 def _parse_flow_area_name(raw: str) -> str | None:

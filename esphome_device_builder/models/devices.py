@@ -102,6 +102,7 @@ class Device(DataClassORJSONMixin):
     has_pending_changes: bool = True  # True until successfully compiled + deployed
     update_available: bool = False  # True if compiled with older ESPHome version
     uses_mqtt: bool = False  # True if the YAML declares a top-level mqtt: block
+    has_publish_command: bool = False  # Whether `esphome.publish_shell_command` is set in the YAML
     # Native API surface flags — drive the lock-icon indicator in
     # the device list. Both fields are computed in
     # ``helpers.device_yaml.load_device_from_storage`` as the
