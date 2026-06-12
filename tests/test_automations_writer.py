@@ -825,6 +825,29 @@ def test_wait_until_emits_condition_before_timeout() -> None:
     assert text.index("condition:") < text.index("timeout:")
 
 
+def test_wait_until_shorthand_condition_round_trips_to_full_form() -> None:
+    """``wait_until: {api.connected:}`` parses the condition and re-emits the gate."""
+    yaml_text = (
+        "esphome:\n"
+        "  name: x\n"
+        "  on_boot:\n"
+        "    then:\n"
+        "      - wait_until:\n"
+        "          api.connected:\n"
+    )
+    parsed = parse_device_yaml(yaml_text)[0]
+    action = parsed.automation.actions[0]
+    assert action.action_id == "wait_until"
+    assert action.params == {}
+    assert [c.condition_id for c in action.conditions] == ["api.connected"]
+    new_text, _diff = render_upsert(
+        yaml_text,
+        tree=parsed.automation,
+        location=parsed.location,
+    )
+    assert "condition:" in new_text
+
+
 # ---------------------------------------------------------------------------
 # Light effects
 # ---------------------------------------------------------------------------
