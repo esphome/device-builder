@@ -2047,29 +2047,19 @@ def _promote_template_controls(component_id: str, entries: list[dict]) -> None:
             entry["advanced"] = False
 
 
-def _convert_config_vars(  # noqa: C901
-    schema_node: dict,
-    schema_dir: Path,
-    *,
-    component_id: str = "",
-) -> list[dict]:
-    """Convert a ``schema`` node (config_vars + extends) to a list of entries."""
-    config_vars = dict(schema_node.get("config_vars") or {})
+def _merge_extends_config_vars(schema_node: dict, schema_dir: Path) -> dict[str, Any]:
+    """
+    Deep-merge a schema node's ``extends`` ancestry with its local config_vars.
 
-    # Inline ``extends`` references and merge them with the local
-    # config_vars. The schema uses partial overrides — entity
-    # sub-readings like ``dht.sensor.humidity.device_class`` only
-    # specify ``{"default": "humidity"}`` and inherit the rest
-    # (``type: enum``, the 60-value list of accepted device classes,
-    # the docs string) from ``sensor._SENSOR_SCHEMA``. A flat
-    # ``{**extended, **local}`` would replace the whole field,
-    # silently dropping the values list. Deep-merge per-field so
-    # local entries override individual keys but inherited metadata
-    # survives.
+    Per-field, not whole-field: a partial override like ``{"default": "x"}``
+    keeps the base's inherited ``type`` / enum / docs. Values are usually field
+    dicts; a malformed schema can carry a non-dict, hence ``dict[str, Any]``.
+    """
+    config_vars = dict(schema_node.get("config_vars") or {})
     extended: dict[str, dict] = {}
     for ref in schema_node.get("extends") or []:
         extended.update(_resolve_extends(ref, schema_dir))
-    merged: dict[str, dict] = {}
+    merged: dict[str, Any] = {}
     for key in {*extended, *config_vars}:
         base = extended.get(key)
         local = config_vars.get(key)
@@ -2077,6 +2067,17 @@ def _convert_config_vars(  # noqa: C901
             merged[key] = {**base, **local}
         else:
             merged[key] = local if local is not None else base or {}
+    return merged
+
+
+def _convert_config_vars(
+    schema_node: dict,
+    schema_dir: Path,
+    *,
+    component_id: str = "",
+) -> list[dict]:
+    """Convert a ``schema`` node (config_vars + extends) to a list of entries."""
+    merged = _merge_extends_config_vars(schema_node, schema_dir)
 
     out: list[dict] = []
     for key, raw in merged.items():
@@ -5714,7 +5715,7 @@ def _convert_automation_action(
         accepts_action_list,
         key=lambda k: (k != "then", k),
     )
-    is_control_flow = bool(accepts_action_list) or has_condition_gate
+    is_control_flow = any(k in _ACTION_LIST_KEYS for k in accepts_action_list) or has_condition_gate
     has_else_branch = "else" in (accepts_action_list or [])
     qualified = f"{wire_prefix}.{name}" if top_key != "core" else name
     config_entries, scalar_shorthand_key = _resolve_automation_lambda(
@@ -6391,42 +6392,27 @@ def _extract_automation_param_schema(
     raw_entries = _convert_config_vars(schema, schema_dir)
     accepts_action_list: list[str] = []
     has_condition_gate = False
-    out: list[dict] = []
-    # ``_convert_config_vars`` doesn't see registry-typed fields the
-    # way it sees normal config_vars; specifically, ``then: { type:
-    # trigger }`` and ``then: { type: registry, registry: action }``
-    # get coerced into something we'd render. Walk the raw schema
-    # directly to detect those, and strip them from the entry list.
-    raw_cvs = schema.get("config_vars") or {}
-    for key, raw in raw_cvs.items():
+    # ``_convert_config_vars`` skips ``on_*`` triggers and keeps ``then`` /
+    # ``else`` as plain fields; walk the merged config_vars (``extends``
+    # resolved, so ``http_request.get`` sees its inherited triggers) to
+    # collect every trigger / action-registry key into ``accepts_action_list``,
+    # stripping any that did reach the form entries.
+    stripped: set[str] = set()
+    for key, raw in _merge_extends_config_vars(schema, schema_dir).items():
         if not isinstance(raw, dict):
             continue
         rtype = raw.get("type")
-        registry = raw.get("registry")
-        if rtype == "trigger" or (rtype == "registry" and registry == "action"):
-            if key in _ACTION_LIST_KEYS:
-                accepts_action_list.append(key)
-            # Drop the key from the converted entry list — the
-            # frontend renders it as a recursive action list, not
-            # as a form field.
-            raw_entries = [e for e in raw_entries if e.get("key") != key]
-            continue
-        if key in _CONDITION_GATE_KEYS:
-            # ``condition`` / ``all`` / ``any`` on a control-flow
-            # action are always boolean gates, never user-typed
-            # values. The schema sometimes tags them with
-            # ``type: registry, registry: condition`` and sometimes
-            # carries only a ``docs`` string (e.g. ``if.any``); the
-            # by-name strip catches both shapes uniformly.
+        if rtype == "trigger" or (rtype == "registry" and raw.get("registry") == "action"):
+            accepts_action_list.append(key)
+            stripped.add(key)
+        elif key in _CONDITION_GATE_KEYS:
+            # ``condition`` / ``all`` / ``any`` are boolean gates, never
+            # user-typed values; strip by name since the schema tags them
+            # inconsistently (``registry: condition`` or just a ``docs`` string).
             has_condition_gate = True
-            raw_entries = [e for e in raw_entries if e.get("key") != key]
-            continue
-    # The walker uses ``is_trigger_key`` to skip ``on_`` config_vars,
-    # which is correct for the *component form* path but wrong here — a
-    # triggered automation has no ``on_`` keys as parameters anyway, so
-    # it's a no-op for us.
-    out.extend(raw_entries)
-    return out, accepts_action_list, has_condition_gate
+            stripped.add(key)
+    config_entries = [e for e in raw_entries if e.get("key") not in stripped]
+    return config_entries, accepts_action_list, has_condition_gate
 
 
 def _automation_label(domain: str, name: str, docs_name: str | None) -> str:
