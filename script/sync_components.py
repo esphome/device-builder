@@ -47,7 +47,7 @@ import textwrap
 import unicodedata
 import urllib.request
 import zipfile
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from enum import StrEnum
 from functools import cache
@@ -2092,7 +2092,14 @@ def _convert_config_vars(  # noqa: C901
         # (the top-level build call), not the recursive nested calls — so
         # it doubles as the "this is a direct component field" signal the
         # action-list trigger override keys on.
-        entry = _convert_field(key, raw or {}, schema_dir, top_level=bool(component_id))
+        #
+        # Some fields hide a typed_schema behind a custom validator, so the
+        # bundle carries only a bare string; merge the real node over the
+        # bundle's so the recovered shape wins but the bundle's auxiliary
+        # keys (docs, help link) survive (font.file).
+        recovered = _RAW_NODE_OVERRIDES.get((component_id, key))
+        field_raw = {**(raw or {}), **recovered} if recovered is not None else (raw or {})
+        entry = _convert_field(key, field_raw, schema_dir, top_level=bool(component_id))
         if entry is None:
             continue
         # Per-(component, field) overrides patch up entries the schema
@@ -2114,8 +2121,14 @@ def _convert_config_vars(  # noqa: C901
     return _sort_entries(out)
 
 
+@cache
 def _lookup_schema_ref(ref: str, schema_dir: Path) -> dict | None:
     """Resolve an ``extends`` reference to its target schema body.
+
+    Cached: the same ref resolves identically within a sync run (one schema
+    version), and the typed-node / extends passes resolve hot bases like
+    ``core.ENTITY_BASE_SCHEMA`` hundreds of times. Callers must treat the
+    result as read-only.
 
     *ref* is shaped ``<domain>.<schema_name>`` — e.g.
     ``sensor._SENSOR_SCHEMA``, ``switch.SWITCH_ACTION_SCHEMA``. Returns the
@@ -2201,6 +2214,132 @@ def _resolve_extends_maybe(ref: str, schema_dir: Path) -> str | None:
         if inherited is not None:
             return inherited
     return None
+
+
+def _is_typed_node(node: Any) -> bool:
+    """Return whether *node* is a ``cv.typed_schema`` node with at least one variant."""
+    return (
+        isinstance(node, dict)
+        and node.get("type") == "typed"
+        and isinstance(node.get("types"), dict)
+        and bool(node["types"])
+    )
+
+
+def _typed_node(raw: dict, schema_dir: Path) -> dict | None:
+    """Return the ``{typed_key, types}`` node for a ``cv.typed_schema`` field.
+
+    Two upstream shapes carry it: the field is a direct ``type: typed``
+    node, or it ``extends`` a named schema that is one (``image.file`` →
+    ``image.TYPED_FILE_SCHEMA``). Returns ``None`` for anything else.
+    """
+    if _is_typed_node(raw):
+        return raw
+    inner = raw.get("schema")
+    if isinstance(inner, dict):
+        for ref in inner.get("extends") or []:
+            target = _lookup_schema_ref(ref, schema_dir)
+            if _is_typed_node(target):
+                return target
+    return None
+
+
+# A typed_schema can be self-referential (``display_menu_base.items``'s
+# ``menu`` variant nests ``items``). Expand only the outermost field; a
+# nested typed field falls back to the bundle's bare string. Boxed in a
+# list so the context manager mutates in place without a ``global``.
+_expanding_typed = [False]
+
+
+@contextlib.contextmanager
+def _typed_expanding() -> Iterator[None]:
+    _expanding_typed[0] = True
+    try:
+        yield
+    finally:
+        _expanding_typed[0] = False
+
+
+def _build_typed_config_entries(typed_node: dict, schema_dir: Path) -> list[dict]:
+    """
+    Render a typed_schema node as a discriminator select + gated fields.
+
+    A field in every variant is ungated; one absent from a single variant
+    uses ``depends_on_value_not``; narrower overlaps emit a gated copy per
+    variant.
+    """
+    typed_key = typed_node.get("typed_key") or "type"
+    types = typed_node.get("types") or {}
+    all_types = set(types)
+
+    discriminator = _convert_field(
+        typed_key, {"key": "Required", "values": {t: {} for t in types}}, schema_dir
+    )
+
+    # field key → [(type_name, converted entry)]; dict keeps first-seen order.
+    by_key: dict[str, list[tuple[str, dict]]] = {}
+    for type_name, variant in types.items():
+        body = variant if isinstance(variant, dict) else {}
+        for child in _convert_config_vars(body, schema_dir):
+            if child["key"] != typed_key:
+                by_key.setdefault(child["key"], []).append((type_name, child))
+
+    variant_children: list[dict] = []
+    for occurrences in by_key.values():
+        present = {t for t, _ in occurrences}
+        base = occurrences[0][1]
+        # Collapse to a single entry only when every variant defines the field
+        # identically. Differing definitions (e.g. a required local ``path``
+        # vs an optional git sub-path) must stay per-variant so each gate
+        # carries its own label / requiredness / default.
+        identical = all(child == base for _, child in occurrences)
+        if identical and present == all_types:
+            variant_children.append(base)
+        elif identical and len(present) == len(all_types) - 1:
+            (missing,) = all_types - present
+            variant_children.append(
+                {**base, "depends_on": typed_key, "depends_on_value_not": missing}
+            )
+        else:
+            for type_name, child in occurrences:
+                variant_children.append(
+                    {**child, "depends_on": typed_key, "depends_on_value": type_name}
+                )
+
+    return [discriminator, *_sort_entries(variant_children)]
+
+
+# ``font.file`` is a ``cv.typed_schema`` whose ``font_file_schema`` wrapper
+# hides it from the schema generator, so the bundle keeps only a bare string
+# — but the shared ``font.EXTERNAL_FONT_SCHEMA`` (weight / italic / refresh)
+# does survive. Re-emit the local/gfonts/web skeleton statically and pull the
+# shared fields back in via ``extends``, so the generic typed converter builds
+# the editor without importing esphome. The skeleton is the only static part;
+# the per-source field details come from the bundle.
+_FONT_FILE_NODE: dict[str, Any] = {
+    "key": "Required",
+    "type": "typed",
+    "typed_key": "type",
+    "types": {
+        "local": {"config_vars": {"path": {"key": "Required"}}},
+        "gfonts": {
+            "extends": ["font.EXTERNAL_FONT_SCHEMA"],
+            "config_vars": {"family": {"key": "Required"}},
+        },
+        "web": {
+            "extends": ["font.EXTERNAL_FONT_SCHEMA"],
+            "config_vars": {"url": {"key": "Required"}},
+        },
+    },
+    # No ``docs``: the bundle's own ``file`` node carries the description and
+    # its help link, which the recovery merge preserves.
+}
+
+# Raw schema nodes for fields a custom validator hides from the bundle, applied
+# before conversion (cf. ``_FIELD_OVERRIDES``, which patches converted entries).
+_RAW_NODE_OVERRIDES: dict[tuple[str, str], dict] = {
+    ("font", "file"): _FONT_FILE_NODE,
+}
 
 
 def _convert_field(  # noqa: PLR0912, PLR0915, C901
@@ -2371,7 +2510,9 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
         "required": required,
         "default_value": default_value,
         "options": _build_options(raw),
-        "allow_custom_value": False,
+        # ``allow_custom`` lets an options field also accept a free-typed
+        # value (e.g. a font ``weight`` is a named weight *or* a raw int).
+        "allow_custom_value": bool(raw.get("allow_custom")),
         "range": list(_DATA_TYPE_RANGE[data_type]) if data_type in _DATA_TYPE_RANGE else None,
         "display_format": "hex" if data_type in _DATA_TYPE_HEX else None,
         "registry": registry_name,
@@ -2411,6 +2552,16 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
     if "key_type" in raw and isinstance(inner_schema, dict):
         entry["type"] = "map"
         entry["config_entries"] = _build_map_value_template(inner_schema, schema_dir)
+        return entry
+
+    # Discriminated union (``cv.typed_schema``): a ``type:`` / ``source:``
+    # selector picks one variant's fields; render a nested group instead of
+    # collapsing the whole union to a bare string.
+    typed_node = _typed_node(raw, schema_dir)
+    if typed_node is not None and not _expanding_typed[0]:
+        entry["type"] = "nested"
+        with _typed_expanding():
+            entry["config_entries"] = _build_typed_config_entries(typed_node, schema_dir) or None
         return entry
 
     # Recurse into nested schemas for type=nested.
