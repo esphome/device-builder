@@ -1,0 +1,1 @@
+{"id":"pn532_spi.on_tag","name":"Pn532 Spi → On Tag","description":"An automation to perform when a tag is read. See [pn532-on_tag](https://esphome.io/components/binary_sensor/pn532#pn532-on_tag).","docs_url":"https://esphome.io/components/binary_sensor/pn532#configuration-variables","applies_to":["pn532_spi"],"is_device_level":false,"supports_list":true,"config_entries":[]}

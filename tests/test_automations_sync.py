@@ -759,3 +759,135 @@ def test_core_lambda_condition_synthesizes_lambda_field() -> None:
     assert [e["type"] for e in condition["config_entries"]] == ["lambda"]
     assert condition["config_entries"][0]["key"] == "lambda"
     assert condition["config_entries"][0]["required"] is True
+
+
+def test_build_automations_extracts_extends_inherited_hub_triggers(tmp_path: Path) -> None:
+    """A hub CONFIG_SCHEMA's extends-inherited ``on_*`` keys emit hub-qualified triggers."""
+    schema_dir = _write_schema(
+        tmp_path,
+        "fakehub.json",
+        {
+            "fakehub": {
+                "schemas": {
+                    "FAKEHUB_SCHEMA": {
+                        "schema": {
+                            "config_vars": {
+                                "on_tag": {
+                                    "key": "Optional",
+                                    "type": "trigger",
+                                    "docs": "Fires when a tag is read.",
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    )
+    _write_schema(
+        tmp_path,
+        "fakehub_i2c.json",
+        {
+            "fakehub_i2c": {
+                "schemas": {
+                    "CONFIG_SCHEMA": {
+                        "schema": {
+                            "extends": ["fakehub.FAKEHUB_SCHEMA"],
+                            "config_vars": {"address": {"key": "Optional"}},
+                        },
+                    },
+                },
+            },
+        },
+    )
+    result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
+    triggers = {t["id"]: t for t in result["triggers"]}
+    assert "fakehub.on_tag" in triggers
+    inherited = triggers["fakehub_i2c.on_tag"]
+    assert inherited["applies_to"] == ["fakehub_i2c"]
+    assert inherited["is_device_level"] is False
+
+
+def test_build_automations_does_not_merge_extends_outside_hub_config_schema(
+    tmp_path: Path,
+) -> None:
+    """Platform schemas and non-CONFIG_SCHEMA hub schemas keep the own-vars scan."""
+    schema_dir = _write_schema(
+        tmp_path,
+        "switch.json",
+        {
+            "switch": {
+                "schemas": {
+                    "SWITCH_SCHEMA": {
+                        "schema": {
+                            "config_vars": {
+                                "on_turn_on": {"key": "Optional", "type": "trigger"},
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    )
+    _write_schema(
+        tmp_path,
+        "template.switch.json",
+        {
+            "template.switch": {
+                "schemas": {
+                    "CONFIG_SCHEMA": {
+                        "schema": {"extends": ["switch.SWITCH_SCHEMA"]},
+                    },
+                },
+            },
+        },
+    )
+    _write_schema(
+        tmp_path,
+        "fakeled.json",
+        {
+            "fakeled": {
+                "schemas": {
+                    "BASE_SCHEMA": {
+                        "schema": {"extends": ["switch.SWITCH_SCHEMA"]},
+                    },
+                },
+            },
+        },
+    )
+    ids = {
+        t["id"]
+        for t in sync_components.build_automations(
+            schema_dir=schema_dir, component_ids={"switch.template"}
+        )["triggers"]
+    }
+    assert "switch.on_turn_on" in ids
+    assert "template.switch.on_turn_on" not in ids
+    assert "fakeled.on_turn_on" not in ids
+
+
+def test_build_automations_merged_hub_trigger_dedupes_against_base(tmp_path: Path) -> None:
+    """A CONFIG_SCHEMA extending a same-file base yields one entry per trigger id."""
+    schema_dir = _write_schema(
+        tmp_path,
+        "fakehub.json",
+        {
+            "fakehub": {
+                "schemas": {
+                    "FAKEHUB_SCHEMA": {
+                        "schema": {
+                            "config_vars": {
+                                "on_tag": {"key": "Optional", "type": "trigger"},
+                            },
+                        },
+                    },
+                    "CONFIG_SCHEMA": {
+                        "schema": {"extends": ["fakehub.FAKEHUB_SCHEMA"]},
+                    },
+                },
+            },
+        },
+    )
+    result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
+    matching = [t for t in result["triggers"] if t["id"] == "fakehub.on_tag"]
+    assert len(matching) == 1

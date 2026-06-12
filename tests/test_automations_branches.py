@@ -351,6 +351,34 @@ def test_decompose_action_scalar_falls_back_to_id_for_gate_keyed_shorthand() -> 
     assert node.params == {"id": "some_id"}
 
 
+def test_decompose_wait_until_dict_shorthand_is_a_condition() -> None:
+    """``wait_until: {api.connected:}`` decodes the omitted-gate condition."""
+    node = _decompose_action("wait_until", {"api.connected": None})
+    assert node.params == {}
+    assert [c.condition_id for c in node.conditions] == ["api.connected"]
+
+
+def test_decompose_wait_until_full_form_keeps_timeout_param() -> None:
+    """The explicit ``condition:`` gate still yields its condition plus ``timeout``."""
+    node = _decompose_action("wait_until", {"condition": {"api.connected": None}, "timeout": "5s"})
+    assert node.params == {"timeout": "5s"}
+    assert [c.condition_id for c in node.conditions] == ["api.connected"]
+
+
+def test_decompose_wait_until_timeout_only_dict_is_not_a_condition() -> None:
+    """A real config key (``timeout``) is never mistaken for a shorthand condition."""
+    node = _decompose_action("wait_until", {"timeout": "5s"})
+    assert node.params == {"timeout": "5s"}
+    assert node.conditions == []
+
+
+def test_decompose_wait_until_empty_dict_is_not_a_phantom_condition() -> None:
+    """An empty ``wait_until: {}`` stays an empty action, not a phantom condition."""
+    node = _decompose_action("wait_until", {})
+    assert node.params == {}
+    assert node.conditions == []
+
+
 def test_decompose_condition_scalar_uses_value_shorthand_key() -> None:
     """A value condition's scalar lands under its ``maybe`` key."""
     node = _decompose_condition({"display.is_displaying_page": "home_page"})
