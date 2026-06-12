@@ -6486,16 +6486,12 @@ def _extract_triggers_from_section(
         if not isinstance(schema_body, dict):
             continue
         inner = schema_body.get("schema") if isinstance(schema_body.get("schema"), dict) else None
-        # A hub's CONFIG_SCHEMA inherits triggers through ``extends``
-        # (``pn532_i2c`` ← ``pn532.PN532_SCHEMA``), so scan the merged
-        # config_vars there — the configured top-level key is the only
-        # domain the scoping/parse/write paths match. Platform schemas
-        # (dotted top_key) stay own-vars-only: their base triggers
-        # already resolve via the bare domain (``switch.on_turn_on``).
-        # Only CONFIG_SCHEMA merges — it's the one schema ESPHome
-        # validates a top-level block against; merging base-only hub
-        # schemas (``fastled_base.BASE_SCHEMA``) emits ids no YAML key
-        # ever matches.
+        # A hub's CONFIG_SCHEMA inherits triggers via ``extends``
+        # (``pn532_i2c`` ← ``pn532.PN532_SCHEMA``); scan it merged so the
+        # trigger id carries the key the user actually configures. Not
+        # platforms (base triggers already resolve via the bare domain),
+        # not other schemas (only CONFIG_SCHEMA validates a top-level
+        # block; merging ``fastled_base.BASE_SCHEMA`` emits unreachable ids).
         if inner is not None and schema_name == "CONFIG_SCHEMA" and "." not in top_key:
             cvs = _merge_extends_config_vars(inner, schema_dir)
         else:
