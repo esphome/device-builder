@@ -439,12 +439,7 @@ def test_parse_api_action_decomposes_nested_if() -> None:
 
 
 def test_parse_homeassistant_action_response_handlers() -> None:
-    """``homeassistant.action``'s on_success/on_error nest as action children (#1420).
-
-    These response handlers are configured under the action, not the
-    component — the picker fix removed the bogus ``api.on_*`` component
-    triggers but this legitimate nested form must still decompose.
-    """
+    """``homeassistant.action``'s on_success/on_error decompose as action children."""
     parsed = parse_device_yaml(_load("homeassistant_action_response_handlers.yaml"))
     assert len(parsed) == 1
     actions = parsed[0].automation.actions
@@ -457,12 +452,7 @@ def test_parse_homeassistant_action_response_handlers() -> None:
 
 
 def test_parse_http_request_action_response_handlers() -> None:
-    """``http_request.get``'s on_response/on_error nest as action children (#1420).
-
-    Like ``homeassistant.action``'s handlers, these are triggers of the
-    action, not ``http_request:`` component triggers — the picker fix
-    removed the bogus component trigger but this nested form must work.
-    """
+    """``http_request.get``'s on_response/on_error decompose as action children."""
     parsed = parse_device_yaml(_load("http_request_action_response_handlers.yaml"))
     assert len(parsed) == 1
     actions = parsed[0].automation.actions
