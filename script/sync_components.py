@@ -1252,8 +1252,7 @@ def _backfill_descriptions_from_mdx(entries: list[dict]) -> None:
     titles = _load_mdx_titles()
     if not descriptions and not field_descriptions and not titles:
         return
-    # Titles are deliberately not aliased — the chip families keep
-    # their distinct names rather than all reading "LibreTiny".
+    # Titles stay un-aliased so the chip families keep distinct names.
     aliases = _shared_docs_page_aliases(descriptions.keys())
 
     backfilled_components = 0
@@ -1388,10 +1387,7 @@ def _shared_docs_page_aliases(documented: Collection[str]) -> dict[str, str]:
     """
     Map undocumented target platforms to the documented component they auto-load.
 
-    The LibreTiny chip families (``bk72xx``, ``rtl87xx``, ``ln882x``)
-    have no per-component MDX page; their docs live on the shared
-    ``libretiny`` page their manifests ``AUTO_LOAD``. Discovered from
-    the installed ``esphome`` package so new families work unedited.
+    The LibreTiny chip families share ``libretiny``'s page this way.
     """
     out: dict[str, str] = {}
     for cid in sorted(_TARGET_PLATFORMS):

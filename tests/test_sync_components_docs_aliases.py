@@ -1,10 +1,4 @@
-"""Unit tests for ``_shared_docs_page_aliases`` in ``script/sync_components.py``.
-
-The shipped catalog only proves the aliasing worked for whatever the last
-sync introspected; these pin the discovery contract directly so a schema or
-introspection change can't silently regress the LibreTiny help text back to
-the 404 state.
-"""
+"""Unit tests for ``_shared_docs_page_aliases`` in ``script/sync_components.py``."""
 
 from __future__ import annotations
 
