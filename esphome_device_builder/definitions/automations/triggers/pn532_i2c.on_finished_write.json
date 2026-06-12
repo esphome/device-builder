@@ -1,0 +1,1 @@
+{"id":"pn532_i2c.on_finished_write","name":"Pn532 I2C → On Finished Write","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["pn532_i2c"],"is_device_level":false,"supports_list":true,"config_entries":[]}

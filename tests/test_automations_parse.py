@@ -204,6 +204,18 @@ def test_parse_flat_singleton_ignores_config_keys() -> None:
     assert parse_device_yaml(_load("inline_sun_empty.yaml")) == []
 
 
+def test_parse_hub_trigger_inherited_through_extends() -> None:
+    """``pn532_i2c.on_tag`` (extends-inherited from pn532) is recognised (#1405)."""
+    parsed = parse_device_yaml(_load("inline_pn532_i2c_on_tag.yaml"))
+    assert len(parsed) == 1
+    item = parsed[0]
+    assert item.location.kind == "component_on"
+    assert item.location.component_id == "pn532_i2c"
+    assert item.location.trigger == "on_tag"
+    assert item.automation.trigger_id == "pn532_i2c.on_tag"
+    assert [a.action_id for a in item.automation.actions] == ["logger.log"]
+
+
 # ---------------------------------------------------------------------------
 # Component action-list config fields (``open_action:`` etc.) — ``type: trigger``
 # ---------------------------------------------------------------------------

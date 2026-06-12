@@ -6482,11 +6482,20 @@ def _extract_triggers_from_section(
     # template-cover-only triggers).
     applies_to = [] if is_device_level or domain == "core" else [domain]
     singles = dict(_live_trigger_singles(top_key))
-    for schema_body in schemas.values():
+    for schema_name, schema_body in schemas.items():
         if not isinstance(schema_body, dict):
             continue
         inner = schema_body.get("schema") if isinstance(schema_body.get("schema"), dict) else None
-        cvs = (inner or {}).get("config_vars") or {}
+        # A hub's CONFIG_SCHEMA inherits triggers through ``extends``
+        # (``pn532_i2c`` ← ``pn532.PN532_SCHEMA``), so scan the merged
+        # config_vars there — the configured top-level key is the only
+        # domain the scoping/parse/write paths match. Platform schemas
+        # (dotted top_key) stay own-vars-only: their base triggers
+        # already resolve via the bare domain (``switch.on_turn_on``).
+        if inner is not None and schema_name == "CONFIG_SCHEMA" and "." not in top_key:
+            cvs = _merge_extends_config_vars(inner, schema_dir)
+        else:
+            cvs = (inner or {}).get("config_vars") or {}
         for key, raw in cvs.items():
             # Action-fields (``set_action``, ``open_action``, ``*_mode``) are
             # ``type: trigger`` in the schema too, but the component performs

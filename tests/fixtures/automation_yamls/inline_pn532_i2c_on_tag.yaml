@@ -1,0 +1,10 @@
+esphome:
+  name: x
+i2c:
+  scl: GPIO9
+  sda: GPIO8
+pn532_i2c:
+  update_interval: 2s
+  on_tag:
+    then:
+      - logger.log: tag seen
