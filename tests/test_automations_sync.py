@@ -867,7 +867,7 @@ def test_build_automations_does_not_merge_extends_outside_hub_config_schema(
 
 
 def test_build_automations_skips_action_schema_response_handlers(tmp_path: Path) -> None:
-    """``*_ACTION_SCHEMA`` on_success/on_error are action-nested, not component triggers (#1420)."""
+    """``*_ACTION_SCHEMA`` on_success/on_error are action-nested, not component triggers."""
     schema_dir = _write_schema(
         tmp_path,
         "api.json",

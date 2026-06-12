@@ -6544,7 +6544,7 @@ def _extract_triggers_from_section(
         # (homeassistant.action's on_success/on_error, http_request's
         # on_response) — configured under the action, not the component.
         # Emitting them as component triggers offers ``api: on_error:``,
-        # which ESPHome rejects (#1420).
+        # which ESPHome rejects.
         if schema_name.endswith("_ACTION_SCHEMA"):
             continue
         inner = schema_body.get("schema") if isinstance(schema_body.get("schema"), dict) else None
