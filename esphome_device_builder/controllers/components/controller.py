@@ -422,7 +422,7 @@ class ComponentCatalog:
             ),
         )
 
-    def index_name(self, component_id: str) -> str | None:
+    def index_title(self, component_id: str) -> str | None:
         """Catalog title for *component_id* from the in-RAM slim index, or ``None``."""
         entry = self._by_id.get(component_id)
         return entry.name if entry else None

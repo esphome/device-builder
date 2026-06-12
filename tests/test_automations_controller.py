@@ -32,9 +32,9 @@ def _make_controller(config_dir: Path) -> AutomationsController:
     """
     db = MagicMock()
     db.settings.rel_path = config_dir.joinpath
-    # Real index_name returns a str/None; a bare MagicMock would break the
+    # Real index_title returns a str/None; a bare MagicMock would break the
     # ``title: str | None`` serialization in ``get_available``.
-    db.components.index_name = lambda _component_id: None
+    db.components.index_title = lambda _component_id: None
     return AutomationsController(db)
 
 

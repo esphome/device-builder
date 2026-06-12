@@ -165,8 +165,10 @@ class AutomationsController:
         loop = asyncio.get_running_loop()
         scoped = await loop.run_in_executor(None, _scope_from_yaml, text)
         # Scope builders are catalog-free; stamp the catalog title here.
-        for device in scoped.devices:
-            device.title = self._db.components.index_name(device.component_id)
+        components = self._db.components
+        if components is not None:
+            for device in scoped.devices:
+                device.title = components.index_title(device.component_id)
         return AvailableAutomations(
             triggers=catalog.triggers_for_domains(scoped.domains),
             actions=catalog.actions_for_domains(scoped.domains),
