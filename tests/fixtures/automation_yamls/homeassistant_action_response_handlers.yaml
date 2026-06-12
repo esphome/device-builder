@@ -1,0 +1,16 @@
+esphome:
+  name: x
+api:
+button:
+  - platform: template
+    name: 'Toggle Demo Light'
+    id: toggle_demo
+    on_press:
+      - homeassistant.action:
+          action: light.toggle
+          data:
+            entity_id: light.demo_light
+          on_success:
+            - logger.log: 'Toggled demo light'
+          on_error:
+            - logger.log: 'Failed to toggle demo light'

@@ -438,6 +438,24 @@ def test_parse_api_action_decomposes_nested_if() -> None:
     assert set(if_node.children) == {"then", "else"}
 
 
+def test_parse_homeassistant_action_response_handlers() -> None:
+    """``homeassistant.action``'s on_success/on_error nest as action children (#1420).
+
+    These response handlers are configured under the action, not the
+    component — the picker fix removed the bogus ``api.on_*`` component
+    triggers but this legitimate nested form must still decompose.
+    """
+    parsed = parse_device_yaml(_load("homeassistant_action_response_handlers.yaml"))
+    assert len(parsed) == 1
+    actions = parsed[0].automation.actions
+    assert len(actions) == 1
+    action = actions[0]
+    assert action.action_id == "homeassistant.action"
+    assert set(action.children) == {"on_success", "on_error"}
+    assert [a.action_id for a in action.children["on_success"]] == ["logger.log"]
+    assert [a.action_id for a in action.children["on_error"]] == ["logger.log"]
+
+
 def test_parse_api_action_accepts_legacy_service_key() -> None:
     """The deprecated ``service:`` discriminator parses to the same shape."""
     legacy = (

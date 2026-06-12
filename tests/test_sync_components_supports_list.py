@@ -41,7 +41,6 @@ _SINGLE_ONLY = (
     "touchscreen.on_release",
     "wifi.on_connect",
     "wifi.on_disconnect",
-    "http_request.on_response",
     "ethernet.on_connect",
 )
 

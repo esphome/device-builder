@@ -6540,6 +6540,13 @@ def _extract_triggers_from_section(
     for schema_name, schema_body in schemas.items():
         if not isinstance(schema_body, dict):
             continue
+        # ``*_ACTION_SCHEMA`` holds an action's nested response handlers
+        # (homeassistant.action's on_success/on_error, http_request's
+        # on_response) — configured under the action, not the component.
+        # Emitting them as component triggers offers ``api: on_error:``,
+        # which ESPHome rejects (#1420).
+        if schema_name.endswith("_ACTION_SCHEMA"):
+            continue
         inner = schema_body.get("schema") if isinstance(schema_body.get("schema"), dict) else None
         # A hub's CONFIG_SCHEMA inherits triggers via ``extends``
         # (``pn532_i2c`` ← ``pn532.PN532_SCHEMA``); scan it merged so the
