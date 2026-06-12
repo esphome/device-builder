@@ -1,0 +1,1 @@
+{"id":"rc522_i2c.on_tag","name":"Rc522 I2C → On Tag","description":"An automation to perform when a tag is read. See [`on_tag` Trigger](https://esphome.io/components/binary_sensor/rc522#rc522-on_tag).","docs_url":"https://esphome.io/components/binary_sensor/rc522#configuration-variables","applies_to":["rc522_i2c"],"is_device_level":false,"supports_list":true,"config_entries":[]}

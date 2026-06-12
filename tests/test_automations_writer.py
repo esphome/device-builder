@@ -463,6 +463,37 @@ def test_delete_one_handler_keeps_sibling_on_singleton() -> None:
     ]
 
 
+def test_upsert_adds_second_handler_to_pn532_i2c_block() -> None:
+    """A hub's extends-inherited trigger splices under the configured key (#1405)."""
+    text = _load("inline_pn532_i2c_on_tag.yaml")
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id="pn532_i2c.on_tag_removed",
+            actions=[ActionNode(action_id="logger.log", params={"format": "tag gone"})],
+        ),
+        location=ComponentOnLocation(component_id="pn532_i2c", trigger="on_tag_removed"),
+    )
+    assert "on_tag:" in new_text
+    assert "on_tag_removed:" in new_text
+    assert "update_interval: 2s" in new_text
+    assert {p.location.trigger for p in parse_device_yaml(new_text)} == {
+        "on_tag",
+        "on_tag_removed",
+    }
+
+
+def test_delete_inline_handler_on_pn532_i2c_block() -> None:
+    """Deleting ``on_tag`` keeps the hub block's config keys."""
+    text = _load("inline_pn532_i2c_on_tag.yaml")
+    location = parse_device_yaml(text)[0].location
+    new_text, diff = render_delete(text, location=location)
+    assert "on_tag:" not in new_text
+    assert "update_interval: 2s" in new_text
+    assert parse_device_yaml(new_text) == []
+    assert diff.replacement == ""
+
+
 def test_round_trip_mqtt_singleton_resolves_mqtt_domain() -> None:
     """``mqtt.on_message``/``on_connect`` are ambiguous keys but resolve to ``mqtt:``."""
     text = _load("inline_mqtt_singleton.yaml")
