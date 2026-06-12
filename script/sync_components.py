@@ -47,7 +47,7 @@ import textwrap
 import unicodedata
 import urllib.request
 import zipfile
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Collection, Iterable, Iterator
 from dataclasses import dataclass, field
 from enum import StrEnum
 from functools import cache
@@ -1252,6 +1252,9 @@ def _backfill_descriptions_from_mdx(entries: list[dict]) -> None:
     titles = _load_mdx_titles()
     if not descriptions and not field_descriptions and not titles:
         return
+    # Titles are deliberately not aliased — the chip families keep
+    # their distinct names rather than all reading "LibreTiny".
+    aliases = _shared_docs_page_aliases(descriptions.keys())
 
     backfilled_components = 0
     backfilled_names = 0
@@ -1259,6 +1262,7 @@ def _backfill_descriptions_from_mdx(entries: list[dict]) -> None:
     for entry in entries:
         cid = entry["id"]
         stem = cid.split(".", 1)[-1]
+        alias = aliases.get(cid)
 
         # Name: when the schema had no See-also link, ``_resolve_name``
         # fell back to a title-cased stem (e.g. "ESPHome" for
@@ -1271,7 +1275,11 @@ def _backfill_descriptions_from_mdx(entries: list[dict]) -> None:
 
         # Component-level description.
         if not (entry.get("description") or "").strip():
-            text = descriptions.get(cid) or descriptions.get(stem)
+            text = (
+                descriptions.get(cid)
+                or descriptions.get(stem)
+                or (descriptions.get(alias) if alias else None)
+            )
             if text:
                 entry["description"] = text
                 backfilled_components += 1
@@ -1281,10 +1289,15 @@ def _backfill_descriptions_from_mdx(entries: list[dict]) -> None:
         # ``/components/<domain>/<stem>/`` for platform-providing
         # components, ``/components/<bare>/`` for non-platform).
         if not entry.get("docs_url"):
-            entry["docs_url"] = _derive_docs_url(cid)
+            entry["docs_url"] = _derive_docs_url(alias or cid)
 
         # Per-field descriptions inside config_entries.
-        field_map = field_descriptions.get(cid) or field_descriptions.get(stem) or {}
+        field_map = (
+            field_descriptions.get(cid)
+            or field_descriptions.get(stem)
+            or (field_descriptions.get(alias) if alias else None)
+            or {}
+        )
         if field_map:
             backfilled_fields += _apply_field_descriptions(
                 entry.get("config_entries") or [],
@@ -1369,6 +1382,26 @@ def _stem_to_label(stem: str) -> str:
     for k, v in _ACRONYM_NORMALISATIONS.items():
         name = re.sub(rf"\b{re.escape(k)}\b", v, name)
     return name
+
+
+def _shared_docs_page_aliases(documented: Collection[str]) -> dict[str, str]:
+    """
+    Map undocumented target platforms to the documented component they auto-load.
+
+    The LibreTiny chip families (``bk72xx``, ``rtl87xx``, ``ln882x``)
+    have no per-component MDX page; their docs live on the shared
+    ``libretiny`` page their manifests ``AUTO_LOAD``. Discovered from
+    the installed ``esphome`` package so new families work unedited.
+    """
+    out: dict[str, str] = {}
+    for cid in sorted(_TARGET_PLATFORMS):
+        if cid in documented:
+            continue
+        for dep in introspect_component(cid).get("auto_load") or []:
+            if dep in documented:
+                out[cid] = dep
+                break
+    return out
 
 
 def _derive_docs_url(component_id: str) -> str:
@@ -3434,6 +3467,9 @@ _ACRONYM_NORMALISATIONS: dict[str, str] = {
     "Esp8266": "ESP8266",
     "Esphome": "ESPHome",
     "Rp2040": "RP2040",
+    "Bk72Xx": "BK72xx",
+    "Rtl87Xx": "RTL87xx",
+    "Ln882X": "LN882x",
     "Esp32C3": "ESP32-C3",
     "Esp32S2": "ESP32-S2",
     "Esp32S3": "ESP32-S3",
