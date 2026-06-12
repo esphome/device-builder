@@ -197,6 +197,14 @@ async def test_get_component_bodies_omits_unknown_ids() -> None:
     assert await cat.get_component_bodies(component_ids=["does-not-exist"]) == {}
 
 
+def test_index_title_returns_catalog_name_or_none() -> None:
+    """``index_title`` is the slim-index name for a known id, else ``None``."""
+    cat = ComponentCatalog()
+    cat._by_id = {"wifi": _make_entry(entry_id="wifi", name="WiFi Component")}
+    assert cat.index_title("wifi") == "WiFi Component"
+    assert cat.index_title("does-not-exist") is None
+
+
 # ── get_components() ────────────────────────────────────────────────
 
 
