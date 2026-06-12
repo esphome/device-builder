@@ -635,8 +635,11 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
     @api_command("devices/get_config")
     async def get_config(self, *, configuration: str, **kwargs: Any) -> str:
-        """Read device config YAML."""
-        return await self._read_yaml_async(self._db.settings.rel_path(configuration))
+        """Read device config YAML; a missing file is NOT_FOUND, not internal_error."""
+        try:
+            return await self._read_yaml_async(self._db.settings.rel_path(configuration))
+        except FileNotFoundError as err:
+            raise CommandError(ErrorCode.NOT_FOUND, f"Device {configuration!r} not found") from err
 
     @api_command("devices/update_config")
     async def update_config(self, *, configuration: str, content: str, **kwargs: Any) -> None:

@@ -66,7 +66,7 @@ def test_atomic_write_make_parents_creates_missing_dirs(tmp_path: Path) -> None:
 def test_atomic_write_without_make_parents_raises_on_missing_dir(tmp_path: Path) -> None:
     """Without ``make_parents`` a missing target directory surfaces as an error."""
     target = tmp_path / "missing" / "demo.bin"
-    with pytest.raises(OSError):
+    with pytest.raises(FileNotFoundError):
         atomic_write(target, b"payload")
     assert not target.exists()
 
