@@ -297,9 +297,9 @@ def _splice_into_domain_block(existing: str, domain: str, block: str) -> str | N
     Insert the platform-list item from *block* under an existing ``<domain>:``.
 
     The item is re-indented to the existing list's dash indent so a
-    zero- or 4-space-indented block stays parseable (#1411). Returns
-    ``None`` when the existing file has no ``<domain>:`` section so
-    the caller can fall back to appending.
+    zero- or 4-space-indented block stays parseable. Returns ``None``
+    when the existing file has no ``<domain>:`` section so the caller
+    can fall back to appending.
     """
     block_lines = block.splitlines()
     if len(block_lines) < 2 or block_lines[0].rstrip() != f"{domain}:":
@@ -312,10 +312,13 @@ def _splice_into_domain_block(existing: str, domain: str, block: str) -> str | N
 
     dash_indent = _list_item_indent(file_lines, block_start, last_content)
     src_indent = _leading_ws(block_lines[1])
-    items = [
-        line if not line.strip() else dash_indent + line[len(src_indent) :]
-        for line in block_lines[1:]
-    ]
+    items: list[str] = []
+    for line in block_lines[1:]:
+        if not line.strip():
+            items.append(line)
+            continue
+        rest = line[len(src_indent) :] if line.startswith(src_indent) else line.lstrip()
+        items.append(dash_indent + rest)
 
     before = "".join(file_lines[:last_content])
     after = "".join(file_lines[last_content:])
@@ -369,7 +372,7 @@ def _mapping_body_to_list_item(body_lines: list[str]) -> list[str]:
     Convert a mapping body at any indent to a canonically indented list item.
 
     The ``- `` marker is anchored on the first non-comment key line;
-    a leading ``# ...`` keeps its position so a comment-decorated
+    a leading ``# ...`` stays above the marker so a comment-decorated
     mapping doesn't demote into a ``- # comment`` null head item.
     """
     body_indent = ""

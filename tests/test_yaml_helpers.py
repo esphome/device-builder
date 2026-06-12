@@ -1071,6 +1071,28 @@ def test_merge_component_yaml_splices_into_four_space_list() -> None:
     assert len(yaml.safe_load(result)["switch"]) == 2
 
 
+def test_merge_component_yaml_splices_into_comment_only_block() -> None:
+    """A body with no list item falls back to the canonical dash indent."""
+    component = _component(component_id="switch.gpio", category=ComponentCategory.SWITCH)
+    fields: dict[str, Any] = {"pin": "GPIO11"}
+
+    existing = "switch:\n  # populated later\n"
+    result = merge_component_yaml(existing, component, fields)
+
+    assert "\n  - platform: gpio\n    pin: GPIO11\n" in result
+    assert len(yaml.safe_load(result)["switch"]) == 1
+
+
+def test_splice_into_domain_block_preserves_blank_lines_in_item() -> None:
+    """Blank lines inside the generated item survive the re-indent."""
+    existing = "switch:\n- platform: template\n  name: a\n"
+    block = "switch:\n  - platform: gpio\n\n    pin: GPIO11\n"
+    result = _splice_into_domain_block(existing, "switch", block)
+
+    assert result is not None
+    assert "\n- platform: gpio\n\n  pin: GPIO11\n" in result
+
+
 def test_merge_component_yaml_multi_conf_non_canonical_list() -> None:
     """A ``multi_conf`` splice follows the existing list's 4-space dash indent."""
     component = _component(component_id="rtttl", category=ComponentCategory.MISC, multi_conf=True)
