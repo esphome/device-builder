@@ -32,6 +32,9 @@ def _make_controller(config_dir: Path) -> AutomationsController:
     """
     db = MagicMock()
     db.settings.rel_path = config_dir.joinpath
+    # Real index_name returns a str/None; a bare MagicMock would break the
+    # ``title: str | None`` serialization in ``get_available``.
+    db.components.index_name = lambda _component_id: None
     return AutomationsController(db)
 
 
@@ -284,6 +287,31 @@ async def test_get_available_lists_configured_component_instances(tmp_path: Path
     assert ("switch.gpio", "relay_two") in devices
     # A single-reading platform with no sub-entity blocks is never a container.
     assert devices[("switch.gpio", "relay_one")]["is_entity_container"] is False
+
+
+async def test_get_available_stamps_catalog_title(
+    tmp_path: Path, session_component_catalog
+) -> None:
+    """Each instance carries its catalog title so a nameless singleton reads human."""
+    config = tmp_path / "device.yaml"
+    config.write_text(
+        "esphome:\n  name: d\n"
+        "wifi:\n  ssid: home\n"
+        "switch:\n"
+        "  - platform: gpio\n"
+        "    id: relay_one\n"
+        "    name: 'Relay 1'\n"
+        "    pin: GPIO5\n",
+        encoding="utf-8",
+    )
+    controller = _make_controller(tmp_path)
+    controller._db.components = session_component_catalog
+    result = await controller.get_available(configuration="device.yaml")
+    devices = {(d["component_id"], d["id"]): d for d in result["devices"]}
+    # Nameless singleton carries the catalog title for the picker.
+    assert devices[("wifi", "wifi")]["name"] is None
+    assert devices[("wifi", "wifi")]["title"] == "WiFi Component"
+    assert devices[("switch.gpio", "relay_one")]["title"] == "GPIO Switch"
 
 
 async def test_get_available_surfaces_multi_entity_subentities(tmp_path: Path) -> None:

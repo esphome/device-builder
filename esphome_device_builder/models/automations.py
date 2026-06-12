@@ -462,6 +462,8 @@ class AvailableComponentInstance(DataClassORJSONMixin):
     component_id: str
     id: str
     name: str | None = None
+    # Catalog title — the picker's human name when the instance has no ``name:``.
+    title: str | None = None
     is_entity_container: bool = False
     parent_id: str | None = None
 

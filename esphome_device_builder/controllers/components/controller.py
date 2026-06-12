@@ -422,6 +422,11 @@ class ComponentCatalog:
             ),
         )
 
+    def index_name(self, component_id: str) -> str | None:
+        """Catalog title for *component_id* from the in-RAM slim index, or ``None``."""
+        entry = self._by_id.get(component_id)
+        return entry.name if entry else None
+
     async def get_body(self, component_id: str) -> ComponentCatalogEntry | None:
         """Return the hydrated body for *component_id*, or ``None`` if missing."""
         return await self._body_store.get(component_id)
