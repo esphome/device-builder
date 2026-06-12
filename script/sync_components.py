@@ -319,7 +319,7 @@ _DEPRECATED_FIELDS: frozenset[tuple[str, str]] = frozenset(
 # Keep this list focused on cross-cutting infrastructure. Component-
 # specific gates (e.g. "this LED option requires this LED platform")
 # belong in the per-component schema via ``depends_on`` /
-# ``depends_on_value`` instead.
+# ``depends_on_value_any`` instead.
 _COMPONENT_GATED_KEYS: dict[str, str] = {
     # MQTT entity options (apply to every entity when ``mqtt:`` is set)
     "qos": "mqtt",
@@ -607,6 +607,14 @@ _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
             "Log BLE NUS traffic to the ESPHome log for troubleshooting. "
             "Bare `debug:` enables hex logging with sensible defaults."
         ),
+    },
+    # ``ethernet.clk`` is ``cv.Optional`` in the schema but a final-validate
+    # step requires it for RMII PHYs unless the deprecated ``clk_mode``
+    # migrates into it (removal scheduled 2026.7.0). Mark it required on the
+    # main form; the variant gate already scopes it to the RMII types.
+    ("ethernet", "clk"): {
+        "required": True,
+        "advanced": False,
     },
 }
 
@@ -1966,10 +1974,15 @@ def _extract_config_entries(
     ``component_id`` is used to filter ``_DEPRECATED_FIELDS`` at the
     top level only — nested fields with the same name are unaffected.
     """
-    schema = _config_schema(section).get("schema") or {}
-    if not schema:
-        return []
-    entries = _convert_config_vars(schema, schema_dir, component_id=component_id)
+    config_schema = _config_schema(section)
+    typed_node = _typed_node(config_schema, schema_dir)
+    if typed_node is not None:
+        entries = _build_typed_config_entries(typed_node, schema_dir, component_id=component_id)
+    else:
+        schema = config_schema.get("schema") or {}
+        if not schema:
+            return []
+        entries = _convert_config_vars(schema, schema_dir, component_id=component_id)
     # Apply the visibility-cascade rule once at the top of the
     # tree: a stricter parent forces all descendants at-least
     # as strict. ``YAML_ONLY`` > ``ADVANCED`` > no setting. The
@@ -2261,50 +2274,54 @@ def _typed_expanding() -> Iterator[None]:
         _expanding_typed[0] = False
 
 
-def _build_typed_config_entries(typed_node: dict, schema_dir: Path) -> list[dict]:
+def _build_typed_config_entries(
+    typed_node: dict, schema_dir: Path, *, component_id: str = ""
+) -> list[dict]:
     """
     Render a typed_schema node as a discriminator select + gated fields.
 
-    A field in every variant is ungated; one absent from a single variant
-    uses ``depends_on_value_not``; narrower overlaps emit a gated copy per
-    variant.
+    A field defined identically across variants is emitted once, gated on
+    the set of variants carrying it (``depends_on_value_any``); a field in
+    every variant is ungated. Differing definitions (e.g. a required local
+    ``path`` vs an optional git sub-path) stay per-variant so each gate
+    carries its own label / requiredness / default.
     """
     typed_key = typed_node.get("typed_key") or "type"
     types = typed_node.get("types") or {}
-    all_types = set(types)
 
-    discriminator = _convert_field(
-        typed_key, {"key": "Required", "values": {t: {} for t in types}}, schema_dir
-    )
+    with _typed_expanding():
+        discriminator = _convert_field(
+            typed_key, {"key": "Required", "values": {t: {} for t in types}}, schema_dir
+        )
 
-    # field key → [(type_name, converted entry)]; dict keeps first-seen order.
-    by_key: dict[str, list[tuple[str, dict]]] = {}
-    for type_name, variant in types.items():
-        body = variant if isinstance(variant, dict) else {}
-        for child in _convert_config_vars(body, schema_dir):
-            if child["key"] != typed_key:
-                by_key.setdefault(child["key"], []).append((type_name, child))
+        # field key → [(type_name, converted entry)]; dict keeps first-seen order.
+        by_key: dict[str, list[tuple[str, dict]]] = {}
+        for type_name, variant in types.items():
+            body = variant if isinstance(variant, dict) else {}
+            for child in _convert_config_vars(body, schema_dir, component_id=component_id):
+                if child["key"] != typed_key:
+                    by_key.setdefault(child["key"], []).append((type_name, child))
 
     variant_children: list[dict] = []
     for occurrences in by_key.values():
-        present = {t for t, _ in occurrences}
-        base = occurrences[0][1]
-        # Collapse to a single entry only when every variant defines the field
-        # identically. Differing definitions (e.g. a required local ``path``
-        # vs an optional git sub-path) must stay per-variant so each gate
-        # carries its own label / requiredness / default.
-        identical = all(child == base for _, child in occurrences)
-        if identical and present == all_types:
-            variant_children.append(base)
-        elif identical and len(present) == len(all_types) - 1:
-            (missing,) = all_types - present
-            variant_children.append(
-                {**base, "depends_on": typed_key, "depends_on_value_not": missing}
-            )
-        else:
-            for type_name, child in occurrences:
+        # Group identical definitions; each group's gate is the variant
+        # subset that carries it, in ``types`` declaration order.
+        groups: list[tuple[dict, list[str]]] = []
+        for type_name, child in occurrences:
+            for existing, gate in groups:
+                if child == existing:
+                    gate.append(type_name)
+                    break
+            else:
+                groups.append((child, [type_name]))
+        for child, gate in groups:
+            # Gate members are unique by construction, so a full-length
+            # gate means the field is in every variant: ungated.
+            if len(gate) == len(types):
+                variant_children.append(child)
+            else:
                 variant_children.append(
-                    {**child, "depends_on": typed_key, "depends_on_value": type_name}
+                    {**child, "depends_on": typed_key, "depends_on_value_any": gate}
                 )
 
     return [discriminator, *_sort_entries(variant_children)]
@@ -2561,8 +2578,7 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
     typed_node = _typed_node(raw, schema_dir)
     if typed_node is not None and not _expanding_typed[0]:
         entry["type"] = "nested"
-        with _typed_expanding():
-            entry["config_entries"] = _build_typed_config_entries(typed_node, schema_dir) or None
+        entry["config_entries"] = _build_typed_config_entries(typed_node, schema_dir) or None
         return entry
 
     # Recurse into nested schemas for type=nested.
