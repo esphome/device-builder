@@ -289,10 +289,8 @@ async def test_get_available_lists_configured_component_instances(tmp_path: Path
     assert devices[("switch.gpio", "relay_one")]["is_entity_container"] is False
 
 
-async def test_get_available_stamps_catalog_title(
-    tmp_path: Path, session_component_catalog
-) -> None:
-    """Each instance carries its catalog title so a nameless singleton reads human."""
+async def test_get_available_stamps_catalog_title(tmp_path: Path) -> None:
+    """Every instance's ``title`` is the catalog lookup of its ``component_id``."""
     config = tmp_path / "device.yaml"
     config.write_text(
         "esphome:\n  name: d\n"
@@ -305,13 +303,15 @@ async def test_get_available_stamps_catalog_title(
         encoding="utf-8",
     )
     controller = _make_controller(tmp_path)
-    controller._db.components = session_component_catalog
+    # Stub the catalog so the test pins propagation, not specific titles
+    # (which drift when the catalog is regenerated).
+    controller._db.components.index_title = lambda cid: f"Title[{cid}]"
     result = await controller.get_available(configuration="device.yaml")
     devices = {(d["component_id"], d["id"]): d for d in result["devices"]}
-    # Nameless singleton carries the catalog title for the picker.
+    # Keyed on component_id, stamped regardless of whether name is set.
     assert devices[("wifi", "wifi")]["name"] is None
-    assert devices[("wifi", "wifi")]["title"] == "WiFi Component"
-    assert devices[("switch.gpio", "relay_one")]["title"] == "GPIO Switch"
+    assert devices[("wifi", "wifi")]["title"] == "Title[wifi]"
+    assert devices[("switch.gpio", "relay_one")]["title"] == "Title[switch.gpio]"
 
 
 async def test_get_available_surfaces_multi_entity_subentities(tmp_path: Path) -> None:
