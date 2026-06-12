@@ -6492,6 +6492,10 @@ def _extract_triggers_from_section(
         # domain the scoping/parse/write paths match. Platform schemas
         # (dotted top_key) stay own-vars-only: their base triggers
         # already resolve via the bare domain (``switch.on_turn_on``).
+        # Only CONFIG_SCHEMA merges — it's the one schema ESPHome
+        # validates a top-level block against; merging base-only hub
+        # schemas (``fastled_base.BASE_SCHEMA``) emits ids no YAML key
+        # ever matches.
         if inner is not None and schema_name == "CONFIG_SCHEMA" and "." not in top_key:
             cvs = _merge_extends_config_vars(inner, schema_dir)
         else:
