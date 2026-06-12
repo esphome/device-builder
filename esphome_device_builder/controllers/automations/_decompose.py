@@ -189,9 +189,9 @@ def _decompose_action(action_id: str, raw_params: Any) -> ActionNode:
     )
 
 
-def _is_dict_shorthand_condition(action: AutomationAction, body: dict) -> bool:
+def _is_dict_shorthand_condition(action: AutomationAction, body: dict[str, Any]) -> bool:
     """Whether *body* is a ``wait_until``-style condition with the gate key omitted."""
-    if action.scalar_shorthand_key not in _CONDITION_GATE_KEYS:
+    if not body or action.scalar_shorthand_key not in _CONDITION_GATE_KEYS:
         return False
     keys = body.keys()
     if keys & _CONDITION_GATE_KEYS:

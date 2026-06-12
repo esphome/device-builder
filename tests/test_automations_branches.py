@@ -372,6 +372,13 @@ def test_decompose_wait_until_timeout_only_dict_is_not_a_condition() -> None:
     assert node.conditions == []
 
 
+def test_decompose_wait_until_empty_dict_is_not_a_phantom_condition() -> None:
+    """An empty ``wait_until: {}`` stays an empty action, not a phantom condition."""
+    node = _decompose_action("wait_until", {})
+    assert node.params == {}
+    assert node.conditions == []
+
+
 def test_decompose_condition_scalar_uses_value_shorthand_key() -> None:
     """A value condition's scalar lands under its ``maybe`` key."""
     node = _decompose_condition({"display.is_displaying_page": "home_page"})
