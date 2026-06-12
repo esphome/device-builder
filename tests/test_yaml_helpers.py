@@ -1083,6 +1083,57 @@ def test_merge_component_yaml_splices_into_comment_only_block() -> None:
     assert len(yaml.safe_load(result)["switch"]) == 1
 
 
+@pytest.mark.parametrize(
+    ("dash_indent", "existing"),
+    [
+        pytest.param(
+            "",
+            "binary_sensor:\n- platform: template\n  name: a\n  filters:\n  - delayed_off: 5ms\n",
+            id="zero_indent",
+        ),
+        pytest.param(
+            "    ",
+            "binary_sensor:\n"
+            "    - platform: template\n"
+            "      name: a\n"
+            "      filters:\n"
+            "        - delayed_off: 5ms\n",
+            id="four_space",
+        ),
+    ],
+)
+def test_merge_component_yaml_splices_multi_level_item(dash_indent: str, existing: str) -> None:
+    """Every nesting level of a spliced multi-level item stays parseable and intact."""
+    component = _component(
+        component_id="binary_sensor.gpio", category=ComponentCategory.BINARY_SENSOR
+    )
+    fields: dict[str, Any] = {
+        "pin": {"number": "GPIO11", "mode": {"input": True}},
+        "filters": [{"delayed_on": "10ms"}],
+    }
+
+    result = merge_component_yaml(existing, component, fields)
+
+    expected_item = (
+        f"{dash_indent}- platform: gpio\n"
+        f"{dash_indent}  pin:\n"
+        f"{dash_indent}    number: GPIO11\n"
+        f"{dash_indent}    mode:\n"
+        f"{dash_indent}      input: true\n"
+        f"{dash_indent}  filters:\n"
+        f"{dash_indent}    - delayed_on: 10ms\n"
+    )
+    assert expected_item in result
+    assert yaml.safe_load(result)["binary_sensor"] == [
+        {"platform": "template", "name": "a", "filters": [{"delayed_off": "5ms"}]},
+        {
+            "platform": "gpio",
+            "pin": {"number": "GPIO11", "mode": {"input": True}},
+            "filters": [{"delayed_on": "10ms"}],
+        },
+    ]
+
+
 def test_splice_into_domain_block_preserves_blank_lines_in_item() -> None:
     """Blank lines inside the generated item survive the re-indent."""
     existing = "switch:\n- platform: template\n  name: a\n"
