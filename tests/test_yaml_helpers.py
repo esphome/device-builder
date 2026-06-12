@@ -52,7 +52,12 @@ from esphome_device_builder.helpers.yaml import (
     rewrite_yaml_scalar,
     upsert_yaml_leaf_under_top_block,
 )
-from esphome_device_builder.helpers.yaml.scalar import _plain_is_fast_safe, _plain_is_safe
+from esphome_device_builder.helpers.yaml.component import _list_item_indent
+from esphome_device_builder.helpers.yaml.scalar import (
+    ESPHOME_YAML_INDENT,
+    _plain_is_fast_safe,
+    _plain_is_safe,
+)
 from esphome_device_builder.models.common import ConfigEntry, ConfigEntryType
 from esphome_device_builder.models.components import (
     ComponentCatalogEntry,
@@ -1132,6 +1137,20 @@ def test_merge_component_yaml_splices_multi_level_item(dash_indent: str, existin
             "filters": [{"delayed_on": "10ms"}],
         },
     ]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param([], id="empty"),
+        pytest.param(["  # populated later\n"], id="comment_only"),
+        pytest.param(["  key: value\n"], id="mapping_body"),
+    ],
+)
+def test_list_item_indent_falls_back_to_canonical(body: list[str]) -> None:
+    """A body with no list item yields the canonical dash indent."""
+    lines = ["switch:\n", *body]
+    assert _list_item_indent(lines, 0, len(lines)) == ESPHOME_YAML_INDENT
 
 
 def test_splice_into_domain_block_preserves_blank_lines_in_item() -> None:
