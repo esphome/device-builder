@@ -1047,6 +1047,41 @@ def test_merge_component_yaml_splice_handles_trailing_blank_lines() -> None:
     assert "- platform: dht" in sensor_block
 
 
+def test_merge_component_yaml_splices_into_zero_indented_list() -> None:
+    """The new item adopts a column-0 dash indent so the result stays parseable."""
+    component = _component(component_id="switch.gpio", category=ComponentCategory.SWITCH)
+    fields: dict[str, Any] = {"pin": "GPIO11"}
+
+    existing = "switch:\n- platform: template\n  name: a\n"
+    result = merge_component_yaml(existing, component, fields)
+
+    assert "\n- platform: gpio\n  pin: GPIO11\n" in result
+    assert len(yaml.safe_load(result)["switch"]) == 2
+
+
+def test_merge_component_yaml_splices_into_four_space_list() -> None:
+    """The new item adopts a 4-space dash indent so the result stays parseable."""
+    component = _component(component_id="switch.gpio", category=ComponentCategory.SWITCH)
+    fields: dict[str, Any] = {"pin": "GPIO11"}
+
+    existing = "switch:\n    - platform: template\n      name: a\n"
+    result = merge_component_yaml(existing, component, fields)
+
+    assert "\n    - platform: gpio\n      pin: GPIO11\n" in result
+    assert len(yaml.safe_load(result)["switch"]) == 2
+
+
+def test_merge_component_yaml_multi_conf_non_canonical_list() -> None:
+    """A ``multi_conf`` splice follows the existing list's 4-space dash indent."""
+    component = _component(component_id="rtttl", category=ComponentCategory.MISC, multi_conf=True)
+
+    existing = "rtttl:\n    - id: rtttl_1\n      output: out1\n"
+    result = merge_component_yaml(existing, component, {"id": "rtttl_2", "output": "buzz"})
+
+    assert "\n    - id: rtttl_2\n      output: buzz\n" in result
+    assert len(yaml.safe_load(result)["rtttl"]) == 2
+
+
 def test_merge_component_yaml_accepts_incomplete_draft() -> None:
     """A syntactically broken draft is appended-merged, not rejected."""
     component = _component(component_id="i2c", category=ComponentCategory.BUS)
@@ -1205,6 +1240,26 @@ def test_mapping_body_to_list_item_preserves_blank_lines() -> None:
         "",
         "    output: buzz",
     ]
+
+
+def test_mapping_body_to_list_item_single_space_body() -> None:
+    """A 1-space-indented body still gets the ``- `` marker, re-emitted canonically."""
+    body = [" sda: GPIO21", " scl: GPIO22"]
+    assert _mapping_body_to_list_item(body) == [
+        "  - sda: GPIO21",
+        "    scl: GPIO22",
+    ]
+
+
+def test_merge_component_yaml_multi_conf_single_space_mapping_body() -> None:
+    """A 1-space mapping body normalises to list form and the merge stays parseable."""
+    component = _component(component_id="rtttl", category=ComponentCategory.MISC, multi_conf=True)
+
+    existing = "rtttl:\n id: rtttl_1\n output: out1\n"
+    result = merge_component_yaml(existing, component, {"id": "rtttl_2", "output": "buzz"})
+
+    parsed = yaml.safe_load(result)["rtttl"]
+    assert [item["id"] for item in parsed] == ["rtttl_1", "rtttl_2"]
 
 
 def test_generate_component_yaml_multi_conf_emits_list_form() -> None:
