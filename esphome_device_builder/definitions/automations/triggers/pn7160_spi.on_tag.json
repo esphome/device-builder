@@ -1,0 +1,1 @@
+{"id":"pn7160_spi.on_tag","name":"Pn7160 Spi → On Tag","description":"An automation to perform when a tag is first read. See [`on_tag` Trigger](https://esphome.io/components/pn7160#pn7160-on_tag).","docs_url":"https://esphome.io/components/pn7160#configuration-variables","applies_to":["pn7160_spi"],"is_device_level":false,"supports_list":true,"config_entries":[]}

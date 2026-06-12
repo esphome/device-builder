@@ -15,10 +15,12 @@ from pathlib import Path
 
 import pytest
 
-from script.sync_components import (  # type: ignore[import-not-found]
+import script.sync_components as sc  # type: ignore[import-not-found]
+from script.sync_components import (
     _FONT_FILE_NODE,
     _RAW_NODE_OVERRIDES,
     _convert_field,
+    _extract_config_entries,
 )
 
 
@@ -53,13 +55,13 @@ def test_direct_typed_node_becomes_nested_discriminator(schema_dir: Path) -> Non
     assert {o["value"] for o in children["type"]["options"]} == {"local", "web", "memory"}
     # Variant fields are gated by the discriminator.
     assert children["path"]["depends_on"] == "type"
-    assert children["path"]["depends_on_value"] == "local"
-    assert children["url"]["depends_on_value"] == "web"
-    assert children["icon"]["depends_on_value"] == "memory"
+    assert children["path"]["depends_on_value_any"] == ["local"]
+    assert children["url"]["depends_on_value_any"] == ["web"]
+    assert children["icon"]["depends_on_value_any"] == ["memory"]
 
 
-def test_shared_field_uses_value_not_when_absent_from_one_type(schema_dir: Path) -> None:
-    """A field in every variant but one gates with ``depends_on_value_not``."""
+def test_subset_shared_field_gates_on_the_subset(schema_dir: Path) -> None:
+    """A field shared by a subset of variants emits once, gated on that subset."""
     raw = {
         "key": "Required",
         "type": "typed",
@@ -81,12 +83,12 @@ def test_shared_field_uses_value_not_when_absent_from_one_type(schema_dir: Path)
         },
     }
     children = _children(_convert_field("file", raw, schema_dir))
-    # ``weight`` lives in gfonts + web (all but ``local``) → single gated entry.
+    # ``weight`` lives in gfonts + web → single entry gated on both.
     assert children["weight"]["depends_on"] == "type"
-    assert children["weight"]["depends_on_value_not"] == "local"
+    assert children["weight"]["depends_on_value_any"] == ["gfonts", "web"]
     assert children["weight"]["depends_on_value"] is None
-    assert children["family"]["depends_on_value"] == "gfonts"
-    assert children["url"]["depends_on_value"] == "web"
+    assert children["family"]["depends_on_value_any"] == ["gfonts"]
+    assert children["url"]["depends_on_value_any"] == ["web"]
 
 
 def test_field_in_every_type_is_ungated(schema_dir: Path) -> None:
@@ -129,10 +131,8 @@ def test_typed_node_via_extends_ref(schema_dir: Path) -> None:
     assert entry["type"] == "nested"
     children = _children(entry)
     assert {o["value"] for o in children["source"]["options"]} == {"local", "web"}
-    # Two-type union: a single-type field is "all but one", so it gates with
-    # ``depends_on_value_not`` (path shows when source != web, i.e. local).
     assert children["path"]["depends_on"] == "source"
-    assert children["path"]["depends_on_value_not"] == "web"
+    assert children["path"]["depends_on_value_any"] == ["local"]
 
 
 def test_self_referential_typed_node_is_depth_bounded(schema_dir: Path) -> None:
@@ -207,9 +207,9 @@ def test_font_file_builds_local_gfonts_web_editor(schema_dir: Path) -> None:
     assert {o["value"] for o in children["type"]["options"]} == {"local", "gfonts", "web"}
     assert children["type"]["required"] is True
     # One required field per source.
-    assert children["path"]["depends_on_value"] == "local"
-    assert children["family"]["depends_on_value"] == "gfonts"
-    assert children["url"]["depends_on_value"] == "web"
+    assert children["path"]["depends_on_value_any"] == ["local"]
+    assert children["family"]["depends_on_value_any"] == ["gfonts"]
+    assert children["url"]["depends_on_value_any"] == ["web"]
     assert all(children[k]["required"] for k in ("path", "family", "url"))
 
 
@@ -219,7 +219,7 @@ def test_font_file_external_knobs_come_from_the_bundle(schema_dir: Path) -> None
 
     for key in ("weight", "italic", "refresh"):
         assert children[key]["depends_on"] == "type"
-        assert children[key]["depends_on_value_not"] == "local"
+        assert children[key]["depends_on_value_any"] == ["gfonts", "web"]
 
     assert children["italic"]["type"] == "boolean"
     assert children["italic"]["default_value"] is False
@@ -261,10 +261,258 @@ def test_differing_field_across_variants_stays_per_variant(schema_dir: Path) -> 
         },
     }
     paths = {
-        c["depends_on_value"]: c
+        c["depends_on_value_any"][0]: c
         for c in _convert_field("source", raw, schema_dir)["config_entries"]
         if c["key"] == "path"
     }
     assert set(paths) == {"local", "git"}
     assert paths["local"]["required"] is True
     assert paths["git"]["required"] is False
+
+
+# ---------------------------------------------------------------------------
+# Top-level typed CONFIG_SCHEMA (ethernet, spi, template.output, ...): the
+# whole component body is the discriminated union, not a nested field.
+# ---------------------------------------------------------------------------
+
+
+def _typed_section(types: dict, typed_key: str = "type") -> dict:
+    node = {"type": "typed", "typed_key": typed_key, "types": types}
+    return {"schemas": {"CONFIG_SCHEMA": node}}
+
+
+def _write_schemas(schema_dir: Path, name: str, schemas: dict) -> None:
+    (schema_dir / f"{name}.json").write_text(json.dumps({name: {"schemas": schemas}}))
+
+
+def test_top_level_typed_config_schema_builds_entries(schema_dir: Path) -> None:
+    """A typed CONFIG_SCHEMA yields a discriminator-first gated entry list."""
+    section = _typed_section(
+        {
+            "binary": {"config_vars": {"write_action": {"key": "Required"}}},
+            "float": {"config_vars": {"zero_means_zero": {"key": "Optional"}}},
+        }
+    )
+    entries = _extract_config_entries(section, schema_dir=schema_dir, component_id="template")
+    by_key = {e["key"]: e for e in entries}
+    assert entries[0]["key"] == "type"
+    assert entries[0]["required"] is True
+    assert {o["value"] for o in entries[0]["options"]} == {"binary", "float"}
+    assert by_key["write_action"]["depends_on_value_any"] == ["binary"]
+    assert by_key["zero_means_zero"]["depends_on_value_any"] == ["float"]
+
+
+def test_top_level_typed_with_intermediate_extends(schema_dir: Path) -> None:
+    """Variants sharing intermediate base schemas dedupe to one subset-gated entry."""
+    _write_schemas(
+        schema_dir,
+        "eth",
+        {
+            "BASE_SCHEMA": {
+                "type": "schema",
+                "schema": {"config_vars": {"domain": {"key": "Optional"}}},
+            },
+            "RMII_SCHEMA": {
+                "type": "schema",
+                "schema": {
+                    "extends": ["eth.BASE_SCHEMA"],
+                    "config_vars": {"mdc_pin": {"key": "Required", "type": "pin"}},
+                },
+            },
+            "SPI_SCHEMA": {
+                "type": "schema",
+                "schema": {
+                    "extends": ["eth.BASE_SCHEMA"],
+                    "config_vars": {"cs_pin": {"key": "Required", "type": "pin"}},
+                },
+            },
+        },
+    )
+    section = _typed_section(
+        {
+            "LAN8720": {"extends": ["eth.RMII_SCHEMA"]},
+            "RTL8201": {"extends": ["eth.RMII_SCHEMA"]},
+            "W5500": {"extends": ["eth.SPI_SCHEMA"]},
+        }
+    )
+    entries = _extract_config_entries(section, schema_dir=schema_dir, component_id="eth")
+    (mdc,) = [e for e in entries if e["key"] == "mdc_pin"]
+    assert mdc["depends_on_value_any"] == ["LAN8720", "RTL8201"]
+    (cs,) = [e for e in entries if e["key"] == "cs_pin"]
+    assert cs["depends_on_value_any"] == ["W5500"]
+    (domain,) = [e for e in entries if e["key"] == "domain"]
+    assert domain["depends_on"] is None
+    assert len(entries) == 4
+
+
+def test_top_level_typed_with_custom_discriminator_key(schema_dir: Path) -> None:
+    """A non-``type`` discriminator (i2s_audio's ``dac_type``) still sorts first."""
+    _write_schemas(
+        schema_dir,
+        "i2s",
+        {
+            "BASE_SCHEMA": {
+                "type": "schema",
+                "schema": {"config_vars": {"channel": {"key": "Optional"}}},
+            }
+        },
+    )
+    section = _typed_section(
+        {
+            "external": {
+                "extends": ["i2s.BASE_SCHEMA"],
+                "config_vars": {"i2s_dout_pin": {"key": "Required", "type": "pin"}},
+            },
+            "internal": {
+                "extends": ["i2s.BASE_SCHEMA"],
+                "config_vars": {"mode": {"key": "Optional"}},
+            },
+        },
+        typed_key="dac_type",
+    )
+    entries = _extract_config_entries(section, schema_dir=schema_dir, component_id="i2s.speaker")
+    assert entries[0]["key"] == "dac_type"
+    by_key = {e["key"]: e for e in entries}
+    assert by_key["i2s_dout_pin"]["depends_on"] == "dac_type"
+    assert by_key["i2s_dout_pin"]["depends_on_value_any"] == ["external"]
+    assert by_key["mode"]["depends_on_value_any"] == ["internal"]
+    assert by_key["channel"]["depends_on"] is None
+
+
+def test_top_level_typed_uptime_sensor_shape(schema_dir: Path) -> None:
+    """Variants sharing an entity base ungate it; per-variant extras gate singly."""
+    _write_schemas(
+        schema_dir,
+        "sensor",
+        {
+            "_SENSOR_SCHEMA": {
+                "type": "schema",
+                "schema": {
+                    "config_vars": {
+                        "icon": {"key": "Optional", "type": "icon"},
+                        "accuracy_decimals": {"key": "Optional", "type": "integer"},
+                    }
+                },
+            }
+        },
+    )
+    section = _typed_section(
+        {
+            "seconds": {
+                "extends": ["sensor._SENSOR_SCHEMA"],
+                "config_vars": {"update_interval": {"key": "Optional"}},
+            },
+            "timestamp": {
+                "extends": ["sensor._SENSOR_SCHEMA"],
+                "config_vars": {"time_id": {"key": "Optional"}},
+            },
+        }
+    )
+    entries = _extract_config_entries(section, schema_dir=schema_dir, component_id="sensor.uptime")
+    by_key = {e["key"]: e for e in entries}
+    assert by_key["icon"]["depends_on"] is None
+    assert by_key["accuracy_decimals"]["depends_on"] is None
+    assert by_key["update_interval"]["depends_on_value_any"] == ["seconds"]
+    assert by_key["time_id"]["depends_on_value_any"] == ["timestamp"]
+
+
+def test_variant_config_var_matching_typed_key_is_skipped(schema_dir: Path) -> None:
+    """A variant's own ``type`` var (template.datetime) never duplicates the discriminator."""
+    section = _typed_section(
+        {
+            "DATE": {
+                "config_vars": {
+                    "type": {"key": "Required"},
+                    "initial_value": {"key": "Optional"},
+                }
+            },
+            "TIME": {
+                "config_vars": {
+                    "type": {"key": "Required"},
+                    "initial_value": {"key": "Optional"},
+                }
+            },
+        }
+    )
+    entries = _extract_config_entries(
+        section, schema_dir=schema_dir, component_id="datetime.template"
+    )
+    (type_entry,) = [e for e in entries if e["key"] == "type"]
+    assert {o["value"] for o in type_entry["options"]} == {"DATE", "TIME"}
+    (initial,) = [e for e in entries if e["key"] == "initial_value"]
+    assert initial["depends_on"] is None
+
+
+def test_ethernet_clk_override_required_on_main_form(schema_dir: Path) -> None:
+    """``ethernet.clk`` flips to required + main-form; ``clk_mode`` stays advanced."""
+    _write_schemas(
+        schema_dir,
+        "eth",
+        {
+            "RMII_SCHEMA": {
+                "type": "schema",
+                "schema": {
+                    "config_vars": {
+                        "clk": {
+                            "key": "Optional",
+                            "type": "schema",
+                            "schema": {
+                                "config_vars": {
+                                    "mode": {
+                                        "key": "Required",
+                                        "type": "enum",
+                                        "values": {"CLK_EXT_IN": None},
+                                    },
+                                    "pin": {"key": "Required", "type": "pin"},
+                                }
+                            },
+                        },
+                        "clk_mode": {
+                            "key": "Optional",
+                            "type": "enum",
+                            "values": {"GPIO0_IN": None},
+                        },
+                    }
+                },
+            }
+        },
+    )
+    section = _typed_section(
+        {
+            "LAN8720": {"extends": ["eth.RMII_SCHEMA"]},
+            "W5500": {"config_vars": {"cs_pin": {"key": "Required", "type": "pin"}}},
+        }
+    )
+    entries = _extract_config_entries(section, schema_dir=schema_dir, component_id="ethernet")
+    (clk,) = [e for e in entries if e["key"] == "clk"]
+    assert clk["required"] is True
+    assert clk["advanced"] is False
+    assert clk["depends_on_value_any"] == ["LAN8720"]
+    # Cascade no longer buries the group's required children.
+    assert all(c["advanced"] is False for c in clk["config_entries"])
+    (clk_mode,) = [e for e in entries if e["key"] == "clk_mode"]
+    assert clk_mode["advanced"] is True
+
+
+def test_top_level_typed_applies_component_overrides(
+    schema_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Deprecated-field filtering and field overrides key on the component id."""
+    monkeypatch.setattr(sc, "_DEPRECATED_FIELDS", sc._DEPRECATED_FIELDS | {("widget", "legacy")})
+    monkeypatch.setitem(sc._FIELD_OVERRIDES, ("widget", "mode"), {"advanced": True})
+    section = _typed_section(
+        {
+            "a": {
+                "config_vars": {
+                    "legacy": {"key": "Optional"},
+                    "mode": {"key": "Optional"},
+                }
+            },
+            "b": {"config_vars": {"mode": {"key": "Optional"}}},
+        }
+    )
+    entries = _extract_config_entries(section, schema_dir=schema_dir, component_id="widget")
+    keys = [e["key"] for e in entries]
+    assert "legacy" not in keys
+    (mode,) = [e for e in entries if e["key"] == "mode"]
+    assert mode["advanced"] is True

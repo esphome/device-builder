@@ -466,9 +466,11 @@ class ConfigEntry(DataClassORJSONMixin):
     suggestions: list[ConfigPrimitive] | None = None
 
     # === conditional visibility ===
-    # `depends_on_value` and `depends_on_value_not` are mutually
-    # exclusive — set at most one. Frontend hides the entry when the
-    # predicate fails.
+    # `depends_on_value`, `depends_on_value_not` and
+    # `depends_on_value_any` are mutually exclusive — set at most one.
+    # Frontend hides the entry when the predicate fails. New catalog
+    # output emits only `depends_on_value_any`; the scalar forms remain
+    # for catalogs generated before it existed.
 
     # Key of another entry in the same component this entry depends on.
     # When None the entry is always visible.
@@ -481,6 +483,10 @@ class ConfigEntry(DataClassORJSONMixin):
     # Show this entry only when the dependency's current value does NOT
     # equal this. Ignored if `depends_on` is None.
     depends_on_value_not: ConfigPrimitive | None = None
+
+    # Show this entry only when the dependency's current value is in
+    # this list. Ignored if `depends_on` is None.
+    depends_on_value_any: list[ConfigPrimitive] | None = None
 
     # Hide this entry unless the named component is configured on the
     # same device. Used for cross-cutting fields that are only

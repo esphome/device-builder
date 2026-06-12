@@ -18,7 +18,12 @@ from ruamel.yaml.scalarstring import LiteralScalarString
 
 from ...helpers.api import CommandError
 from ...models.api import ErrorCode
-from ...models.automations import ActionNode, AutomationTree, ConditionNode
+from ...models.automations import (
+    ActionNode,
+    AutomationAction,
+    AutomationTree,
+    ConditionNode,
+)
 from . import catalog
 
 
@@ -149,14 +154,21 @@ def _decompose_action(action_id: str, raw_params: Any) -> ActionNode:
         params: dict[str, Any] = {}
     elif isinstance(raw_params, dict):
         params = {}
-        for key, value in raw_params.items():
-            if key in action.accepts_action_list:
-                children[key] = _decompose_action_list(value)
-                continue
-            if key in _CONDITION_GATE_KEYS:
-                conditions = _decompose_condition_list(value)
-                continue
-            params[key] = _render_value(value)
+        if _is_dict_shorthand_condition(action, raw_params):
+            # ``wait_until: {api.connected:}`` — the ``condition:`` wrapper is
+            # optional (ESPHome ``maybe_simple_value``); the whole mapping is
+            # the condition. Without this the condition id lands in ``params``
+            # and the gate renders empty.
+            conditions = _decompose_condition_list(raw_params)
+        else:
+            for key, value in raw_params.items():
+                if key in action.accepts_action_list:
+                    children[key] = _decompose_action_list(value)
+                    continue
+                if key in _CONDITION_GATE_KEYS:
+                    conditions = _decompose_condition_list(value)
+                    continue
+                params[key] = _render_value(value)
     else:
         # Bare-scalar shorthand (``logger.log: "hi"`` / ``light.turn_on: id``):
         # surface the scalar under the action's own ``maybe_simple_value`` key
@@ -175,6 +187,17 @@ def _decompose_action(action_id: str, raw_params: Any) -> ActionNode:
         children=children,
         conditions=conditions,
     )
+
+
+def _is_dict_shorthand_condition(action: AutomationAction, body: dict[str, Any]) -> bool:
+    """Whether *body* is a ``wait_until``-style condition with the gate key omitted."""
+    if not body or action.scalar_shorthand_key not in _CONDITION_GATE_KEYS:
+        return False
+    keys = body.keys()
+    if keys & _CONDITION_GATE_KEYS:
+        return False
+    known = {e.key for e in action.config_entries} | set(action.accepts_action_list)
+    return not (keys & known)
 
 
 def _decompose_condition_list(body: Any) -> list[ConditionNode]:
