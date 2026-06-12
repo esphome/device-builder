@@ -70,6 +70,9 @@ class Device(DataClassORJSONMixin):
     web_port: int | None = None
     current_version: str = ""
     deployed_version: str = ""
+    # Flag to determine if a local offline compilation has finished
+    # successfully and is waiting to be flashed via OTA upon the next mDNS check-in.
+    queued_update: bool = False
     # 8-char hex hash of the YAML as last successfully compiled.
     # Persisted in the metadata sidecar; matches what ESPHome's
     # runtime publishes via ``App.get_config_hash()``.

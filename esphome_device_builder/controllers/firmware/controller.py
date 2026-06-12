@@ -213,6 +213,30 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         """
         _validate_port(port)
         await self._validate_configuration_boundary(configuration)
+
+        # --- Intercept for Offline Devices ---
+        device = None
+        if self._db.devices is not None:
+            for d in self._db.devices.get_devices():
+                if d.configuration == configuration:
+                    device = d
+                    break
+
+        if device and device.state in ("offline", "unknown"):
+            _LOGGER.info(
+                "Device %s is offline. Intercepting install to run as local compile-only for queued update.",
+                configuration
+            )
+            force_local = True
+            build_source = self._resolve_install_source(force_local=force_local)
+            job = self._create_job(
+                configuration,
+                JobType.COMPILE,
+                build_source=build_source,
+            )
+            return await self._enqueue(job)
+        # -------------------------------------
+
         build_source = self._resolve_install_source(force_local=force_local)
         # Install is a compile + a dependent local upload. The compile (local
         # or dispatched to a receiver) materialises the binary locally; the

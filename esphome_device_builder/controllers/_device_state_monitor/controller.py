@@ -80,6 +80,9 @@ MacAddressChangeCallback = Callable[[str, str], None]
 ImportableAddedCallback = Callable[[AdoptableDevice], None]
 ImportableRemovedCallback = Callable[[str], None]
 
+# Callback for when an offline device with a queued update comes online.
+QueuedUpdateReadyCallback = Callable[[str], None]
+
 
 class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; new public methods need a refactor first)
     """
@@ -101,6 +104,7 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         on_mac_address_change: MacAddressChangeCallback | None = None,
         on_importable_added: ImportableAddedCallback | None = None,
         on_importable_removed: ImportableRemovedCallback | None = None,
+        on_queued_update_ready: QueuedUpdateReadyCallback | None = None,
         reachability: ReachabilityTracker | None = None,
         is_ignored: Callable[[str], bool] | None = None,
         get_devices_by_name: Callable[[str], list[Device]] | None = None,
@@ -125,6 +129,7 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         self._on_mac_address_change = on_mac_address_change
         self._on_importable_added = on_importable_added
         self._on_importable_removed = on_importable_removed
+        self._on_queued_update_ready = on_queued_update_ready
         self._is_ignored = is_ignored or (lambda _name: False)
         self.state = MonitorState(reachability=reachability)
         self._ping_task: asyncio.Task | None = None
@@ -243,8 +248,23 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
                 self.state.state_source[name] = source
             return False
 
+        # Check if any matching device is transitioning from offline/unknown to online
+        # with a queued update waiting. We read device.state before the callback
+        # because the owning controller will mutate it to ONLINE inside _on_state_change.
+        trigger_queued_update = False
+        if state == DeviceState.ONLINE:
+            for d in devices:
+                if d.state != DeviceState.ONLINE and getattr(d, "queued_update", False):
+                    trigger_queued_update = True
+                    break
+
         self.state.state_source[name] = source
         self._on_state_change(name, state, source)
+
+        # Dispatch the callback to the owning controller to handle the job submission
+        if trigger_queued_update and self._on_queued_update_ready:
+            self._on_queued_update_ready(name)
+
         return True
 
     async def refresh_mdns(self, name: str) -> None:
