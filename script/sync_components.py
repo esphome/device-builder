@@ -1397,10 +1397,17 @@ def _shared_docs_page_aliases(documented: Collection[str]) -> dict[str, str]:
     for cid in sorted(_TARGET_PLATFORMS):
         if cid in documented:
             continue
-        for dep in introspect_component(cid).get("auto_load") or []:
-            if dep in documented:
-                out[cid] = dep
-                break
+        hits = [d for d in introspect_component(cid).get("auto_load") or [] if d in documented]
+        if not hits:
+            continue
+        if len(hits) > 1:
+            _LOGGER.warning(
+                "%s auto-loads multiple documented components %s; using %s for docs",
+                cid,
+                hits,
+                hits[0],
+            )
+        out[cid] = hits[0]
     return out
 
 
