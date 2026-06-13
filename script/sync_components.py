@@ -1914,6 +1914,15 @@ def build_component_entry(
     docs = clean_docs(meta.get("docs"))
     dependencies = list(meta.get("dependencies") or [])
 
+    # Package-style platforms (ld2410/button, pipsolar/sensor, ...) bind
+    # their hub through a ``cv.use_id`` config var instead of upstream
+    # ``DEPENDENCIES``, so the schema index ships them dependency-less
+    # and the frontend never prompts for the hub (#1431). The use_id
+    # cross-ref is already extracted as ``references_component``; union
+    # the entry's own hub back in.
+    if domain and stem not in dependencies and _references_own_hub(config_entries, stem):
+        dependencies.append(stem)
+
     # Drop deps the chosen networking transport will auto-load. See
     # ``_implicit_dependencies``.
     implicit = _implicit_dependencies()
@@ -4618,6 +4627,19 @@ def _walk_catalog_entries(
                 walk(inner, sub_path)
 
     walk(entries, ())
+
+
+def _references_own_hub(config_entries: list[dict], stem: str) -> bool:
+    """Whether any config var cross-references the entry's own hub via use_id."""
+    found = False
+
+    def visit(entry: dict, _path: tuple[str, ...]) -> None:
+        nonlocal found
+        if entry.get("references_component") == stem:
+            found = True
+
+    _walk_catalog_entries(config_entries, visit)
+    return found
 
 
 # Capability validators ESPHome wraps a pin field in when the pin must
