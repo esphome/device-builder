@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any
 
 from ...helpers.subprocess import create_subprocess_exec, iter_lines_with_progress
 from ...models import (
-    EventType,
     FirmwareJob,
     JobSource,
     JobStatus,
@@ -214,27 +213,6 @@ async def execute_job(  # noqa: PLR0915, C901
                 job.status,
                 exit_code,
             )
-
-            # --- Queued Offline Update Flagging ---
-            if success and job.job_type == JobType.COMPILE:
-                device = None
-                if controller._db.devices is not None:
-                    for d in controller._db.devices.get_devices():
-                        if d.configuration == job.configuration:
-                            device = d
-                            break
-
-                if device and device.state in ("offline", "unknown"):
-                    _LOGGER.info(
-                        "Compile successful for offline device %s. Setting queued_update flag.",
-                        job.configuration,
-                    )
-                    device.queued_update = True
-
-                    try:
-                        controller._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
-                    except (ImportError, AttributeError) as e:
-                        _LOGGER.debug("Could not fire DEVICE_UPDATED event: %s", e)
 
     except asyncio.CancelledError:
         # ``_tracked_subprocess`` already terminated the spawn

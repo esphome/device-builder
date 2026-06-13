@@ -21,9 +21,12 @@ from typing import TYPE_CHECKING, Any
 
 from ...helpers.api import CommandError, api_command
 from ...helpers.async_ import create_eager_task
+from ...helpers.event_bus import Event
 from ...models import (
     LOCAL_JOB_BUILD_SOURCE,
+    DeviceState,
     ErrorCode,
+    EventType,
     FirmwareJob,
     JobBuildSource,
     JobStatus,
@@ -69,10 +72,34 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         # overwrite fresher state on disk).
         self._persist_lock = asyncio.Lock()
 
+        # Listen for devices checking in to trigger their queued updates
+        self.bus.add_listener(EventType.DEVICE_STATE_CHANGED, self._handle_device_wake)
+
     @property
     def bus(self) -> EventBus:
         """The event bus for lifecycle / output events — read-only shorthand for ``_db.bus``."""
         return self._db.bus
+
+    def _handle_device_wake(self, event: Event) -> None:
+        """Intercept device wake to trigger queued updates and prevent flapping."""
+        if event.data["state"] != DeviceState.ONLINE.value or self._db.devices is None:
+            return
+
+        config = event.data["configuration"]
+        device = next(
+            (d for d in self._db.devices.get_devices() if d.configuration == config),
+            None,
+        )
+
+        if device and getattr(device, "queued_update", False):
+            _LOGGER.info("Device %s woke up. Triggering queued offline update.", config)
+            monitor: Any = getattr(
+                self._db.devices, "monitor", getattr(self._db.devices, "_monitor", None)
+            )
+            if monitor is not None:
+                monitor.apply_queued_update(device.name, False)
+
+            create_eager_task(self.upload(configuration=config, port="OTA"))
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -214,28 +241,16 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         _validate_port(port)
         await self._validate_configuration_boundary(configuration)
 
-        # --- Intercept for Offline Devices ---
-        device = None
         if self._db.devices is not None:
-            for d in self._db.devices.get_devices():
-                if d.configuration == configuration:
-                    device = d
-                    break
-
-        if device and device.state in ("offline", "unknown"):
-            _LOGGER.info(
-                "Device %s is offline. Intercepting install to run as local compile-only for queued update.",
-                configuration,
+            device = next(
+                (d for d in self._db.devices.get_devices() if d.configuration == configuration),
+                None
             )
-            force_local = True
-            build_source = self._resolve_install_source(force_local=force_local)
-            job = self._create_job(
-                configuration,
-                JobType.COMPILE,
-                build_source=build_source,
-            )
-            return await self._enqueue(job)
-        # -------------------------------------
+            if device and device.state in (DeviceState.OFFLINE, DeviceState.UNKNOWN):
+                _LOGGER.info("Device %s is offline. Queuing compile-only job.", configuration)
+                build_source = self._resolve_install_source(force_local=True)
+                job = self._create_job(configuration, JobType.COMPILE, build_source=build_source)
+                return await self._enqueue(job)
 
         build_source = self._resolve_install_source(force_local=force_local)
         # Install is a compile + a dependent local upload. The compile (local
@@ -365,10 +380,6 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     async def get_binaries(self, *, configuration: str, **kwargs: Any) -> list[dict]:
         return await download_mod.get_binaries(self, configuration=configuration)
 
-    # Artifact bytes are served over HTTP (GET /api/firmware/download), not the
-    # WebSocket — a ~14 MB firmware.elf exceeds a proxy's WS max_msg_size, and a
-    # navigation streams to disk (mobile-friendly). This command mints the
-    # single-use token that authorizes one such download.
     @api_command("firmware/download_token")
     async def download_token(self, *, configuration: str, file: str, **kwargs: Any) -> dict:
         await self._validate_configuration_boundary(configuration)
@@ -411,6 +422,20 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
     async def _execute_job(self, job: FirmwareJob, lane: Lane) -> None:
         await runner.execute_job(self, job, lane)
+
+        is_comp = job.job_type == JobType.COMPILE
+        is_done = job.status == JobStatus.COMPLETED
+        if is_comp and is_done and self._db.devices is not None:
+            dev = next(
+                (d for d in self._db.devices.get_devices() if d.configuration == job.configuration),
+                None,
+            )
+            if dev and dev.state in (DeviceState.OFFLINE, DeviceState.UNKNOWN):
+                monitor: Any = getattr(
+                    self._db.devices, "monitor", getattr(self._db.devices, "_monitor", None)
+                )
+                if monitor is not None:
+                    monitor.apply_queued_update(dev.name, True)
 
     async def _execute_remote_job(self, job: FirmwareJob) -> None:
         await runner.execute_remote_job(self, job)
