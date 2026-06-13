@@ -487,16 +487,17 @@ def _augment_esp8266_boards(boards: list[BoardCatalogEntry]) -> None:
     """
     Fill ESP8266 pins from ESPHome and add the boards manifests don't cover.
 
-    Every esp8266 board takes the full GPIO0-17 pinout (a pinless entry from the
-    generic manifest, a manifested one from its own curated pins) with the
-    board's named aliases overlaid by gpio. Per-board ``ESP8266_BOARD_PINS``
-    carry positional ``Dn``/``LED`` names; the fixed-function bus pins
-    (``RX``/``TX``/``SDA`` …) live in shared ``ESP8266_BASE_PINS``, so overlay
-    ``{**base, **board}`` — the merge ESPHome's pin resolver uses. Dedup on board
-    ``id`` (curated esp8266 manifests use the ESPHome board name verbatim, so a
-    base board referenced only by vendor products still generates its own
-    canonical entry, e.g. ``esp01_1m``; otherwise ``find_by_pio_board`` falls
-    back to an arbitrary product — issue #395).
+    A pinless esp8266 entry (``esp01_1m``, the empty product manifests) takes the
+    generic GPIO0-17 pinout with the board's named aliases overlaid by gpio, so a
+    plain ``GPIO0`` stays selectable and a value written as ``RX`` resolves to its
+    GPIO. Curated manifests keep their authored pins untouched. Per-board
+    ``ESP8266_BOARD_PINS`` carry positional ``Dn``/``LED`` names; the fixed-
+    function bus pins (``RX``/``TX``/``SDA`` …) live in shared
+    ``ESP8266_BASE_PINS``, so overlay ``{**base, **board}`` — the merge ESPHome's
+    pin resolver uses. Dedup on board ``id`` (curated esp8266 manifests use the
+    ESPHome board name verbatim, so a base board referenced only by vendor
+    products still generates its own canonical entry, e.g. ``esp01_1m``;
+    otherwise ``find_by_pio_board`` falls back to an arbitrary product — #395).
     """
     module = importlib.import_module("esphome.components.esp8266.boards")
     # Direct access (not getattr-with-default): an upstream rename of these
@@ -507,10 +508,10 @@ def _augment_esp8266_boards(boards: list[BoardCatalogEntry]) -> None:
     generic = _esp8266_generic_pins(boards)
     ids = {b.id for b in boards}
     for board in boards:
-        if board.esphome.platform.value != "esp8266":
+        if board.esphome.platform.value != "esp8266" or board.pins:
             continue
         amap = {**base, **(_resolve_board_pins(pin_map, board.esphome.board) or {})}
-        board.pins = _overlay_esp8266_aliases(board.pins or generic, amap)
+        board.pins = _overlay_esp8266_aliases(generic, amap)
     for name, meta in board_list.items():
         if name in ids:
             continue

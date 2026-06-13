@@ -154,7 +154,11 @@ class DeviceMetadataBase(DeviceBuilderBase):
 
         matched = None
         if pio_board:
-            matched = self._db.boards.find_by_pio_board(pio_board, variant, platform)
+            # Resolve to the exact board the YAML names (``esp01_1m`` over the
+            # broader ``generic-esp8266``); the migration keeps the default order.
+            matched = self._db.boards.find_by_pio_board(
+                pio_board, variant, platform, prefer_exact_id=True
+            )
         if matched is None and platform:
             matched = self._db.boards.find_by_platform_variant(platform, variant)
         if matched is None:
