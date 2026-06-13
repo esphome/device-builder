@@ -90,6 +90,12 @@ featured_components:
       value: true
       locked: true
     id: button_led1_pwm
+- id: sensor_uptime_1
+  component_id: sensor.uptime
+  fields:
+    unit_of_measurement: minutes
+    id: sensor_uptime_1
+    name: Uptime
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
@@ -123,5 +129,5 @@ source:
   type: esphome-devices
   remote_id: Tuya-Smart-Star-Projector-SK20
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-Smart-Star-Projector-SK20/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 9fa6cd590480f8e82332c792187636a1142fc5fc68fe113681770c90416133b3

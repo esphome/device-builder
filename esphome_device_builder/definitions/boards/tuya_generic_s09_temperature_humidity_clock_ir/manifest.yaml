@@ -69,5 +69,5 @@ source:
   type: esphome-devices
   remote_id: Tuya-Generic-S09-Temperature-Humidity-Clock-IR
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-Generic-S09-Temperature-Humidity-Clock-IR/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 4a3357e8d2f7d956358e22cbd74c1f0cd3d817953764bb938b84f6c5aa7ce1c9

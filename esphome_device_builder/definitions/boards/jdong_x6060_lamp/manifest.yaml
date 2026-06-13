@@ -19,9 +19,15 @@ featured_components:
     warm_white_color_temperature: 2700 K
     id: light_rgbww
     name: light_rgbww
+- id: sensor_uptime_1
+  component_id: sensor.uptime
+  fields:
+    type: seconds
+    id: sensor_uptime_1
+    name: Uptime Sensor
 source:
   type: esphome-devices
   remote_id: JDONG-X6060-lamp
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/JDONG-X6060-lamp/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 9f5e28aeff370f957cd5e299e8cda6e625097080d18540c26695be75a947a6ff

@@ -579,5 +579,5 @@ source:
   type: esphome-devices
   remote_id: KinCony-B16
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-B16/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 77444d67995ea74287dbfbd9a92b3cb894eeaf4be45b0bd0818cb7b930fcd5c5

@@ -51,6 +51,12 @@ featured_components:
   fields:
     channel: 4
     id: cold_white
+- id: sensor_uptime_1
+  component_id: sensor.uptime
+  fields:
+    device_class: duration
+    id: sensor_uptime_1
+    name: Uptime
 featured_bundles:
 - id: device_setup
   name: Light (full setup)
@@ -65,5 +71,5 @@ source:
   type: esphome-devices
   remote_id: Anwio-A19-E26-RGBWW-8.5W-Light-Bulb
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Anwio-A19-E26-RGBWW-8.5W-Light-Bulb/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 21040773679ebc76ea0483d93b69f502fd5c0a8546364ffd1fcf6d61e520e948

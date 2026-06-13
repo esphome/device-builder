@@ -44,9 +44,15 @@ featured_components:
     entity_category: diagnostic
     id: wifi_signal_db
     name: WiFi Signal dB
+- id: uptime_sensor_days
+  component_id: sensor.uptime
+  fields:
+    update_interval: 60s
+    id: uptime_sensor_days
+    name: Uptime in Days
 source:
   type: esphome-devices
   remote_id: eWeLink-SANT-SUD01
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/eWeLink-SANT-SUD01/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 5f5d6c1c85f24f9a777e7f8d9e89b71a85ee1c40dd17cd98f8bab4b680857edf

@@ -40,6 +40,12 @@ featured_components:
     icon: mdi:clock-alert
     id: sensor_total_daily_energy_1
     name: Total Daily Energy
+- id: sensor_uptime_1
+  component_id: sensor.uptime
+  fields:
+    icon: mdi:clock-outline
+    id: sensor_uptime_1
+    name: Uptime
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
@@ -67,5 +73,5 @@ source:
   type: esphome-devices
   remote_id: Athom-Smart-Plug-PG01V2-EU16A
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Athom-Smart-Plug-PG01V2-EU16A/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: e3b378aa43e9835fd86315ae0d6a912ba5c395536b7ffb7da2fef36253e0ddcf

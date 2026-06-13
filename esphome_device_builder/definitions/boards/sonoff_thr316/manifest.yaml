@@ -95,6 +95,12 @@ featured_components:
     update_interval: 60s
     id: sensor_wifi_signal_1
     name: $friendly_name Wifi RSSI
+- id: uptime_sensor
+  component_id: sensor.uptime
+  fields:
+    internal: true
+    id: uptime_sensor
+    name: uptime_sensor
 - id: temp
   component_id: sensor.dallas_temp
   fields:
@@ -129,5 +135,5 @@ source:
   type: esphome-devices
   remote_id: Sonoff-THR316
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Sonoff-THR316/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: a3614e703d23aeb669975b754a6aaeb79d820cc2804cd2663ee2ebd1ffa49472

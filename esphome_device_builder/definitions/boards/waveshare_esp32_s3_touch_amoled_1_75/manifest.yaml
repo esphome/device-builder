@@ -13,6 +13,12 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Waveshare-ESP32-S3-Touch-AMOLED-1.75/Waveshare-ESP32-S3-Touch-AMOLED-1.75.png
 pins:
+- gpio: 8
+  available: false
+  occupied_by: speaker_a
+- gpio: 10
+  available: false
+  occupied_by: mic_a
 - gpio: 46
   available: false
   occupied_by: Speaker Enable
@@ -24,6 +30,33 @@ featured_components:
     restore_mode: ALWAYS_ON
     id: display_backlight
     name: Backlight
+- id: mic_a
+  component_id: microphone.i2s_audio
+  fields:
+    adc_type: external
+    i2s_din_pin:
+      value: 10
+      locked: true
+    sample_rate: $i2s_sample_rate_mic
+    bits_per_sample: $i2s_bps_mic
+    pdm: false
+    id: mic_a
+    name: mic_a
+- id: speaker_a
+  component_id: speaker.i2s_audio
+  fields:
+    i2s_dout_pin:
+      value: 8
+      locked: true
+    dac_type: external
+    timeout: never
+    buffer_duration: 100ms
+    sample_rate: $i2s_sample_rate_spk
+    bits_per_sample: $i2s_bps_spk
+    use_apll: $i2s_use_apll
+    channel: stereo
+    id: speaker_a
+    name: speaker_a
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:
@@ -37,5 +70,5 @@ source:
   type: esphome-devices
   remote_id: Waveshare-ESP32-S3-Touch-AMOLED-1.75
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Waveshare-ESP32-S3-Touch-AMOLED-1.75/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 721eb4caf158309221a7b5ee4662fa412c26e5fc00d5b649a4064ca2aa34a955

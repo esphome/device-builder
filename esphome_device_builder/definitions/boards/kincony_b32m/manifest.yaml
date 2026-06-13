@@ -961,5 +961,5 @@ source:
   type: esphome-devices
   remote_id: KinCony-B32M
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-B32M/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 8ffa72250642073e6600826cb3b4f5ce4656c5120a017f45d25a3de464d00b3b

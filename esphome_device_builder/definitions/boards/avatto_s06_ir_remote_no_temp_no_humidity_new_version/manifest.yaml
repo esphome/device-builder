@@ -43,5 +43,5 @@ source:
   type: esphome-devices
   remote_id: AVATTO-S06-IR-Remote-no-temp-no-humidity-new-version
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/AVATTO-S06-IR-Remote-no-temp-no-humidity-new-version/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: c764419f7da3b6189fda97d543ddff9216b92b9d090fd4b73e7a5083fc8656c5

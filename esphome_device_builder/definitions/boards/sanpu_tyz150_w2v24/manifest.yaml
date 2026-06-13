@@ -28,5 +28,5 @@ source:
   type: esphome-devices
   remote_id: SANPU-TYZ150-W2V24
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/SANPU-TYZ150-W2V24/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 720fd9e8d62289726ad62d6d7060cef3fbc0b79ebd52fcd352e08e221c65f631

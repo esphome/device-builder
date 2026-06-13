@@ -54,5 +54,5 @@ source:
   type: esphome-devices
   remote_id: Tuya-Generic-IRC03-IR-Blaster
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-Generic-IRC03-IR-Blaster/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 09744531f232eb35103123929f8df04e2bb469c89060d2d19da8e80289337a3f

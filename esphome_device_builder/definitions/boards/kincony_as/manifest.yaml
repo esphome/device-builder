@@ -15,6 +15,9 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-AS/KinCony-AS-5.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-AS/KinCony-AS-7.jpg
 pins:
+- gpio: 4
+  available: false
+  occupied_by: va_mic
 - gpio: 16
   available: false
   occupied_by: on board light
@@ -31,9 +34,21 @@ featured_components:
     chipset: ws2812
     id: led_ww
     name: on board light
+- id: va_mic
+  component_id: microphone.i2s_audio
+  fields:
+    adc_type: external
+    i2s_din_pin:
+      value: 4
+      locked: true
+    channel: left
+    pdm: false
+    bits_per_sample: 32 bit
+    id: va_mic
+    name: va_mic
 source:
   type: esphome-devices
   remote_id: KinCony-AS
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-AS/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 07941fce5c65cac09a8ef83b9d23db6c77a9917718e82532b261e15579886e33

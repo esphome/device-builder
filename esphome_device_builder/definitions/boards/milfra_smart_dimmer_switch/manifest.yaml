@@ -40,5 +40,5 @@ source:
   type: esphome-devices
   remote_id: Milfra-Smart-Dimmer-Switch
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Milfra-Smart-Dimmer-Switch/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 8bde9ff4144fabce6e310922909196d6c39d538abba9584945a3c75f5c875cd6

@@ -89,5 +89,5 @@ source:
   type: esphome-devices
   remote_id: Mirabella-Genio-WiFi-LED-Strip-Light
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Mirabella-Genio-WiFi-LED-Strip-Light/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 0179382749064a63407e97fbdfdd42ca91201b15a4ff5c2fd2374966ab33d808

@@ -21,6 +21,9 @@ pins:
 - gpio: 27
   available: false
   occupied_by: backlight
+- gpio: 34
+  available: false
+  occupied_by: mic
 - gpio: 37
   available: false
   occupied_by: Button A
@@ -65,6 +68,16 @@ featured_components:
     output: backlight
     id: display_bl
     name: Backlight
+- id: mic
+  component_id: microphone.i2s_audio
+  fields:
+    i2s_din_pin:
+      value: 34
+      locked: true
+    adc_type: external
+    pdm: true
+    id: mic
+    name: mic
 - id: builtin_led
   component_id: output.ledc
   fields:
@@ -127,5 +140,5 @@ source:
   type: esphome-devices
   remote_id: M5Stack-M5StickC-PLUS2
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/M5Stack-M5StickC-PLUS2/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 6f1fcd1ba1bc92f794b370c4b5f4982381d1f8428305767f314b0b87b3cf3a68

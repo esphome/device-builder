@@ -90,5 +90,5 @@ source:
   type: esphome-devices
   remote_id: KinCony-AG8
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-AG8/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 92084be9d3bc2b09ba144392cb9189c357807c3c348e7463309afba66f863233

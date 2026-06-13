@@ -27,6 +27,12 @@ featured_components:
       value: true
       locked: true
     id: output_white_temp
+- id: sensor_uptime_1
+  component_id: sensor.uptime
+  fields:
+    device_class: duration
+    id: sensor_uptime_1
+    name: Uptime
 featured_bundles:
 - id: device_setup
   name: Light (full setup)
@@ -37,5 +43,5 @@ source:
   type: esphome-devices
   remote_id: Anwio-BR30-E26-RGB-CCT-13W-Light-Bulb
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Anwio-BR30-E26-RGB-CCT-13W-Light-Bulb/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 89dbba60bad778bf9127cb4d8ffea107591c5c4385def31c65a1ecea1b0ac804

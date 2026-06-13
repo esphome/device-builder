@@ -42,5 +42,5 @@ source:
   type: esphome-devices
   remote_id: Arlec-FL052HA-Security-Flood-Light
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Arlec-FL052HA-Security-Flood-Light/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: b171af82418e8f268d3fb457c00f7c0e252e44eac010ce6f778102ad1fcad81a

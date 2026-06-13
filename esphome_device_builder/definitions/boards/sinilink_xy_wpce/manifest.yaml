@@ -69,5 +69,5 @@ source:
   type: esphome-devices
   remote_id: Sinilink-XY-WPCE
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Sinilink-XY-WPCE/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: abb0dd5d77996a1cbf113c934b899605c183626abd5c9920b1774ce0dc9a6569

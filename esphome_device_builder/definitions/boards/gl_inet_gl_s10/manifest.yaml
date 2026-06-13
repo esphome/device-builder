@@ -77,5 +77,5 @@ source:
   type: esphome-devices
   remote_id: GL-iNet-GL-S10
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/GL-iNet-GL-S10/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 1029ba2937fb8e7794df9de756250c5b06e6f8bdfbc0de97d5aa82e82a7db5d1

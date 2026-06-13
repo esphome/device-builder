@@ -13,11 +13,36 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/ESP32S3-1.8-inch-JC3636K518C/JC3636K518C.webp
 pins:
+- gpio: 14
+  available: false
+  occupied_by: display.qspi_dbi
+- gpio: 21
+  available: false
+  occupied_by: display.qspi_dbi
+- gpio: 46
+  available: false
+  occupied_by: i2s_microphone
 - gpio: 47
   available: false
   occupied_by: backlight_pwm
 docs_url: https://devices.esphome.io/devices/ESP32S3-1.8-inch-JC3636K518C/
 featured_components:
+- id: display_qspi_dbi_1
+  component_id: display.qspi_dbi
+  fields:
+    model: CUSTOM
+    data_rate: 80MHz
+    color_order: rgb
+    cs_pin:
+      value: 14
+      locked: true
+    reset_pin:
+      value: 21
+      locked: true
+    invert_colors: true
+    auto_clear_enabled: false
+    id: display_qspi_dbi_1
+    name: Qspi Dbi 1
 - id: display_backlight
   component_id: light.monochromatic
   fields:
@@ -25,6 +50,19 @@ featured_components:
     output: backlight_pwm
     id: display_backlight
     name: Backlight
+- id: i2s_microphone
+  component_id: microphone.i2s_audio
+  fields:
+    i2s_din_pin:
+      value: 46
+      locked: true
+    adc_type: external
+    pdm: false
+    channel: left
+    sample_rate: 16000
+    bits_per_sample: 32bit
+    id: i2s_microphone
+    name: i2s_microphone
 - id: backlight_pwm
   component_id: output.ledc
   fields:
@@ -43,5 +81,5 @@ source:
   type: esphome-devices
   remote_id: ESP32S3-1.8-inch-JC3636K518C
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/ESP32S3-1.8-inch-JC3636K518C/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 1617cc473ac6bcc2d854dc91eb31bda702f4ed5f50947a8e88e1021af23c0ce7

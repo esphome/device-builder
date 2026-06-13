@@ -1113,5 +1113,5 @@ source:
   type: esphome-devices
   remote_id: KinCony-M30
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-M30/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 12a1002bd914254cf22c1a0604b78a6592594f6f5c3eb5a3c05afd35a9fcc4bb

@@ -68,6 +68,13 @@ featured_components:
     entity_category: diagnostic
     id: sensor_wifi_signal_1
     name: Wifi Signal Strength
+- id: sensor_uptime_1
+  component_id: sensor.uptime
+  fields:
+    update_interval: 300s
+    entity_category: diagnostic
+    id: sensor_uptime_1
+    name: Uptime
 featured_bundles:
 - id: light_1_setup
   name: light_1 (full setup)
@@ -78,5 +85,5 @@ source:
   type: esphome-devices
   remote_id: Sonoff-MiniR4-Extreme
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Sonoff-MiniR4-Extreme/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 9ebc08643a47ad0225a16b30064706c7c909e386752298324e7fb30b41314e45

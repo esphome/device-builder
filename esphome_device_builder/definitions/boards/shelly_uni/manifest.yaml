@@ -96,6 +96,13 @@ featured_components:
     entity_category: diagnostic
     id: sensor_rssi
     name: RSSI
+- id: sensor_uptime
+  component_id: sensor.uptime
+  fields:
+    update_interval: 300s
+    entity_category: diagnostic
+    id: sensor_uptime
+    name: Uptime
 - id: sensor_voltage
   component_id: sensor.adc
   fields:
@@ -142,5 +149,5 @@ source:
   type: esphome-devices
   remote_id: Shelly-Uni
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Shelly-Uni/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: a833441233acef1c4d0ace94498f1f4a002c1603a05e14f0059b939785b07dbf

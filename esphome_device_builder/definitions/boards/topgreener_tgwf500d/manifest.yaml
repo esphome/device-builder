@@ -30,5 +30,5 @@ source:
   type: esphome-devices
   remote_id: Topgreener-TGWF500D
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Topgreener-TGWF500D/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 31c68de52d2b24e0e2c9abf235b5aab8b81791b83a6ff84d758baec8dd21c191

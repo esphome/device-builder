@@ -43,5 +43,5 @@ source:
   type: esphome-devices
   remote_id: Geeni-4-outlet-surge-strip
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Geeni-4-outlet-surge-strip/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 9f305d359bea1c69fd2eef2bb14b0582cf73bdab67f0072b0011397899fc4843

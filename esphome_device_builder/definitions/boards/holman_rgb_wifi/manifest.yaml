@@ -78,6 +78,13 @@ featured_components:
     update_interval: 600s
     id: sensor_wifi_signal_1
     name: wifi signal
+- id: uptime_sensor
+  component_id: sensor.uptime
+  fields:
+    update_interval: 60s
+    disabled_by_default: true
+    id: uptime_sensor
+    name: Uptime Sensor
 featured_bundles:
 - id: light_rgb_1_setup
   name: RGB Lights (full setup)
@@ -90,5 +97,5 @@ source:
   type: esphome-devices
   remote_id: Holman-RGB-Wifi
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Holman-RGB-Wifi/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 93e80834d74dc7eb18054607cd90fe72fa8f1d4c4bac1004d26271b8707257a9
