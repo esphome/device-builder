@@ -244,7 +244,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         if self._db.devices is not None:
             device = next(
                 (d for d in self._db.devices.get_devices() if d.configuration == configuration),
-                None
+                None,
             )
             if device and device.state in (DeviceState.OFFLINE, DeviceState.UNKNOWN):
                 _LOGGER.info("Device %s is offline. Queuing compile-only job.", configuration)
