@@ -143,7 +143,10 @@ def _materialise_featured(
         image_url=underlying.image_url,
         dependencies=list(underlying.dependencies),
         multi_conf=underlying.multi_conf,
+        bus_constraints=underlying.bus_constraints,
         supported_platforms=list(underlying.supported_platforms),
+        provides=list(underlying.provides),
+        required_groups=list(underlying.required_groups),
         config_entries=[
             _materialise_entry_with_preset(entry, target_platform, presets.get(entry.key))
             for entry in underlying.config_entries
@@ -203,17 +206,13 @@ def _materialise(
     that value replaces ``default_value``. The ``platform_defaults``
     field itself is always cleared in the returned copy so the API
     surface stays simple — the frontend just reads ``default_value``.
+
+    ``replace`` rather than a field-list copy, so every other field
+    (``provides``, ``required_groups``, ``bus_constraints``) rides
+    through instead of silently resetting to its default.
     """
-    return ComponentCatalogEntry(
-        id=component.id,
-        name=component.name,
-        description=component.description,
-        category=component.category,
-        docs_url=component.docs_url,
-        image_url=component.image_url,
-        dependencies=component.dependencies,
-        multi_conf=component.multi_conf,
-        supported_platforms=component.supported_platforms,
+    return replace(
+        component,
         config_entries=[_materialise_entry(e, target_platform) for e in component.config_entries],
     )
 
