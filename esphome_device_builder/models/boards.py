@@ -109,6 +109,7 @@ class BoardPin(DataClassORJSONMixin):
     available: bool | None = None  # True=exposed, False=internal, None=unknown
     occupied_by: str | None = None  # e.g. "Built-in LED", "SPI Flash"
     notes: str | None = None
+    aliases: list[str] = field(default_factory=list)  # named forms, e.g. RX, D1
 
     class Config(_CatalogConfig):
         """Skip empty defaults on serialise; see :class:`_CatalogConfig`."""

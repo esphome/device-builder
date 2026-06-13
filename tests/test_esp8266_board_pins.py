@@ -29,6 +29,27 @@ def test_derive_tags_esp8266_base_pins() -> None:
     assert pins[1].notes == "UART TX"
 
 
+def test_derive_preserves_named_aliases() -> None:
+    # The named forms a config refers to a pin by (RX, TX, positional D1) are
+    # kept so the editor can select them; the GPIO<n> synonym is dropped.
+    pins = {p.gpio: p for p in _derive_pins_from_aliases({"RX": 3, "TX": 1, "D1": 5, "GPIO5": 5})}
+    assert pins[3].aliases == ["RX"]
+    assert pins[1].aliases == ["TX"]
+    assert pins[5].aliases == ["D1"]  # GPIO5 synonym excluded
+
+
+def test_esp8266_board_keeps_full_pinout_with_aliases(
+    generated_board_catalog: BoardCatalogResponse,
+) -> None:
+    # Aliases ride on the full GPIO0-17 pinout: plain GPIOs (a config's GPIO0
+    # button) stay selectable, and the fixed-function pin carries its name.
+    boards = {b.id: b for b in generated_board_catalog.boards}
+    pins = {p.gpio: p for p in boards["esp01_1m"].pins}
+    assert 0 in pins and 2 in pins
+    assert pins[3].aliases == ["RX"]
+    assert pins[1].aliases == ["TX"]
+
+
 def test_catalog_generates_unmanifested_esp8266_board(
     generated_board_catalog: BoardCatalogResponse,
 ) -> None:

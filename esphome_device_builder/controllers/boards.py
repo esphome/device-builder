@@ -176,16 +176,18 @@ class BoardCatalog:
         ``esp32-c3-devkitm-1`` reference design), the disambiguation
         ladder is:
 
-        1. ``is_generic=true`` wins outright — the catalog's curated
-           "this is the canonical reference design" marker.
-        2. Otherwise, prefer an entry whose ``id`` matches the
-           PlatformIO board id (after ``_`` ↔ ``-`` normalization).
-           A board with id ``d1-mini`` is the canonical entry for
-           PlatformIO ``d1_mini`` even when nobody remembered to set
-           ``is_generic: true`` — without this tiebreaker, a vendor
-           product alphabetically earlier than the canonical entry
-           wins (the bug behind issue #395 — AquaPing showing up as
-           the board for plain ``d1_mini`` YAMLs).
+        1. Prefer an entry whose ``id`` matches the PlatformIO board id
+           (after ``_`` ↔ ``-`` normalization). A YAML that names a
+           specific board (``board: esp01_1m``) must resolve to that
+           exact catalog entry and its pinout — not the broader
+           ``generic-esp8266`` that merely shares ``esp01_1m`` as its
+           default PlatformIO board. Also covers issue #395 (plain
+           ``d1_mini`` resolving to a vendor product instead of the
+           canonical ``d1-mini``).
+        2. Otherwise, ``is_generic=true`` wins — the catalog's curated
+           "this is the canonical reference design" marker for a
+           PlatformIO board no specific entry is named after
+           (``esp32-c3-devkitm-1`` → ``generic-esp32c3``).
         3. Fall back to the first match in iteration order.
         """
         matches = self._matches_pio_board(pio_board, platform)
@@ -197,12 +199,12 @@ class BoardCatalog:
             ]
             if variant_matches:
                 matches = variant_matches
-        for b in matches:
-            if b.is_generic:
-                return b
         normalized_pio = pio_board.replace("_", "-")
         for b in matches:
             if b.id.replace("_", "-") == normalized_pio:
+                return b
+        for b in matches:
+            if b.is_generic:
                 return b
         return matches[0]
 

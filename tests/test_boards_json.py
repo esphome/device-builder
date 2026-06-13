@@ -89,10 +89,12 @@ def test_split_artefacts_match_manifests() -> None:
         expected = board.to_dict()
         actual = disk_by_id[board.id].to_dict()
         platform = board.esphome.platform.value
-        # esphome_filled manifests ship no pins; esp8266 product manifests ship
-        # empty pins filled at sync. Either way pins are esphome-derived and
-        # version-dependent here — curated esp8266 pins stay compared.
-        if platform in esphome_filled or (platform == "esp8266" and not board.pins):
+        # esphome_filled manifests ship no pins. Every esp8266 board has its
+        # ESPHome-derived named aliases (``RX``/``D1`` from ``ESP8266_BASE_PINS``)
+        # overlaid onto the pinout at sync, so its pins are version-dependent and
+        # not a byte match for the manifest (curated available/occupied/notes are
+        # preserved through the overlay, just not compared here).
+        if platform in esphome_filled or platform == "esp8266":
             expected.pop("pins", None)
             actual.pop("pins", None)
         assert expected == actual, (
