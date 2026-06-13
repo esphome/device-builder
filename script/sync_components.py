@@ -76,7 +76,9 @@ _CACHE_ROOT = _REPO_ROOT / ".cache"
 # Fields stripped from index entries — they belong on the per-id body
 # files only. Slim-index keeps the catalog UI's list / search /
 # filter paths off the per-field tree.
-_INDEX_DROP_FIELDS: frozenset[str] = frozenset({"config_entries", "required_groups"})
+_INDEX_DROP_FIELDS: frozenset[str] = frozenset(
+    {"config_entries", "required_groups", "bus_constraints"}
+)
 
 # Actions with more top-level config entries than this are flagged
 # form_editable=False (LVGL *.update sits at 160+, every other action <= 30).
@@ -1943,6 +1945,7 @@ def build_component_entry(
         config_entries,
         _collect_pin_constraints(_get_esphome_loader(), domain, stem, top_key),
     )
+    bus_constraints = _collect_bus_constraints(_get_esphome_loader(), domain, stem, top_key)
     _apply_unit_of_measurement_options(config_entries)
     _promote_multi_value_keys(config_entries)
     _promote_template_controls(component_id, config_entries)
@@ -1956,6 +1959,7 @@ def build_component_entry(
         "image_url": image_map.get(component_id) or image_map.get(stem) or "",
         "dependencies": dependencies,
         "multi_conf": introspection.get("multi_conf", False),
+        "bus_constraints": bus_constraints,
         "supported_platforms": _derive_supported_platforms(
             stem if domain else top_key,
             dependencies,
@@ -3953,6 +3957,7 @@ _COMPONENT_DEFAULTS: dict[str, Any] = {
     "provides": [],
     "config_entries": [],
     "required_groups": [],
+    "bus_constraints": {},
 }
 
 
@@ -4785,6 +4790,108 @@ def _apply_pin_constraints(
             )
 
     _walk_catalog_entries(entries, visit)
+
+
+# Bus helpers whose ``final_validate_device_schema`` carries literal,
+# machine-readable constraints (frequency / baud rate / required pins).
+_BUS_FINAL_VALIDATE_HELPERS = frozenset({"i2c", "spi", "uart"})
+
+
+def _collect_bus_constraints(
+    loader: Any,
+    domain: str | None,
+    stem: str,
+    top_key: str,
+) -> dict[str, dict[str, Any]]:
+    """
+    Bus requirements a component imposes via ``FINAL_VALIDATE_SCHEMA``.
+
+    Literal kwargs of ``<bus>.final_validate_device_schema(...)``, read
+    from the component module's source (ags10 caps i2c at 15kHz).
+    """
+    if loader is None:
+        return {}
+    try:
+        manifest = (
+            loader.get_platform(domain, stem)
+            if domain in _PLATFORM_DOMAINS
+            else loader.get_component(top_key)
+        )
+    except Exception:
+        return {}
+    module = getattr(manifest, "module", None)
+    try:
+        src_file = inspect.getsourcefile(module) if module else None
+    except TypeError:
+        src_file = None
+    if not src_file:
+        return {}
+    return _bus_constraints_from_source(src_file)
+
+
+@cache
+def _bus_constraints_from_source(src_file: str) -> dict[str, dict[str, Any]]:
+    """Parse ``FINAL_VALIDATE_SCHEMA = <bus>.final_validate_device_schema(...)``."""
+    try:
+        tree = ast.parse(Path(src_file).read_text(encoding="utf-8"))
+    except (OSError, SyntaxError):
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(
+            isinstance(t, ast.Name) and t.id == "FINAL_VALIDATE_SCHEMA" for t in node.targets
+        ):
+            continue
+        call = node.value
+        if not (
+            isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Attribute)
+            and call.func.attr == "final_validate_device_schema"
+            and isinstance(call.func.value, ast.Name)
+            and call.func.value.id in _BUS_FINAL_VALIDATE_HELPERS
+        ):
+            continue
+        constraints = _bus_constraint_kwargs(call)
+        if constraints:
+            out[call.func.value.id] = constraints
+    return out
+
+
+def _bus_constraint_kwargs(call: ast.Call) -> dict[str, Any]:
+    """Literal constraint kwargs of one helper call."""
+    out: dict[str, Any] = {}
+    for kw in call.keywords:
+        # ``uart_bus`` renames the id field, it isn't a constraint.
+        if kw.arg is None or kw.arg == "uart_bus":
+            continue
+        try:
+            value = ast.literal_eval(kw.value)
+        except ValueError:
+            continue
+        # ``None`` / ``False`` both mean "unconstrained" (note
+        # ``parity=None`` vs the distinct ``parity="NONE"``).
+        if value is None or value is False:
+            continue
+        out[kw.arg] = _normalize_bus_constraint_value(kw.arg, value)
+    return out
+
+
+def _normalize_bus_constraint_value(key: str, value: Any) -> Any:
+    """Convert unit-suffixed strings ("15khz", "10ms") to plain numbers."""
+    if not isinstance(value, str):
+        return value
+    try:
+        import esphome.config_validation as cv
+
+        if key.endswith("frequency"):
+            return cv.frequency(value)
+        if key.endswith("timeout"):
+            return cv.time_period(value).total_milliseconds
+    except Exception:
+        return value
+    return value
 
 
 def _apply_refined_types(

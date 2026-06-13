@@ -143,6 +143,13 @@ class ComponentCatalogEntry(DataClassORJSONMixin):
     # is a singleton (e.g. `wifi:`, `api:`).
     multi_conf: bool = False
 
+    # Requirements this component imposes on the bus it attaches to,
+    # keyed by bus id ("i2c" / "spi" / "uart"): exact-match values
+    # (``baud_rate``, ``parity``, ...), range bounds (``min_frequency``
+    # / ``max_frequency``, in Hz) and required pins (``require_tx`` /
+    # ``require_mosi`` / ...). Frontend pre-fills dep-added buses.
+    bus_constraints: dict[str, dict[str, Any]] = field(default_factory=dict)
+
     # Empty list = component works on every target platform. Non-empty
     # = component is restricted to those platforms (e.g. ["esp32"] for
     # ESP32-only hardware features). Frontend uses this to filter the
