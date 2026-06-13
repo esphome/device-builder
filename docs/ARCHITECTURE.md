@@ -237,8 +237,10 @@ via `ComponentCatalog.get_body` through a bounded LRU so an idle
 dashboard doesn't carry the per-field config_entries trees in RAM.
 Schema + narrow live `esphome` introspection cover most fields; `multi_conf`,
 `platform_defaults`, `supported_platforms`, type refinement (boolean / float
-recovery), and `unit_of_measurement` autocomplete options come from the live
-package. Component-level descriptions and titles fall back to the docs MDX
+recovery), `unit_of_measurement` autocomplete options, and `cv.typed_schema`
+`default_type` recovery (read from the validator's closure so a discriminator
+select is optional with the right default) come from the live package.
+Component-level descriptions and titles fall back to the docs MDX
 (`esphome.io` shallow clone) when the schema's index is sparse.
 
 The same script runs nightly via

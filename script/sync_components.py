@@ -1952,6 +1952,7 @@ def build_component_entry(
         field_ranges = {k: v for k, v in field_ranges.items() if k not in bleed}
     _apply_field_ranges(config_entries, field_ranges)
     _apply_refined_types(config_entries, introspection.get("refined_types") or {})
+    _apply_typed_defaults(config_entries, introspection.get("typed_defaults") or {})
     _apply_inclusive_groups(config_entries, introspection.get("inclusive_groups") or {})
     _apply_list_fields(config_entries, introspection.get("list_fields") or {})
     _apply_exclusive_group(
@@ -3711,6 +3712,7 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     required_groups = merge_from_platforms(_collect_required_groups)
     list_fields = merge_from_platforms(_collect_list_fields)
     registry_members = merge_from_platforms(_collect_registry_members)
+    typed_defaults = merge_from_platforms(_collect_typed_defaults)
 
     # A range bounded on the bare/hub manifest must not bleed onto a
     # platform component's same-named-but-different field. ``address`` is
@@ -3750,6 +3752,7 @@ def introspect_component(component_id: str) -> dict[str, Any]:
         "required_groups": required_groups,
         "list_fields": list_fields,
         "registry_members": registry_members,
+        "typed_defaults": typed_defaults,
         "auto_load": auto_load,
     }
 
@@ -4611,6 +4614,77 @@ def _collect_refined_types(  # noqa: C901
     return out
 
 
+def _typed_closure_default(node: Any) -> tuple[tuple[str, Any] | None, dict[str, Any]]:
+    """Read a ``cv.typed_schema`` validator's ``(typed_key, default)`` + its closure vars.
+
+    The default lives only in the ``default_schema_option`` closure
+    freevar — ``cv.typed_schema`` pops it before the schema bundle sees
+    it. Returns ``(None, nonlocals)`` for any non-typed / default-less
+    node; the ``nonlocals`` feed the traversal into wrapper closures.
+    """
+    if not (callable(node) and getattr(node, "__closure__", None)):
+        return None, {}
+    try:
+        nonlocals = inspect.getclosurevars(node).nonlocals
+    except (TypeError, ValueError):
+        return None, {}
+    default = nonlocals.get("default_schema_option")
+    if "default_schema_option" in nonlocals and default is not None:
+        return (str(nonlocals.get("key") or "type"), default), nonlocals
+    return None, nonlocals
+
+
+def _typed_default_of(node: Any) -> tuple[str, Any] | None:
+    """Return ``(typed_key, default_type)`` for a ``cv.typed_schema`` reachable from *node*.
+
+    ``cv.All(cv.ensure_list(...))`` buries the typed validator two
+    closures deep (``spi``), so descend ``.validators`` / ``.schema`` /
+    closure cells. ``None`` when no reachable typed_schema has a default.
+    """
+    seen: set[int] = set()
+    stack: list[Any] = [node]
+    while stack:
+        current = stack.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        found, nonlocals = _typed_closure_default(current)
+        if found is not None:
+            return found
+        stack.extend(nonlocals.values())
+        inner = getattr(current, "validators", None)
+        if isinstance(inner, (list, tuple)):
+            stack.extend(inner)
+        schema = getattr(current, "schema", None)
+        if schema is not None and schema is not current:
+            stack.append(schema)
+    return None
+
+
+def _collect_typed_defaults(manifest: Any) -> dict[tuple[str, ...], Any]:
+    """Recover a top-level ``cv.typed_schema``'s ``default_type``.
+
+    Returns ``{(typed_key,): default}`` (e.g. ``spi`` →
+    ``{("type",): "single"}``) so the applier can mark the discriminator
+    optional. The bundle always emits it ``Required`` with no default.
+
+    Surfaces only the first/top-most ``cv.typed_schema`` reachable and
+    keys it top-level; a default found on a *nested* typed field is not
+    correctly pathed. Harmless because ``_apply_typed_defaults`` only
+    applies a default that is one of the matched entry's own options, so
+    a nested discriminator's default won't land on an unrelated top-level
+    field that happens to share the key name.
+    """
+    schema = getattr(manifest, "config_schema", None)
+    if schema is None:
+        return {}
+    found = _typed_default_of(schema)
+    if found is None:
+        return {}
+    typed_key, default = found
+    return {(typed_key,): default}
+
+
 def _walk_catalog_entries(
     entries: list[dict],
     visit: Callable[[dict, tuple[str, ...]], None],
@@ -4965,6 +5039,33 @@ def _apply_refined_types(
                 entry["type"] = "unknown"
         elif entry.get("type") == "string":
             entry["type"] = new_type.type
+
+    _walk_catalog_entries(entries, visit)
+
+
+def _apply_typed_defaults(
+    entries: list[dict],
+    typed_defaults: dict[tuple[str, ...], Any],
+) -> None:
+    """Mark a typed_schema discriminator optional and pin its ``default_value``.
+
+    Only applies when the default is one of the discriminator's own
+    options — a component-level default can otherwise bleed onto a
+    platform entry with a different discriminator (``esp32_hosted``'s
+    ``sdio`` onto ``update.esp32_hosted``'s ``embedded``/``http``).
+    """
+    if not typed_defaults:
+        return
+
+    def visit(entry: dict, path: tuple[str, ...]) -> None:
+        default = typed_defaults.get(path)
+        if default is None:
+            return
+        options = entry.get("options") or []
+        if not any(str(o.get("value")) == str(default) for o in options):
+            return
+        entry["default_value"] = default
+        entry["required"] = False
 
     _walk_catalog_entries(entries, visit)
 

@@ -12,13 +12,17 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
+import esphome.config_validation as cv
 import pytest
 
 import script.sync_components as sc  # type: ignore[import-not-found]
 from script.sync_components import (
     _FONT_FILE_NODE,
     _RAW_NODE_OVERRIDES,
+    _apply_typed_defaults,
+    _collect_typed_defaults,
     _convert_field,
     _extract_config_entries,
 )
@@ -516,3 +520,85 @@ def test_top_level_typed_applies_component_overrides(
     assert "legacy" not in keys
     (mode,) = [e for e in entries if e["key"] == "mode"]
     assert mode["advanced"] is True
+
+
+# ---------------------------------------------------------------------------
+# default_type recovery: the bundle drops a typed_schema's ``default_type``,
+# so the discriminator always emits ``Required`` with no default. Live
+# introspection reads it back from the validator's closure.
+# ---------------------------------------------------------------------------
+
+
+def _manifest(config_schema: object) -> SimpleNamespace:
+    return SimpleNamespace(config_schema=config_schema)
+
+
+def test_collect_typed_defaults_reads_default_type_through_ensure_list() -> None:
+    """``cv.ensure_list(cv.typed_schema(..., default_type=...))`` (the SPI shape)."""
+    schema = cv.ensure_list(
+        cv.typed_schema(
+            {"single": cv.Schema({}), "quad": cv.Schema({}), "octal": cv.Schema({})},
+            default_type="single",
+        )
+    )
+    assert _collect_typed_defaults(_manifest(schema)) == {("type",): "single"}
+
+
+def test_collect_typed_defaults_honours_custom_key() -> None:
+    """The discriminator key follows ``cv.typed_schema``'s ``key=`` kwarg."""
+    schema = cv.typed_schema({"a": cv.Schema({}), "b": cv.Schema({})}, default_type="a", key="mode")
+    assert _collect_typed_defaults(_manifest(schema)) == {("mode",): "a"}
+
+
+def test_collect_typed_defaults_empty_without_default_type() -> None:
+    """A typed_schema with no ``default_type`` yields nothing (stays Required)."""
+    schema = cv.typed_schema({"a": cv.Schema({}), "b": cv.Schema({})})
+    assert _collect_typed_defaults(_manifest(schema)) == {}
+
+
+def test_collect_typed_defaults_empty_for_non_typed_schema() -> None:
+    """A plain schema has no typed discriminator."""
+    schema = cv.Schema({cv.Optional("x"): cv.string})
+    assert _collect_typed_defaults(_manifest(schema)) == {}
+    assert _collect_typed_defaults(_manifest(None)) == {}
+
+
+def _disc(value: str, *options: str) -> dict:
+    return {
+        "key": "type",
+        "type": "string",
+        "required": True,
+        "default_value": None,
+        "options": [{"label": o, "value": o} for o in options],
+    }
+
+
+def test_apply_typed_defaults_marks_discriminator_optional() -> None:
+    """The discriminator entry gains the default and drops ``required``."""
+    entries = [
+        _disc("type", "single", "quad", "octal"),
+        {"key": "clk_pin", "type": "pin", "required": True, "default_value": None},
+    ]
+    _apply_typed_defaults(entries, {("type",): "single"})
+    by_key = {e["key"]: e for e in entries}
+    assert by_key["type"]["required"] is False
+    assert by_key["type"]["default_value"] == "single"
+    # Sibling fields are untouched.
+    assert by_key["clk_pin"]["required"] is True
+    assert by_key["clk_pin"]["default_value"] is None
+
+
+def test_apply_typed_defaults_skips_default_not_in_options() -> None:
+    """A default absent from this discriminator's options is dropped (esp32_hosted bleed)."""
+    entries = [_disc("type", "embedded", "http")]
+    _apply_typed_defaults(entries, {("type",): "sdio"})
+    assert entries[0]["required"] is True
+    assert entries[0]["default_value"] is None
+
+
+def test_apply_typed_defaults_noop_when_empty() -> None:
+    """No introspected defaults leaves the entries exactly as built."""
+    entries = [_disc("type", "single")]
+    _apply_typed_defaults(entries, {})
+    assert entries[0]["required"] is True
+    assert entries[0]["default_value"] is None
