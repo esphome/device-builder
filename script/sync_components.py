@@ -1917,9 +1917,9 @@ def build_component_entry(
     # Package-style platforms (ld2410/button, pipsolar/sensor, ...) bind
     # their hub through a ``cv.use_id`` config var instead of upstream
     # ``DEPENDENCIES``, so the schema index ships them dependency-less
-    # and the frontend never prompts for the hub (#1431). The use_id
-    # cross-ref is already extracted as ``references_component``; union
-    # the entry's own hub back in.
+    # and the frontend never prompts for the hub. The use_id cross-ref
+    # is already extracted as ``references_component``; union the
+    # entry's own hub back in.
     if domain and stem not in dependencies and _references_own_hub(config_entries, stem):
         dependencies.append(stem)
 
@@ -4630,7 +4630,7 @@ def _walk_catalog_entries(
 
 
 def _references_own_hub(config_entries: list[dict], stem: str) -> bool:
-    """Whether any config var cross-references the entry's own hub via use_id."""
+    """Whether a config var cross-references the entry's own component (``stem``) via use_id."""
     found = False
 
     def visit(entry: dict, _path: tuple[str, ...]) -> None:

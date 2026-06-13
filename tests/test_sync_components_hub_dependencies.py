@@ -43,7 +43,7 @@ def test_references_other_component_only() -> None:
 
 
 def test_platform_with_use_id_hub_gains_dependency() -> None:
-    """The ld2410/button shape (#1431): use_id hub ref, no upstream DEPENDENCIES."""
+    """A use_id hub ref with no upstream DEPENDENCIES still yields the hub dependency."""
     section = _section({"myhub_id": _use_id_var("myhub")})
     entry = build_component_entry("myhub.button", section, SchemaIndex(), _UNUSED_SCHEMA_DIR, {})
     assert entry is not None
