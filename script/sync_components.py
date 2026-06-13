@@ -5005,7 +5005,14 @@ def _apply_unit_of_measurement_options(entries: list[dict]) -> None:
 
 @cache
 def _load_board_index() -> list[dict]:
-    """Load the committed board catalog index (each board carries esphome.platform/board)."""
+    """
+    Load the committed ``boards.index.json`` (each board carries esphome.platform/board).
+
+    Read as committed: the board sync (``sync_boards.py``) and this component
+    sync are independent workflows, so board options can trail a board
+    add/remove by one component-sync cycle. ``allow_custom_value`` covers the
+    gap — the user can still type any board id.
+    """
     data = json.loads((_DEFINITIONS_DIR / "boards.index.json").read_text(encoding="utf-8"))
     boards = data.get("boards") if isinstance(data, dict) else data
     return boards or []
@@ -5025,7 +5032,8 @@ def _board_options_for_platform(platform: str) -> list[dict]:
 
 
 def _apply_board_options(component_id: str, entries: list[dict]) -> None:
-    """Surface a variant-less platform's ``board`` as a board-catalog combobox.
+    """
+    Surface a variant-less platform's ``board`` as a board-catalog combobox.
 
     Attaches the platform's catalog board ids as ``options`` plus
     ``allow_custom_value`` so the frontend renders a pick-or-type combobox;

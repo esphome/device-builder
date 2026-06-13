@@ -1,4 +1,5 @@
-"""Tests for the variant-less platforms' board combobox.
+"""
+Tests for the variant-less platforms' board combobox.
 
 Pins that ``board`` surfaces as a board-catalog combobox (options +
 ``allow_custom_value``) for the platforms whose ``board`` is the required
@@ -18,6 +19,7 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _OUTPUT_BODIES_DIR,
     _apply_board_options,
     _board_options_for_platform,
+    _load_board_index,
 )
 
 
@@ -48,8 +50,15 @@ def test_board_options_are_distinct_sorted_pairs() -> None:
 
 def test_board_options_dedupe_shared_esphome_board() -> None:
     """esp8266 has many catalog entries sharing one ``esphome.board`` — collapse them."""
-    # 213 catalog entries collapse to 44 distinct board ids.
-    assert len(_board_options_for_platform("esp8266")) == 44
+    entries = [
+        b for b in _load_board_index() if (b.get("esphome") or {}).get("platform") == "esp8266"
+    ]
+    distinct = {(b.get("esphome") or {}).get("board") for b in entries} - {None}
+    options = _board_options_for_platform("esp8266")
+    # Self-consistent rather than a hardcoded count: far more catalog entries
+    # than distinct board ids, and the helper yields exactly the distinct set.
+    assert len(entries) > len(options)
+    assert len(options) == len(distinct)
 
 
 def test_apply_board_options_sets_combobox_on_board_entry() -> None:
