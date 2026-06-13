@@ -293,19 +293,26 @@ _SKIP_KEYS: frozenset[str] = frozenset({"mqtt_id", "zigbee_id", "then"})
 # deprecated and the dashboard handles the underlying concern itself.
 # Keyed by ``(component_id, field_key)``.
 #
-# - ``esp32.board`` / ``esp8266.board``: the dashboard drives the
-#   PlatformIO board ID from the user's board pick (the board catalog
-#   is the source of truth). Internally we feed esphome with the
-#   ``variant`` only, never ``board``.
+# - ``esp32.board`` / ``rp2040.board``: these platforms carry a
+#   ``variant`` that the user selects instead (schema enforces
+#   ``has_at_least_one_key(board, variant)``), so the editor surfaces
+#   ``variant`` and the board itself comes from the board catalog. The
+#   variant-less platforms (esp8266, nrf52, bk72xx, rtl87xx, ln882x)
+#   have ``board`` as their required sole selector and surface it as a
+#   board combobox — see ``_BOARD_COMBOBOX_PLATFORMS``.
 _DEPRECATED_FIELDS: frozenset[tuple[str, str]] = frozenset(
     {
         ("esp32", "board"),
-        ("esp8266", "board"),
         ("rp2040", "board"),
-        ("bk72xx", "board"),
-        ("rtl87xx", "board"),
-        ("ln882x", "board"),
     }
+)
+
+# Platform components whose ``board`` is the required, sole selector
+# (no ``variant``). Their ``board`` entry is surfaced as a combobox of
+# the platform's catalog boards plus free-text — see
+# ``_apply_board_options``.
+_BOARD_COMBOBOX_PLATFORMS: frozenset[str] = frozenset(
+    {"esp8266", "nrf52", "bk72xx", "rtl87xx", "ln882x"}
 )
 
 # Cross-cutting fields that only make sense when a specific component
@@ -1956,6 +1963,7 @@ def build_component_entry(
     )
     bus_constraints = _collect_bus_constraints(_get_esphome_loader(), domain, stem, top_key)
     _apply_unit_of_measurement_options(config_entries)
+    _apply_board_options(component_id, config_entries)
     _promote_multi_value_keys(config_entries)
     _promote_template_controls(component_id, config_entries)
 
@@ -4993,6 +5001,46 @@ def _apply_unit_of_measurement_options(entries: list[dict]) -> None:
                 walk(inner)
 
     walk(entries)
+
+
+@cache
+def _load_board_index() -> list[dict]:
+    """Load the committed board catalog index (each board carries esphome.platform/board)."""
+    data = json.loads((_DEFINITIONS_DIR / "boards.index.json").read_text(encoding="utf-8"))
+    boards = data.get("boards") if isinstance(data, dict) else data
+    return boards or []
+
+
+def _board_options_for_platform(platform: str) -> list[dict]:
+    """Distinct ``esphome.board`` ids for *platform* as sorted ``{label, value}`` dicts."""
+    ids: set[str] = set()
+    for entry in _load_board_index():
+        esphome = entry.get("esphome") or {}
+        if esphome.get("platform") != platform:
+            continue
+        board = esphome.get("board")
+        if board:
+            ids.add(board)
+    return [{"label": board, "value": board} for board in sorted(ids)]
+
+
+def _apply_board_options(component_id: str, entries: list[dict]) -> None:
+    """Surface a variant-less platform's ``board`` as a board-catalog combobox.
+
+    Attaches the platform's catalog board ids as ``options`` plus
+    ``allow_custom_value`` so the frontend renders a pick-or-type combobox;
+    free-text preserves board's ``cv.string_strict`` openness.
+    """
+    if component_id not in _BOARD_COMBOBOX_PLATFORMS:
+        return
+    options = _board_options_for_platform(component_id)
+    if not options:
+        return
+    for entry in entries:
+        if entry.get("key") == "board":
+            entry["options"] = options
+            entry["allow_custom_value"] = True
+            break
 
 
 def _promote_multi_value_keys(entries: list[dict]) -> None:
