@@ -185,6 +185,35 @@ async def test_migrate_then_resolve_matches_fleet_outcome(
     assert cb3s_board == "cb3s"
 
 
+async def test_curated_esp8266_pick_survives_exact_id_derive(
+    tmp_path: Path, real_catalog: BoardCatalog
+) -> None:
+    """A curated esp8266 pick is stamped before exact-id derive can re-resolve it.
+
+    ``_derive_board_id_from_yaml`` resolves ``board: esp01_1m`` to the
+    exact ``esp01_1m`` entry (``prefer_exact_id``), but the migration runs
+    first with the default generic-first order, sees ``generic-esp8266`` as
+    the winner, stamps the curated ``sonoff-basic`` pick user-set — so
+    resolution preserves it instead of flipping to ``esp01_1m``. Locks in
+    that the two orderings can't diverge harmfully (PR #1442 review).
+    """
+
+    def _seed() -> None:
+        set_device_metadata(tmp_path, "sonoff.yaml", board_id="sonoff-basic")
+        (tmp_path / "sonoff.yaml").write_text(
+            "esphome:\n  name: sonoff\n\nesp8266:\n  board: esp01_1m\n", encoding="utf-8"
+        )
+
+    await asyncio.to_thread(_seed)
+    controller = _controller(tmp_path, real_catalog)
+    await controller.migrate_board_id_user_set()
+
+    resolved = await asyncio.to_thread(
+        lambda: controller._resolve_device_metadata(tmp_path, "sonoff.yaml").board_id
+    )
+    assert resolved == "sonoff-basic"
+
+
 async def test_migrate_is_noop_when_catalog_unloaded(tmp_path: Path) -> None:
     """With no catalog yet, the migration is a no-op and writes no marker.
 
