@@ -1039,7 +1039,12 @@ class CleanedDocs:
 
 
 def clean_docs(raw: str | None) -> CleanedDocs:
-    """Strip type prefix and ``See also`` footer; surface both as fields."""
+    """
+    Strip type prefix and ``See also`` footer; surface both as fields.
+
+    A body that is exactly ``"None"`` (ESPHome's empty-docstring sentinel)
+    becomes empty text, keeping any extracted name/url.
+    """
     if not raw:
         return CleanedDocs("")
     text = raw.strip()
