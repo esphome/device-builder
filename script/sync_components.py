@@ -4883,13 +4883,16 @@ def _normalize_bus_constraint_value(key: str, value: Any) -> Any:
     if not isinstance(value, str):
         return value
     try:
+        # Lazy: the sync degrades gracefully without esphome installed.
         import esphome.config_validation as cv
-
+    except ImportError:
+        return value
+    try:
         if key.endswith("frequency"):
             return cv.frequency(value)
         if key.endswith("timeout"):
             return cv.time_period(value).total_milliseconds
-    except Exception:
+    except vol.Invalid:
         return value
     return value
 
