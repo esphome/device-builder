@@ -188,15 +188,7 @@ async def test_migrate_then_resolve_matches_fleet_outcome(
 async def test_curated_esp8266_pick_survives_exact_id_derive(
     tmp_path: Path, real_catalog: BoardCatalog
 ) -> None:
-    """A curated esp8266 pick is stamped before exact-id derive can re-resolve it.
-
-    ``_derive_board_id_from_yaml`` resolves ``board: esp01_1m`` to the
-    exact ``esp01_1m`` entry (``prefer_exact_id``), but the migration runs
-    first with the default generic-first order, sees ``generic-esp8266`` as
-    the winner, stamps the curated ``sonoff-basic`` pick user-set — so
-    resolution preserves it instead of flipping to ``esp01_1m``. Locks in
-    that the two orderings can't diverge harmfully (PR #1442 review).
-    """
+    """Migration stamps a curated esp8266 pick before exact-id derive re-resolves it."""
 
     def _seed() -> None:
         set_device_metadata(tmp_path, "sonoff.yaml", board_id="sonoff-basic")

@@ -162,37 +162,22 @@ class BoardCatalog:
         """
         Find a board by its PlatformIO board id, preferring a matching variant.
 
-        Returns the slim index entry; the caller fetches the full
-        body via :meth:`get_board` when it needs pins /
-        featured_components / default_components.
+        Returns the slim index entry; the caller fetches the full body via
+        :meth:`get_board` for pins / featured_components.
 
-        ``platform`` scopes the match to one ESPHome platform. nRF52 and rp2040
-        both ship a PlatformIO board called ``adafruit_itsybitsy``; without the
-        scope an ``nrf52`` device would resolve to the rp2040 entry and serve its
-        ``GPIOn`` pins, which ESPHome's nRF52 validator rejects. A scoped miss
-        returns ``None`` so the caller falls back (a free-text pin field) rather
-        than wrong-platform pins.
+        ``platform`` scopes the match to one ESPHome platform — nRF52 and
+        rp2040 both ship an ``adafruit_itsybitsy``, so an unscoped lookup
+        would serve wrong-platform pins. A scoped miss returns ``None``.
 
-        When multiple catalog entries share the same PlatformIO board id
-        (e.g. several products built on the same ``esp32-c3-devkitm-1``
-        reference design), the disambiguation ladder depends on
-        *prefer_exact_id*:
+        Several entries can share a PlatformIO board id (products built on one
+        reference design). Tiebreak by *prefer_exact_id*:
 
-        - **Default** (``False``) — the historical order, kept so callers
-          like the ``board_id_user_set`` migration resolve identically to
-          before ``prefer_exact_id`` existed:
-          1. ``is_generic=true`` wins outright — the curated "canonical
-             reference design" marker.
-          2. else an entry whose ``id`` matches the PlatformIO board id
-             (``_`` ↔ ``-`` normalized) — the canonical ``d1-mini`` for a
-             ``d1_mini`` YAML that nobody flagged ``is_generic`` (issue #395).
-          3. else the first match in iteration order.
-        - **``prefer_exact_id=True``** — used when resolving a device's
-          own ``board:`` so a YAML naming a specific board
-          (``board: esp01_1m``) resolves to that exact entry and its pinout,
-          not the broader ``generic-esp8266`` that merely shares ``esp01_1m``
-          as its default PlatformIO board. Swaps steps 1 and 2: exact id
-          first, then generic, then first.
+        - ``False`` (default) — generic entry, else the entry whose ``id``
+          matches the board id, else the first. The historical order; the
+          ``board_id_user_set`` migration relies on it being unchanged.
+        - ``True`` — exact ``id`` match first, else generic, else first. Used
+          to resolve a device's own ``board:`` so ``board: esp01_1m`` lands on
+          that entry, not the broader ``generic-esp8266`` sharing its pio board.
         """
         matches = self._matches_pio_board(pio_board, platform)
         if not matches:
