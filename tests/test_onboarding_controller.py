@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -591,9 +591,22 @@ async def test_migrate_preexisting_install_with_yml_extension_becomes_yaml(
     assert prefs.experience_level == ExperienceLevel.YAML
 
 
-def test_has_device_configs_unreadable_dir_returns_false(tmp_path: Path) -> None:
-    """A scan failure soft-fails to ``False`` rather than crashing startup."""
+def test_has_device_configs_missing_dir_returns_false(tmp_path: Path) -> None:
+    """A genuinely-absent config dir is a fresh install, not a scan failure."""
     assert _has_device_configs(tmp_path / "does-not-exist") is False
+
+
+def test_has_device_configs_unreadable_dir_assumes_preexisting(tmp_path: Path) -> None:
+    """A dir that exists but can't be read fails safe for existing users.
+
+    A transient read error must not reclassify a real install as fresh and
+    re-pop the wizard, so it assumes configs are present.
+    """
+    with patch(
+        "esphome_device_builder.controllers.onboarding.list_yaml_files",
+        side_effect=PermissionError("denied"),
+    ):
+        assert _has_device_configs(tmp_path) is True
 
 
 async def test_migrate_fresh_install_is_noop(tmp_path: Path) -> None:

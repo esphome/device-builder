@@ -241,18 +241,23 @@ def _has_device_configs(config_dir: Path) -> bool:
     Uses the canonical ``list_yaml_files`` rule (.yaml + .yml, secrets
     and dotfiles excluded) so it can't drift from the device scanner;
     only the dashboard sentinel needs excluding on top.
+
+    A missing dir is a genuinely fresh install (return False). A dir that
+    exists but can't be read fails *safe for existing users*: assume it
+    holds configs so a transient read error can't reclassify a real
+    install as fresh and re-pop the wizard.
     """
     try:
         return any(p.name != _DASHBOARD_SENTINEL_FILE for p in list_yaml_files([config_dir]))
+    except FileNotFoundError:
+        return False
     except OSError:
-        # A read failure must not silently reclassify a real install as
-        # fresh (which would pop the wizard); log it and treat as empty.
         _LOGGER.warning(
-            "Could not scan %s for device configs during onboarding migration",
+            "Could not scan %s for device configs; assuming pre-existing install",
             config_dir,
             exc_info=True,
         )
-        return False
+        return True
 
 
 def _status(*, done: bool) -> OnboardingStepStatus:
