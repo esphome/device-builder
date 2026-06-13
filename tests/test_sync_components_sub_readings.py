@@ -161,6 +161,16 @@ def test_auto_loaded_reference_marked_advanced() -> None:
     assert "advanced" not in by_key["name"]
 
 
+def test_auto_loaded_reference_resorts_promoted_list() -> None:
+    """Promoting a reference to advanced re-groups it after non-advanced siblings."""
+    entries = [
+        {"key": "web_server_base_id", "references_component": "web_server_base"},
+        {"key": "port", "references_component": None},
+    ]
+    _apply_auto_loaded_reference_advanced(entries, {"web_server_base"}, set())
+    assert [e["key"] for e in entries] == ["port", "web_server_base_id"]
+
+
 def test_auto_loaded_reference_noop_on_empty_closure() -> None:
     """No AUTO_LOAD closure means nothing is forced advanced."""
     entries = [{"key": "web_server_base_id", "references_component": "web_server_base"}]

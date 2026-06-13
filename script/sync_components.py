@@ -5981,13 +5981,15 @@ def _apply_auto_loaded_reference_advanced(
 
     ``web_server`` auto-creates its ``web_server_base``, so the id is
     auto-resolved and stays off the main form. Required references and
-    multi-instance targets keep their picker. Pure (takes the closure +
+    multi-instance targets keep their picker. Re-sorts any list whose
+    child was promoted, since this runs after ``_sort_entries`` and the
+    flag feeds its non-advanced-first key. Pure (takes the closure +
     multi-instance set) so it tests without esphome.
     """
     if not auto_loaded:
         return
-
-    def visit(entry: dict, _path: tuple[str, ...]) -> None:
+    promoted = False
+    for entry in entries:
         ref = entry.get("references_component")
         if (
             ref in auto_loaded
@@ -5996,8 +5998,11 @@ def _apply_auto_loaded_reference_advanced(
             and (entry.get("key") or "").endswith("_id")
         ):
             entry["advanced"] = True
-
-    _walk_catalog_entries(entries, visit)
+            promoted = True
+        if inner := entry.get("config_entries"):
+            _apply_auto_loaded_reference_advanced(inner, auto_loaded, multi_instance)
+    if promoted:
+        entries[:] = _sort_entries(entries)
 
 
 def _apply_auto_loaded_reference_advanced_all(components: list[dict]) -> None:
