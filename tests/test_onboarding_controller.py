@@ -56,7 +56,7 @@ def _make_controller(config_dir: Path, *, on_ha_addon: bool = False) -> Onboardi
     return controller
 
 
-def _step(state: OnboardingState, step_id: OnboardingStepId) -> OnboardingStepStatus:
+def _step(state: OnboardingState, step_id: OnboardingStepId) -> OnboardingStepStatus | None:
     """Status of one step by id, or None when the step isn't in the list."""
     return next((s.status for s in state.steps if s.id == step_id), None)
 

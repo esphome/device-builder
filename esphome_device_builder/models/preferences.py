@@ -31,7 +31,8 @@ class SortDirection(StrEnum):
 
 
 class ExperienceLevel(StrEnum):
-    """How much ESPHome the user knows — tailors UI weight.
+    """
+    How much ESPHome the user knows; tailors UI weight.
 
     Chosen in onboarding, changeable any time in Settings. ``None``
     (a fresh install that hasn't picked) is handled separately; a
