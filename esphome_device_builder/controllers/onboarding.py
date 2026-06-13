@@ -173,15 +173,9 @@ class OnboardingController:
         """
         loop = asyncio.get_running_loop()
         config_dir = self._db.settings.config_dir
-
-        def _bump(prefs: UserPreferences) -> None:
-            # max(), not assign: a rollback from a future build must
-            # not downgrade a higher stored acknowledgement.
-            prefs.onboarding_completed_version = max(
-                prefs.onboarding_completed_version, ONBOARDING_VERSION
-            )
-
-        await loop.run_in_executor(None, mutate_preferences, config_dir, _bump)
+        await loop.run_in_executor(
+            None, mutate_preferences, config_dir, _acknowledge_current_version
+        )
         return await self.get_state()
 
 
@@ -228,10 +222,19 @@ def _migrate_preexisting(config_dir: Path) -> None:
 
     def _mark(p: UserPreferences) -> None:
         p.experience_level = ExperienceLevel.YAML
-        # max(), not assign: never downgrade a higher stored value.
-        p.onboarding_completed_version = max(p.onboarding_completed_version, ONBOARDING_VERSION)
+        _acknowledge_current_version(p)
 
     mutate_preferences(config_dir, _mark)
+
+
+def _acknowledge_current_version(prefs: UserPreferences) -> None:
+    """
+    Raise the acknowledged onboarding version to current, never downgrading.
+
+    max(), not assign: a rollback from a future build must not downgrade a
+    higher stored acknowledgement.
+    """
+    prefs.onboarding_completed_version = max(prefs.onboarding_completed_version, ONBOARDING_VERSION)
 
 
 def _has_device_configs(config_dir: Path) -> bool:
