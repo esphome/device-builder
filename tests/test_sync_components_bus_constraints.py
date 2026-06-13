@@ -55,6 +55,15 @@ def test_parity_none_drops_but_parity_string_none_stays(tmp_path: Path) -> None:
     assert _bus_constraints_from_source(src2) == {"uart": {"parity": "NONE"}}
 
 
+def test_timeout_normalises_to_milliseconds(tmp_path: Path) -> None:
+    """A unit-suffixed timeout string lands as plain milliseconds."""
+    src = _write(
+        tmp_path,
+        'FINAL_VALIDATE_SCHEMA = i2c.final_validate_device_schema("x", max_timeout="10ms")\n',
+    )
+    assert _bus_constraints_from_source(src) == {"i2c": {"max_timeout": 10}}
+
+
 def test_unstructured_final_validate_yields_nothing(tmp_path: Path) -> None:
     """A hand-written validator function is not a bus constraint."""
     src = _write(tmp_path, "FINAL_VALIDATE_SCHEMA = _final_validate\n")

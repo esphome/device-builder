@@ -4817,7 +4817,8 @@ def _collect_bus_constraints(
             if domain in _PLATFORM_DOMAINS
             else loader.get_component(top_key)
         )
-    except Exception:
+    except Exception as err:
+        _LOGGER.debug("bus constraints: %s.%s manifest load failed: %s", domain, stem, err)
         return {}
     module = getattr(manifest, "module", None)
     try:
