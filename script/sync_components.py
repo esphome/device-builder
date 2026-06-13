@@ -4869,7 +4869,7 @@ def _bus_constraint_kwargs(call: ast.Call) -> dict[str, Any]:
             continue
         try:
             value = ast.literal_eval(kw.value)
-        except ValueError:
+        except (ValueError, TypeError, SyntaxError):
             continue
         # ``None`` / ``False`` both mean "unconstrained" (note
         # ``parity=None`` vs the distinct ``parity="NONE"``).

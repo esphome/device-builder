@@ -101,21 +101,16 @@ def _materialise_featured_index(
 
     Builds a :class:`ComponentCatalogIndexEntry` with the synthetic
     ``featured.<board>.<local>`` id and category ``featured``,
-    overlaying the manifest's name/description (and keeping the
-    underlying component's image / dependencies / supported_platforms).
+    overlaying the manifest's name/description; every other field
+    rides through from the underlying component.
     """
     fc = record.featured
-    return ComponentCatalogIndexEntry(
+    return replace(
+        underlying,
         id=record.full_id,
         name=fc.name or underlying.name,
         description=fc.description if fc.description is not None else underlying.description,
         category=ComponentCategory.FEATURED,
-        docs_url=underlying.docs_url,
-        image_url=underlying.image_url,
-        dependencies=list(underlying.dependencies),
-        multi_conf=underlying.multi_conf,
-        supported_platforms=list(underlying.supported_platforms),
-        provides=list(underlying.provides),
     )
 
 
@@ -134,19 +129,12 @@ def _materialise_featured(
     """
     fc = record.featured
     presets = fc.fields
-    return ComponentCatalogEntry(
+    return replace(
+        underlying,
         id=record.full_id,
         name=fc.name or underlying.name,
         description=fc.description if fc.description is not None else underlying.description,
         category=ComponentCategory.FEATURED,
-        docs_url=underlying.docs_url,
-        image_url=underlying.image_url,
-        dependencies=list(underlying.dependencies),
-        multi_conf=underlying.multi_conf,
-        bus_constraints=underlying.bus_constraints,
-        supported_platforms=list(underlying.supported_platforms),
-        provides=list(underlying.provides),
-        required_groups=list(underlying.required_groups),
         config_entries=[
             _materialise_entry_with_preset(entry, target_platform, presets.get(entry.key))
             for entry in underlying.config_entries
