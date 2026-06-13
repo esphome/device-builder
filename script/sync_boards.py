@@ -456,8 +456,9 @@ def _overlay_esp8266_aliases(target: list[BoardPin], board_pins: dict[str, int])
 
     Keeps every pin in *target* so plain GPIOs (``GPIO0``/``GPIO2``) stay
     selectable, and annotates the gpios that carry an alias with the name
-    (``RX``/``D1``), its bus feature, and a note. Falls back to bare alias
-    derivation only when there is no generic pinout to enrich.
+    (``RX``/``D1``) and its bus feature. The generic pin's curated note
+    already names the role, so it's left as-is — the alias name is the new
+    fact. Falls back to bare alias derivation when there is no pinout to enrich.
     """
     if not target:
         return _derive_pins_from_aliases(board_pins)
@@ -468,15 +469,10 @@ def _overlay_esp8266_aliases(target: list[BoardPin], board_pins: dict[str, int])
         if extra is None:
             out.append(replace(base, features=list(base.features)))
             continue
-        features = list(base.features) + [f for f in extra.features if f not in base.features]
-        notes = [base.notes] if base.notes else []
-        if extra.notes and extra.notes not in notes:
-            notes.append(extra.notes)
         out.append(
             replace(
                 base,
-                features=features,
-                notes=" • ".join(notes) or None,
+                features=sorted(set(base.features) | set(extra.features), key=attrgetter("value")),
                 aliases=list(extra.aliases),
             )
         )
