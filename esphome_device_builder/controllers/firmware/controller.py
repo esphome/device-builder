@@ -225,7 +225,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         if device and device.state in ("offline", "unknown"):
             _LOGGER.info(
                 "Device %s is offline. Intercepting install to run as local compile-only for queued update.",
-                configuration
+                configuration,
             )
             force_local = True
             build_source = self._resolve_install_source(force_local=force_local)
