@@ -11,7 +11,7 @@ a dedupe regression trips here.
 
 from __future__ import annotations
 
-import json
+import orjson
 
 from script.sync_components import (  # type: ignore[import-not-found]
     _BOARD_COMBOBOX_PLATFORMS,
@@ -24,7 +24,7 @@ from script.sync_components import (  # type: ignore[import-not-found]
 
 
 def _board_entry(component_id: str) -> dict | None:
-    body = json.loads((_OUTPUT_BODIES_DIR / f"{component_id}.json").read_text())
+    body = orjson.loads((_OUTPUT_BODIES_DIR / f"{component_id}.json").read_bytes())
     for entry in body.get("config_entries", []):
         if entry.get("key") == "board":
             return entry

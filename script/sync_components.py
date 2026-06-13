@@ -5013,7 +5013,7 @@ def _load_board_index() -> list[dict]:
     add/remove by one component-sync cycle. ``allow_custom_value`` covers the
     gap — the user can still type any board id.
     """
-    data = json.loads((_DEFINITIONS_DIR / "boards.index.json").read_text(encoding="utf-8"))
+    data = orjson.loads((_DEFINITIONS_DIR / "boards.index.json").read_bytes())
     boards = data.get("boards") if isinstance(data, dict) else data
     return boards or []
 
