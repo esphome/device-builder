@@ -213,7 +213,13 @@ def _compute_state(config_dir: Path, *, on_ha_addon: bool) -> OnboardingState:
 
 
 def _migrate_preexisting(config_dir: Path) -> None:
-    """Mark a pre-existing install YAML + acknowledged; no-op otherwise."""
+    """
+    Default a pre-existing install to the YAML experience; no-op otherwise.
+
+    Installs that already completed an earlier onboarding are also marked
+    acknowledged (their prior Wi-Fi choice stands); installs known only by a
+    device YAML are left un-acknowledged so a missing-Wi-Fi prompt still fires.
+    """
     prefs = load_preferences(config_dir)
     if prefs.experience_level is not None:
         return
@@ -222,7 +228,12 @@ def _migrate_preexisting(config_dir: Path) -> None:
 
     def _mark(p: UserPreferences) -> None:
         p.experience_level = ExperienceLevel.YAML
-        _acknowledge_current_version(p)
+        # Only acknowledge onboarding for installs that already completed it,
+        # so a prior Wi-Fi save or decline is respected. An install known only
+        # by its device YAML stays un-acknowledged, so a missing-Wi-Fi prompt
+        # still surfaces.
+        if p.onboarding_completed_version > 0:
+            _acknowledge_current_version(p)
 
     mutate_preferences(config_dir, _mark)
 
