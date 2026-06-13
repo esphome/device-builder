@@ -1136,6 +1136,9 @@ def build_catalog(
 
     _resolve_provides(out, schema_dir)
 
+    # Multi-instance status needs the whole-catalog multi_conf + provides view.
+    _apply_auto_loaded_reference_advanced_all(out)
+
     return out
 
 
@@ -5951,6 +5954,60 @@ def _auto_load_closure(component_id: str) -> set[str]:
                 seen.add(item)
                 queue.append(item)
     return seen
+
+
+def _multi_instance_targets(components: list[dict]) -> set[str]:
+    """
+    Component names that can exist more than once.
+
+    An id reference to one is a user pick, not auto-resolved. Platform
+    domains plus every ``multi_conf`` component and what it ``provides``
+    (so a base interface is caught via its providers, ``rc522`` via
+    ``rc522_spi``).
+    """
+    multi: set[str] = set(_PLATFORM_DOMAINS)
+    for comp in components:
+        if comp.get("multi_conf"):
+            multi.add(comp["id"].rsplit(".", 1)[-1])
+            multi.update(comp.get("provides") or [])
+    return multi
+
+
+def _apply_auto_loaded_reference_advanced(
+    entries: list[dict], auto_loaded: set[str], multi_instance: set[str]
+) -> None:
+    """
+    Mark an optional ``*_id`` reference to a self-AUTO_LOADed singleton advanced.
+
+    ``web_server`` auto-creates its ``web_server_base``, so the id is
+    auto-resolved and stays off the main form. Required references and
+    multi-instance targets keep their picker. Pure (takes the closure +
+    multi-instance set) so it tests without esphome.
+    """
+    if not auto_loaded:
+        return
+
+    def visit(entry: dict, _path: tuple[str, ...]) -> None:
+        ref = entry.get("references_component")
+        if (
+            ref in auto_loaded
+            and ref not in multi_instance
+            and not entry.get("required")
+            and (entry.get("key") or "").endswith("_id")
+        ):
+            entry["advanced"] = True
+
+    _walk_catalog_entries(entries, visit)
+
+
+def _apply_auto_loaded_reference_advanced_all(components: list[dict]) -> None:
+    """Mark every component's auto-generated singleton-base id references advanced."""
+    multi_instance = _multi_instance_targets(components)
+    for comp in components:
+        closure = _auto_load_closure(comp["id"].rsplit(".", 1)[-1])
+        _apply_auto_loaded_reference_advanced(
+            comp.get("config_entries") or [], closure, multi_instance
+        )
 
 
 @cache
