@@ -1050,8 +1050,13 @@ def clean_docs(raw: str | None) -> CleanedDocs:
         name = m.group(1).strip()
         url = m.group(2).strip()
         text = text[: m.start()].rstrip()
-    text = _DOCS_TYPE_PREFIX.sub("", text)
-    return CleanedDocs(text=text.strip(), name=name, url=url)
+    text = _DOCS_TYPE_PREFIX.sub("", text).strip()
+    # ESPHome's schema dump serializes a missing docstring as the literal
+    # string "None" (often with a real See-also footer); treat the body as
+    # absent so the MDX backfill can fill in. Keep the extracted name/url.
+    if text == "None":
+        text = ""
+    return CleanedDocs(text=text, name=name, url=url)
 
 
 # ---------------------------------------------------------------------------
