@@ -20,6 +20,7 @@ who completed an earlier flow.
 from __future__ import annotations
 
 import asyncio
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -31,6 +32,7 @@ from ..helpers.secrets_state import (
 )
 from ..models import (
     ErrorCode,
+    ExperienceLevel,
     OnboardingState,
     OnboardingStep,
     OnboardingStepId,
@@ -39,6 +41,7 @@ from ..models import (
 )
 from ..models.onboarding import ONBOARDING_VERSION
 from .config import load_preferences, mutate_preferences
+from .config.settings import _DASHBOARD_SENTINEL_FILE
 
 if TYPE_CHECKING:
     from esphome_device_builder.device_builder import DeviceBuilder
@@ -63,28 +66,30 @@ class OnboardingController:
         """
         Return the current onboarding snapshot.
 
-        Computes each step's status from live data, then reads the
-        user's last-acknowledged version from preferences. The
-        frontend combines the two to decide whether to surface the
-        wizard (any pending step OR new version available).
+        The step list is environment- and preference-aware: the
+        use-case step only on non-HA installs, the Wi-Fi step only
+        when not remote-compute-only. Each status is computed from
+        live data; the frontend surfaces the wizard on any pending
+        step or a newer version.
         """
         loop = asyncio.get_running_loop()
-        secrets, prefs = await loop.run_in_executor(
-            None, _read_secrets_and_prefs, self._db.settings.config_dir
+        settings = self._db.settings
+        return await loop.run_in_executor(
+            None,
+            partial(_compute_state, settings.config_dir, on_ha_addon=settings.on_ha_addon),
         )
 
-        return OnboardingState(
-            current_version=ONBOARDING_VERSION,
-            completed_version=prefs.onboarding_completed_version,
-            steps=[
-                OnboardingStep(
-                    id=OnboardingStepId.WIFI_CREDENTIALS,
-                    status=OnboardingStepStatus.PENDING
-                    if is_wifi_unconfigured(secrets)
-                    else OnboardingStepStatus.DONE,
-                ),
-            ],
-        )
+    async def migrate_preexisting_install(self) -> None:
+        """
+        Default a pre-existing install to the YAML experience, once.
+
+        Installs that completed an earlier onboarding or already hold
+        device YAMLs predate the experience picker; mark them YAML
+        users and acknowledge onboarding so the wizard never auto-pops.
+        Idempotent — a no-op once ``experience_level`` is set.
+        """
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, _migrate_preexisting, self._db.settings.config_dir)
 
     @api_command("onboarding/set_wifi_credentials")
     async def set_wifi_credentials(
@@ -175,12 +180,67 @@ class OnboardingController:
         return await self.get_state()
 
 
-def _read_secrets_and_prefs(config_dir: Path) -> tuple[dict | None, UserPreferences]:
-    """
-    Read both ``secrets.yaml`` and user preferences in one executor hop.
+# YAML files in the config dir that aren't user device configs.
+_NON_DEVICE_YAML = frozenset({"secrets.yaml", _DASHBOARD_SENTINEL_FILE})
 
-    Both are quick disk reads from the same config dir, so a single
-    executor job is cheaper than two. ``get_state`` runs on every
-    page load + after every secrets save, so the saved hop matters.
+
+def _compute_state(config_dir: Path, *, on_ha_addon: bool) -> OnboardingState:
     """
-    return read_secrets_yaml(config_dir), load_preferences(config_dir)
+    Build the onboarding snapshot in one executor hop.
+
+    Reads ``secrets.yaml`` + preferences (both quick reads from the
+    same dir) and assembles the environment-aware step list.
+    """
+    secrets = read_secrets_yaml(config_dir)
+    prefs = load_preferences(config_dir)
+    experience_done = _status(done=prefs.experience_level is not None)
+
+    steps: list[OnboardingStep] = []
+    # Use-case (remote-compute?) is a non-HA question; HA users manage
+    # devices in Home Assistant. Its status tracks the experience pick,
+    # which the wizard always answers in the same pass.
+    if not on_ha_addon:
+        steps.append(OnboardingStep(id=OnboardingStepId.USE_CASE, status=experience_done))
+    steps.append(OnboardingStep(id=OnboardingStepId.EXPERIENCE_LEVEL, status=experience_done))
+    if not prefs.remote_compute_only:
+        steps.append(
+            OnboardingStep(
+                id=OnboardingStepId.WIFI_CREDENTIALS,
+                status=_status(done=not is_wifi_unconfigured(secrets)),
+            )
+        )
+
+    return OnboardingState(
+        current_version=ONBOARDING_VERSION,
+        completed_version=prefs.onboarding_completed_version,
+        steps=steps,
+    )
+
+
+def _migrate_preexisting(config_dir: Path) -> None:
+    """Mark a pre-existing install YAML + acknowledged; no-op otherwise."""
+    prefs = load_preferences(config_dir)
+    if prefs.experience_level is not None:
+        return
+    if prefs.onboarding_completed_version == 0 and not _has_device_configs(config_dir):
+        return
+
+    def _mark(p: UserPreferences) -> None:
+        p.experience_level = ExperienceLevel.YAML
+        # max(), not assign: never downgrade a higher stored value.
+        p.onboarding_completed_version = max(p.onboarding_completed_version, ONBOARDING_VERSION)
+
+    mutate_preferences(config_dir, _mark)
+
+
+def _has_device_configs(config_dir: Path) -> bool:
+    """Return True when the config dir holds any user device YAML."""
+    try:
+        return any(p.name not in _NON_DEVICE_YAML for p in config_dir.glob("*.yaml"))
+    except OSError:
+        return False
+
+
+def _status(*, done: bool) -> OnboardingStepStatus:
+    """Map a done-ness boolean to the step status enum."""
+    return OnboardingStepStatus.DONE if done else OnboardingStepStatus.PENDING

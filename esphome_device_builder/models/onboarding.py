@@ -37,6 +37,8 @@ class OnboardingStepId(StrEnum):
     the wire-format string the frontend dispatches on.
     """
 
+    USE_CASE = "use_case"
+    EXPERIENCE_LEVEL = "experience_level"
     WIFI_CREDENTIALS = "wifi_credentials"
 
 
@@ -65,7 +67,7 @@ class OnboardingStep(DataClassORJSONMixin):
 # already at the current version doesn't get re-prompted unless
 # a step is data-derived-pending (e.g. they manually deleted
 # ``wifi_ssid`` from ``secrets.yaml``).
-ONBOARDING_VERSION: int = 1
+ONBOARDING_VERSION: int = 2
 
 
 @dataclass

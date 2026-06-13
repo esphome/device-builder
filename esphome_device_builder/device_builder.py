@@ -336,6 +336,9 @@ class DeviceBuilder:
         self.remote_build_offloader = OffloaderController(self)
         self.remote_build_receiver = ReceiverController(self)
         self.version_history = VersionHistoryController(self)
+        # Default pre-existing installs to the YAML experience before
+        # any onboarding command can be served.
+        await self.onboarding.migrate_preexisting_install()
         await self.devices.start()
         await self.firmware.start()
         await self.editor.start()

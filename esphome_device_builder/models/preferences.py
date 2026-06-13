@@ -30,6 +30,19 @@ class SortDirection(StrEnum):
     DESC = "desc"
 
 
+class ExperienceLevel(StrEnum):
+    """How much ESPHome the user knows — tailors UI weight.
+
+    Chosen in onboarding, changeable any time in Settings. ``None``
+    (a fresh install that hasn't picked) is handled separately; a
+    pre-existing install migrates to ``YAML``.
+    """
+
+    BEGINNER = "beginner"
+    UI = "ui"
+    YAML = "yaml"
+
+
 @dataclass
 class UserPreferences(DataClassORJSONMixin):
     """Per-user UI preferences.
@@ -51,6 +64,13 @@ class UserPreferences(DataClassORJSONMixin):
     table_column_visibility: dict[str, bool] = field(default_factory=dict)
     table_sort_column: str | None = None
     table_sort_direction: SortDirection | None = None
+
+    # Experience level chosen in onboarding (None = not yet chosen).
+    # Seeds ``yaml_diff_button`` and the editor's first-open layout.
+    experience_level: ExperienceLevel | None = None
+    # This install is only a remote build node: onboarding skips the
+    # Wi-Fi step and device-creation entry points are hidden.
+    remote_compute_only: bool = False
 
     # Highest onboarding-flow version the user has acknowledged.
     # Default 0 ⇒ never gone through onboarding; the dashboard

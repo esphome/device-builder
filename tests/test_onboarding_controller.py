@@ -31,22 +31,33 @@ from esphome_device_builder.helpers.secrets_state import (
 )
 from esphome_device_builder.models.onboarding import (
     ONBOARDING_VERSION,
+    OnboardingState,
     OnboardingStepId,
     OnboardingStepStatus,
 )
-from esphome_device_builder.models.preferences import Theme, UserPreferences
+from esphome_device_builder.models.preferences import (
+    ExperienceLevel,
+    Theme,
+    UserPreferences,
+)
 
 from .conftest import wire_secrets_writer
 
 
-def _make_controller(config_dir: Path) -> OnboardingController:
+def _make_controller(config_dir: Path, *, on_ha_addon: bool = False) -> OnboardingController:
     controller = OnboardingController.__new__(OnboardingController)
     controller._db = MagicMock()
     controller._db.settings.config_dir = config_dir
     controller._db.settings.absolute_config_dir = config_dir.resolve()
+    controller._db.settings.on_ha_addon = on_ha_addon
     controller._db.secrets_write_lock = asyncio.Lock()
     wire_secrets_writer(controller._db)
     return controller
+
+
+def _step(state: OnboardingState, step_id: OnboardingStepId) -> OnboardingStepStatus:
+    """Status of one step by id, or None when the step isn't in the list."""
+    return next((s.status for s in state.steps if s.id == step_id), None)
 
 
 def _write_secrets(config_dir: Path, content: str) -> None:
@@ -64,9 +75,7 @@ async def test_get_state_pending_for_missing_secrets(tmp_path: Path) -> None:
     state = await controller.get_state()
     assert state.current_version == ONBOARDING_VERSION
     assert state.completed_version == 0
-    assert len(state.steps) == 1
-    assert state.steps[0].id == OnboardingStepId.WIFI_CREDENTIALS
-    assert state.steps[0].status == OnboardingStepStatus.PENDING
+    assert _step(state, OnboardingStepId.WIFI_CREDENTIALS) == OnboardingStepStatus.PENDING
 
 
 async def test_get_state_pending_for_empty_string_secrets(tmp_path: Path) -> None:
@@ -74,7 +83,7 @@ async def test_get_state_pending_for_empty_string_secrets(tmp_path: Path) -> Non
     _write_secrets(tmp_path, 'wifi_ssid: ""\nwifi_password: ""\n')
     controller = _make_controller(tmp_path)
     state = await controller.get_state()
-    assert state.steps[0].status == OnboardingStepStatus.PENDING
+    assert _step(state, OnboardingStepId.WIFI_CREDENTIALS) == OnboardingStepStatus.PENDING
 
 
 async def test_get_state_pending_for_placeholder_secrets(tmp_path: Path) -> None:
@@ -85,14 +94,61 @@ async def test_get_state_pending_for_placeholder_secrets(tmp_path: Path) -> None
     )
     controller = _make_controller(tmp_path)
     state = await controller.get_state()
-    assert state.steps[0].status == OnboardingStepStatus.PENDING
+    assert _step(state, OnboardingStepId.WIFI_CREDENTIALS) == OnboardingStepStatus.PENDING
 
 
 async def test_get_state_done_for_real_secrets(tmp_path: Path) -> None:
     _write_secrets(tmp_path, "wifi_ssid: home_network\nwifi_password: hunter2\n")
     controller = _make_controller(tmp_path)
     state = await controller.get_state()
-    assert state.steps[0].status == OnboardingStepStatus.DONE
+    assert _step(state, OnboardingStepId.WIFI_CREDENTIALS) == OnboardingStepStatus.DONE
+
+
+# ---------------------------------------------------------------------------
+# get_state — environment- and preference-aware step list
+# ---------------------------------------------------------------------------
+
+
+async def test_get_state_non_ha_includes_use_case_step(tmp_path: Path) -> None:
+    """Non-HA installs ask the remote-compute use-case question."""
+    controller = _make_controller(tmp_path, on_ha_addon=False)
+    state = await controller.get_state()
+    ids = [s.id for s in state.steps]
+    assert ids == [
+        OnboardingStepId.USE_CASE,
+        OnboardingStepId.EXPERIENCE_LEVEL,
+        OnboardingStepId.WIFI_CREDENTIALS,
+    ]
+    assert _step(state, OnboardingStepId.USE_CASE) == OnboardingStepStatus.PENDING
+    assert _step(state, OnboardingStepId.EXPERIENCE_LEVEL) == OnboardingStepStatus.PENDING
+
+
+async def test_get_state_ha_addon_omits_use_case_step(tmp_path: Path) -> None:
+    """HA addon manages devices in HA, so no use-case question."""
+    controller = _make_controller(tmp_path, on_ha_addon=True)
+    state = await controller.get_state()
+    ids = [s.id for s in state.steps]
+    assert ids == [OnboardingStepId.EXPERIENCE_LEVEL, OnboardingStepId.WIFI_CREDENTIALS]
+
+
+async def test_get_state_experience_set_marks_use_case_and_experience_done(
+    tmp_path: Path,
+) -> None:
+    """Picking an experience level completes both leading steps."""
+    await asyncio.to_thread(update_preferences, tmp_path, {"experience_level": ExperienceLevel.UI})
+    controller = _make_controller(tmp_path, on_ha_addon=False)
+    state = await controller.get_state()
+    assert _step(state, OnboardingStepId.USE_CASE) == OnboardingStepStatus.DONE
+    assert _step(state, OnboardingStepId.EXPERIENCE_LEVEL) == OnboardingStepStatus.DONE
+
+
+async def test_get_state_remote_compute_only_drops_wifi_step(tmp_path: Path) -> None:
+    """A remote-compute-only install skips Wi-Fi setup entirely."""
+    await asyncio.to_thread(update_preferences, tmp_path, {"remote_compute_only": True})
+    controller = _make_controller(tmp_path, on_ha_addon=False)
+    state = await controller.get_state()
+    assert _step(state, OnboardingStepId.WIFI_CREDENTIALS) is None
+    assert OnboardingStepId.USE_CASE in [s.id for s in state.steps]
 
 
 # ---------------------------------------------------------------------------
@@ -108,7 +164,7 @@ async def test_set_wifi_credentials_writes_to_secrets_yaml(tmp_path: Path) -> No
     )
     controller = _make_controller(tmp_path)
     state = await controller.set_wifi_credentials(ssid="home_network", password="hunter2")
-    assert state.steps[0].status == OnboardingStepStatus.DONE
+    assert _step(state, OnboardingStepId.WIFI_CREDENTIALS) == OnboardingStepStatus.DONE
     content = (tmp_path / "secrets.yaml").read_text()
     assert 'wifi_ssid: "home_network"' in content
     assert 'wifi_password: "hunter2"' in content
@@ -212,7 +268,7 @@ async def test_set_wifi_credentials_accepts_empty_password(tmp_path: Path) -> No
     """Open networks have empty passwords — must not be rejected."""
     controller = _make_controller(tmp_path)
     state = await controller.set_wifi_credentials(ssid="OpenNet", password="")
-    assert state.steps[0].status == OnboardingStepStatus.DONE
+    assert _step(state, OnboardingStepId.WIFI_CREDENTIALS) == OnboardingStepStatus.DONE
 
 
 # ---------------------------------------------------------------------------
@@ -324,7 +380,7 @@ async def test_set_wifi_credentials_allows_tab_in_value(tmp_path: Path) -> None:
     """
     controller = _make_controller(tmp_path)
     state = await controller.set_wifi_credentials(ssid="MyAP", password="hunter\t2")
-    assert state.steps[0].status == OnboardingStepStatus.DONE
+    assert _step(state, OnboardingStepId.WIFI_CREDENTIALS) == OnboardingStepStatus.DONE
 
 
 async def test_set_wifi_credentials_preserves_inline_comments(
@@ -390,7 +446,7 @@ async def test_get_state_pending_for_malformed_secrets_yaml(tmp_path: Path) -> N
     _write_secrets(tmp_path, "wifi_ssid: [unclosed\n")
     controller = _make_controller(tmp_path)
     state = await controller.get_state()
-    assert state.steps[0].status == OnboardingStepStatus.PENDING
+    assert _step(state, OnboardingStepId.WIFI_CREDENTIALS) == OnboardingStepStatus.PENDING
 
 
 # ---------------------------------------------------------------------------
@@ -496,6 +552,61 @@ def test_replace_or_append_secret_value_with_hash_in_quotes_is_misparsed() -> No
     """
     result = _replace_or_append_secret('wifi_ssid: "foo # bar"\n', "wifi_ssid", "MyAP")
     assert result == 'wifi_ssid: "MyAP" # bar"\n'
+
+
+# ---------------------------------------------------------------------------
+# migrate_preexisting_install
+# ---------------------------------------------------------------------------
+
+
+async def test_migrate_preexisting_acknowledged_install_becomes_yaml(tmp_path: Path) -> None:
+    """An install that completed an earlier onboarding defaults to YAML."""
+    await asyncio.to_thread(
+        save_preferences, tmp_path, UserPreferences(onboarding_completed_version=1)
+    )
+    await _make_controller(tmp_path).migrate_preexisting_install()
+    prefs = await asyncio.to_thread(load_preferences, tmp_path)
+    assert prefs.experience_level == ExperienceLevel.YAML
+    assert prefs.onboarding_completed_version == ONBOARDING_VERSION
+
+
+async def test_migrate_preexisting_install_with_device_yaml_becomes_yaml(
+    tmp_path: Path,
+) -> None:
+    """A config dir already holding device YAML predates the picker ⇒ YAML."""
+    (tmp_path / "living-room.yaml").write_text("esphome:\n  name: living-room\n")
+    await _make_controller(tmp_path).migrate_preexisting_install()
+    prefs = await asyncio.to_thread(load_preferences, tmp_path)
+    assert prefs.experience_level == ExperienceLevel.YAML
+
+
+async def test_migrate_fresh_install_is_noop(tmp_path: Path) -> None:
+    """No prior onboarding and no device YAML ⇒ stay unchosen, see the wizard."""
+    await _make_controller(tmp_path).migrate_preexisting_install()
+    prefs = await asyncio.to_thread(load_preferences, tmp_path)
+    assert prefs.experience_level is None
+    assert prefs.onboarding_completed_version == 0
+
+
+async def test_migrate_ignores_secrets_yaml(tmp_path: Path) -> None:
+    """``secrets.yaml`` alone is not a device config — no migration."""
+    _write_secrets(tmp_path, "wifi_ssid: home\n")
+    await _make_controller(tmp_path).migrate_preexisting_install()
+    prefs = await asyncio.to_thread(load_preferences, tmp_path)
+    assert prefs.experience_level is None
+
+
+async def test_migrate_preserves_an_explicit_choice(tmp_path: Path) -> None:
+    """A user who already picked BEGINNER isn't overwritten by migration."""
+    await asyncio.to_thread(
+        save_preferences,
+        tmp_path,
+        UserPreferences(experience_level=ExperienceLevel.BEGINNER, onboarding_completed_version=2),
+    )
+    (tmp_path / "device.yaml").write_text("esphome:\n  name: device\n")
+    await _make_controller(tmp_path).migrate_preexisting_install()
+    prefs = await asyncio.to_thread(load_preferences, tmp_path)
+    assert prefs.experience_level == ExperienceLevel.BEGINNER
 
 
 # ---------------------------------------------------------------------------
