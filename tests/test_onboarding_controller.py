@@ -22,6 +22,7 @@ from esphome_device_builder.controllers.config import (
 )
 from esphome_device_builder.controllers.onboarding import (
     OnboardingController,
+    _has_device_configs,
 )
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.secrets_state import (
@@ -578,6 +579,21 @@ async def test_migrate_preexisting_install_with_device_yaml_becomes_yaml(
     await _make_controller(tmp_path).migrate_preexisting_install()
     prefs = await asyncio.to_thread(load_preferences, tmp_path)
     assert prefs.experience_level == ExperienceLevel.YAML
+
+
+async def test_migrate_preexisting_install_with_yml_extension_becomes_yaml(
+    tmp_path: Path,
+) -> None:
+    """``.yml`` is an equally valid config extension; it must trigger migration too."""
+    (tmp_path / "bedroom.yml").write_text("esphome:\n  name: bedroom\n")
+    await _make_controller(tmp_path).migrate_preexisting_install()
+    prefs = await asyncio.to_thread(load_preferences, tmp_path)
+    assert prefs.experience_level == ExperienceLevel.YAML
+
+
+def test_has_device_configs_unreadable_dir_returns_false(tmp_path: Path) -> None:
+    """A scan failure soft-fails to ``False`` rather than crashing startup."""
+    assert _has_device_configs(tmp_path / "does-not-exist") is False
 
 
 async def test_migrate_fresh_install_is_noop(tmp_path: Path) -> None:

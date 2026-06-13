@@ -20,9 +20,12 @@ who completed an earlier flow.
 from __future__ import annotations
 
 import asyncio
+import logging
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from esphome.util import list_yaml_files
 
 from ..helpers.api import CommandError, api_command
 from ..helpers.secrets_state import (
@@ -45,6 +48,8 @@ from .config.settings import _DASHBOARD_SENTINEL_FILE
 
 if TYPE_CHECKING:
     from esphome_device_builder.device_builder import DeviceBuilder
+
+_LOGGER = logging.getLogger(__name__)
 
 
 # Cap inputs at the same length ESPHome's own validators enforce —
@@ -180,10 +185,6 @@ class OnboardingController:
         return await self.get_state()
 
 
-# YAML files in the config dir that aren't user device configs.
-_NON_DEVICE_YAML = frozenset({"secrets.yaml", _DASHBOARD_SENTINEL_FILE})
-
-
 def _compute_state(config_dir: Path, *, on_ha_addon: bool) -> OnboardingState:
     """
     Build the onboarding snapshot in one executor hop.
@@ -234,10 +235,23 @@ def _migrate_preexisting(config_dir: Path) -> None:
 
 
 def _has_device_configs(config_dir: Path) -> bool:
-    """Return True when the config dir holds any user device YAML."""
+    """
+    Return True when the config dir holds any user device YAML.
+
+    Uses the canonical ``list_yaml_files`` rule (.yaml + .yml, secrets
+    and dotfiles excluded) so it can't drift from the device scanner;
+    only the dashboard sentinel needs excluding on top.
+    """
     try:
-        return any(p.name not in _NON_DEVICE_YAML for p in config_dir.glob("*.yaml"))
+        return any(p.name != _DASHBOARD_SENTINEL_FILE for p in list_yaml_files([config_dir]))
     except OSError:
+        # A read failure must not silently reclassify a real install as
+        # fresh (which would pop the wizard); log it and treat as empty.
+        _LOGGER.warning(
+            "Could not scan %s for device configs during onboarding migration",
+            config_dir,
+            exc_info=True,
+        )
         return False
 
 
