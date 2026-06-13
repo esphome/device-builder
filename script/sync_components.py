@@ -4879,21 +4879,20 @@ def _bus_constraint_kwargs(call: ast.Call) -> dict[str, Any]:
 
 
 def _normalize_bus_constraint_value(key: str, value: Any) -> Any:
-    """Convert unit-suffixed strings ("15khz", "10ms") to plain numbers."""
+    """
+    Convert unit-suffixed strings ("15khz", "10ms") to plain numbers.
+
+    Raises when esphome is missing or the value doesn't parse; shipping
+    a catalog with silently dropped constraints would be worse.
+    """
     if not isinstance(value, str):
         return value
-    try:
-        # Lazy: the sync degrades gracefully without esphome installed.
-        import esphome.config_validation as cv
-    except ImportError:
-        return value
-    try:
-        if key.endswith("frequency"):
-            return cv.frequency(value)
-        if key.endswith("timeout"):
-            return cv.time_period(value).total_milliseconds
-    except vol.Invalid:
-        return value
+    import esphome.config_validation as cv
+
+    if key.endswith("frequency"):
+        return cv.frequency(value)
+    if key.endswith("timeout"):
+        return cv.time_period(value).total_milliseconds
     return value
 
 
