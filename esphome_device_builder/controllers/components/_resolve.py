@@ -112,6 +112,7 @@ def _materialise_featured_index(
         name=fc.name or underlying.name,
         description=fc.description if fc.description is not None else underlying.description,
         category=ComponentCategory.FEATURED,
+        image_url=fc.image_url or underlying.image_url,
     )
 
 
@@ -137,6 +138,7 @@ def _materialise_featured(
         name=fc.name or underlying.name,
         description=fc.description if fc.description is not None else underlying.description,
         category=ComponentCategory.FEATURED,
+        image_url=fc.image_url or underlying.image_url,
         config_entries=[
             _materialise_entry_with_preset(
                 entry, target_platform, target_variant, presets.get(entry.key)

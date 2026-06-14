@@ -160,6 +160,10 @@ class FeaturedComponent(DataClassORJSONMixin):
     name: str | None = None
     description: str | None = None
     fields: dict[str, FieldPreset] = field(default_factory=dict)
+    # Photo of the physical module this entry maps to; overrides the
+    # underlying component's generic image on the recommended card.
+    # Resolved at sync time (local path -> /boards/images/..., URL as-is).
+    image_url: str = ""
 
     class Config(_CatalogConfig):
         """Skip empty defaults on serialise; see :class:`_CatalogConfig`."""
@@ -183,6 +187,10 @@ class FeaturedBundle(DataClassORJSONMixin):
     name: str
     description: str = ""
     component_ids: list[str] = field(default_factory=list)
+    # Photo of the physical module this bundle maps to; rendered on the
+    # bundle card in place of the box icon. Resolved at sync time
+    # (local path -> /boards/images/..., URL as-is).
+    image_url: str = ""
 
     class Config(_CatalogConfig):
         """Skip empty defaults on serialise; see :class:`_CatalogConfig`."""
