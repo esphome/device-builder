@@ -24,7 +24,7 @@ from ...constants import SECRETS_FILENAME
 from ...helpers.api import CommandError
 from ...helpers.device_yaml import configuration_stem, parse_platform_from_yaml
 from ...helpers.secrets_state import merge_secrets_file
-from ...helpers.yaml import read_yaml_scalar
+from ...helpers.yaml import ESPHOME_FRIENDLY_NAME_PATH, read_yaml_scalar
 from ...models import ErrorCode, ImportBundleResponse
 from .helpers import _validate_archive_configuration
 from .mutations_create import init_device_storage
@@ -254,7 +254,7 @@ def _init_bundle_storage(config_dir: Path, config_filename: str) -> None:
         # metadata from the YAML on its next pass.
         _LOGGER.warning("Couldn't read %s to seed its sidecar (%s); skipping", config_filename, err)
         return
-    friendly = read_yaml_scalar(content, ("esphome", "friendly_name"))
+    friendly = read_yaml_scalar(content, ESPHOME_FRIENDLY_NAME_PATH)
     if friendly and "${" in friendly:
         friendly = None
     platform, _pio_board, _variant = parse_platform_from_yaml(content)

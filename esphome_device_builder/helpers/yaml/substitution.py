@@ -5,7 +5,13 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
-from .scalar import _safe_yaml_scalar, _strip_yaml_quotes, read_yaml_scalar, rewrite_yaml_scalar
+from .scalar import (
+    _safe_yaml_scalar,
+    _strip_yaml_quotes,
+    is_plain_literal_scalar,
+    read_yaml_scalar,
+    rewrite_yaml_scalar,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -34,6 +40,19 @@ def parse_substitution_ref(value: str) -> str | None:
     if not m:
         return None
     return m.group(1) or m.group(2)
+
+
+def is_retargetable_name(value: str) -> bool:
+    """
+    Return True when :func:`rewrite_name_or_substitution` can retarget *value*.
+
+    A plain literal (rewrite the leaf) or a pure ``${var}`` reference
+    (rewrite the substitution definition) is retargetable. An empty
+    value, a YAML tag (``!include``), or an embedded substitution
+    (``kitchen_${suffix}``) is not — flattening those would silently drop
+    the tag / indirection.
+    """
+    return is_plain_literal_scalar(value) or parse_substitution_ref(value) is not None
 
 
 def rewrite_name_or_substitution(

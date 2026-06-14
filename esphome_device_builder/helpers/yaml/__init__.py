@@ -54,13 +54,17 @@ from .inline import remove_subentity_handler as remove_subentity_handler
 from .inline import synthetic_instance_index as synthetic_instance_index
 from .inline import upsert_inline_handler as upsert_inline_handler
 from .inline import upsert_subentity_handler as upsert_subentity_handler
+from .scalar import ESPHOME_FRIENDLY_NAME_PATH as ESPHOME_FRIENDLY_NAME_PATH
+from .scalar import ESPHOME_NAME_PATH as ESPHOME_NAME_PATH
 from .scalar import ESPHOME_YAML_INDENT as ESPHOME_YAML_INDENT
 from .scalar import YamlUpsertNotSupportedError as YamlUpsertNotSupportedError
 from .scalar import _quote as _quote
 from .scalar import _safe_yaml_scalar as _safe_yaml_scalar
 from .scalar import _strip_yaml_quotes as _strip_yaml_quotes
+from .scalar import is_plain_literal_scalar as is_plain_literal_scalar
 from .scalar import read_yaml_scalar as read_yaml_scalar
 from .scalar import rewrite_yaml_scalar as rewrite_yaml_scalar
+from .substitution import is_retargetable_name as is_retargetable_name
 from .substitution import parse_substitution_ref as parse_substitution_ref
 from .substitution import rewrite_name_or_substitution as rewrite_name_or_substitution
 from .top_block import (
