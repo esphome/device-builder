@@ -2037,6 +2037,7 @@ def build_component_entry(
     _apply_board_options(component_id, config_entries)
     _apply_logger_uart_options(component_id, config_entries)
     _apply_psram_options(component_id, config_entries)
+    _apply_esp32_options(component_id, config_entries)
     _promote_multi_value_keys(config_entries)
     _promote_template_controls(component_id, config_entries)
 
@@ -5507,6 +5508,39 @@ def _apply_psram_options(component_id: str, entries: list[dict]) -> None:
     if component_id != "psram" or entries:
         return
     entries.extend(_psram_config_entries())
+
+
+def _apply_esp32_options(component_id: str, entries: list[dict]) -> None:
+    """Default esp32's framework ``type`` from upstream's validate-time setter."""
+    if component_id != "esp32":
+        return
+    default = _esp32_default_framework()
+    if default is None:
+        return
+    framework = next((e for e in entries if e.get("key") == "framework"), None)
+    if not framework:
+        return
+    type_entry = next(
+        (e for e in framework.get("config_entries", []) if e.get("key") == "type"), None
+    )
+    if type_entry and default in {o["value"] for o in type_entry.get("options", [])}:
+        type_entry["default_value"] = default
+
+
+def _esp32_default_framework() -> str | None:
+    """Validate a minimal config so esp32's schema fills in the framework type."""
+    try:
+        from esphome.components import esp32
+        from esphome.const import CONF_FRAMEWORK, CONF_TYPE, CONF_VARIANT
+    except ImportError:
+        return None
+    # A non-Arduino variant keeps the validate-time migration notice quiet.
+    variant = next((v for v in esp32.VARIANTS if v not in esp32.ARDUINO_ALLOWED_VARIANTS), None)
+    if variant is None:
+        return None
+    with _esp32_variant_context(variant):
+        config = esp32.CONFIG_SCHEMA({CONF_VARIANT: variant})
+    return config[CONF_FRAMEWORK][CONF_TYPE]
 
 
 def _promote_multi_value_keys(entries: list[dict]) -> None:
