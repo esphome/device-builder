@@ -13,7 +13,12 @@ can't quietly regress to ``type=string``.
 
 from __future__ import annotations
 
-from script.sync_components import _FIELD_OVERRIDES  # type: ignore[import-not-found]
+import orjson
+
+from script.sync_components import (  # type: ignore[import-not-found]
+    _FIELD_OVERRIDES,
+    _OUTPUT_BODIES_DIR,
+)
 
 
 def test_wifi_ap_override_renders_as_nested_group_on_main_form() -> None:
@@ -88,3 +93,17 @@ def test_ble_nus_debug_override_shares_uart_debug_shape() -> None:
     assert ble_override["config_entries"] == uart_override["config_entries"]
     assert ble_override["description"] != uart_override["description"]
     assert "BLE NUS" in ble_override["description"]
+
+
+def test_esphome_comment_override_marks_field_advanced() -> None:
+    """``esphome.comment`` is forced advanced so it stays off the main form."""
+    override = _FIELD_OVERRIDES.get(("esphome", "comment"))
+    assert override is not None, "missing esphome.comment override"
+    assert override["advanced"] is True
+
+
+def test_shipped_catalog_esphome_comment_is_advanced() -> None:
+    """The generated esphome body marks ``comment`` advanced."""
+    body = orjson.loads((_OUTPUT_BODIES_DIR / "esphome.json").read_bytes())
+    comment = next(e for e in body["config_entries"] if e["key"] == "comment")
+    assert comment["advanced"] is True

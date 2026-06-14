@@ -626,6 +626,11 @@ _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
         "required": True,
         "advanced": False,
     },
+    # ``esphome.comment`` is node metadata that only surfaces in the web
+    # server UI; keep it off the main form behind the Advanced toggle.
+    ("esphome", "comment"): {
+        "advanced": True,
+    },
 }
 
 # Base-schema references that mark a field as a *sub-reading* of a
