@@ -114,6 +114,9 @@ from _catalog_split import (  # noqa: E402
 from esphome_device_builder.controllers.components import (  # noqa: E402
     INTERNAL_COMPONENT_IDS as _INTERNAL_COMPONENT_IDS,
 )
+from esphome_device_builder.controllers.components.controller import (  # noqa: E402
+    _variant_to_key,
+)
 from esphome_device_builder.helpers.automation_keys import is_trigger_key  # noqa: E402
 from esphome_device_builder.models import (  # noqa: E402
     AutomationAction,
@@ -5156,33 +5159,23 @@ def _apply_board_options(component_id: str, entries: list[dict]) -> None:
             break
 
 
-def _normalise_uart_platform_key(raw: str) -> str:
-    """Normalise a logger ``UART_SELECTION`` key to the ``platform_defaults`` key form.
-
-    ESP32 variants arrive as ``ESP32C3`` → ``esp32_c3``; Libretiny / fixed
-    keys (``bk72xx``, ``esp8266``) already match and pass through.
-    """
-    low = raw.lower()
-    if low.startswith("esp32") and low != "esp32":
-        return "esp32_" + low[len("esp32") :]
-    return low
-
-
 def _logger_uart_platform_options() -> dict[str, list[dict[str, str]]]:
     """Per-variant logger ``hardware_uart`` choices from the live logger module.
 
     A custom ``uart_selection`` validator gates the set, so the schema bundle
-    can't carry it; introspected from ``UART_SELECTION_*``. Empty when esphome
-    isn't importable.
+    can't carry it; introspected from ``UART_SELECTION_*`` and keyed via the
+    shared ``_variant_to_key`` so lookups hit. Empty when esphome's logger
+    isn't importable; other failures propagate to fail the build loudly.
     """
     try:
         from esphome.components import logger as _logger
-    except Exception:
+    except ImportError:
+        _LOGGER.warning("esphome logger not importable — hardware_uart combobox skipped")
         return {}
     out: dict[str, list[dict[str, str]]] = {}
 
     def add(raw_key: str, values: list[str]) -> None:
-        out[_normalise_uart_platform_key(raw_key)] = [{"label": v, "value": v} for v in values]
+        out[_variant_to_key(raw_key)] = [{"label": v, "value": v} for v in values]
 
     for variant, values in _logger.UART_SELECTION_ESP32.items():
         add(variant, values)

@@ -12,12 +12,15 @@ from __future__ import annotations
 
 import orjson
 
+from esphome_device_builder.controllers.components.controller import _variant_to_key
 from script.sync_components import (  # type: ignore[import-not-found]
     _LOGGER_UART_PLATFORM_OPTIONS,
     _OUTPUT_BODIES_DIR,
     _apply_logger_uart_options,
     _logger_uart_platform_options,
-    _normalise_uart_platform_key,
+)
+from script.sync_components import (  # type: ignore[import-not-found]
+    _variant_to_key as _sync_variant_to_key,
 )
 
 
@@ -29,14 +32,15 @@ def _hardware_uart_entry() -> dict | None:
     return None
 
 
-def test_normalise_uart_platform_key() -> None:
-    """ESP32 variants gain an underscore; base / libretiny / fixed keys pass through."""
-    assert _normalise_uart_platform_key("ESP32") == "esp32"
-    assert _normalise_uart_platform_key("ESP32C3") == "esp32_c3"
-    assert _normalise_uart_platform_key("ESP32S2") == "esp32_s2"
-    assert _normalise_uart_platform_key("ESP32C61") == "esp32_c61"
-    assert _normalise_uart_platform_key("bk72xx") == "bk72xx"
-    assert _normalise_uart_platform_key("esp8266") == "esp8266"
+def test_uart_keys_use_shared_variant_normaliser() -> None:
+    """Sync keys come from the runtime ``_variant_to_key`` — one source, no divergence.
+
+    Build-time keys and the controller's lookup must agree or the lookup
+    silently falls back to the base platform; sharing the function pins it.
+    """
+    assert _sync_variant_to_key is _variant_to_key
+    assert _variant_to_key("ESP32C3") == "esp32_c3"
+    assert _variant_to_key("bk72xx") == "bk72xx"
 
 
 def test_uart_options_cover_every_platform() -> None:

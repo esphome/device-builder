@@ -563,6 +563,32 @@ async def test_logger_hardware_uart_resolves_per_variant() -> None:
     assert base.default_value == "UART0"
 
 
+async def test_variant_resolution_applies_to_remote_transmitter_default() -> None:
+    """Variant-first resolution is global: it activates non-logger variant platform_defaults.
+
+    ``remote_transmitter.rmt_symbols`` already shipped variant keys that the
+    old platform-only lookup never reached. An ESP32-C3 board now resolves to
+    48 (its variant value) instead of the base esp32 64; an S2 board keeps 64.
+    """
+    boards_cat = BoardCatalog()
+    cat = ComponentCatalog(_Container(boards=boards_cat))
+    await asyncio.to_thread(boards_cat.load)
+    await asyncio.to_thread(cat.load)
+
+    async def rmt_symbols(board_id: str) -> object:
+        bodies = await cat.get_component_bodies(
+            component_ids=["remote_transmitter"], board_id=board_id
+        )
+        entry = next(
+            e for e in bodies["remote_transmitter"].config_entries if e.key == "rmt_symbols"
+        )
+        assert entry.platform_defaults is None  # cleared before reaching the frontend
+        return entry.default_value
+
+    assert await rmt_symbols("esp32-c3-devkitm-1") == 48
+    assert await rmt_symbols("generic-esp32s2") == 64
+
+
 def test_featured_record_carries_underlying_id() -> None:
     """``_FeaturedRecord.underlying_id`` is the catalog id the body lookups go through."""
     record = _FeaturedRecord(
