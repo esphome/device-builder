@@ -56,7 +56,6 @@ from .metadata import (
     rename_device_metadata,
     set_device_metadata,
 )
-from .preferences import _prefs_from_data
 from .remote_build_settings import (
     _settings_from_raw,
     has_remote_build_settings_persisted,
@@ -93,7 +92,6 @@ __all__ = [
     "_make_descriptor_tempfile",
     "_parse_chip_family_line",
     "_parse_project_name",
-    "_prefs_from_data",
     "_read_app_descriptor_board_id",
     "_read_descriptor_file",
     "_run_esptool",

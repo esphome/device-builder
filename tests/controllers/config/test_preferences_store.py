@@ -60,16 +60,20 @@ async def test_async_load_migrates_preferences_from_sidecar(tmp_path: Path) -> N
     assert shared["kitchen.yaml"] == {"board_id": "esp32"}
 
 
-async def test_async_load_migrates_corrupt_sidecar_blob_as_defaults(tmp_path: Path) -> None:
-    """A malformed sidecar ``_preferences`` blob migrates to defaults, not a crash."""
+async def test_async_load_leaves_corrupt_sidecar_blob_in_place(tmp_path: Path) -> None:
+    """A malformed sidecar ``_preferences`` blob is preserved, not migrated/stripped.
+
+    Falling back to defaults *and* destroying the source would lose recoverable
+    data; instead leave the blob in the sidecar and don't write a dedicated file.
+    """
     await asyncio.to_thread(_save_metadata, tmp_path, {"_preferences": [1, 2, 3]})
     store = _make_store(tmp_path)
     await store.async_load()
 
     assert store.snapshot() == UserPreferences()
-    assert (tmp_path / _STORE_FILENAME).exists()
+    assert not (tmp_path / _STORE_FILENAME).exists()
     shared = await asyncio.to_thread(_load_metadata, tmp_path)
-    assert "_preferences" not in shared
+    assert shared["_preferences"] == [1, 2, 3]
 
 
 async def test_async_load_skips_migration_when_dedicated_file_exists(tmp_path: Path) -> None:
@@ -111,32 +115,39 @@ async def test_async_load_is_idempotent(tmp_path: Path) -> None:
     assert await asyncio.to_thread(_load_metadata, tmp_path) == shared_after_first
 
 
-async def test_async_load_recovers_from_corrupt_dedicated_file(
+async def test_async_load_preserves_corrupt_dedicated_file(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """A corrupt dedicated file falls back to defaults with a warning, no migration."""
+    """A corrupt dedicated file is renamed aside (not erased) and logged."""
     (tmp_path / _STORE_FILENAME).write_bytes(b"{not valid json")
     store = _make_store(tmp_path)
-    with caplog.at_level("WARNING"):
+    with caplog.at_level("ERROR"):
         await store.async_load()
     assert store.snapshot() == UserPreferences()
-    assert any("corrupt JSON" in r.message for r in caplog.records)
+    assert any("undecodable" in r.message for r in caplog.records)
+    # Original preserved for recovery; the live file is gone so the next save
+    # can't overwrite a recoverable-but-corrupt read.
+    assert (tmp_path / (_STORE_FILENAME + ".corrupt")).read_bytes() == b"{not valid json"
+    assert not (tmp_path / _STORE_FILENAME).exists()
 
 
-async def test_async_load_recovers_from_non_dict_dedicated_file(tmp_path: Path) -> None:
-    """A dedicated file holding a non-object JSON value falls back to defaults."""
+async def test_async_load_preserves_non_dict_dedicated_file(tmp_path: Path) -> None:
+    """A dedicated file holding a non-object JSON value is preserved aside."""
     (tmp_path / _STORE_FILENAME).write_bytes(b"[1, 2, 3]")
     store = _make_store(tmp_path)
     await store.async_load()
     assert store.snapshot() == UserPreferences()
+    assert (tmp_path / (_STORE_FILENAME + ".corrupt")).read_bytes() == b"[1, 2, 3]"
 
 
-async def test_async_load_recovers_from_invalid_prefs_shape(tmp_path: Path) -> None:
-    """A dedicated file whose object fails decode falls back to defaults."""
-    (tmp_path / _STORE_FILENAME).write_bytes(b'{"experience_level": "bogus"}')
+async def test_async_load_preserves_invalid_shape_dedicated_file(tmp_path: Path) -> None:
+    """A dedicated file whose object fails decode is preserved aside."""
+    raw = b'{"experience_level": "bogus"}'
+    (tmp_path / _STORE_FILENAME).write_bytes(raw)
     store = _make_store(tmp_path)
     await store.async_load()
     assert store.snapshot() == UserPreferences()
+    assert (tmp_path / (_STORE_FILENAME + ".corrupt")).read_bytes() == raw
 
 
 async def test_round_trip_after_migration(tmp_path: Path) -> None:

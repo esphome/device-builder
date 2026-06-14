@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +13,7 @@ from ...helpers.json import JSONDecodeError, dumps_indent, loads
 from ...helpers.storage import ShutdownRegister, Store
 from ...models import UserPreferences
 from .metadata import _load_metadata, metadata_transaction
-from .preferences import _PREFS_KEY, _prefs_from_data
+from .preferences import _PREFS_KEY
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -21,25 +22,25 @@ _SHARED_SIDECAR_FILENAME = ".device-builder.json"
 
 _DEFAULT_SAVE_DELAY = 1.0
 
+# Decode failures that should be treated as "corrupt / incompatible": a bad-JSON
+# read, a non-object payload, or a shape ``from_dict`` rejects.
+_DECODE_ERRORS = (JSONDecodeError, ValueError, TypeError, LookupError)
+
 
 def _encode(prefs: UserPreferences) -> bytes:
     return dumps_indent(prefs.to_dict())
 
 
 def _decode(raw: bytes) -> UserPreferences:
-    try:
-        obj = loads(raw)
-    except JSONDecodeError:
-        _LOGGER.warning("preferences store: corrupt JSON, starting from defaults")
-        return UserPreferences()
+    """Decode stored preferences; raise on a corrupt or incompatible payload.
+
+    Corruption propagates (rather than defaulting) so the caller can preserve
+    the file for recovery instead of silently overwriting it.
+    """
+    obj = loads(raw)
     if not isinstance(obj, dict):
-        _LOGGER.warning("preferences store: non-object payload, starting from defaults")
-        return UserPreferences()
-    try:
-        return UserPreferences.from_dict(obj)
-    except (ValueError, TypeError, LookupError):
-        _LOGGER.exception("preferences store: undecodable payload, starting from defaults")
-        return UserPreferences()
+        raise TypeError("preferences payload is not a JSON object")
+    return UserPreferences.from_dict(obj)
 
 
 class PreferencesStore:
@@ -59,14 +60,25 @@ class PreferencesStore:
     async def async_load(self) -> None:
         """Seed RAM from disk; migrate the sidecar's ``_preferences`` on first run.
 
-        Flushes the dedicated file before stripping the sidecar key so a crash
-        between the two preserves the migration.
+        Undecodable data is preserved, never destroyed: a corrupt dedicated file
+        is renamed aside, and an undecodable legacy sidecar blob is left in place
+        (not stripped). Both log and fall back to defaults. Migration flushes the
+        dedicated file before stripping the sidecar key so a crash between the
+        two preserves the migration.
         """
-        loaded = await self._store.async_load()
+        loop = asyncio.get_running_loop()
+        try:
+            loaded = await self._store.async_load()
+        except _DECODE_ERRORS:
+            _LOGGER.exception(
+                "preferences store: %s is undecodable; preserving it and using defaults",
+                _STORE_FILENAME,
+            )
+            await loop.run_in_executor(None, self._preserve_corrupt_file)
+            return
         if loaded is not None:
             self._state = loaded
             return
-        loop = asyncio.get_running_loop()
         migrated = await loop.run_in_executor(None, self._migrate_read_shared_sync)
         if migrated is None:
             return
@@ -122,15 +134,33 @@ class PreferencesStore:
     def _snapshot(self) -> UserPreferences:
         return self._state
 
+    def _preserve_corrupt_file(self) -> None:
+        """Rename the undecodable dedicated file aside so the next save can't erase it."""
+        path = self._config_dir / _STORE_FILENAME
+        with suppress(OSError):
+            path.replace(path.with_name(path.name + ".corrupt"))
+
     def _migrate_read_shared_sync(self) -> UserPreferences | None:
-        """Decode the sidecar's ``_preferences`` blob, or ``None`` if absent."""
+        """Decode the sidecar's ``_preferences`` blob.
+
+        Returns ``None`` when the key is absent or undecodable; an undecodable
+        legacy blob is logged and left in the sidecar (the caller doesn't strip
+        it) so the data stays recoverable rather than being replaced by defaults.
+        """
         shared_path = self._config_dir / _SHARED_SIDECAR_FILENAME
         if not shared_path.exists():
             return None
         data = _load_metadata(self._config_dir)
         if _PREFS_KEY not in data:
             return None
-        return _prefs_from_data(data)
+        try:
+            return UserPreferences.from_dict(data[_PREFS_KEY])
+        except _DECODE_ERRORS:
+            _LOGGER.exception(
+                "preferences store: legacy _preferences blob undecodable; left in %s for recovery",
+                _SHARED_SIDECAR_FILENAME,
+            )
+            return None
 
     def _migrate_strip_shared_sync(self) -> None:
         """Drop the migrated ``_preferences`` key from the shared sidecar."""
