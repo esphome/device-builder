@@ -83,9 +83,8 @@ class PreferencesStore:
     async def _migrate_from_sidecar(self, loop: asyncio.AbstractEventLoop) -> None:
         """Adopt the legacy ``_preferences`` blob, persist it, then strip the key.
 
-        The strip is gated on a confirmed dedicated-file write: ``Store`` logs and
-        swallows write errors, so an unconfirmed flush leaves the sidecar key in
-        place for the next start to retry rather than losing prefs on restart.
+        The strip is gated on a confirmed write so an unconfirmed flush can't lose
+        the prefs on restart (see :meth:`_confirm_and_strip_shared_sync`).
         """
         migrated = await loop.run_in_executor(None, self._migrate_read_shared_sync)
         if migrated is None:
@@ -93,7 +92,8 @@ class PreferencesStore:
         self._state = migrated
         self._store.async_delay_save(self._snapshot, delay=0.0)
         await self._store.async_save_now()
-        if not self._store.path.exists():
+        stripped = await loop.run_in_executor(None, self._confirm_and_strip_shared_sync)
+        if not stripped:
             _LOGGER.warning(
                 "preferences store: %s write unconfirmed; keeping %s in %s to retry",
                 _STORE_FILENAME,
@@ -101,7 +101,6 @@ class PreferencesStore:
                 _SHARED_SIDECAR_FILENAME,
             )
             return
-        await loop.run_in_executor(None, self._migrate_strip_shared_sync)
         _LOGGER.info(
             "Migrated preferences from %s to %s", _SHARED_SIDECAR_FILENAME, _STORE_FILENAME
         )
@@ -180,7 +179,15 @@ class PreferencesStore:
             )
             return None
 
-    def _migrate_strip_shared_sync(self) -> None:
-        """Drop the migrated ``_preferences`` key from the shared sidecar."""
+    def _confirm_and_strip_shared_sync(self) -> bool:
+        """Strip the migrated ``_preferences`` key, but only if the write landed.
+
+        ``Store`` logs and swallows write errors, so an unconfirmed flush leaves
+        the sidecar key for the next start to retry. The ``exists`` probe and the
+        strip share one executor hop to keep the blocking I/O off the loop.
+        """
+        if not self._store.path.exists():
+            return False
         with metadata_transaction(self._config_dir) as data:
             data.pop(_PREFS_KEY, None)
+        return True
