@@ -61,7 +61,7 @@ same way.
 ### Standalone (PyPI)
 
 For developers, headless servers, or anyone running outside the
-add-on / Desktop shapes:
+add-on / Desktop / Docker shapes:
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
@@ -132,18 +132,25 @@ every few minutes.
 
 ### Standard ESPHome container image
 
-The standard `ghcr.io/esphome/esphome` container doesn't carry the
-preview toggle yet (only the Home Assistant add-on image does). To run
-the new dashboard from it, override the entrypoint to install the wheel
-and launch it against your config dir:
+The standard ESPHome Docker image (`ghcr.io/esphome/esphome`) carries
+the same opt-in toggle. Set `USE_NEW_DEVICE_BUILDER` to `1` (or `true` /
+`yes` / `on`) and the container's entrypoint installs the latest
+prerelease of `esphome-device-builder` on boot, then launches it
+instead of the classic `esphome dashboard`:
 
 ```bash
-uv pip install esphome-device-builder && exec esphome-device-builder /config
+docker run -e USE_NEW_DEVICE_BUILDER=1 -p 6052:6052 \
+    -v "$PWD":/config ghcr.io/esphome/esphome
 ```
 
-The wheel ships the prebuilt frontend, so there's nothing to build by
-hand. Point it at wherever your YAMLs are mounted (`/config` matches the
-standard image's layout).
+The dashboard serves `/config` on port 6052. Leave the variable unset
+to fall back to the classic dashboard. The install-on-boot step is
+temporary, until `esphome-device-builder` becomes a direct dependency
+of ESPHome.
+
+If you pass an explicit command to the container it's forwarded
+unchanged, so it has to match the selected CLI — the two don't always
+share the same options.
 
 ## Username / password authentication
 
@@ -425,9 +432,8 @@ tracked separately:
   and Dev channels)
 - ✅ Backend selector in [ESPHome Desktop](https://github.com/esphome/esphome-desktop)
   ≥ v0.7.0 (system tray → Backend)
-- 🚧 Same toggle in the standalone ESPHome Docker image
-  (`ghcr.io/esphome/esphome`) — currently only the HA-addon image carries
-  it
+- ✅ Same toggle in the standalone ESPHome Docker image
+  (`ghcr.io/esphome/esphome`, via the `USE_NEW_DEVICE_BUILDER` env var)
 - 🗺️ See the
   [project backlog](https://github.com/orgs/esphome/projects/7/views/1?filterQuery=project%3A%22device-builder%22)
   for in-progress work and what's planned next
