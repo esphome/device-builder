@@ -608,6 +608,29 @@ _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
     # which hides ``DEBUG_SCHEMA`` from the bundle. The actual YAML is
     # a mapping with direction / prefix / accumulator settings.
     ("uart", "debug"): _UART_DEBUG_OVERRIDE,
+    # ``uart.baud_rate`` is a bare required ``cv.int_`` — the schema offers
+    # no hint, so the wizard's "Add" stays disabled until the user knows a
+    # rate. Curate the common rates as a combo box (custom entry still
+    # allowed) and default to 115200 so a required-field seed enables Add
+    # and writes ``baud_rate: 115200``. Stays ``integer``/``required`` so
+    # the seed commits the value and bus_constraints can override it.
+    ("uart", "baud_rate"): {
+        "default_value": 115200,
+        "allow_custom_value": True,
+        "options": [
+            {"label": "2400", "value": "2400"},
+            {"label": "4800", "value": "4800"},
+            {"label": "9600", "value": "9600"},
+            {"label": "19200", "value": "19200"},
+            {"label": "38400", "value": "38400"},
+            {"label": "57600", "value": "57600"},
+            {"label": "115200", "value": "115200"},
+            {"label": "230400", "value": "230400"},
+            {"label": "256000", "value": "256000"},
+            {"label": "460800", "value": "460800"},
+            {"label": "921600", "value": "921600"},
+        ],
+    },
     # ``ble_nus.debug`` reuses ``uart.maybe_empty_debug`` for the same
     # ``DEBUG_SCHEMA``. Mirror the override and just retitle the
     # description so it reads about BLE NUS traffic rather than UART.

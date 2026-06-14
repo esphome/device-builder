@@ -83,6 +83,22 @@ def test_uart_debug_override_renders_as_nested_group_on_main_form() -> None:
     assert after_inner == {"bytes", "timeout", "delimiter"}
 
 
+def test_uart_baud_rate_override_is_a_common_rate_combo_box() -> None:
+    """``uart.baud_rate`` gains curated rates + a 115200 default; type/required untouched."""
+    override = _FIELD_OVERRIDES.get(("uart", "baud_rate"))
+    assert override is not None, "missing uart.baud_rate override"
+    assert override["default_value"] == 115200
+    assert override["allow_custom_value"] is True
+    values = [o["value"] for o in override["options"]]
+    # ConfigValueOption.value is str; the list covers the LD2410 rate too.
+    assert all(isinstance(v, str) for v in values)
+    assert {"2400", "115200", "256000", "921600"} <= set(values)
+    # type/required are NOT overridden so the field stays a required integer:
+    # the required-field seed commits 115200 and bus_constraints can override it.
+    assert "type" not in override
+    assert "required" not in override
+
+
 def test_ble_nus_debug_override_shares_uart_debug_shape() -> None:
     """``ble_nus.debug`` reuses ``uart.maybe_empty_debug`` upstream — overrides stay in lockstep."""
     uart_override = _FIELD_OVERRIDES[("uart", "debug")]
