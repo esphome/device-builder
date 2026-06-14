@@ -17,6 +17,7 @@ import pytest
 import yaml
 from esphome.components import wifi as esphome_wifi
 from esphome.components.rp2040.boards import BOARDS as ESPHOME_RP2040_BOARDS
+from esphome.const import ALLOWED_NAME_CHARS
 
 from esphome_device_builder.helpers import device_yaml
 from esphome_device_builder.helpers.device_yaml import (
@@ -850,6 +851,11 @@ def test_load_device_from_storage_resolves_config_once_for_packages(tmp_path: Pa
 def test_is_valid_esphome_name(value: str, expected: bool) -> None:
     """``esphome.name`` accepts ``[a-z0-9_-]``; other fields (dots/spaces/uppercase) fail."""
     assert _is_valid_esphome_name(value) is expected
+
+
+def test_is_valid_esphome_name_covers_allowed_name_chars() -> None:
+    """The pattern accepts every character ESPHome permits, so it can't drift."""
+    assert _is_valid_esphome_name(ALLOWED_NAME_CHARS)
 
 
 def test_load_device_from_storage_keeps_underscore_name(tmp_path: Path) -> None:

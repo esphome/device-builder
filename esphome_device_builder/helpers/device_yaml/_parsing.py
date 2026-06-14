@@ -35,12 +35,12 @@ _UNRESOLVED_SUBSTITUTION_RE = re.compile(r"\$\{|\$[a-zA-Z_]")
 # deep chains a user might write.
 _SUBSTITUTION_MAX_PASSES = 16
 
-# ``esphome.name``'s char class; keep in sync with ESPHome's
-# ``ALLOWED_NAME_CHARS`` (underscore included — it broadcasts verbatim over
-# mDNS): https://github.com/esphome/esphome/blob/dev/esphome/const.py
-# Anything else (dots, spaces, uppercase) is a wrong field (a package id, a
-# leaked friendly_name), rejected so it can't become the device key.
-_VALID_ESPHOME_NAME_RE = re.compile(r"\A[a-z0-9_-]+\Z")
+# Built from ESPHome's ``esphome.name`` char class so it can't drift from
+# upstream (a hand-written class missing ``_`` is the bug this fixes):
+# https://github.com/esphome/esphome/blob/dev/esphome/const.py
+# Rejects wrong fields (a package id's dots, a friendly_name's spaces /
+# uppercase) so they can't become the device key.
+_VALID_ESPHOME_NAME_RE = re.compile(rf"\A[{re.escape(const.ALLOWED_NAME_CHARS)}]+\Z")
 
 
 def _is_valid_esphome_name(value: str) -> bool:
