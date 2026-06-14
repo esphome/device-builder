@@ -840,21 +840,21 @@ def test_load_device_from_storage_resolves_config_once_for_packages(tmp_path: Pa
     ("value", "expected"),
     [
         ("hf-display", True),
-        ("hf_display", True),  # ESPHome allows underscores (#1453)
+        ("hf_display", True),
         ("node1", True),
-        ("ratgdo.esphome", False),  # dotted package id, not a name
-        ("Hf Display", False),  # friendly_name (space + uppercase)
+        ("ratgdo.esphome", False),
+        ("Hf Display", False),
         ("my device", False),
     ],
 )
 def test_is_valid_esphome_name(value: str, expected: bool) -> None:
-    """``esphome.name`` accepts ``[a-z0-9_-]`` (incl. underscore), rejects other fields."""
+    """``esphome.name`` accepts ``[a-z0-9_-]``; other fields (dots/spaces/uppercase) fail."""
     assert _is_valid_esphome_name(value) is expected
 
 
 def test_load_device_from_storage_keeps_underscore_name(tmp_path: Path) -> None:
-    """An underscore ``esphome.name`` keys the device, not the filename stem (#1453)."""
-    # Filename differs from the name, so the stem fallback would shadow a
+    """An underscore ``esphome.name`` keys the device, not the filename stem."""
+    # Filename differs from the name so the stem fallback would shadow a
     # wrongly-rejected name; the underscore name must still win.
     yaml_file = tmp_path / "hf-display-renamed.yaml"
     yaml_file.write_text(

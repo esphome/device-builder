@@ -35,13 +35,10 @@ _UNRESOLVED_SUBSTITUTION_RE = re.compile(r"\$\{|\$[a-zA-Z_]")
 # deep chains a user might write.
 _SUBSTITUTION_MAX_PASSES = 16
 
-# ESPHome's ``esphome.name`` accepts lowercase ASCII letters, digits,
-# hyphens, and underscores (``esphome.const.ALLOWED_NAME_CHARS``); the
-# underscore broadcasts verbatim over mDNS, so we must accept it or an
-# underscore-named device never matches its announcement (#1453). A
-# parsed value with anything else (dots, spaces, uppercase, ...) means
-# we picked up the wrong field (a package id, a friendly_name leaked
-# through, etc.) and should be rejected so it doesn't end up as the key.
+# ``esphome.name``'s char class, matching ``esphome.const.ALLOWED_NAME_CHARS``
+# (underscore included — it broadcasts verbatim over mDNS). Anything else
+# (dots, spaces, uppercase) is a wrong field — a package id, a leaked
+# friendly_name — and is rejected so it can't become the device key.
 _VALID_ESPHOME_NAME_RE = re.compile(r"\A[a-z0-9_-]+\Z")
 
 
