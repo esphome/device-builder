@@ -596,10 +596,8 @@ class DeviceBuilder:
             # snapshot here a fresh page load would miss everything
             # the dashboard had already accumulated by then.
             initial: dict[str, Any] = {}
-            # Preferences gate first-paint UI (experience level, remote-compute
-            # creation hiding), so ship them in the snapshot rather than make the
-            # client chase a separate get_preferences round-trip. Sync read per
-            # the hot-path rule; the metadata sidecar is small.
+            # Gate first-paint UI, so ship them here instead of a separate
+            # get_preferences round-trip. Sync read per the hot-path rule.
             initial["preferences"] = load_preferences(self.settings.config_dir).to_dict()
             if self.devices:
                 initial["devices"] = [d.to_dict() for d in self.devices.get_devices()]
