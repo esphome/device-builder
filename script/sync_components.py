@@ -3692,6 +3692,37 @@ _TARGET_PLATFORMS: frozenset[str] = frozenset(
 _NETWORK_TRANSPORTS: frozenset[str] = frozenset({"wifi", "ethernet", "openthread", "host"})
 
 
+def _resolve_auto_load(raw_auto_load: Any) -> list[str]:
+    """
+    Resolve a possibly-callable ``AUTO_LOAD`` to a list, else ``[]``.
+
+    A callable is invoked with no target platform set, so platform-gated extras
+    drop out and only the unconditional auto-loads come through; failures (raise
+    or non-list) fall back to ``[]``.
+    """
+    if callable(raw_auto_load):
+        try:
+            from esphome.const import KEY_CORE, KEY_TARGET_PLATFORM
+            from esphome.core import CORE
+
+            # Force (not setdefault) the platform-agnostic state for the call,
+            # then restore so resolution can't leak CORE state between calls.
+            core = CORE.data.setdefault(KEY_CORE, {})
+            had_platform = KEY_TARGET_PLATFORM in core
+            prev_platform = core.get(KEY_TARGET_PLATFORM)
+            core[KEY_TARGET_PLATFORM] = None
+            try:
+                raw_auto_load = raw_auto_load()
+            finally:
+                if had_platform:
+                    core[KEY_TARGET_PLATFORM] = prev_platform
+                else:
+                    core.pop(KEY_TARGET_PLATFORM, None)
+        except Exception:
+            raw_auto_load = []
+    return list(raw_auto_load) if isinstance(raw_auto_load, list) else []
+
+
 def introspect_component(component_id: str) -> dict[str, Any]:
     """
     Return ``{multi_conf, is_target_platform, platform_defaults, refined_types, auto_load}``.
@@ -3699,11 +3730,10 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     Best-effort: returns an empty dict when ``esphome`` isn't importable
     or the component module can't be loaded.
 
-    ``auto_load`` is ESPHome's static list of components pulled in
-    whenever this one is configured. When the upstream declaration is
-    a callable (config-dependent), we can't resolve it without a
-    config and surface an empty list — callers should treat that as
-    "unknown" and stay conservative.
+    ``auto_load`` is ESPHome's list of components pulled in whenever this
+    one is configured. A callable (config-dependent) declaration is
+    resolved best-effort by calling it; if that raises, the list is empty
+    and callers stay conservative.
     """
     if not component_id:
         return {}
@@ -3726,8 +3756,7 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     platform_manifests_by_domain = _enumerate_platform_manifests_by_domain(loader, component_id)
     platform_manifests = [pm for _domain, pm in platform_manifests_by_domain]
 
-    raw_auto_load = manifest.auto_load
-    auto_load: list[str] = list(raw_auto_load) if isinstance(raw_auto_load, list) else []
+    auto_load: list[str] = _resolve_auto_load(manifest.auto_load)
 
     # Bare manifest results take precedence (``setdefault`` keep-first);
     # platform-manifest results fill in fields that only exist on the
