@@ -48,6 +48,9 @@ class PreferencesStore:
     def __init__(self, config_dir: Path, shutdown_register: ShutdownRegister) -> None:
         self._config_dir = config_dir
         self._state = UserPreferences()
+        # Set when an undecodable file couldn't be renamed aside; suppresses all
+        # writes so a later save can't overwrite the still-recoverable corrupt file.
+        self._persist_disabled = False
         self._store: Store[UserPreferences] = Store(
             config_dir / _STORE_FILENAME,
             encoder=_encode,
@@ -90,6 +93,8 @@ class PreferencesStore:
         if migrated is None:
             return
         self._state = migrated
+        if self._persist_disabled:
+            return
         self._store.async_delay_save(self._snapshot, delay=0.0)
         await self._store.async_save_now()
         stripped = await loop.run_in_executor(None, self._confirm_and_strip_shared_sync)
@@ -118,7 +123,7 @@ class PreferencesStore:
     ) -> UserPreferences:
         """Merge a validated partial dict and schedule a debounced save."""
         self._state = UserPreferences.from_dict({**self._state.to_dict(), **fields})
-        self._store.async_delay_save(self._snapshot, delay=delay)
+        self._schedule_save(delay=delay)
         return self._copy()
 
     def mutate(
@@ -138,8 +143,14 @@ class PreferencesStore:
         if result is None:
             result = working
         self._state = result
-        self._store.async_delay_save(self._snapshot, delay=delay)
+        self._schedule_save(delay=delay)
         return self._copy()
+
+    def _schedule_save(self, *, delay: float) -> None:
+        """Schedule a debounced write, unless persistence has been disabled."""
+        if self._persist_disabled:
+            return
+        self._store.async_delay_save(self._snapshot, delay=delay)
 
     def _copy(self) -> UserPreferences:
         """Return a fresh, independent copy of the canonical RAM state."""
@@ -149,12 +160,22 @@ class PreferencesStore:
         return self._state
 
     def _preserve_corrupt_file(self) -> None:
-        """Rename the undecodable dedicated file aside so the next save can't erase it."""
+        """Rename the undecodable dedicated file aside so the next save can't erase it.
+
+        If the rename fails, disable persistence: leaving the corrupt file in
+        place and then writing over it would destroy the recoverable data this
+        method exists to protect.
+        """
         path = self._config_dir / _STORE_FILENAME
         try:
             path.replace(path.with_name(path.name + ".corrupt"))
         except OSError:
-            _LOGGER.warning("Could not preserve corrupt preferences file %s", path, exc_info=True)
+            self._persist_disabled = True
+            _LOGGER.warning(
+                "Could not preserve corrupt preferences file %s; disabling writes to keep it",
+                path,
+                exc_info=True,
+            )
 
     def _migrate_read_shared_sync(self) -> UserPreferences | None:
         """Decode the sidecar's ``_preferences`` blob.

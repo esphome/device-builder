@@ -96,6 +96,37 @@ async def test_async_load_keeps_sidecar_when_migration_write_unconfirmed(
     assert any("write unconfirmed" in r.message for r in caplog.records)
 
 
+async def test_failed_preserve_disables_writes_to_protect_corrupt_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If the corrupt-file rename fails, writes are suppressed so it isn't clobbered."""
+    raw = b"{not valid json"
+    (tmp_path / _STORE_FILENAME).write_bytes(raw)
+    await asyncio.to_thread(_save_metadata, tmp_path, {"_preferences": _SAMPLE.to_dict()})
+
+    real_replace = Path.replace
+
+    def _fail_corrupt_rename(self: Path, target: Path) -> Path:
+        if str(target).endswith(".corrupt"):
+            raise OSError("cannot rename")
+        return real_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", _fail_corrupt_rename)
+    store = _make_store(tmp_path)
+    await store.async_load()
+
+    # RAM recovered from the sidecar for this session, but nothing touches disk.
+    assert store.snapshot() == _SAMPLE
+    assert (tmp_path / _STORE_FILENAME).read_bytes() == raw
+    shared = await asyncio.to_thread(_load_metadata, tmp_path)
+    assert shared["_preferences"] == _SAMPLE.to_dict()
+
+    # A later write stays suppressed; the recoverable corrupt file is never erased.
+    store.update({"theme": Theme.LIGHT})
+    await store._store.async_save_now()
+    assert (tmp_path / _STORE_FILENAME).read_bytes() == raw
+
+
 async def test_async_load_corrupt_dedicated_file_recovers_from_sidecar(tmp_path: Path) -> None:
     """A corrupt dedicated file is preserved aside, then prefs recover from the sidecar."""
     (tmp_path / _STORE_FILENAME).write_bytes(b"{not valid json")
