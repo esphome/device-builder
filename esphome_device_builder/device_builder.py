@@ -32,7 +32,6 @@ from .controllers.components import ComponentCatalog
 from .controllers.config import (
     ConfigController,
     DashboardSettings,
-    load_preferences,
 )
 from .controllers.devices import DevicesController
 from .controllers.editor import EditorController
@@ -337,6 +336,9 @@ class DeviceBuilder:
         self.remote_build_offloader = OffloaderController(self)
         self.remote_build_receiver = ReceiverController(self)
         self.version_history = VersionHistoryController(self)
+        # Seed the RAM-canonical preferences (and migrate them out of the shared
+        # sidecar on first run) before onboarding reads or mutates them.
+        await self.config.async_load()
         # Default pre-existing installs to the YAML experience before
         # any onboarding command can be served.
         await self.onboarding.migrate_preexisting_install()
@@ -436,7 +438,7 @@ class DeviceBuilder:
             len(self.command_handlers),
         )
 
-    async def stop(self) -> None:  # noqa: C901
+    async def stop(self) -> None:  # noqa: C901, PLR0912
         """Shut down the application."""
         _LOGGER.info("Shutting down ESPHome Device Builder")
         if self._bg_task:
@@ -474,6 +476,8 @@ class DeviceBuilder:
             await self.editor.stop()
         if self.version_history is not None:
             await self.version_history.stop()
+        if self.config is not None:
+            await self.config.stop()
         # Cleanly drain the pool once nothing else can hand it work.
         # Two paths because the pool is created eagerly in ``__init__``
         # — calling ``stop()`` on an instance that never ran
@@ -597,8 +601,10 @@ class DeviceBuilder:
             # the dashboard had already accumulated by then.
             initial: dict[str, Any] = {}
             # Gate first-paint UI, so ship them here instead of a separate
-            # get_preferences round-trip. Sync read per the hot-path rule.
-            initial["preferences"] = load_preferences(self.settings.config_dir).to_dict()
+            # get_preferences round-trip. Sync RAM read off the store; the
+            # config controller is always up by the time subscribe is served.
+            assert self.config is not None
+            initial["preferences"] = self.config.prefs.snapshot().to_dict()
             if self.devices:
                 initial["devices"] = [d.to_dict() for d in self.devices.get_devices()]
                 initial["importable"] = [d.to_dict() for d in self.devices.get_importable_devices()]

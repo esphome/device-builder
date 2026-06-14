@@ -14,14 +14,11 @@ connection (raising every time, caught + logged by
 from __future__ import annotations
 
 import asyncio
-import tempfile
-from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 
-from esphome_device_builder.controllers.config import save_preferences
 from esphome_device_builder.device_builder import DeviceBuilder
 from esphome_device_builder.helpers.event_bus import (
     _DEFAULT_STREAM_QUEUE_MAX,
@@ -34,9 +31,15 @@ from esphome_device_builder.models.preferences import ExperienceLevel
 
 from .conftest import FakeWebSocketClient
 
-# ``_send_initial`` reads preferences off ``settings.config_dir``; an empty dir
-# makes ``load_preferences`` return defaults, which is all these stubs need.
-_STUB_CONFIG_DIR = Path(tempfile.mkdtemp())
+
+def _stub_config(db: DeviceBuilder, prefs: UserPreferences | None = None) -> None:
+    """Give *db* a config controller whose prefs store returns *prefs*.
+
+    ``_send_initial`` reads the snapshot off ``config.prefs``; default it to
+    plain defaults, which is all most of these stubs need.
+    """
+    db.config = MagicMock()
+    db.config.prefs.snapshot.return_value = prefs or UserPreferences()
 
 
 def _make_db() -> DeviceBuilder:
@@ -48,7 +51,7 @@ def _make_db() -> DeviceBuilder:
     stub.
     """
     db = DeviceBuilder.__new__(DeviceBuilder)
-    db.settings = MagicMock(config_dir=_STUB_CONFIG_DIR)
+    _stub_config(db)
     db.bus = EventBus()
     db.subscriber_presence = SubscriberPresence()
     db.devices = None  # skip the device-snapshot branch
@@ -152,7 +155,7 @@ async def test_subscribe_events_includes_pairings_snapshot_in_initial_state() ->
     hop, no disk read.
     """
     db = DeviceBuilder.__new__(DeviceBuilder)
-    db.settings = MagicMock(config_dir=_STUB_CONFIG_DIR)
+    _stub_config(db)
     db.bus = EventBus()
     db.subscriber_presence = SubscriberPresence()
     db.devices = None  # skip the device-snapshot branch
@@ -200,7 +203,7 @@ async def test_subscribe_events_includes_peers_snapshot_in_initial_state() -> No
     ``_pending_peers`` + ``_approved_peers`` dicts.
     """
     db = DeviceBuilder.__new__(DeviceBuilder)
-    db.settings = MagicMock(config_dir=_STUB_CONFIG_DIR)
+    _stub_config(db)
     db.bus = EventBus()
     db.subscriber_presence = SubscriberPresence()
     db.devices = None
@@ -258,17 +261,16 @@ async def test_subscribe_events_includes_peers_snapshot_in_initial_state() -> No
     await asyncio.gather(handler_task, return_exceptions=True)
 
 
-async def test_subscribe_events_includes_preferences_in_initial_state(tmp_path) -> None:
+async def test_subscribe_events_includes_preferences_in_initial_state() -> None:
     """``_send_initial`` carries the UI-gating preferences in the snapshot.
 
     So first paint doesn't chase a separate ``get_preferences``.
     """
-    save_preferences(
-        tmp_path,
+    db = DeviceBuilder.__new__(DeviceBuilder)
+    _stub_config(
+        db,
         UserPreferences(remote_compute_only=True, experience_level=ExperienceLevel.YAML),
     )
-    db = DeviceBuilder.__new__(DeviceBuilder)
-    db.settings = MagicMock(config_dir=tmp_path)
     db.bus = EventBus()
     db.subscriber_presence = SubscriberPresence()
     db.devices = None
@@ -303,7 +305,7 @@ async def test_subscribe_events_includes_offloader_settings_in_initial_state() -
     (or in the picker's case never, since there's nothing to flip).
     """
     db = DeviceBuilder.__new__(DeviceBuilder)
-    db.settings = MagicMock(config_dir=_STUB_CONFIG_DIR)
+    _stub_config(db)
     db.bus = EventBus()
     db.subscriber_presence = SubscriberPresence()
     db.devices = None
@@ -348,7 +350,7 @@ async def test_subscribe_events_includes_hosts_snapshot_in_initial_state() -> No
     command.
     """
     db = DeviceBuilder.__new__(DeviceBuilder)
-    db.settings = MagicMock(config_dir=_STUB_CONFIG_DIR)
+    _stub_config(db)
     db.bus = EventBus()
     db.subscriber_presence = SubscriberPresence()
     db.devices = None
@@ -453,7 +455,7 @@ async def test_subscribe_events_subscribed_arrives_before_live_events() -> None:
     must be queued, then drained strictly after the seed.
     """
     db = DeviceBuilder.__new__(DeviceBuilder)
-    db.settings = MagicMock(config_dir=_STUB_CONFIG_DIR)
+    _stub_config(db)
     db.bus = EventBus()
     db.subscriber_presence = SubscriberPresence()
 

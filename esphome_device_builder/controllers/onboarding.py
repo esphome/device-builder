@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -43,11 +42,12 @@ from ..models import (
     UserPreferences,
 )
 from ..models.onboarding import ONBOARDING_VERSION
-from .config import load_preferences, mutate_preferences
 from .config.settings import _DASHBOARD_SENTINEL_FILE
 
 if TYPE_CHECKING:
     from esphome_device_builder.device_builder import DeviceBuilder
+
+    from .config._preferences_store import PreferencesStore
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -66,6 +66,12 @@ class OnboardingController:
     def __init__(self, db: DeviceBuilder) -> None:
         self._db = db
 
+    @property
+    def _prefs(self) -> PreferencesStore:
+        # The config controller is created before onboarding in start().
+        assert self._db.config is not None
+        return self._db.config.prefs
+
     @api_command("onboarding/get_state")
     async def get_state(self, **kwargs: Any) -> OnboardingState:
         """
@@ -77,12 +83,11 @@ class OnboardingController:
         live data; the frontend surfaces the wizard on any pending
         step or a newer version.
         """
-        loop = asyncio.get_running_loop()
         settings = self._db.settings
-        return await loop.run_in_executor(
-            None,
-            partial(_compute_state, settings.config_dir, on_ha_addon=settings.on_ha_addon),
-        )
+        prefs = self._prefs.snapshot()
+        loop = asyncio.get_running_loop()
+        secrets = await loop.run_in_executor(None, read_secrets_yaml, settings.config_dir)
+        return _compute_state(secrets, prefs, on_ha_addon=settings.on_ha_addon)
 
     async def migrate_preexisting_install(self) -> None:
         """
@@ -93,8 +98,17 @@ class OnboardingController:
         users and acknowledge onboarding so the wizard never auto-pops.
         Idempotent — a no-op once ``experience_level`` is set.
         """
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, _migrate_preexisting, self._db.settings.config_dir)
+        prefs = self._prefs.snapshot()
+        if prefs.experience_level is not None:
+            return
+        has_configs = False
+        if prefs.onboarding_completed_version == 0:
+            loop = asyncio.get_running_loop()
+            has_configs = await loop.run_in_executor(
+                None, _has_device_configs, self._db.settings.config_dir
+            )
+        if _should_migrate_preexisting(prefs, has_device_configs=has_configs):
+            self._prefs.mutate(_mark_preexisting)
 
     @api_command("onboarding/set_wifi_credentials")
     async def set_wifi_credentials(
@@ -171,23 +185,19 @@ class OnboardingController:
         releases that add new steps bump that constant; existing
         users with a lower stored value will be re-prompted.
         """
-        loop = asyncio.get_running_loop()
-        config_dir = self._db.settings.config_dir
-        await loop.run_in_executor(
-            None, mutate_preferences, config_dir, _acknowledge_current_version
-        )
+        self._prefs.mutate(_acknowledge_current_version)
         return await self.get_state()
 
 
-def _compute_state(config_dir: Path, *, on_ha_addon: bool) -> OnboardingState:
+def _compute_state(
+    secrets: dict | None, prefs: UserPreferences, *, on_ha_addon: bool
+) -> OnboardingState:
     """
-    Build the onboarding snapshot in one executor hop.
+    Assemble the environment- and preference-aware onboarding step list.
 
-    Reads ``secrets.yaml`` + preferences (both quick reads from the
-    same dir) and assembles the environment-aware step list.
+    *secrets* and *prefs* are read by the caller (secrets off the loop, prefs
+    from the RAM-canonical store) so this stays pure.
     """
-    secrets = read_secrets_yaml(config_dir)
-    prefs = load_preferences(config_dir)
     experience_done = _status(done=prefs.experience_level is not None)
 
     steps: list[OnboardingStep] = []
@@ -212,30 +222,25 @@ def _compute_state(config_dir: Path, *, on_ha_addon: bool) -> OnboardingState:
     )
 
 
-def _migrate_preexisting(config_dir: Path) -> None:
-    """
-    Default a pre-existing install to the YAML experience; no-op otherwise.
+def _should_migrate_preexisting(prefs: UserPreferences, *, has_device_configs: bool) -> bool:
+    """Whether a pre-existing install should default to the YAML experience.
 
-    Installs that already completed an earlier onboarding are also marked
-    acknowledged (their prior Wi-Fi choice stands); installs known only by a
-    device YAML are left un-acknowledged so a missing-Wi-Fi prompt still fires.
+    No-op once an experience is chosen; a fresh install with no device YAMLs and
+    no prior onboarding is left alone so the wizard still runs.
     """
-    prefs = load_preferences(config_dir)
     if prefs.experience_level is not None:
-        return
-    if prefs.onboarding_completed_version == 0 and not _has_device_configs(config_dir):
-        return
+        return False
+    return prefs.onboarding_completed_version > 0 or has_device_configs
 
-    def _mark(p: UserPreferences) -> None:
-        p.experience_level = ExperienceLevel.YAML
-        # Only acknowledge onboarding for installs that already completed it,
-        # so a prior Wi-Fi save or decline is respected. An install known only
-        # by its device YAML stays un-acknowledged, so a missing-Wi-Fi prompt
-        # still surfaces.
-        if p.onboarding_completed_version > 0:
-            _acknowledge_current_version(p)
 
-    mutate_preferences(config_dir, _mark)
+def _mark_preexisting(p: UserPreferences) -> None:
+    """Mark *p* a YAML user; acknowledge only if onboarding was already done."""
+    p.experience_level = ExperienceLevel.YAML
+    # Only acknowledge onboarding for installs that already completed it, so a
+    # prior Wi-Fi save or decline is respected. An install known only by its
+    # device YAML stays un-acknowledged, so a missing-Wi-Fi prompt still surfaces.
+    if p.onboarding_completed_version > 0:
+        _acknowledge_current_version(p)
 
 
 def _acknowledge_current_version(prefs: UserPreferences) -> None:
