@@ -1512,6 +1512,17 @@ def _derive_docs_url(component_id: str) -> str:
     return f"https://esphome.io/components/{component_id}"
 
 
+def _is_truncated_prefix(existing: str, full: str) -> bool:
+    """Whether *existing* is a mid-sentence (no terminal .!?:) leading slice of *full*."""
+    # A trailing ``:`` is a list-introducer ("One of:") whose options live in MDX
+    # sub-bullets the extractor skips, so joining yields garbage — leave it.
+    head = " ".join(existing.split())
+    whole = " ".join(full.split())
+    return (
+        bool(head) and len(whole) > len(head) and whole.startswith(head) and head[-1] not in ".!?:"
+    )
+
+
 def _apply_field_descriptions(
     config_entries: list[dict],
     field_descriptions: dict[str, str],
@@ -1536,13 +1547,13 @@ def _apply_field_descriptions(
         if _depth > 0:
             continue
         key = entry["key"]
-        if not (entry.get("description") or "").strip():
-            text = field_descriptions.get(key)
-            if text:
-                entry["description"] = text
-                backfilled += 1
-                if fragment_url and not entry.get("help_link"):
-                    entry["help_link"] = fragment_url
+        existing = (entry.get("description") or "").strip()
+        text = field_descriptions.get(key)
+        if text and (not existing or _is_truncated_prefix(existing, text)):
+            entry["description"] = text
+            backfilled += 1
+            if fragment_url and not entry.get("help_link"):
+                entry["help_link"] = fragment_url
         inner = entry.get("config_entries")
         if inner:
             backfilled += _apply_field_descriptions(

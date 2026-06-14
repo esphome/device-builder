@@ -94,3 +94,12 @@ def test_shipped_catalog_logger_uart_is_combobox() -> None:
     # ``advanced: false`` is the default and stripped from the emitted body,
     # so the key is simply absent rather than explicitly False.
     assert not hw.get("advanced")
+
+
+def test_shipped_catalog_logger_descriptions_are_not_truncated() -> None:
+    """Field help text keeps the wrapped-bullet continuation the schema dropped."""
+    body = orjson.loads((_OUTPUT_BODIES_DIR / "logger.json").read_bytes())
+    desc = {e["key"]: e.get("description", "") for e in body.get("config_entries", [])}
+    assert "lower severity will not be shown" in desc["level"]
+    assert "framework you are using" in desc["hardware_uart"]
+    assert "disable logging via UART" in desc["baud_rate"]
