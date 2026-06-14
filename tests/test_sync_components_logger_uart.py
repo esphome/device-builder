@@ -90,3 +90,7 @@ def test_shipped_catalog_logger_uart_is_combobox() -> None:
     assert hw["platform_options"]["esp32_c3"]
     # Keys line up with platform_defaults so resolution hits the same target.
     assert set(hw["platform_options"]) == set(hw["platform_defaults"])
+    # Commonly configured, so it stays on the main form (not Advanced).
+    # ``advanced: false`` is the default and stripped from the emitted body,
+    # so the key is simply absent rather than explicitly False.
+    assert not hw.get("advanced")

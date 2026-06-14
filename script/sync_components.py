@@ -654,6 +654,11 @@ _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
     ("esphome", "comment"): {
         "advanced": True,
     },
+    # ``logger.hardware_uart`` is commonly set (USB_SERIAL_JTAG vs UART0 on
+    # newer ESP32 variants); keep it on the main form, not behind Advanced.
+    ("logger", "hardware_uart"): {
+        "advanced": False,
+    },
 }
 
 # Base-schema references that mark a field as a *sub-reading* of a

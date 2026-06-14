@@ -123,3 +123,10 @@ def test_shipped_catalog_esphome_comment_is_advanced() -> None:
     body = orjson.loads((_OUTPUT_BODIES_DIR / "esphome.json").read_bytes())
     comment = next(e for e in body["config_entries"] if e["key"] == "comment")
     assert comment["advanced"] is True
+
+
+def test_logger_hardware_uart_override_promotes_to_main_form() -> None:
+    """``logger.hardware_uart`` is forced non-advanced so it shows on the main form."""
+    override = _FIELD_OVERRIDES.get(("logger", "hardware_uart"))
+    assert override is not None, "missing logger.hardware_uart override"
+    assert override["advanced"] is False
