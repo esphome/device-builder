@@ -63,9 +63,8 @@ _BOARD_BODY_DICT = loads(
 # pins, and featured_components are all populated. Cached as
 # bytes so the benchmark loop measures parse + build, not the
 # cold disk read.
-_BOARD_MANIFEST_BYTES = (
-    _DEFINITIONS / "boards" / "unexpectedmaker_feathers3d" / "manifest.yaml"
-).read_bytes()
+_BOARD_DIR = _DEFINITIONS / "boards" / "unexpectedmaker_feathers3d"
+_BOARD_MANIFEST_BYTES = (_BOARD_DIR / "manifest.yaml").read_bytes()
 
 # A representative component dict from the live catalog. Picked
 # for its non-trivial nesting — ``sensor.dht`` carries a handful
@@ -107,7 +106,15 @@ def test_parse_one_board_manifest(benchmark: BenchmarkFixture) -> None:
     # pure-Python loader and miss the ~7-8x C-loader speedup.
     _smoke = yaml.load(_BOARD_MANIFEST_BYTES, Loader=FastestSafeLoader)  # noqa: S506
     assert len([_load_pin(p, board_id) for p in _smoke.get("pins", [])]) == 4
-    assert len([_load_featured_component(fc) for fc in _smoke.get("featured_components", [])]) == 5
+    assert (
+        len(
+            [
+                _load_featured_component(fc, _BOARD_DIR)
+                for fc in _smoke.get("featured_components", [])
+            ]
+        )
+        == 5
+    )
 
     @benchmark
     def run() -> None:
@@ -118,7 +125,7 @@ def test_parse_one_board_manifest(benchmark: BenchmarkFixture) -> None:
         for pin in data.get("pins", []):
             _load_pin(pin, board_id)
         for fc in data.get("featured_components", []):
-            _load_featured_component(fc)
+            _load_featured_component(fc, _BOARD_DIR)
 
 
 def test_load_one_component_entry(benchmark: BenchmarkFixture) -> None:
