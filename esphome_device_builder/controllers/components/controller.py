@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from ...definitions import (
@@ -407,6 +408,10 @@ class ComponentCatalog:
                     or query_lower in c.description.lower()
                     or query_lower in c.id.lower()
                 ]
+                # Rank exact id/name matches first so e.g. searching "uart"
+                # surfaces UART Bus above components that only mention it in
+                # their description. Stable sort keeps catalog order per rank.
+                results = sorted(results, key=partial(_query_rank, query_lower=query_lower))
 
         total_featured = len(featured_entries)
         total = total_featured + len(results)
@@ -666,6 +671,9 @@ class ComponentCatalog:
                 or query_lower in e.description.lower()
                 or query_lower in e.id.lower()
             ]
+            # Rank like the regular results so an exact hit leads the featured
+            # cards too, instead of staying in curated order.
+            entries = sorted(entries, key=partial(_query_rank, query_lower=query_lower))
         return entries
 
     def _resolve_platform(
@@ -702,3 +710,18 @@ class ComponentCatalog:
         if board is None or board.esphome.variant is None:
             return None
         return variant_to_key(board.esphome.variant.value)
+
+
+def _query_rank(entry: ComponentCatalogIndexEntry, query_lower: str) -> int:
+    """Search relevance rank for *entry* against *query_lower*; lower sorts first."""
+    name = entry.name.lower()
+    cid = entry.id.lower()
+    if query_lower in (cid, name):
+        return 0  # exact id / name
+    if cid.startswith(query_lower) or name.startswith(query_lower):
+        return 1
+    if query_lower in name:
+        return 2
+    if query_lower in cid:
+        return 3
+    return 4  # description-only match

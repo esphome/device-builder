@@ -293,6 +293,38 @@ async def test_get_components_provides_filters_featured_entries() -> None:
     assert {c.id for c in res.components} == {"featured.b.adc"}
 
 
+async def test_get_components_query_ranks_featured_entries() -> None:
+    """A query ranks featured cards by match strength, not just curated order."""
+    cat = ComponentCatalog()
+    cat._by_id = {
+        "sensor.hub": _make_entry(entry_id="sensor.hub", category=ComponentCategory.SENSOR),
+        "uart": _make_entry(entry_id="uart", name="UART Bus", category=ComponentCategory.SENSOR),
+    }
+    cat._featured_by_id = {
+        "featured.b.hub": _FeaturedRecord(
+            full_id="featured.b.hub",
+            board_id="b",
+            featured=FeaturedComponent(
+                id="hub", component_id="sensor.hub", name="Sensor Hub", description="talks UART"
+            ),
+            underlying_id="sensor.hub",
+        ),
+        "featured.b.uart": _FeaturedRecord(
+            full_id="featured.b.uart",
+            board_id="b",
+            featured=FeaturedComponent(id="uart", component_id="uart", name="UART"),
+            underlying_id="uart",
+        ),
+    }
+    # Curated order lists the description-only hub first; ranking floats the
+    # exact name match (uart) above it.
+    cat._featured_by_board = {"b": ["featured.b.hub", "featured.b.uart"]}
+    res = await cat.get_components(
+        category=ComponentCategory.FEATURED.value, board_id="b", query="uart"
+    )
+    assert [c.id for c in res.components] == ["featured.b.uart", "featured.b.hub"]
+
+
 async def test_get_components_query_matches_name_description_or_id() -> None:
     """``query`` is a substring match against name / description / id."""
     cat = ComponentCatalog()
@@ -309,6 +341,27 @@ async def test_get_components_query_matches_name_description_or_id() -> None:
     # Match by id stem too.
     res = await cat.get_components(query="dht")
     assert {c.id for c in res.components} == {"dht"}
+
+
+async def test_get_components_query_ranks_by_match_strength() -> None:
+    """Hits sort exact id/name, then prefix, name substring, id substring, description."""
+    cat = ComponentCatalog()
+    cat._components = [
+        _make_entry(entry_id="ble_nus", name="Nordic UART Service (NUS)"),  # name substring
+        _make_entry(entry_id="myuartx", name="Custom Board"),  # id substring only
+        _make_entry(entry_id="dlms_meter", name="DLMS Meter", description="Talks over UART"),
+        _make_entry(entry_id="uart_bridge", name="UART Bridge"),  # prefix
+        _make_entry(entry_id="uart", name="UART Bus"),  # exact id
+    ]
+    cat._by_id = {c.id: c for c in cat._components}
+    res = await cat.get_components(query="uart")
+    assert [c.id for c in res.components] == [
+        "uart",
+        "uart_bridge",
+        "ble_nus",
+        "myuartx",
+        "dlms_meter",
+    ]
 
 
 async def test_get_components_response_categories_track_query_filter() -> None:
