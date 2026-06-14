@@ -76,6 +76,41 @@ async def test_async_load_leaves_corrupt_sidecar_blob_in_place(tmp_path: Path) -
     assert shared["_preferences"] == [1, 2, 3]
 
 
+async def test_async_load_keeps_sidecar_when_migration_write_unconfirmed(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed dedicated-file write during migration leaves the sidecar key to retry."""
+    await asyncio.to_thread(_save_metadata, tmp_path, {"_preferences": _SAMPLE.to_dict()})
+
+    def _boom(*_a: object, **_k: object) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr("esphome_device_builder.helpers.storage.atomic_write", _boom)
+    store = _make_store(tmp_path)
+    with caplog.at_level("WARNING"):
+        await store.async_load()
+
+    assert not (tmp_path / _STORE_FILENAME).exists()
+    shared = await asyncio.to_thread(_load_metadata, tmp_path)
+    assert shared["_preferences"] == _SAMPLE.to_dict()
+    assert any("write unconfirmed" in r.message for r in caplog.records)
+
+
+async def test_async_load_corrupt_dedicated_file_recovers_from_sidecar(tmp_path: Path) -> None:
+    """A corrupt dedicated file is preserved aside, then prefs recover from the sidecar."""
+    (tmp_path / _STORE_FILENAME).write_bytes(b"{not valid json")
+    await asyncio.to_thread(_save_metadata, tmp_path, {"_preferences": _SAMPLE.to_dict()})
+
+    store = _make_store(tmp_path)
+    await store.async_load()
+
+    assert store.snapshot() == _SAMPLE
+    assert (tmp_path / (_STORE_FILENAME + ".corrupt")).read_bytes() == b"{not valid json"
+    assert (tmp_path / _STORE_FILENAME).exists()
+    shared = await asyncio.to_thread(_load_metadata, tmp_path)
+    assert "_preferences" not in shared
+
+
 async def test_async_load_skips_migration_when_dedicated_file_exists(tmp_path: Path) -> None:
     """An existing dedicated file wins; the sidecar ``_preferences`` is left alone."""
     new = UserPreferences(theme=Theme.LIGHT)

@@ -60,10 +60,9 @@ class PreferencesStore:
         """Seed RAM from disk; migrate the sidecar's ``_preferences`` on first run.
 
         Undecodable data is preserved, never destroyed: a corrupt dedicated file
-        is renamed aside, and an undecodable legacy sidecar blob is left in place
-        (not stripped). Both log and fall back to defaults. Migration flushes the
-        dedicated file before stripping the sidecar key so a crash between the
-        two preserves the migration.
+        is renamed aside (then the legacy sidecar is still tried, so a recoverable
+        blob isn't lost), and an undecodable legacy blob is left in place. Both
+        fall back to defaults.
         """
         loop = asyncio.get_running_loop()
         try:
@@ -74,16 +73,34 @@ class PreferencesStore:
                 _STORE_FILENAME,
             )
             await loop.run_in_executor(None, self._preserve_corrupt_file)
+            await self._migrate_from_sidecar(loop)
             return
         if loaded is not None:
             self._state = loaded
             return
+        await self._migrate_from_sidecar(loop)
+
+    async def _migrate_from_sidecar(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Adopt the legacy ``_preferences`` blob, persist it, then strip the key.
+
+        The strip is gated on a confirmed dedicated-file write: ``Store`` logs and
+        swallows write errors, so an unconfirmed flush leaves the sidecar key in
+        place for the next start to retry rather than losing prefs on restart.
+        """
         migrated = await loop.run_in_executor(None, self._migrate_read_shared_sync)
         if migrated is None:
             return
         self._state = migrated
         self._store.async_delay_save(self._snapshot, delay=0.0)
         await self._store.async_save_now()
+        if not self._store.path.exists():
+            _LOGGER.warning(
+                "preferences store: %s write unconfirmed; keeping %s in %s to retry",
+                _STORE_FILENAME,
+                _PREFS_KEY,
+                _SHARED_SIDECAR_FILENAME,
+            )
+            return
         await loop.run_in_executor(None, self._migrate_strip_shared_sync)
         _LOGGER.info(
             "Migrated preferences from %s to %s", _SHARED_SIDECAR_FILENAME, _STORE_FILENAME
