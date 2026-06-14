@@ -85,6 +85,18 @@ def test_non_bus_helper_is_ignored(tmp_path: Path) -> None:
     assert _bus_constraints_from_source(src) == {}
 
 
+def test_cv_all_wrapped_final_validate_is_unwrapped(tmp_path: Path) -> None:
+    """A ``cv.All(uart.final_validate_device_schema(...), ...)`` wrapper is still read (cn105)."""
+    src = _write(
+        tmp_path,
+        "FINAL_VALIDATE_SCHEMA = cv.All(\n"
+        '    uart.final_validate_device_schema("cn105", parity="EVEN", require_rx=True),\n'
+        "    _extra_validate,\n"
+        ")\n",
+    )
+    assert _bus_constraints_from_source(src) == {"uart": {"parity": "EVEN", "require_rx": True}}
+
+
 def test_curated_cn105_is_a_baud_choice_list() -> None:
     """CN105's rate is heat-pump-dependent, so it's curated as a 2400/9600 choice."""
     assert _CURATED_BUS_CONSTRAINTS["climate.mitsubishi_cn105"]["uart"]["baud_rate"] == [2400, 9600]
@@ -126,3 +138,12 @@ def test_shipped_catalog_carries_curated_baud() -> None:
     sim = orjson.loads((_OUTPUT_BODIES_DIR / "sim800l.json").read_bytes())
     assert sim["bus_constraints"]["uart"]["baud_rate"] == 9600
     assert sim["bus_constraints"]["uart"]["require_tx"] is True
+
+
+def test_shipped_catalog_captures_cn105_cv_all_constraints() -> None:
+    """CN105's cv.All-wrapped FINAL_VALIDATE constraints land beside the curated baud."""
+    cn105 = orjson.loads((_OUTPUT_BODIES_DIR / "climate.mitsubishi_cn105.json").read_bytes())
+    uart = cn105["bus_constraints"]["uart"]
+    assert uart["parity"] == "EVEN"
+    assert uart["require_rx"] is True
+    assert uart["require_tx"] is True

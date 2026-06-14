@@ -668,6 +668,9 @@ _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
 # catalog is re-synced. The CN105 choice row is permanent: a single fixed value
 # can't be validated upstream because the rate is heat-pump-model dependent.
 _CURATED_BUS_CONSTRAINTS: dict[str, dict[str, dict[str, Any]]] = {
+    # Variable rate — offer the valid choices (upstream can't validate one).
+    # The rest of CN105's uart constraints (8E1 + rx/tx) are captured from its
+    # ``FINAL_VALIDATE_SCHEMA``; only the model-dependent baud is curated.
     "climate.mitsubishi_cn105": {"uart": {"baud_rate": [2400, 9600]}},
     # https://github.com/esphome/esphome/issues/16929
     "sensor.bl0940": {"uart": {"baud_rate": 4800}},
@@ -5018,7 +5021,13 @@ def _collect_bus_constraints(
 
 @cache
 def _bus_constraints_from_source(src_file: str) -> dict[str, dict[str, Any]]:
-    """Parse ``FINAL_VALIDATE_SCHEMA = <bus>.final_validate_device_schema(...)``."""
+    """
+    Parse ``FINAL_VALIDATE_SCHEMA``'s ``<bus>.final_validate_device_schema(...)``.
+
+    The call may be the bare RHS or wrapped (``cv.All(<bus>.final_validate_...,
+    ...)``, as mitsubishi_cn105 does), so walk the assignment value for any
+    helper call rather than only matching the top node.
+    """
     try:
         tree = ast.parse(Path(src_file).read_text(encoding="utf-8"))
     except (OSError, SyntaxError):
@@ -5031,18 +5040,18 @@ def _bus_constraints_from_source(src_file: str) -> dict[str, dict[str, Any]]:
             isinstance(t, ast.Name) and t.id == "FINAL_VALIDATE_SCHEMA" for t in node.targets
         ):
             continue
-        call = node.value
-        if not (
-            isinstance(call, ast.Call)
-            and isinstance(call.func, ast.Attribute)
-            and call.func.attr == "final_validate_device_schema"
-            and isinstance(call.func.value, ast.Name)
-            and call.func.value.id in _BUS_FINAL_VALIDATE_HELPERS
-        ):
-            continue
-        constraints = _bus_constraint_kwargs(call)
-        if constraints:
-            out[call.func.value.id] = constraints
+        for call in ast.walk(node.value):
+            if not (
+                isinstance(call, ast.Call)
+                and isinstance(call.func, ast.Attribute)
+                and call.func.attr == "final_validate_device_schema"
+                and isinstance(call.func.value, ast.Name)
+                and call.func.value.id in _BUS_FINAL_VALIDATE_HELPERS
+            ):
+                continue
+            constraints = _bus_constraint_kwargs(call)
+            if constraints:
+                out[call.func.value.id] = constraints
     return out
 
 
