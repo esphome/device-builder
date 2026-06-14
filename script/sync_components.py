@@ -114,9 +114,7 @@ from _catalog_split import (  # noqa: E402
 from esphome_device_builder.controllers.components import (  # noqa: E402
     INTERNAL_COMPONENT_IDS as _INTERNAL_COMPONENT_IDS,
 )
-from esphome_device_builder.controllers.components.controller import (  # noqa: E402
-    _variant_to_key,
-)
+from esphome_device_builder.controllers.components import variant_to_key  # noqa: E402
 from esphome_device_builder.helpers.automation_keys import is_trigger_key  # noqa: E402
 from esphome_device_builder.models import (  # noqa: E402
     AutomationAction,
@@ -5164,7 +5162,7 @@ def _logger_uart_platform_options() -> dict[str, list[dict[str, str]]]:
 
     A custom ``uart_selection`` validator gates the set, so the schema bundle
     can't carry it; introspected from ``UART_SELECTION_*`` and keyed via the
-    shared ``_variant_to_key`` so lookups hit. Empty when esphome's logger
+    shared ``variant_to_key`` so lookups hit. Empty when esphome's logger
     isn't importable; other failures propagate to fail the build loudly.
     """
     try:
@@ -5175,7 +5173,7 @@ def _logger_uart_platform_options() -> dict[str, list[dict[str, str]]]:
     out: dict[str, list[dict[str, str]]] = {}
 
     def add(raw_key: str, values: list[str]) -> None:
-        out[_variant_to_key(raw_key)] = [{"label": v, "value": v} for v in values]
+        out[variant_to_key(raw_key)] = [{"label": v, "value": v} for v in values]
 
     for variant, values in _logger.UART_SELECTION_ESP32.items():
         add(variant, values)

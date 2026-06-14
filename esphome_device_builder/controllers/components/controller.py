@@ -39,11 +39,13 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-def _variant_to_key(variant: str) -> str:
+def variant_to_key(variant: str) -> str:
     """Normalise an ``Esp32Variant`` value (``esp32c3``) to a catalog key (``esp32_c3``).
 
     Matches the ``platform_defaults`` / ``platform_options`` key form; the
-    base ``esp32`` and non-ESP32 platforms pass through unchanged.
+    base ``esp32`` and non-ESP32 platforms pass through unchanged. Shared with
+    ``script/sync_components.py`` (re-exported via the package) so build-time
+    keys and runtime lookups can't diverge.
     """
     low = variant.lower()
     if low.startswith("esp32") and low != "esp32":
@@ -699,4 +701,4 @@ class ComponentCatalog:
         board = self._db.boards.get_by_id(board_id)
         if board is None or board.esphome.variant is None:
             return None
-        return _variant_to_key(board.esphome.variant.value)
+        return variant_to_key(board.esphome.variant.value)

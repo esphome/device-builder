@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import orjson
 
-from esphome_device_builder.controllers.components.controller import _variant_to_key
+from esphome_device_builder.controllers.components import variant_to_key
 from script.sync_components import (  # type: ignore[import-not-found]
     _LOGGER_UART_PLATFORM_OPTIONS,
     _OUTPUT_BODIES_DIR,
@@ -20,7 +20,7 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _logger_uart_platform_options,
 )
 from script.sync_components import (  # type: ignore[import-not-found]
-    _variant_to_key as _sync_variant_to_key,
+    variant_to_key as _sync_variant_to_key,
 )
 
 
@@ -33,14 +33,14 @@ def _hardware_uart_entry() -> dict | None:
 
 
 def test_uart_keys_use_shared_variant_normaliser() -> None:
-    """Sync keys come from the runtime ``_variant_to_key`` — one source, no divergence.
+    """Sync keys come from the runtime ``variant_to_key``; one source, no divergence.
 
     Build-time keys and the controller's lookup must agree or the lookup
     silently falls back to the base platform; sharing the function pins it.
     """
-    assert _sync_variant_to_key is _variant_to_key
-    assert _variant_to_key("ESP32C3") == "esp32_c3"
-    assert _variant_to_key("bk72xx") == "bk72xx"
+    assert _sync_variant_to_key is variant_to_key
+    assert variant_to_key("ESP32C3") == "esp32_c3"
+    assert variant_to_key("bk72xx") == "bk72xx"
 
 
 def test_uart_options_cover_every_platform() -> None:

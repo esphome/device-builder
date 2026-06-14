@@ -7,8 +7,8 @@ dropdown depends on this one surviving).
 
 from __future__ import annotations
 
+from esphome_device_builder.controllers.components import variant_to_key
 from esphome_device_builder.controllers.components._resolve import _materialise_entry
-from esphome_device_builder.controllers.components.controller import _variant_to_key
 from esphome_device_builder.models.common import (
     ConfigEntry,
     ConfigEntryType,
@@ -60,9 +60,9 @@ def test_materialise_entry_recurses_into_nested_children() -> None:
 
 
 def test_variant_to_key_normalises_esp32_variants() -> None:
-    assert _variant_to_key("esp32") == "esp32"
-    assert _variant_to_key("esp32c3") == "esp32_c3"
-    assert _variant_to_key("esp32s2") == "esp32_s2"
+    assert variant_to_key("esp32") == "esp32"
+    assert variant_to_key("esp32c3") == "esp32_c3"
+    assert variant_to_key("esp32s2") == "esp32_s2"
 
 
 def test_materialise_entry_resolves_platform_options_by_variant() -> None:
