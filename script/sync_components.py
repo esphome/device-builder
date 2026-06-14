@@ -656,6 +656,43 @@ _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
     },
 }
 
+# Curated UART ``bus_constraints`` the schema can't (or doesn't yet) express,
+# merged onto the auto-captured constraints in ``build_component``. Keyed by
+# catalog id (the entry that depends directly on ``uart``, so the "+ Add UART"
+# detour reads it). A scalar value prefills that fixed rate; a list narrows the
+# detour's baud combo box to those choices, defaulting to the first.
+#
+# The fixed-baud rows are a stopgap until each component validates its rate in
+# ESPHome's ``FINAL_VALIDATE_SCHEMA`` and we re-sync (the sync captures it
+# automatically then) — delete a row once its linked issue is resolved and the
+# catalog is re-synced. The CN105 choice row is permanent: a single fixed value
+# can't be validated upstream because the rate is heat-pump-model dependent.
+_CURATED_BUS_CONSTRAINTS: dict[str, dict[str, dict[str, Any]]] = {
+    "climate.mitsubishi_cn105": {"uart": {"baud_rate": [2400, 9600]}},
+    # https://github.com/esphome/esphome/issues/16929
+    "sensor.bl0940": {"uart": {"baud_rate": 4800}},
+    # https://github.com/esphome/esphome/issues/16930
+    "sensor.pzem004t": {"uart": {"baud_rate": 9600}},
+    # https://github.com/esphome/esphome/issues/16931
+    "sensor.senseair": {"uart": {"baud_rate": 9600}},
+    # https://github.com/esphome/esphome/issues/16932
+    "sensor.sds011": {"uart": {"baud_rate": 9600}},
+    # https://github.com/esphome/esphome/issues/16933
+    "sensor.sm300d2": {"uart": {"baud_rate": 9600}},
+    # https://github.com/esphome/esphome/issues/16934
+    "rdm6300": {"uart": {"baud_rate": 9600}},
+    # https://github.com/esphome/esphome/issues/16935
+    "fingerprint_grow": {"uart": {"baud_rate": 57600}},
+    # https://github.com/esphome/esphome/issues/16936
+    "climate.midea": {"uart": {"baud_rate": 9600}},
+    # https://github.com/esphome/esphome/issues/16937
+    "rf_bridge": {"uart": {"baud_rate": 19200}},
+    # https://github.com/esphome/esphome/issues/16938
+    "light.shelly_dimmer": {"uart": {"baud_rate": 115200}},
+    # https://github.com/esphome/esphome/issues/16939
+    "sim800l": {"uart": {"baud_rate": 9600}},
+}
+
 # Base-schema references that mark a field as a *sub-reading* of a
 # multi-sensor platform (DHT exposes ``temperature:`` / ``humidity:``;
 # debug exposes ``free:`` / ``block:`` / etc). Sub-readings are
@@ -1995,6 +2032,7 @@ def build_component_entry(
         _collect_pin_constraints(_get_esphome_loader(), domain, stem, top_key),
     )
     bus_constraints = _collect_bus_constraints(_get_esphome_loader(), domain, stem, top_key)
+    _apply_curated_bus_constraints(component_id, bus_constraints)
     _apply_unit_of_measurement_options(config_entries)
     _apply_board_options(component_id, config_entries)
     _apply_logger_uart_options(component_id, config_entries)
@@ -4932,6 +4970,17 @@ def _apply_pin_constraints(
 # Bus helpers whose ``final_validate_device_schema`` carries literal,
 # machine-readable constraints (frequency / baud rate / required pins).
 _BUS_FINAL_VALIDATE_HELPERS = frozenset({"i2c", "spi", "uart"})
+
+
+def _apply_curated_bus_constraints(
+    component_id: str, bus_constraints: dict[str, dict[str, Any]]
+) -> None:
+    """Merge ``_CURATED_BUS_CONSTRAINTS`` for *component_id* onto *bus_constraints* in place."""
+    curated = _CURATED_BUS_CONSTRAINTS.get(component_id)
+    if not curated:
+        return
+    for bus, kv in curated.items():
+        bus_constraints.setdefault(bus, {}).update(kv)
 
 
 def _collect_bus_constraints(
