@@ -656,43 +656,24 @@ _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
     },
 }
 
-# Curated UART ``bus_constraints`` the schema can't (or doesn't yet) express,
-# merged onto the auto-captured constraints in ``build_component``. Keyed by
-# catalog id (the entry that depends directly on ``uart``, so the "+ Add UART"
-# detour reads it). A scalar value prefills that fixed rate; a list narrows the
-# detour's baud combo box to those choices, defaulting to the first.
-#
-# The fixed-baud rows are a stopgap until each component validates its rate in
-# ESPHome's ``FINAL_VALIDATE_SCHEMA`` and we re-sync (the sync captures it
-# automatically then) — delete a row once its linked issue is resolved and the
-# catalog is re-synced. The CN105 choice row is permanent: a single fixed value
-# can't be validated upstream because the rate is heat-pump-model dependent.
+# UART ``bus_constraints`` the schema can't express, filled into the captured
+# constraints (captured wins). Keyed by the catalog id whose "+ Add UART" detour
+# reads it. A scalar is a fixed rate; a list narrows the detour's baud combo box
+# to those choices, default-first. The fixed-baud rows are a stopgap until
+# upstream validates each rate and a re-sync captures it; CN105's choice is
+# permanent (variable by heat-pump model).
 _CURATED_BUS_CONSTRAINTS: dict[str, dict[str, dict[str, Any]]] = {
-    # Variable rate — offer the valid choices (upstream can't validate one).
-    # The rest of CN105's uart constraints (8E1 + rx/tx) are captured from its
-    # ``FINAL_VALIDATE_SCHEMA``; only the model-dependent baud is curated.
     "climate.mitsubishi_cn105": {"uart": {"baud_rate": [2400, 9600]}},
-    # https://github.com/esphome/esphome/issues/16929
     "sensor.bl0940": {"uart": {"baud_rate": 4800}},
-    # https://github.com/esphome/esphome/issues/16930
     "sensor.pzem004t": {"uart": {"baud_rate": 9600}},
-    # https://github.com/esphome/esphome/issues/16931
     "sensor.senseair": {"uart": {"baud_rate": 9600}},
-    # https://github.com/esphome/esphome/issues/16932
     "sensor.sds011": {"uart": {"baud_rate": 9600}},
-    # https://github.com/esphome/esphome/issues/16933
     "sensor.sm300d2": {"uart": {"baud_rate": 9600}},
-    # https://github.com/esphome/esphome/issues/16934
     "rdm6300": {"uart": {"baud_rate": 9600}},
-    # https://github.com/esphome/esphome/issues/16935
     "fingerprint_grow": {"uart": {"baud_rate": 57600}},
-    # https://github.com/esphome/esphome/issues/16936
     "climate.midea": {"uart": {"baud_rate": 9600}},
-    # https://github.com/esphome/esphome/issues/16937
     "rf_bridge": {"uart": {"baud_rate": 19200}},
-    # https://github.com/esphome/esphome/issues/16938
     "light.shelly_dimmer": {"uart": {"baud_rate": 115200}},
-    # https://github.com/esphome/esphome/issues/16939
     "sim800l": {"uart": {"baud_rate": 9600}},
 }
 
@@ -4978,12 +4959,14 @@ _BUS_FINAL_VALIDATE_HELPERS = frozenset({"i2c", "spi", "uart"})
 def _apply_curated_bus_constraints(
     component_id: str, bus_constraints: dict[str, dict[str, Any]]
 ) -> None:
-    """Merge ``_CURATED_BUS_CONSTRAINTS`` for *component_id* onto *bus_constraints* in place."""
+    """Fill curated constraints for *component_id*; a captured key of the same name wins."""
     curated = _CURATED_BUS_CONSTRAINTS.get(component_id)
     if not curated:
         return
     for bus, kv in curated.items():
-        bus_constraints.setdefault(bus, {}).update(kv)
+        target = bus_constraints.setdefault(bus, {})
+        for key, value in kv.items():
+            target.setdefault(key, value)
 
 
 def _collect_bus_constraints(
@@ -5022,11 +5005,10 @@ def _collect_bus_constraints(
 @cache
 def _bus_constraints_from_source(src_file: str) -> dict[str, dict[str, Any]]:
     """
-    Parse ``FINAL_VALIDATE_SCHEMA``'s ``<bus>.final_validate_device_schema(...)``.
+    Bus constraints from ``FINAL_VALIDATE_SCHEMA``'s ``final_validate_device_schema``.
 
-    The call may be the bare RHS or wrapped (``cv.All(<bus>.final_validate_...,
-    ...)``, as mitsubishi_cn105 does), so walk the assignment value for any
-    helper call rather than only matching the top node.
+    Walks the assignment value so a ``cv.All(...)``-wrapped call (mitsubishi_cn105)
+    is found, not just a bare right-hand side.
     """
     try:
         tree = ast.parse(Path(src_file).read_text(encoding="utf-8"))

@@ -143,14 +143,12 @@ class ComponentCatalogEntry(DataClassORJSONMixin):
     # is a singleton (e.g. `wifi:`, `api:`).
     multi_conf: bool = False
 
-    # Requirements this component imposes on the bus it attaches to,
-    # keyed by bus id ("i2c" / "spi" / "uart"). A value is one of three
-    # shapes: an exact-match scalar (``parity``, a fixed ``baud_rate``);
-    # a list of acceptable choices, first = default (a variable
-    # ``baud_rate`` like CN105's ``[2400, 9600]`` — the frontend narrows
-    # the field's dropdown to these); or a range bound (``min_frequency``
-    # / ``max_frequency``, in Hz). ``require_tx`` / ``require_mosi`` / ...
-    # mark required pins. Frontend pre-fills dep-added buses.
+    # Requirements this component imposes on the bus it attaches to, keyed by
+    # bus id ("i2c" / "spi" / "uart"). A value is an exact-match scalar
+    # (``parity``), a list of choices (first = default; narrows the field's
+    # dropdown, e.g. baud ``[2400, 9600]``), or a range bound (``min_frequency``
+    # / ``max_frequency``, Hz). ``require_tx`` / ... mark required pins.
+    # Frontend pre-fills dep-added buses.
     bus_constraints: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     # Empty list = component works on every target platform. Non-empty

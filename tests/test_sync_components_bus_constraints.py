@@ -124,6 +124,14 @@ def test_apply_curated_merges_onto_captured_constraints() -> None:
     assert captured == {"uart": {"require_tx": True, "require_rx": True, "baud_rate": 9600}}
 
 
+def test_apply_curated_does_not_overwrite_a_captured_key() -> None:
+    """Once upstream validates the rate, the captured value wins over the curated stopgap."""
+    # bl0940's curated stopgap is 4800; a captured (upstream) value must survive.
+    captured: dict[str, dict[str, Any]] = {"uart": {"baud_rate": 19200}}
+    _apply_curated_bus_constraints("sensor.bl0940", captured)
+    assert captured["uart"]["baud_rate"] == 19200
+
+
 def test_apply_curated_is_noop_for_unlisted_component() -> None:
     """A component with no curated entry is left untouched."""
     constraints: dict[str, dict[str, Any]] = {}
