@@ -39,6 +39,18 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
+def _variant_to_key(variant: str) -> str:
+    """Normalise an ``Esp32Variant`` value (``esp32c3``) to a catalog key (``esp32_c3``).
+
+    Matches the ``platform_defaults`` / ``platform_options`` key form; the
+    base ``esp32`` and non-ESP32 platforms pass through unchanged.
+    """
+    low = variant.lower()
+    if low.startswith("esp32") and low != "esp32":
+        return "esp32_" + low[len("esp32") :]
+    return low
+
+
 class ComponentCatalog:
     """In-memory component catalog with search and pagination."""
 
@@ -478,12 +490,14 @@ class ComponentCatalog:
             if body is None:
                 return None
             target_platform = self._resolve_platform(platform, record.board_id)
-            return _materialise_featured(record, body, target_platform)
+            target_variant = self._resolve_variant(record.board_id)
+            return _materialise_featured(record, body, target_platform, target_variant)
         body = bodies.get(component_id)
         if body is None:
             return None
         target_platform = self._resolve_platform(platform, board_id)
-        return _materialise(body, target_platform)
+        target_variant = self._resolve_variant(board_id)
+        return _materialise(body, target_platform, target_variant)
 
     async def resolve_default_components(
         self,
@@ -672,3 +686,17 @@ class ComponentCatalog:
         if board is None or board.esphome.platform is None:
             return None
         return board.esphome.platform.value.lower()
+
+    def _resolve_variant(self, board_id: str | None) -> str | None:
+        """Chip-variant key (``esp32_c3``) for *board_id*, else None.
+
+        Resolves variant-specific ``platform_options`` / ``platform_defaults``;
+        only ESP32 boards carry a variant, and the lookup falls back to the
+        base platform when this is None.
+        """
+        if board_id is None or self._db is None or self._db.boards is None:
+            return None
+        board = self._db.boards.get_by_id(board_id)
+        if board is None or board.esphome.variant is None:
+            return None
+        return _variant_to_key(board.esphome.variant.value)
