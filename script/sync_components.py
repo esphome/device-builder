@@ -50,7 +50,7 @@ import zipfile
 from collections.abc import Callable, Collection, Iterable, Iterator
 from dataclasses import dataclass, field
 from enum import StrEnum
-from functools import cache
+from functools import cache, partial
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Literal, NamedTuple
@@ -2025,6 +2025,7 @@ def build_component_entry(
     _apply_unit_of_measurement_options(config_entries)
     _apply_board_options(component_id, config_entries)
     _apply_logger_uart_options(component_id, config_entries)
+    _apply_psram_options(component_id, config_entries)
     _promote_multi_value_keys(config_entries)
     _promote_template_controls(component_id, config_entries)
 
@@ -3336,6 +3337,7 @@ _LABEL_ACRONYMS = frozenset(
         # Identifier / common
         "CRC",
         "CPU",
+        "ECC",
         "ID",
         "PID",
         "PSRAM",
@@ -5304,6 +5306,151 @@ def _apply_logger_uart_options(component_id: str, entries: list[dict]) -> None:
             entry["platform_options"] = _LOGGER_UART_PLATFORM_OPTIONS
             entry["allow_custom_value"] = True
             break
+
+
+@contextlib.contextmanager
+def _esp32_variant_context(variant: str) -> Iterator[None]:
+    """Set ``CORE.data`` so esphome resolves as if compiling for *variant*.
+
+    Lets a variant-gated callable (psram's ``get_config_schema``) run; the
+    prior ``CORE.data`` state is restored on exit so the build can't leak
+    between variants.
+    """
+    from esphome.components.esp32 import KEY_ESP32, KEY_VARIANT
+    from esphome.const import KEY_CORE, KEY_TARGET_PLATFORM, PLATFORM_ESP32
+    from esphome.core import CORE
+
+    saved = {k: CORE.data.get(k) for k in (KEY_CORE, KEY_ESP32)}
+    CORE.data[KEY_CORE] = {KEY_TARGET_PLATFORM: PLATFORM_ESP32}
+    CORE.data[KEY_ESP32] = {KEY_VARIANT: variant}
+    try:
+        yield
+    finally:
+        for key, prev in saved.items():
+            if prev is None:
+                CORE.data.pop(key, None)
+            else:
+                CORE.data[key] = prev
+
+
+def _psram_config_entries() -> list[dict]:
+    """Synthesize psram's config entries from its per-variant callable schema.
+
+    psram's ``CONFIG_SCHEMA`` is ``get_config_schema`` — a callable that builds
+    a different schema per ESP32 variant — so the schema bundle dumps it empty.
+    Feed each variant in, capture the built ``vol.Schema`` (a one-shot subclass
+    whose ``__call__`` returns itself, since the real one validates and returns
+    a dict), and union the keys / ``cv.one_of`` options / defaults across
+    variants. Empty when esphome isn't importable.
+    """
+    try:
+        from esphome.components import psram as _psram
+    except ImportError:
+        _LOGGER.warning("esphome psram not importable — structured editor skipped")
+        return []
+
+    class _Capture(vol.Schema):
+        def __call__(self, data: Any) -> Any:
+            return self
+
+    # Per key: default, is-bool, accumulated options. Variant order doesn't
+    # matter: the selects ship no default, and the boolean defaults are the
+    # same on every chip.
+    fields: dict[str, dict[str, Any]] = {}
+    record = partial(_record_psram_field, fields)
+    original_schema = _psram.cv.Schema
+    _psram.cv.Schema = _Capture
+    try:
+        for variant, modes in _psram.SPIRAM_MODES.items():
+            with _esp32_variant_context(variant):
+                _walk_schema_keys(_psram.get_config_schema({"mode": modes[0]}), record)
+    finally:
+        _psram.cv.Schema = original_schema
+
+    return _sort_entries([_psram_entry(name, field) for name, field in fields.items()])
+
+
+def _record_psram_field(
+    fields: dict[str, dict[str, Any]], key: Any, name: str, validator: Any, path: tuple[str, ...]
+) -> None:
+    """Fold one captured schema key into *fields* (top-level only, auto id aside)."""
+    if len(path) != 1 or name == "id":
+        return
+    field = fields.setdefault(name, {"default": _psram_default(key), "bool": False, "options": []})
+    if getattr(validator, "__name__", "") == "boolean":
+        field["bool"] = True
+    for option in _psram_one_of_options(validator):
+        if option not in field["options"]:
+            field["options"].append(option)
+
+
+def _psram_default(key: Any) -> Any:
+    """Resolve a voluptuous ``cv.Optional`` key's default value, or None."""
+    default = getattr(key, "default", None)
+    if default is None or default is vol.UNDEFINED:
+        return None
+    value = default() if callable(default) else default
+    return None if value is vol.UNDEFINED else value
+
+
+def _psram_one_of_options(validator: Any) -> list[str | int]:
+    """
+    Read a ``cv.one_of`` validator's accepted values out of its closure.
+
+    Depends on ``cv.one_of``'s closure layout; the unioned-options tests pin
+    it, so an upstream refactor breaks CI rather than silently dropping the
+    options (the select would degrade to a free-text field).
+    """
+    for cell in getattr(validator, "__closure__", None) or ():
+        value = cell.cell_contents
+        if (
+            isinstance(value, (tuple, list))
+            and value
+            and all(isinstance(item, (str, int)) for item in value)
+        ):
+            return list(value)
+    return []
+
+
+def _psram_entry(name: str, field: dict[str, Any]) -> dict:
+    is_bool = field["bool"]
+    entry: dict[str, Any] = {
+        "key": name,
+        "type": "boolean" if is_bool else "string",
+        "label": _key_to_label(name),
+        # The boolean flags (enable_ecc, disabled, ignore_not_found) are niche;
+        # the mode / speed selects are the primary config.
+        "advanced": is_bool,
+    }
+    if is_bool:
+        # Boolean defaults are the same on every chip, so they're safe to ship.
+        entry["default_value"] = field["default"]
+    options = field["options"]
+    if options:
+        # A select's options union every ESP32 variant, so no single
+        # default_value is valid on all chips (ESP32-P4 wants hex / 20MHZ, not
+        # quad / 40MHZ); ship none and let ESPHome apply the per-chip default
+        # when mode / speed are left unset. label == value is the enum norm;
+        # values like "40MHZ" carry a leading number, so order ascending.
+        entry["options"] = [{"label": str(v), "value": str(v)} for v in _ordered_options(options)]
+    return entry
+
+
+def _ordered_options(options: list[str | int]) -> list[str | int]:
+    """Sort by leading integer when every value has one, else keep first-seen order."""
+    keys = [re.match(r"\d+", str(v)) for v in options]
+    if all(keys):
+        return [
+            v for _, v in sorted(zip(keys, options, strict=True), key=lambda kv: int(kv[0].group()))
+        ]
+    return options
+
+
+def _apply_psram_options(component_id: str, entries: list[dict]) -> None:
+    """Give psram a structured editor from its callable per-variant schema."""
+    if component_id != "psram" or entries:
+        return
+    entries.extend(_psram_config_entries())
 
 
 def _promote_multi_value_keys(entries: list[dict]) -> None:
