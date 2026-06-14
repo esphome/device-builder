@@ -102,6 +102,14 @@ class ComponentCatalogIndexEntry(DataClassORJSONMixin):
     # fields whose providers don't live under a matching top-level key.
     provides: list[str] = field(default_factory=list)
 
+    # For a provided interface whose id lives at *nested* paths rather than
+    # the component's own top-level ``id`` (``usb_uart`` exposes a ``uart``
+    # via ``channels[].id``), the YAML key-paths the frontend descends to
+    # collect candidate ids. Keyed by interface namespace, one entry per
+    # nested location (``sprinkler`` exposes ``switch`` at several); absent
+    # for the common own-id case (resolved via the section id).
+    provides_id_paths: dict[str, list[list[str]]] = field(default_factory=dict)
+
 
 @dataclass
 class ComponentCatalogEntry(DataClassORJSONMixin):
@@ -163,6 +171,12 @@ class ComponentCatalogEntry(DataClassORJSONMixin):
     # joins this against a field's ``references_component`` to find
     # valid targets that live under a different domain.
     provides: list[str] = field(default_factory=list)
+
+    # Nested id-path locators for entries in ``provides`` whose id isn't
+    # the component's own top-level ``id`` (``usb_uart`` → ``{"uart":
+    # [["channels", "id"]]}``). Keyed by interface namespace, one path per
+    # nested location; absent for own-id providers.
+    provides_id_paths: dict[str, list[list[str]]] = field(default_factory=dict)
 
     # The component's own configuration fields. Nested config blocks
     # (e.g. ``esp32_ble_tracker.scan_parameters``) and entity
