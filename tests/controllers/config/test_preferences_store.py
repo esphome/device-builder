@@ -202,6 +202,23 @@ async def test_async_load_preserves_invalid_shape_dedicated_file(tmp_path: Path)
     assert (tmp_path / (_STORE_FILENAME + ".corrupt")).read_bytes() == raw
 
 
+async def test_mutators_return_independent_copies(tmp_path: Path) -> None:
+    """update()/mutate() return copies; mutating them can't corrupt canonical RAM."""
+    store = _make_store(tmp_path)
+    await store.async_load()
+
+    returned = store.update({"theme": Theme.DARK})
+    returned.theme = Theme.LIGHT
+    assert store.snapshot().theme == Theme.DARK
+
+    def _to_yaml(p: UserPreferences) -> None:
+        p.experience_level = ExperienceLevel.YAML
+
+    mutated = store.mutate(_to_yaml)
+    mutated.experience_level = ExperienceLevel.BEGINNER
+    assert store.snapshot().experience_level == ExperienceLevel.YAML
+
+
 async def test_round_trip_after_migration(tmp_path: Path) -> None:
     """Migrate, mutate, flush, reload: the latest state survives on disk."""
     await asyncio.to_thread(_save_metadata, tmp_path, {"_preferences": _SAMPLE.to_dict()})

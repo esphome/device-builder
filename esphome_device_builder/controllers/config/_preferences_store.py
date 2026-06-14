@@ -117,10 +117,9 @@ class PreferencesStore:
         self, fields: dict[str, Any], *, delay: float = _DEFAULT_SAVE_DELAY
     ) -> UserPreferences:
         """Merge a validated partial dict and schedule a debounced save."""
-        new = UserPreferences.from_dict({**self._state.to_dict(), **fields})
-        self._state = new
+        self._state = UserPreferences.from_dict({**self._state.to_dict(), **fields})
         self._store.async_delay_save(self._snapshot, delay=delay)
-        return new
+        return self._copy()
 
     def mutate(
         self,
@@ -140,7 +139,7 @@ class PreferencesStore:
             result = working
         self._state = result
         self._store.async_delay_save(self._snapshot, delay=delay)
-        return result
+        return self._copy()
 
     def _copy(self) -> UserPreferences:
         """Return a fresh, independent copy of the canonical RAM state."""
