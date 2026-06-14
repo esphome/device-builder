@@ -541,9 +541,10 @@ def test_resolve_variant_maps_board_to_chip_key() -> None:
 async def test_logger_hardware_uart_resolves_per_variant() -> None:
     """Logger ``hardware_uart`` becomes a per-variant combobox; ESP32-C3 differs from base ESP32."""
     boards_cat = BoardCatalog()
-    boards_cat.load()
     cat = ComponentCatalog(_Container(boards=boards_cat))
-    cat.load()
+    # ``load()`` does blocking disk I/O; keep it off the event loop.
+    await asyncio.to_thread(boards_cat.load)
+    await asyncio.to_thread(cat.load)
 
     async def uart_entry(board_id: str) -> ConfigEntry:
         bodies = await cat.get_component_bodies(component_ids=["logger"], board_id=board_id)
