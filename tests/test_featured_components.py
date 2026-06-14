@@ -136,6 +136,10 @@ def test_resolve_featured_image(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
         definitions._resolve_featured_image("images/mod.jpg", board_dir)
         == "/boards/images/my-board/images/mod.jpg"
     )
+    # An absolute path or a parent-dir escape is rejected before any disk touch,
+    # so _local_to_url can't raise and no traversal URL is emitted.
+    assert definitions._resolve_featured_image("/etc/passwd", board_dir) == ""
+    assert definitions._resolve_featured_image("../other-board/x.jpg", board_dir) == ""
 
 
 # ---------------------------------------------------------------------------

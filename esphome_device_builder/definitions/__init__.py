@@ -191,18 +191,27 @@ def _resolve_featured_image(raw: object, board_dir: Path) -> str:
     """
     Resolve a featured entry's ``image_url`` the same way board images resolve.
 
-    An ``http(s)://`` value passes through untouched; a relative path is
-    converted to its ``/boards/images/...`` URL when the file exists, else
-    dropped (logged) so a typo'd path degrades to the component's generic image.
+    An ``http(s)://`` value passes through untouched; a relative path inside the
+    board dir becomes its ``/boards/images/...`` URL when the file exists. An
+    absolute path, a parent-dir escape, or a missing file is dropped (logged) so
+    bad manifest data degrades to the component's generic image rather than
+    raising in ``_local_to_url`` or emitting a traversal URL.
     """
     if not isinstance(raw, str) or not raw:
         return ""
     if raw.startswith(("http://", "https://")):
         return raw
+    if Path(raw).is_absolute() or ".." in Path(raw).parts:
+        _LOGGER.warning(
+            "Board %s: featured image %r must be a path inside the board dir; skipping",
+            board_dir.name,
+            raw,
+        )
+        return ""
     local = board_dir / raw
     if local.is_file():
         return _local_to_url(local)
-    _LOGGER.warning("Board %s: featured image %r not found — skipping", board_dir.name, raw)
+    _LOGGER.warning("Board %s: featured image %r not found; skipping", board_dir.name, raw)
     return ""
 
 
