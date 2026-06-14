@@ -36,12 +36,13 @@ _UNRESOLVED_SUBSTITUTION_RE = re.compile(r"\$\{|\$[a-zA-Z_]")
 _SUBSTITUTION_MAX_PASSES = 16
 
 # ESPHome's ``esphome.name`` accepts lowercase ASCII letters, digits,
-# and hyphens — the same character class an mDNS hostname / API
-# endpoint can carry. A parsed value with anything else (dots, spaces,
-# uppercase, ...) means we picked up the wrong field (a package id, a
-# friendly_name leaked through, etc.) and should be rejected so it
-# doesn't end up as the catalog key.
-_VALID_ESPHOME_NAME_RE = re.compile(r"\A[a-z0-9-]+\Z")
+# hyphens, and underscores (``esphome.const.ALLOWED_NAME_CHARS``); the
+# underscore broadcasts verbatim over mDNS, so we must accept it or an
+# underscore-named device never matches its announcement (#1453). A
+# parsed value with anything else (dots, spaces, uppercase, ...) means
+# we picked up the wrong field (a package id, a friendly_name leaked
+# through, etc.) and should be rejected so it doesn't end up as the key.
+_VALID_ESPHOME_NAME_RE = re.compile(r"\A[a-z0-9_-]+\Z")
 
 
 def _is_valid_esphome_name(value: str) -> bool:

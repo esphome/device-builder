@@ -32,6 +32,7 @@ from esphome_device_builder.helpers.device_yaml import (
     parse_esphome_meta,
     parse_platform_from_yaml,
 )
+from esphome_device_builder.helpers.device_yaml._parsing import _is_valid_esphome_name
 from esphome_device_builder.models import (
     BoardCatalogEntry,
     BoardEsphomeConfig,
@@ -833,6 +834,35 @@ def test_load_device_from_storage_resolves_config_once_for_packages(tmp_path: Pa
         device = load_device_from_storage(yaml_file)
     assert device.target_platform == "esp32"
     assert spy.call_count == 1
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("hf-display", True),
+        ("hf_display", True),  # ESPHome allows underscores (#1453)
+        ("node1", True),
+        ("ratgdo.esphome", False),  # dotted package id, not a name
+        ("Hf Display", False),  # friendly_name (space + uppercase)
+        ("my device", False),
+    ],
+)
+def test_is_valid_esphome_name(value: str, expected: bool) -> None:
+    """``esphome.name`` accepts ``[a-z0-9_-]`` (incl. underscore), rejects other fields."""
+    assert _is_valid_esphome_name(value) is expected
+
+
+def test_load_device_from_storage_keeps_underscore_name(tmp_path: Path) -> None:
+    """An underscore ``esphome.name`` keys the device, not the filename stem (#1453)."""
+    # Filename differs from the name, so the stem fallback would shadow a
+    # wrongly-rejected name; the underscore name must still win.
+    yaml_file = tmp_path / "hf-display-renamed.yaml"
+    yaml_file.write_text(
+        "esphome:\n  name: hf_display\nesp32:\n  board: esp32dev\n",
+        encoding="utf-8",
+    )
+    device = load_device_from_storage(yaml_file)
+    assert device.name == "hf_display"
 
 
 # ----------------------------------------------------------------------

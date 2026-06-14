@@ -152,7 +152,7 @@ def load_device_from_storage(
     fallback_name = configuration_stem(filename)
     storage_name = storage.name if storage else None
     # Pick the first valid ESPHome slug from (yaml_name, storage_name).
-    # Real ESPHome ``esphome.name`` values are ``[a-z0-9-]+`` — a parsed
+    # Real ESPHome ``esphome.name`` values are ``[a-z0-9_-]+`` — a parsed
     # value with dots / spaces / uppercase is something else (a package
     # id like ``ratgdo.esphome``, a friendly_name leaked through, etc.).
     # ``device.name`` is the key the state monitor uses to match mDNS
