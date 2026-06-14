@@ -603,8 +603,8 @@ class DeviceBuilder:
             # Gate first-paint UI, so ship them here instead of a separate
             # get_preferences round-trip. Sync RAM read off the store; the
             # config controller is always up by the time subscribe is served.
-            assert self.config is not None
-            initial["preferences"] = self.config.prefs.snapshot().to_dict()
+            if self.config is not None:
+                initial["preferences"] = self.config.prefs.snapshot().to_dict()
             if self.devices:
                 initial["devices"] = [d.to_dict() for d in self.devices.get_devices()]
                 initial["importable"] = [d.to_dict() for d in self.devices.get_importable_devices()]
