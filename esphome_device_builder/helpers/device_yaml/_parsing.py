@@ -413,15 +413,20 @@ def _match_top_level_key(line: str) -> str | None:
     return stripped.split(":", 1)[0].strip()
 
 
+_INLINE_COMMENT_RE = re.compile(r"(?:^|\s)#.*$")
+
+
 def _parse_inline_value(raw: str) -> str:
     """
     Clean a raw YAML scalar value.
 
-    Strips an inline ``# comment`` and matching surrounding quotes.
+    Strips an inline ``# comment`` and matching surrounding quotes. A
+    ``#`` only opens a comment when whitespace-preceded (or at the
+    scalar start); ``Room#2`` is a literal, not ``Room``.
     """
     value = raw.strip()
-    if "#" in value and not value.startswith(('"', "'")):
-        value = value.split("#", 1)[0].rstrip()
+    if not value.startswith(('"', "'")):
+        value = _INLINE_COMMENT_RE.sub("", value).strip()
     if (value.startswith('"') and value.endswith('"')) or (
         value.startswith("'") and value.endswith("'")
     ):

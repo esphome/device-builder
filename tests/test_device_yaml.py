@@ -509,6 +509,19 @@ esphome:
     assert comment == "Hand-built controller"
 
 
+def test_parse_meta_keeps_hash_inside_unquoted_value() -> None:
+    """An unquoted ``#`` inside a meta value is a literal, not a comment trailer."""
+    yaml_content = """
+esphome:
+  name: my-device
+  friendly_name: Room#2
+  comment: Cost50#tag
+"""
+    _, friendly_name, comment, _ = parse_esphome_meta(yaml_content)
+    assert friendly_name == "Room#2"
+    assert comment == "Cost50#tag"
+
+
 def test_parse_meta_skips_blank_and_comment_lines_inside_block() -> None:
     """Comment lines and blank lines inside the ``esphome:`` block are skipped.
 
@@ -839,15 +852,16 @@ def test_extract_directly_referenced_integrations_skips_non_string_keys() -> Non
 
 
 def test_parse_inline_value_strips_trailing_comment() -> None:
-    """Bare values drop ``# ...`` trailers; quoted values keep them.
-
-    The ``# in value and not value.startswith('"' / "'")`` guard
-    is the key branch — a quoted value containing a literal ``#``
-    must survive intact.
-    """
+    """A whitespace-preceded ``#`` is a comment; a mid-scalar ``#`` is a literal."""
     assert _parse_inline_value("my-device  # the device") == "my-device"
     # Quoted values keep an embedded ``#`` literal.
     assert _parse_inline_value('"with #hash"') == "with #hash"
+    # An unquoted ``#`` with no leading whitespace is part of the scalar
+    # (YAML rule), so it must not truncate the value.
+    assert _parse_inline_value("Room#2") == "Room#2"
+    assert _parse_inline_value("Living#Room") == "Living#Room"
+    # A leading ``#`` is a comment-only value → empty.
+    assert _parse_inline_value("# just a comment") == ""
 
 
 def test_parse_inline_value_strips_matched_quotes() -> None:
