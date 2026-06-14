@@ -144,10 +144,13 @@ class ComponentCatalogEntry(DataClassORJSONMixin):
     multi_conf: bool = False
 
     # Requirements this component imposes on the bus it attaches to,
-    # keyed by bus id ("i2c" / "spi" / "uart"): exact-match values
-    # (``baud_rate``, ``parity``, ...), range bounds (``min_frequency``
-    # / ``max_frequency``, in Hz) and required pins (``require_tx`` /
-    # ``require_mosi`` / ...). Frontend pre-fills dep-added buses.
+    # keyed by bus id ("i2c" / "spi" / "uart"). A value is one of three
+    # shapes: an exact-match scalar (``parity``, a fixed ``baud_rate``);
+    # a list of acceptable choices, first = default (a variable
+    # ``baud_rate`` like CN105's ``[2400, 9600]`` — the frontend narrows
+    # the field's dropdown to these); or a range bound (``min_frequency``
+    # / ``max_frequency``, in Hz). ``require_tx`` / ``require_mosi`` / ...
+    # mark required pins. Frontend pre-fills dep-added buses.
     bus_constraints: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     # Empty list = component works on every target platform. Non-empty
