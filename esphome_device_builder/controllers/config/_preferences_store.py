@@ -84,7 +84,7 @@ class PreferencesStore:
         A copy so a caller mutating it can't corrupt the canonical RAM state
         (which would skip the debounced write and be lost on restart).
         """
-        return UserPreferences.from_dict(self._state.to_dict())
+        return self._copy()
 
     def update(
         self, fields: dict[str, Any], *, delay: float = _DEFAULT_SAVE_DELAY
@@ -107,13 +107,17 @@ class PreferencesStore:
         state is always replaced, never mutated in place, so a borrowed
         :meth:`snapshot` reference stays stable).
         """
-        working = UserPreferences.from_dict(self._state.to_dict())
+        working = self._copy()
         result = fn(working)
         if result is None:
             result = working
         self._state = result
         self._store.async_delay_save(self._snapshot, delay=delay)
         return result
+
+    def _copy(self) -> UserPreferences:
+        """Return a fresh, independent copy of the canonical RAM state."""
+        return UserPreferences.from_dict(self._state.to_dict())
 
     def _snapshot(self) -> UserPreferences:
         return self._state

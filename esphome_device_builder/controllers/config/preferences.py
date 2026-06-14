@@ -1,10 +1,4 @@
-"""Decode the legacy ``_preferences`` sidecar blob (the migration source).
-
-Preferences are RAM-canonical behind ``PreferencesStore`` now; these are the
-only bits that survive: the sidecar key + decoder the store reads once at
-migration time. The sidecar *writers* were removed so nothing can reintroduce a
-``_preferences`` blob that would diverge from the store.
-"""
+"""Decode the legacy sidecar ``_preferences`` blob (read once at migration)."""
 
 from __future__ import annotations
 
