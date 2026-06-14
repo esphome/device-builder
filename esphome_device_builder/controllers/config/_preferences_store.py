@@ -33,10 +33,12 @@ def _decode(raw: bytes) -> UserPreferences:
         _LOGGER.warning("preferences store: corrupt JSON, starting from defaults")
         return UserPreferences()
     if not isinstance(obj, dict):
+        _LOGGER.warning("preferences store: non-object payload, starting from defaults")
         return UserPreferences()
     try:
         return UserPreferences.from_dict(obj)
     except (ValueError, TypeError, LookupError):
+        _LOGGER.exception("preferences store: undecodable payload, starting from defaults")
         return UserPreferences()
 
 
@@ -77,8 +79,12 @@ class PreferencesStore:
         )
 
     def snapshot(self) -> UserPreferences:
-        """Return the current preferences from RAM (sync; for the subscribe snapshot)."""
-        return self._state
+        """Return a copy of the current preferences (sync; for the subscribe snapshot).
+
+        A copy so a caller mutating it can't corrupt the canonical RAM state
+        (which would skip the debounced write and be lost on restart).
+        """
+        return UserPreferences.from_dict(self._state.to_dict())
 
     def update(
         self, fields: dict[str, Any], *, delay: float = _DEFAULT_SAVE_DELAY

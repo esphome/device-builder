@@ -60,6 +60,18 @@ async def test_async_load_migrates_preferences_from_sidecar(tmp_path: Path) -> N
     assert shared["kitchen.yaml"] == {"board_id": "esp32"}
 
 
+async def test_async_load_migrates_corrupt_sidecar_blob_as_defaults(tmp_path: Path) -> None:
+    """A malformed sidecar ``_preferences`` blob migrates to defaults, not a crash."""
+    await asyncio.to_thread(_save_metadata, tmp_path, {"_preferences": [1, 2, 3]})
+    store = _make_store(tmp_path)
+    await store.async_load()
+
+    assert store.snapshot() == UserPreferences()
+    assert (tmp_path / _STORE_FILENAME).exists()
+    shared = await asyncio.to_thread(_load_metadata, tmp_path)
+    assert "_preferences" not in shared
+
+
 async def test_async_load_skips_migration_when_dedicated_file_exists(tmp_path: Path) -> None:
     """An existing dedicated file wins; the sidecar ``_preferences`` is left alone."""
     new = UserPreferences(theme=Theme.LIGHT)
@@ -109,6 +121,22 @@ async def test_async_load_recovers_from_corrupt_dedicated_file(
         await store.async_load()
     assert store.snapshot() == UserPreferences()
     assert any("corrupt JSON" in r.message for r in caplog.records)
+
+
+async def test_async_load_recovers_from_non_dict_dedicated_file(tmp_path: Path) -> None:
+    """A dedicated file holding a non-object JSON value falls back to defaults."""
+    (tmp_path / _STORE_FILENAME).write_bytes(b"[1, 2, 3]")
+    store = _make_store(tmp_path)
+    await store.async_load()
+    assert store.snapshot() == UserPreferences()
+
+
+async def test_async_load_recovers_from_invalid_prefs_shape(tmp_path: Path) -> None:
+    """A dedicated file whose object fails decode falls back to defaults."""
+    (tmp_path / _STORE_FILENAME).write_bytes(b'{"experience_level": "bogus"}')
+    store = _make_store(tmp_path)
+    await store.async_load()
+    assert store.snapshot() == UserPreferences()
 
 
 async def test_round_trip_after_migration(tmp_path: Path) -> None:

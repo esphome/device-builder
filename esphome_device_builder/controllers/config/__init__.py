@@ -56,13 +56,7 @@ from .metadata import (
     rename_device_metadata,
     set_device_metadata,
 )
-from .preferences import (
-    _prefs_from_data,
-    load_preferences,
-    mutate_preferences,
-    save_preferences,
-    update_preferences,
-)
+from .preferences import _prefs_from_data
 from .remote_build_settings import (
     _settings_from_raw,
     has_remote_build_settings_persisted,
@@ -114,17 +108,13 @@ __all__ = [
     "has_remote_build_settings_persisted",
     "labels_transaction",
     "load_labels",
-    "load_preferences",
     "load_remote_build_settings",
     "metadata_transaction",
-    "mutate_preferences",
     "remote_build_settings_transaction",
     "remove_device_metadata",
     "rename_device_metadata",
     "save_labels",
-    "save_preferences",
     "save_remote_build_settings",
     "set_device_labels",
     "set_device_metadata",
-    "update_preferences",
 ]

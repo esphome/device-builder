@@ -63,17 +63,14 @@ from esphome_device_builder.controllers.config import (
     has_remote_build_settings_persisted,
     labels_transaction,
     load_labels,
-    load_preferences,
     load_remote_build_settings,
     metadata_transaction,
     remote_build_settings_transaction,
     remove_device_metadata,
     save_labels,
-    save_preferences,
     save_remote_build_settings,
     set_device_labels,
     set_device_metadata,
-    update_preferences,
 )
 from esphome_device_builder.controllers.config._preferences_store import PreferencesStore
 from esphome_device_builder.helpers.api import CommandError
@@ -464,33 +461,6 @@ def test_remove_device_metadata_clears_only_target(tmp_path: Path) -> None:
     assert get_device_metadata(tmp_path, "b.yaml") == {"board_id": "esp8266"}
 
 
-def test_load_preferences_returns_defaults_on_missing(tmp_path: Path) -> None:
-    """A fresh install has no preferences — fall back to the default object.
-
-    Equality check (not just ``isinstance``) so a regression
-    that builds a non-default preferences object on the
-    missing-file path (e.g. one with ``dashboard_view=TABLE``
-    instead of CARDS) breaks this test.
-    """
-    assert load_preferences(tmp_path) == UserPreferences()
-
-
-def test_load_preferences_returns_defaults_on_bad_data(tmp_path: Path) -> None:
-    """Corrupted preferences blob → default object, not partial recovery.
-
-    ``UserPreferences.from_dict`` raises on unknown / malformed
-    fields; without the except-fallback the dashboard wouldn't
-    load when an older version's preferences file is read by a
-    newer mashumaro schema. Equality with ``UserPreferences()``
-    pins that the fallback is the same default object, not a
-    silently-mutated one a regression could produce.
-    """
-    metadata_path = tmp_path / ".device-builder.json"
-    metadata_path.write_bytes(b'{"_preferences": {"unknown_field": 42}}')
-
-    assert load_preferences(tmp_path) == UserPreferences()
-
-
 def test_load_remote_build_settings_returns_defaults_on_missing(tmp_path: Path) -> None:
     """Fresh config dir → ``RemoteBuildSettings()`` with ``enabled=True``.
 
@@ -737,22 +707,22 @@ def test_remote_build_settings_transaction_discards_on_exception(
     assert load_remote_build_settings(tmp_path) == RemoteBuildSettings(enabled=False)
 
 
-def test_save_preferences_round_trip(tmp_path: Path) -> None:
-    """A non-default prefs blob round-trips through save → load.
-
-    Pins the actual write path: round-tripping ``UserPreferences()``
-    would also pass if save / load both silently lost data, so
-    use a non-default value (``dashboard_view=TABLE``) to
-    actually exercise the marshalling.
-    """
-    prefs = UserPreferences(dashboard_view=DashboardView.TABLE)
-    save_preferences(tmp_path, prefs)
-    assert load_preferences(tmp_path) == prefs
-
-
 # ---------------------------------------------------------------------------
 # ConfigController WS commands — verifies file I/O runs off the event loop
 # ---------------------------------------------------------------------------
+
+
+async def test_config_controller_loads_and_flushes_preferences(tmp_path: Path) -> None:
+    """A real ``ConfigController`` builds the store, loads it, and flushes on stop."""
+    db = MagicMock()
+    db.settings.config_dir = tmp_path
+    controller = ConfigController(db)  # real __init__ builds the store
+    await controller.async_load()  # no sidecar → defaults
+    assert controller.prefs.snapshot() == UserPreferences()
+    # A write schedules a debounced save; stop() flushes it to disk.
+    controller.prefs.update({"theme": Theme.DARK})
+    await controller.stop()
+    assert (tmp_path / ".device-builder-preferences.json").exists()
 
 
 async def test_get_prefs_returns_loaded_preferences(tmp_path: Path) -> None:
@@ -775,17 +745,6 @@ async def test_set_prefs_merges_partial_update(tmp_path: Path) -> None:
     assert result.dashboard_view == DashboardView.TABLE
     # The snapshot reflects the merged state.
     assert controller.prefs.snapshot() == result
-
-
-def test_update_preferences_defaults_on_corrupt(tmp_path: Path) -> None:
-    """A malformed ``_preferences`` blob merges onto defaults, then persists clean."""
-    metadata_path = tmp_path / ".device-builder.json"
-    metadata_path.write_bytes(b'{"_preferences": [1, 2, 3]}')
-
-    updated = update_preferences(tmp_path, {"theme": Theme.DARK})
-
-    assert updated == UserPreferences(theme=Theme.DARK)
-    assert load_preferences(tmp_path) == UserPreferences(theme=Theme.DARK)
 
 
 async def test_set_prefs_concurrent_updates_do_not_lose_writes(tmp_path: Path) -> None:
