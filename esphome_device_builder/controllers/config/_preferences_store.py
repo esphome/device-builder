@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
-from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -137,8 +136,10 @@ class PreferencesStore:
     def _preserve_corrupt_file(self) -> None:
         """Rename the undecodable dedicated file aside so the next save can't erase it."""
         path = self._config_dir / _STORE_FILENAME
-        with suppress(OSError):
+        try:
             path.replace(path.with_name(path.name + ".corrupt"))
+        except OSError:
+            _LOGGER.warning("Could not preserve corrupt preferences file %s", path, exc_info=True)
 
     def _migrate_read_shared_sync(self) -> UserPreferences | None:
         """Decode the sidecar's ``_preferences`` blob.

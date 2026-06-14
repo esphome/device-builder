@@ -131,6 +131,23 @@ async def test_async_load_preserves_corrupt_dedicated_file(
     assert not (tmp_path / _STORE_FILENAME).exists()
 
 
+async def test_preserve_corrupt_file_logs_when_rename_fails(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed preservation rename is logged, not silently swallowed."""
+    (tmp_path / _STORE_FILENAME).write_bytes(b"{not valid json")
+
+    def _boom(self: Path, target: Path) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(Path, "replace", _boom)
+    store = _make_store(tmp_path)
+    with caplog.at_level("WARNING"):
+        await store.async_load()
+    assert store.snapshot() == UserPreferences()
+    assert any("could not preserve corrupt" in r.message.lower() for r in caplog.records)
+
+
 async def test_async_load_preserves_non_dict_dedicated_file(tmp_path: Path) -> None:
     """A dedicated file holding a non-object JSON value is preserved aside."""
     (tmp_path / _STORE_FILENAME).write_bytes(b"[1, 2, 3]")
