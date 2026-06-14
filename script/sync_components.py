@@ -5523,10 +5523,13 @@ def _apply_esp32_options(component_id: str, entries: list[dict]) -> None:
     type_entry = next(
         (e for e in framework.get("config_entries", []) if e.get("key") == "type"), None
     )
-    if type_entry and default in {o["value"] for o in type_entry.get("options", [])}:
+    if type_entry is None or type_entry.get("default_value") is not None:
+        return  # fill in a missing default; never clobber one the bundle carries
+    if default in {o["value"] for o in type_entry.get("options", [])}:
         type_entry["default_value"] = default
 
 
+@cache
 def _esp32_default_framework() -> str | None:
     """Validate a minimal config so esp32's schema fills in the framework type."""
     try:

@@ -56,3 +56,11 @@ def test_missing_esp_idf_option_sets_no_default() -> None:
     _type_entry(entries)["options"] = [{"value": "arduino"}]
     _apply_esp32_options("esp32", entries)
     assert "default_value" not in _type_entry(entries)
+
+
+def test_existing_default_is_not_clobbered() -> None:
+    """A default the bundle already carries wins over the applier's."""
+    entries = _framework_entries()
+    _type_entry(entries)["default_value"] = "arduino"
+    _apply_esp32_options("esp32", entries)
+    assert _type_entry(entries)["default_value"] == "arduino"
