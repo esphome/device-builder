@@ -291,6 +291,12 @@ class ConfigValueOption(DataClassORJSONMixin):
 
     label: str
     value: str
+    # ESP32 variants that accept this value (lowercased ``esp32s3``); empty =
+    # every variant. Lets the editor filter a per-variant enum by the device.
+    variants: list[str] = field(default_factory=list)
+
+    class Config(_CatalogConfig):
+        """Omit empty ``variants``; see :class:`_CatalogConfig`."""
 
 
 class RequiredGroupKind(StrEnum):

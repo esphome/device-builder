@@ -58,7 +58,23 @@ def _locate_top_list_item(  # noqa: C901
         raise CommandError(ErrorCode.NOT_FOUND, msg)
     start = item_starts[index]
     end = item_starts[index + 1] if index + 1 < len(item_starts) else domain_end
-    return start, end
+    return start, _trim_trailing_gap(lines, start, end)
+
+
+def _trim_trailing_gap(lines: list[str], start: int, end: int) -> int:
+    """
+    Pull *end* back over trailing blank and column-0 comment lines.
+
+    Item bodies are always indented, so a blank line or a comment at
+    column 0 belongs to the gap before the next block (a section
+    banner), not to the item being replaced or deleted.
+    """
+    while end - 1 > start:
+        stripped = lines[end - 1].rstrip("\n\r")
+        if stripped and stripped[0] != "#":
+            break
+        end -= 1
+    return end
 
 
 def _locate_singleton_block(
