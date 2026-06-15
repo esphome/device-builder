@@ -28,21 +28,30 @@ def test_entries_cover_every_field_but_the_auto_id() -> None:
 
 
 def test_mode_is_a_select_of_every_variant_mode() -> None:
-    """``mode`` unions quad/octal/hex and ships no default (chip-dependent)."""
+    """``mode`` unions quad/octal/hex, tagging each with the variants that accept it."""
     mode = _by_key()["mode"]
     assert mode["type"] == "string"
-    assert {o["value"] for o in mode["options"]} == {"quad", "octal", "hex"}
+    by_value = {o["value"]: o["variants"] for o in mode["options"]}
+    assert set(by_value) == {"quad", "octal", "hex"}
+    # Variants are lowercased to match the board catalog ``esphome.variant`` form.
+    assert by_value["octal"] == ["esp32s3"]
+    assert by_value["hex"] == ["esp32p4"]
+    assert "esp32" in by_value["quad"] and "esp32s3" in by_value["quad"]
     # No single default is valid on every chip (P4 needs hex, not quad).
     assert "default_value" not in mode
     assert not mode.get("advanced")
 
 
 def test_speed_unions_all_variant_speeds_ascending() -> None:
-    """``speed`` covers the P4 (20/100/200) and classic (40/80/120) sets."""
+    """``speed`` covers the P4 (20/100/200) and classic (40/80/120) sets, variant-tagged."""
     speed = _by_key()["speed"]
-    values = [o["value"] for o in speed["options"]]
+    by_value = {o["value"]: o["variants"] for o in speed["options"]}
+    values = list(by_value)
     assert {"40MHZ", "80MHZ", "120MHZ", "200MHZ"} <= set(values)
     assert values == sorted(values, key=lambda v: int(v[:-3]))
+    # 20MHZ is P4-only; 40MHZ covers the classic chips.
+    assert by_value["20MHZ"] == ["esp32p4"]
+    assert "esp32" in by_value["40MHZ"]
     # P4's 40MHZ is invalid, so no cross-chip default is shipped.
     assert "default_value" not in speed
     assert not speed.get("advanced")

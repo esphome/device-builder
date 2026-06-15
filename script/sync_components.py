@@ -3111,9 +3111,17 @@ def _build_options(raw: dict) -> list[dict] | None:
     options: list[dict] = []
     for value, info in values.items():
         label = value or "(none)"
-        if isinstance(info, dict) and info.get("docs"):
-            label = info["docs"]
-        options.append({"label": label, "value": value})
+        option = {"label": label, "value": value}
+        if isinstance(info, dict):
+            if info.get("docs"):
+                option["label"] = info["docs"]
+            # variant_enum: each value carries the variants that accept it;
+            # lowercase to match the board catalog ``esphome.variant`` form.
+            if variants := info.get("variants"):
+                # Dedupe + sort so the wire form is stable and matches the
+                # introspection path, whichever source produced it.
+                option["variants"] = sorted({str(v).lower() for v in variants})
+        options.append(option)
     return options or None
 
 
@@ -5405,54 +5413,104 @@ def _esp32_variant_context(variant: str) -> Iterator[None]:
 
 
 def _psram_config_entries() -> list[dict]:
-    """Synthesize psram's config entries from its per-variant callable schema.
+    """
+    Synthesize psram's structured editor from its ``CONFIG_SCHEMA``.
 
-    psram's ``CONFIG_SCHEMA`` is ``get_config_schema`` — a callable that builds
-    a different schema per ESP32 variant — so the schema bundle dumps it empty.
-    Feed each variant in, capture the built ``vol.Schema`` (a one-shot subclass
-    whose ``__call__`` returns itself, since the real one validates and returns
-    a dict), and union the keys / ``cv.one_of`` options / defaults across
-    variants. Empty when esphome isn't importable.
+    Prefers the static schema, where a variant enum exposes its
+    ``{value: [variants]}`` map via ``SCHEMA_EXTRACT``; falls back to the older
+    ``get_config_schema`` callable that builds a different schema per ESP32
+    variant. Empty when esphome isn't importable.
     """
     try:
         from esphome.components import psram as _psram
     except ImportError:
         _LOGGER.warning("esphome psram not importable — structured editor skipped")
         return []
+    fields = _psram_static_fields(_psram.CONFIG_SCHEMA) or _psram_callable_fields(_psram)
+    return _sort_entries([_psram_entry(name, field) for name, field in fields.items()])
+
+
+def _psram_static_fields(config_schema: Any) -> dict[str, dict[str, Any]]:
+    """Per-field map from a static psram schema, or empty if it isn't extractable."""
+    fields: dict[str, dict[str, Any]] = {}
+
+    def visit(key: Any, name: str, validator: Any, path: tuple[str, ...]) -> None:
+        if len(path) != 1 or name == "id":
+            return
+        field = _psram_field(fields, key, name)
+        if getattr(validator, "__name__", "") == "boolean":
+            field["bool"] = True
+            return
+        for value, variants in _variant_enum_map(validator).items():
+            field["options"][value] = [v.lower() for v in variants]
+
+    _walk_schema_keys(config_schema, visit)
+    # Empty unless this was the static form: the old callable schema isn't
+    # walkable, so it yields no options and the caller falls back to it.
+    return fields if any(field["options"] for field in fields.values()) else {}
+
+
+def _variant_enum_map(validator: Any) -> dict[str, list[str]]:
+    """Return the ``{value: [variants]}`` map a variant enum yields, or empty."""
+    import esphome.config_validation as cv
+
+    try:
+        result = validator(cv.SCHEMA_EXTRACT)
+    except vol.Invalid:
+        return {}  # a non-variant validator (e.g. cv.boolean) rejects the sentinel
+    # Any other error is a real bug in a variant enum — let it surface, not vanish.
+    if isinstance(result, dict) and all(isinstance(v, list) for v in result.values()):
+        return result
+    return {}
+
+
+def _psram_callable_fields(_psram: Any) -> dict[str, dict[str, Any]]:
+    """Per-field map from the older per-variant ``get_config_schema`` callable.
+
+    Feed each variant in and capture the built ``vol.Schema`` (a one-shot subclass
+    whose ``__call__`` returns itself), unioning options / defaults across variants.
+    """
 
     class _Capture(vol.Schema):
         def __call__(self, data: Any) -> Any:
             return self
 
-    # Per key: default, is-bool, accumulated options. Variant order doesn't
-    # matter: the selects ship no default, and the boolean defaults are the
-    # same on every chip.
     fields: dict[str, dict[str, Any]] = {}
-    record = partial(_record_psram_field, fields)
     original_schema = _psram.cv.Schema
     _psram.cv.Schema = _Capture
     try:
         for variant, modes in _psram.SPIRAM_MODES.items():
+            record = partial(_record_psram_field, fields, variant)
             with _esp32_variant_context(variant):
                 _walk_schema_keys(_psram.get_config_schema({"mode": modes[0]}), record)
     finally:
         _psram.cv.Schema = original_schema
+    return fields
 
-    return _sort_entries([_psram_entry(name, field) for name, field in fields.items()])
+
+def _psram_field(fields: dict[str, dict[str, Any]], key: Any, name: str) -> dict[str, Any]:
+    """Get or create the per-key accumulator (default, is-bool, options)."""
+    return fields.setdefault(name, {"default": _psram_default(key), "bool": False, "options": {}})
 
 
 def _record_psram_field(
-    fields: dict[str, dict[str, Any]], key: Any, name: str, validator: Any, path: tuple[str, ...]
+    fields: dict[str, dict[str, Any]],
+    variant: str,
+    key: Any,
+    name: str,
+    validator: Any,
+    path: tuple[str, ...],
 ) -> None:
-    """Fold one captured schema key into *fields* (top-level only, auto id aside)."""
+    """Fold one captured schema key into *fields*, tagging each option's *variant*."""
     if len(path) != 1 or name == "id":
         return
-    field = fields.setdefault(name, {"default": _psram_default(key), "bool": False, "options": []})
+    field = _psram_field(fields, key, name)
     if getattr(validator, "__name__", "") == "boolean":
         field["bool"] = True
     for option in _psram_one_of_options(validator):
-        if option not in field["options"]:
-            field["options"].append(option)
+        variants = field["options"].setdefault(option, [])
+        if (low := variant.lower()) not in variants:
+            variants.append(low)
 
 
 def _psram_default(key: Any) -> Any:
@@ -5498,12 +5556,14 @@ def _psram_entry(name: str, field: dict[str, Any]) -> dict:
         entry["default_value"] = field["default"]
     options = field["options"]
     if options:
-        # A select's options union every ESP32 variant, so no single
-        # default_value is valid on all chips (ESP32-P4 wants hex / 20MHZ, not
-        # quad / 40MHZ); ship none and let ESPHome apply the per-chip default
-        # when mode / speed are left unset. label == value is the enum norm;
-        # values like "40MHZ" carry a leading number, so order ascending.
-        entry["options"] = [{"label": str(v), "value": str(v)} for v in _ordered_options(options)]
+        # Options union every variant, so no single default_value is valid on all
+        # chips (ESP32-P4 wants hex / 20MHZ, not quad / 40MHZ); ship none and let
+        # ESPHome apply the per-chip default. Each option carries its variants so
+        # the editor can filter to the selected one. Order ascending by value.
+        entry["options"] = [
+            {"label": str(v), "value": str(v), "variants": sorted(set(options[v]))}
+            for v in _ordered_options(list(options))
+        ]
     return entry
 
 
@@ -5518,7 +5578,7 @@ def _ordered_options(options: list[str | int]) -> list[str | int]:
 
 
 def _apply_psram_options(component_id: str, entries: list[dict]) -> None:
-    """Give psram a structured editor from its callable per-variant schema."""
+    """Synthesize psram's editor when the bundle schema is empty (older esphome)."""
     if component_id != "psram" or entries:
         return
     entries.extend(_psram_config_entries())
