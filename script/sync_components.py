@@ -462,6 +462,14 @@ _UART_DEBUG_OVERRIDE: dict[str, Any] = {
 # Only when none of those can express the field does a new override
 # belong here — and then document the exact upstream gap that forces it,
 # as the existing entries do.
+# Common serial baud rates offered as a combo box for bare ``cv.int_`` baud
+# fields the schema can't enumerate. Shared by the ``uart`` and ``logger``
+# ``baud_rate`` overrides; ``allow_custom_value`` keeps any other rate typeable.
+_BAUD_RATE_OPTIONS: list[dict[str, str]] = [
+    {"label": str(rate), "value": str(rate)}
+    for rate in (2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400, 256000, 460800, 921600)
+]
+
 _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
     # ``api.encryption`` is validated by a custom function in ESPHome
     # so the schema generator emits only ``{key: Optional, docs: ...}``
@@ -617,19 +625,7 @@ _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
     ("uart", "baud_rate"): {
         "default_value": 115200,
         "allow_custom_value": True,
-        "options": [
-            {"label": "2400", "value": "2400"},
-            {"label": "4800", "value": "4800"},
-            {"label": "9600", "value": "9600"},
-            {"label": "19200", "value": "19200"},
-            {"label": "38400", "value": "38400"},
-            {"label": "57600", "value": "57600"},
-            {"label": "115200", "value": "115200"},
-            {"label": "230400", "value": "230400"},
-            {"label": "256000", "value": "256000"},
-            {"label": "460800", "value": "460800"},
-            {"label": "921600", "value": "921600"},
-        ],
+        "options": _BAUD_RATE_OPTIONS,
     },
     # ``ble_nus.debug`` reuses ``uart.maybe_empty_debug`` for the same
     # ``DEBUG_SCHEMA``. Mirror the override and just retitle the
@@ -658,6 +654,13 @@ _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
     # newer ESP32 variants); keep it on the main form, not behind Advanced.
     ("logger", "hardware_uart"): {
         "advanced": False,
+    },
+    # ``logger.baud_rate`` is a bare ``cv.int_`` like ``uart.baud_rate``; offer
+    # the same combo box plus logger's documented ``0`` (disable UART logging)
+    # sentinel. Merge keeps the field Optional/Advanced with its 115200 default.
+    ("logger", "baud_rate"): {
+        "allow_custom_value": True,
+        "options": [{"label": "0 (disable logging)", "value": "0"}, *_BAUD_RATE_OPTIONS],
     },
 }
 

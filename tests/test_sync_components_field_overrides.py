@@ -16,6 +16,7 @@ from __future__ import annotations
 import orjson
 
 from script.sync_components import (  # type: ignore[import-not-found]
+    _BAUD_RATE_OPTIONS,
     _FIELD_OVERRIDES,
     _OUTPUT_BODIES_DIR,
 )
@@ -130,3 +131,33 @@ def test_logger_hardware_uart_override_promotes_to_main_form() -> None:
     override = _FIELD_OVERRIDES.get(("logger", "hardware_uart"))
     assert override is not None, "missing logger.hardware_uart override"
     assert override["advanced"] is False
+
+
+def test_logger_baud_rate_override_offers_combobox_with_disable_option() -> None:
+    """``logger.baud_rate`` reuses the shared rates plus the ``0`` disable sentinel."""
+    override = _FIELD_OVERRIDES.get(("logger", "baud_rate"))
+    assert override is not None, "missing logger.baud_rate override"
+    assert override["allow_custom_value"] is True
+    values = [o["value"] for o in override["options"]]
+    assert values[0] == "0"
+    assert override["options"][0]["label"] == "0 (disable logging)"
+    # The standard rates follow, reused verbatim from the shared list.
+    assert override["options"][1:] == _BAUD_RATE_OPTIONS
+    # Merge-only: type/required/advanced are left to the schema-derived entry.
+    assert {"type", "required", "advanced"}.isdisjoint(override)
+
+
+def test_uart_and_logger_baud_rate_share_the_rate_list() -> None:
+    """Both baud combo boxes draw from one ``_BAUD_RATE_OPTIONS`` source."""
+    assert _FIELD_OVERRIDES[("uart", "baud_rate")]["options"] is _BAUD_RATE_OPTIONS
+    assert {"2400", "115200", "921600"} <= {o["value"] for o in _BAUD_RATE_OPTIONS}
+
+
+def test_shipped_catalog_logger_baud_rate_is_combobox() -> None:
+    """The generated logger body renders ``baud_rate`` as a custom-allowed select."""
+    body = orjson.loads((_OUTPUT_BODIES_DIR / "logger.json").read_bytes())
+    baud = next(e for e in body["config_entries"] if e["key"] == "baud_rate")
+    assert baud["allow_custom_value"] is True
+    labels = [o["label"] for o in baud["options"]]
+    assert "0 (disable logging)" in labels
+    assert {"2400", "115200", "921600"} <= {o["value"] for o in baud["options"]}
