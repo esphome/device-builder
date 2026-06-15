@@ -43,10 +43,9 @@ async def test_install_queues_for_offline_device(firmware_controller, mock_devic
     """Test that offline devices are queued for local compile instead of upload."""
     mock_device.state = DeviceState.OFFLINE
 
-    with (
-        patch.object(firmware_controller, "_enqueue", new_callable=AsyncMock) as mock_enqueue,
-        patch.object(firmware_controller, "install_chain", new_callable=AsyncMock),
-    ):
+    # Removed the invalid install_chain patch since it doesn't exist on the controller
+    # and the early return for offline devices bypasses the factories call anyway.
+    with patch.object(firmware_controller, "_enqueue", new_callable=AsyncMock) as mock_enqueue:
         await firmware_controller.install(configuration="test_device.yaml")
 
         called_job = mock_enqueue.call_args[0][0]
@@ -59,10 +58,7 @@ async def test_queued_update_flag_set_on_compile_success(firmware_controller, mo
     """Test that queued_update flag is set after successful compile for offline device."""
     mock_device.state = DeviceState.OFFLINE
 
-    with (
-        patch.object(firmware_controller, "_enqueue", new_callable=AsyncMock),
-        patch.object(firmware_controller, "install_chain", new_callable=AsyncMock),
-    ):
+    with patch.object(firmware_controller, "_enqueue", new_callable=AsyncMock):
         await firmware_controller.install(configuration="test_device.yaml")
         assert mock_device.queued_update is False
 
@@ -84,7 +80,8 @@ async def test_queued_update_callback_triggered(firmware_controller, mock_device
     trigger_queued_update = False
     if mock_device.state == DeviceState.ONLINE:
         for d in [mock_device]:
-            if d.state != DeviceState.ONLINE and getattr(d, "queued_update", False):
+            # Fixed the contradictory boolean check that required the device to NOT be online
+            if getattr(d, "queued_update", False):
                 trigger_queued_update = True
                 break
 
@@ -103,7 +100,7 @@ async def test_online_device_without_queued_update_ignored(firmware_controller, 
 
     trigger_queued_update = False
     for d in [mock_device]:
-        if d.state != DeviceState.ONLINE and getattr(d, "queued_update", False):
+        if getattr(d, "queued_update", False):
             trigger_queued_update = True
             break
 
