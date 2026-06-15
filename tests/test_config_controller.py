@@ -747,6 +747,15 @@ async def test_set_prefs_merges_partial_update(tmp_path: Path) -> None:
     assert controller.prefs.snapshot() == result
 
 
+async def test_set_prefs_persists_expert_mode(tmp_path: Path) -> None:
+    """The frontend's Expert Mode toggle round-trips through set/get prefs."""
+    controller = _make_controller(tmp_path)
+
+    result = await controller.set_prefs(expert_mode=True)
+    assert result.expert_mode is True
+    assert (await controller.get_prefs()).expert_mode is True
+
+
 async def test_set_prefs_concurrent_updates_do_not_lose_writes(tmp_path: Path) -> None:
     """Partial updates of distinct fields all survive on the RAM-canonical store.
 

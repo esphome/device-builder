@@ -46,6 +46,10 @@ class UserPreferences(DataClassORJSONMixin):
     navigator_visible: bool = True
     yaml_diff_button: bool = False
 
+    # Frontend "Expert Mode" master switch: gates the editor diff view, the
+    # device-navigator search box, and the command-palette YAML content search.
+    expert_mode: bool = False
+
     # Table view settings
     table_page_size: int = 25
     table_column_visibility: dict[str, bool] = field(default_factory=dict)
