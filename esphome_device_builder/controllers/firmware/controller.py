@@ -86,11 +86,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
         config = event.data["configuration"]
         # Safe fallback for StubDevices in tests that don't mock get_devices()
-        devices = (
-            self._db.devices.get_devices()
-            if hasattr(self._db.devices, "get_devices")
-            else []
-        )
+        devices = self._db.devices.get_devices() if hasattr(self._db.devices, "get_devices") else []
         device = next(
             (d for d in devices if getattr(d, "configuration", None) == config),
             None,
@@ -249,9 +245,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         if self._db.devices is not None:
             # Safe fallback for StubDevices in tests
             devices = (
-                self._db.devices.get_devices()
-                if hasattr(self._db.devices, "get_devices")
-                else []
+                self._db.devices.get_devices() if hasattr(self._db.devices, "get_devices") else []
             )
             device = next(
                 (d for d in devices if getattr(d, "configuration", None) == configuration),
@@ -438,9 +432,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         is_done = job.status == JobStatus.COMPLETED
         if is_comp and is_done and self._db.devices is not None:
             devices = (
-                self._db.devices.get_devices()
-                if hasattr(self._db.devices, "get_devices")
-                else []
+                self._db.devices.get_devices() if hasattr(self._db.devices, "get_devices") else []
             )
             dev = next(
                 (d for d in devices if getattr(d, "configuration", None) == job.configuration),
