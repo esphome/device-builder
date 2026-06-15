@@ -14,7 +14,7 @@ from esphome_device_builder.controllers.config._preferences_store import (
     PreferencesStore,
 )
 from esphome_device_builder.models import UserPreferences
-from esphome_device_builder.models.preferences import ExperienceLevel, Theme
+from esphome_device_builder.models.preferences import Theme
 
 
 def _make_store(tmp_path: Path) -> PreferencesStore:
@@ -23,8 +23,8 @@ def _make_store(tmp_path: Path) -> PreferencesStore:
 
 
 _SAMPLE = UserPreferences(
-    remote_compute_only=True,
-    experience_level=ExperienceLevel.YAML,
+    navigator_visible=False,
+    yaml_diff_button=True,
     theme=Theme.DARK,
 )
 
@@ -94,6 +94,32 @@ async def test_async_load_keeps_sidecar_when_migration_write_unconfirmed(
     shared = await asyncio.to_thread(_load_metadata, tmp_path)
     assert shared["_preferences"] == _SAMPLE.to_dict()
     assert any("write unconfirmed" in r.message for r in caplog.records)
+
+
+async def test_migration_strip_failure_is_non_fatal(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed legacy-key strip after a confirmed write logs and completes, not aborts."""
+    await asyncio.to_thread(_save_metadata, tmp_path, {"_preferences": _SAMPLE.to_dict()})
+
+    def _boom(_config_dir: Path) -> None:
+        raise OSError("sidecar locked")
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.config._preferences_store.metadata_transaction",
+        _boom,
+    )
+    store = _make_store(tmp_path)
+    with caplog.at_level("WARNING"):
+        await store.async_load()
+
+    # Migration still adopted the prefs and wrote the canonical dedicated file.
+    assert store.snapshot() == _SAMPLE
+    assert (tmp_path / _STORE_FILENAME).exists()
+    assert any("could not strip" in r.message.lower() for r in caplog.records)
+    # The strip failed, so the (now-benign) legacy key is left in place.
+    shared = await asyncio.to_thread(_load_metadata, tmp_path)
+    assert shared["_preferences"] == _SAMPLE.to_dict()
 
 
 async def test_failed_preserve_disables_writes_to_protect_corrupt_file(
@@ -225,7 +251,7 @@ async def test_async_load_preserves_non_dict_dedicated_file(tmp_path: Path) -> N
 
 async def test_async_load_preserves_invalid_shape_dedicated_file(tmp_path: Path) -> None:
     """A dedicated file whose object fails decode is preserved aside."""
-    raw = b'{"experience_level": "bogus"}'
+    raw = b'{"theme": "bogus"}'
     (tmp_path / _STORE_FILENAME).write_bytes(raw)
     store = _make_store(tmp_path)
     await store.async_load()
@@ -242,12 +268,12 @@ async def test_mutators_return_independent_copies(tmp_path: Path) -> None:
     returned.theme = Theme.LIGHT
     assert store.snapshot().theme == Theme.DARK
 
-    def _to_yaml(p: UserPreferences) -> None:
-        p.experience_level = ExperienceLevel.YAML
+    def _hide_nav(p: UserPreferences) -> None:
+        p.navigator_visible = False
 
-    mutated = store.mutate(_to_yaml)
-    mutated.experience_level = ExperienceLevel.BEGINNER
-    assert store.snapshot().experience_level == ExperienceLevel.YAML
+    mutated = store.mutate(_hide_nav)
+    mutated.navigator_visible = True
+    assert store.snapshot().navigator_visible is False
 
 
 async def test_round_trip_after_migration(tmp_path: Path) -> None:
@@ -261,4 +287,4 @@ async def test_round_trip_after_migration(tmp_path: Path) -> None:
     second = _make_store(tmp_path)
     await second.async_load()
     assert second.snapshot().theme == Theme.LIGHT
-    assert second.snapshot().experience_level == ExperienceLevel.YAML
+    assert second.snapshot().yaml_diff_button is True

@@ -45,9 +45,8 @@ from ..models.onboarding import ONBOARDING_VERSION
 from .config.settings import _DASHBOARD_SENTINEL_FILE
 
 if TYPE_CHECKING:
+    from esphome_device_builder.controllers.config._preferences_store import PreferencesStore
     from esphome_device_builder.device_builder import DeviceBuilder
-
-    from .config._preferences_store import PreferencesStore
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -68,8 +67,10 @@ class OnboardingController:
 
     @property
     def _prefs(self) -> PreferencesStore:
-        # The config controller is created before onboarding in start().
-        assert self._db.config is not None
+        # config is created in start() before any onboarding command is served;
+        # raise (not assert, which -O strips) if that invariant is ever broken.
+        if self._db.config is None:  # pragma: no cover — config is always up post-start
+            raise RuntimeError("config controller is not initialized")
         return self._db.config.prefs
 
     @api_command("onboarding/get_state")

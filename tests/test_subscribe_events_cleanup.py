@@ -27,17 +27,13 @@ from esphome_device_builder.helpers.event_bus import (
 )
 from esphome_device_builder.helpers.subscriber_presence import SubscriberPresence
 from esphome_device_builder.models import EventType, UserPreferences
-from esphome_device_builder.models.preferences import ExperienceLevel
+from esphome_device_builder.models.preferences import Theme
 
 from .conftest import FakeWebSocketClient
 
 
 def _stub_config(db: DeviceBuilder, prefs: UserPreferences | None = None) -> None:
-    """Give *db* a config controller whose prefs store returns *prefs*.
-
-    ``_send_initial`` reads the snapshot off ``config.prefs``; default it to
-    plain defaults, which is all most of these stubs need.
-    """
+    """Give *db* a config controller whose prefs store snapshot returns *prefs*."""
     db.config = MagicMock()
     db.config.prefs.snapshot.return_value = prefs or UserPreferences()
 
@@ -269,7 +265,7 @@ async def test_subscribe_events_includes_preferences_in_initial_state() -> None:
     db = DeviceBuilder.__new__(DeviceBuilder)
     _stub_config(
         db,
-        UserPreferences(remote_compute_only=True, experience_level=ExperienceLevel.YAML),
+        UserPreferences(navigator_visible=False, theme=Theme.DARK),
     )
     db.bus = EventBus()
     db.subscriber_presence = SubscriberPresence()
@@ -288,8 +284,8 @@ async def test_subscribe_events_includes_preferences_in_initial_state() -> None:
     assert len(initial_events) == 1
     _, _, payload = initial_events[0]
     prefs = payload["preferences"]
-    assert prefs["remote_compute_only"] is True
-    assert prefs["experience_level"] == "yaml"
+    assert prefs["navigator_visible"] is False
+    assert prefs["theme"] == "dark"
 
     handler_task.cancel()
     await asyncio.gather(handler_task, return_exceptions=True)
