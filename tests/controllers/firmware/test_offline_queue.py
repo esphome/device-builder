@@ -1,3 +1,5 @@
+"""Tests for the queued offline updates feature."""
+
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -57,7 +59,7 @@ async def test_queued_update_flag_set_on_compile_success(firmware_controller, mo
 
     # Execute install request
     with (
-        patch.object(firmware_controller, "_enqueue", new_callable=AsyncMock) as mock_enqueue,
+        patch.object(firmware_controller, "_enqueue", new_callable=AsyncMock),
         patch.object(firmware_controller, "install_chain", new_callable=AsyncMock),
     ):
         await firmware_controller.install(configuration="test_device.yaml")

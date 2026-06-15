@@ -97,7 +97,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
                 self._db.devices, "monitor", getattr(self._db.devices, "_monitor", None)
             )
             if monitor is not None:
-                monitor.apply_queued_update(device.name, False)
+                monitor.apply_queued_update(device.name, is_queued=False)
 
             create_eager_task(self.upload(configuration=config, port="OTA"))
 
@@ -435,7 +435,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
                     self._db.devices, "monitor", getattr(self._db.devices, "_monitor", None)
                 )
                 if monitor is not None:
-                    monitor.apply_queued_update(dev.name, True)
+                    monitor.apply_queued_update(dev.name, is_queued=True)
 
     async def _execute_remote_job(self, job: FirmwareJob) -> None:
         await runner.execute_remote_job(self, job)
