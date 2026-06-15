@@ -33,11 +33,7 @@ from .conftest import FakeWebSocketClient
 
 
 def _stub_config(db: DeviceBuilder, prefs: UserPreferences | None = None) -> None:
-    """Give *db* a config controller whose prefs store returns *prefs*.
-
-    ``_send_initial`` reads the snapshot off ``config.prefs``; default it to
-    plain defaults, which is all most of these stubs need.
-    """
+    """Give *db* a config controller whose prefs store snapshot returns *prefs*."""
     db.config = MagicMock()
     db.config.prefs.snapshot.return_value = prefs or UserPreferences()
 
