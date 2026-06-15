@@ -44,7 +44,12 @@ from esphome_device_builder.models.boards import (
     Platform,
 )
 from esphome_device_builder.models.common import FieldPreset, PinFeature
-from script.sync_boards import _LIBRETINY_FAMILIES, _NRF52_PLATFORM, _RP2040_PLATFORM
+from script.sync_boards import (
+    _LIBRETINY_FAMILIES,
+    _NRF52_PLATFORM,
+    _RP2040_PLATFORM,
+    _backfill_esp32_variants,
+)
 
 _DEFINITIONS_DIR = Path(__file__).parent.parent / "esphome_device_builder" / "definitions"
 _BOARDS_INDEX_JSON = _DEFINITIONS_DIR / "boards.index.json"
@@ -71,6 +76,9 @@ def test_split_artefacts_match_manifests() -> None:
     mix: curated manifests stay checked, empty product manifests get filled.
     """
     from_yaml = build_board_catalog_from_manifests(strict=True)
+    # Variant backfill is part of emission (sync_boards.build_catalog), so apply
+    # it here too or esp32 boards that carry only a PIO board id mismatch disk.
+    _backfill_esp32_variants(from_yaml.boards)
     from_disk = load_board_catalog()
     generated = set(_LIBRETINY_FAMILIES) | {_RP2040_PLATFORM, _NRF52_PLATFORM, "esp32", "esp8266"}
     esphome_filled = set(_LIBRETINY_FAMILIES)

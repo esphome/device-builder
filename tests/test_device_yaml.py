@@ -19,6 +19,10 @@ from esphome.components import wifi as esphome_wifi
 from esphome.components.rp2040.boards import BOARDS as ESPHOME_RP2040_BOARDS
 from esphome.const import ALLOWED_NAME_CHARS
 
+from esphome_device_builder.definitions import (
+    load_board_body_from_disk,
+    load_board_index,
+)
 from esphome_device_builder.helpers import device_yaml
 from esphome_device_builder.helpers.device_yaml import (
     _fallback_has_native_wifi,
@@ -2365,3 +2369,30 @@ def test_load_device_api_encrypted_stays_false_for_plaintext_wire(tmp_path: Path
 
     assert reloaded.api_encrypted is False
     assert reloaded.api_encryption_active == ""
+
+
+def test_every_board_body_generates_creatable_platform_block() -> None:
+    """Every catalog board generates a platform block ``devices/create`` accepts.
+
+    The esp32 schema needs board-or-variant; every other platform needs
+    ``board``. Pins #1486, where esp32 boards carrying only a PIO ``board``
+    id (no ``variant``) emitted neither and failed validation.
+    """
+    offenders: list[str] = []
+    for entry in load_board_index():
+        board = load_board_body_from_disk(entry.id)
+        assert board is not None, entry.id
+        # Inline creds keep the YAML ``!secret``-free so it parses standalone.
+        config = yaml.safe_load(
+            generate_device_yaml("dev", "Dev", board, ssid="ssid", psk="password")
+        )
+        platform = str(board.esphome.platform)
+        block = config.get(platform)
+        if not isinstance(block, dict):
+            offenders.append(f"{entry.id}: missing `{platform}:` block")
+        elif platform == "esp32":
+            if not (block.get("board") or block.get("variant")):
+                offenders.append(f"{entry.id}: esp32 block has neither board nor variant")
+        elif not block.get("board"):
+            offenders.append(f"{entry.id}: {platform} block missing board")
+    assert not offenders, "boards generate invalid create YAML:\n" + "\n".join(offenders)
