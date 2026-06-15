@@ -282,7 +282,7 @@ Parsing and writing live on the backend: the frontend exchanges structured `Auto
 | `config/version` | — | `{server_version, esphome_version}` | Get versions |
 | `config/serial_ports` | — | `[{port, desc}]` | List serial ports |
 | `config/get_preferences` | — | `UserPreferences` | Get user preferences |
-| `config/set_preferences` | `{theme?, dashboard_view?, experience_level?, remote_compute_only?, device_editor_layout?, secrets_editor_layout?, ...}` | `UserPreferences` | Update preferences (partial). `experience_level` is `beginner` / `expert` (or `null` until chosen); `remote_compute_only` marks an install as a remote build node. `device_editor_layout` / `secrets_editor_layout` are `visual` / `yaml` / `both` (secrets never uses `both`); they persist which editor panes the user keeps open. |
+| `config/set_preferences` | `{theme?, dashboard_view?, experience_level?, remote_compute_only?, device_editor_layout?, secrets_editor_layout?, ...}` | `UserPreferences` | Update preferences (partial). `experience_level` is `beginner` / `expert` (or `null` until chosen); `remote_compute_only` marks an install as a remote build node. `device_editor_layout` is `visual` / `yaml` / `both` and `secrets_editor_layout` is `visual` / `yaml` (the secrets editor has no split view); they persist which editor panes the user keeps open. |
 | `config/get_secrets` | — | `[string]` | List secret key names |
 | `config/set_secret` | `{key, value, overwrite?}` | `{created}` | Atomically set one secret in secrets.yaml under a write lock; `overwrite=false` is create-if-absent |
 

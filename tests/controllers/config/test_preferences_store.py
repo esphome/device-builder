@@ -14,7 +14,11 @@ from esphome_device_builder.controllers.config._preferences_store import (
     PreferencesStore,
 )
 from esphome_device_builder.models import UserPreferences
-from esphome_device_builder.models.preferences import EditorLayout, Theme
+from esphome_device_builder.models.preferences import (
+    EditorLayout,
+    SecretsEditorLayout,
+    Theme,
+)
 
 
 def _make_store(tmp_path: Path) -> PreferencesStore:
@@ -296,7 +300,7 @@ async def test_round_trip_preserves_editor_layout_enum(tmp_path: Path) -> None:
     store.update(
         {
             "device_editor_layout": EditorLayout.YAML,
-            "secrets_editor_layout": EditorLayout.YAML,
+            "secrets_editor_layout": SecretsEditorLayout.YAML,
         }
     )
     await store._store.async_save_now()
@@ -304,4 +308,4 @@ async def test_round_trip_preserves_editor_layout_enum(tmp_path: Path) -> None:
     reloaded = _make_store(tmp_path)
     await reloaded.async_load()
     assert reloaded.snapshot().device_editor_layout is EditorLayout.YAML
-    assert reloaded.snapshot().secrets_editor_layout is EditorLayout.YAML
+    assert reloaded.snapshot().secrets_editor_layout is SecretsEditorLayout.YAML

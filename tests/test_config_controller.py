@@ -86,6 +86,7 @@ from esphome_device_builder.models import (
 from esphome_device_builder.models.preferences import (
     DashboardView,
     EditorLayout,
+    SecretsEditorLayout,
     Theme,
     UserPreferences,
 )
@@ -761,7 +762,7 @@ async def test_set_prefs_concurrent_updates_do_not_lose_writes(tmp_path: Path) -
         controller.set_prefs(dashboard_view=DashboardView.TABLE),
         controller.set_prefs(navigator_visible=False),
         controller.set_prefs(device_editor_layout=EditorLayout.YAML),
-        controller.set_prefs(secrets_editor_layout=EditorLayout.YAML),
+        controller.set_prefs(secrets_editor_layout=SecretsEditorLayout.YAML),
     )
 
     snap = controller.prefs.snapshot()
@@ -769,7 +770,15 @@ async def test_set_prefs_concurrent_updates_do_not_lose_writes(tmp_path: Path) -
     assert snap.dashboard_view == DashboardView.TABLE
     assert snap.navigator_visible is False
     assert snap.device_editor_layout is EditorLayout.YAML
-    assert snap.secrets_editor_layout is EditorLayout.YAML
+    assert snap.secrets_editor_layout is SecretsEditorLayout.YAML
+
+
+async def test_set_prefs_rejects_both_for_secrets_layout(tmp_path: Path) -> None:
+    """``both`` is not a valid secrets layout, so the decode rejects it."""
+    controller = _make_controller(tmp_path)
+    with pytest.raises(ValueError, match="secrets_editor_layout"):
+        await controller.set_prefs(secrets_editor_layout="both")
+    assert controller.prefs.snapshot().secrets_editor_layout is SecretsEditorLayout.VISUAL
 
 
 async def test_get_secrets_returns_empty_when_missing(tmp_path: Path) -> None:
