@@ -602,7 +602,7 @@ class DeviceBuilder:
             # present per the wire contract; the config controller is created in
             # start() before any subscribe is served, so raise (don't silently
             # omit) if that invariant is ever broken.
-            if self.config is None:
+            if self.config is None:  # pragma: no cover — config is always up post-start
                 raise RuntimeError("config controller is not initialized")
             initial["preferences"] = self.config.prefs.snapshot().to_dict()
             if self.devices:

@@ -61,7 +61,7 @@ class OnboardingController:
     def _prefs(self) -> PreferencesStore:
         # config is created in start() before any onboarding command is served;
         # raise (not assert, which -O strips) if that invariant is ever broken.
-        if self._db.config is None:
+        if self._db.config is None:  # pragma: no cover — config is always up post-start
             raise RuntimeError("config controller is not initialized")
         return self._db.config.prefs
 
