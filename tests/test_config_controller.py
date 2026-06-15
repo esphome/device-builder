@@ -63,18 +63,16 @@ from esphome_device_builder.controllers.config import (
     has_remote_build_settings_persisted,
     labels_transaction,
     load_labels,
-    load_preferences,
     load_remote_build_settings,
     metadata_transaction,
     remote_build_settings_transaction,
     remove_device_metadata,
     save_labels,
-    save_preferences,
     save_remote_build_settings,
     set_device_labels,
     set_device_metadata,
-    update_preferences,
 )
+from esphome_device_builder.controllers.config._preferences_store import PreferencesStore
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.secrets_state import read_secrets_yaml
 from esphome_device_builder.models import (
@@ -95,8 +93,8 @@ from ._storage_fixtures import write_storage_json
 from .conftest import MakeSettingsFactory, wire_secrets_writer
 
 
-def _make_controller(config_dir: Path) -> ConfigController:
-    """Bypass __init__ chains; attach a stub DeviceBuilder.settings."""
+def _make_controller(config_dir: Path, *, prefs: UserPreferences | None = None) -> ConfigController:
+    """Bypass __init__ chains; attach a stub DeviceBuilder.settings + prefs store."""
     controller = ConfigController.__new__(ConfigController)
     controller._db = MagicMock()
     controller._db.settings.config_dir = config_dir
@@ -104,6 +102,11 @@ def _make_controller(config_dir: Path) -> ConfigController:
     controller._db.settings.rel_path = config_dir.joinpath
     controller._db.secrets_write_lock = asyncio.Lock()
     wire_secrets_writer(controller._db)
+    # RAM-canonical prefs store seeded in RAM (the debounce timer never fires
+    # within the test); get/set_prefs read and mutate the snapshot.
+    controller._shutdown_callbacks = []
+    controller.prefs = PreferencesStore(config_dir, controller._shutdown_callbacks.append)
+    controller.prefs._state = prefs if prefs is not None else UserPreferences()
     return controller
 
 
@@ -458,33 +461,6 @@ def test_remove_device_metadata_clears_only_target(tmp_path: Path) -> None:
     assert get_device_metadata(tmp_path, "b.yaml") == {"board_id": "esp8266"}
 
 
-def test_load_preferences_returns_defaults_on_missing(tmp_path: Path) -> None:
-    """A fresh install has no preferences — fall back to the default object.
-
-    Equality check (not just ``isinstance``) so a regression
-    that builds a non-default preferences object on the
-    missing-file path (e.g. one with ``dashboard_view=TABLE``
-    instead of CARDS) breaks this test.
-    """
-    assert load_preferences(tmp_path) == UserPreferences()
-
-
-def test_load_preferences_returns_defaults_on_bad_data(tmp_path: Path) -> None:
-    """Corrupted preferences blob → default object, not partial recovery.
-
-    ``UserPreferences.from_dict`` raises on unknown / malformed
-    fields; without the except-fallback the dashboard wouldn't
-    load when an older version's preferences file is read by a
-    newer mashumaro schema. Equality with ``UserPreferences()``
-    pins that the fallback is the same default object, not a
-    silently-mutated one a regression could produce.
-    """
-    metadata_path = tmp_path / ".device-builder.json"
-    metadata_path.write_bytes(b'{"_preferences": {"unknown_field": 42}}')
-
-    assert load_preferences(tmp_path) == UserPreferences()
-
-
 def test_load_remote_build_settings_returns_defaults_on_missing(tmp_path: Path) -> None:
     """Fresh config dir → ``RemoteBuildSettings()`` with ``enabled=True``.
 
@@ -731,89 +707,51 @@ def test_remote_build_settings_transaction_discards_on_exception(
     assert load_remote_build_settings(tmp_path) == RemoteBuildSettings(enabled=False)
 
 
-def test_save_preferences_round_trip(tmp_path: Path) -> None:
-    """A non-default prefs blob round-trips through save → load.
-
-    Pins the actual write path: round-tripping ``UserPreferences()``
-    would also pass if save / load both silently lost data, so
-    use a non-default value (``dashboard_view=TABLE``) to
-    actually exercise the marshalling.
-    """
-    prefs = UserPreferences(dashboard_view=DashboardView.TABLE)
-    save_preferences(tmp_path, prefs)
-    assert load_preferences(tmp_path) == prefs
-
-
 # ---------------------------------------------------------------------------
 # ConfigController WS commands — verifies file I/O runs off the event loop
 # ---------------------------------------------------------------------------
 
 
+async def test_config_controller_loads_and_flushes_preferences(tmp_path: Path) -> None:
+    """A real ``ConfigController`` builds the store, loads it, and flushes on stop."""
+    db = MagicMock()
+    db.settings.config_dir = tmp_path
+    controller = ConfigController(db)  # real __init__ builds the store
+    await controller.async_load()  # no sidecar → defaults
+    assert controller.prefs.snapshot() == UserPreferences()
+    # A write schedules a debounced save; stop() flushes it to disk.
+    controller.prefs.update({"theme": Theme.DARK})
+    await controller.stop()
+    assert (tmp_path / ".device-builder-preferences.json").exists()
+
+
 async def test_get_prefs_returns_loaded_preferences(tmp_path: Path) -> None:
-    """``get_prefs`` returns the persisted blob, not a fresh default.
-
-    Persists a non-default preferences object and asserts it
-    round-trips back. A regression that bypasses disk I/O and
-    just constructs ``UserPreferences()`` would still claim
-    ``isinstance`` but would fail this equality.
-
-    The seeding ``save_preferences`` runs in a thread because
-    ``metadata_transaction`` -> ``tempfile.mkstemp`` ->
-    ``os.path.abspath`` blocks the event loop, and blockbuster
-    flags it from inside an async test.
-    """
+    """``get_prefs`` returns the store's snapshot, not a fresh default."""
     persisted = UserPreferences(dashboard_view=DashboardView.TABLE)
-    await asyncio.to_thread(save_preferences, tmp_path, persisted)
-    controller = _make_controller(tmp_path)
+    controller = _make_controller(tmp_path, prefs=persisted)
 
     prefs = await controller.get_prefs()
     assert prefs == persisted
 
 
 async def test_set_prefs_merges_partial_update(tmp_path: Path) -> None:
-    """Partial-update merge: only the supplied field changes.
-
-    Persist a known initial state, then call ``set_prefs`` with
-    just one field. The unrelated fields must keep their
-    persisted values, not snap back to dataclass defaults — a
-    regression that re-constructs ``UserPreferences`` from
-    kwargs alone (skipping the merge step) would clobber them
-    silently.
-
-    Seeding goes via ``asyncio.to_thread`` so the
-    ``metadata_transaction`` -> ``tempfile.mkstemp`` write
-    doesn't trip blockbuster on Linux CI.
-    """
+    """Partial-update merge: only the supplied field changes; the rest survive."""
     initial = UserPreferences(dashboard_view=DashboardView.TABLE, theme=Theme.DARK)
-    await asyncio.to_thread(save_preferences, tmp_path, initial)
-    controller = _make_controller(tmp_path)
+    controller = _make_controller(tmp_path, prefs=initial)
 
     # Update only ``theme``; ``dashboard_view`` should survive.
     result = await controller.set_prefs(theme=Theme.LIGHT)
     assert result.theme == Theme.LIGHT
     assert result.dashboard_view == DashboardView.TABLE
-    # Persisted blob matches the merged state.
-    persisted = await asyncio.to_thread(load_preferences, tmp_path)
-    assert persisted == result
-
-
-def test_update_preferences_defaults_on_corrupt(tmp_path: Path) -> None:
-    """A malformed ``_preferences`` blob merges onto defaults, then persists clean."""
-    metadata_path = tmp_path / ".device-builder.json"
-    metadata_path.write_bytes(b'{"_preferences": [1, 2, 3]}')
-
-    updated = update_preferences(tmp_path, {"theme": Theme.DARK})
-
-    assert updated == UserPreferences(theme=Theme.DARK)
-    assert load_preferences(tmp_path) == UserPreferences(theme=Theme.DARK)
+    # The snapshot reflects the merged state.
+    assert controller.prefs.snapshot() == result
 
 
 async def test_set_prefs_concurrent_updates_do_not_lose_writes(tmp_path: Path) -> None:
-    """Concurrent partial updates of distinct fields all survive.
+    """Partial updates of distinct fields all survive on the RAM-canonical store.
 
-    The read-merge-save runs inside one ``metadata_transaction``,
-    so two writers can't both read the same baseline and clobber
-    each other's field. A non-atomic load-then-save loses one.
+    Each ``set_prefs`` merges onto the current snapshot in RAM, so distinct
+    fields accumulate rather than clobbering each other.
     """
     controller = _make_controller(tmp_path)
 
@@ -823,10 +761,10 @@ async def test_set_prefs_concurrent_updates_do_not_lose_writes(tmp_path: Path) -
         controller.set_prefs(navigator_visible=False),
     )
 
-    persisted = await asyncio.to_thread(load_preferences, tmp_path)
-    assert persisted.theme == Theme.DARK
-    assert persisted.dashboard_view == DashboardView.TABLE
-    assert persisted.navigator_visible is False
+    snap = controller.prefs.snapshot()
+    assert snap.theme == Theme.DARK
+    assert snap.dashboard_view == DashboardView.TABLE
+    assert snap.navigator_visible is False
 
 
 async def test_get_secrets_returns_empty_when_missing(tmp_path: Path) -> None:

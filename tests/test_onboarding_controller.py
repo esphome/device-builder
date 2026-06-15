@@ -15,11 +15,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from esphome_device_builder.controllers.config import (
-    load_preferences,
-    save_preferences,
-    update_preferences,
-)
+from esphome_device_builder.controllers.config._preferences_store import PreferencesStore
 from esphome_device_builder.controllers.onboarding import (
     OnboardingController,
 )
@@ -39,13 +35,20 @@ from esphome_device_builder.models.preferences import Theme, UserPreferences
 from .conftest import wire_secrets_writer
 
 
-def _make_controller(config_dir: Path) -> OnboardingController:
+def _make_controller(
+    config_dir: Path, *, prefs: UserPreferences | None = None
+) -> OnboardingController:
     controller = OnboardingController.__new__(OnboardingController)
     controller._db = MagicMock()
     controller._db.settings.config_dir = config_dir
     controller._db.settings.absolute_config_dir = config_dir.resolve()
     controller._db.secrets_write_lock = asyncio.Lock()
     wire_secrets_writer(controller._db)
+    # RAM-canonical prefs store seeded in RAM; mutations stay in RAM (the
+    # debounce timer never fires within the test), asserted via the snapshot.
+    store = PreferencesStore(config_dir, lambda _cb: None)
+    store._state = prefs if prefs is not None else UserPreferences()
+    controller._db.config.prefs = store
     return controller
 
 
@@ -224,9 +227,7 @@ async def test_mark_acknowledged_persists_current_version(tmp_path: Path) -> Non
     controller = _make_controller(tmp_path)
     state = await controller.mark_acknowledged()
     assert state.completed_version == ONBOARDING_VERSION
-    # Re-read on a fresh controller to confirm the prefs file landed.
-    state2 = await _make_controller(tmp_path).get_state()
-    assert state2.completed_version == ONBOARDING_VERSION
+    assert controller._prefs.snapshot().onboarding_completed_version == ONBOARDING_VERSION
 
 
 async def test_mark_acknowledged_is_idempotent(tmp_path: Path) -> None:
@@ -236,25 +237,13 @@ async def test_mark_acknowledged_is_idempotent(tmp_path: Path) -> None:
     assert state.completed_version == ONBOARDING_VERSION
 
 
-async def test_mark_acknowledged_does_not_clobber_a_concurrent_pref_write(
-    tmp_path: Path,
-) -> None:
-    """Concurrent acknowledgement and a ``set_preferences`` write keep both fields.
-
-    Both share the ``_preferences`` blob and go through
-    ``metadata_transaction``, so neither can read a stale baseline
-    and overwrite the other's field.
-    """
-    controller = _make_controller(tmp_path)
-
-    await asyncio.gather(
-        controller.mark_acknowledged(),
-        asyncio.to_thread(update_preferences, tmp_path, {"theme": Theme.DARK}),
-    )
-
-    persisted = await asyncio.to_thread(load_preferences, tmp_path)
-    assert persisted.onboarding_completed_version == ONBOARDING_VERSION
-    assert persisted.theme == Theme.DARK
+async def test_mark_acknowledged_keeps_other_pref_fields(tmp_path: Path) -> None:
+    """Acknowledging touches only the version, leaving an unrelated field intact."""
+    controller = _make_controller(tmp_path, prefs=UserPreferences(theme=Theme.DARK))
+    await controller.mark_acknowledged()
+    snap = controller._prefs.snapshot()
+    assert snap.onboarding_completed_version == ONBOARDING_VERSION
+    assert snap.theme == Theme.DARK
 
 
 async def test_mark_acknowledged_does_not_downgrade_a_higher_stored_version(
@@ -262,19 +251,14 @@ async def test_mark_acknowledged_does_not_downgrade_a_higher_stored_version(
 ) -> None:
     """Don't lose a future-build acknowledgement on rollback.
 
-    A user who briefly ran a future build with
-    ``ONBOARDING_VERSION = 2`` and then rolled back to this
-    build (``= 1``) keeps the higher stored value — otherwise
-    they'd be re-prompted on the next upgrade for steps they've
-    already done.
+    A user who briefly ran a future build with a higher
+    ``ONBOARDING_VERSION`` and then rolled back keeps the higher stored
+    value — otherwise they'd be re-prompted on the next upgrade for steps
+    they've already done.
     """
-    future = UserPreferences(onboarding_completed_version=ONBOARDING_VERSION + 5)
-    # ``save_preferences`` does sync filesystem I/O that ``blockbuster``
-    # rejects when called inline from an async test. Hop to an executor
-    # so we behave like the controller does in production.
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, save_preferences, tmp_path, future)
-    controller = _make_controller(tmp_path)
+    controller = _make_controller(
+        tmp_path, prefs=UserPreferences(onboarding_completed_version=ONBOARDING_VERSION + 5)
+    )
     state = await controller.mark_acknowledged()
     assert state.completed_version == ONBOARDING_VERSION + 5
 

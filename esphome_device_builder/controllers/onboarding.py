@@ -20,7 +20,6 @@ who completed an earlier flow.
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..helpers.api import CommandError, api_command
@@ -38,9 +37,9 @@ from ..models import (
     UserPreferences,
 )
 from ..models.onboarding import ONBOARDING_VERSION
-from .config import load_preferences, mutate_preferences
 
 if TYPE_CHECKING:
+    from esphome_device_builder.controllers.config._preferences_store import PreferencesStore
     from esphome_device_builder.device_builder import DeviceBuilder
 
 
@@ -58,6 +57,11 @@ class OnboardingController:
     def __init__(self, db: DeviceBuilder) -> None:
         self._db = db
 
+    @property
+    def _prefs(self) -> PreferencesStore:
+        assert self._db.config is not None
+        return self._db.config.prefs
+
     @api_command("onboarding/get_state")
     async def get_state(self, **kwargs: Any) -> OnboardingState:
         """
@@ -69,9 +73,8 @@ class OnboardingController:
         wizard (any pending step OR new version available).
         """
         loop = asyncio.get_running_loop()
-        secrets, prefs = await loop.run_in_executor(
-            None, _read_secrets_and_prefs, self._db.settings.config_dir
-        )
+        secrets = await loop.run_in_executor(None, read_secrets_yaml, self._db.settings.config_dir)
+        prefs = self._prefs.snapshot()
 
         return OnboardingState(
             current_version=ONBOARDING_VERSION,
@@ -161,8 +164,6 @@ class OnboardingController:
         releases that add new steps bump that constant; existing
         users with a lower stored value will be re-prompted.
         """
-        loop = asyncio.get_running_loop()
-        config_dir = self._db.settings.config_dir
 
         def _bump(prefs: UserPreferences) -> None:
             # max(), not assign: a rollback from a future build must
@@ -171,16 +172,5 @@ class OnboardingController:
                 prefs.onboarding_completed_version, ONBOARDING_VERSION
             )
 
-        await loop.run_in_executor(None, mutate_preferences, config_dir, _bump)
+        self._prefs.mutate(_bump)
         return await self.get_state()
-
-
-def _read_secrets_and_prefs(config_dir: Path) -> tuple[dict | None, UserPreferences]:
-    """
-    Read both ``secrets.yaml`` and user preferences in one executor hop.
-
-    Both are quick disk reads from the same config dir, so a single
-    executor job is cheaper than two. ``get_state`` runs on every
-    page load + after every secrets save, so the saved hop matters.
-    """
-    return read_secrets_yaml(config_dir), load_preferences(config_dir)
