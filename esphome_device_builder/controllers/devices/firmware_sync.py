@@ -51,7 +51,7 @@ def on_job_completed(controller: DevicesController, event: Event[JobLifecycleDat
             # ``livingroom.yaml.yaml`` and target the wrong entry.
             new_configuration = f"{Path(new_name).stem}.yaml"
             controller._db.create_background_task(
-                _migrate_metadata_then_scan(controller, old_configuration, new_configuration)
+                migrate_metadata_then_scan(controller, old_configuration, new_configuration)
             )
         else:
             controller._db.create_background_task(controller._scanner.scan())
@@ -163,7 +163,7 @@ def sync_deployed_hash_after_flash(controller: DevicesController, configuration:
     controller._state_monitor.apply_config_hash(device.name, device.expected_config_hash)
 
 
-async def _migrate_metadata_then_scan(
+async def migrate_metadata_then_scan(
     controller: DevicesController, old_configuration: str, new_configuration: str
 ) -> None:
     """Move the renamed device's metadata before the scan rebuilds it."""

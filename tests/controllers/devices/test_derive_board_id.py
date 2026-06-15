@@ -87,8 +87,8 @@ def test_derive_uses_pio_board_match_first(
     result = controller._derive_board_id_from_yaml(tmp_path, "kitchen.yaml")
 
     assert result == "generic-esp32c3"
-    # PlatformIO match was tried.
-    pio_lookup.assert_called_once_with("esp32-c3-devkitm-1", "", "esp32")
+    # PlatformIO match was tried; resolution prefers the YAML's exact board.
+    pio_lookup.assert_called_once_with("esp32-c3-devkitm-1", "", "esp32", prefer_exact_id=True)
     # Platform fallback wasn't reached.
     platform_lookup.assert_not_called()
 
@@ -117,7 +117,7 @@ def test_derive_falls_back_to_platform_when_pio_board_misses(
 
     assert result == "generic-esp32"
     # Both lookups ran in order: PIO first, then platform fallback.
-    pio_lookup.assert_called_once_with("unknown-board", "", "esp32")
+    pio_lookup.assert_called_once_with("unknown-board", "", "esp32", prefer_exact_id=True)
     platform_lookup.assert_called_once_with("esp32", "")
 
 

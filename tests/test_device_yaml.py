@@ -17,6 +17,7 @@ import pytest
 import yaml
 from esphome.components import wifi as esphome_wifi
 from esphome.components.rp2040.boards import BOARDS as ESPHOME_RP2040_BOARDS
+from esphome.const import ALLOWED_NAME_CHARS
 
 from esphome_device_builder.helpers import device_yaml
 from esphome_device_builder.helpers.device_yaml import (
@@ -32,6 +33,7 @@ from esphome_device_builder.helpers.device_yaml import (
     parse_esphome_meta,
     parse_platform_from_yaml,
 )
+from esphome_device_builder.helpers.device_yaml._parsing import _is_valid_esphome_name
 from esphome_device_builder.models import (
     BoardCatalogEntry,
     BoardEsphomeConfig,
@@ -509,6 +511,19 @@ esphome:
     assert comment == "Hand-built controller"
 
 
+def test_parse_meta_keeps_hash_inside_unquoted_value() -> None:
+    """An unquoted ``#`` inside a meta value is a literal, not a comment trailer."""
+    yaml_content = """
+esphome:
+  name: my-device
+  friendly_name: Room#2
+  comment: Cost50#tag
+"""
+    _, friendly_name, comment, _ = parse_esphome_meta(yaml_content)
+    assert friendly_name == "Room#2"
+    assert comment == "Cost50#tag"
+
+
 def test_parse_meta_skips_blank_and_comment_lines_inside_block() -> None:
     """Comment lines and blank lines inside the ``esphome:`` block are skipped.
 
@@ -822,6 +837,57 @@ def test_load_device_from_storage_resolves_config_once_for_packages(tmp_path: Pa
     assert spy.call_count == 1
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("hf-display", True),
+        ("hf_display", True),
+        ("node1", True),
+        ("ratgdo.esphome", False),
+        ("Hf Display", False),
+        ("my device", False),
+    ],
+)
+def test_is_valid_esphome_name(value: str, expected: bool) -> None:
+    """``esphome.name`` accepts ``[a-z0-9_-]``; other fields (dots/spaces/uppercase) fail."""
+    assert _is_valid_esphome_name(value) is expected
+
+
+def test_is_valid_esphome_name_covers_allowed_name_chars() -> None:
+    """The pattern accepts every character ESPHome permits, so it can't drift."""
+    assert _is_valid_esphome_name(ALLOWED_NAME_CHARS)
+
+
+def test_load_device_from_storage_keeps_underscore_name(tmp_path: Path) -> None:
+    """An underscore ``esphome.name`` keys the device, not the filename stem."""
+    # Filename differs from the name so the stem fallback would shadow a
+    # wrongly-rejected name; the underscore name must still win.
+    yaml_file = tmp_path / "hf-display-renamed.yaml"
+    yaml_file.write_text(
+        "esphome:\n  name: hf_display\nesp32:\n  board: esp32dev\n",
+        encoding="utf-8",
+    )
+    device = load_device_from_storage(yaml_file)
+    assert device.name == "hf_display"
+
+
+def test_load_device_from_storage_keeps_underscore_name_under_friendly_slug_file(
+    tmp_path: Path,
+) -> None:
+    """A friendly-name-slug filename doesn't shadow the YAML's underscore ``name``."""
+    # A device created from a friendly name lands in ``<slug>.yaml`` while its
+    # YAML ``name`` keeps underscores; the real name must win over the slug stem
+    # so the rename dialog pre-fills the actual hostname (not a slug it equals).
+    yaml_file = tmp_path / "my-esp-device.yaml"
+    yaml_file.write_text(
+        "esphome:\n  name: my_esp-device_2\n  friendly_name: My ESP Device\n"
+        "esp32:\n  board: esp32dev\n",
+        encoding="utf-8",
+    )
+    device = load_device_from_storage(yaml_file)
+    assert device.name == "my_esp-device_2"
+
+
 # ----------------------------------------------------------------------
 # extract_directly_referenced_integrations — key walk
 # ----------------------------------------------------------------------
@@ -839,15 +905,16 @@ def test_extract_directly_referenced_integrations_skips_non_string_keys() -> Non
 
 
 def test_parse_inline_value_strips_trailing_comment() -> None:
-    """Bare values drop ``# ...`` trailers; quoted values keep them.
-
-    The ``# in value and not value.startswith('"' / "'")`` guard
-    is the key branch — a quoted value containing a literal ``#``
-    must survive intact.
-    """
+    """A whitespace-preceded ``#`` is a comment; a mid-scalar ``#`` is a literal."""
     assert _parse_inline_value("my-device  # the device") == "my-device"
     # Quoted values keep an embedded ``#`` literal.
     assert _parse_inline_value('"with #hash"') == "with #hash"
+    # An unquoted ``#`` with no leading whitespace is part of the scalar
+    # (YAML rule), so it must not truncate the value.
+    assert _parse_inline_value("Room#2") == "Room#2"
+    assert _parse_inline_value("Living#Room") == "Living#Room"
+    # A leading ``#`` is a comment-only value → empty.
+    assert _parse_inline_value("# just a comment") == ""
 
 
 def test_parse_inline_value_strips_matched_quotes() -> None:

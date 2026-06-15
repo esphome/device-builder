@@ -51,7 +51,7 @@ def test_reference_namespace_none_for_unqualified() -> None:
 
 
 def test_implemented_classes_unions_class_parents_and_type_variants() -> None:
-    """Own id class + transitive parents + discriminated ``types.*`` ids."""
+    """Own id class + transitive parents + discriminated ``types.*`` ids, all at ``["id"]``."""
     section = {
         "schemas": {
             "CONFIG_SCHEMA": {
@@ -74,17 +74,113 @@ def test_implemented_classes_unions_class_parents_and_type_variants() -> None:
         }
     }
     assert _implemented_classes(section) == {
-        "adc::ADCSensor",
-        "sensor::Sensor",
-        "voltage_sampler::VoltageSampler",
-        "x::Y",
-        "z::Z",
+        "adc::ADCSensor": [["id"]],
+        "sensor::Sensor": [["id"]],
+        "voltage_sampler::VoltageSampler": [["id"]],
+        "x::Y": [["id"]],
+        "z::Z": [["id"]],
     }
+
+
+def test_implemented_classes_descends_nested_list_id() -> None:
+    """A uart-typed id nested in a list (``usb_uart.channels[].id``) resolves to its path.
+
+    The ``types.*`` discriminator is flattened, so the channel id's path is
+    ``["channels", "id"]`` while the variant's own device id stays at ``["id"]``.
+    """
+    section = {
+        "schemas": {
+            "CONFIG_SCHEMA": {
+                "types": {
+                    "CDC_ACM": {
+                        "config_vars": {
+                            "id": {
+                                "id_type": {
+                                    "class": "usb_uart::USBUartTypeCdcAcm",
+                                    "parents": ["usb_uart::USBUartComponent", "Component"],
+                                }
+                            },
+                            "channels": {
+                                "schema": {
+                                    "config_vars": {
+                                        "id": {
+                                            "id_type": {
+                                                "class": "usb_uart::USBUartChannel",
+                                                "parents": ["uart::UARTComponent"],
+                                            }
+                                        }
+                                    }
+                                },
+                            },
+                        }
+                    }
+                },
+            }
+        }
+    }
+    classes = _implemented_classes(section)
+    # The channel implements uart via a parent class → advertised at its path.
+    assert classes["uart::UARTComponent"] == [["channels", "id"]]
+    # A nested leaf own-class is the sub-entity's own identity, not recorded.
+    assert "usb_uart::USBUartChannel" not in classes
+    # The variant's top-level device id still records its own class.
+    assert classes["usb_uart::USBUartComponent"] == [["id"]]
+
+
+def test_implemented_classes_collects_every_path_for_a_class() -> None:
+    """A class declared at several nested fields keeps all its paths."""
+    section = {
+        "schemas": {
+            "CONFIG_SCHEMA": {
+                "schema": {
+                    "config_vars": {
+                        "main_switch": {
+                            "schema": {
+                                "config_vars": {
+                                    "id": {"id_type": {"class": "x::Sw", "parents": ["sw::Switch"]}}
+                                }
+                            }
+                        },
+                        "aux_switch": {
+                            "schema": {
+                                "config_vars": {
+                                    "id": {"id_type": {"class": "x::Sw", "parents": ["sw::Switch"]}}
+                                }
+                            }
+                        },
+                    }
+                }
+            }
+        }
+    }
+    assert sorted(_implemented_classes(section)["sw::Switch"]) == [
+        ["aux_switch", "id"],
+        ["main_switch", "id"],
+    ]
+
+
+def test_implemented_classes_skips_use_id_reference() -> None:
+    """A cross-reference field (``use_id_type``) is never an implemented id."""
+    section = {
+        "schemas": {
+            "CONFIG_SCHEMA": {
+                "schema": {
+                    "config_vars": {
+                        "uart_id": {
+                            "use_id_type": "uart::UARTComponent",
+                            "id_type": {"class": "uart::UARTComponent"},
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert _implemented_classes(section) == {}
 
 
 def test_implemented_classes_empty_without_id_type() -> None:
     """No declared id type ⇒ implements nothing referenceable."""
-    assert _implemented_classes({"schemas": {"CONFIG_SCHEMA": {"schema": {}}}}) == set()
+    assert _implemented_classes({"schemas": {"CONFIG_SCHEMA": {"schema": {}}}}) == {}
 
 
 # ---------------------------------------------------------------------------
@@ -102,27 +198,97 @@ def test_resolve_provides_keeps_cross_domain_interface(monkeypatch: pytest.Monke
         {
             "id": "sensor.adc",
             "provides": [],
-            "_impl_classes": {
-                "adc::ADCSensor",
-                "sensor::Sensor",
-                "voltage_sampler::VoltageSampler",
+            "_impl_class_paths": {
+                "adc::ADCSensor": [["id"]],
+                "sensor::Sensor": [["id"]],
+                "voltage_sampler::VoltageSampler": [["id"]],
             },
         },
         {
             "id": "sensor.dht",
             "provides": [],
-            "_impl_classes": {"dht::DHT", "sensor::Sensor"},
+            "_impl_class_paths": {"dht::DHT": [["id"]], "sensor::Sensor": [["id"]]},
         },
     ]
     _resolve_provides(entries, Path("/unused"))
     # adc is a voltage_sampler under the sensor domain → cross-domain, kept.
     assert entries[0]["provides"] == ["voltage_sampler"]
+    # Own top-level id → resolved frontend-side via the section id, no path metadata.
+    assert entries[0]["provides_id_paths"] == {}
     # dht only implements sensor::Sensor — its own domain, the top-level
     # scan already covers it, so nothing to advertise.
     assert entries[1]["provides"] == []
     # Scratch field is popped before emit.
-    assert "_impl_classes" not in entries[0]
-    assert "_impl_classes" not in entries[1]
+    assert "_impl_class_paths" not in entries[0]
+    assert "_impl_class_paths" not in entries[1]
+
+
+def test_resolve_provides_records_nested_id_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A provider whose interface id is nested records the YAML path to descend."""
+    monkeypatch.setattr(
+        "script.sync_components._collect_referenced_classes",
+        lambda _dir: {"uart::UARTComponent"},
+    )
+    entries = [
+        {
+            "id": "usb_uart",
+            "provides": [],
+            "_impl_class_paths": {
+                "uart::UARTComponent": [["channels", "id"]],
+                "usb_uart::USBUartComponent": [["id"]],
+            },
+        }
+    ]
+    _resolve_provides(entries, Path("/unused"))
+    assert entries[0]["provides"] == ["uart"]
+    assert entries[0]["provides_id_paths"] == {"uart": [["channels", "id"]]}
+
+
+def test_resolve_provides_unions_and_sorts_nested_paths(monkeypatch: pytest.MonkeyPatch) -> None:
+    """All nested paths for an interface are deduped and sorted deterministically."""
+    monkeypatch.setattr(
+        "script.sync_components._collect_referenced_classes",
+        lambda _dir: {"switch_::Switch"},
+    )
+    entries = [
+        {
+            "id": "sprinkler",
+            "provides": [],
+            "_impl_class_paths": {
+                "switch_::Switch": [
+                    ["valves", "valve_switch", "id"],
+                    ["auto_advance_switch", "id"],
+                    ["auto_advance_switch", "id"],
+                ],
+            },
+        }
+    ]
+    _resolve_provides(entries, Path("/unused"))
+    assert entries[0]["provides"] == ["switch"]
+    assert entries[0]["provides_id_paths"] == {
+        "switch": [["auto_advance_switch", "id"], ["valves", "valve_switch", "id"]]
+    }
+
+
+def test_resolve_provides_omits_path_for_own_id_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An own-id uart provider (ble_nus) advertises uart but no nested path."""
+    monkeypatch.setattr(
+        "script.sync_components._collect_referenced_classes",
+        lambda _dir: {"uart::UARTComponent"},
+    )
+    entries = [
+        {
+            "id": "ble_nus",
+            "provides": [],
+            "_impl_class_paths": {
+                "ble_nus::BLENUS": [["id"]],
+                "uart::UARTComponent": [["id"]],
+            },
+        }
+    ]
+    _resolve_provides(entries, Path("/unused"))
+    assert entries[0]["provides"] == ["uart"]
+    assert entries[0]["provides_id_paths"] == {}
 
 
 def test_resolve_provides_ignores_unreferenced_classes(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -132,10 +298,15 @@ def test_resolve_provides_ignores_unreferenced_classes(monkeypatch: pytest.Monke
         lambda _dir: set(),
     )
     entries = [
-        {"id": "sensor.adc", "provides": [], "_impl_classes": {"voltage_sampler::VoltageSampler"}}
+        {
+            "id": "sensor.adc",
+            "provides": [],
+            "_impl_class_paths": {"voltage_sampler::VoltageSampler": [["id"]]},
+        }
     ]
     _resolve_provides(entries, Path("/unused"))
     assert entries[0]["provides"] == []
+    assert entries[0]["provides_id_paths"] == {}
 
 
 def test_collect_referenced_classes_walks_nested_use_id(tmp_path: Path) -> None:
@@ -201,3 +372,29 @@ def test_index_carries_provides_for_providers() -> None:
     by_id = {c["id"]: c for c in index["components"]}
     assert by_id["sensor.adc"].get("provides") == ["voltage_sampler"]
     assert "provides" not in by_id["sensor.dht"]
+
+
+def test_usb_uart_provides_uart_via_nested_channel_id() -> None:
+    """usb_uart's channel id is a uart, advertised with the nested path to it."""
+    body = _load_body("usb_uart")
+    assert body.get("provides") == ["uart"]
+    assert body.get("provides_id_paths") == {"uart": [["channels", "id"]]}
+
+
+def test_index_carries_usb_uart_nested_provider_path() -> None:
+    """The nested-id path reaches the slim index the frontend reads."""
+    index = json.loads(_INDEX_FILE.read_text(encoding="utf-8"))
+    by_id = {c["id"]: c for c in index["components"]}
+    assert by_id["usb_uart"].get("provides") == ["uart"]
+    assert by_id["usb_uart"].get("provides_id_paths") == {"uart": [["channels", "id"]]}
+
+
+def test_sprinkler_advertises_all_nested_switch_paths() -> None:
+    """A component exposing one interface at several nested ids keeps every path."""
+    body = _load_body("sprinkler")
+    assert body.get("provides") == ["number", "switch"]
+    switch_paths = body["provides_id_paths"]["switch"]
+    # Not just the first switch: standalone and per-valve switches are all offered.
+    assert ["auto_advance_switch", "id"] in switch_paths
+    assert ["valves", "valve_switch", "id"] in switch_paths
+    assert len(switch_paths) > 1

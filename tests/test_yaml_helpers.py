@@ -43,6 +43,8 @@ from esphome_device_builder.helpers.yaml import (
     _strip_yaml_quotes,
     generate_api_encryption_key,
     generate_component_yaml,
+    is_plain_literal_scalar,
+    is_retargetable_name,
     load_yaml_fast_then_esphome,
     merge_component_yaml,
     parse_substitution_ref,
@@ -117,6 +119,45 @@ def test_parse_substitution_ref(value: str, expected: str | None) -> None:
     back to a literal rewrite rather than wreck a partial match.
     """
     assert parse_substitution_ref(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("kitchen", True),
+        ('"kitchen"', True),
+        ("'kitchen-1'", True),
+        ("", False),
+        ("   ", False),
+        ("${devicename}", False),
+        ("$devicename", False),
+        ("kitchen_${suffix}", False),  # embedded substitution
+        ("${loc}-sensor", False),
+        ("!include name.yaml", False),
+        ("!secret node_name", False),
+    ],
+)
+def test_is_plain_literal_scalar(value: str, expected: bool) -> None:
+    """Plain literals pass; empty, tagged, or substitution-bearing values don't."""
+    assert is_plain_literal_scalar(value) is expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("kitchen", True),
+        ("${devicename}", True),  # pure ref -> rewrite the substitution def
+        ("$devicename", True),
+        ('"${devicename}"', True),
+        ("kitchen_${suffix}", False),  # embedded -> would flatten
+        ("${loc}-sensor", False),
+        ("!include name.yaml", False),
+        ("", False),
+    ],
+)
+def test_is_retargetable_name(value: str, expected: bool) -> None:
+    """Plain literals and pure ${var} refs are retargetable; embedded/tag aren't."""
+    assert is_retargetable_name(value) is expected
 
 
 def test_rewrite_name_or_substitution_redirects_through_substitution() -> None:

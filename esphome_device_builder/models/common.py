@@ -407,6 +407,15 @@ class ConfigEntry(DataClassORJSONMixin):
     # symbols but accepts any string.
     allow_custom_value: bool = False
 
+    # Per-target-platform option lists for fields whose valid choices vary
+    # by chip/variant (``logger.hardware_uart``: ESP32 offers UART0/1/2,
+    # ESP32-C3 swaps in USB_SERIAL_JTAG). The controller resolves it into
+    # ``options`` per request the same way ``platform_defaults`` resolves
+    # ``default_value`` (variant key first, then base platform) and clears
+    # it, so the frontend only sees the resolved ``options``. Keyed by the
+    # same strings as ``platform_defaults`` (``esp32``, ``esp32_c3`` …).
+    platform_options: dict[str, list[ConfigValueOption]] | None = None
+
     # Min/max bounds for INTEGER / FLOAT entries. None = unbounded.
     range: tuple[int | float, int | float] | None = None
 

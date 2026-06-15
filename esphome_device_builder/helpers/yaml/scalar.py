@@ -31,6 +31,11 @@ def is_lambda_sentinel(value: Any) -> bool:
 # emit the same shape the user sees in the editor's auto-indent.
 ESPHOME_YAML_INDENT = "  "
 
+# Mapping-path tuples for the device-identity leaves the helpers read /
+# rewrite most; hoisted so call sites share one spelling.
+ESPHOME_NAME_PATH: tuple[str, str] = ("esphome", "name")
+ESPHOME_FRIENDLY_NAME_PATH: tuple[str, str] = ("esphome", "friendly_name")
+
 
 def block_body_is_list(lines: list[str], header_idx: int, end_idx: int) -> bool:
     """Return True when a block body — lines ``(header_idx, end_idx)`` — is a YAML list."""
@@ -323,3 +328,16 @@ def _strip_yaml_quotes(value: str) -> str:
     if len(stripped) >= 2 and stripped[0] == stripped[-1] and stripped[0] in ('"', "'"):
         return stripped[1:-1]
     return stripped
+
+
+def is_plain_literal_scalar(value: str) -> bool:
+    """
+    Return True when *value* is a non-empty plain literal safe to rewrite.
+
+    False for an empty value, a YAML tag (``!include``), or anything
+    carrying a substitution (``$var`` / ``${var}``, including embedded
+    forms like ``kitchen_${suffix}``) — those can't be retargeted as a
+    flat literal without dropping the indirection.
+    """
+    unquoted = _strip_yaml_quotes(value)
+    return bool(unquoted) and not unquoted.startswith("!") and "$" not in unquoted

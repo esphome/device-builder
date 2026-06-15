@@ -50,7 +50,7 @@ import zipfile
 from collections.abc import Callable, Collection, Iterable, Iterator
 from dataclasses import dataclass, field
 from enum import StrEnum
-from functools import cache
+from functools import cache, partial
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Literal, NamedTuple
@@ -114,6 +114,7 @@ from _catalog_split import (  # noqa: E402
 from esphome_device_builder.controllers.components import (  # noqa: E402
     INTERNAL_COMPONENT_IDS as _INTERNAL_COMPONENT_IDS,
 )
+from esphome_device_builder.controllers.components import variant_to_key  # noqa: E402
 from esphome_device_builder.helpers.automation_keys import is_trigger_key  # noqa: E402
 from esphome_device_builder.models import (  # noqa: E402
     AutomationAction,
@@ -461,6 +462,14 @@ _UART_DEBUG_OVERRIDE: dict[str, Any] = {
 # Only when none of those can express the field does a new override
 # belong here — and then document the exact upstream gap that forces it,
 # as the existing entries do.
+# Common serial baud rates offered as a combo box for bare ``cv.int_`` baud
+# fields the schema can't enumerate. Shared by the ``uart`` and ``logger``
+# ``baud_rate`` overrides; ``allow_custom_value`` keeps any other rate typeable.
+_BAUD_RATE_OPTIONS: list[dict[str, str]] = [
+    {"label": str(rate), "value": str(rate)}
+    for rate in (2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400, 256000, 460800, 921600)
+]
+
 _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
     # ``api.encryption`` is validated by a custom function in ESPHome
     # so the schema generator emits only ``{key: Optional, docs: ...}``
@@ -607,6 +616,17 @@ _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
     # which hides ``DEBUG_SCHEMA`` from the bundle. The actual YAML is
     # a mapping with direction / prefix / accumulator settings.
     ("uart", "debug"): _UART_DEBUG_OVERRIDE,
+    # ``uart.baud_rate`` is a bare required ``cv.int_`` — the schema offers
+    # no hint, so the wizard's "Add" stays disabled until the user knows a
+    # rate. Curate the common rates as a combo box (custom entry still
+    # allowed) and default to 115200 so a required-field seed enables Add
+    # and writes ``baud_rate: 115200``. Stays ``integer``/``required`` so
+    # the seed commits the value and bus_constraints can override it.
+    ("uart", "baud_rate"): {
+        "default_value": 115200,
+        "allow_custom_value": True,
+        "options": _BAUD_RATE_OPTIONS,
+    },
     # ``ble_nus.debug`` reuses ``uart.maybe_empty_debug`` for the same
     # ``DEBUG_SCHEMA``. Mirror the override and just retitle the
     # description so it reads about BLE NUS traffic rather than UART.
@@ -625,6 +645,44 @@ _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
         "required": True,
         "advanced": False,
     },
+    # ``esphome.comment`` is node metadata that only surfaces in the web
+    # server UI; keep it off the main form behind the Advanced toggle.
+    ("esphome", "comment"): {
+        "advanced": True,
+    },
+    # ``logger.hardware_uart`` is commonly set (USB_SERIAL_JTAG vs UART0 on
+    # newer ESP32 variants); keep it on the main form, not behind Advanced.
+    ("logger", "hardware_uart"): {
+        "advanced": False,
+    },
+    # ``logger.baud_rate`` is a bare ``cv.int_`` like ``uart.baud_rate``; offer
+    # the same combo box plus logger's documented ``0`` (disable UART logging)
+    # sentinel. Merge keeps the field Optional/Advanced with its 115200 default.
+    ("logger", "baud_rate"): {
+        "allow_custom_value": True,
+        "options": [{"label": "0 (disable logging)", "value": "0"}, *_BAUD_RATE_OPTIONS],
+    },
+}
+
+# UART ``bus_constraints`` the schema can't express, filled into the captured
+# constraints (captured wins). Keyed by the catalog id whose "+ Add UART" detour
+# reads it. A scalar is a fixed rate; a list narrows the detour's baud combo box
+# to those choices, default-first. The fixed-baud rows are a stopgap until
+# upstream validates each rate and a re-sync captures it; CN105's choice is
+# permanent (variable by heat-pump model).
+_CURATED_BUS_CONSTRAINTS: dict[str, dict[str, dict[str, Any]]] = {
+    "climate.mitsubishi_cn105": {"uart": {"baud_rate": [2400, 9600]}},
+    "sensor.bl0940": {"uart": {"baud_rate": 4800}},
+    "sensor.pzem004t": {"uart": {"baud_rate": 9600}},
+    "sensor.senseair": {"uart": {"baud_rate": 9600}},
+    "sensor.sds011": {"uart": {"baud_rate": 9600}},
+    "sensor.sm300d2": {"uart": {"baud_rate": 9600}},
+    "rdm6300": {"uart": {"baud_rate": 9600}},
+    "fingerprint_grow": {"uart": {"baud_rate": 57600}},
+    "climate.midea": {"uart": {"baud_rate": 9600}},
+    "rf_bridge": {"uart": {"baud_rate": 19200}},
+    "light.shelly_dimmer": {"uart": {"baud_rate": 115200}},
+    "sim800l": {"uart": {"baud_rate": 9600}},
 }
 
 # Base-schema references that mark a field as a *sub-reading* of a
@@ -1169,20 +1227,31 @@ def _resolve_provides(entries: list[dict], schema_dir: Path) -> None:
     Provides ``ns`` when an id class is a referenced ``use_id`` target
     whose namespace differs from the component's own domain — same-domain
     refs (``i2c``, ``sensor``) already resolve via the top-level-key scan,
-    leaving only homeless interfaces like ``voltage_sampler``. Pops the
-    ``_impl_classes`` scratch field. In-place.
+    leaving only homeless interfaces like ``voltage_sampler``. For each
+    *nested* providing id (path deeper than the component root), records a
+    path under ``provides_id_paths[ns]`` so the frontend descends to it
+    instead of the section's own id; a namespace's paths are deduped and
+    sorted for a stable, walk-order-independent catalog. Pops the
+    ``_impl_class_paths`` scratch field. In-place.
     """
     referenced = _collect_referenced_classes(schema_dir)
     for entry in entries:
-        impl = entry.pop("_impl_classes", set())
+        impl_paths = entry.pop("_impl_class_paths", {})
         own_domain = entry["id"].split(".", 1)[0]
-        entry["provides"] = sorted(
-            {
-                namespace
-                for cls in impl & referenced
-                if (namespace := _reference_namespace(cls)) and namespace != own_domain
-            }
-        )
+        provides: set[str] = set()
+        id_paths: dict[str, set[tuple[str, ...]]] = {}
+        for cls in impl_paths.keys() & referenced:
+            namespace = _reference_namespace(cls)
+            if not namespace or namespace == own_domain:
+                continue
+            provides.add(namespace)
+            for path in impl_paths[cls]:
+                if len(path) > 1:
+                    id_paths.setdefault(namespace, set()).add(tuple(path))
+        entry["provides"] = sorted(provides)
+        entry["provides_id_paths"] = {
+            ns: [list(p) for p in sorted(paths)] for ns, paths in sorted(id_paths.items())
+        }
 
 
 # Matches a description that is actually the first bullet of an MDX
@@ -1446,6 +1515,17 @@ def _derive_docs_url(component_id: str) -> str:
     return f"https://esphome.io/components/{component_id}"
 
 
+def _is_truncated_prefix(existing: str, full: str) -> bool:
+    """Whether *existing* is a mid-sentence (no terminal .!?:) leading slice of *full*."""
+    # A trailing ``:`` is a list-introducer ("One of:") whose options live in MDX
+    # sub-bullets the extractor skips, so joining yields garbage — leave it.
+    head = " ".join(existing.split())
+    whole = " ".join(full.split())
+    return (
+        bool(head) and len(whole) > len(head) and whole.startswith(head) and head[-1] not in ".!?:"
+    )
+
+
 def _apply_field_descriptions(
     config_entries: list[dict],
     field_descriptions: dict[str, str],
@@ -1470,13 +1550,13 @@ def _apply_field_descriptions(
         if _depth > 0:
             continue
         key = entry["key"]
-        if not (entry.get("description") or "").strip():
-            text = field_descriptions.get(key)
-            if text:
-                entry["description"] = text
-                backfilled += 1
-                if fragment_url and not entry.get("help_link"):
-                    entry["help_link"] = fragment_url
+        existing = (entry.get("description") or "").strip()
+        text = field_descriptions.get(key)
+        if text and (not existing or _is_truncated_prefix(existing, text)):
+            entry["description"] = text
+            backfilled += 1
+            if fragment_url and not entry.get("help_link"):
+                entry["help_link"] = fragment_url
         inner = entry.get("config_entries")
         if inner:
             backfilled += _apply_field_descriptions(
@@ -1966,8 +2046,12 @@ def build_component_entry(
         _collect_pin_constraints(_get_esphome_loader(), domain, stem, top_key),
     )
     bus_constraints = _collect_bus_constraints(_get_esphome_loader(), domain, stem, top_key)
+    _apply_curated_bus_constraints(component_id, bus_constraints)
     _apply_unit_of_measurement_options(config_entries)
     _apply_board_options(component_id, config_entries)
+    _apply_logger_uart_options(component_id, config_entries)
+    _apply_psram_options(component_id, config_entries)
+    _apply_esp32_options(component_id, config_entries)
     _promote_multi_value_keys(config_entries)
     _promote_template_controls(component_id, config_entries)
 
@@ -1987,11 +2071,11 @@ def build_component_entry(
             introspection,
         ),
         # Resolved against referenced classes in ``build_catalog``; the
-        # raw class set is stashed under ``_impl_classes`` until then.
+        # raw class→path map is stashed under ``_impl_class_paths`` until then.
         "provides": [],
         "config_entries": config_entries,
     }
-    component["_impl_classes"] = _implemented_classes(section)
+    component["_impl_class_paths"] = _implemented_classes(section)
     # Required-groups straddle the component root (path ``()``) and
     # nested ``NESTED`` entries; the applier needs the whole
     # component dict to stamp both locations.
@@ -3118,31 +3202,75 @@ def _config_schema(section: dict) -> dict:
     return (section.get("schemas") or {}).get("CONFIG_SCHEMA") or {}
 
 
-def _implemented_classes(section: dict) -> set[str]:
+def _implemented_classes(section: dict) -> dict[str, list[list[str]]]:
     """
-    Full ``ns::Class`` set the component's id(s) implement (class + parents).
+    Each implemented ``ns::Class`` → every YAML key-path declaring such an id.
 
-    Matched against referenced classes whole, not by namespace, so a
-    ``cst226::CST226ButtonListener`` can't pose as the referenced
-    ``cst226::CST226Touchscreen``. Covers discriminated ``types.*`` ids
-    (``ads1118``'s per-channel adc/temperature).
+    Walks the whole ``CONFIG_SCHEMA`` subtree (nested objects/lists plus
+    ``types`` variants, which are flattened in YAML so add no path segment);
+    a class may appear at several paths and all are kept. Matched against
+    referenced classes by full class, not namespace. A nested id contributes
+    only the parent (interface) classes it implements; a top-level own-class
+    id (``len(path) == 1``) also counts. See :func:`_record_id_classes`.
     """
     config_schema = _config_schema(section)
-    out: set[str] = set()
-
-    def _add(id_field: Any) -> None:
-        id_type = (id_field or {}).get("id_type")
-        if not isinstance(id_type, dict):
-            return
-        if isinstance(cls := id_type.get("class"), str):
-            out.add(cls)
-        out.update(p for p in id_type.get("parents") or [] if isinstance(p, str))
-
-    _add((config_schema.get("schema", {}).get("config_vars") or {}).get("id"))
-    for variant in (config_schema.get("types") or {}).values():
-        if isinstance(variant, dict):
-            _add((variant.get("config_vars") or {}).get("id"))
+    out: dict[str, list[list[str]]] = {}
+    # (config_vars, path) frontier. A typed variant shares its parent's
+    # path (the ``types`` discriminator is flattened in YAML).
+    frontier: list[tuple[Any, list[str]]] = []
+    _push_config_vars(frontier, config_schema, [])
+    while frontier:
+        config_vars, path = frontier.pop()
+        if not isinstance(config_vars, dict):
+            continue
+        for name, field_def in config_vars.items():
+            if not isinstance(field_def, dict):
+                continue
+            field_path = [*path, name]
+            _record_id_classes(out, field_def, field_path)
+            _push_config_vars(frontier, field_def, field_path)
     return out
+
+
+def _push_config_vars(frontier: list[tuple[Any, list[str]]], node: dict, path: list[str]) -> None:
+    """Queue *node*'s own and per-variant ``config_vars`` for the walk, under *path*."""
+    frontier.append((_schema_config_vars(node), path))
+    frontier.extend((cv, path) for cv in _variant_config_vars(node))
+
+
+def _schema_config_vars(node: dict) -> Any:
+    """Return the ``schema.config_vars`` mapping under a schema/field node, or None."""
+    schema = node.get("schema")
+    return schema.get("config_vars") if isinstance(schema, dict) else None
+
+
+def _variant_config_vars(node: dict) -> list[Any]:
+    """Return each ``types.<variant>.config_vars`` mapping under a node."""
+    types = node.get("types")
+    if not isinstance(types, dict):
+        return []
+    return [v.get("config_vars") for v in types.values() if isinstance(v, dict)]
+
+
+def _record_id_classes(out: dict[str, list[list[str]]], field_def: dict, path: list[str]) -> None:
+    """
+    Append *path* to ``out`` for each id-creation class *field_def* declares.
+
+    Parent (interface) classes count at any depth; the leaf own-class counts
+    only at the component root (``len(path) == 1``, not the literal ``"id"``
+    key, which can be ``output_id`` / ``raw_data_id`` / ...).
+    """
+    id_type = field_def.get("id_type")
+    if not isinstance(id_type, dict) or "use_id_type" in field_def:
+        return
+    classes = [p for p in id_type.get("parents") or [] if isinstance(p, str)]
+    # A nested own-class id is the sub-entity's own identity, not a foreign
+    # interface; advertising it would conflate same-namespace classes (a
+    # ``pipsolar`` output posing as the ``pipsolar`` hub a ``pipsolar_id`` wants).
+    if len(path) == 1 and isinstance(id_type.get("class"), str):
+        classes.append(id_type["class"])
+    for cls in classes:
+        out.setdefault(cls, []).append(path)
 
 
 def _collect_referenced_classes(schema_dir: Path) -> set[str]:
@@ -3279,6 +3407,7 @@ _LABEL_ACRONYMS = frozenset(
         # Identifier / common
         "CRC",
         "CPU",
+        "ECC",
         "ID",
         "PID",
         "PSRAM",
@@ -3657,6 +3786,37 @@ _TARGET_PLATFORMS: frozenset[str] = frozenset(
 _NETWORK_TRANSPORTS: frozenset[str] = frozenset({"wifi", "ethernet", "openthread", "host"})
 
 
+def _resolve_auto_load(raw_auto_load: Any) -> list[str]:
+    """
+    Resolve a possibly-callable ``AUTO_LOAD`` to a list, else ``[]``.
+
+    A callable is invoked with no target platform set, so platform-gated extras
+    drop out and only the unconditional auto-loads come through; failures (raise
+    or non-list) fall back to ``[]``.
+    """
+    if callable(raw_auto_load):
+        try:
+            from esphome.const import KEY_CORE, KEY_TARGET_PLATFORM
+            from esphome.core import CORE
+
+            # Force (not setdefault) the platform-agnostic state for the call,
+            # then restore so resolution can't leak CORE state between calls.
+            core = CORE.data.setdefault(KEY_CORE, {})
+            had_platform = KEY_TARGET_PLATFORM in core
+            prev_platform = core.get(KEY_TARGET_PLATFORM)
+            core[KEY_TARGET_PLATFORM] = None
+            try:
+                raw_auto_load = raw_auto_load()
+            finally:
+                if had_platform:
+                    core[KEY_TARGET_PLATFORM] = prev_platform
+                else:
+                    core.pop(KEY_TARGET_PLATFORM, None)
+        except Exception:
+            raw_auto_load = []
+    return list(raw_auto_load) if isinstance(raw_auto_load, list) else []
+
+
 def introspect_component(component_id: str) -> dict[str, Any]:
     """
     Return ``{multi_conf, is_target_platform, platform_defaults, refined_types, auto_load}``.
@@ -3664,11 +3824,10 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     Best-effort: returns an empty dict when ``esphome`` isn't importable
     or the component module can't be loaded.
 
-    ``auto_load`` is ESPHome's static list of components pulled in
-    whenever this one is configured. When the upstream declaration is
-    a callable (config-dependent), we can't resolve it without a
-    config and surface an empty list — callers should treat that as
-    "unknown" and stay conservative.
+    ``auto_load`` is ESPHome's list of components pulled in whenever this
+    one is configured. A callable (config-dependent) declaration is
+    resolved best-effort by calling it; if that raises, the list is empty
+    and callers stay conservative.
     """
     if not component_id:
         return {}
@@ -3691,8 +3850,7 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     platform_manifests_by_domain = _enumerate_platform_manifests_by_domain(loader, component_id)
     platform_manifests = [pm for _domain, pm in platform_manifests_by_domain]
 
-    raw_auto_load = manifest.auto_load
-    auto_load: list[str] = list(raw_auto_load) if isinstance(raw_auto_load, list) else []
+    auto_load: list[str] = _resolve_auto_load(manifest.auto_load)
 
     # Bare manifest results take precedence (``setdefault`` keep-first);
     # platform-manifest results fill in fields that only exist on the
@@ -3978,6 +4136,7 @@ _COMPONENT_DEFAULTS: dict[str, Any] = {
     "multi_conf": False,
     "supported_platforms": [],
     "provides": [],
+    "provides_id_paths": {},
     "config_entries": [],
     "required_groups": [],
     "bus_constraints": {},
@@ -4904,6 +5063,19 @@ def _apply_pin_constraints(
 _BUS_FINAL_VALIDATE_HELPERS = frozenset({"i2c", "spi", "uart"})
 
 
+def _apply_curated_bus_constraints(
+    component_id: str, bus_constraints: dict[str, dict[str, Any]]
+) -> None:
+    """Fill curated constraints for *component_id*; a captured key of the same name wins."""
+    curated = _CURATED_BUS_CONSTRAINTS.get(component_id)
+    if not curated:
+        return
+    for bus, kv in curated.items():
+        target = bus_constraints.setdefault(bus, {})
+        for key, value in kv.items():
+            target.setdefault(key, value)
+
+
 def _collect_bus_constraints(
     loader: Any,
     domain: str | None,
@@ -4939,7 +5111,12 @@ def _collect_bus_constraints(
 
 @cache
 def _bus_constraints_from_source(src_file: str) -> dict[str, dict[str, Any]]:
-    """Parse ``FINAL_VALIDATE_SCHEMA = <bus>.final_validate_device_schema(...)``."""
+    """
+    Bus constraints from ``FINAL_VALIDATE_SCHEMA``'s ``final_validate_device_schema``.
+
+    Walks the assignment value so a ``cv.All(...)``-wrapped call (mitsubishi_cn105)
+    is found, not just a bare right-hand side.
+    """
     try:
         tree = ast.parse(Path(src_file).read_text(encoding="utf-8"))
     except (OSError, SyntaxError):
@@ -4952,18 +5129,18 @@ def _bus_constraints_from_source(src_file: str) -> dict[str, dict[str, Any]]:
             isinstance(t, ast.Name) and t.id == "FINAL_VALIDATE_SCHEMA" for t in node.targets
         ):
             continue
-        call = node.value
-        if not (
-            isinstance(call, ast.Call)
-            and isinstance(call.func, ast.Attribute)
-            and call.func.attr == "final_validate_device_schema"
-            and isinstance(call.func.value, ast.Name)
-            and call.func.value.id in _BUS_FINAL_VALIDATE_HELPERS
-        ):
-            continue
-        constraints = _bus_constraint_kwargs(call)
-        if constraints:
-            out[call.func.value.id] = constraints
+        for call in ast.walk(node.value):
+            if not (
+                isinstance(call, ast.Call)
+                and isinstance(call.func, ast.Attribute)
+                and call.func.attr == "final_validate_device_schema"
+                and isinstance(call.func.value, ast.Name)
+                and call.func.value.id in _BUS_FINAL_VALIDATE_HELPERS
+            ):
+                continue
+            constraints = _bus_constraint_kwargs(call)
+            if constraints:
+                out[call.func.value.id] = constraints
     return out
 
 
@@ -5153,6 +5330,234 @@ def _apply_board_options(component_id: str, entries: list[dict]) -> None:
             entry["options"] = options
             entry["allow_custom_value"] = True
             break
+
+
+def _logger_uart_platform_options() -> dict[str, list[dict[str, str]]]:
+    """Per-variant logger ``hardware_uart`` choices from the live logger module.
+
+    A custom ``uart_selection`` validator gates the set, so the schema bundle
+    can't carry it; introspected from ``UART_SELECTION_*`` and keyed via the
+    shared ``variant_to_key`` so lookups hit. Empty when esphome's logger
+    isn't importable; other failures propagate to fail the build loudly.
+    """
+    try:
+        from esphome.components import logger as _logger
+    except ImportError:
+        _LOGGER.warning("esphome logger not importable — hardware_uart combobox skipped")
+        return {}
+    out: dict[str, list[dict[str, str]]] = {}
+
+    def add(raw_key: str, values: list[str]) -> None:
+        out[variant_to_key(raw_key)] = [{"label": v, "value": v} for v in values]
+
+    for variant, values in _logger.UART_SELECTION_ESP32.items():
+        add(variant, values)
+    for component, values in _logger.UART_SELECTION_LIBRETINY.items():
+        add(component, values)
+    add("esp8266", _logger.UART_SELECTION_ESP8266)
+    add("rp2040", _logger.UART_SELECTION_RP2040)
+    add("nrf52", _logger.UART_SELECTION_NRF52)
+    return out
+
+
+_LOGGER_UART_PLATFORM_OPTIONS: dict[str, list[dict[str, str]]] = _logger_uart_platform_options()
+
+
+def _apply_logger_uart_options(component_id: str, entries: list[dict]) -> None:
+    """Make logger ``hardware_uart`` a per-platform UART combobox.
+
+    Attaches the per-variant choices as ``platform_options`` (resolved to
+    ``options`` per target by the component controller) plus
+    ``allow_custom_value`` so the frontend renders a pick-or-type combobox.
+    """
+    if component_id != "logger" or not _LOGGER_UART_PLATFORM_OPTIONS:
+        return
+    for entry in entries:
+        if entry.get("key") == "hardware_uart":
+            entry["platform_options"] = _LOGGER_UART_PLATFORM_OPTIONS
+            entry["allow_custom_value"] = True
+            break
+
+
+@contextlib.contextmanager
+def _esp32_variant_context(variant: str) -> Iterator[None]:
+    """Set ``CORE.data`` so esphome resolves as if compiling for *variant*.
+
+    Lets a variant-gated callable (psram's ``get_config_schema``) run; the
+    prior ``CORE.data`` state is restored on exit so the build can't leak
+    between variants.
+    """
+    from esphome.components.esp32 import KEY_ESP32, KEY_VARIANT
+    from esphome.const import KEY_CORE, KEY_TARGET_PLATFORM, PLATFORM_ESP32
+    from esphome.core import CORE
+
+    saved = {k: CORE.data.get(k) for k in (KEY_CORE, KEY_ESP32)}
+    CORE.data[KEY_CORE] = {KEY_TARGET_PLATFORM: PLATFORM_ESP32}
+    CORE.data[KEY_ESP32] = {KEY_VARIANT: variant}
+    try:
+        yield
+    finally:
+        for key, prev in saved.items():
+            if prev is None:
+                CORE.data.pop(key, None)
+            else:
+                CORE.data[key] = prev
+
+
+def _psram_config_entries() -> list[dict]:
+    """Synthesize psram's config entries from its per-variant callable schema.
+
+    psram's ``CONFIG_SCHEMA`` is ``get_config_schema`` — a callable that builds
+    a different schema per ESP32 variant — so the schema bundle dumps it empty.
+    Feed each variant in, capture the built ``vol.Schema`` (a one-shot subclass
+    whose ``__call__`` returns itself, since the real one validates and returns
+    a dict), and union the keys / ``cv.one_of`` options / defaults across
+    variants. Empty when esphome isn't importable.
+    """
+    try:
+        from esphome.components import psram as _psram
+    except ImportError:
+        _LOGGER.warning("esphome psram not importable — structured editor skipped")
+        return []
+
+    class _Capture(vol.Schema):
+        def __call__(self, data: Any) -> Any:
+            return self
+
+    # Per key: default, is-bool, accumulated options. Variant order doesn't
+    # matter: the selects ship no default, and the boolean defaults are the
+    # same on every chip.
+    fields: dict[str, dict[str, Any]] = {}
+    record = partial(_record_psram_field, fields)
+    original_schema = _psram.cv.Schema
+    _psram.cv.Schema = _Capture
+    try:
+        for variant, modes in _psram.SPIRAM_MODES.items():
+            with _esp32_variant_context(variant):
+                _walk_schema_keys(_psram.get_config_schema({"mode": modes[0]}), record)
+    finally:
+        _psram.cv.Schema = original_schema
+
+    return _sort_entries([_psram_entry(name, field) for name, field in fields.items()])
+
+
+def _record_psram_field(
+    fields: dict[str, dict[str, Any]], key: Any, name: str, validator: Any, path: tuple[str, ...]
+) -> None:
+    """Fold one captured schema key into *fields* (top-level only, auto id aside)."""
+    if len(path) != 1 or name == "id":
+        return
+    field = fields.setdefault(name, {"default": _psram_default(key), "bool": False, "options": []})
+    if getattr(validator, "__name__", "") == "boolean":
+        field["bool"] = True
+    for option in _psram_one_of_options(validator):
+        if option not in field["options"]:
+            field["options"].append(option)
+
+
+def _psram_default(key: Any) -> Any:
+    """Resolve a voluptuous ``cv.Optional`` key's default value, or None."""
+    default = getattr(key, "default", None)
+    if default is None or default is vol.UNDEFINED:
+        return None
+    value = default() if callable(default) else default
+    return None if value is vol.UNDEFINED else value
+
+
+def _psram_one_of_options(validator: Any) -> list[str | int]:
+    """
+    Read a ``cv.one_of`` validator's accepted values out of its closure.
+
+    Depends on ``cv.one_of``'s closure layout; the unioned-options tests pin
+    it, so an upstream refactor breaks CI rather than silently dropping the
+    options (the select would degrade to a free-text field).
+    """
+    for cell in getattr(validator, "__closure__", None) or ():
+        value = cell.cell_contents
+        if (
+            isinstance(value, (tuple, list))
+            and value
+            and all(isinstance(item, (str, int)) for item in value)
+        ):
+            return list(value)
+    return []
+
+
+def _psram_entry(name: str, field: dict[str, Any]) -> dict:
+    is_bool = field["bool"]
+    entry: dict[str, Any] = {
+        "key": name,
+        "type": "boolean" if is_bool else "string",
+        "label": _key_to_label(name),
+        # The boolean flags (enable_ecc, disabled, ignore_not_found) are niche;
+        # the mode / speed selects are the primary config.
+        "advanced": is_bool,
+    }
+    if is_bool:
+        # Boolean defaults are the same on every chip, so they're safe to ship.
+        entry["default_value"] = field["default"]
+    options = field["options"]
+    if options:
+        # A select's options union every ESP32 variant, so no single
+        # default_value is valid on all chips (ESP32-P4 wants hex / 20MHZ, not
+        # quad / 40MHZ); ship none and let ESPHome apply the per-chip default
+        # when mode / speed are left unset. label == value is the enum norm;
+        # values like "40MHZ" carry a leading number, so order ascending.
+        entry["options"] = [{"label": str(v), "value": str(v)} for v in _ordered_options(options)]
+    return entry
+
+
+def _ordered_options(options: list[str | int]) -> list[str | int]:
+    """Sort by leading integer when every value has one, else keep first-seen order."""
+    keys = [re.match(r"\d+", str(v)) for v in options]
+    if all(keys):
+        return [
+            v for _, v in sorted(zip(keys, options, strict=True), key=lambda kv: int(kv[0].group()))
+        ]
+    return options
+
+
+def _apply_psram_options(component_id: str, entries: list[dict]) -> None:
+    """Give psram a structured editor from its callable per-variant schema."""
+    if component_id != "psram" or entries:
+        return
+    entries.extend(_psram_config_entries())
+
+
+def _apply_esp32_options(component_id: str, entries: list[dict]) -> None:
+    """Default esp32's framework ``type`` from upstream's validate-time setter."""
+    if component_id != "esp32":
+        return
+    default = _esp32_default_framework()
+    if default is None:
+        return
+    framework = next((e for e in entries if e.get("key") == "framework"), None)
+    if not framework:
+        return
+    type_entry = next(
+        (e for e in framework.get("config_entries", []) if e.get("key") == "type"), None
+    )
+    if type_entry is None or type_entry.get("default_value") is not None:
+        return  # fill in a missing default; never clobber one the bundle carries
+    if default in {o["value"] for o in type_entry.get("options", [])}:
+        type_entry["default_value"] = default
+
+
+@cache
+def _esp32_default_framework() -> str | None:
+    """Validate a minimal config so esp32's schema fills in the framework type."""
+    try:
+        from esphome.components import esp32
+        from esphome.const import CONF_FRAMEWORK, CONF_TYPE, CONF_VARIANT
+    except ImportError:
+        return None
+    # A non-Arduino variant keeps the validate-time migration notice quiet.
+    variant = next((v for v in esp32.VARIANTS if v not in esp32.ARDUINO_ALLOWED_VARIANTS), None)
+    if variant is None:
+        return None
+    with _esp32_variant_context(variant):
+        config = esp32.CONFIG_SCHEMA({CONF_VARIANT: variant})
+    return config[CONF_FRAMEWORK][CONF_TYPE]
 
 
 def _promote_multi_value_keys(entries: list[dict]) -> None:

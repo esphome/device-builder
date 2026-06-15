@@ -3,17 +3,33 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import TYPE_CHECKING, Any
+
+from esphome.storage_json import StorageJSON
 
 from ...helpers.api import CommandError
 from ...helpers.device_yaml import configuration_stem, parse_esphome_meta
-from ...helpers.yaml import YamlUpsertNotSupportedError, upsert_yaml_leaf_under_top_block
+from ...helpers.storage_path import resolve_storage_path
+from ...helpers.yaml import (
+    ESPHOME_NAME_PATH,
+    YamlUpsertNotSupportedError,
+    is_retargetable_name,
+    parse_substitution_ref,
+    read_yaml_scalar,
+    rewrite_name_or_substitution,
+    upsert_yaml_leaf_under_top_block,
+)
 from ...models import Device, ErrorCode, UpdateDeviceResponse
 from ..config import set_device_labels
 from . import archive
+from .firmware_sync import migrate_metadata_then_scan
+from .mutations_create import default_mdns_address, save_device_storage
 
 if TYPE_CHECKING:
     from .controller import DevicesController
+
+_LOGGER = logging.getLogger(__name__)
 
 
 async def update_device(
@@ -179,18 +195,15 @@ async def rename_device(
     *,
     configuration: str,
     new_name: str,
+    config_only: bool = False,
 ) -> dict[str, Any]:
     """
     Rename a device configuration.
 
-    Thin pass-through to ``esphome rename``: the CLI owns the
-    whole atomic flow (YAML edit, revalidation, compile + OTA
-    install, rollback on failure). Routed through the firmware
-    queue so streaming output shows up alongside other firmware
-    tasks. Deliberately no file-level fallback: a fallback would
-    silently rename the YAML on disk while the running firmware
-    keeps broadcasting the old hostname (dashboard label and
-    device state diverge with no error to the user).
+    Default path delegates to ``esphome rename`` (compile + OTA install,
+    via the firmware queue); only succeeds against a reachable device.
+    ``config_only`` rewrites the YAML + ``esphome.name`` and renames the
+    file without compiling or flashing, for an offline device.
     """
     new_filename = f"{new_name}.yaml"
 
@@ -217,11 +230,117 @@ async def rename_device(
         msg = f"A device named {new_filename} already exists"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
+    if config_only:
+        return await _config_only_rename(controller, configuration=configuration, new_name=new_name)
+
     if controller._db.firmware is None:
         msg = "Firmware controller is unavailable"
         raise CommandError(ErrorCode.INTERNAL_ERROR, msg)
     job = await controller._db.firmware.rename(configuration=configuration, new_name=new_name)
     return {"configuration": new_filename, "job": job.to_dict()}
+
+
+async def _read_device_yaml_or_raise(controller: DevicesController, configuration: str) -> str:
+    """
+    Return *configuration*'s YAML text, raising INVALID_ARGS if it's gone.
+
+    A single ``read_text`` with no preceding ``exists()`` check, so a file
+    deleted mid-call surfaces as the typed "device gone" error instead of
+    leaking ``FileNotFoundError`` as INTERNAL_ERROR.
+    """
+    path = controller._db.settings.rel_path(configuration)
+
+    def _read() -> str | None:
+        try:
+            return path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return None
+
+    content = await asyncio.get_running_loop().run_in_executor(None, _read)
+    if content is None:
+        raise CommandError(ErrorCode.INVALID_ARGS, f"Device {configuration} not found")
+    return content
+
+
+async def _config_only_rename(
+    controller: DevicesController,
+    *,
+    configuration: str,
+    new_name: str,
+) -> dict[str, Any]:
+    """
+    Rename the YAML + ``esphome.name`` with no compile or OTA.
+
+    Validates the rewritten config before touching disk, writes the new
+    file atomically, removes the old, and migrates the StorageJSON +
+    sidecar metadata. Returns ``job: None`` (nothing is queued).
+    """
+    new_filename = f"{new_name}.yaml"
+    loop = asyncio.get_running_loop()
+    old_path = controller._db.settings.rel_path(configuration)
+    new_path = controller._db.settings.rel_path(new_filename)
+
+    content = await _read_device_yaml_or_raise(controller, configuration)
+
+    # ``esphome.name`` must be retargetable in place: a plain literal (rewrite
+    # the leaf) or a pure ``${var}`` ref whose definition lives in this file's
+    # ``substitutions:`` block (rewrite the def). A missing leaf, a tag, an
+    # embedded substitution (``kitchen_${suffix}``), or a ``${var}`` defined in
+    # a package / !include would flatten the indirection to a literal, so refuse
+    # those and steer to the OTA rename, which resolves them.
+    current = read_yaml_scalar(content, ESPHOME_NAME_PATH)
+    var = parse_substitution_ref(current) if current is not None else None
+    # A pure ``${var}`` ref whose def isn't in this file would be flattened.
+    nonlocal_sub = var is not None and read_yaml_scalar(content, ("substitutions", var)) is None
+    if current is None or not is_retargetable_name(current) or nonlocal_sub:
+        raise CommandError(
+            ErrorCode.INVALID_ARGS,
+            "Can't rename offline: esphome.name isn't a plain literal or a local "
+            "${substitution} (it may come from packages, an !include, or an "
+            "embedded substitution). Bring the device online to rename it.",
+        )
+
+    new_content = rewrite_name_or_substitution(content, ESPHOME_NAME_PATH, new_name)
+
+    # Validate before any disk change so a bad rewrite never lands on disk.
+    await controller._validate_rewritten_yaml_or_raise(new_filename, new_content, action="rename")
+
+    await controller._write_yaml_atomic_async(new_path, new_content)
+    await loop.run_in_executor(None, lambda: old_path.unlink(missing_ok=True))
+    # The YAML is already renamed; storage migration is best-effort (logs on
+    # failure) and the shared metadata-migrate-then-scan always rescans.
+    await loop.run_in_executor(None, _migrate_storage_json, configuration, new_filename, new_name)
+    await migrate_metadata_then_scan(controller, configuration, new_filename)
+    return {"configuration": new_filename, "job": None}
+
+
+def _migrate_storage_json(old_configuration: str, new_filename: str, new_name: str) -> None:
+    """Move the StorageJSON sidecar to the new filename, retargeting the name.
+
+    Best-effort (errors are logged, not raised): the YAML rename has already
+    landed, so a sidecar failure must not fail the rename. The trade-off is
+    that on failure the rename still returns success while the device shows as
+    never-built until its next compile regenerates the sidecar, and the old
+    sidecar is left orphaned. Recoverable, so it's logged rather than surfaced
+    to the client. ``friendly_name`` / ``address`` are only retargeted when
+    they still carry the old-name defaults.
+    """
+    try:
+        old_storage_path = resolve_storage_path(old_configuration)
+        storage = StorageJSON.load(old_storage_path)
+        if storage is None:
+            return
+        old_name = storage.name
+        storage.name = new_name
+        if storage.friendly_name == old_name:
+            storage.friendly_name = new_name
+        if storage.address == default_mdns_address(old_name):
+            storage.address = default_mdns_address(new_name)
+        save_device_storage(new_filename, storage)
+        old_storage_path.unlink(missing_ok=True)
+    except OSError:
+        # Filesystem hiccup only; a logic bug here should surface, not hide.
+        _LOGGER.exception("Could not migrate StorageJSON for %s", new_filename)
 
 
 async def edit_friendly_name(
@@ -260,25 +379,7 @@ async def edit_friendly_name(
     if not new_friendly_name:
         raise CommandError(ErrorCode.INVALID_ARGS, "new_friendly_name is required")
 
-    loop = asyncio.get_running_loop()
-    config_path = controller._db.settings.rel_path(configuration)
-
-    def _read() -> str | None:
-        # Single read_text call, no preceding exists() check;
-        # a file deleted between the two would leak
-        # FileNotFoundError as INTERNAL_ERROR instead of the
-        # typed INVALID_ARGS we want for "device gone".
-        try:
-            return config_path.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            return None
-
-    content = await loop.run_in_executor(None, _read)
-    if content is None:
-        raise CommandError(
-            ErrorCode.INVALID_ARGS,
-            f"Device {configuration} not found",
-        )
+    content = await _read_device_yaml_or_raise(controller, configuration)
 
     try:
         new_content = upsert_yaml_leaf_under_top_block(

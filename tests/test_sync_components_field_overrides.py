@@ -13,7 +13,13 @@ can't quietly regress to ``type=string``.
 
 from __future__ import annotations
 
-from script.sync_components import _FIELD_OVERRIDES  # type: ignore[import-not-found]
+import orjson
+
+from script.sync_components import (  # type: ignore[import-not-found]
+    _BAUD_RATE_OPTIONS,
+    _FIELD_OVERRIDES,
+    _OUTPUT_BODIES_DIR,
+)
 
 
 def test_wifi_ap_override_renders_as_nested_group_on_main_form() -> None:
@@ -78,6 +84,22 @@ def test_uart_debug_override_renders_as_nested_group_on_main_form() -> None:
     assert after_inner == {"bytes", "timeout", "delimiter"}
 
 
+def test_uart_baud_rate_override_is_a_common_rate_combo_box() -> None:
+    """``uart.baud_rate`` gains curated rates + a 115200 default; type/required untouched."""
+    override = _FIELD_OVERRIDES.get(("uart", "baud_rate"))
+    assert override is not None, "missing uart.baud_rate override"
+    assert override["default_value"] == 115200
+    assert override["allow_custom_value"] is True
+    values = [o["value"] for o in override["options"]]
+    # ConfigValueOption.value is str; the list covers the LD2410 rate too.
+    assert all(isinstance(v, str) for v in values)
+    assert {"2400", "115200", "256000", "921600"} <= set(values)
+    # type/required are NOT overridden so the field stays a required integer:
+    # the required-field seed commits 115200 and bus_constraints can override it.
+    assert "type" not in override
+    assert "required" not in override
+
+
 def test_ble_nus_debug_override_shares_uart_debug_shape() -> None:
     """``ble_nus.debug`` reuses ``uart.maybe_empty_debug`` upstream — overrides stay in lockstep."""
     uart_override = _FIELD_OVERRIDES[("uart", "debug")]
@@ -88,3 +110,54 @@ def test_ble_nus_debug_override_shares_uart_debug_shape() -> None:
     assert ble_override["config_entries"] == uart_override["config_entries"]
     assert ble_override["description"] != uart_override["description"]
     assert "BLE NUS" in ble_override["description"]
+
+
+def test_esphome_comment_override_marks_field_advanced() -> None:
+    """``esphome.comment`` is forced advanced so it stays off the main form."""
+    override = _FIELD_OVERRIDES.get(("esphome", "comment"))
+    assert override is not None, "missing esphome.comment override"
+    assert override["advanced"] is True
+
+
+def test_shipped_catalog_esphome_comment_is_advanced() -> None:
+    """The generated esphome body marks ``comment`` advanced."""
+    body = orjson.loads((_OUTPUT_BODIES_DIR / "esphome.json").read_bytes())
+    comment = next(e for e in body["config_entries"] if e["key"] == "comment")
+    assert comment["advanced"] is True
+
+
+def test_logger_hardware_uart_override_promotes_to_main_form() -> None:
+    """``logger.hardware_uart`` is forced non-advanced so it shows on the main form."""
+    override = _FIELD_OVERRIDES.get(("logger", "hardware_uart"))
+    assert override is not None, "missing logger.hardware_uart override"
+    assert override["advanced"] is False
+
+
+def test_logger_baud_rate_override_offers_combobox_with_disable_option() -> None:
+    """``logger.baud_rate`` reuses the shared rates plus the ``0`` disable sentinel."""
+    override = _FIELD_OVERRIDES.get(("logger", "baud_rate"))
+    assert override is not None, "missing logger.baud_rate override"
+    assert override["allow_custom_value"] is True
+    values = [o["value"] for o in override["options"]]
+    assert values[0] == "0"
+    assert override["options"][0]["label"] == "0 (disable logging)"
+    # The standard rates follow, reused verbatim from the shared list.
+    assert override["options"][1:] == _BAUD_RATE_OPTIONS
+    # Merge-only: type/required/advanced are left to the schema-derived entry.
+    assert {"type", "required", "advanced"}.isdisjoint(override)
+
+
+def test_uart_and_logger_baud_rate_share_the_rate_list() -> None:
+    """Both baud combo boxes draw from one ``_BAUD_RATE_OPTIONS`` source."""
+    assert _FIELD_OVERRIDES[("uart", "baud_rate")]["options"] is _BAUD_RATE_OPTIONS
+    assert {"2400", "115200", "921600"} <= {o["value"] for o in _BAUD_RATE_OPTIONS}
+
+
+def test_shipped_catalog_logger_baud_rate_is_combobox() -> None:
+    """The generated logger body renders ``baud_rate`` as a custom-allowed select."""
+    body = orjson.loads((_OUTPUT_BODIES_DIR / "logger.json").read_bytes())
+    baud = next(e for e in body["config_entries"] if e["key"] == "baud_rate")
+    assert baud["allow_custom_value"] is True
+    labels = [o["label"] for o in baud["options"]]
+    assert "0 (disable logging)" in labels
+    assert {"2400", "115200", "921600"} <= {o["value"] for o in baud["options"]}

@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
+
+import orjson
 
 from script.sync_components import (  # type: ignore[import-not-found]
+    _CURATED_BUS_CONSTRAINTS,
+    _OUTPUT_BODIES_DIR,
+    _apply_curated_bus_constraints,
     _bus_constraints_from_source,
 )
 
@@ -77,3 +83,75 @@ def test_non_bus_helper_is_ignored(tmp_path: Path) -> None:
         'FINAL_VALIDATE_SCHEMA = modbus.final_validate_device_schema("x", baud_rate=9600)\n',
     )
     assert _bus_constraints_from_source(src) == {}
+
+
+def test_cv_all_wrapped_final_validate_is_unwrapped(tmp_path: Path) -> None:
+    """A ``cv.All(uart.final_validate_device_schema(...), ...)`` wrapper is still read (cn105)."""
+    src = _write(
+        tmp_path,
+        "FINAL_VALIDATE_SCHEMA = cv.All(\n"
+        '    uart.final_validate_device_schema("cn105", parity="EVEN", require_rx=True),\n'
+        "    _extra_validate,\n"
+        ")\n",
+    )
+    assert _bus_constraints_from_source(src) == {"uart": {"parity": "EVEN", "require_rx": True}}
+
+
+def test_curated_cn105_is_a_baud_choice_list() -> None:
+    """CN105's rate is heat-pump-dependent, so it's curated as a 2400/9600 choice."""
+    assert _CURATED_BUS_CONSTRAINTS["climate.mitsubishi_cn105"]["uart"]["baud_rate"] == [2400, 9600]
+
+
+def test_curated_fixed_baud_rows_are_scalars() -> None:
+    """The stopgap fixed-baud rows carry the rate each device's hardware needs."""
+    expected = {
+        "sensor.bl0940": 4800,
+        "sensor.pzem004t": 9600,
+        "rdm6300": 9600,
+        "fingerprint_grow": 57600,
+        "rf_bridge": 19200,
+        "light.shelly_dimmer": 115200,
+        "sim800l": 9600,
+    }
+    for cid, baud in expected.items():
+        assert _CURATED_BUS_CONSTRAINTS[cid]["uart"]["baud_rate"] == baud
+
+
+def test_apply_curated_merges_onto_captured_constraints() -> None:
+    """Curated baud merges with sim800l's captured require_* instead of replacing them."""
+    captured: dict[str, dict[str, Any]] = {"uart": {"require_tx": True, "require_rx": True}}
+    _apply_curated_bus_constraints("sim800l", captured)
+    assert captured == {"uart": {"require_tx": True, "require_rx": True, "baud_rate": 9600}}
+
+
+def test_apply_curated_does_not_overwrite_a_captured_key() -> None:
+    """Once upstream validates the rate, the captured value wins over the curated stopgap."""
+    # bl0940's curated stopgap is 4800; a captured (upstream) value must survive.
+    captured: dict[str, dict[str, Any]] = {"uart": {"baud_rate": 19200}}
+    _apply_curated_bus_constraints("sensor.bl0940", captured)
+    assert captured["uart"]["baud_rate"] == 19200
+
+
+def test_apply_curated_is_noop_for_unlisted_component() -> None:
+    """A component with no curated entry is left untouched."""
+    constraints: dict[str, dict[str, Any]] = {}
+    _apply_curated_bus_constraints("sensor.dht", constraints)
+    assert constraints == {}
+
+
+def test_shipped_catalog_carries_curated_baud() -> None:
+    """The generated bodies merge the curated baud (CN105 list, sim800l onto its require_*)."""
+    cn105 = orjson.loads((_OUTPUT_BODIES_DIR / "climate.mitsubishi_cn105.json").read_bytes())
+    assert cn105["bus_constraints"]["uart"]["baud_rate"] == [2400, 9600]
+    sim = orjson.loads((_OUTPUT_BODIES_DIR / "sim800l.json").read_bytes())
+    assert sim["bus_constraints"]["uart"]["baud_rate"] == 9600
+    assert sim["bus_constraints"]["uart"]["require_tx"] is True
+
+
+def test_shipped_catalog_captures_cn105_cv_all_constraints() -> None:
+    """CN105's cv.All-wrapped FINAL_VALIDATE constraints land beside the curated baud."""
+    cn105 = orjson.loads((_OUTPUT_BODIES_DIR / "climate.mitsubishi_cn105.json").read_bytes())
+    uart = cn105["bus_constraints"]["uart"]
+    assert uart["parity"] == "EVEN"
+    assert uart["require_rx"] is True
+    assert uart["require_tx"] is True
