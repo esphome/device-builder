@@ -6,8 +6,11 @@ import json
 from pathlib import Path
 
 from script.sync_components import (  # type: ignore[import-not-found]
+    _apply_auto_loaded_reference_advanced,
     _convert_field,
     _is_own_id_field,
+    _multi_instance_targets,
+    _resolve_auto_load,
 )
 
 _UNUSED_SCHEMA_DIR = Path("/unused")
@@ -129,6 +132,123 @@ def test_catalog_debug_sub_readings_not_advanced_but_id_stays() -> None:
         assert by_key[key].get("advanced", False) is False, f"{key} should not be advanced"
     # ``debug_id`` is a ``cv.use_id(DebugComponent)`` cross-reference
     # (``GenerateID`` key + ``use_id_type``), not the platform's own id;
-    # it carries ``references_component`` and stays on the main form.
+    # it carries ``references_component`` and stays on the main form
+    # (debug is a dependency the user adds, not auto-loaded by the sensor).
     assert by_key["debug_id"]["references_component"] == "debug"
     assert by_key["debug_id"].get("advanced", False) is False
+
+
+def test_auto_loaded_reference_marked_advanced() -> None:
+    """An auto-generated id reference to a self-AUTO_LOADed SINGLETON hides behind Advanced."""
+    entries = [
+        {"key": "web_server_base_id", "references_component": "web_server_base"},
+        {"key": "modbus_id", "references_component": "modbus"},  # multi-instance target
+        {"key": "i2c_id", "references_component": "i2c"},  # outside the closure
+        {"key": "sensor", "references_component": "voltage_sampler", "required": True},
+        {"key": "placeholder", "references_component": "image"},  # not an auto-id
+        {"key": "name", "references_component": None},
+    ]
+    _apply_auto_loaded_reference_advanced(
+        entries,
+        {"web_server_base", "json", "modbus", "voltage_sampler", "image"},
+        {"modbus"},
+    )
+    by_key = {e["key"]: e for e in entries}
+    assert by_key["web_server_base_id"]["advanced"] is True
+    assert "advanced" not in by_key["modbus_id"]
+    assert "advanced" not in by_key["i2c_id"]
+    assert "advanced" not in by_key["sensor"]
+    assert "advanced" not in by_key["placeholder"]
+    assert "advanced" not in by_key["name"]
+
+
+def test_auto_loaded_reference_resorts_promoted_list() -> None:
+    """Promoting a reference to advanced re-groups it after non-advanced siblings."""
+    entries = [
+        {"key": "web_server_base_id", "references_component": "web_server_base"},
+        {"key": "port", "references_component": None},
+    ]
+    _apply_auto_loaded_reference_advanced(entries, {"web_server_base"}, set())
+    assert [e["key"] for e in entries] == ["port", "web_server_base_id"]
+
+
+def test_auto_loaded_reference_noop_on_empty_closure() -> None:
+    """No AUTO_LOAD closure means nothing is forced advanced."""
+    entries = [{"key": "web_server_base_id", "references_component": "web_server_base"}]
+    _apply_auto_loaded_reference_advanced(entries, set(), set())
+    assert "advanced" not in entries[0]
+
+
+def test_multi_instance_targets_includes_provided_bases() -> None:
+    """A multi-conf provider marks both its own name and the base it provides."""
+    components = [
+        {"id": "modbus", "multi_conf": True},
+        {"id": "rc522_spi", "multi_conf": True, "provides": ["rc522"]},
+        {"id": "web_server_base", "multi_conf": False},
+        {"id": "sensor.dht", "multi_conf": False},
+    ]
+    multi = _multi_instance_targets(components)
+    assert "modbus" in multi
+    assert "rc522" in multi  # via its multi-conf provider
+    assert "rc522_spi" in multi
+    assert "switch" in multi  # platform domains are always multi-instance
+    assert "web_server_base" not in multi
+
+
+def test_resolve_auto_load_handles_callable() -> None:
+    """A callable AUTO_LOAD resolves to its list; one that can't run falls back to []."""
+    assert _resolve_auto_load(["a", "b"]) == ["a", "b"]
+    assert _resolve_auto_load(lambda: ["web_server_base"]) == ["web_server_base"]
+
+    def needs_config() -> list[str]:
+        raise RuntimeError("needs a real config")
+
+    assert _resolve_auto_load(needs_config) == []
+    assert _resolve_auto_load(None) == []
+
+
+def test_resolve_auto_load_forces_and_restores_core_platform() -> None:
+    """The callable runs platform-agnostic, and CORE's prior platform is restored."""
+    from esphome.const import KEY_CORE, KEY_TARGET_PLATFORM  # noqa: PLC0415
+    from esphome.core import CORE  # noqa: PLC0415
+
+    core = CORE.data.setdefault(KEY_CORE, {})
+    had, prev = KEY_TARGET_PLATFORM in core, core.get(KEY_TARGET_PLATFORM)
+    core[KEY_TARGET_PLATFORM] = "esp32"
+    try:
+        seen: list[str | None] = []
+
+        def auto_load() -> list[str]:
+            seen.append(core[KEY_TARGET_PLATFORM])
+            return ["web_server_base"]
+
+        assert _resolve_auto_load(auto_load) == ["web_server_base"]
+        assert seen == [None]  # forced agnostic during the call
+        assert core[KEY_TARGET_PLATFORM] == "esp32"  # restored after
+    finally:
+        if had:
+            core[KEY_TARGET_PLATFORM] = prev
+        else:
+            core.pop(KEY_TARGET_PLATFORM, None)
+
+
+def test_catalog_singleton_base_ids_advanced_multi_stay_shown() -> None:
+    """Singleton auto-loaded base ids hide; multi-instance pickers stay on the main form."""
+    ws = {e["key"]: e for e in _load_body("web_server")["config_entries"]}
+    assert ws["web_server_base_id"]["references_component"] == "web_server_base"
+    assert ws["web_server_base_id"]["advanced"] is True
+    # captive_portal AUTO_LOADs web_server_base via a callable; resolving it
+    # lets the same rule hide its id picker too.
+    cp = {e["key"]: e for e in _load_body("captive_portal")["config_entries"]}
+    assert cp["web_server_base_id"]["references_component"] == "web_server_base"
+    assert cp["web_server_base_id"]["advanced"] is True
+    # modbus is MULTI_CONF, so modbus_controller's id picker stays visible.
+    mc = {e["key"]: e for e in _load_body("modbus_controller")["config_entries"]}
+    assert mc["modbus_id"]["references_component"] == "modbus"
+    assert mc["modbus_id"].get("advanced", False) is False
+    # spi allows multiple buses (cv.ensure_list) and esp32_ble_tracker is a
+    # user-added dependency, not auto-created — both id pickers stay shown.
+    spi = {e["key"]: e for e in _load_body("sensor.bmp280_spi")["config_entries"]}
+    assert spi["spi_id"].get("advanced", False) is False
+    ble = {e["key"]: e for e in _load_body("sensor.mopeka_pro_check")["config_entries"]}
+    assert ble["esp32_ble_id"].get("advanced", False) is False

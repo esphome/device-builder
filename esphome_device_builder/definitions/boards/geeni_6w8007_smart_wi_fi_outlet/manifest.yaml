@@ -26,6 +26,12 @@ featured_components:
     internal: true
     id: led
     name: led
+- id: sensor_uptime_1
+  component_id: sensor.uptime
+  fields:
+    unit_of_measurement: minutes
+    id: sensor_uptime_1
+    name: Uptime
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
@@ -36,5 +42,5 @@ source:
   type: esphome-devices
   remote_id: Geeni-6W8007-Smart-Wi-Fi-Outlet
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Geeni-6W8007-Smart-Wi-Fi-Outlet/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 88c58f1bc97409ef8ecdb492b44e9c64ab3fcf25c1171561a6c3b2837d3cea5c

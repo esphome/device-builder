@@ -35,13 +35,12 @@ _UNRESOLVED_SUBSTITUTION_RE = re.compile(r"\$\{|\$[a-zA-Z_]")
 # deep chains a user might write.
 _SUBSTITUTION_MAX_PASSES = 16
 
-# ESPHome's ``esphome.name`` accepts lowercase ASCII letters, digits,
-# and hyphens — the same character class an mDNS hostname / API
-# endpoint can carry. A parsed value with anything else (dots, spaces,
-# uppercase, ...) means we picked up the wrong field (a package id, a
-# friendly_name leaked through, etc.) and should be rejected so it
-# doesn't end up as the catalog key.
-_VALID_ESPHOME_NAME_RE = re.compile(r"\A[a-z0-9-]+\Z")
+# Built from ESPHome's ``esphome.name`` char class so it can't drift from
+# upstream (a hand-written class missing ``_`` is the bug this fixes):
+# https://github.com/esphome/esphome/blob/dev/esphome/const.py
+# Rejects wrong fields (a package id's dots, a friendly_name's spaces /
+# uppercase) so they can't become the device key.
+_VALID_ESPHOME_NAME_RE = re.compile(rf"\A[{re.escape(const.ALLOWED_NAME_CHARS)}]+\Z")
 
 
 def _is_valid_esphome_name(value: str) -> bool:
@@ -413,15 +412,20 @@ def _match_top_level_key(line: str) -> str | None:
     return stripped.split(":", 1)[0].strip()
 
 
+_INLINE_COMMENT_RE = re.compile(r"(?:^|\s)#.*$")
+
+
 def _parse_inline_value(raw: str) -> str:
     """
     Clean a raw YAML scalar value.
 
-    Strips an inline ``# comment`` and matching surrounding quotes.
+    Strips an inline ``# comment`` and matching surrounding quotes. A
+    ``#`` only opens a comment when whitespace-preceded (or at the
+    scalar start); ``Room#2`` is a literal, not ``Room``.
     """
     value = raw.strip()
-    if "#" in value and not value.startswith(('"', "'")):
-        value = value.split("#", 1)[0].rstrip()
+    if not value.startswith(('"', "'")):
+        value = _INLINE_COMMENT_RE.sub("", value).strip()
     if (value.startswith('"') and value.endswith('"')) or (
         value.startswith("'") and value.endswith("'")
     ):

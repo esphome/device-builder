@@ -75,5 +75,5 @@ source:
   type: esphome-devices
   remote_id: Athom-AR01-IR-Controller
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Athom-AR01-IR-Controller/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 631ee24e94cc3d43a7d6a9fb0068d0680268c767e026f74cc2efd1cfb6b23fc4

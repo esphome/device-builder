@@ -50,6 +50,13 @@ featured_components:
     icon: mdi:wifi
     id: sensor_wifi_signal_1
     name: Wifi Signal
+- id: sensor_uptime_1
+  component_id: sensor.uptime
+  fields:
+    update_interval: 60s
+    icon: mdi:clock-outline
+    id: sensor_uptime_1
+    name: Uptime
 - id: text_sensor_version_1
   component_id: text_sensor.version
   fields:
@@ -60,5 +67,5 @@ source:
   type: esphome-devices
   remote_id: Duux-Whisper-Flex-Smart-Fan-DXCF10
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Duux-Whisper-Flex-Smart-Fan-DXCF10/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 61ca50450c38e2492acf24885f0e88795e1181d20bb60239e13396ea04bed2fb

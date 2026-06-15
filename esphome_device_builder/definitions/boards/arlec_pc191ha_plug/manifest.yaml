@@ -37,6 +37,12 @@ featured_components:
     current_resistor: 0.0009
     id: sensor_hlw8012_1
     name: Hlw8012 1
+- id: device_name_uptime
+  component_id: sensor.uptime
+  fields:
+    update_interval: 30s
+    id: device_name_uptime
+    name: $name Uptime
 - id: relay
   component_id: switch.gpio
   fields:
@@ -48,5 +54,5 @@ source:
   type: esphome-devices
   remote_id: Arlec-PC191HA-Plug
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Arlec-PC191HA-Plug/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 04b21a5e8d0d75f493385749644f65bcc7df350d19d5fcda4745a3c04c4773ae

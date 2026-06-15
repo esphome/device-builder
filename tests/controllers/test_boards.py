@@ -375,6 +375,30 @@ def test_find_by_pio_board_prefers_generic_when_multiple_match(
     assert board.is_generic is True
 
 
+def test_find_by_pio_board_prefer_exact_id_beats_generic(catalog: BoardCatalog) -> None:
+    """``prefer_exact_id`` lands on the entry named after the pio_board.
+
+    Resolving a device's own ``board: esp32-c3-devkitm-1`` must use that
+    exact entry and its pinout, not the broader ``generic-esp32c3`` that
+    shares the PlatformIO board; the default order still returns the generic.
+    """
+    catalog._boards.append(
+        _board(
+            board_id="esp32-c3-devkitm-1",
+            name="Espressif ESP32-C3-DevKitM-1",
+            platform=Platform.ESP32,
+            variant=Esp32Variant.ESP32C3,
+            pio_board="esp32-c3-devkitm-1",
+        )
+    )
+
+    default = catalog.find_by_pio_board("esp32-c3-devkitm-1")
+    exact = catalog.find_by_pio_board("esp32-c3-devkitm-1", prefer_exact_id=True)
+
+    assert default is not None and default.id == "generic-esp32c3"
+    assert exact is not None and exact.id == "esp32-c3-devkitm-1"
+
+
 def test_find_by_pio_board_returns_first_when_no_generic(
     catalog: BoardCatalog,
 ) -> None:

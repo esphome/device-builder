@@ -44,5 +44,5 @@ source:
   type: esphome-devices
   remote_id: Sonoff-POW-R2
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Sonoff-POW-R2/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 0f7ee3226ed20c1b63c735a0839dcf1b9f1dd382f8673e3b64703f8ae07f2399

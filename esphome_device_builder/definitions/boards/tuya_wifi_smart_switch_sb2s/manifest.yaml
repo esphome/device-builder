@@ -25,5 +25,5 @@ source:
   type: esphome-devices
   remote_id: Tuya-WiFi-Smart-Switch-SB2S
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-WiFi-Smart-Switch-SB2S/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 459377a31efdf0df1a4ac94802e5b46333558cda43f7ba3643631bcb41e4eaf8

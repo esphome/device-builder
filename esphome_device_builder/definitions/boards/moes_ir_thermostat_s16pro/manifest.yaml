@@ -62,5 +62,5 @@ source:
   type: esphome-devices
   remote_id: Moes-IR-Thermostat-S16Pro
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Moes-IR-Thermostat-S16Pro/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 0257327d3f6be90c5f3f374b43e3446f2ad01d0931afac5d9e5bdbc177a8ebba

@@ -79,6 +79,13 @@ featured_components:
     entity_category: diagnostic
     id: sensor_wifi
     name: $device_name WiFi Signal
+- id: uptime_sensor
+  component_id: sensor.uptime
+  fields:
+    update_interval: 15s
+    entity_category: diagnostic
+    id: uptime_sensor
+    name: $device_name Uptime
 - id: relay1
   component_id: switch.gpio
   fields:
@@ -107,5 +114,5 @@ source:
   type: esphome-devices
   remote_id: ESP32-S3-4.0-Inch-Smart-Display
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/ESP32-S3-4.0-Inch-Smart-Display/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 197521fbb15e9afc69557a2e7b42ccc2914baa597192d5c45a84468eec041938

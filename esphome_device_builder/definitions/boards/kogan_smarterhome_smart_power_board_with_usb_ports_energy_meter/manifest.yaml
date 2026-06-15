@@ -93,6 +93,12 @@ featured_components:
     update_interval: 5min
     id: sensor_wifi_signal_1
     name: rssi
+- id: uptime_sec
+  component_id: sensor.uptime
+  fields:
+    update_interval: 5min
+    id: uptime_sec
+    name: uptime
 - id: relay1
   component_id: switch.gpio
   fields:
@@ -129,5 +135,5 @@ source:
   type: esphome-devices
   remote_id: Kogan-Smarterhome-Smart-Power-Board-With-Usb-Ports-Energy-Meter
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Kogan-Smarterhome-Smart-Power-Board-With-Usb-Ports-Energy-Meter/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: fa8c3b240925d785eb9c509d2362c3349ece8833183a196884ef14ae68c600d0

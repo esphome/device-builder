@@ -31,6 +31,12 @@ featured_components:
     current_resistor: '0.00045'
     id: sensor_hlw8012_1
     name: Hlw8012 1
+- id: sensor_uptime_1
+  component_id: sensor.uptime
+  fields:
+    unit_of_measurement: minutes
+    id: sensor_uptime_1
+    name: Uptime
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
@@ -47,5 +53,5 @@ source:
   type: esphome-devices
   remote_id: LEDVANCE-SMART-PLUS-PLUG-EU
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/LEDVANCE-SMART-PLUS-PLUG-EU/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: fdae9d547face7c179dcf148bd54482d06c49ebb6b8a772e913ef6e18b46c926

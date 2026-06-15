@@ -106,5 +106,5 @@ source:
   type: esphome-devices
   remote_id: Govee-H6086-E27-5W-500lm-RGBCCT-bulb
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Govee-H6086-E27-5W-500lm-RGBCCT-bulb/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 4283a00bffe461ec63fde1165066e715e65abe2469552cce0fd9f6f4dc6d653c

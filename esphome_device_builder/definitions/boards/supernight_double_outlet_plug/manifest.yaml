@@ -91,5 +91,5 @@ source:
   type: esphome-devices
   remote_id: SUPERNIGHT-Double-Outlet-Plug
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/SUPERNIGHT-Double-Outlet-Plug/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 65c1d6cb40fa850d6d6a5e05e2401209c4e7db045a44b4060e01043e9cebd187

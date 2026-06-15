@@ -34,5 +34,5 @@ source:
   type: esphome-devices
   remote_id: Martin-Jerry-RP-FC01
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Martin-Jerry-RP-FC01/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: a228e4d40d29860be3ab7b05c25e8f178fdac746585fb6e05b6c50a51e938484

@@ -53,5 +53,5 @@ source:
   type: esphome-devices
   remote_id: Shelly-1
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Shelly-1/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: bf1c2c5495d9a2099e8e8fead02dcb00486393f6ade9bd64adfd8980352ed00c

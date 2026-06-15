@@ -15,6 +15,9 @@ pins:
 - gpio: 0
   available: false
   occupied_by: button_select
+- gpio: 2
+  available: false
+  occupied_by: lilka_speaker
 - gpio: 4
   available: false
   occupied_by: button_start
@@ -155,9 +158,21 @@ featured_components:
       locked: true
     id: button_select
     name: button_select
+- id: lilka_speaker
+  component_id: speaker.i2s_audio
+  fields:
+    dac_type: external
+    i2s_dout_pin:
+      value: 2
+      locked: true
+    channel: mono
+    sample_rate: 16000
+    bits_per_sample: 16bit
+    id: lilka_speaker
+    name: lilka_speaker
 source:
   type: esphome-devices
   remote_id: Lilka
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Lilka/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 582d9b5114eec3ed9f633eedaa665eba652ee51ca26ef4c452ef87b90d4c30b4

@@ -272,12 +272,34 @@ def _find_top_level_block_bounds(file_lines: list[str], key: str) -> tuple[int, 
     return block_start, block_end
 
 
+def _leading_ws(line: str) -> str:
+    """Leading whitespace of *line*."""
+    return line[: len(line) - len(line.lstrip())]
+
+
+def _list_item_indent(file_lines: list[str], header_idx: int, end_idx: int) -> str:
+    """
+    Dash indent of the first list item in a block body.
+
+    Falls back to the canonical indent when the body holds no item.
+    """
+    for idx in range(header_idx + 1, end_idx):
+        stripped = file_lines[idx].strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.startswith("- ") or stripped == "-":
+            return _leading_ws(file_lines[idx].rstrip("\n\r"))
+    return ESPHOME_YAML_INDENT
+
+
 def _splice_into_domain_block(existing: str, domain: str, block: str) -> str | None:
     """
     Insert the platform-list item from *block* under an existing ``<domain>:``.
 
-    Returns ``None`` when the existing file has no ``<domain>:``
-    section so the caller can fall back to appending.
+    The item is re-indented to the existing list's dash indent so a
+    zero- or 4-space-indented block stays parseable. Returns ``None``
+    when the existing file has no ``<domain>:`` section so the caller
+    can fall back to appending.
     """
     block_lines = block.splitlines()
     if len(block_lines) < 2 or block_lines[0].rstrip() != f"{domain}:":
@@ -286,13 +308,23 @@ def _splice_into_domain_block(existing: str, domain: str, block: str) -> str | N
     bounds = _find_top_level_block_bounds(file_lines, domain)
     if bounds is None:
         return None
-    _, last_content = bounds
+    block_start, last_content = bounds
+
+    dash_indent = _list_item_indent(file_lines, block_start, last_content)
+    src_indent = _leading_ws(block_lines[1])
+    items: list[str] = []
+    for line in block_lines[1:]:
+        if not line.strip():
+            items.append(line)
+            continue
+        rest = line[len(src_indent) :] if line.startswith(src_indent) else line.lstrip()
+        items.append(dash_indent + rest)
 
     before = "".join(file_lines[:last_content])
     after = "".join(file_lines[last_content:])
     if before and not before.endswith("\n"):
         before += "\n"
-    insertion = "\n".join(block_lines[1:]) + "\n"
+    insertion = "\n".join(items) + "\n"
     return before + insertion + after
 
 
@@ -337,27 +369,29 @@ def _normalize_multi_conf_block(existing: str, comp_id: str) -> str | None:
 
 def _mapping_body_to_list_item(body_lines: list[str]) -> list[str]:
     """
-    Convert a 2-space-indented mapping body to a YAML list item.
+    Convert a mapping body at any indent to a canonically indented list item.
 
     The ``- `` marker is anchored on the first non-comment key line;
-    a leading ``# ...`` keeps its position so a comment-decorated
+    a leading ``# ...`` stays above the marker so a comment-decorated
     mapping doesn't demote into a ``- # comment`` null head item.
     """
+    body_indent = ""
+    for line in body_lines:
+        if line.strip() and not line.lstrip().startswith("#"):
+            body_indent = _leading_ws(line)
+            break
     result: list[str] = []
     marked = False
     for line in body_lines:
         if not line.strip():
             result.append(line)
             continue
-        indented = ESPHOME_YAML_INDENT + line
-        if (
-            not marked
-            and not line.lstrip().startswith("#")
-            and indented.startswith(ESPHOME_YAML_INDENT * 2)
-        ):
-            indented = f"{ESPHOME_YAML_INDENT}- " + indented[len(ESPHOME_YAML_INDENT * 2) :]
+        rest = line[len(body_indent) :] if line.startswith(body_indent) else line.lstrip()
+        if not marked and not line.lstrip().startswith("#"):
+            result.append(f"{ESPHOME_YAML_INDENT}- {rest}")
             marked = True
-        result.append(indented)
+        else:
+            result.append(ESPHOME_YAML_INDENT * 2 + rest)
     return result
 
 

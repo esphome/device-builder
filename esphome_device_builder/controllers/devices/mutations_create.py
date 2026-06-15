@@ -163,6 +163,18 @@ async def create_device(  # noqa: C901, PLR0912
     return WizardResponse(configuration=filename)
 
 
+def default_mdns_address(name: str) -> str:
+    """Return the mDNS address ESPHome derives from a device *name* by default."""
+    return f"{name}.local"
+
+
+def save_device_storage(filename: str, storage: StorageJSON) -> None:
+    """Persist *storage* to *filename*'s sidecar path, creating the dir."""
+    storage_path = resolve_storage_path(filename)
+    storage_path.parent.mkdir(parents=True, exist_ok=True)
+    storage.save(storage_path)
+
+
 def init_device_storage(filename: str, name: str, friendly_name: str | None, platform: str) -> None:
     """Write a fresh StorageJSON sidecar for a newly created / imported device."""
     storage = StorageJSON(
@@ -172,7 +184,7 @@ def init_device_storage(filename: str, name: str, friendly_name: str | None, pla
         comment=None,
         esphome_version=None,
         src_version=None,
-        address=f"{name}.local",
+        address=default_mdns_address(name),
         web_port=None,
         target_platform=platform,
         build_path=None,
@@ -181,6 +193,4 @@ def init_device_storage(filename: str, name: str, friendly_name: str | None, pla
         loaded_platforms=[],
         no_mdns=False,
     )
-    storage_path = resolve_storage_path(filename)
-    storage_path.parent.mkdir(parents=True, exist_ok=True)
-    storage.save(storage_path)
+    save_device_storage(filename, storage)

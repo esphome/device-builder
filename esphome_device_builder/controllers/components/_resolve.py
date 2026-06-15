@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -101,21 +102,17 @@ def _materialise_featured_index(
 
     Builds a :class:`ComponentCatalogIndexEntry` with the synthetic
     ``featured.<board>.<local>`` id and category ``featured``,
-    overlaying the manifest's name/description (and keeping the
-    underlying component's image / dependencies / supported_platforms).
+    overlaying the manifest's name/description; every other field
+    rides through from the underlying component.
     """
     fc = record.featured
-    return ComponentCatalogIndexEntry(
+    return replace(
+        underlying,
         id=record.full_id,
         name=fc.name or underlying.name,
         description=fc.description if fc.description is not None else underlying.description,
         category=ComponentCategory.FEATURED,
-        docs_url=underlying.docs_url,
-        image_url=underlying.image_url,
-        dependencies=list(underlying.dependencies),
-        multi_conf=underlying.multi_conf,
-        supported_platforms=list(underlying.supported_platforms),
-        provides=list(underlying.provides),
+        image_url=fc.image_url or underlying.image_url,
     )
 
 
@@ -123,6 +120,7 @@ def _materialise_featured(
     record: _FeaturedRecord,
     underlying: ComponentCatalogEntry,
     target_platform: str | None,
+    target_variant: str | None = None,
 ) -> ComponentCatalogEntry:
     """
     Return *record* as a full ``ComponentCatalogEntry`` ready for the detail API.
@@ -134,18 +132,17 @@ def _materialise_featured(
     """
     fc = record.featured
     presets = fc.fields
-    return ComponentCatalogEntry(
+    return replace(
+        underlying,
         id=record.full_id,
         name=fc.name or underlying.name,
         description=fc.description if fc.description is not None else underlying.description,
         category=ComponentCategory.FEATURED,
-        docs_url=underlying.docs_url,
-        image_url=underlying.image_url,
-        dependencies=list(underlying.dependencies),
-        multi_conf=underlying.multi_conf,
-        supported_platforms=list(underlying.supported_platforms),
+        image_url=fc.image_url or underlying.image_url,
         config_entries=[
-            _materialise_entry_with_preset(entry, target_platform, presets.get(entry.key))
+            _materialise_entry_with_preset(
+                entry, target_platform, target_variant, presets.get(entry.key)
+            )
             for entry in underlying.config_entries
         ],
     )
@@ -154,7 +151,8 @@ def _materialise_featured(
 def _materialise_entry_with_preset(
     entry: ConfigEntry,
     target_platform: str | None,
-    preset: FieldPreset | None,
+    target_variant: str | None = None,
+    preset: FieldPreset | None = None,
 ) -> ConfigEntry:
     """
     Return *entry* materialised for *target_platform* with *preset* applied.
@@ -163,7 +161,7 @@ def _materialise_entry_with_preset(
     ``preset.suggestions`` ride through to the returned entry. Without a
     preset this is equivalent to :func:`_materialise_entry`.
     """
-    base = _materialise_entry(entry, target_platform)
+    base = _materialise_entry(entry, target_platform, target_variant)
     if preset is None:
         return base
     if preset.value is not None:
@@ -194,44 +192,68 @@ def _as_category_set(value: ComponentCategory | str | list[str]) -> set[str]:
 def _materialise(
     component: ComponentCatalogEntry,
     target_platform: str | None,
+    target_variant: str | None = None,
 ) -> ComponentCatalogEntry:
     """
-    Return a copy of *component* with platform_defaults resolved.
+    Return a copy of *component* with platform_defaults / platform_options resolved.
 
-    When *target_platform* is given, every config entry's
-    ``platform_defaults`` map is consulted: if the platform is listed,
-    that value replaces ``default_value``. The ``platform_defaults``
-    field itself is always cleared in the returned copy so the API
-    surface stays simple — the frontend just reads ``default_value``.
+    ``replace`` rather than a field-list copy, so every other field
+    (``provides``, ``required_groups``, ``bus_constraints``) rides
+    through instead of silently resetting to its default.
     """
-    return ComponentCatalogEntry(
-        id=component.id,
-        name=component.name,
-        description=component.description,
-        category=component.category,
-        docs_url=component.docs_url,
-        image_url=component.image_url,
-        dependencies=component.dependencies,
-        multi_conf=component.multi_conf,
-        supported_platforms=component.supported_platforms,
-        config_entries=[_materialise_entry(e, target_platform) for e in component.config_entries],
+    return replace(
+        component,
+        config_entries=[
+            _materialise_entry(e, target_platform, target_variant) for e in component.config_entries
+        ],
     )
 
 
-def _materialise_entry(entry: ConfigEntry, target_platform: str | None) -> ConfigEntry:
+def _pick_platform_value[T](
+    mapping: Mapping[str, T],
+    target_platform: str | None,
+    target_variant: str | None,
+) -> tuple[T | None, bool]:
     """
-    Resolve platform_defaults into default_value for *target_platform*.
+    Look *mapping* up by chip variant, falling back to the base platform.
 
-    The returned entry never carries platform_defaults — that field is
-    a sync-time implementation detail the frontend doesn't need to
-    know about. Recurses into ``config_entries`` for nested entries
-    so the resolution applies at every depth.
+    The bool flags whether either key matched, so a stored ``None`` is
+    distinguishable from a miss.
+    """
+    if target_variant is not None and target_variant in mapping:
+        return mapping[target_variant], True
+    if target_platform is not None and target_platform in mapping:
+        return mapping[target_platform], True
+    return None, False
+
+
+def _materialise_entry(
+    entry: ConfigEntry,
+    target_platform: str | None,
+    target_variant: str | None = None,
+) -> ConfigEntry:
+    """
+    Resolve platform_defaults / platform_options for the target chip.
+
+    ``platform_defaults`` collapses into ``default_value`` and
+    ``platform_options`` into ``options`` (variant key first, then base
+    platform); both platform_* maps are cleared. Recurses into nested
+    ``config_entries``.
     """
     default = entry.default_value
-    if target_platform and entry.platform_defaults and target_platform in entry.platform_defaults:
-        default = entry.platform_defaults[target_platform]
+    if entry.platform_defaults:
+        value, found = _pick_platform_value(
+            entry.platform_defaults, target_platform, target_variant
+        )
+        if found:
+            default = value
+    options = entry.options
+    if entry.platform_options:
+        opts, found = _pick_platform_value(entry.platform_options, target_platform, target_variant)
+        if found:
+            options = opts
     nested = (
-        [_materialise_entry(e, target_platform) for e in entry.config_entries]
+        [_materialise_entry(e, target_platform, target_variant) for e in entry.config_entries]
         if entry.config_entries
         else None
     )
@@ -243,6 +265,8 @@ def _materialise_entry(entry: ConfigEntry, target_platform: str | None) -> Confi
         entry,
         default_value=default,
         platform_defaults=None,
+        options=options,
+        platform_options=None,
         config_entries=nested,
         supported_platforms=list(entry.supported_platforms),
         required_groups=list(entry.required_groups),

@@ -47,5 +47,5 @@ source:
   type: esphome-devices
   remote_id: LoraTap-SC411WSC-CurtainSwitch
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/LoraTap-SC411WSC-CurtainSwitch/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: f8e66f46f66096df79279becd6a95881001f216b42adee75b5f70f56860fa277

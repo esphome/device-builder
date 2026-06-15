@@ -75,5 +75,5 @@ source:
   type: esphome-devices
   remote_id: Arlec-Smart-5m-LED-Strip-Light
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Arlec-Smart-5m-LED-Strip-Light/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 1b2de148722ca06f5ae81ab40fef3942f940264cff4c9fc1e03bca4627c2e0cd

@@ -1,0 +1,14 @@
+esphome:
+  name: x
+http_request:
+button:
+  - platform: template
+    name: 'Fetch'
+    id: fetch
+    on_press:
+      - http_request.get:
+          url: https://example.com/api
+          on_response:
+            - logger.log: 'got response'
+          on_error:
+            - logger.log: 'request failed'

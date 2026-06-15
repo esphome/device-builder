@@ -69,6 +69,12 @@ featured_components:
     update_interval: 30s
     id: sensor_wifi_signal_1
     name: wifi_signal
+- id: sensor_uptime_1
+  component_id: sensor.uptime
+  fields:
+    update_interval: 120s
+    id: sensor_uptime_1
+    name: uptime
 - id: relay
   component_id: switch.gpio
   fields:
@@ -89,5 +95,5 @@ source:
   type: esphome-devices
   remote_id: Sonoff-Dual-R2
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Sonoff-Dual-R2/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 88b52fcff2d29d508e7c8cce3af84354ee943e3d7555956c44ca4d5bc4b64d11

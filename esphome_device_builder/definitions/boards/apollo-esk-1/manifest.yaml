@@ -130,6 +130,7 @@ featured_components:
       locked: true
 - id: aht20
   component_id: sensor.aht10
+  image_url: https://wiki.apolloautomation.com/assets/esphome-starter-kit-temp-hum-module-only-1.jpg
   name: AHT20 Temperature & Humidity Module
   description: |
     Temperature and humidity module shipped with the starter kit. Plug
@@ -177,6 +178,7 @@ featured_components:
     internal: true
 - id: motion_module
   component_id: binary_sensor.gpio
+  image_url: https://wiki.apolloautomation.com/assets/esphome-starter-kit-pir-module-only.jpg
   name: Motion Module (MH-SR602)
   description: |
     Motion sensor module included with the starter kit. Detects motion
@@ -209,6 +211,7 @@ featured_components:
       locked: true
 - id: button_module
   component_id: binary_sensor.gpio
+  image_url: https://wiki.apolloautomation.com/assets/esphome-starter-kit-button-module-only.jpg
   name: Button Module
   description: |
     Pushbutton module shipped with the starter kit. Plug it into the
@@ -225,6 +228,7 @@ featured_components:
         inverted: true
 - id: rgb_leds
   component_id: light.esp32_rmt_led_strip
+  image_url: https://wiki.apolloautomation.com/assets/esphome-starter-kit-rgb-buzzer-module-only.jpg
   name: RGB LEDs (module)
   description: |
     The 10 RGB LEDs by themselves, without the buzzer parts. If you have
@@ -257,6 +261,7 @@ featured_components:
     rmt_symbols: 48
 - id: buzzer_output
   component_id: output.ledc
+  image_url: https://wiki.apolloautomation.com/assets/esphome-starter-kit-rgb-buzzer-module-only.jpg
   name: Piezo Buzzer (module)
   description: |
     The piezo buzzer output by itself, without the LEDs. If you have
@@ -269,6 +274,7 @@ featured_components:
       value: 18
 - id: rtttl_player
   component_id: rtttl
+  image_url: https://wiki.apolloautomation.com/assets/esphome-starter-kit-rgb-buzzer-module-only.jpg
   name: RTTTL Player (buzzer)
   description: |
     Plays ringtones through a piezo buzzer (RTTTL format). If you have
@@ -283,6 +289,7 @@ featured_components:
 featured_bundles:
 - id: rgb_buzzer_module
   name: RGB LED + Buzzer Module
+  image_url: https://wiki.apolloautomation.com/assets/esphome-starter-kit-rgb-buzzer-module-only.jpg
   description: |
     The starter kit's RGB + Buzzer module. 10 RGB LEDs across the front.
     On the back: a piezo buzzer plus the FPC connector that plugs into

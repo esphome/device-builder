@@ -51,6 +51,12 @@ featured_components:
     update_interval: 60s
     id: device_name_wifi_signal
     name: WiFi signal
+- id: device_name_uptime
+  component_id: sensor.uptime
+  fields:
+    update_interval: 60s
+    id: device_name_uptime
+    name: Uptime
 - id: device_name_relay
   component_id: switch.gpio
   fields:
@@ -63,5 +69,5 @@ source:
   type: esphome-devices
   remote_id: AWP02L2
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/AWP02L2/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: ce44524e79727437c948ccacd31dfb0c28e587ee538dbac7c820f455c18f0f02

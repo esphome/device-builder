@@ -185,6 +185,27 @@ async def test_migrate_then_resolve_matches_fleet_outcome(
     assert cb3s_board == "cb3s"
 
 
+async def test_curated_esp8266_pick_survives_exact_id_derive(
+    tmp_path: Path, real_catalog: BoardCatalog
+) -> None:
+    """Migration stamps a curated esp8266 pick before exact-id derive re-resolves it."""
+
+    def _seed() -> None:
+        set_device_metadata(tmp_path, "sonoff.yaml", board_id="sonoff-basic")
+        (tmp_path / "sonoff.yaml").write_text(
+            "esphome:\n  name: sonoff\n\nesp8266:\n  board: esp01_1m\n", encoding="utf-8"
+        )
+
+    await asyncio.to_thread(_seed)
+    controller = _controller(tmp_path, real_catalog)
+    await controller.migrate_board_id_user_set()
+
+    resolved = await asyncio.to_thread(
+        lambda: controller._resolve_device_metadata(tmp_path, "sonoff.yaml").board_id
+    )
+    assert resolved == "sonoff-basic"
+
+
 async def test_migrate_is_noop_when_catalog_unloaded(tmp_path: Path) -> None:
     """With no catalog yet, the migration is a no-op and writes no marker.
 

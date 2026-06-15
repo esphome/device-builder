@@ -438,6 +438,32 @@ def test_parse_api_action_decomposes_nested_if() -> None:
     assert set(if_node.children) == {"then", "else"}
 
 
+def test_parse_homeassistant_action_response_handlers() -> None:
+    """``homeassistant.action``'s on_success/on_error decompose as action children."""
+    parsed = parse_device_yaml(_load("homeassistant_action_response_handlers.yaml"))
+    assert len(parsed) == 1
+    actions = parsed[0].automation.actions
+    assert len(actions) == 1
+    action = actions[0]
+    assert action.action_id == "homeassistant.action"
+    assert set(action.children) == {"on_success", "on_error"}
+    assert [a.action_id for a in action.children["on_success"]] == ["logger.log"]
+    assert [a.action_id for a in action.children["on_error"]] == ["logger.log"]
+
+
+def test_parse_http_request_action_response_handlers() -> None:
+    """``http_request.get``'s on_response/on_error decompose as action children."""
+    parsed = parse_device_yaml(_load("http_request_action_response_handlers.yaml"))
+    assert len(parsed) == 1
+    actions = parsed[0].automation.actions
+    assert len(actions) == 1
+    action = actions[0]
+    assert action.action_id == "http_request.get"
+    assert set(action.children) == {"on_response", "on_error"}
+    assert [a.action_id for a in action.children["on_response"]] == ["logger.log"]
+    assert [a.action_id for a in action.children["on_error"]] == ["logger.log"]
+
+
 def test_parse_api_action_accepts_legacy_service_key() -> None:
     """The deprecated ``service:`` discriminator parses to the same shape."""
     legacy = (

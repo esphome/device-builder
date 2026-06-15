@@ -866,6 +866,46 @@ def test_build_automations_does_not_merge_extends_outside_hub_config_schema(
     assert "fakeled.on_turn_on" not in ids
 
 
+def test_build_automations_skips_action_schema_response_handlers(tmp_path: Path) -> None:
+    """``*_ACTION_SCHEMA`` on_success/on_error are action-nested, not component triggers."""
+    schema_dir = _write_schema(
+        tmp_path,
+        "api.json",
+        {
+            "api": {
+                "schemas": {
+                    "CONFIG_SCHEMA": {
+                        "schema": {
+                            "config_vars": {
+                                "on_client_connected": {"key": "Optional", "type": "trigger"},
+                            },
+                        },
+                    },
+                    "HOMEASSISTANT_ACTION_ACTION_SCHEMA": {
+                        "schema": {
+                            "config_vars": {
+                                "on_success": {"key": "Optional", "type": "trigger"},
+                                "on_error": {"key": "Optional", "type": "trigger"},
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    )
+    ids = {
+        t["id"]
+        for t in sync_components.build_automations(schema_dir=schema_dir, component_ids=set())[
+            "triggers"
+        ]
+    }
+    # The component's own CONFIG_SCHEMA trigger survives.
+    assert "api.on_client_connected" in ids
+    # The action's nested response handlers must not leak as component triggers.
+    assert "api.on_success" not in ids
+    assert "api.on_error" not in ids
+
+
 def test_build_automations_merged_hub_trigger_dedupes_against_base(tmp_path: Path) -> None:
     """A CONFIG_SCHEMA extending a same-file base yields one entry per trigger id."""
     schema_dir = _write_schema(

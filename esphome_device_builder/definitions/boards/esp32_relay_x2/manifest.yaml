@@ -64,5 +64,5 @@ source:
   type: esphome-devices
   remote_id: ESP32-Relay-X2
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/ESP32-Relay-X2/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: df03b40d47061c061907d9cfe98c52e7eebd4eb1beee0066b9556f3e057a42e8

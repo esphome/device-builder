@@ -82,6 +82,12 @@ featured_components:
         inverted: true
       locked: true
     id: blue
+- id: uptime_sensor
+  component_id: sensor.uptime
+  fields:
+    disabled_by_default: true
+    id: uptime_sensor
+    name: Uptime
 - id: relay
   component_id: switch.gpio
   fields:
@@ -102,5 +108,5 @@ source:
   type: esphome-devices
   remote_id: ESP32-SmartPlug-Rowi-AU
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/ESP32-SmartPlug-Rowi-AU/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: d665c36df9a303e6d3fbb2c5c16ca6c34d5017303c29d0139a56baee3af96770

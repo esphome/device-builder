@@ -52,6 +52,12 @@ featured_components:
         inverted: true
       locked: true
     id: devicename_red_output
+- id: sensor_uptime_1
+  component_id: sensor.uptime
+  fields:
+    unit_of_measurement: minutes
+    id: sensor_uptime_1
+    name: Uptime
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
@@ -95,5 +101,5 @@ source:
   type: esphome-devices
   remote_id: Maxcio-RMC020
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Maxcio-RMC020/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 8837481612b75328b64e2949e53e309544546e1971658c2e6bcd3a0fba04193a

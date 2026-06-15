@@ -1688,6 +1688,36 @@ def test_delete_light_effect_out_of_range_raises_not_found() -> None:
     assert err.value.code == ErrorCode.NOT_FOUND
 
 
+def test_delete_last_script_preserves_following_comment_banner() -> None:
+    """Deleting the last script item keeps the blank line + banner heading the next block."""
+    text = (
+        "script:\n  - id: foo\n    then:\n      - logger.log: hi\n"
+        "\n# Sensors below\nsensor:\n  - platform: dht\n"
+    )
+    new_text, diff = render_delete(text, location=ScriptLocation(id="foo"))
+    assert "# Sensors below" in new_text
+    assert "\n\n# Sensors below" in new_text
+    assert _apply_diff(text, diff) == new_text
+
+
+def test_replace_last_script_preserves_following_comment_banner() -> None:
+    """Replacing the last script item leaves the trailing banner intact."""
+    text = (
+        "script:\n  - id: foo\n    then:\n      - logger.log: hi\n"
+        "\n# Sensors below\nsensor:\n  - platform: dht\n"
+    )
+    new_text, diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="delay", params={"id": "1s"})],
+        ),
+        location=ScriptLocation(id="foo"),
+    )
+    assert "# Sensors below" in new_text
+    assert _apply_diff(text, diff) == new_text
+
+
 def test_delete_last_light_effect_removes_the_effects_block_entirely() -> None:
     """Deleting the only effect drops ``effects:`` from the light instance."""
     text = (

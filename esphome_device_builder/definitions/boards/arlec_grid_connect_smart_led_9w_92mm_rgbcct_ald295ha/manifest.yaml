@@ -81,5 +81,5 @@ source:
   type: esphome-devices
   remote_id: Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 9e2417391d47a16891586d8ece10f23e22a93b74f8a0132accc3f6be57d7a60f

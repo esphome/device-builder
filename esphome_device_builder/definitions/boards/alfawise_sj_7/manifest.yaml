@@ -18,6 +18,14 @@ featured_components:
     speed_count: 2
     id: name_fan
     name: Fan
+- id: sensor_uptime_1
+  component_id: sensor.uptime
+  fields:
+    unit_of_measurement: d
+    update_interval: 300s
+    accuracy_decimals: 1
+    id: sensor_uptime_1
+    name: uptime
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
@@ -29,5 +37,5 @@ source:
   type: esphome-devices
   remote_id: Alfawise-SJ-7
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Alfawise-SJ-7/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 837539f03a867cf41efd58de05a5e4cb27e25c2b1887bb8efd2fe55444cdf3ff

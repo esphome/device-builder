@@ -44,6 +44,13 @@ featured_components:
       locked: true
     id: button_1
     name: Button
+- id: esp_uptime
+  component_id: sensor.uptime
+  fields:
+    update_interval: 60s
+    entity_category: diagnostic
+    id: esp_uptime
+    name: Uptime
 - id: wifi_signal_db
   component_id: sensor.wifi_signal
   fields:
@@ -88,5 +95,5 @@ source:
   type: esphome-devices
   remote_id: Homemaster-OpenthermGateway
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Homemaster-OpenthermGateway/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: cd533b0fca04c51f67ec39b4b3a25e941d9371d5ddd358cc46a9cba8c328c42b

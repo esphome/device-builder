@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Any
 from ...helpers.api import CommandError
 from ...helpers.device_yaml import configuration_stem
 from ...helpers.yaml import (
+    ESPHOME_FRIENDLY_NAME_PATH,
+    ESPHOME_NAME_PATH,
     generate_api_encryption_key,
     rewrite_api_encryption_key,
     rewrite_name_or_substitution,
@@ -108,7 +110,7 @@ async def clone_device(  # noqa: C901
     # ``_rewrite_required_yaml_leaf`` rejects when the leaf is
     # missing entirely so a package-driven source can't silently
     # produce a duplicate hostname.
-    new_content = _rewrite_required_yaml_leaf(source_content, ("esphome", "name"), new_name)
+    new_content = _rewrite_required_yaml_leaf(source_content, ESPHOME_NAME_PATH, new_name)
     # ``friendly_name`` is optional on the clone path; the
     # underlying helper is already a no-op when the leaf is
     # missing, so skip the required-leaf wrapper here. The clone
@@ -119,7 +121,7 @@ async def clone_device(  # noqa: C901
     if new_friendly_name:
         new_content = rewrite_name_or_substitution(
             new_content,
-            ("esphome", "friendly_name"),
+            ESPHOME_FRIENDLY_NAME_PATH,
             clean_friendly_name(new_friendly_name),
         )
     # No-op when the source uses ``!secret`` / ``${...}`` for

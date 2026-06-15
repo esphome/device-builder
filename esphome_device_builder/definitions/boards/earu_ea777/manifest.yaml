@@ -288,5 +288,5 @@ source:
   type: esphome-devices
   remote_id: Earu-EA777
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Earu-EA777/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: d6ef0418f2a6aa1a204ea60a9ebee33926296b4eea595914b20565188eb1b294

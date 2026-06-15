@@ -32,5 +32,5 @@ source:
   type: esphome-devices
   remote_id: LSC-Smart-Connect-1500lm-22W-Ceiling-Lamp
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/LSC-Smart-Connect-1500lm-22W-Ceiling-Lamp/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: bb98761bc03b4d21242e7ca588767491ed14fe45498aaed8546b15085ae10050

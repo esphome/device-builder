@@ -1,0 +1,28 @@
+id: 4moms_mamaroo_4
+name: 4moms Mamaroo 4
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-c3-devkitm-1
+  variant: esp32c3
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/4moms-mamaroo-4/4moms-mamaroo-4.jpg
+docs_url: https://devices.esphome.io/devices/4moms-mamaroo-4/
+featured_components:
+- id: sensor_uptime_1
+  component_id: sensor.uptime
+  fields:
+    type: seconds
+    id: sensor_uptime_1
+    name: Uptime
+source:
+  type: esphome-devices
+  remote_id: 4moms-mamaroo-4
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/4moms-mamaroo-4/index.md
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
+  content_hash: 51f128e6c8cad3c6e775433f17e8d156144bcbaec17ab8173430c236778d3676

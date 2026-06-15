@@ -336,6 +336,12 @@ class DeviceBuilder:
         self.remote_build_offloader = OffloaderController(self)
         self.remote_build_receiver = ReceiverController(self)
         self.version_history = VersionHistoryController(self)
+        # Seed the RAM-canonical preferences (and migrate them out of the shared
+        # sidecar on first run) before onboarding reads or mutates them.
+        await self.config.async_load()
+        # Default pre-existing installs to the YAML experience before
+        # any onboarding command can be served.
+        await self.onboarding.migrate_preexisting_install()
         await self.devices.start()
         await self.firmware.start()
         await self.editor.start()
@@ -432,7 +438,7 @@ class DeviceBuilder:
             len(self.command_handlers),
         )
 
-    async def stop(self) -> None:  # noqa: C901
+    async def stop(self) -> None:  # noqa: C901, PLR0912
         """Shut down the application."""
         _LOGGER.info("Shutting down ESPHome Device Builder")
         if self._bg_task:
@@ -470,6 +476,8 @@ class DeviceBuilder:
             await self.editor.stop()
         if self.version_history is not None:
             await self.version_history.stop()
+        if self.config is not None:
+            await self.config.stop()
         # Cleanly drain the pool once nothing else can hand it work.
         # Two paths because the pool is created eagerly in ``__init__``
         # — calling ``stop()`` on an instance that never ran
@@ -592,6 +600,14 @@ class DeviceBuilder:
             # snapshot here a fresh page load would miss everything
             # the dashboard had already accumulated by then.
             initial: dict[str, Any] = {}
+            # Gate first-paint UI, so ship them here instead of a separate
+            # get_preferences round-trip. Sync RAM read off the store. Always
+            # present per the wire contract; the config controller is created in
+            # start() before any subscribe is served, so raise (don't silently
+            # omit) if that invariant is ever broken.
+            if self.config is None:  # pragma: no cover — config is always up post-start
+                raise RuntimeError("config controller is not initialized")
+            initial["preferences"] = self.config.prefs.snapshot().to_dict()
             if self.devices:
                 initial["devices"] = [d.to_dict() for d in self.devices.get_devices()]
                 initial["importable"] = [d.to_dict() for d in self.devices.get_importable_devices()]

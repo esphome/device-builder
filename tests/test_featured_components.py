@@ -16,12 +16,14 @@ Covers four layers:
 from __future__ import annotations
 
 from copy import deepcopy
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from esphome_device_builder import definitions
 from esphome_device_builder.controllers.components import ComponentCatalog
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.devices._state import DevicesState
@@ -84,11 +86,21 @@ def test_coerce_dict_pin_value() -> None:
 
 
 def test_load_featured_component_minimal() -> None:
-    """Only id+component_id required; fields default to empty."""
-    fc = _load_featured_component({"id": "dht", "component_id": "sensor.dht"})
+    """Only id+component_id required; fields default to empty, no image."""
+    fc = _load_featured_component({"id": "dht", "component_id": "sensor.dht"}, Path("boards/x"))
     assert fc.id == "dht"
     assert fc.component_id == "sensor.dht"
     assert fc.fields == {}
+    assert fc.image_url == ""
+
+
+def test_load_featured_component_image_url_passthrough() -> None:
+    """An ``http(s)`` ``image_url`` rides through to the entry untouched."""
+    url = "https://cdn.example.com/module.jpg"
+    fc = _load_featured_component(
+        {"id": "dht", "component_id": "sensor.dht", "image_url": url}, Path("boards/x")
+    )
+    assert fc.image_url == url
 
 
 def test_load_featured_bundle() -> None:
@@ -99,10 +111,35 @@ def test_load_featured_bundle() -> None:
             "name": "Status LED",
             "description": "...",
             "component_ids": ["status_led_output", "status_led_light"],
-        }
+            "image_url": "https://cdn.example.com/bundle.jpg",
+        },
+        Path("boards/x"),
     )
     assert fb.id == "status_led"
     assert fb.component_ids == ["status_led_output", "status_led_light"]
+    assert fb.image_url == "https://cdn.example.com/bundle.jpg"
+
+
+def test_resolve_featured_image(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """URL pass-through; missing local -> ''; existing local -> /boards/images URL."""
+    assert definitions._resolve_featured_image("", tmp_path) == ""
+    assert definitions._resolve_featured_image(None, tmp_path) == ""
+    assert definitions._resolve_featured_image("https://x/y.jpg", tmp_path) == "https://x/y.jpg"
+    # Relative path with no file behind it degrades to empty (logged).
+    assert definitions._resolve_featured_image("images/missing.jpg", tmp_path / "board") == ""
+    # Existing local file resolves against the boards dir to its served URL.
+    monkeypatch.setattr(definitions, "_BOARDS_DIR", tmp_path)
+    board_dir = tmp_path / "my-board"
+    (board_dir / "images").mkdir(parents=True)
+    (board_dir / "images" / "mod.jpg").write_bytes(b"x")
+    assert (
+        definitions._resolve_featured_image("images/mod.jpg", board_dir)
+        == "/boards/images/my-board/images/mod.jpg"
+    )
+    # An absolute path or a parent-dir escape is rejected before any disk touch,
+    # so _local_to_url can't raise and no traversal URL is emitted.
+    assert definitions._resolve_featured_image("/etc/passwd", board_dir) == ""
+    assert definitions._resolve_featured_image("../other-board/x.jpg", board_dir) == ""
 
 
 # ---------------------------------------------------------------------------
@@ -188,6 +225,40 @@ async def test_get_component_name_from_manifest_field(
     name_field = next(ce for ce in entry.config_entries if ce.key == "name")
     assert name_field.default_value == "Relay"
     assert name_field.locked is False
+
+
+_APOLLO_PIR_IMAGE = (
+    "https://wiki.apolloautomation.com/assets/esphome-starter-kit-pir-module-only.jpg"
+)
+
+
+def test_shipped_apollo_featured_carries_module_image(catalog: ComponentCatalog) -> None:
+    """The shipped apollo-esk-1 featured registry keeps its module photo (no regen drop)."""
+    record = catalog._featured_by_id["featured.apollo-esk-1.motion_module"]
+    assert record.featured.image_url == _APOLLO_PIR_IMAGE
+
+
+async def test_get_component_featured_image_override(catalog: ComponentCatalog) -> None:
+    """A module image overrides the underlying component image on the detail view."""
+    entry = await catalog.get_component(component_id="featured.apollo-esk-1.motion_module")
+    assert entry is not None
+    assert entry.image_url == _APOLLO_PIR_IMAGE
+
+
+async def test_get_component_featured_image_fallback(catalog: ComponentCatalog) -> None:
+    """Without a module image the featured entry keeps the underlying component's image."""
+    underlying = await catalog.get_component(component_id="i2c")
+    entry = await catalog.get_component(component_id="featured.apollo-esk-1.i2c_bus")
+    assert underlying is not None
+    assert entry is not None
+    assert entry.image_url == underlying.image_url
+
+
+async def test_get_components_featured_image_override_in_list(catalog: ComponentCatalog) -> None:
+    """The slim list card (materialise_featured_index) carries the module image too."""
+    page = await catalog.get_components(board_id="apollo-esk-1", category="featured")
+    motion = next(c for c in page.components if c.id == "featured.apollo-esk-1.motion_module")
+    assert motion.image_url == _APOLLO_PIR_IMAGE
 
 
 async def test_get_components_featured_only_with_board_id(

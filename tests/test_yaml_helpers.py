@@ -43,6 +43,8 @@ from esphome_device_builder.helpers.yaml import (
     _strip_yaml_quotes,
     generate_api_encryption_key,
     generate_component_yaml,
+    is_plain_literal_scalar,
+    is_retargetable_name,
     load_yaml_fast_then_esphome,
     merge_component_yaml,
     parse_substitution_ref,
@@ -52,7 +54,12 @@ from esphome_device_builder.helpers.yaml import (
     rewrite_yaml_scalar,
     upsert_yaml_leaf_under_top_block,
 )
-from esphome_device_builder.helpers.yaml.scalar import _plain_is_fast_safe, _plain_is_safe
+from esphome_device_builder.helpers.yaml.component import _list_item_indent
+from esphome_device_builder.helpers.yaml.scalar import (
+    ESPHOME_YAML_INDENT,
+    _plain_is_fast_safe,
+    _plain_is_safe,
+)
 from esphome_device_builder.models.common import ConfigEntry, ConfigEntryType
 from esphome_device_builder.models.components import (
     ComponentCatalogEntry,
@@ -112,6 +119,45 @@ def test_parse_substitution_ref(value: str, expected: str | None) -> None:
     back to a literal rewrite rather than wreck a partial match.
     """
     assert parse_substitution_ref(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("kitchen", True),
+        ('"kitchen"', True),
+        ("'kitchen-1'", True),
+        ("", False),
+        ("   ", False),
+        ("${devicename}", False),
+        ("$devicename", False),
+        ("kitchen_${suffix}", False),  # embedded substitution
+        ("${loc}-sensor", False),
+        ("!include name.yaml", False),
+        ("!secret node_name", False),
+    ],
+)
+def test_is_plain_literal_scalar(value: str, expected: bool) -> None:
+    """Plain literals pass; empty, tagged, or substitution-bearing values don't."""
+    assert is_plain_literal_scalar(value) is expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("kitchen", True),
+        ("${devicename}", True),  # pure ref -> rewrite the substitution def
+        ("$devicename", True),
+        ('"${devicename}"', True),
+        ("kitchen_${suffix}", False),  # embedded -> would flatten
+        ("${loc}-sensor", False),
+        ("!include name.yaml", False),
+        ("", False),
+    ],
+)
+def test_is_retargetable_name(value: str, expected: bool) -> None:
+    """Plain literals and pure ${var} refs are retargetable; embedded/tag aren't."""
+    assert is_retargetable_name(value) is expected
 
 
 def test_rewrite_name_or_substitution_redirects_through_substitution() -> None:
@@ -1047,6 +1093,128 @@ def test_merge_component_yaml_splice_handles_trailing_blank_lines() -> None:
     assert "- platform: dht" in sensor_block
 
 
+def test_merge_component_yaml_splices_into_zero_indented_list() -> None:
+    """The new item adopts a column-0 dash indent so the result stays parseable."""
+    component = _component(component_id="switch.gpio", category=ComponentCategory.SWITCH)
+    fields: dict[str, Any] = {"pin": "GPIO11"}
+
+    existing = "switch:\n- platform: template\n  name: a\n"
+    result = merge_component_yaml(existing, component, fields)
+
+    assert "\n- platform: gpio\n  pin: GPIO11\n" in result
+    assert len(yaml.safe_load(result)["switch"]) == 2
+
+
+def test_merge_component_yaml_splices_into_four_space_list() -> None:
+    """The new item adopts a 4-space dash indent so the result stays parseable."""
+    component = _component(component_id="switch.gpio", category=ComponentCategory.SWITCH)
+    fields: dict[str, Any] = {"pin": "GPIO11"}
+
+    existing = "switch:\n    - platform: template\n      name: a\n"
+    result = merge_component_yaml(existing, component, fields)
+
+    assert "\n    - platform: gpio\n      pin: GPIO11\n" in result
+    assert len(yaml.safe_load(result)["switch"]) == 2
+
+
+def test_merge_component_yaml_splices_into_comment_only_block() -> None:
+    """A body with no list item falls back to the canonical dash indent."""
+    component = _component(component_id="switch.gpio", category=ComponentCategory.SWITCH)
+    fields: dict[str, Any] = {"pin": "GPIO11"}
+
+    existing = "switch:\n  # populated later\n"
+    result = merge_component_yaml(existing, component, fields)
+
+    assert "\n  - platform: gpio\n    pin: GPIO11\n" in result
+    assert len(yaml.safe_load(result)["switch"]) == 1
+
+
+@pytest.mark.parametrize(
+    ("dash_indent", "existing"),
+    [
+        pytest.param(
+            "",
+            "binary_sensor:\n- platform: template\n  name: a\n  filters:\n  - delayed_off: 5ms\n",
+            id="zero_indent",
+        ),
+        pytest.param(
+            "    ",
+            "binary_sensor:\n"
+            "    - platform: template\n"
+            "      name: a\n"
+            "      filters:\n"
+            "        - delayed_off: 5ms\n",
+            id="four_space",
+        ),
+    ],
+)
+def test_merge_component_yaml_splices_multi_level_item(dash_indent: str, existing: str) -> None:
+    """Every nesting level of a spliced multi-level item stays parseable and intact."""
+    component = _component(
+        component_id="binary_sensor.gpio", category=ComponentCategory.BINARY_SENSOR
+    )
+    fields: dict[str, Any] = {
+        "pin": {"number": "GPIO11", "mode": {"input": True}},
+        "filters": [{"delayed_on": "10ms"}],
+    }
+
+    result = merge_component_yaml(existing, component, fields)
+
+    expected_item = (
+        f"{dash_indent}- platform: gpio\n"
+        f"{dash_indent}  pin:\n"
+        f"{dash_indent}    number: GPIO11\n"
+        f"{dash_indent}    mode:\n"
+        f"{dash_indent}      input: true\n"
+        f"{dash_indent}  filters:\n"
+        f"{dash_indent}    - delayed_on: 10ms\n"
+    )
+    assert expected_item in result
+    assert yaml.safe_load(result)["binary_sensor"] == [
+        {"platform": "template", "name": "a", "filters": [{"delayed_off": "5ms"}]},
+        {
+            "platform": "gpio",
+            "pin": {"number": "GPIO11", "mode": {"input": True}},
+            "filters": [{"delayed_on": "10ms"}],
+        },
+    ]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param([], id="empty"),
+        pytest.param(["  # populated later\n"], id="comment_only"),
+        pytest.param(["  key: value\n"], id="mapping_body"),
+    ],
+)
+def test_list_item_indent_falls_back_to_canonical(body: list[str]) -> None:
+    """A body with no list item yields the canonical dash indent."""
+    lines = ["switch:\n", *body]
+    assert _list_item_indent(lines, 0, len(lines)) == ESPHOME_YAML_INDENT
+
+
+def test_splice_into_domain_block_preserves_blank_lines_in_item() -> None:
+    """Blank lines inside the generated item survive the re-indent."""
+    existing = "switch:\n- platform: template\n  name: a\n"
+    block = "switch:\n  - platform: gpio\n\n    pin: GPIO11\n"
+    result = _splice_into_domain_block(existing, "switch", block)
+
+    assert result is not None
+    assert "\n- platform: gpio\n\n  pin: GPIO11\n" in result
+
+
+def test_merge_component_yaml_multi_conf_non_canonical_list() -> None:
+    """A ``multi_conf`` splice follows the existing list's 4-space dash indent."""
+    component = _component(component_id="rtttl", category=ComponentCategory.MISC, multi_conf=True)
+
+    existing = "rtttl:\n    - id: rtttl_1\n      output: out1\n"
+    result = merge_component_yaml(existing, component, {"id": "rtttl_2", "output": "buzz"})
+
+    assert "\n    - id: rtttl_2\n      output: buzz\n" in result
+    assert len(yaml.safe_load(result)["rtttl"]) == 2
+
+
 def test_merge_component_yaml_accepts_incomplete_draft() -> None:
     """A syntactically broken draft is appended-merged, not rejected."""
     component = _component(component_id="i2c", category=ComponentCategory.BUS)
@@ -1205,6 +1373,26 @@ def test_mapping_body_to_list_item_preserves_blank_lines() -> None:
         "",
         "    output: buzz",
     ]
+
+
+def test_mapping_body_to_list_item_single_space_body() -> None:
+    """A 1-space-indented body still gets the ``- `` marker, re-emitted canonically."""
+    body = [" sda: GPIO21", " scl: GPIO22"]
+    assert _mapping_body_to_list_item(body) == [
+        "  - sda: GPIO21",
+        "    scl: GPIO22",
+    ]
+
+
+def test_merge_component_yaml_multi_conf_single_space_mapping_body() -> None:
+    """A 1-space mapping body normalises to list form and the merge stays parseable."""
+    component = _component(component_id="rtttl", category=ComponentCategory.MISC, multi_conf=True)
+
+    existing = "rtttl:\n id: rtttl_1\n output: out1\n"
+    result = merge_component_yaml(existing, component, {"id": "rtttl_2", "output": "buzz"})
+
+    parsed = yaml.safe_load(result)["rtttl"]
+    assert [item["id"] for item in parsed] == ["rtttl_1", "rtttl_2"]
 
 
 def test_generate_component_yaml_multi_conf_emits_list_form() -> None:

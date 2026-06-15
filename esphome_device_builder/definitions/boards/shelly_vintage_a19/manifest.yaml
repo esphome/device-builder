@@ -40,5 +40,5 @@ source:
   type: esphome-devices
   remote_id: Shelly-Vintage-A19
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Shelly-Vintage-A19/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 362299c346953057500d08e49ee1c2d66252f519f85480a66d83126ca6fe37aa

@@ -24,5 +24,5 @@ source:
   type: esphome-devices
   remote_id: Makerfabs-AC-Dimmer
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Makerfabs-AC-Dimmer/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 8c5076e8f635f0761fa22a5c10a237f3d28ea4b1616bf0d594c3137a7f1a3ca5

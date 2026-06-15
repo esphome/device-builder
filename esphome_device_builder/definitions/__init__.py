@@ -187,7 +187,35 @@ def _coerce_field_preset(raw: object) -> FieldPreset:
     return FieldPreset(value=raw)  # type: ignore[arg-type]
 
 
-def _load_featured_component(data: dict) -> FeaturedComponent:
+def _resolve_featured_image(raw: object, board_dir: Path) -> str:
+    """
+    Resolve a featured entry's ``image_url`` the same way board images resolve.
+
+    An ``http(s)://`` value passes through untouched; a relative path inside the
+    board dir becomes its ``/boards/images/...`` URL when the file exists. An
+    absolute path, a parent-dir escape, or a missing file is dropped (logged) so
+    bad manifest data degrades to the component's generic image rather than
+    raising in ``_local_to_url`` or emitting a traversal URL.
+    """
+    if not isinstance(raw, str) or not raw:
+        return ""
+    if raw.startswith(("http://", "https://")):
+        return raw
+    if Path(raw).is_absolute() or ".." in Path(raw).parts:
+        _LOGGER.warning(
+            "Board %s: featured image %r must be a path inside the board dir; skipping",
+            board_dir.name,
+            raw,
+        )
+        return ""
+    local = board_dir / raw
+    if local.is_file():
+        return _local_to_url(local)
+    _LOGGER.warning("Board %s: featured image %r not found; skipping", board_dir.name, raw)
+    return ""
+
+
+def _load_featured_component(data: dict, board_dir: Path) -> FeaturedComponent:
     """Load a FeaturedComponent from its YAML dict form."""
     raw_fields = data.get("fields") or {}
     fields = {key: _coerce_field_preset(val) for key, val in raw_fields.items()}
@@ -197,16 +225,18 @@ def _load_featured_component(data: dict) -> FeaturedComponent:
         name=data.get("name"),
         description=data.get("description"),
         fields=fields,
+        image_url=_resolve_featured_image(data.get("image_url"), board_dir),
     )
 
 
-def _load_featured_bundle(data: dict) -> FeaturedBundle:
+def _load_featured_bundle(data: dict, board_dir: Path) -> FeaturedBundle:
     """Load a FeaturedBundle from its YAML dict form."""
     return FeaturedBundle(
         id=data["id"],
         name=data["name"],
         description=data.get("description", ""),
         component_ids=list(data.get("component_ids", [])),
+        image_url=_resolve_featured_image(data.get("image_url"), board_dir),
     )
 
 
@@ -296,10 +326,12 @@ def build_board_catalog_from_manifests(*, strict: bool = False) -> BoardCatalogR
                     featured=data.get("featured", False),
                     is_generic=data.get("is_generic", False),
                     featured_components=[
-                        _load_featured_component(fc) for fc in data.get("featured_components", [])
+                        _load_featured_component(fc, board_dir)
+                        for fc in data.get("featured_components", [])
                     ],
                     featured_bundles=[
-                        _load_featured_bundle(fb) for fb in data.get("featured_bundles", [])
+                        _load_featured_bundle(fb, board_dir)
+                        for fb in data.get("featured_bundles", [])
                     ],
                     default_components=[
                         _load_default_component(d) for d in data.get("default_components", [])

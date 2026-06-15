@@ -26,9 +26,16 @@ from esphome_device_builder.helpers.event_bus import (
     StreamBackpressureError,
 )
 from esphome_device_builder.helpers.subscriber_presence import SubscriberPresence
-from esphome_device_builder.models import EventType
+from esphome_device_builder.models import EventType, UserPreferences
+from esphome_device_builder.models.preferences import Theme
 
 from .conftest import FakeWebSocketClient
+
+
+def _stub_config(db: DeviceBuilder, prefs: UserPreferences | None = None) -> None:
+    """Give *db* a config controller whose prefs store snapshot returns *prefs*."""
+    db.config = MagicMock()
+    db.config.prefs.snapshot.return_value = prefs or UserPreferences()
 
 
 def _make_db() -> DeviceBuilder:
@@ -40,6 +47,7 @@ def _make_db() -> DeviceBuilder:
     stub.
     """
     db = DeviceBuilder.__new__(DeviceBuilder)
+    _stub_config(db)
     db.bus = EventBus()
     db.subscriber_presence = SubscriberPresence()
     db.devices = None  # skip the device-snapshot branch
@@ -143,6 +151,7 @@ async def test_subscribe_events_includes_pairings_snapshot_in_initial_state() ->
     hop, no disk read.
     """
     db = DeviceBuilder.__new__(DeviceBuilder)
+    _stub_config(db)
     db.bus = EventBus()
     db.subscriber_presence = SubscriberPresence()
     db.devices = None  # skip the device-snapshot branch
@@ -190,6 +199,7 @@ async def test_subscribe_events_includes_peers_snapshot_in_initial_state() -> No
     ``_pending_peers`` + ``_approved_peers`` dicts.
     """
     db = DeviceBuilder.__new__(DeviceBuilder)
+    _stub_config(db)
     db.bus = EventBus()
     db.subscriber_presence = SubscriberPresence()
     db.devices = None
@@ -247,6 +257,40 @@ async def test_subscribe_events_includes_peers_snapshot_in_initial_state() -> No
     await asyncio.gather(handler_task, return_exceptions=True)
 
 
+async def test_subscribe_events_includes_preferences_in_initial_state() -> None:
+    """``_send_initial`` carries the UI-gating preferences in the snapshot.
+
+    So first paint doesn't chase a separate ``get_preferences``.
+    """
+    db = DeviceBuilder.__new__(DeviceBuilder)
+    _stub_config(
+        db,
+        UserPreferences(navigator_visible=False, theme=Theme.DARK),
+    )
+    db.bus = EventBus()
+    db.subscriber_presence = SubscriberPresence()
+    db.devices = None
+    db.remote_build_offloader = None
+    db.remote_build_receiver = None
+
+    client = FakeWebSocketClient()
+    handler_task = asyncio.create_task(db._cmd_subscribe_events(client=client, message_id="m1"))
+    for _ in range(50):
+        await asyncio.sleep(0)
+        if client.events:
+            break
+
+    initial_events = [e for e in client.events if e[1] == "initial_state"]
+    assert len(initial_events) == 1
+    _, _, payload = initial_events[0]
+    prefs = payload["preferences"]
+    assert prefs["navigator_visible"] is False
+    assert prefs["theme"] == "dark"
+
+    handler_task.cancel()
+    await asyncio.gather(handler_task, return_exceptions=True)
+
+
 async def test_subscribe_events_includes_offloader_settings_in_initial_state() -> None:
     """``_send_initial`` merges the offloader-wide settings into the seed.
 
@@ -257,6 +301,7 @@ async def test_subscribe_events_includes_offloader_settings_in_initial_state() -
     (or in the picker's case never, since there's nothing to flip).
     """
     db = DeviceBuilder.__new__(DeviceBuilder)
+    _stub_config(db)
     db.bus = EventBus()
     db.subscriber_presence = SubscriberPresence()
     db.devices = None
@@ -301,6 +346,7 @@ async def test_subscribe_events_includes_hosts_snapshot_in_initial_state() -> No
     command.
     """
     db = DeviceBuilder.__new__(DeviceBuilder)
+    _stub_config(db)
     db.bus = EventBus()
     db.subscriber_presence = SubscriberPresence()
     db.devices = None
@@ -405,6 +451,7 @@ async def test_subscribe_events_subscribed_arrives_before_live_events() -> None:
     must be queued, then drained strictly after the seed.
     """
     db = DeviceBuilder.__new__(DeviceBuilder)
+    _stub_config(db)
     db.bus = EventBus()
     db.subscriber_presence = SubscriberPresence()
 

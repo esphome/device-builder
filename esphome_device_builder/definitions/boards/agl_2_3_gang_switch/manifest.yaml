@@ -62,6 +62,12 @@ featured_components:
     internal: true
     id: blue_led
     name: blue_led
+- id: sensor_uptime_1
+  component_id: sensor.uptime
+  fields:
+    update_interval: 60s
+    id: sensor_uptime_1
+    name: AGL 2 Gang Uptime
 - id: relay_1
   component_id: switch.gpio
   fields:
@@ -82,5 +88,5 @@ source:
   type: esphome-devices
   remote_id: AGL-2-3-Gang-Switch
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/AGL-2-3-Gang-Switch/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 8c41c1b92ac49e2541dd04fe626a7a8322ae001b6d6a1aab5d733f567b66dbee

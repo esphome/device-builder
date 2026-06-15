@@ -52,5 +52,5 @@ source:
   type: esphome-devices
   remote_id: Tomzn-TOB9-VAP
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tomzn-TOB9-VAP/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 8c3e207ced935c0d5b2a6e7b5d2998ed2f12c8bafb49fb8d6dce2dd372b589f5

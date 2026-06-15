@@ -94,6 +94,13 @@ featured_components:
     entity_category: diagnostic
     id: sensor_rssi
     name: RSSI
+- id: sensor_uptime
+  component_id: sensor.uptime
+  fields:
+    update_interval: 300s
+    entity_category: diagnostic
+    id: sensor_uptime
+    name: Uptime
 - id: relay_1
   component_id: switch.gpio
   fields:
@@ -114,5 +121,5 @@ source:
   type: esphome-devices
   remote_id: Sonoff-Dual-R3
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Sonoff-Dual-R3/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: d779d48d30fda6b2739cf7928d00072656f29317e1341c994ee33cf6d9afc8da

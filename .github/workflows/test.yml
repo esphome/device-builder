@@ -408,6 +408,39 @@ jobs:
           ESPHOME_ESP_IDF_PREFIX: ~/.cache/esphome-idf
         run: uv run pytest -q tests/e2e/slow/esp32 --durations=10 --timeout=900 --no-cov
 
+  e2e-boards:
+    name: E2E board create validation (esphome stable)
+    runs-on: ubuntu-latest
+    # Validates that every catalog board generates a config esphome accepts
+    # (the create path). Real ``esphome config`` per board, each in its own
+    # forked worker. Stable esphome only -- it checks the committed catalog
+    # against the version the dashboard ships.
+    steps:
+      - name: Check out code from GitHub
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Set up uv and Python 3.14
+        uses: ./.github/actions/setup-uv-python
+        with:
+          python-version: "3.14"
+
+      - name: Create venv + install package + test deps
+        run: |
+          uv venv
+          uv pip install -e '.[esphome,test]'
+
+      - name: Show installed esphome version
+        run: uv pip show esphome | grep -E '^(Name|Version):'
+
+      - name: Validate every board's generated config
+        # No ``-n auto``: the test forks a worker per board, and forking a
+        # multi-threaded xdist worker risks a deadlock. The test's own pool
+        # provides the parallelism; its ``@pytest.mark.timeout`` caps it.
+        timeout-minutes: 10
+        run: uv run pytest -q tests/e2e/slow/boards --durations=10 --timeout=600 --no-cov
+
   benchmarks:
     name: Run benchmarks (CodSpeed)
     runs-on: ubuntu-latest

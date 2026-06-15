@@ -156,37 +156,28 @@ class BoardCatalog:
         pio_board: str,
         pio_variant: str = "",
         platform: Platform | str | None = None,
+        *,
+        prefer_exact_id: bool = False,
     ) -> BoardCatalogIndex | None:
         """
         Find a board by its PlatformIO board id, preferring a matching variant.
 
-        Returns the slim index entry; the caller fetches the full
-        body via :meth:`get_board` when it needs pins /
-        featured_components / default_components.
+        Returns the slim index entry; the caller fetches the full body via
+        :meth:`get_board` for pins / featured_components.
 
-        ``platform`` scopes the match to one ESPHome platform. nRF52 and rp2040
-        both ship a PlatformIO board called ``adafruit_itsybitsy``; without the
-        scope an ``nrf52`` device would resolve to the rp2040 entry and serve its
-        ``GPIOn`` pins, which ESPHome's nRF52 validator rejects. A scoped miss
-        returns ``None`` so the caller falls back (a free-text pin field) rather
-        than wrong-platform pins.
+        ``platform`` scopes the match to one ESPHome platform — nRF52 and
+        rp2040 both ship an ``adafruit_itsybitsy``, so an unscoped lookup
+        would serve wrong-platform pins. A scoped miss returns ``None``.
 
-        When multiple catalog entries share the same PlatformIO board
-        id (e.g. several products are physically built on the same
-        ``esp32-c3-devkitm-1`` reference design), the disambiguation
-        ladder is:
+        Several entries can share a PlatformIO board id (products built on one
+        reference design). Tiebreak by *prefer_exact_id*:
 
-        1. ``is_generic=true`` wins outright — the catalog's curated
-           "this is the canonical reference design" marker.
-        2. Otherwise, prefer an entry whose ``id`` matches the
-           PlatformIO board id (after ``_`` ↔ ``-`` normalization).
-           A board with id ``d1-mini`` is the canonical entry for
-           PlatformIO ``d1_mini`` even when nobody remembered to set
-           ``is_generic: true`` — without this tiebreaker, a vendor
-           product alphabetically earlier than the canonical entry
-           wins (the bug behind issue #395 — AquaPing showing up as
-           the board for plain ``d1_mini`` YAMLs).
-        3. Fall back to the first match in iteration order.
+        - ``False`` (default) — generic entry, else the entry whose ``id``
+          matches the board id, else the first. The historical order; the
+          ``board_id_user_set`` migration relies on it being unchanged.
+        - ``True`` — exact ``id`` match first, else generic, else first. Used
+          to resolve a device's own ``board:`` so ``board: esp01_1m`` lands on
+          that entry, not the broader ``generic-esp8266`` sharing its pio board.
         """
         matches = self._matches_pio_board(pio_board, platform)
         if not matches:
@@ -197,14 +188,11 @@ class BoardCatalog:
             ]
             if variant_matches:
                 matches = variant_matches
-        for b in matches:
-            if b.is_generic:
-                return b
         normalized_pio = pio_board.replace("_", "-")
-        for b in matches:
-            if b.id.replace("_", "-") == normalized_pio:
-                return b
-        return matches[0]
+        id_match = next((b for b in matches if b.id.replace("_", "-") == normalized_pio), None)
+        generic = next((b for b in matches if b.is_generic), None)
+        ordered = (id_match, generic) if prefer_exact_id else (generic, id_match)
+        return next((b for b in ordered if b is not None), matches[0])
 
     def find_all_by_pio_board(
         self,

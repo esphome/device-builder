@@ -30,6 +30,35 @@ class SortDirection(StrEnum):
     DESC = "desc"
 
 
+class EditorLayout(StrEnum):
+    """Device editor pane layout: the form, the YAML pane, or both."""
+
+    VISUAL = "visual"
+    YAML = "yaml"
+    BOTH = "both"
+
+
+class SecretsEditorLayout(StrEnum):
+    """Secrets editor layout: the form or the YAML pane, never both."""
+
+    VISUAL = "visual"
+    YAML = "yaml"
+
+
+class ExperienceLevel(StrEnum):
+    """
+    How much ESPHome the user knows; tailors UI weight.
+
+    Chosen in onboarding, changeable any time via the Settings expert-mode
+    toggle. ``EXPERT`` unlocks the power-user surfaces (editor diff, navigator
+    and YAML search). ``None`` (a fresh install that hasn't picked) is handled
+    separately; a pre-existing install migrates to ``EXPERT``.
+    """
+
+    BEGINNER = "beginner"
+    EXPERT = "expert"
+
+
 @dataclass
 class UserPreferences(DataClassORJSONMixin):
     """Per-user UI preferences.
@@ -44,13 +73,24 @@ class UserPreferences(DataClassORJSONMixin):
 
     # Device editor
     navigator_visible: bool = True
-    yaml_diff_button: bool = False
+    # Which editor panes the user last had open, persisted so the choice
+    # survives a new browser. The secrets editor has no split view, so a
+    # dedicated enum makes "never both" a type rather than a comment.
+    device_editor_layout: EditorLayout = EditorLayout.BOTH
+    secrets_editor_layout: SecretsEditorLayout = SecretsEditorLayout.VISUAL
 
     # Table view settings
     table_page_size: int = 25
     table_column_visibility: dict[str, bool] = field(default_factory=dict)
     table_sort_column: str | None = None
     table_sort_direction: SortDirection | None = None
+
+    # Experience level chosen in onboarding (None = not yet chosen).
+    # ``EXPERT`` unlocks the power-user editor and search surfaces.
+    experience_level: ExperienceLevel | None = None
+    # This install is only a remote build node: onboarding skips the
+    # Wi-Fi step and device-creation entry points are hidden.
+    remote_compute_only: bool = False
 
     # Highest onboarding-flow version the user has acknowledged.
     # Default 0 ⇒ never gone through onboarding; the dashboard

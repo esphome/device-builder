@@ -106,6 +106,12 @@ featured_components:
     internal: true
     id: sensor_wifi_signal_1
     name: Signal strength
+- id: uptime_sensor
+  component_id: sensor.uptime
+  fields:
+    update_interval: 360s
+    id: uptime_sensor
+    name: Uptime
 - id: light_intensity
   component_id: sensor.tuya
   fields:
@@ -130,5 +136,5 @@ source:
   type: esphome-devices
   remote_id: Tuya-ZY-M100-Human-Presence-Sensor
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-ZY-M100-Human-Presence-Sensor/index.md
-  upstream_revision: ea7d423c45392e8b0f21479dcdf6fca956da972c
+  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
   content_hash: 357305a91aaf554b4ff971a4d8f877bd052ccf251a340aca7be957c2924b6437

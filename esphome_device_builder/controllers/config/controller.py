@@ -18,15 +18,16 @@ from ...helpers.secrets_state import (
     read_secrets_yaml,
     write_secret,
 )
+from ...helpers.storage import ShutdownCallback
 from ...helpers.storage_path import resolve_storage_path
 from ...models import ErrorCode, UserPreferences
+from ._preferences_store import PreferencesStore
 from .chip_detect import (
     _detect_chip_via_esptool,
     _detect_failure_message,
     _is_valid_port_name,
     _read_app_descriptor_board_id,
 )
-from .preferences import load_preferences, update_preferences
 
 if TYPE_CHECKING:
     from ...device_builder import DeviceBuilder
@@ -37,6 +38,19 @@ class ConfigController:
 
     def __init__(self, device_builder: DeviceBuilder) -> None:
         self._db = device_builder
+        self._shutdown_callbacks: list[ShutdownCallback] = []
+        self.prefs = PreferencesStore(
+            device_builder.settings.config_dir, self._shutdown_callbacks.append
+        )
+
+    async def async_load(self) -> None:
+        """Seed the RAM-canonical preferences store (and migrate on first run)."""
+        await self.prefs.async_load()
+
+    async def stop(self) -> None:
+        """Flush the preferences store on shutdown."""
+        for callback in self._shutdown_callbacks:
+            await callback()
 
     @api_command("config/version")
     async def get_version(self, **kwargs: Any) -> dict:
@@ -94,9 +108,8 @@ class ConfigController:
 
     @api_command("config/get_preferences")
     async def get_prefs(self, **kwargs: Any) -> UserPreferences:
-        """Get user preferences."""
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, load_preferences, self._db.settings.config_dir)
+        """Get user preferences (RAM-canonical via the store)."""
+        return self.prefs.snapshot()
 
     @api_command("config/set_preferences")
     async def set_prefs(self, **kwargs: Any) -> UserPreferences:
@@ -105,10 +118,8 @@ class ConfigController:
         Accepts partial updates — only provided fields are changed,
         others keep their current values.
         """
-        loop = asyncio.get_running_loop()
-        config_dir = self._db.settings.config_dir
         update_fields = {k: v for k, v in kwargs.items() if k not in ("client", "message_id")}
-        return await loop.run_in_executor(None, update_preferences, config_dir, update_fields)
+        return self.prefs.update(update_fields)
 
     @api_command("config/get_secrets")
     async def get_secrets(self, **kwargs: Any) -> list[str]:

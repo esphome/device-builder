@@ -47,10 +47,10 @@ import textwrap
 import unicodedata
 import urllib.request
 import zipfile
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Collection, Iterable, Iterator
 from dataclasses import dataclass, field
 from enum import StrEnum
-from functools import cache
+from functools import cache, partial
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Literal, NamedTuple
@@ -76,7 +76,9 @@ _CACHE_ROOT = _REPO_ROOT / ".cache"
 # Fields stripped from index entries — they belong on the per-id body
 # files only. Slim-index keeps the catalog UI's list / search /
 # filter paths off the per-field tree.
-_INDEX_DROP_FIELDS: frozenset[str] = frozenset({"config_entries", "required_groups"})
+_INDEX_DROP_FIELDS: frozenset[str] = frozenset(
+    {"config_entries", "required_groups", "bus_constraints"}
+)
 
 # Actions with more top-level config entries than this are flagged
 # form_editable=False (LVGL *.update sits at 160+, every other action <= 30).
@@ -112,6 +114,7 @@ from _catalog_split import (  # noqa: E402
 from esphome_device_builder.controllers.components import (  # noqa: E402
     INTERNAL_COMPONENT_IDS as _INTERNAL_COMPONENT_IDS,
 )
+from esphome_device_builder.controllers.components import variant_to_key  # noqa: E402
 from esphome_device_builder.helpers.automation_keys import is_trigger_key  # noqa: E402
 from esphome_device_builder.models import (  # noqa: E402
     AutomationAction,
@@ -291,19 +294,26 @@ _SKIP_KEYS: frozenset[str] = frozenset({"mqtt_id", "zigbee_id", "then"})
 # deprecated and the dashboard handles the underlying concern itself.
 # Keyed by ``(component_id, field_key)``.
 #
-# - ``esp32.board`` / ``esp8266.board``: the dashboard drives the
-#   PlatformIO board ID from the user's board pick (the board catalog
-#   is the source of truth). Internally we feed esphome with the
-#   ``variant`` only, never ``board``.
+# - ``esp32.board`` / ``rp2040.board``: these platforms carry a
+#   ``variant`` that the user selects instead (schema enforces
+#   ``has_at_least_one_key(board, variant)``), so the editor surfaces
+#   ``variant`` and the board itself comes from the board catalog. The
+#   variant-less platforms (esp8266, nrf52, bk72xx, rtl87xx, ln882x)
+#   have ``board`` as their required sole selector and surface it as a
+#   board combobox — see ``_BOARD_COMBOBOX_PLATFORMS``.
 _DEPRECATED_FIELDS: frozenset[tuple[str, str]] = frozenset(
     {
         ("esp32", "board"),
-        ("esp8266", "board"),
         ("rp2040", "board"),
-        ("bk72xx", "board"),
-        ("rtl87xx", "board"),
-        ("ln882x", "board"),
     }
+)
+
+# Platform components whose ``board`` is the required, sole selector
+# (no ``variant``). Their ``board`` entry is surfaced as a combobox of
+# the platform's catalog boards plus free-text — see
+# ``_apply_board_options``.
+_BOARD_COMBOBOX_PLATFORMS: frozenset[str] = frozenset(
+    {"esp8266", "nrf52", "bk72xx", "rtl87xx", "ln882x"}
 )
 
 # Cross-cutting fields that only make sense when a specific component
@@ -452,6 +462,14 @@ _UART_DEBUG_OVERRIDE: dict[str, Any] = {
 # Only when none of those can express the field does a new override
 # belong here — and then document the exact upstream gap that forces it,
 # as the existing entries do.
+# Common serial baud rates offered as a combo box for bare ``cv.int_`` baud
+# fields the schema can't enumerate. Shared by the ``uart`` and ``logger``
+# ``baud_rate`` overrides; ``allow_custom_value`` keeps any other rate typeable.
+_BAUD_RATE_OPTIONS: list[dict[str, str]] = [
+    {"label": str(rate), "value": str(rate)}
+    for rate in (2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400, 256000, 460800, 921600)
+]
+
 _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
     # ``api.encryption`` is validated by a custom function in ESPHome
     # so the schema generator emits only ``{key: Optional, docs: ...}``
@@ -598,6 +616,17 @@ _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
     # which hides ``DEBUG_SCHEMA`` from the bundle. The actual YAML is
     # a mapping with direction / prefix / accumulator settings.
     ("uart", "debug"): _UART_DEBUG_OVERRIDE,
+    # ``uart.baud_rate`` is a bare required ``cv.int_`` — the schema offers
+    # no hint, so the wizard's "Add" stays disabled until the user knows a
+    # rate. Curate the common rates as a combo box (custom entry still
+    # allowed) and default to 115200 so a required-field seed enables Add
+    # and writes ``baud_rate: 115200``. Stays ``integer``/``required`` so
+    # the seed commits the value and bus_constraints can override it.
+    ("uart", "baud_rate"): {
+        "default_value": 115200,
+        "allow_custom_value": True,
+        "options": _BAUD_RATE_OPTIONS,
+    },
     # ``ble_nus.debug`` reuses ``uart.maybe_empty_debug`` for the same
     # ``DEBUG_SCHEMA``. Mirror the override and just retitle the
     # description so it reads about BLE NUS traffic rather than UART.
@@ -616,6 +645,44 @@ _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
         "required": True,
         "advanced": False,
     },
+    # ``esphome.comment`` is node metadata that only surfaces in the web
+    # server UI; keep it off the main form behind the Advanced toggle.
+    ("esphome", "comment"): {
+        "advanced": True,
+    },
+    # ``logger.hardware_uart`` is commonly set (USB_SERIAL_JTAG vs UART0 on
+    # newer ESP32 variants); keep it on the main form, not behind Advanced.
+    ("logger", "hardware_uart"): {
+        "advanced": False,
+    },
+    # ``logger.baud_rate`` is a bare ``cv.int_`` like ``uart.baud_rate``; offer
+    # the same combo box plus logger's documented ``0`` (disable UART logging)
+    # sentinel. Merge keeps the field Optional/Advanced with its 115200 default.
+    ("logger", "baud_rate"): {
+        "allow_custom_value": True,
+        "options": [{"label": "0 (disable logging)", "value": "0"}, *_BAUD_RATE_OPTIONS],
+    },
+}
+
+# UART ``bus_constraints`` the schema can't express, filled into the captured
+# constraints (captured wins). Keyed by the catalog id whose "+ Add UART" detour
+# reads it. A scalar is a fixed rate; a list narrows the detour's baud combo box
+# to those choices, default-first. The fixed-baud rows are a stopgap until
+# upstream validates each rate and a re-sync captures it; CN105's choice is
+# permanent (variable by heat-pump model).
+_CURATED_BUS_CONSTRAINTS: dict[str, dict[str, dict[str, Any]]] = {
+    "climate.mitsubishi_cn105": {"uart": {"baud_rate": [2400, 9600]}},
+    "sensor.bl0940": {"uart": {"baud_rate": 4800}},
+    "sensor.pzem004t": {"uart": {"baud_rate": 9600}},
+    "sensor.senseair": {"uart": {"baud_rate": 9600}},
+    "sensor.sds011": {"uart": {"baud_rate": 9600}},
+    "sensor.sm300d2": {"uart": {"baud_rate": 9600}},
+    "rdm6300": {"uart": {"baud_rate": 9600}},
+    "fingerprint_grow": {"uart": {"baud_rate": 57600}},
+    "climate.midea": {"uart": {"baud_rate": 9600}},
+    "rf_bridge": {"uart": {"baud_rate": 19200}},
+    "light.shelly_dimmer": {"uart": {"baud_rate": 115200}},
+    "sim800l": {"uart": {"baud_rate": 9600}},
 }
 
 # Base-schema references that mark a field as a *sub-reading* of a
@@ -1039,7 +1106,12 @@ class CleanedDocs:
 
 
 def clean_docs(raw: str | None) -> CleanedDocs:
-    """Strip type prefix and ``See also`` footer; surface both as fields."""
+    """
+    Strip type prefix and ``See also`` footer; surface both as fields.
+
+    A body that is exactly ``"None"`` (ESPHome's empty-docstring sentinel)
+    becomes empty text, keeping any extracted name/url.
+    """
     if not raw:
         return CleanedDocs("")
     text = raw.strip()
@@ -1050,8 +1122,13 @@ def clean_docs(raw: str | None) -> CleanedDocs:
         name = m.group(1).strip()
         url = m.group(2).strip()
         text = text[: m.start()].rstrip()
-    text = _DOCS_TYPE_PREFIX.sub("", text)
-    return CleanedDocs(text=text.strip(), name=name, url=url)
+    text = _DOCS_TYPE_PREFIX.sub("", text).strip()
+    # ESPHome's schema dump serializes a missing docstring as the literal
+    # string "None" (often with a real See-also footer); treat the body as
+    # absent so the MDX backfill can fill in. Keep the extracted name/url.
+    if text == "None":
+        text = ""
+    return CleanedDocs(text=text, name=name, url=url)
 
 
 # ---------------------------------------------------------------------------
@@ -1117,6 +1194,9 @@ def build_catalog(
 
     _resolve_provides(out, schema_dir)
 
+    # Multi-instance status needs the whole-catalog multi_conf + provides view.
+    _apply_auto_loaded_reference_advanced_all(out)
+
     return out
 
 
@@ -1147,20 +1227,31 @@ def _resolve_provides(entries: list[dict], schema_dir: Path) -> None:
     Provides ``ns`` when an id class is a referenced ``use_id`` target
     whose namespace differs from the component's own domain — same-domain
     refs (``i2c``, ``sensor``) already resolve via the top-level-key scan,
-    leaving only homeless interfaces like ``voltage_sampler``. Pops the
-    ``_impl_classes`` scratch field. In-place.
+    leaving only homeless interfaces like ``voltage_sampler``. For each
+    *nested* providing id (path deeper than the component root), records a
+    path under ``provides_id_paths[ns]`` so the frontend descends to it
+    instead of the section's own id; a namespace's paths are deduped and
+    sorted for a stable, walk-order-independent catalog. Pops the
+    ``_impl_class_paths`` scratch field. In-place.
     """
     referenced = _collect_referenced_classes(schema_dir)
     for entry in entries:
-        impl = entry.pop("_impl_classes", set())
+        impl_paths = entry.pop("_impl_class_paths", {})
         own_domain = entry["id"].split(".", 1)[0]
-        entry["provides"] = sorted(
-            {
-                namespace
-                for cls in impl & referenced
-                if (namespace := _reference_namespace(cls)) and namespace != own_domain
-            }
-        )
+        provides: set[str] = set()
+        id_paths: dict[str, set[tuple[str, ...]]] = {}
+        for cls in impl_paths.keys() & referenced:
+            namespace = _reference_namespace(cls)
+            if not namespace or namespace == own_domain:
+                continue
+            provides.add(namespace)
+            for path in impl_paths[cls]:
+                if len(path) > 1:
+                    id_paths.setdefault(namespace, set()).add(tuple(path))
+        entry["provides"] = sorted(provides)
+        entry["provides_id_paths"] = {
+            ns: [list(p) for p in sorted(paths)] for ns, paths in sorted(id_paths.items())
+        }
 
 
 # Matches a description that is actually the first bullet of an MDX
@@ -1252,6 +1343,8 @@ def _backfill_descriptions_from_mdx(entries: list[dict]) -> None:
     titles = _load_mdx_titles()
     if not descriptions and not field_descriptions and not titles:
         return
+    # Titles stay un-aliased so the chip families keep distinct names.
+    aliases = _shared_docs_page_aliases(descriptions.keys())
 
     backfilled_components = 0
     backfilled_names = 0
@@ -1259,6 +1352,7 @@ def _backfill_descriptions_from_mdx(entries: list[dict]) -> None:
     for entry in entries:
         cid = entry["id"]
         stem = cid.split(".", 1)[-1]
+        alias = aliases.get(cid)
 
         # Name: when the schema had no See-also link, ``_resolve_name``
         # fell back to a title-cased stem (e.g. "ESPHome" for
@@ -1271,7 +1365,11 @@ def _backfill_descriptions_from_mdx(entries: list[dict]) -> None:
 
         # Component-level description.
         if not (entry.get("description") or "").strip():
-            text = descriptions.get(cid) or descriptions.get(stem)
+            text = (
+                descriptions.get(cid)
+                or descriptions.get(stem)
+                or (descriptions.get(alias) if alias else None)
+            )
             if text:
                 entry["description"] = text
                 backfilled_components += 1
@@ -1281,10 +1379,15 @@ def _backfill_descriptions_from_mdx(entries: list[dict]) -> None:
         # ``/components/<domain>/<stem>/`` for platform-providing
         # components, ``/components/<bare>/`` for non-platform).
         if not entry.get("docs_url"):
-            entry["docs_url"] = _derive_docs_url(cid)
+            entry["docs_url"] = _derive_docs_url(alias or cid)
 
         # Per-field descriptions inside config_entries.
-        field_map = field_descriptions.get(cid) or field_descriptions.get(stem) or {}
+        field_map = (
+            field_descriptions.get(cid)
+            or field_descriptions.get(stem)
+            or (field_descriptions.get(alias) if alias else None)
+            or {}
+        )
         if field_map:
             backfilled_fields += _apply_field_descriptions(
                 entry.get("config_entries") or [],
@@ -1371,6 +1474,30 @@ def _stem_to_label(stem: str) -> str:
     return name
 
 
+def _shared_docs_page_aliases(documented: Collection[str]) -> dict[str, str]:
+    """
+    Map undocumented target platforms to the documented component they auto-load.
+
+    The LibreTiny chip families share ``libretiny``'s page this way.
+    """
+    out: dict[str, str] = {}
+    for cid in sorted(_TARGET_PLATFORMS):
+        if cid in documented:
+            continue
+        hits = [d for d in introspect_component(cid).get("auto_load") or [] if d in documented]
+        if not hits:
+            continue
+        if len(hits) > 1:
+            _LOGGER.warning(
+                "%s auto-loads multiple documented components %s; using %s for docs",
+                cid,
+                hits,
+                hits[0],
+            )
+        out[cid] = hits[0]
+    return out
+
+
 def _derive_docs_url(component_id: str) -> str:
     """Build the docs site URL for *component_id* using the canonical pattern.
 
@@ -1386,6 +1513,17 @@ def _derive_docs_url(component_id: str) -> str:
         domain, stem = component_id.split(".", 1)
         return f"https://esphome.io/components/{domain}/{stem}"
     return f"https://esphome.io/components/{component_id}"
+
+
+def _is_truncated_prefix(existing: str, full: str) -> bool:
+    """Whether *existing* is a mid-sentence (no terminal .!?:) leading slice of *full*."""
+    # A trailing ``:`` is a list-introducer ("One of:") whose options live in MDX
+    # sub-bullets the extractor skips, so joining yields garbage — leave it.
+    head = " ".join(existing.split())
+    whole = " ".join(full.split())
+    return (
+        bool(head) and len(whole) > len(head) and whole.startswith(head) and head[-1] not in ".!?:"
+    )
 
 
 def _apply_field_descriptions(
@@ -1412,13 +1550,13 @@ def _apply_field_descriptions(
         if _depth > 0:
             continue
         key = entry["key"]
-        if not (entry.get("description") or "").strip():
-            text = field_descriptions.get(key)
-            if text:
-                entry["description"] = text
-                backfilled += 1
-                if fragment_url and not entry.get("help_link"):
-                    entry["help_link"] = fragment_url
+        existing = (entry.get("description") or "").strip()
+        text = field_descriptions.get(key)
+        if text and (not existing or _is_truncated_prefix(existing, text)):
+            entry["description"] = text
+            backfilled += 1
+            if fragment_url and not entry.get("help_link"):
+                entry["help_link"] = fragment_url
         inner = entry.get("config_entries")
         if inner:
             backfilled += _apply_field_descriptions(
@@ -1866,6 +2004,15 @@ def build_component_entry(
     docs = clean_docs(meta.get("docs"))
     dependencies = list(meta.get("dependencies") or [])
 
+    # Package-style platforms (ld2410/button, pipsolar/sensor, ...) bind
+    # their hub through a ``cv.use_id`` config var instead of upstream
+    # ``DEPENDENCIES``, so the schema index ships them dependency-less
+    # and the frontend never prompts for the hub. The use_id cross-ref
+    # is already extracted as ``references_component``; union the
+    # entry's own hub back in.
+    if domain and stem not in dependencies and _references_own_hub(config_entries, stem):
+        dependencies.append(stem)
+
     # Drop deps the chosen networking transport will auto-load. See
     # ``_implicit_dependencies``.
     implicit = _implicit_dependencies()
@@ -1888,6 +2035,7 @@ def build_component_entry(
         field_ranges = {k: v for k, v in field_ranges.items() if k not in bleed}
     _apply_field_ranges(config_entries, field_ranges)
     _apply_refined_types(config_entries, introspection.get("refined_types") or {})
+    _apply_typed_defaults(config_entries, introspection.get("typed_defaults") or {})
     _apply_inclusive_groups(config_entries, introspection.get("inclusive_groups") or {})
     _apply_list_fields(config_entries, introspection.get("list_fields") or {})
     _apply_exclusive_group(
@@ -1897,7 +2045,13 @@ def build_component_entry(
         config_entries,
         _collect_pin_constraints(_get_esphome_loader(), domain, stem, top_key),
     )
+    bus_constraints = _collect_bus_constraints(_get_esphome_loader(), domain, stem, top_key)
+    _apply_curated_bus_constraints(component_id, bus_constraints)
     _apply_unit_of_measurement_options(config_entries)
+    _apply_board_options(component_id, config_entries)
+    _apply_logger_uart_options(component_id, config_entries)
+    _apply_psram_options(component_id, config_entries)
+    _apply_esp32_options(component_id, config_entries)
     _promote_multi_value_keys(config_entries)
     _promote_template_controls(component_id, config_entries)
 
@@ -1910,17 +2064,18 @@ def build_component_entry(
         "image_url": image_map.get(component_id) or image_map.get(stem) or "",
         "dependencies": dependencies,
         "multi_conf": introspection.get("multi_conf", False),
+        "bus_constraints": bus_constraints,
         "supported_platforms": _derive_supported_platforms(
             stem if domain else top_key,
             dependencies,
             introspection,
         ),
         # Resolved against referenced classes in ``build_catalog``; the
-        # raw class set is stashed under ``_impl_classes`` until then.
+        # raw class→path map is stashed under ``_impl_class_paths`` until then.
         "provides": [],
         "config_entries": config_entries,
     }
-    component["_impl_classes"] = _implemented_classes(section)
+    component["_impl_class_paths"] = _implemented_classes(section)
     # Required-groups straddle the component root (path ``()``) and
     # nested ``NESTED`` entries; the applier needs the whole
     # component dict to stamp both locations.
@@ -2956,9 +3111,17 @@ def _build_options(raw: dict) -> list[dict] | None:
     options: list[dict] = []
     for value, info in values.items():
         label = value or "(none)"
-        if isinstance(info, dict) and info.get("docs"):
-            label = info["docs"]
-        options.append({"label": label, "value": value})
+        option = {"label": label, "value": value}
+        if isinstance(info, dict):
+            if info.get("docs"):
+                option["label"] = info["docs"]
+            # variant_enum: each value carries the variants that accept it;
+            # lowercase to match the board catalog ``esphome.variant`` form.
+            if variants := info.get("variants"):
+                # Dedupe + sort so the wire form is stable and matches the
+                # introspection path, whichever source produced it.
+                option["variants"] = sorted({str(v).lower() for v in variants})
+        options.append(option)
     return options or None
 
 
@@ -3047,31 +3210,75 @@ def _config_schema(section: dict) -> dict:
     return (section.get("schemas") or {}).get("CONFIG_SCHEMA") or {}
 
 
-def _implemented_classes(section: dict) -> set[str]:
+def _implemented_classes(section: dict) -> dict[str, list[list[str]]]:
     """
-    Full ``ns::Class`` set the component's id(s) implement (class + parents).
+    Each implemented ``ns::Class`` → every YAML key-path declaring such an id.
 
-    Matched against referenced classes whole, not by namespace, so a
-    ``cst226::CST226ButtonListener`` can't pose as the referenced
-    ``cst226::CST226Touchscreen``. Covers discriminated ``types.*`` ids
-    (``ads1118``'s per-channel adc/temperature).
+    Walks the whole ``CONFIG_SCHEMA`` subtree (nested objects/lists plus
+    ``types`` variants, which are flattened in YAML so add no path segment);
+    a class may appear at several paths and all are kept. Matched against
+    referenced classes by full class, not namespace. A nested id contributes
+    only the parent (interface) classes it implements; a top-level own-class
+    id (``len(path) == 1``) also counts. See :func:`_record_id_classes`.
     """
     config_schema = _config_schema(section)
-    out: set[str] = set()
-
-    def _add(id_field: Any) -> None:
-        id_type = (id_field or {}).get("id_type")
-        if not isinstance(id_type, dict):
-            return
-        if isinstance(cls := id_type.get("class"), str):
-            out.add(cls)
-        out.update(p for p in id_type.get("parents") or [] if isinstance(p, str))
-
-    _add((config_schema.get("schema", {}).get("config_vars") or {}).get("id"))
-    for variant in (config_schema.get("types") or {}).values():
-        if isinstance(variant, dict):
-            _add((variant.get("config_vars") or {}).get("id"))
+    out: dict[str, list[list[str]]] = {}
+    # (config_vars, path) frontier. A typed variant shares its parent's
+    # path (the ``types`` discriminator is flattened in YAML).
+    frontier: list[tuple[Any, list[str]]] = []
+    _push_config_vars(frontier, config_schema, [])
+    while frontier:
+        config_vars, path = frontier.pop()
+        if not isinstance(config_vars, dict):
+            continue
+        for name, field_def in config_vars.items():
+            if not isinstance(field_def, dict):
+                continue
+            field_path = [*path, name]
+            _record_id_classes(out, field_def, field_path)
+            _push_config_vars(frontier, field_def, field_path)
     return out
+
+
+def _push_config_vars(frontier: list[tuple[Any, list[str]]], node: dict, path: list[str]) -> None:
+    """Queue *node*'s own and per-variant ``config_vars`` for the walk, under *path*."""
+    frontier.append((_schema_config_vars(node), path))
+    frontier.extend((cv, path) for cv in _variant_config_vars(node))
+
+
+def _schema_config_vars(node: dict) -> Any:
+    """Return the ``schema.config_vars`` mapping under a schema/field node, or None."""
+    schema = node.get("schema")
+    return schema.get("config_vars") if isinstance(schema, dict) else None
+
+
+def _variant_config_vars(node: dict) -> list[Any]:
+    """Return each ``types.<variant>.config_vars`` mapping under a node."""
+    types = node.get("types")
+    if not isinstance(types, dict):
+        return []
+    return [v.get("config_vars") for v in types.values() if isinstance(v, dict)]
+
+
+def _record_id_classes(out: dict[str, list[list[str]]], field_def: dict, path: list[str]) -> None:
+    """
+    Append *path* to ``out`` for each id-creation class *field_def* declares.
+
+    Parent (interface) classes count at any depth; the leaf own-class counts
+    only at the component root (``len(path) == 1``, not the literal ``"id"``
+    key, which can be ``output_id`` / ``raw_data_id`` / ...).
+    """
+    id_type = field_def.get("id_type")
+    if not isinstance(id_type, dict) or "use_id_type" in field_def:
+        return
+    classes = [p for p in id_type.get("parents") or [] if isinstance(p, str)]
+    # A nested own-class id is the sub-entity's own identity, not a foreign
+    # interface; advertising it would conflate same-namespace classes (a
+    # ``pipsolar`` output posing as the ``pipsolar`` hub a ``pipsolar_id`` wants).
+    if len(path) == 1 and isinstance(id_type.get("class"), str):
+        classes.append(id_type["class"])
+    for cls in classes:
+        out.setdefault(cls, []).append(path)
 
 
 def _collect_referenced_classes(schema_dir: Path) -> set[str]:
@@ -3208,6 +3415,7 @@ _LABEL_ACRONYMS = frozenset(
         # Identifier / common
         "CRC",
         "CPU",
+        "ECC",
         "ID",
         "PID",
         "PSRAM",
@@ -3434,6 +3642,9 @@ _ACRONYM_NORMALISATIONS: dict[str, str] = {
     "Esp8266": "ESP8266",
     "Esphome": "ESPHome",
     "Rp2040": "RP2040",
+    "Bk72Xx": "BK72xx",
+    "Rtl87Xx": "RTL87xx",
+    "Ln882X": "LN882x",
     "Esp32C3": "ESP32-C3",
     "Esp32S2": "ESP32-S2",
     "Esp32S3": "ESP32-S3",
@@ -3583,6 +3794,37 @@ _TARGET_PLATFORMS: frozenset[str] = frozenset(
 _NETWORK_TRANSPORTS: frozenset[str] = frozenset({"wifi", "ethernet", "openthread", "host"})
 
 
+def _resolve_auto_load(raw_auto_load: Any) -> list[str]:
+    """
+    Resolve a possibly-callable ``AUTO_LOAD`` to a list, else ``[]``.
+
+    A callable is invoked with no target platform set, so platform-gated extras
+    drop out and only the unconditional auto-loads come through; failures (raise
+    or non-list) fall back to ``[]``.
+    """
+    if callable(raw_auto_load):
+        try:
+            from esphome.const import KEY_CORE, KEY_TARGET_PLATFORM
+            from esphome.core import CORE
+
+            # Force (not setdefault) the platform-agnostic state for the call,
+            # then restore so resolution can't leak CORE state between calls.
+            core = CORE.data.setdefault(KEY_CORE, {})
+            had_platform = KEY_TARGET_PLATFORM in core
+            prev_platform = core.get(KEY_TARGET_PLATFORM)
+            core[KEY_TARGET_PLATFORM] = None
+            try:
+                raw_auto_load = raw_auto_load()
+            finally:
+                if had_platform:
+                    core[KEY_TARGET_PLATFORM] = prev_platform
+                else:
+                    core.pop(KEY_TARGET_PLATFORM, None)
+        except Exception:
+            raw_auto_load = []
+    return list(raw_auto_load) if isinstance(raw_auto_load, list) else []
+
+
 def introspect_component(component_id: str) -> dict[str, Any]:
     """
     Return ``{multi_conf, is_target_platform, platform_defaults, refined_types, auto_load}``.
@@ -3590,11 +3832,10 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     Best-effort: returns an empty dict when ``esphome`` isn't importable
     or the component module can't be loaded.
 
-    ``auto_load`` is ESPHome's static list of components pulled in
-    whenever this one is configured. When the upstream declaration is
-    a callable (config-dependent), we can't resolve it without a
-    config and surface an empty list — callers should treat that as
-    "unknown" and stay conservative.
+    ``auto_load`` is ESPHome's list of components pulled in whenever this
+    one is configured. A callable (config-dependent) declaration is
+    resolved best-effort by calling it; if that raises, the list is empty
+    and callers stay conservative.
     """
     if not component_id:
         return {}
@@ -3617,8 +3858,7 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     platform_manifests_by_domain = _enumerate_platform_manifests_by_domain(loader, component_id)
     platform_manifests = [pm for _domain, pm in platform_manifests_by_domain]
 
-    raw_auto_load = manifest.auto_load
-    auto_load: list[str] = list(raw_auto_load) if isinstance(raw_auto_load, list) else []
+    auto_load: list[str] = _resolve_auto_load(manifest.auto_load)
 
     # Bare manifest results take precedence (``setdefault`` keep-first);
     # platform-manifest results fill in fields that only exist on the
@@ -3641,6 +3881,7 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     required_groups = merge_from_platforms(_collect_required_groups)
     list_fields = merge_from_platforms(_collect_list_fields)
     registry_members = merge_from_platforms(_collect_registry_members)
+    typed_defaults = merge_from_platforms(_collect_typed_defaults)
 
     # A range bounded on the bare/hub manifest must not bleed onto a
     # platform component's same-named-but-different field. ``address`` is
@@ -3680,6 +3921,7 @@ def introspect_component(component_id: str) -> dict[str, Any]:
         "required_groups": required_groups,
         "list_fields": list_fields,
         "registry_members": registry_members,
+        "typed_defaults": typed_defaults,
         "auto_load": auto_load,
     }
 
@@ -3902,8 +4144,10 @@ _COMPONENT_DEFAULTS: dict[str, Any] = {
     "multi_conf": False,
     "supported_platforms": [],
     "provides": [],
+    "provides_id_paths": {},
     "config_entries": [],
     "required_groups": [],
+    "bus_constraints": {},
 }
 
 
@@ -4540,6 +4784,77 @@ def _collect_refined_types(  # noqa: C901
     return out
 
 
+def _typed_closure_default(node: Any) -> tuple[tuple[str, Any] | None, dict[str, Any]]:
+    """Read a ``cv.typed_schema`` validator's ``(typed_key, default)`` + its closure vars.
+
+    The default lives only in the ``default_schema_option`` closure
+    freevar — ``cv.typed_schema`` pops it before the schema bundle sees
+    it. Returns ``(None, nonlocals)`` for any non-typed / default-less
+    node; the ``nonlocals`` feed the traversal into wrapper closures.
+    """
+    if not (callable(node) and getattr(node, "__closure__", None)):
+        return None, {}
+    try:
+        nonlocals = inspect.getclosurevars(node).nonlocals
+    except (TypeError, ValueError):
+        return None, {}
+    default = nonlocals.get("default_schema_option")
+    if "default_schema_option" in nonlocals and default is not None:
+        return (str(nonlocals.get("key") or "type"), default), nonlocals
+    return None, nonlocals
+
+
+def _typed_default_of(node: Any) -> tuple[str, Any] | None:
+    """Return ``(typed_key, default_type)`` for a ``cv.typed_schema`` reachable from *node*.
+
+    ``cv.All(cv.ensure_list(...))`` buries the typed validator two
+    closures deep (``spi``), so descend ``.validators`` / ``.schema`` /
+    closure cells. ``None`` when no reachable typed_schema has a default.
+    """
+    seen: set[int] = set()
+    stack: list[Any] = [node]
+    while stack:
+        current = stack.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        found, nonlocals = _typed_closure_default(current)
+        if found is not None:
+            return found
+        stack.extend(nonlocals.values())
+        inner = getattr(current, "validators", None)
+        if isinstance(inner, (list, tuple)):
+            stack.extend(inner)
+        schema = getattr(current, "schema", None)
+        if schema is not None and schema is not current:
+            stack.append(schema)
+    return None
+
+
+def _collect_typed_defaults(manifest: Any) -> dict[tuple[str, ...], Any]:
+    """Recover a top-level ``cv.typed_schema``'s ``default_type``.
+
+    Returns ``{(typed_key,): default}`` (e.g. ``spi`` →
+    ``{("type",): "single"}``) so the applier can mark the discriminator
+    optional. The bundle always emits it ``Required`` with no default.
+
+    Surfaces only the first/top-most ``cv.typed_schema`` reachable and
+    keys it top-level; a default found on a *nested* typed field is not
+    correctly pathed. Harmless because ``_apply_typed_defaults`` only
+    applies a default that is one of the matched entry's own options, so
+    a nested discriminator's default won't land on an unrelated top-level
+    field that happens to share the key name.
+    """
+    schema = getattr(manifest, "config_schema", None)
+    if schema is None:
+        return {}
+    found = _typed_default_of(schema)
+    if found is None:
+        return {}
+    typed_key, default = found
+    return {(typed_key,): default}
+
+
 def _walk_catalog_entries(
     entries: list[dict],
     visit: Callable[[dict, tuple[str, ...]], None],
@@ -4564,6 +4879,19 @@ def _walk_catalog_entries(
                 walk(inner, sub_path)
 
     walk(entries, ())
+
+
+def _references_own_hub(config_entries: list[dict], stem: str) -> bool:
+    """Whether a config var cross-references the entry's own component (``stem``) via use_id."""
+    found = False
+
+    def visit(entry: dict, _path: tuple[str, ...]) -> None:
+        nonlocal found
+        if entry.get("references_component") == stem:
+            found = True
+
+    _walk_catalog_entries(config_entries, visit)
+    return found
 
 
 # Capability validators ESPHome wraps a pin field in when the pin must
@@ -4738,6 +5066,129 @@ def _apply_pin_constraints(
     _walk_catalog_entries(entries, visit)
 
 
+# Bus helpers whose ``final_validate_device_schema`` carries literal,
+# machine-readable constraints (frequency / baud rate / required pins).
+_BUS_FINAL_VALIDATE_HELPERS = frozenset({"i2c", "spi", "uart"})
+
+
+def _apply_curated_bus_constraints(
+    component_id: str, bus_constraints: dict[str, dict[str, Any]]
+) -> None:
+    """Fill curated constraints for *component_id*; a captured key of the same name wins."""
+    curated = _CURATED_BUS_CONSTRAINTS.get(component_id)
+    if not curated:
+        return
+    for bus, kv in curated.items():
+        target = bus_constraints.setdefault(bus, {})
+        for key, value in kv.items():
+            target.setdefault(key, value)
+
+
+def _collect_bus_constraints(
+    loader: Any,
+    domain: str | None,
+    stem: str,
+    top_key: str,
+) -> dict[str, dict[str, Any]]:
+    """
+    Bus requirements a component imposes via ``FINAL_VALIDATE_SCHEMA``.
+
+    Literal kwargs of ``<bus>.final_validate_device_schema(...)``, read
+    from the component module's source (ags10 caps i2c at 15kHz).
+    """
+    if loader is None:
+        return {}
+    try:
+        manifest = (
+            loader.get_platform(domain, stem)
+            if domain in _PLATFORM_DOMAINS
+            else loader.get_component(top_key)
+        )
+    except Exception as err:
+        _LOGGER.debug("bus constraints: %s.%s manifest load failed: %s", domain, stem, err)
+        return {}
+    module = getattr(manifest, "module", None)
+    try:
+        src_file = inspect.getsourcefile(module) if module else None
+    except TypeError:
+        src_file = None
+    if not src_file:
+        return {}
+    return _bus_constraints_from_source(src_file)
+
+
+@cache
+def _bus_constraints_from_source(src_file: str) -> dict[str, dict[str, Any]]:
+    """
+    Bus constraints from ``FINAL_VALIDATE_SCHEMA``'s ``final_validate_device_schema``.
+
+    Walks the assignment value so a ``cv.All(...)``-wrapped call (mitsubishi_cn105)
+    is found, not just a bare right-hand side.
+    """
+    try:
+        tree = ast.parse(Path(src_file).read_text(encoding="utf-8"))
+    except (OSError, SyntaxError):
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(
+            isinstance(t, ast.Name) and t.id == "FINAL_VALIDATE_SCHEMA" for t in node.targets
+        ):
+            continue
+        for call in ast.walk(node.value):
+            if not (
+                isinstance(call, ast.Call)
+                and isinstance(call.func, ast.Attribute)
+                and call.func.attr == "final_validate_device_schema"
+                and isinstance(call.func.value, ast.Name)
+                and call.func.value.id in _BUS_FINAL_VALIDATE_HELPERS
+            ):
+                continue
+            constraints = _bus_constraint_kwargs(call)
+            if constraints:
+                out[call.func.value.id] = constraints
+    return out
+
+
+def _bus_constraint_kwargs(call: ast.Call) -> dict[str, Any]:
+    """Literal constraint kwargs of one helper call."""
+    out: dict[str, Any] = {}
+    for kw in call.keywords:
+        # ``uart_bus`` renames the id field, it isn't a constraint.
+        if kw.arg is None or kw.arg == "uart_bus":
+            continue
+        try:
+            value = ast.literal_eval(kw.value)
+        except (ValueError, TypeError, SyntaxError):
+            continue
+        # ``None`` / ``False`` both mean "unconstrained" (note
+        # ``parity=None`` vs the distinct ``parity="NONE"``).
+        if value is None or value is False:
+            continue
+        out[kw.arg] = _normalize_bus_constraint_value(kw.arg, value)
+    return out
+
+
+def _normalize_bus_constraint_value(key: str, value: Any) -> Any:
+    """
+    Convert unit-suffixed strings ("15khz", "10ms") to plain numbers.
+
+    Raises when esphome is missing or the value doesn't parse; shipping
+    a catalog with silently dropped constraints would be worse.
+    """
+    if not isinstance(value, str):
+        return value
+    import esphome.config_validation as cv
+
+    if key.endswith("frequency"):
+        return cv.frequency(value)
+    if key.endswith("timeout"):
+        return cv.time_period(value).total_milliseconds
+    return value
+
+
 def _apply_refined_types(
     entries: list[dict],
     refined: dict[tuple[str, ...], RefinedType],
@@ -4780,6 +5231,33 @@ def _apply_refined_types(
     _walk_catalog_entries(entries, visit)
 
 
+def _apply_typed_defaults(
+    entries: list[dict],
+    typed_defaults: dict[tuple[str, ...], Any],
+) -> None:
+    """Mark a typed_schema discriminator optional and pin its ``default_value``.
+
+    Only applies when the default is one of the discriminator's own
+    options — a component-level default can otherwise bleed onto a
+    platform entry with a different discriminator (``esp32_hosted``'s
+    ``sdio`` onto ``update.esp32_hosted``'s ``embedded``/``http``).
+    """
+    if not typed_defaults:
+        return
+
+    def visit(entry: dict, path: tuple[str, ...]) -> None:
+        default = typed_defaults.get(path)
+        if default is None:
+            return
+        options = entry.get("options") or []
+        if not any(str(o.get("value")) == str(default) for o in options):
+            return
+        entry["default_value"] = default
+        entry["required"] = False
+
+    _walk_catalog_entries(entries, visit)
+
+
 def _apply_unit_of_measurement_options(entries: list[dict]) -> None:
     """Fill ``unit_of_measurement`` options from ``esphome.const.UNIT_*``.
 
@@ -4812,6 +5290,334 @@ def _apply_unit_of_measurement_options(entries: list[dict]) -> None:
                 walk(inner)
 
     walk(entries)
+
+
+@cache
+def _load_board_index() -> list[dict]:
+    """
+    Load the committed ``boards.index.json`` (each board carries esphome.platform/board).
+
+    Read as committed: the board sync (``sync_boards.py``) and this component
+    sync are independent workflows, so board options can trail a board
+    add/remove by one component-sync cycle. ``allow_custom_value`` covers the
+    gap — the user can still type any board id.
+    """
+    data = orjson.loads((_DEFINITIONS_DIR / "boards.index.json").read_bytes())
+    boards = data.get("boards") if isinstance(data, dict) else data
+    return boards or []
+
+
+def _board_options_for_platform(platform: str) -> list[dict]:
+    """Distinct ``esphome.board`` ids for *platform* as sorted ``{label, value}`` dicts."""
+    ids: set[str] = set()
+    for entry in _load_board_index():
+        esphome = entry.get("esphome") or {}
+        if esphome.get("platform") != platform:
+            continue
+        board = esphome.get("board")
+        if board:
+            ids.add(board)
+    return [{"label": board, "value": board} for board in sorted(ids)]
+
+
+def _apply_board_options(component_id: str, entries: list[dict]) -> None:
+    """
+    Surface a variant-less platform's ``board`` as a board-catalog combobox.
+
+    Attaches the platform's catalog board ids as ``options`` plus
+    ``allow_custom_value`` so the frontend renders a pick-or-type combobox;
+    free-text preserves board's ``cv.string_strict`` openness.
+    """
+    if component_id not in _BOARD_COMBOBOX_PLATFORMS:
+        return
+    options = _board_options_for_platform(component_id)
+    if not options:
+        return
+    for entry in entries:
+        if entry.get("key") == "board":
+            entry["options"] = options
+            entry["allow_custom_value"] = True
+            break
+
+
+def _logger_uart_platform_options() -> dict[str, list[dict[str, str]]]:
+    """Per-variant logger ``hardware_uart`` choices from the live logger module.
+
+    A custom ``uart_selection`` validator gates the set, so the schema bundle
+    can't carry it; introspected from ``UART_SELECTION_*`` and keyed via the
+    shared ``variant_to_key`` so lookups hit. Empty when esphome's logger
+    isn't importable; other failures propagate to fail the build loudly.
+    """
+    try:
+        from esphome.components import logger as _logger
+    except ImportError:
+        _LOGGER.warning("esphome logger not importable — hardware_uart combobox skipped")
+        return {}
+    out: dict[str, list[dict[str, str]]] = {}
+
+    def add(raw_key: str, values: list[str]) -> None:
+        out[variant_to_key(raw_key)] = [{"label": v, "value": v} for v in values]
+
+    for variant, values in _logger.UART_SELECTION_ESP32.items():
+        add(variant, values)
+    for component, values in _logger.UART_SELECTION_LIBRETINY.items():
+        add(component, values)
+    add("esp8266", _logger.UART_SELECTION_ESP8266)
+    add("rp2040", _logger.UART_SELECTION_RP2040)
+    add("nrf52", _logger.UART_SELECTION_NRF52)
+    return out
+
+
+_LOGGER_UART_PLATFORM_OPTIONS: dict[str, list[dict[str, str]]] = _logger_uart_platform_options()
+
+
+def _apply_logger_uart_options(component_id: str, entries: list[dict]) -> None:
+    """Make logger ``hardware_uart`` a per-platform UART combobox.
+
+    Attaches the per-variant choices as ``platform_options`` (resolved to
+    ``options`` per target by the component controller) plus
+    ``allow_custom_value`` so the frontend renders a pick-or-type combobox.
+    """
+    if component_id != "logger" or not _LOGGER_UART_PLATFORM_OPTIONS:
+        return
+    for entry in entries:
+        if entry.get("key") == "hardware_uart":
+            entry["platform_options"] = _LOGGER_UART_PLATFORM_OPTIONS
+            entry["allow_custom_value"] = True
+            break
+
+
+@contextlib.contextmanager
+def _esp32_variant_context(variant: str) -> Iterator[None]:
+    """Set ``CORE.data`` so esphome resolves as if compiling for *variant*.
+
+    Lets a variant-gated callable (psram's ``get_config_schema``) run; the
+    prior ``CORE.data`` state is restored on exit so the build can't leak
+    between variants.
+    """
+    from esphome.components.esp32 import KEY_ESP32, KEY_VARIANT
+    from esphome.const import KEY_CORE, KEY_TARGET_PLATFORM, PLATFORM_ESP32
+    from esphome.core import CORE
+
+    saved = {k: CORE.data.get(k) for k in (KEY_CORE, KEY_ESP32)}
+    CORE.data[KEY_CORE] = {KEY_TARGET_PLATFORM: PLATFORM_ESP32}
+    CORE.data[KEY_ESP32] = {KEY_VARIANT: variant}
+    try:
+        yield
+    finally:
+        for key, prev in saved.items():
+            if prev is None:
+                CORE.data.pop(key, None)
+            else:
+                CORE.data[key] = prev
+
+
+def _psram_config_entries() -> list[dict]:
+    """
+    Synthesize psram's structured editor from its ``CONFIG_SCHEMA``.
+
+    Prefers the static schema, where a variant enum exposes its
+    ``{value: [variants]}`` map via ``SCHEMA_EXTRACT``; falls back to the older
+    ``get_config_schema`` callable that builds a different schema per ESP32
+    variant. Empty when esphome isn't importable.
+    """
+    try:
+        from esphome.components import psram as _psram
+    except ImportError:
+        _LOGGER.warning("esphome psram not importable — structured editor skipped")
+        return []
+    fields = _psram_static_fields(_psram.CONFIG_SCHEMA) or _psram_callable_fields(_psram)
+    return _sort_entries([_psram_entry(name, field) for name, field in fields.items()])
+
+
+def _psram_static_fields(config_schema: Any) -> dict[str, dict[str, Any]]:
+    """Per-field map from a static psram schema, or empty if it isn't extractable."""
+    fields: dict[str, dict[str, Any]] = {}
+
+    def visit(key: Any, name: str, validator: Any, path: tuple[str, ...]) -> None:
+        if len(path) != 1 or name == "id":
+            return
+        field = _psram_field(fields, key, name)
+        if getattr(validator, "__name__", "") == "boolean":
+            field["bool"] = True
+            return
+        for value, variants in _variant_enum_map(validator).items():
+            field["options"][value] = [v.lower() for v in variants]
+
+    _walk_schema_keys(config_schema, visit)
+    # Empty unless this was the static form: the old callable schema isn't
+    # walkable, so it yields no options and the caller falls back to it.
+    return fields if any(field["options"] for field in fields.values()) else {}
+
+
+def _variant_enum_map(validator: Any) -> dict[str, list[str]]:
+    """Return the ``{value: [variants]}`` map a variant enum yields, or empty."""
+    import esphome.config_validation as cv
+
+    try:
+        result = validator(cv.SCHEMA_EXTRACT)
+    except vol.Invalid:
+        return {}  # a non-variant validator (e.g. cv.boolean) rejects the sentinel
+    # Any other error is a real bug in a variant enum — let it surface, not vanish.
+    if isinstance(result, dict) and all(isinstance(v, list) for v in result.values()):
+        return result
+    return {}
+
+
+def _psram_callable_fields(_psram: Any) -> dict[str, dict[str, Any]]:
+    """Per-field map from the older per-variant ``get_config_schema`` callable.
+
+    Feed each variant in and capture the built ``vol.Schema`` (a one-shot subclass
+    whose ``__call__`` returns itself), unioning options / defaults across variants.
+    """
+
+    class _Capture(vol.Schema):
+        def __call__(self, data: Any) -> Any:
+            return self
+
+    fields: dict[str, dict[str, Any]] = {}
+    original_schema = _psram.cv.Schema
+    _psram.cv.Schema = _Capture
+    try:
+        for variant, modes in _psram.SPIRAM_MODES.items():
+            record = partial(_record_psram_field, fields, variant)
+            with _esp32_variant_context(variant):
+                _walk_schema_keys(_psram.get_config_schema({"mode": modes[0]}), record)
+    finally:
+        _psram.cv.Schema = original_schema
+    return fields
+
+
+def _psram_field(fields: dict[str, dict[str, Any]], key: Any, name: str) -> dict[str, Any]:
+    """Get or create the per-key accumulator (default, is-bool, options)."""
+    return fields.setdefault(name, {"default": _psram_default(key), "bool": False, "options": {}})
+
+
+def _record_psram_field(
+    fields: dict[str, dict[str, Any]],
+    variant: str,
+    key: Any,
+    name: str,
+    validator: Any,
+    path: tuple[str, ...],
+) -> None:
+    """Fold one captured schema key into *fields*, tagging each option's *variant*."""
+    if len(path) != 1 or name == "id":
+        return
+    field = _psram_field(fields, key, name)
+    if getattr(validator, "__name__", "") == "boolean":
+        field["bool"] = True
+    for option in _psram_one_of_options(validator):
+        variants = field["options"].setdefault(option, [])
+        if (low := variant.lower()) not in variants:
+            variants.append(low)
+
+
+def _psram_default(key: Any) -> Any:
+    """Resolve a voluptuous ``cv.Optional`` key's default value, or None."""
+    default = getattr(key, "default", None)
+    if default is None or default is vol.UNDEFINED:
+        return None
+    value = default() if callable(default) else default
+    return None if value is vol.UNDEFINED else value
+
+
+def _psram_one_of_options(validator: Any) -> list[str | int]:
+    """
+    Read a ``cv.one_of`` validator's accepted values out of its closure.
+
+    Depends on ``cv.one_of``'s closure layout; the unioned-options tests pin
+    it, so an upstream refactor breaks CI rather than silently dropping the
+    options (the select would degrade to a free-text field).
+    """
+    for cell in getattr(validator, "__closure__", None) or ():
+        value = cell.cell_contents
+        if (
+            isinstance(value, (tuple, list))
+            and value
+            and all(isinstance(item, (str, int)) for item in value)
+        ):
+            return list(value)
+    return []
+
+
+def _psram_entry(name: str, field: dict[str, Any]) -> dict:
+    is_bool = field["bool"]
+    entry: dict[str, Any] = {
+        "key": name,
+        "type": "boolean" if is_bool else "string",
+        "label": _key_to_label(name),
+        # The boolean flags (enable_ecc, disabled, ignore_not_found) are niche;
+        # the mode / speed selects are the primary config.
+        "advanced": is_bool,
+    }
+    if is_bool:
+        # Boolean defaults are the same on every chip, so they're safe to ship.
+        entry["default_value"] = field["default"]
+    options = field["options"]
+    if options:
+        # Options union every variant, so no single default_value is valid on all
+        # chips (ESP32-P4 wants hex / 20MHZ, not quad / 40MHZ); ship none and let
+        # ESPHome apply the per-chip default. Each option carries its variants so
+        # the editor can filter to the selected one. Order ascending by value.
+        entry["options"] = [
+            {"label": str(v), "value": str(v), "variants": sorted(set(options[v]))}
+            for v in _ordered_options(list(options))
+        ]
+    return entry
+
+
+def _ordered_options(options: list[str | int]) -> list[str | int]:
+    """Sort by leading integer when every value has one, else keep first-seen order."""
+    keys = [re.match(r"\d+", str(v)) for v in options]
+    if all(keys):
+        return [
+            v for _, v in sorted(zip(keys, options, strict=True), key=lambda kv: int(kv[0].group()))
+        ]
+    return options
+
+
+def _apply_psram_options(component_id: str, entries: list[dict]) -> None:
+    """Synthesize psram's editor when the bundle schema is empty (older esphome)."""
+    if component_id != "psram" or entries:
+        return
+    entries.extend(_psram_config_entries())
+
+
+def _apply_esp32_options(component_id: str, entries: list[dict]) -> None:
+    """Default esp32's framework ``type`` from upstream's validate-time setter."""
+    if component_id != "esp32":
+        return
+    default = _esp32_default_framework()
+    if default is None:
+        return
+    framework = next((e for e in entries if e.get("key") == "framework"), None)
+    if not framework:
+        return
+    type_entry = next(
+        (e for e in framework.get("config_entries", []) if e.get("key") == "type"), None
+    )
+    if type_entry is None or type_entry.get("default_value") is not None:
+        return  # fill in a missing default; never clobber one the bundle carries
+    if default in {o["value"] for o in type_entry.get("options", [])}:
+        type_entry["default_value"] = default
+
+
+@cache
+def _esp32_default_framework() -> str | None:
+    """Validate a minimal config so esp32's schema fills in the framework type."""
+    try:
+        from esphome.components import esp32
+        from esphome.const import CONF_FRAMEWORK, CONF_TYPE, CONF_VARIANT
+    except ImportError:
+        return None
+    # A non-Arduino variant keeps the validate-time migration notice quiet.
+    variant = next((v for v in esp32.VARIANTS if v not in esp32.ARDUINO_ALLOWED_VARIANTS), None)
+    if variant is None:
+        return None
+    with _esp32_variant_context(variant):
+        config = esp32.CONFIG_SCHEMA({CONF_VARIANT: variant})
+    return config[CONF_FRAMEWORK][CONF_TYPE]
 
 
 def _promote_multi_value_keys(entries: list[dict]) -> None:
@@ -5613,6 +6419,65 @@ def _auto_load_closure(component_id: str) -> set[str]:
                 seen.add(item)
                 queue.append(item)
     return seen
+
+
+def _multi_instance_targets(components: list[dict]) -> set[str]:
+    """
+    Component names that can exist more than once.
+
+    An id reference to one is a user pick, not auto-resolved. Platform
+    domains plus every ``multi_conf`` component and what it ``provides``
+    (so a base interface is caught via its providers, ``rc522`` via
+    ``rc522_spi``).
+    """
+    multi: set[str] = set(_PLATFORM_DOMAINS)
+    for comp in components:
+        if comp.get("multi_conf"):
+            multi.add(comp["id"].rsplit(".", 1)[-1])
+            multi.update(comp.get("provides") or [])
+    return multi
+
+
+def _apply_auto_loaded_reference_advanced(
+    entries: list[dict], auto_loaded: set[str], multi_instance: set[str]
+) -> None:
+    """
+    Mark an optional ``*_id`` reference to a self-AUTO_LOADed singleton advanced.
+
+    ``web_server`` auto-creates its ``web_server_base``, so the id is
+    auto-resolved and stays off the main form. Required references and
+    multi-instance targets keep their picker. Re-sorts any list whose
+    child was promoted, since this runs after ``_sort_entries`` and the
+    flag feeds its non-advanced-first key. Pure (takes the closure +
+    multi-instance set) so it tests without esphome.
+    """
+    if not auto_loaded:
+        return
+    promoted = False
+    for entry in entries:
+        ref = entry.get("references_component")
+        if (
+            ref in auto_loaded
+            and ref not in multi_instance
+            and not entry.get("required")
+            and (entry.get("key") or "").endswith("_id")
+        ):
+            entry["advanced"] = True
+            promoted = True
+        if inner := entry.get("config_entries"):
+            _apply_auto_loaded_reference_advanced(inner, auto_loaded, multi_instance)
+    if promoted:
+        entries[:] = _sort_entries(entries)
+
+
+def _apply_auto_loaded_reference_advanced_all(components: list[dict]) -> None:
+    """Mark every component's auto-generated singleton-base id references advanced."""
+    multi_instance = _multi_instance_targets(components)
+    for comp in components:
+        closure = _auto_load_closure(comp["id"].rsplit(".", 1)[-1])
+        _apply_auto_loaded_reference_advanced(
+            comp.get("config_entries") or [], closure, multi_instance
+        )
 
 
 @cache
@@ -6500,6 +7365,13 @@ def _extract_triggers_from_section(
     singles = dict(_live_trigger_singles(top_key))
     for schema_name, schema_body in schemas.items():
         if not isinstance(schema_body, dict):
+            continue
+        # ``*_ACTION_SCHEMA`` holds an action's nested response handlers
+        # (homeassistant.action's on_success/on_error, http_request's
+        # on_response) — configured under the action, not the component.
+        # Emitting them as component triggers offers ``api: on_error:``,
+        # which ESPHome rejects.
+        if schema_name.endswith("_ACTION_SCHEMA"):
             continue
         inner = schema_body.get("schema") if isinstance(schema_body.get("schema"), dict) else None
         # A hub's CONFIG_SCHEMA inherits triggers via ``extends``

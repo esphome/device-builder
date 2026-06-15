@@ -197,6 +197,14 @@ async def test_get_component_bodies_omits_unknown_ids() -> None:
     assert await cat.get_component_bodies(component_ids=["does-not-exist"]) == {}
 
 
+def test_index_title_returns_catalog_name_or_none() -> None:
+    """``index_title`` is the slim-index name for a known id, else ``None``."""
+    cat = ComponentCatalog()
+    cat._by_id = {"wifi": _make_entry(entry_id="wifi", name="WiFi Component")}
+    assert cat.index_title("wifi") == "WiFi Component"
+    assert cat.index_title("does-not-exist") is None
+
+
 # ── get_components() ────────────────────────────────────────────────
 
 
@@ -285,6 +293,38 @@ async def test_get_components_provides_filters_featured_entries() -> None:
     assert {c.id for c in res.components} == {"featured.b.adc"}
 
 
+async def test_get_components_query_ranks_featured_entries() -> None:
+    """A query ranks featured cards by match strength, not just curated order."""
+    cat = ComponentCatalog()
+    cat._by_id = {
+        "sensor.hub": _make_entry(entry_id="sensor.hub", category=ComponentCategory.SENSOR),
+        "uart": _make_entry(entry_id="uart", name="UART Bus", category=ComponentCategory.SENSOR),
+    }
+    cat._featured_by_id = {
+        "featured.b.hub": _FeaturedRecord(
+            full_id="featured.b.hub",
+            board_id="b",
+            featured=FeaturedComponent(
+                id="hub", component_id="sensor.hub", name="Sensor Hub", description="talks UART"
+            ),
+            underlying_id="sensor.hub",
+        ),
+        "featured.b.uart": _FeaturedRecord(
+            full_id="featured.b.uart",
+            board_id="b",
+            featured=FeaturedComponent(id="uart", component_id="uart", name="UART"),
+            underlying_id="uart",
+        ),
+    }
+    # Curated order lists the description-only hub first; ranking floats the
+    # exact name match (uart) above it.
+    cat._featured_by_board = {"b": ["featured.b.hub", "featured.b.uart"]}
+    res = await cat.get_components(
+        category=ComponentCategory.FEATURED.value, board_id="b", query="uart"
+    )
+    assert [c.id for c in res.components] == ["featured.b.uart", "featured.b.hub"]
+
+
 async def test_get_components_query_matches_name_description_or_id() -> None:
     """``query`` is a substring match against name / description / id."""
     cat = ComponentCatalog()
@@ -301,6 +341,27 @@ async def test_get_components_query_matches_name_description_or_id() -> None:
     # Match by id stem too.
     res = await cat.get_components(query="dht")
     assert {c.id for c in res.components} == {"dht"}
+
+
+async def test_get_components_query_ranks_by_match_strength() -> None:
+    """Hits sort exact id/name, then prefix, name substring, id substring, description."""
+    cat = ComponentCatalog()
+    cat._components = [
+        _make_entry(entry_id="ble_nus", name="Nordic UART Service (NUS)"),  # name substring
+        _make_entry(entry_id="myuartx", name="Custom Board"),  # id substring only
+        _make_entry(entry_id="dlms_meter", name="DLMS Meter", description="Talks over UART"),
+        _make_entry(entry_id="uart_bridge", name="UART Bridge"),  # prefix
+        _make_entry(entry_id="uart", name="UART Bus"),  # exact id
+    ]
+    cat._by_id = {c.id: c for c in cat._components}
+    res = await cat.get_components(query="uart")
+    assert [c.id for c in res.components] == [
+        "uart",
+        "uart_bridge",
+        "ble_nus",
+        "myuartx",
+        "dlms_meter",
+    ]
 
 
 async def test_get_components_response_categories_track_query_filter() -> None:
@@ -516,6 +577,69 @@ def test_resolve_platform_returns_none_for_unknown_board_id() -> None:
     boards_cat = BoardCatalog()
     cat = ComponentCatalog(_Container(boards=boards_cat))
     assert cat._resolve_platform(None, board_id="no-such-board-zzz") is None
+
+
+def test_resolve_variant_maps_board_to_chip_key() -> None:
+    """ESP32 boards resolve to their variant key; non-ESP32 boards have none."""
+    boards_cat = BoardCatalog()
+    boards_cat.load()
+    cat = ComponentCatalog(_Container(boards=boards_cat))
+    assert cat._resolve_variant("esp32-c3-devkitm-1") == "esp32_c3"
+    assert cat._resolve_variant("generic-esp32") == "esp32"
+    assert cat._resolve_variant("nodemcuv2") is None
+    assert cat._resolve_variant("no-such-board-zzz") is None
+    assert cat._resolve_variant(None) is None
+
+
+async def test_logger_hardware_uart_resolves_per_variant() -> None:
+    """Logger ``hardware_uart`` becomes a per-variant combobox; ESP32-C3 differs from base ESP32."""
+    boards_cat = BoardCatalog()
+    cat = ComponentCatalog(_Container(boards=boards_cat))
+    # ``load()`` does blocking disk I/O; keep it off the event loop.
+    await asyncio.to_thread(boards_cat.load)
+    await asyncio.to_thread(cat.load)
+
+    async def uart_entry(board_id: str) -> ConfigEntry:
+        bodies = await cat.get_component_bodies(component_ids=["logger"], board_id=board_id)
+        return next(e for e in bodies["logger"].config_entries if e.key == "hardware_uart")
+
+    c3 = await uart_entry("esp32-c3-devkitm-1")
+    assert c3.allow_custom_value is True
+    assert [o.value for o in c3.options] == ["UART0", "UART1", "USB_CDC", "USB_SERIAL_JTAG"]
+    assert c3.default_value == "USB_SERIAL_JTAG"
+    # platform_* maps are sync-time only and must not reach the frontend.
+    assert c3.platform_options is None
+    assert c3.platform_defaults is None
+
+    base = await uart_entry("generic-esp32")
+    assert [o.value for o in base.options] == ["UART0", "UART1", "UART2"]
+    assert base.default_value == "UART0"
+
+
+async def test_variant_resolution_applies_to_remote_transmitter_default() -> None:
+    """Variant-first resolution is global: it activates non-logger variant platform_defaults.
+
+    ``remote_transmitter.rmt_symbols`` already shipped variant keys that the
+    old platform-only lookup never reached. An ESP32-C3 board now resolves to
+    48 (its variant value) instead of the base esp32 64; an S2 board keeps 64.
+    """
+    boards_cat = BoardCatalog()
+    cat = ComponentCatalog(_Container(boards=boards_cat))
+    await asyncio.to_thread(boards_cat.load)
+    await asyncio.to_thread(cat.load)
+
+    async def rmt_symbols(board_id: str) -> object:
+        bodies = await cat.get_component_bodies(
+            component_ids=["remote_transmitter"], board_id=board_id
+        )
+        entry = next(
+            e for e in bodies["remote_transmitter"].config_entries if e.key == "rmt_symbols"
+        )
+        assert entry.platform_defaults is None  # cleared before reaching the frontend
+        return entry.default_value
+
+    assert await rmt_symbols("esp32-c3-devkitm-1") == 48
+    assert await rmt_symbols("generic-esp32s2") == 64
 
 
 def test_featured_record_carries_underlying_id() -> None:
