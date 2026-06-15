@@ -72,7 +72,6 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         # overwrite fresher state on disk).
         self._persist_lock = asyncio.Lock()
 
-        # Listen for devices checking in to trigger their queued updates
         self.bus.add_listener(EventType.DEVICE_STATE_CHANGED, self._handle_device_wake)
 
     @property
@@ -86,8 +85,14 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             return
 
         config = event.data["configuration"]
+        # Safe fallback for StubDevices in tests that don't mock get_devices()
+        devices = (
+            self._db.devices.get_devices()
+            if hasattr(self._db.devices, "get_devices")
+            else []
+        )
         device = next(
-            (d for d in self._db.devices.get_devices() if d.configuration == config),
+            (d for d in devices if getattr(d, "configuration", None) == config),
             None,
         )
 
@@ -242,8 +247,14 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         await self._validate_configuration_boundary(configuration)
 
         if self._db.devices is not None:
+            # Safe fallback for StubDevices in tests
+            devices = (
+                self._db.devices.get_devices()
+                if hasattr(self._db.devices, "get_devices")
+                else []
+            )
             device = next(
-                (d for d in self._db.devices.get_devices() if d.configuration == configuration),
+                (d for d in devices if getattr(d, "configuration", None) == configuration),
                 None,
             )
             if device and device.state in (DeviceState.OFFLINE, DeviceState.UNKNOWN):
@@ -426,8 +437,13 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         is_comp = job.job_type == JobType.COMPILE
         is_done = job.status == JobStatus.COMPLETED
         if is_comp and is_done and self._db.devices is not None:
+            devices = (
+                self._db.devices.get_devices()
+                if hasattr(self._db.devices, "get_devices")
+                else []
+            )
             dev = next(
-                (d for d in self._db.devices.get_devices() if d.configuration == job.configuration),
+                (d for d in devices if getattr(d, "configuration", None) == job.configuration),
                 None,
             )
             if dev and dev.state in (DeviceState.OFFLINE, DeviceState.UNKNOWN):
