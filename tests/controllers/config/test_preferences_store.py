@@ -96,6 +96,32 @@ async def test_async_load_keeps_sidecar_when_migration_write_unconfirmed(
     assert any("write unconfirmed" in r.message for r in caplog.records)
 
 
+async def test_migration_strip_failure_is_non_fatal(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed legacy-key strip after a confirmed write logs and completes, not aborts."""
+    await asyncio.to_thread(_save_metadata, tmp_path, {"_preferences": _SAMPLE.to_dict()})
+
+    def _boom(_config_dir: Path) -> None:
+        raise OSError("sidecar locked")
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.config._preferences_store.metadata_transaction",
+        _boom,
+    )
+    store = _make_store(tmp_path)
+    with caplog.at_level("WARNING"):
+        await store.async_load()
+
+    # Migration still adopted the prefs and wrote the canonical dedicated file.
+    assert store.snapshot() == _SAMPLE
+    assert (tmp_path / _STORE_FILENAME).exists()
+    assert any("could not strip" in r.message.lower() for r in caplog.records)
+    # The strip failed, so the (now-benign) legacy key is left in place.
+    shared = await asyncio.to_thread(_load_metadata, tmp_path)
+    assert shared["_preferences"] == _SAMPLE.to_dict()
+
+
 async def test_failed_preserve_disables_writes_to_protect_corrupt_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

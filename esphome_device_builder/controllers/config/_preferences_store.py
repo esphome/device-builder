@@ -200,14 +200,26 @@ class PreferencesStore:
             return None
 
     def _confirm_and_strip_shared_sync(self) -> bool:
-        """Strip the migrated ``_preferences`` key, but only if the write landed.
+        """Strip the migrated ``_preferences`` key once the dedicated write landed.
 
-        ``Store`` logs and swallows write errors, so an unconfirmed flush leaves
-        the sidecar key for the next start to retry. The ``exists`` probe and the
-        strip share one executor hop to keep the blocking I/O off the loop.
+        Returns ``False`` only when the dedicated-file write is unconfirmed
+        (``Store`` swallows write errors), so the caller keeps the legacy key for
+        a retry. A *strip* failure is non-fatal and still returns ``True``: the
+        dedicated file is already canonical and a leftover legacy key is benign
+        (the dedicated file wins on the next load), so it must not abort boot.
+        The ``exists`` probe and the strip share one executor hop.
         """
         if not self._store.path.exists():
             return False
-        with metadata_transaction(self._config_dir) as data:
-            data.pop(_PREFS_KEY, None)
+        try:
+            with metadata_transaction(self._config_dir) as data:
+                data.pop(_PREFS_KEY, None)
+        except OSError:
+            _LOGGER.warning(
+                "preferences store: migrated prefs but could not strip %s from %s; "
+                "the dedicated file wins, leaving the stale key",
+                _PREFS_KEY,
+                _SHARED_SIDECAR_FILENAME,
+                exc_info=True,
+            )
         return True
