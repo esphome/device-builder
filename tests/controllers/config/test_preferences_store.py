@@ -14,7 +14,7 @@ from esphome_device_builder.controllers.config._preferences_store import (
     PreferencesStore,
 )
 from esphome_device_builder.models import UserPreferences
-from esphome_device_builder.models.preferences import Theme
+from esphome_device_builder.models.preferences import EditorLayout, Theme
 
 
 def _make_store(tmp_path: Path) -> PreferencesStore:
@@ -287,3 +287,21 @@ async def test_round_trip_after_migration(tmp_path: Path) -> None:
     await second.async_load()
     assert second.snapshot().theme == Theme.LIGHT
     assert second.snapshot().navigator_visible is False
+
+
+async def test_round_trip_preserves_editor_layout_enum(tmp_path: Path) -> None:
+    """An ``EditorLayout`` field survives the StrEnum encode/decode through disk."""
+    store = _make_store(tmp_path)
+    await store.async_load()
+    store.update(
+        {
+            "device_editor_layout": EditorLayout.YAML,
+            "secrets_editor_layout": EditorLayout.YAML,
+        }
+    )
+    await store._store.async_save_now()
+
+    reloaded = _make_store(tmp_path)
+    await reloaded.async_load()
+    assert reloaded.snapshot().device_editor_layout is EditorLayout.YAML
+    assert reloaded.snapshot().secrets_editor_layout is EditorLayout.YAML

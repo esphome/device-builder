@@ -30,6 +30,14 @@ class SortDirection(StrEnum):
     DESC = "desc"
 
 
+class EditorLayout(StrEnum):
+    """Editor pane layout; secrets only ever uses VISUAL or YAML."""
+
+    VISUAL = "visual"
+    YAML = "yaml"
+    BOTH = "both"
+
+
 class ExperienceLevel(StrEnum):
     """
     How much ESPHome the user knows; tailors UI weight.
@@ -58,6 +66,10 @@ class UserPreferences(DataClassORJSONMixin):
 
     # Device editor
     navigator_visible: bool = True
+    # Which editor panes the user last had open, persisted so the choice
+    # survives a new browser. Secrets only ever stores VISUAL or YAML.
+    device_editor_layout: EditorLayout = EditorLayout.BOTH
+    secrets_editor_layout: EditorLayout = EditorLayout.VISUAL
 
     # Table view settings
     table_page_size: int = 25

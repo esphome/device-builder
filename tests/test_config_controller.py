@@ -85,6 +85,7 @@ from esphome_device_builder.models import (
 )
 from esphome_device_builder.models.preferences import (
     DashboardView,
+    EditorLayout,
     Theme,
     UserPreferences,
 )
@@ -759,12 +760,16 @@ async def test_set_prefs_concurrent_updates_do_not_lose_writes(tmp_path: Path) -
         controller.set_prefs(theme=Theme.DARK),
         controller.set_prefs(dashboard_view=DashboardView.TABLE),
         controller.set_prefs(navigator_visible=False),
+        controller.set_prefs(device_editor_layout=EditorLayout.YAML),
+        controller.set_prefs(secrets_editor_layout=EditorLayout.YAML),
     )
 
     snap = controller.prefs.snapshot()
     assert snap.theme == Theme.DARK
     assert snap.dashboard_view == DashboardView.TABLE
     assert snap.navigator_visible is False
+    assert snap.device_editor_layout is EditorLayout.YAML
+    assert snap.secrets_editor_layout is EditorLayout.YAML
 
 
 async def test_get_secrets_returns_empty_when_missing(tmp_path: Path) -> None:
