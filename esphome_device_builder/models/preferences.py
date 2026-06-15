@@ -34,14 +34,14 @@ class ExperienceLevel(StrEnum):
     """
     How much ESPHome the user knows; tailors UI weight.
 
-    Chosen in onboarding, changeable any time in Settings. ``None``
-    (a fresh install that hasn't picked) is handled separately; a
-    pre-existing install migrates to ``YAML``.
+    Chosen in onboarding, changeable any time via the Settings expert-mode
+    toggle. ``EXPERT`` unlocks the power-user surfaces (editor diff, navigator
+    and YAML search). ``None`` (a fresh install that hasn't picked) is handled
+    separately; a pre-existing install migrates to ``EXPERT``.
     """
 
     BEGINNER = "beginner"
-    UI = "ui"
-    YAML = "yaml"
+    EXPERT = "expert"
 
 
 @dataclass
@@ -58,7 +58,6 @@ class UserPreferences(DataClassORJSONMixin):
 
     # Device editor
     navigator_visible: bool = True
-    yaml_diff_button: bool = False
 
     # Table view settings
     table_page_size: int = 25
@@ -67,7 +66,7 @@ class UserPreferences(DataClassORJSONMixin):
     table_sort_direction: SortDirection | None = None
 
     # Experience level chosen in onboarding (None = not yet chosen).
-    # Seeds ``yaml_diff_button`` and the editor's first-open layout.
+    # ``EXPERT`` unlocks the power-user editor and search surfaces.
     experience_level: ExperienceLevel | None = None
     # This install is only a remote build node: onboarding skips the
     # Wi-Fi step and device-creation entry points are hidden.

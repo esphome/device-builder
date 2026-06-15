@@ -92,10 +92,10 @@ class OnboardingController:
 
     async def migrate_preexisting_install(self) -> None:
         """
-        Default a pre-existing install to the YAML experience, once.
+        Default a pre-existing install to the EXPERT experience, once.
 
         Installs that completed an earlier onboarding or already hold
-        device YAMLs predate the experience picker; mark them YAML
+        device YAMLs predate the experience picker; mark them EXPERT
         users and acknowledge onboarding so the wizard never auto-pops.
         Idempotent — a no-op once ``experience_level`` is set.
         """
@@ -224,7 +224,7 @@ def _compute_state(
 
 
 def _should_migrate_preexisting(prefs: UserPreferences, *, has_device_configs: bool) -> bool:
-    """Whether a pre-existing install should default to the YAML experience.
+    """Whether a pre-existing install should default to the EXPERT experience.
 
     No-op once an experience is chosen; a fresh install with no device YAMLs and
     no prior onboarding is left alone so the wizard still runs.
@@ -235,8 +235,8 @@ def _should_migrate_preexisting(prefs: UserPreferences, *, has_device_configs: b
 
 
 def _mark_preexisting(p: UserPreferences) -> None:
-    """Mark *p* a YAML user; acknowledge only if onboarding was already done."""
-    p.experience_level = ExperienceLevel.YAML
+    """Mark *p* an EXPERT user; acknowledge only if onboarding was already done."""
+    p.experience_level = ExperienceLevel.EXPERT
     # Only acknowledge onboarding for installs that already completed it, so a
     # prior Wi-Fi save or decline is respected. An install known only by its
     # device YAML stays un-acknowledged, so a missing-Wi-Fi prompt still surfaces.

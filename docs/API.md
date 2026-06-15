@@ -282,7 +282,7 @@ Parsing and writing live on the backend: the frontend exchanges structured `Auto
 | `config/version` | — | `{server_version, esphome_version}` | Get versions |
 | `config/serial_ports` | — | `[{port, desc}]` | List serial ports |
 | `config/get_preferences` | — | `UserPreferences` | Get user preferences |
-| `config/set_preferences` | `{theme?, dashboard_view?, experience_level?, remote_compute_only?, ...}` | `UserPreferences` | Update preferences (partial). `experience_level` is `beginner` / `ui` / `yaml` (or `null` until chosen); `remote_compute_only` marks an install as a remote build node. |
+| `config/set_preferences` | `{theme?, dashboard_view?, experience_level?, remote_compute_only?, ...}` | `UserPreferences` | Update preferences (partial). `experience_level` is `beginner` / `expert` (or `null` until chosen); `remote_compute_only` marks an install as a remote build node. |
 | `config/get_secrets` | — | `[string]` | List secret key names |
 | `config/set_secret` | `{key, value, overwrite?}` | `{created}` | Atomically set one secret in secrets.yaml under a write lock; `overwrite=false` is create-if-absent |
 
@@ -292,7 +292,7 @@ Parsing and writing live on the backend: the frontend exchanges structured `Auto
 >
 > Models: [`OnboardingState`, `OnboardingStep`, `OnboardingStepId`, `OnboardingStepStatus`](../esphome_device_builder/models/onboarding.py)
 
-First-run setup tracking. Each step's `status` is computed from live data on every `get_state` call (never persisted), so the frontend's "needs attention" indicators clear the moment the user fixes the underlying state — even via a manual `secrets.yaml` edit. `completed_version` is the last onboarding-flow version the user has explicitly acknowledged; bumping `ONBOARDING_VERSION` (server-side constant) re-prompts users at lower versions when new steps are added. The step list is environment- and preference-aware: `use_case` only on non-HA installs, `wifi_credentials` only when not `remote_compute_only`. A pre-existing install (prior onboarding completed, or device YAML already on disk) is migrated to the `yaml` experience at startup so the wizard never auto-pops for it.
+First-run setup tracking. Each step's `status` is computed from live data on every `get_state` call (never persisted), so the frontend's "needs attention" indicators clear the moment the user fixes the underlying state — even via a manual `secrets.yaml` edit. `completed_version` is the last onboarding-flow version the user has explicitly acknowledged; bumping `ONBOARDING_VERSION` (server-side constant) re-prompts users at lower versions when new steps are added. The step list is environment- and preference-aware: `use_case` only on non-HA installs, `wifi_credentials` only when not `remote_compute_only`. A pre-existing install (prior onboarding completed, or device YAML already on disk) is migrated to the `expert` experience at startup so the wizard never auto-pops for it.
 
 | Command | Args | Response | Description |
 |---------|------|----------|-------------|

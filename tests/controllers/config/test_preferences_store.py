@@ -24,7 +24,6 @@ def _make_store(tmp_path: Path) -> PreferencesStore:
 
 _SAMPLE = UserPreferences(
     navigator_visible=False,
-    yaml_diff_button=True,
     theme=Theme.DARK,
 )
 
@@ -287,4 +286,4 @@ async def test_round_trip_after_migration(tmp_path: Path) -> None:
     second = _make_store(tmp_path)
     await second.async_load()
     assert second.snapshot().theme == Theme.LIGHT
-    assert second.snapshot().yaml_diff_button is True
+    assert second.snapshot().navigator_visible is False

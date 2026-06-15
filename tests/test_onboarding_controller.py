@@ -142,7 +142,7 @@ async def test_get_state_experience_set_marks_use_case_and_experience_done(
 ) -> None:
     """Picking an experience level completes both leading steps."""
     controller = _make_controller(
-        tmp_path, on_ha_addon=False, prefs=UserPreferences(experience_level=ExperienceLevel.UI)
+        tmp_path, on_ha_addon=False, prefs=UserPreferences(experience_level=ExperienceLevel.EXPERT)
     )
     state = await controller.get_state()
     assert _step(state, OnboardingStepId.USE_CASE) == OnboardingStepStatus.DONE
@@ -558,7 +558,7 @@ async def test_migrate_acknowledged_install_becomes_yaml_and_stays_acknowledged(
     controller = _make_controller(tmp_path, prefs=UserPreferences(onboarding_completed_version=1))
     await controller.migrate_preexisting_install()
     prefs = controller._prefs.snapshot()
-    assert prefs.experience_level == ExperienceLevel.YAML
+    assert prefs.experience_level == ExperienceLevel.EXPERT
     assert prefs.onboarding_completed_version == ONBOARDING_VERSION
 
 
@@ -572,7 +572,7 @@ async def test_migrate_device_yaml_install_stays_unacknowledged(tmp_path: Path) 
     controller = _make_controller(tmp_path)
     await controller.migrate_preexisting_install()
     prefs = controller._prefs.snapshot()
-    assert prefs.experience_level == ExperienceLevel.YAML
+    assert prefs.experience_level == ExperienceLevel.EXPERT
     assert prefs.onboarding_completed_version == 0
 
 
@@ -582,7 +582,7 @@ async def test_migrate_install_with_yml_extension_becomes_yaml(tmp_path: Path) -
     controller = _make_controller(tmp_path)
     await controller.migrate_preexisting_install()
     prefs = controller._prefs.snapshot()
-    assert prefs.experience_level == ExperienceLevel.YAML
+    assert prefs.experience_level == ExperienceLevel.EXPERT
     assert prefs.onboarding_completed_version == 0
 
 
@@ -606,12 +606,12 @@ def test_mark_preexisting_acknowledges_only_a_completed_install() -> None:
     """The marker sets YAML always, but acknowledges only a completed install."""
     completed = UserPreferences(onboarding_completed_version=1)
     _mark_preexisting(completed)
-    assert completed.experience_level == ExperienceLevel.YAML
+    assert completed.experience_level == ExperienceLevel.EXPERT
     assert completed.onboarding_completed_version == ONBOARDING_VERSION
 
     config_only = UserPreferences()
     _mark_preexisting(config_only)
-    assert config_only.experience_level == ExperienceLevel.YAML
+    assert config_only.experience_level == ExperienceLevel.EXPERT
     assert config_only.onboarding_completed_version == 0
 
 
