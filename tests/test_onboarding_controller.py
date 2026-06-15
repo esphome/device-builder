@@ -548,7 +548,7 @@ def test_replace_or_append_secret_value_with_hash_in_quotes_is_misparsed() -> No
 # ---------------------------------------------------------------------------
 
 
-async def test_migrate_acknowledged_install_becomes_yaml_and_stays_acknowledged(
+async def test_migrate_acknowledged_install_becomes_expert_and_stays_acknowledged(
     tmp_path: Path,
 ) -> None:
     """An install that completed an earlier onboarding keeps its acknowledgement.
@@ -563,7 +563,7 @@ async def test_migrate_acknowledged_install_becomes_yaml_and_stays_acknowledged(
 
 
 async def test_migrate_device_yaml_install_stays_unacknowledged(tmp_path: Path) -> None:
-    """A config-only install that never onboarded gets YAML but no acknowledgement.
+    """A config-only install that never onboarded gets EXPERT but no acknowledgement.
 
     Leaving ``onboarding_completed_version`` at 0 lets a missing-Wi-Fi prompt
     still fire for these users.
@@ -576,7 +576,7 @@ async def test_migrate_device_yaml_install_stays_unacknowledged(tmp_path: Path) 
     assert prefs.onboarding_completed_version == 0
 
 
-async def test_migrate_install_with_yml_extension_becomes_yaml(tmp_path: Path) -> None:
+async def test_migrate_install_with_yml_extension_becomes_expert(tmp_path: Path) -> None:
     """``.yml`` is an equally valid config extension; it must trigger migration too."""
     (tmp_path / "bedroom.yml").write_text("esphome:\n  name: bedroom\n")
     controller = _make_controller(tmp_path)
