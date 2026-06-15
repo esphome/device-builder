@@ -59,7 +59,10 @@ class OnboardingController:
 
     @property
     def _prefs(self) -> PreferencesStore:
-        assert self._db.config is not None
+        # config is created in start() before any onboarding command is served;
+        # raise (not assert, which -O strips) if that invariant is ever broken.
+        if self._db.config is None:
+            raise RuntimeError("config controller is not initialized")
         return self._db.config.prefs
 
     @api_command("onboarding/get_state")

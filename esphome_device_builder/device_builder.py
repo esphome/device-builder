@@ -598,10 +598,13 @@ class DeviceBuilder:
             # the dashboard had already accumulated by then.
             initial: dict[str, Any] = {}
             # Gate first-paint UI, so ship them here instead of a separate
-            # get_preferences round-trip. Sync RAM read off the store; the
-            # config controller is always up by the time subscribe is served.
-            if self.config is not None:
-                initial["preferences"] = self.config.prefs.snapshot().to_dict()
+            # get_preferences round-trip. Sync RAM read off the store. Always
+            # present per the wire contract; the config controller is created in
+            # start() before any subscribe is served, so raise (don't silently
+            # omit) if that invariant is ever broken.
+            if self.config is None:
+                raise RuntimeError("config controller is not initialized")
+            initial["preferences"] = self.config.prefs.snapshot().to_dict()
             if self.devices:
                 initial["devices"] = [d.to_dict() for d in self.devices.get_devices()]
                 initial["importable"] = [d.to_dict() for d in self.devices.get_importable_devices()]
