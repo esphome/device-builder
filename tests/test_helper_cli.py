@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import subprocess
 import sys
-import textwrap
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -133,50 +133,23 @@ def test_download_path_does_not_import_esphome_components(tmp_path: Path) -> Non
 
     esp32 is answered from the precomputed index; libretiny goes through the
     helper child. Neither should land ``esphome.components.{esp32,libretiny}`` in
-    the calling process's ``sys.modules``.
+    the calling process's ``sys.modules`` (checked by the probe in a fresh
+    interpreter, since this test process has esphome loaded already).
     """
-    script = textwrap.dedent(
-        """
-        import sys, tempfile
-        from pathlib import Path
-        from esphome.storage_json import StorageJSON
-        from esphome_device_builder.controllers.firmware.download import collect_download_entries
-
-        tmp = Path(tempfile.mkdtemp())
-
-        def storage(target, *files):
-            build = tmp / target / "build"
-            build.mkdir(parents=True)
-            for f in files:
-                (build / f).write_bytes(b"x")
-            sj = StorageJSON(
-                storage_version=1, name="demo", friendly_name=None, comment=None,
-                esphome_version=None, src_version=None, address="demo.local", web_port=None,
-                target_platform=target, build_path=str(build),
-                firmware_bin_path=build / "firmware.bin",
-                loaded_integrations=[], loaded_platforms=[], no_mdns=False,
-            )
-            p = tmp / f"{target}.json"
-            sj.save(p)
-            return sj, p
-
-        esp32_sj, esp32_p = storage("ESP32", "firmware.factory.bin")
-        lt_sj, lt_p = storage("bk72xx", "firmware.uf2")
-        collect_download_entries(esp32_sj, esp32_p)
-        collect_download_entries(lt_sj, lt_p)
-
-        bad = [m for m in sys.modules if m == "esphome.components.esp32"
-               or m.startswith("esphome.components.esp32.")
-               or m == "esphome.components.libretiny"
-               or m.startswith("esphome.components.libretiny.")]
-        assert not bad, bad
-        """
-    )
+    repo_root = Path(__file__).resolve().parents[1]
+    probe = repo_root / "tests" / "_probe_download_no_components.py"
+    # Put the repo root on the child's path so it imports this checkout's source
+    # (a bare ``python file.py`` puts the script's dir on sys.path[0], not cwd).
+    env = {
+        **os.environ,
+        "PYTHONPATH": os.pathsep.join([str(repo_root), os.environ.get("PYTHONPATH", "")]),
+    }
     result = subprocess.run(  # noqa: S603 — args fully test-controlled
-        [sys.executable, "-c", script],
+        [sys.executable, str(probe), str(tmp_path)],
         check=False,
         capture_output=True,
         text=True,
         timeout=120,
+        env=env,
     )
-    assert result.returncode == 0, f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    assert result.returncode == 0, f"leaked:\n{result.stdout}\nstderr:\n{result.stderr}"
