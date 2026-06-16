@@ -4230,6 +4230,23 @@ def _strip_defaults(component: dict) -> dict:
     return out
 
 
+# A prerelease schema points its docs links at beta.esphome.io / next.esphome.io
+# — in docs_url, help_link, and markdown links embedded in description text. The
+# catalog tracks beta but must link to the canonical, stable docs host.
+_PRERELEASE_DOCS_HOST_RE = re.compile(r"https://(?:beta|next)\.esphome\.io/")
+
+
+def _canonicalize_docs_hosts(obj: Any) -> Any:
+    """Recursively rewrite prerelease beta/next esphome.io URLs to esphome.io in a JSON tree."""
+    if isinstance(obj, str):
+        return _PRERELEASE_DOCS_HOST_RE.sub("https://esphome.io/", obj)
+    if isinstance(obj, list):
+        return [_canonicalize_docs_hosts(x) for x in obj]
+    if isinstance(obj, dict):
+        return {k: _canonicalize_docs_hosts(v) for k, v in obj.items()}
+    return obj
+
+
 def _emit_split_catalog(catalog: list[dict], version: str) -> None:
     """
     Write the catalog as ``components.index.json`` + per-id body files.
@@ -4251,6 +4268,7 @@ def _emit_split_catalog(catalog: list[dict], version: str) -> None:
     aren't yet listed), so a reader landing in that window
     degrades rather than crashes.
     """
+    catalog = _canonicalize_docs_hosts(catalog)
     next_bodies = _OUTPUT_BODIES_DIR.parent / "components.next"
     prepare_next_bodies_dir(next_bodies)
 
@@ -4309,6 +4327,7 @@ def _emit_split_automations_catalog(automations: dict[str, Any], version: str) -
     ``emit_body_with_roundtrip`` /
     ``swap_split_catalog_in`` helpers.
     """
+    automations = _canonicalize_docs_hosts(automations)
     next_bodies = _AUTOMATIONS_BODIES_DIR.parent / "automations.next"
     prepare_next_bodies_dir(next_bodies)
 

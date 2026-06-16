@@ -11,6 +11,7 @@ start) lives in test_cold_import_floor.py.
 from __future__ import annotations
 
 import importlib
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,6 +20,7 @@ from esphome.components.esp32.const import VARIANTS
 from esphome.components.libretiny.const import FAMILY_COMPONENT
 from esphome.components.rp2040.boards import BOARDS
 from esphome.components.wifi import NO_WIFI_VARIANTS
+from esphome.const import __version__ as _esphome_version
 
 from esphome_device_builder.definitions import (
     PlatformCapabilities,
@@ -28,6 +30,26 @@ from esphome_device_builder.definitions import (
 )
 
 _EMPTY = PlatformCapabilities([], [], [], [], {})
+
+_COMPONENTS_INDEX = (
+    Path(__file__).resolve().parent.parent
+    / "esphome_device_builder"
+    / "definitions"
+    / "components.index.json"
+)
+
+
+def _release_ordinal(version: str) -> int:
+    """Calendar-release ordinal (year*12 + month) of an esphome version string."""
+    m = re.match(r"(\d+)\.(\d+)", version)
+    assert m, f"unparsable esphome version: {version!r}"
+    return int(m.group(1)) * 12 + int(m.group(2))
+
+
+def _catalog_releases_ahead() -> int:
+    """Calendar releases the committed catalog leads the installed esphome (negative = behind)."""
+    schema_version = orjson.loads(_COMPONENTS_INDEX.read_bytes())["esphome_schema_version"]
+    return _release_ordinal(schema_version) - _release_ordinal(_esphome_version)
 
 
 def test_loader_returns_known_platforms() -> None:
@@ -43,15 +65,24 @@ def test_loader_returns_known_platforms() -> None:
 
 
 def test_index_within_installed_esphome() -> None:
-    """The committed index is a subset of the installed esphome's platform data.
+    """
+    Committed index stays within one esphome release of the installed one.
 
-    Routing / wifi data is pinned to the esphome the catalog was generated
-    against and re-synced on bump; the CI matrix runs newer esphome (stable /
-    beta / dev), so assert containment, not equality. Catches a stale or bogus
-    index entry no esphome version exposes; exact parity is the sync workflow's
+    Tolerate extras on whichever side leads (runtime ahead in the beta/dev
+    matrix; catalog ahead when it ships before the docker image's esphome),
+    capping a catalog lead at one release. Exact parity is the sync workflow's
     regenerate-and-diff gate.
     """
     caps = load_platform_capabilities_index()
+    ahead = _catalog_releases_ahead()
+    assert ahead <= 1, (
+        f"committed catalog is {ahead} esphome releases ahead of the installed esphome; "
+        "the runtime may trail the catalog by at most one release"
+    )
+    if ahead >= 1:
+        # Catalog leads the runtime: it carries data this older esphome can't
+        # expose yet. Exact parity is the sync workflow's regenerate gate.
+        return
     installed_no_wifi_boards = {
         board for board, info in BOARDS.items() if not info.get("wifi", False)
     }
