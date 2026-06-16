@@ -49,9 +49,12 @@ def test_merge_extends_skips_seen_refs() -> None:
     assert set(merged) == {"local"}
 
 
-def test_get_esphome_loader_primes_core_target_platform() -> None:
+def test_get_esphome_loader_primes_core_target_platform(monkeypatch) -> None:
     """The loader gives CORE a target_platform slot so import-time CORE.is_esp32 can't KeyError."""
-    sync_components._ESPHOME_LOADER_CACHE.update(resolved=False, module=None)
+    # Work on copies so the forced re-resolution + CORE mutation unwind on teardown.
+    monkeypatch.setattr(CORE, "data", dict(CORE.data))
+    monkeypatch.setitem(sync_components._ESPHOME_LOADER_CACHE, "resolved", False)
+    monkeypatch.setitem(sync_components._ESPHOME_LOADER_CACHE, "module", None)
     CORE.data.pop(KEY_CORE, None)
 
     assert sync_components._get_esphome_loader() is not None

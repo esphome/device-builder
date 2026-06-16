@@ -2268,13 +2268,14 @@ def _convert_config_vars(
     component_id: str = "",
     _seen_refs: frozenset[str] = frozenset(),
 ) -> list[dict]:
-    """Convert a ``schema`` node (config_vars + extends) to a list of entries.
+    """
+    Convert a ``schema`` node (config_vars + extends) to a list of entries.
 
     ``_seen_refs`` is threaded to break self-referential ``extends`` cycles; see
     :func:`_merge_extends_config_vars`.
     """
     merged = _merge_extends_config_vars(schema_node, schema_dir, _seen_refs)
-    seen_refs = _seen_refs | set(schema_node.get("extends") or [])
+    seen_refs = _seen_refs | frozenset(schema_node.get("extends") or [])
 
     out: list[dict] = []
     for key, raw in merged.items():
