@@ -125,7 +125,7 @@ async def test_clear_queued_update_invalid_config_raises(firmware_controller):
     firmware_controller._db.settings.rel_path.side_effect = ValueError("Out of bounds")
 
     # Assert that exactly a ValueError is raised with our specific message
-    with pytest.raises(ValueError, match="Out of bounds"): 
+    with pytest.raises(ValueError, match="Out of bounds"):
         await firmware_controller.clear_queued_update(configuration="non_existent.yaml")
 
 
