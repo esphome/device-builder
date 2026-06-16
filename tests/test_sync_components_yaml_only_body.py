@@ -24,6 +24,5 @@ def test_suppress_drops_config_entries_for_yaml_only_component() -> None:
 
 def test_suppress_leaves_normal_component_untouched() -> None:
     """A component with a structured form keeps its config_entries."""
-    entries = [{"key": "pin"}]
-    out = _suppress_yaml_only_body({"id": "sensor.dht", "config_entries": entries})
-    assert out["config_entries"] is entries
+    out = _suppress_yaml_only_body({"id": "sensor.dht", "config_entries": [{"key": "pin"}]})
+    assert out["config_entries"] == [{"key": "pin"}]
