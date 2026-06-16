@@ -233,6 +233,24 @@ def test_download_types_for_non_list_helper_reply_is_empty(monkeypatch: Any) -> 
     assert _download_types_for(storage, Path("kitchen.json"), label="kitchen") == []
 
 
+def test_download_types_for_invalid_json_helper_reply_is_empty(
+    monkeypatch: Any, caplog: Any
+) -> None:
+    """Unparsable helper stdout degrades to empty with a diagnosable warning."""
+
+    def _fake_run(cmd: list[str], **_kwargs: Any) -> Any:
+        return types.SimpleNamespace(returncode=0, stdout="not json{", stderr="")
+
+    monkeypatch.setattr(download_mod.subprocess, "run", _fake_run)
+    storage = types.SimpleNamespace(target_platform="bk72xx", name="kitchen")
+
+    with caplog.at_level(logging.WARNING):
+        result = _download_types_for(storage, Path("kitchen.json"), label="kitchen")
+
+    assert result == []
+    assert any("returned non-JSON for kitchen" in rec.message for rec in caplog.records)
+
+
 # ---------------------------------------------------------------------------
 # get_binaries — failure / fallback branches
 # ---------------------------------------------------------------------------
