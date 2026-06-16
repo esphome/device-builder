@@ -71,6 +71,7 @@ _OUTPUT_BODIES_DIR = _DEFINITIONS_DIR / "components"
 _AUTOMATIONS_INDEX_FILE = _DEFINITIONS_DIR / "automations.index.json"
 _AUTOMATIONS_BODIES_DIR = _DEFINITIONS_DIR / "automations"
 _PIN_REGISTRY_MODES_INDEX_FILE = _DEFINITIONS_DIR / "pin_registry_modes.index.json"
+_PLATFORM_CAPABILITIES_INDEX_FILE = _DEFINITIONS_DIR / "platform_capabilities.index.json"
 _CACHE_ROOT = _REPO_ROOT / ".cache"
 
 # Fields stripped from index entries — they belong on the per-id body
@@ -961,6 +962,9 @@ def main() -> int:
                 "esphome not importable; %s left untouched",
                 _PIN_REGISTRY_MODES_INDEX_FILE,
             )
+
+        _emit_platform_capabilities_index()
+        _LOGGER.info("Wrote platform capabilities -> %s", _PLATFORM_CAPABILITIES_INDEX_FILE)
     return 0
 
 
@@ -2992,6 +2996,57 @@ def _emit_pin_registry_modes_index(registry_modes: dict[str, list[str]]) -> None
         orjson.dumps(registry_modes, option=orjson.OPT_SORT_KEYS | orjson.OPT_APPEND_NEWLINE)
     )
     next_path.replace(_PIN_REGISTRY_MODES_INDEX_FILE)
+
+
+def _emit_platform_capabilities_index() -> None:
+    """Write the static esphome platform metadata the dashboard reads at runtime.
+
+    Importing ``esphome.components.esp32`` / ``.wifi`` at runtime drags in espidf
+    / requests / ``esphome.config`` (~0.5-1.5s of cold start on a slow SBC) just
+    to read these membership lists. Snapshot them here, where esphome is already
+    imported, so the long-lived process reads a cheap JSON instead and never
+    imports ``esphome.components.*``. Atomic temp-then-replace.
+    """
+    from types import SimpleNamespace
+
+    from esphome.components.esp32.const import VARIANTS
+    from esphome.components.libretiny.const import FAMILY_COMPONENT
+    from esphome.components.rp2040.boards import BOARDS as RP2040_BOARDS
+    from esphome.components.wifi import NO_WIFI_VARIANTS
+
+    # Static-per-platform download types. For esp32 / esp8266 / rp2040
+    # ``get_download_types`` returns a fixed file list (only the discarded
+    # ``download`` filename interpolates the device name), so snapshot
+    # ``{title, description, file}`` with a sentinel storage. libretiny (reads
+    # the build's firmware.json) and nrf52 (probes built files) are build-dir
+    # dependent and stay out of the index — device-builder-helper handles them.
+    sentinel = SimpleNamespace(name="{name}")
+    download_types: dict[str, list[dict[str, str]]] = {}
+    for component in ("esp32", "esp8266", "rp2040"):
+        module = importlib.import_module(f"esphome.components.{component}")
+        download_types[component] = [
+            {
+                "title": entry.get("title", ""),
+                "description": entry.get("description", ""),
+                "file": entry["file"],
+            }
+            for entry in module.get_download_types(sentinel)
+        ]
+
+    payload = {
+        "esp32_variants": sorted(VARIANTS),
+        "esp32_no_wifi_variants": sorted(NO_WIFI_VARIANTS),
+        "libretiny_families": sorted(set(FAMILY_COMPONENT.values())),
+        "rp2040_no_wifi_boards": sorted(
+            board for board, info in RP2040_BOARDS.items() if not info.get("wifi", False)
+        ),
+        "download_types": download_types,
+    }
+    next_path = _PLATFORM_CAPABILITIES_INDEX_FILE.with_suffix(".json.next")
+    next_path.write_bytes(
+        orjson.dumps(payload, option=orjson.OPT_SORT_KEYS | orjson.OPT_APPEND_NEWLINE)
+    )
+    next_path.replace(_PLATFORM_CAPABILITIES_INDEX_FILE)
 
 
 def _synthesise_long_form_extra(

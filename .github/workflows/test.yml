@@ -104,6 +104,22 @@ jobs:
         # #483-#492; flipped on once the standing count hit zero.
         run: mypy esphome_device_builder
 
+      - name: Check import time against budget
+        # ``device_builder`` import cost lands on dashboard startup,
+        # which is painfully slow on low-power hosts (HA Green). Fails
+        # the build if a fresh eager import (e.g. an ``esphome.components.*``
+        # module) pushes the measured time past the budget + margin.
+        run: python script/check_import_time.py --check --har importtime.har
+
+      - name: Upload import-time waterfall
+        # Keep the HAR so a regression can be inspected as a waterfall.
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: import-time-waterfall
+          path: importtime.har
+          retention-days: 14
+
   test:
     name: Pytest (${{ matrix.os }} / Python ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}

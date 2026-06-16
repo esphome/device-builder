@@ -53,7 +53,7 @@ def _local_download_set(data_dir: Path) -> set[str]:
     [storage_path] = list((data_dir / "storage").glob("*.json"))
     storage = StorageJSON.load(storage_path)
     assert storage is not None
-    return {entry["file"] for entry in collect_download_entries(storage)}
+    return {entry["file"] for entry in collect_download_entries(storage, storage_path)}
 
 
 @pytest.mark.timeout(900)

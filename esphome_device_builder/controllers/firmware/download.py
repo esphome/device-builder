@@ -3,21 +3,22 @@
 from __future__ import annotations
 
 import asyncio
-import importlib
+import json
 import logging
+import os
 import re
 import secrets
+import subprocess
+import sys
 import time
+from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from aiohttp import web
-from esphome.components.esp32 import VARIANTS as ESP32_VARIANTS
-from esphome.components.libretiny.const import (
-    FAMILY_COMPONENT as _LIBRETINY_FAMILY_COMPONENT,
-)
 from esphome.storage_json import StorageJSON
 
+from ...definitions import PlatformCapabilities, load_platform_capabilities_index
 from ...helpers.api import CommandError
 from ...helpers.storage_path import resolve_storage_path
 
@@ -26,16 +27,42 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+# Generous: the child pays a full esphome import before answering.
+_HELPER_TIMEOUT_S = 60
 
-# Platforms whose ``target_platform`` value isn't the component
-# module name. ESP32 variants collapse to the umbrella ``esp32``
-# component; LibreTiny chip families collapse to ``libretiny``.
-# The LibreTiny set is sourced from upstream's
-# ``FAMILY_COMPONENT.values()`` so it picks up new chip families
-# automatically on the next ``esphome`` dependency bump.
-_LIBRETINY_TARGET_PLATFORMS: frozenset[str] = frozenset(_LIBRETINY_FAMILY_COMPONENT.values()) | {
-    "libretiny"
-}
+
+@cache
+def _capabilities() -> PlatformCapabilities:
+    """Read the generated platform-capabilities index once (no esphome import)."""
+    return load_platform_capabilities_index()
+
+
+@cache
+def _platform_sets() -> tuple[frozenset[str], frozenset[str]]:
+    """Return ``(esp32_variants, libretiny_target_platforms)`` for download routing.
+
+    Read from the generated index rather than ``esphome.components.esp32`` to keep
+    espidf / requests / esphome.config off cold start. LibreTiny chip families
+    collapse to the ``libretiny`` component, so the umbrella name joins the set.
+    """
+    caps = _capabilities()
+    return frozenset(caps.esp32_variants), frozenset(caps.libretiny_families) | {"libretiny"}
+
+
+# Prime the cached index read at import so the first download request doesn't
+# pay the (small, esphome-free) file read inside the event loop.
+_platform_sets()
+
+
+@cache
+def _helper_cmd() -> tuple[str, ...]:
+    """Argv prefix for the device-builder-helper child: sibling script, else ``-m``."""
+    name = "device-builder-helper.exe" if os.name == "nt" else "device-builder-helper"
+    sibling = Path(sys.executable).parent / name
+    if sibling.exists():
+        return (str(sibling),)
+    return (sys.executable, "-m", "esphome_device_builder.helper_cli")
+
 
 # Stable ``type`` tag per artifact filename so the frontend can map it to a
 # localized label (falling back to the platform-supplied ``title`` for any
@@ -66,15 +93,18 @@ async def get_binaries(controller: FirmwareController, *, configuration: str) ->
     loop = asyncio.get_running_loop()
 
     def _get_types() -> list[dict]:
-        storage = StorageJSON.load(resolve_storage_path(configuration))
+        storage_path = resolve_storage_path(configuration)
+        storage = StorageJSON.load(storage_path)
         if storage is None:
             return []
-        return collect_download_entries(storage, label=configuration)
+        return collect_download_entries(storage, storage_path, label=configuration)
 
     return await loop.run_in_executor(None, _get_types)
 
 
-def collect_download_entries(storage: StorageJSON, *, label: str | None = None) -> list[dict]:
+def collect_download_entries(
+    storage: StorageJSON, storage_path: Path | None = None, *, label: str | None = None
+) -> list[dict]:
     """Return the downloadable artifacts on disk for *storage* as ``[{title, file, ...}]``.
 
     The platform's ``get_download_types`` entries that exist under
@@ -84,17 +114,11 @@ def collect_download_entries(storage: StorageJSON, *, label: str | None = None) 
     offers; ``get_binaries`` is its async wrapper. *label* identifies the
     build in the failure log -- the caller's configuration filename when it
     has one (more specific than ``storage.name`` across colliding device
-    names); defaults to ``storage.name``.
+    names); defaults to ``storage.name``. *storage_path* is required to resolve
+    the build-dir-dependent platforms (libretiny / nrf52) through the helper
+    subprocess; the static platforms are answered from the catalog regardless.
     """
-    try:
-        component = _resolve_download_component(storage.target_platform)
-        module = importlib.import_module(f"esphome.components.{component}")
-        types = list(module.get_download_types(storage))
-    except Exception:  # a third-party get_download_types regression could raise anything
-        _LOGGER.warning(
-            "Could not determine download types for %s", label or storage.name, exc_info=True
-        )
-        return []
+    types = _download_types_for(storage, storage_path, label=label)
     # No build dir → can't confirm anything on disk → treat as not built.
     if storage.firmware_bin_path is None:
         return []
@@ -120,6 +144,49 @@ def collect_download_entries(storage: StorageJSON, *, label: str | None = None) 
         if artifact_type:
             entry["type"] = artifact_type
     return downloads
+
+
+def _download_types_for(
+    storage: StorageJSON, storage_path: Path | None, *, label: str | None
+) -> list[dict]:
+    """Return ``get_download_types`` entries for *storage*'s platform.
+
+    Static platforms (esp32 / esp8266 / rp2040) come straight from the
+    precomputed catalog index. Build-dir-dependent platforms (libretiny / nrf52)
+    are answered by the device-builder-helper subprocess, so the long-lived
+    process never imports ``esphome.components.*``. A missing *storage_path* or a
+    failing helper yields ``[]`` -- the same "treat as not built" fall-through
+    the in-process import used to take on error.
+    """
+    component = _resolve_download_component(storage.target_platform)
+    if not component:
+        return []
+    precomputed = _capabilities().download_types.get(component)
+    if precomputed is not None:
+        return precomputed
+    if storage_path is None:
+        _LOGGER.warning(
+            "No storage path given to resolve %s download types for %s",
+            component,
+            label or storage.name,
+        )
+        return []
+    cmd = [*_helper_cmd(), "download-types", str(storage_path), component]
+    try:
+        result = subprocess.run(  # noqa: S603 — argv is internally built, no shell
+            cmd,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=_HELPER_TIMEOUT_S,
+        )
+        entries: list[dict] = json.loads(result.stdout)
+    except Exception:  # helper spawn / esphome regression could raise anything
+        _LOGGER.warning(
+            "Could not determine download types for %s", label or storage.name, exc_info=True
+        )
+        return []
+    return entries
 
 
 def _resolve_artifact_path(configuration: str, file: str) -> tuple[Path, str]:
@@ -229,13 +296,13 @@ async def http_download(request: web.Request) -> web.StreamResponse:
 def _resolve_download_component(target_platform: str | None) -> str:
     """Return the ``esphome.components`` module name for *target_platform*.
 
-    ``None`` / empty input collapses to ``""``; the caller's
-    ``importlib.import_module`` then fails in its ``try/except``
-    and logs a warning.
+    ``None`` / empty input collapses to ``""``; the helper subprocess then fails
+    its import and the caller logs a warning and treats the build as not built.
     """
     platform = (target_platform or "").lower()
-    if platform.upper() in ESP32_VARIANTS:
+    esp32_variants, libretiny_target_platforms = _platform_sets()
+    if platform.upper() in esp32_variants:
         return "esp32"
-    if platform in _LIBRETINY_TARGET_PLATFORMS:
+    if platform in libretiny_target_platforms:
         return "libretiny"
     return platform

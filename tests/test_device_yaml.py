@@ -6,7 +6,6 @@ hand-rolled text scanning makes regression risk meaningful.
 
 from __future__ import annotations
 
-import importlib
 import logging
 from copy import deepcopy
 from pathlib import Path
@@ -16,8 +15,6 @@ from unittest import mock
 import pytest
 import yaml
 from esphome import yaml_util
-from esphome.components import wifi as esphome_wifi
-from esphome.components.rp2040.boards import BOARDS as ESPHOME_RP2040_BOARDS
 from esphome.const import ALLOWED_NAME_CHARS
 
 from esphome_device_builder.definitions import (
@@ -26,9 +23,8 @@ from esphome_device_builder.definitions import (
 )
 from esphome_device_builder.helpers import device_yaml
 from esphome_device_builder.helpers.device_yaml import (
-    _fallback_has_native_wifi,
+    _has_native_wifi,
     _parse_inline_value,
-    _select_wifi_helper,
     compute_has_pending_changes,
     configuration_stem,
     extract_esphome_meta_from_config,
@@ -1566,140 +1562,18 @@ async def test_resolve_default_components_skips_featured_with_missing_body(
         ({"platform": "not-a-real-platform"}, False),
     ],
 )
-@pytest.mark.skipif(
-    device_yaml._esphome_has_native_wifi is not None,
-    reason=(
-        "Fallback constants only populate when upstream's has_native_wifi is "
-        "missing — running on an esphome that ships the helper, the "
-        "implementation-detail tables aren't imported, so the fallback can't "
-        "be exercised in isolation here. Upstream's own tests pin the "
-        "active path on that branch."
-    ),
-)
-def test_fallback_has_native_wifi(kwargs: dict, expected: bool) -> None:
-    """Pin the fallback dispatcher across every platform branch.
-
-    The fallback runs whenever the upstream
-    ``esphome.components.wifi.has_native_wifi`` is missing — that's
-    every ESPHome we currently support, and stays the path until
-    esphome/esphome#16300 ships in a release we depend on.
-    """
-    assert _fallback_has_native_wifi(**kwargs) is expected
-
-
-def test_fallback_has_native_wifi_rp2040_returns_true_when_boards_table_missing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """``rp2040`` defaults to wi-fi-allowlist when the boards table is ``None``.
-
-    This branch is unreachable in practice: the module-load
-    ``try/except ImportError`` only sets
-    ``_ESPHOME_RP2040_BOARDS = None`` when the upstream
-    ``has_native_wifi`` helper IS available, in which case
-    ``_select_wifi_helper`` binds the alias to the upstream
-    dispatcher and the fallback never runs. But the type system
-    can't see that cross-branch correlation and surfaces
-    ``_ESPHOME_RP2040_BOARDS`` as ``dict[str, dict] | None`` —
-    the runtime narrowing (``if _ESPHOME_RP2040_BOARDS is None:
-    return True``) is what closes the gap.
-
-    Pin the runtime behaviour so a future refactor that
-    "simplifies" away the narrowing (and trips a real
-    ``AttributeError`` if both branches ever fire together)
-    surfaces here. ``True`` matches the upstream default for
-    unknown rp2040 boards: assume Wi-Fi present.
-    """
-    monkeypatch.setattr(device_yaml._generation, "_ESPHOME_RP2040_BOARDS", None)
-
-    # Look the helper up through the live module attr rather than
-    # the test-time imported binding — ``tests/test_api_key.py``
-    # calls ``importlib.reload(device_yaml)``, which orphans any
-    # test-module binding captured at import time. The live attr
-    # survives the reload AND points at the same function instance
-    # the monkeypatched module globals are visible to.
-    assert device_yaml._fallback_has_native_wifi(platform="rp2040", board="any-board") is True
-
-
-def test_select_wifi_helper_prefers_upstream_when_available() -> None:
-    """When esphome ships ``has_native_wifi``, the alias binds to it.
-
-    Simulates esphome/esphome#16300 having landed by passing the
-    upstream callable explicitly. ``_select_wifi_helper`` must
-    prefer it over the fallback so the wizard reads through the
-    upstream-tested dispatcher once available.
-    """
-    upstream = lambda **_: True  # noqa: E731
-
-    selected = _select_wifi_helper(upstream)
-
-    assert selected is upstream
-
-
-def test_select_wifi_helper_falls_back_when_upstream_missing() -> None:
-    """When ``has_native_wifi`` isn't importable, the alias binds to the fallback.
-
-    Simulates the pre-#16300 esphome we ship against today.
-    ``None`` is exactly what the module-level ``try/except``
-    produces when ``ImportError`` fires.
-
-    Look the fallback up through the live module attr rather than
-    the test-time imported binding — ``tests/test_api_key.py``
-    calls ``importlib.reload(device_yaml)``, which orphans any
-    test-module binding captured at import time. The live attr
-    survives the reload.
-    """
-    selected = _select_wifi_helper(None)
-
-    assert selected is device_yaml._fallback_has_native_wifi
-
-
-def test_generation_binds_upstream_when_has_native_wifi_present(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Pin the import guard branch that binds an upstream ``has_native_wifi`` helper."""
-    upstream = lambda **_: True  # noqa: E731
-    monkeypatch.setattr(esphome_wifi, "has_native_wifi", upstream, raising=False)
-    reloaded = importlib.reload(device_yaml._generation)
-    try:
-        assert reloaded._esphome_has_native_wifi is upstream
-        assert reloaded._ESPHOME_RP2040_BOARDS is None
-        assert not reloaded._ESP32_NO_WIFI_VARIANTS
-    finally:
-        monkeypatch.undo()
-        importlib.reload(device_yaml._generation)
-
-
-def test_generation_falls_back_when_has_native_wifi_missing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Module load populates the fallback constants when the upstream helper is absent.
-
-    Pins the ``except ImportError`` branch of ``_generation``'s
-    import guard by removing ``has_native_wifi`` and reloading,
-    simulating the pre-#16300 esphome we ship against today.
-    """
-    monkeypatch.delattr(esphome_wifi, "has_native_wifi", raising=False)
-    reloaded = importlib.reload(device_yaml._generation)
-    try:
-        expected_variants = frozenset(v.lower() for v in esphome_wifi.NO_WIFI_VARIANTS)
-        assert reloaded._esphome_has_native_wifi is None
-        assert reloaded._ESPHOME_RP2040_BOARDS is ESPHOME_RP2040_BOARDS
-        assert expected_variants == reloaded._ESP32_NO_WIFI_VARIANTS
-    finally:
-        monkeypatch.undo()
-        importlib.reload(device_yaml._generation)
+def test_has_native_wifi(kwargs: dict, expected: bool) -> None:
+    """Pin the wifi-capability dispatcher across every platform branch."""
+    assert _has_native_wifi(**kwargs) is expected
 
 
 def test_infer_native_wifi_routes_through_module_alias(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``_infer_native_wifi`` reads through ``_has_native_wifi``, not the upstream tables.
+    """``_infer_native_wifi`` dispatches through the ``_has_native_wifi`` module attr.
 
-    Pin the indirection so a regression that re-inlined the lookup
-    against ``_ESP32_NO_WIFI_VARIANTS`` / ``_ESPHOME_RP2040_BOARDS``
-    surfaces here — the inline form would silently bypass the
-    upstream dispatcher once esphome/esphome#16300 ships, defeating
-    the whole point of the alias.
+    Pin the indirection so a regression that re-inlined the lookup against
+    ``_ESP32_NO_WIFI_VARIANTS`` / ``_RP2040_NO_WIFI_BOARDS`` surfaces here.
     """
     calls: list[dict] = []
 
@@ -1715,13 +1589,8 @@ def test_infer_native_wifi_routes_through_module_alias(
     assert device_yaml._infer_native_wifi(esp32_board) is False
     assert device_yaml._infer_native_wifi(rp2040_board) is False
 
-    # Variant is uppercased because the upstream
-    # ``has_native_wifi`` dispatcher compares against the
-    # uppercase ``NO_WIFI_VARIANTS`` literal. See the comment
-    # in ``_infer_native_wifi`` for the case-normalisation
-    # rationale.
     assert calls == [
-        {"platform": "esp32", "board": "", "variant": "ESP32C3"},
+        {"platform": "esp32", "board": "", "variant": "esp32c3"},
         {"platform": "rp2040", "board": "rpipicow", "variant": None},
     ]
 

@@ -59,6 +59,7 @@ esphome = [
 test = [
   "blockbuster>=1.5.5,<1.6",
   "codespell==2.4.2",
+  "importtime-waterfall==1.0.0",
   "jsonschema>=4.20.0",
   "mypy==2.1.0",
   "pre-commit==4.6.0",
@@ -82,6 +83,7 @@ Repository = "https://github.com/esphome/device-builder"
 [project.scripts]
 esphome-device-builder = "esphome_device_builder.__main__:main"
 esphome-device-builder-discover = "esphome_device_builder.discover:main"
+device-builder-helper = "esphome_device_builder.helper_cli:main"
 
 [tool.setuptools]
 include-package-data = true

@@ -27,9 +27,13 @@ import pytest
 from esphome.components.esp32 import VARIANTS as ESP32_VARIANTS
 
 from esphome_device_builder.controllers.firmware.download import (
-    _LIBRETINY_TARGET_PLATFORMS,
+    _platform_sets,
     _resolve_download_component,
 )
+
+# The libretiny family set the resolver routes to ``libretiny`` (chip families
+# plus the umbrella key), read from the same generated index production uses.
+_LIBRETINY_TARGET_PLATFORMS = _platform_sets()[1]
 
 
 @pytest.mark.parametrize("variant", sorted(ESP32_VARIANTS))

@@ -1,17 +1,21 @@
 """Lock in the heavy esphome subpackages that must stay cold at idle.
 
-Two upstream modules are several MB each and now load only when
-the corresponding feature is exercised:
+These upstream modules are heavy and now load only when the corresponding
+feature is exercised:
 
 - ``esphome.components.dashboard_import`` (~14 MB) — only used by
   the device-adoption WS command.
 - ``esphome.bundle`` (~1 MB) — only used by the peer-link receiver
   when an offload submission lands.
+- ``esphome.components.esp32`` / ``esphome.espidf`` — the esp32 package
+  drags espidf -> requests -> esphome.config; platform metadata now comes
+  from the generated ``platform_capabilities.index.json`` instead.
+- ``esphome.components.wifi`` — native-wifi inference reads the same index.
 
 This test runs the dashboard's import + ``start()`` path in a fresh
-subprocess and asserts both modules stay out of ``sys.modules``. A
-future module-level re-import trips the assertion and surfaces the
-regression in CI rather than as quiet +15 MB on every HA addon idle.
+subprocess and asserts the modules stay out of ``sys.modules``. A future
+module-level re-import trips the assertion and surfaces the regression in CI
+(quiet +MB at idle, and seconds of startup on a slow SBC for the esp32 chain).
 """
 
 from __future__ import annotations
@@ -23,6 +27,9 @@ import textwrap
 _COLD_MODULES = (
     "esphome.components.dashboard_import",
     "esphome.bundle",
+    "esphome.components.esp32",
+    "esphome.components.wifi",
+    "esphome.espidf",
 )
 
 
