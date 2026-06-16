@@ -13,6 +13,11 @@ dashboard startup, which is painfully slow on low-power hosts like the HA Green.
 ``__main__`` is deliberately NOT the target: it defers the heavy imports into
 ``main()`` so ``--version`` / ``--help`` stay fast, so profiling its import
 measures nothing.
+
+The budget is an absolute microsecond figure, so regenerate it (``--update``) on
+the CI runner class rather than a dev laptop if the 15%-margin gate flakes; the
+structural guard in ``tests/test_cold_import_floor.py`` (the heavy esphome
+modules stay out of ``sys.modules``) is the authoritative invariant.
 """
 
 from __future__ import annotations

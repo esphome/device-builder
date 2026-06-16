@@ -254,8 +254,7 @@ async def test_get_binaries_logs_and_returns_empty_on_helper_failure(
 
     assert result == []
     assert any(
-        "Could not determine download types for kitchen.yaml" in rec.message
-        for rec in caplog.records
+        "download-types helper failed for kitchen.yaml" in rec.message for rec in caplog.records
     )
 
 

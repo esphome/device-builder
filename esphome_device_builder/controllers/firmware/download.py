@@ -188,10 +188,27 @@ def _download_types_for(
             timeout=_HELPER_TIMEOUT_S,
             close_fds=False,
         )
-        entries: list[dict] = json_loads(result.stdout)
-    except Exception:  # helper spawn / esphome regression could raise anything
+    except Exception as err:  # spawn / nonzero exit / timeout / esphome regression
+        # An infrastructure failure (helper not installed, timeout, import error)
+        # is distinct from a built device with no artifacts; surface the child's
+        # stderr so it's diagnosable, not an unbuilt-looking empty row. Still
+        # degrade to [] (the listing must keep rendering for other devices).
         _LOGGER.warning(
-            "Could not determine download types for %s", label or storage.name, exc_info=True
+            "download-types helper failed for %s: %s",
+            label or storage.name,
+            getattr(err, "stderr", None) or err,
+            exc_info=True,
+        )
+        return []
+    try:
+        entries: list[dict] = json_loads(result.stdout)
+    except Exception:  # non-JSON stdout (should not happen: helper isolates stdout)
+        _LOGGER.warning(
+            "download-types helper returned non-JSON for %s: stdout=%r stderr=%r",
+            label or storage.name,
+            result.stdout[:200],
+            result.stderr[:200],
+            exc_info=True,
         )
         return []
     return entries

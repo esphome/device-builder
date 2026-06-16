@@ -682,7 +682,7 @@ def test_pack_build_artifacts_logs_download_types_failure(
         packed = pack_build_artifacts("kitchen.yaml")
 
     assert packed.tarball  # pack succeeded with the static BUILD_FILES set
-    assert any("Could not determine download types" in r.message for r in caplog.records)
+    assert any("download-types helper failed" in r.message for r in caplog.records)
     assert any(r.exc_info is not None for r in caplog.records)
 
 

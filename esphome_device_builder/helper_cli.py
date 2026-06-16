@@ -17,6 +17,7 @@ Commands:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import importlib
 import sys
 from pathlib import Path
@@ -31,15 +32,19 @@ def _cmd_download_types(args: argparse.Namespace) -> int:
     if storage is None:
         sys.stdout.write(dumps_str([]))
         return 0
-    module = importlib.import_module(f"esphome.components.{args.component}")
-    entries = [
-        {
-            "title": entry.get("title", ""),
-            "description": entry.get("description", ""),
-            "file": entry["file"],
-        }
-        for entry in module.get_download_types(storage)
-    ]
+    # Keep stdout pure JSON: route anything esphome prints to stdout during the
+    # component import / get_download_types to stderr, so the parent's parse
+    # can't choke on a banner or deprecation notice.
+    with contextlib.redirect_stdout(sys.stderr):
+        module = importlib.import_module(f"esphome.components.{args.component}")
+        entries = [
+            {
+                "title": entry.get("title", ""),
+                "description": entry.get("description", ""),
+                "file": entry["file"],
+            }
+            for entry in module.get_download_types(storage)
+        ]
     sys.stdout.write(dumps_str(entries))
     return 0
 
