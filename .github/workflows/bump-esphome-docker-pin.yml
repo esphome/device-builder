@@ -1,0 +1,95 @@
+name: Bump device-builder in the ESPHome Docker image
+
+# When this repo publishes a stable release, open a PR on esphome/esphome (base
+# dev) bumping the bundled ``esphome-device-builder==`` pin in docker/Dockerfile
+# to the new version, so the next esphome image ships it.
+#
+# The ``released`` event type fires only for non-prerelease publishes, so betas
+# (X.Y.ZbN) are skipped without an extra filter. The cross-repo write comes from
+# the org GitHub App token, not GITHUB_TOKEN.
+
+on:
+  release:
+    types: [released]
+
+permissions:
+  contents: read
+
+jobs:
+  bump:
+    name: Open the esphome Docker bump PR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate release tag
+        # ``released`` already excludes prereleases, but pin the shape to a clean
+        # stable X.Y.Z before the tag flows into the sed program and the branch
+        # name. Refuse anything else rather than build a malformed bump.
+        env:
+          VERSION: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tag '$VERSION' is not a stable X.Y.Z version; refusing to bump."
+            exit 1
+          fi
+
+      - name: Generate token
+        id: generate-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+        with:
+          client-id: ${{ vars.ESPHOME_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.ESPHOME_GITHUB_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: esphome
+          permission-contents: write  # push the bump branch to esphome
+          permission-pull-requests: write  # open the bump PR
+
+      - name: Checkout esphome
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        with:
+          repository: ${{ github.repository_owner }}/esphome
+          token: ${{ steps.generate-token.outputs.token }}
+          path: esphome
+
+      - name: Bump the esphome-device-builder pin
+        id: bump
+        working-directory: esphome
+        # VERSION via env so the release tag is never interpolated into the
+        # shell source. The pin is unquoted in the Dockerfile, so match up to
+        # the next whitespace.
+        env:
+          VERSION: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          file="docker/Dockerfile"
+          # Fail loud if the pin moved/renamed, so an empty diff means "already at
+          # this version" rather than "sed matched nothing" (a silent stale ship).
+          # Match version characters only (not ``[^space]``) so a quoted pin keeps
+          # its closing quote instead of having it consumed by a greedy match.
+          if ! grep -qE 'esphome-device-builder==[A-Za-z0-9._-]+' "$file"; then
+            echo "::error::pin 'esphome-device-builder==' not found in $file; update this workflow."
+            exit 1
+          fi
+          sed -i -E "s/(esphome-device-builder==)[A-Za-z0-9._-]+/\1${VERSION}/" "$file"
+          if git diff --quiet -- "$file"; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::esphome already pins esphome-device-builder==${VERSION}; no PR opened."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open / update pull request
+        if: steps.bump.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1  # v8.1.1
+        with:
+          token: ${{ steps.generate-token.outputs.token }}
+          path: esphome
+          base: dev
+          branch: bump-device-builder-${{ github.event.release.tag_name }}
+          delete-branch: true
+          commit-message: "Bump bundled esphome-device-builder to ${{ github.event.release.tag_name }}"
+          title: "Bump bundled esphome-device-builder to ${{ github.event.release.tag_name }}"
+          body: |
+            Bumps the bundled `esphome-device-builder` in the Docker image to `${{ github.event.release.tag_name }}`, released in esphome/device-builder.
+
+            Opened automatically by device-builder's release workflow.
