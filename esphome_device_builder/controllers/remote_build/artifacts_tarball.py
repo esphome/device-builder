@@ -291,6 +291,9 @@ def _download_type_files(storage: StorageJSON, storage_path: Path) -> list[str]:
     platforms, device-builder-helper subprocess for libretiny / nrf52, so the
     receiver process never imports ``esphome.components.*``.
     """
+    # Function-local: a top-level import pulls firmware/__init__ -> controller ->
+    # remote_runner -> helpers.remote_artifacts_materialise, which imports this
+    # module back (circular). The import cost is gone but the cycle remains.
     from ..firmware.download import _download_types_for  # noqa: PLC0415
 
     entries = _download_types_for(storage, storage_path, label=storage.name)

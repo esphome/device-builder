@@ -543,12 +543,11 @@ def _parse_download_types(value: object) -> dict[str, list[dict[str, str]]]:
     """Coerce the index ``download_types`` block, dropping any malformed entry."""
     if not isinstance(value, dict):
         return {}
-    out: dict[str, list[dict[str, str]]] = {}
-    for component, entries in value.items():
-        if not isinstance(entries, list):
-            continue
-        out[str(component)] = coerce_download_entries(entries)
-    return out
+    return {
+        str(component): coerce_download_entries(entries)
+        for component, entries in value.items()
+        if isinstance(entries, list)
+    }
 
 
 def load_board_catalog() -> BoardCatalogResponse:
