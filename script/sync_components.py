@@ -2230,17 +2230,25 @@ def _promote_template_controls(component_id: str, entries: list[dict]) -> None:
             entry["advanced"] = False
 
 
-def _merge_extends_config_vars(schema_node: dict, schema_dir: Path) -> dict[str, Any]:
+def _merge_extends_config_vars(
+    schema_node: dict, schema_dir: Path, _seen_refs: frozenset[str] = frozenset()
+) -> dict[str, Any]:
     """
     Deep-merge a schema node's ``extends`` ancestry with its local config_vars.
 
     Per-field, not whole-field: a partial override like ``{"default": "x"}``
     keeps the base's inherited ``type`` / enum / docs. Values are usually field
     dicts; a malformed schema can carry a non-dict, hence ``dict[str, Any]``.
+
+    ``_seen_refs`` carries the ``extends`` targets already being expanded up the
+    convert stack; a ref in it is skipped to break self-referential cycles
+    (lvgl widgets extend ``lvgl.WIDGET_TYPES``, which contains a widget list).
     """
     config_vars = dict(schema_node.get("config_vars") or {})
     extended: dict[str, dict] = {}
     for ref in schema_node.get("extends") or []:
+        if ref in _seen_refs:
+            continue
         extended.update(_resolve_extends(ref, schema_dir))
     merged: dict[str, Any] = {}
     for key in {*extended, *config_vars}:
@@ -2258,9 +2266,15 @@ def _convert_config_vars(
     schema_dir: Path,
     *,
     component_id: str = "",
+    _seen_refs: frozenset[str] = frozenset(),
 ) -> list[dict]:
-    """Convert a ``schema`` node (config_vars + extends) to a list of entries."""
-    merged = _merge_extends_config_vars(schema_node, schema_dir)
+    """Convert a ``schema`` node (config_vars + extends) to a list of entries.
+
+    ``_seen_refs`` is threaded to break self-referential ``extends`` cycles; see
+    :func:`_merge_extends_config_vars`.
+    """
+    merged = _merge_extends_config_vars(schema_node, schema_dir, _seen_refs)
+    seen_refs = _seen_refs | set(schema_node.get("extends") or [])
 
     out: list[dict] = []
     for key, raw in merged.items():
@@ -2283,7 +2297,9 @@ def _convert_config_vars(
         # keys (docs, help link) survive (font.file).
         recovered = _RAW_NODE_OVERRIDES.get((component_id, key))
         field_raw = {**(raw or {}), **recovered} if recovered is not None else (raw or {})
-        entry = _convert_field(key, field_raw, schema_dir, top_level=bool(component_id))
+        entry = _convert_field(
+            key, field_raw, schema_dir, top_level=bool(component_id), _seen_refs=seen_refs
+        )
         if entry is None:
             continue
         # Per-(component, field) overrides patch up entries the schema
@@ -2445,7 +2461,11 @@ def _typed_expanding() -> Iterator[None]:
 
 
 def _build_typed_config_entries(
-    typed_node: dict, schema_dir: Path, *, component_id: str = ""
+    typed_node: dict,
+    schema_dir: Path,
+    *,
+    component_id: str = "",
+    _seen_refs: frozenset[str] = frozenset(),
 ) -> list[dict]:
     """
     Render a typed_schema node as a discriminator select + gated fields.
@@ -2468,7 +2488,9 @@ def _build_typed_config_entries(
         by_key: dict[str, list[tuple[str, dict]]] = {}
         for type_name, variant in types.items():
             body = variant if isinstance(variant, dict) else {}
-            for child in _convert_config_vars(body, schema_dir, component_id=component_id):
+            for child in _convert_config_vars(
+                body, schema_dir, component_id=component_id, _seen_refs=_seen_refs
+            ):
                 if child["key"] != typed_key:
                     by_key.setdefault(child["key"], []).append((type_name, child))
 
@@ -2531,13 +2553,19 @@ _RAW_NODE_OVERRIDES: dict[tuple[str, str], dict] = {
 
 
 def _convert_field(  # noqa: PLR0912, PLR0915, C901
-    key: str, raw: dict, schema_dir: Path, *, top_level: bool = False
+    key: str,
+    raw: dict,
+    schema_dir: Path,
+    *,
+    top_level: bool = False,
+    _seen_refs: frozenset[str] = frozenset(),
 ) -> dict | None:
     """Build a single ConfigEntry dict from a schema's config_var entry.
 
     ``top_level`` is True only for a component's own (direct) config
     vars; it gates the action-list ``type: trigger`` → TRIGGER override
-    so nested trigger fields stay ``nested`` (see below).
+    so nested trigger fields stay ``nested`` (see below). ``_seen_refs``
+    is threaded into nested recursion to break ``extends`` cycles.
     """
     if not isinstance(raw, dict):
         # Some schemas use bare ``{}``-shaped placeholders for fields
@@ -2748,12 +2776,14 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
     typed_node = _typed_node(raw, schema_dir)
     if typed_node is not None and not _expanding_typed[0]:
         entry["type"] = "nested"
-        entry["config_entries"] = _build_typed_config_entries(typed_node, schema_dir) or None
+        entry["config_entries"] = (
+            _build_typed_config_entries(typed_node, schema_dir, _seen_refs=_seen_refs) or None
+        )
         return entry
 
     # Recurse into nested schemas for type=nested.
     if entry_type == "nested" and isinstance(inner_schema, dict):
-        inner = _convert_config_vars(inner_schema, schema_dir)
+        inner = _convert_config_vars(inner_schema, schema_dir, _seen_refs=_seen_refs)
         entry["config_entries"] = inner or None
         entry["platform_type"] = _detect_platform_type(inner_schema)
         # When every child would render as advanced anyway, hide the
@@ -4149,6 +4179,13 @@ def _get_esphome_loader() -> Any:
     _ESPHOME_LOADER_CACHE["resolved"] = True
     try:
         from esphome import loader
+        from esphome.const import KEY_CORE, KEY_TARGET_PLATFORM
+        from esphome.core import CORE
+
+        # usb_uart (and any component evaluating a platform-gated schema at
+        # import time) reads CORE.is_esp32; without a target_platform slot the
+        # lookup raises KeyError and introspection silently drops the component.
+        CORE.data.setdefault(KEY_CORE, {}).setdefault(KEY_TARGET_PLATFORM, None)
 
         _ESPHOME_LOADER_CACHE["module"] = loader
         _LOGGER.info("esphome introspection enabled (esphome.loader importable)")
