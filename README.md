@@ -26,16 +26,15 @@ Pick the path that matches how you run ESPHome today:
 
 ### Home Assistant add-on
 
-Open the ESPHome add-on configuration (Stable, Beta, or Dev — all three
-carry the toggle), flip **Use new Device Builder Preview** on, and restart
-the add-on. The container's init step pip-installs the latest prerelease
-of `esphome-device-builder` and the supervisor service launches it instead
-of the classic dashboard. The toggle is reversible — turn it off + restart
-to fall back to the classic dashboard.
+As of ESPHome 2026.6.0, the ESPHome add-on (Stable, Beta, or Dev) runs
+the Device Builder by default; install or update the add-on and open it
+from the Home Assistant sidebar. The Device Builder ships inside the
+add-on and serves the dashboard over Home Assistant Ingress, so there's
+no toggle to set.
 
 The add-on's data layout stays the same (`/config/esphome/` for YAMLs,
-`/data/` for build artefacts) so flipping the toggle doesn't move or
-duplicate any state.
+`/data/` for build artefacts) so updating doesn't move or duplicate any
+state.
 
 ### ESPHome Desktop (macOS / Windows / Linux)
 
@@ -132,25 +131,18 @@ every few minutes.
 
 ### Standard ESPHome container image
 
-The standard ESPHome Docker image (`ghcr.io/esphome/esphome`) carries
-the same opt-in toggle. Set `USE_NEW_DEVICE_BUILDER` to `1` (or `true` /
-`yes` / `on`) and the container's entrypoint installs the latest
-prerelease of `esphome-device-builder` on boot, then launches it
-instead of the classic `esphome dashboard`:
+As of ESPHome 2026.6.0, the standard `ghcr.io/esphome/esphome` image
+bundles the Device Builder and runs it as the dashboard; there's no env
+var or extra setup. The image's default command (`dashboard /config`)
+launches `esphome-device-builder` against your config dir:
 
 ```bash
-docker run -e USE_NEW_DEVICE_BUILDER=1 -p 6052:6052 \
-    -v "$PWD":/config ghcr.io/esphome/esphome
+docker run -p 6052:6052 -v "$PWD":/config ghcr.io/esphome/esphome
 ```
 
-The dashboard serves `/config` on port 6052. Leave the variable unset
-to fall back to the classic dashboard. The install-on-boot step is
-temporary, until `esphome-device-builder` becomes a direct dependency
-of ESPHome.
-
-If you pass an explicit command to the container it's forwarded
-unchanged, so it has to match the selected CLI — the two don't always
-share the same options.
+The dashboard serves `/config` on port 6052. Every other subcommand
+(`compile`, `run`, `logs`, ...) still runs the classic `esphome` CLI, so
+direct command-line use is unchanged.
 
 ## Username / password authentication
 
@@ -172,10 +164,10 @@ around the HA add-on and Desktop that doesn't pass any in.
 
 ### Home Assistant add-on
 
-When the **Use new Device Builder Preview** toggle is on, the add-on
-is reached through Home Assistant itself: you open it from the HA
-sidebar in your browser, and the Home Assistant Companion App opens
-it the same way. Both paths come in over Home Assistant Ingress, so
+On the Home Assistant add-on, the dashboard is reached through Home
+Assistant itself: you open it from the HA sidebar in your browser, and
+the Home Assistant Companion App opens it the same way. Both paths come
+in over Home Assistant Ingress, so
 the dashboard is already protected by your Home Assistant login;
 there's no separate username or password to configure for the
 add-on, and port `6052` stays unbound to keep the dashboard off the
@@ -427,13 +419,13 @@ tracked separately:
   (one intentional decline: the HA Supervisor `/auth` POST flow —
   the new backend's HA add-on path is ingress-only by design, see
   [issue #85](https://github.com/esphome/device-builder/issues/85))
-- ✅ Opt-in preview toggle in the Home Assistant add-on
-  (`use_new_device_builder` config option, available on the Stable, Beta,
-  and Dev channels)
+- ✅ Bundled as the default dashboard in the Home Assistant add-on
+  (Stable, Beta, and Dev channels; as of ESPHome 2026.6.0)
 - ✅ Backend selector in [ESPHome Desktop](https://github.com/esphome/esphome-desktop)
   ≥ v0.7.0 (system tray → Backend)
-- ✅ Same toggle in the standalone ESPHome Docker image
-  (`ghcr.io/esphome/esphome`, via the `USE_NEW_DEVICE_BUILDER` env var)
+- ✅ Bundled in the standalone ESPHome Docker image
+  (`ghcr.io/esphome/esphome` ≥ 2026.6.0; the `dashboard` command runs the
+  Device Builder)
 - 🗺️ See the
   [project backlog](https://github.com/orgs/esphome/projects/7/views/1?filterQuery=project%3A%22device-builder%22)
   for in-progress work and what's planned next
