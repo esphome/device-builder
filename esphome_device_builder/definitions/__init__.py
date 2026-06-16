@@ -528,7 +528,7 @@ def coerce_download_entries(value: object) -> list[dict[str, str]]:
     """
     if not isinstance(value, list):
         return []
-    return [
+    clean = [
         {
             "title": str(entry.get("title", "")),
             "description": str(entry.get("description", "")),
@@ -537,6 +537,13 @@ def coerce_download_entries(value: object) -> list[dict[str, str]]:
         for entry in value
         if isinstance(entry, dict) and isinstance(entry.get("file"), str)
     ]
+    if len(clean) != len(value):
+        _LOGGER.warning(
+            "Dropped %d malformed download-type entry(ies) of %d",
+            len(value) - len(clean),
+            len(value),
+        )
+    return clean
 
 
 def _parse_download_types(value: object) -> dict[str, list[dict[str, str]]]:

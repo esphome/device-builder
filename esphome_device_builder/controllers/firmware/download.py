@@ -128,10 +128,12 @@ def collect_download_entries(
     the build-dir-dependent platforms (libretiny / nrf52) through the helper
     subprocess; the static platforms are answered from the catalog regardless.
     """
-    types = _download_types_for(storage, storage_path, label=label)
     # No build dir → can't confirm anything on disk → treat as not built.
+    # Checked before resolving types so an unbuilt libretiny / nrf52 device
+    # doesn't spawn the helper subprocess just to discard the result.
     if storage.firmware_bin_path is None:
         return []
+    types = _download_types_for(storage, storage_path, label=label)
     build_dir = storage.firmware_bin_path.parent
     # Filter to files that exist so a cleaned build reads as "compile
     # first" rather than offering a name ``firmware/download`` would 404 on.

@@ -24,6 +24,7 @@ from pathlib import Path
 
 from esphome.storage_json import StorageJSON
 
+from .definitions import coerce_download_entries
 from .helpers.json import dumps_str
 
 
@@ -34,17 +35,12 @@ def _cmd_download_types(args: argparse.Namespace) -> int:
         return 0
     # Keep stdout pure JSON: route anything esphome prints to stdout during the
     # component import / get_download_types to stderr, so the parent's parse
-    # can't choke on a banner or deprecation notice.
+    # can't choke on a banner or deprecation notice. ``coerce_download_entries``
+    # shapes + tolerates a malformed entry (no string ``file``) instead of one
+    # bad entry aborting the whole reply.
     with contextlib.redirect_stdout(sys.stderr):
         module = importlib.import_module(f"esphome.components.{args.component}")
-        entries = [
-            {
-                "title": entry.get("title", ""),
-                "description": entry.get("description", ""),
-                "file": entry["file"],
-            }
-            for entry in module.get_download_types(storage)
-        ]
+        entries = coerce_download_entries(module.get_download_types(storage))
     sys.stdout.write(dumps_str(entries))
     return 0
 
