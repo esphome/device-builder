@@ -93,8 +93,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             devices = []
 
         return next(
-            (d for d in devices if getattr(d, "configuration", None) == configuration),
-            None
+            (d for d in devices if getattr(d, "configuration", None) == configuration), None
         )
 
     def _handle_device_wake(self, event: Event) -> None:
