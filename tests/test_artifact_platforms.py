@@ -23,6 +23,7 @@ from esphome_device_builder.controllers.remote_build.artifact_platforms import (
     ln882x,
     rtl87xx,
 )
+from esphome_device_builder.definitions import PlatformCapabilities
 
 
 def _public_platform_modules() -> list:
@@ -100,6 +101,26 @@ def test_lookup_is_case_insensitive_for_canonical_values(lookup: str) -> None:
 
 def test_lookup_returns_empty_for_unknown_platform() -> None:
     assert build_files_for_platform("nonexistent_platform") == ()
+
+
+def test_esp32_variant_folds_to_esp32_when_index_degraded(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An empty (degraded) index still folds esp32 variants to the esp32 build set.
+
+    Mirrors download.py's resolver, so an offloaded ESP32-S3 build packs rather
+    than raising on empty build_files.
+    """
+    monkeypatch.setattr(
+        artifact_platforms,
+        "load_platform_capabilities_index",
+        lambda: PlatformCapabilities([], [], [], [], {}),
+    )
+    artifact_platforms._by_target.cache_clear()
+    try:
+        assert build_files_for_platform("ESP32S3") is esp32.BUILD_FILES
+        assert build_files_for_platform("esp32c3") is esp32.BUILD_FILES
+        assert build_files_for_platform("nonexistent_platform") == ()
+    finally:
+        artifact_platforms._by_target.cache_clear()
 
 
 @pytest.mark.parametrize("variant", ["ESP32S3", "ESP32C3", "ESP32H2", "ESP32S2", "ESP32C6"])

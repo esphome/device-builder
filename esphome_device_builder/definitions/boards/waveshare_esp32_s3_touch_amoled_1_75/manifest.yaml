@@ -19,11 +19,30 @@ pins:
 - gpio: 10
   available: false
   occupied_by: mic_a
+- gpio: 12
+  available: false
+  occupied_by: disp1
+- gpio: 39
+  available: false
+  occupied_by: disp1
 - gpio: 46
   available: false
   occupied_by: Speaker Enable
 docs_url: https://devices.esphome.io/devices/Waveshare-ESP32-S3-Touch-AMOLED-1.75/
 featured_components:
+- id: disp1
+  component_id: display.mipi_spi
+  fields:
+    model: CO5300
+    bus_mode: quad
+    reset_pin:
+      value: 39
+      locked: true
+    cs_pin:
+      value: 12
+      locked: true
+    id: disp1
+    name: disp1
 - id: display_backlight
   component_id: light.monochromatic
   fields:

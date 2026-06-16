@@ -17,11 +17,8 @@ from __future__ import annotations
 from esphome.storage_json import StorageJSON
 
 from ._generation import (
-    _esphome_has_native_wifi,
-    _fallback_has_native_wifi,
     _has_native_wifi,
     _infer_native_wifi,
-    _select_wifi_helper,
     generate_device_yaml,
     generate_minimal_stub_yaml,
 )
@@ -50,12 +47,9 @@ from ._parsing import (
 __all__ = [
     "EsphomeMeta",
     "StorageJSON",
-    "_esphome_has_native_wifi",
-    "_fallback_has_native_wifi",
     "_has_native_wifi",
     "_infer_native_wifi",
     "_parse_inline_value",
-    "_select_wifi_helper",
     "compute_has_pending_changes",
     "config_has_top_level_block",
     "configuration_stem",

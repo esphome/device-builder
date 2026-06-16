@@ -101,6 +101,104 @@ async def test_create_device_rejects_unknown_board_id(
     assert ctrl._scanner.calls == []
 
 
+@pytest.mark.parametrize("field", ["ssid", "psk"])
+async def test_create_device_rejects_literal_secret_tag_credentials(
+    tmp_path: Path, make_controller: MakeControllerFactory, field: str
+) -> None:
+    """A ``!secret wifi_ssid`` literal in ssid/psk raises ``INVALID_ARGS``.
+
+    The field takes literals; passing the YAML secret tag as a value would
+    be quoted into an unresolvable string. Refuse it so the caller sends
+    empty (which emits a real !secret reference) instead.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.create_device(
+            name="kitchen", board_id="esp32dev", **{field: "!secret wifi_ssid"}
+        )
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert field in excinfo.value.message
+    assert ctrl._scanner.calls == []
+
+
+async def test_create_device_allows_credential_with_bang_secret_prefix_word(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A password like ``!secretsauce`` is a literal, not the secret tag, so it's accepted."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    StubBoardLookups(ctrl).get_board_returns(None)
+
+    # Unknown board short-circuits after the credential check; reaching the
+    # board error proves the credential guard let this value through.
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.create_device(name="kitchen", board_id="bogus", psk="!secretsauce")
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "bogus" in excinfo.value.message
+
+
+async def test_create_device_allows_secret_word_without_a_key(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """``!secret `` with no key is a literal, not the tag form, so it's accepted."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    StubBoardLookups(ctrl).get_board_returns(None)
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.create_device(name="kitchen", board_id="bogus", ssid="!secret ")
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "bogus" in excinfo.value.message
+
+
+async def test_create_device_allows_none_credentials(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A JSON ``null`` ssid/psk is the empty-credential signal, not a guard crash."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    StubBoardLookups(ctrl).get_board_returns(None)
+
+    # Reaching the unknown-board error proves None passed the credential
+    # guard without a TypeError from re.match(None).
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.create_device(name="kitchen", board_id="bogus", ssid=None, psk=None)  # type: ignore[arg-type]
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "bogus" in excinfo.value.message
+
+
+async def test_create_device_skips_credential_guard_for_file_content(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """The file_content upload writes YAML as-is; ignored ssid/psk aren't guard-checked."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+
+    result = await ctrl.create_device(
+        name="kitchen", file_content=VALID_FILE_CONTENT, ssid="!secret wifi_ssid"
+    )
+
+    assert result.configuration == "kitchen.yaml"
+    assert (tmp_path / "kitchen.yaml").read_text("utf-8") == VALID_FILE_CONTENT
+
+
+async def test_create_device_guards_credentials_when_file_content_is_empty(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """An empty file_content falls through to the template flow, so the guard still fires."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.create_device(
+            name="kitchen", board_id="esp32dev", file_content="", ssid="!secret wifi_ssid"
+        )
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "ssid" in excinfo.value.message
+    assert ctrl._scanner.calls == []
+
+
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
 async def test_create_device_emits_minimal_stub_when_no_board_or_file_content(
     tmp_path: Path, make_controller: MakeControllerFactory

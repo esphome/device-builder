@@ -6,7 +6,6 @@ hand-rolled text scanning makes regression risk meaningful.
 
 from __future__ import annotations
 
-import importlib
 import logging
 from copy import deepcopy
 from pathlib import Path
@@ -15,8 +14,7 @@ from unittest import mock
 
 import pytest
 import yaml
-from esphome.components import wifi as esphome_wifi
-from esphome.components.rp2040.boards import BOARDS as ESPHOME_RP2040_BOARDS
+from esphome import yaml_util
 from esphome.const import ALLOWED_NAME_CHARS
 
 from esphome_device_builder.definitions import (
@@ -25,9 +23,8 @@ from esphome_device_builder.definitions import (
 )
 from esphome_device_builder.helpers import device_yaml
 from esphome_device_builder.helpers.device_yaml import (
-    _fallback_has_native_wifi,
+    _has_native_wifi,
     _parse_inline_value,
-    _select_wifi_helper,
     compute_has_pending_changes,
     configuration_stem,
     extract_esphome_meta_from_config,
@@ -1045,6 +1042,52 @@ def test_generate_yaml_emits_explicit_wifi_credentials_when_provided() -> None:
     assert "  password: !secret wifi_password\n" in secret
 
 
+def test_generate_yaml_secret_refs_resolve_through_esphome_loader(tmp_path: Path) -> None:
+    """Empty ssid/psk emit !secret tags ESPHome's loader resolves from secrets.yaml.
+
+    Pins the contract the wizard depends on (it sends empty creds so
+    the backend emits real references): a regression that quoted them
+    would load as the literal string "!secret wifi_ssid" and silently
+    break wifi.
+    """
+    board = _make_esp32_board(variant=Esp32Variant.ESP32)
+    (tmp_path / "secrets.yaml").write_text(
+        "wifi_ssid: RealNetwork-7f3a\nwifi_password: RealPass-9b21\n", encoding="utf-8"
+    )
+    device = tmp_path / "kitchen.yaml"
+    device.write_text(
+        generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk=""), encoding="utf-8"
+    )
+
+    cfg = yaml_util.load_yaml(device)
+    assert cfg["wifi"]["ssid"] == "RealNetwork-7f3a"
+    assert cfg["wifi"]["password"] == "RealPass-9b21"
+
+
+def test_generate_yaml_literal_secret_string_stays_a_literal(tmp_path: Path) -> None:
+    """A literal "!secret wifi_ssid" ssid is quoted, so the loader keeps it a plain string.
+
+    The devices/create API takes literal credentials; passing the
+    magic secret string yields a literal, not a resolved secret, so
+    the wizard must send empty rather than the string itself.
+    """
+    board = _make_esp32_board(variant=Esp32Variant.ESP32)
+    (tmp_path / "secrets.yaml").write_text(
+        "wifi_ssid: RealNetwork\nwifi_password: RealPass\n", encoding="utf-8"
+    )
+    device = tmp_path / "kitchen.yaml"
+    device.write_text(
+        generate_device_yaml(
+            "kitchen", "Kitchen", board, ssid="!secret wifi_ssid", psk="!secret wifi_password"
+        ),
+        encoding="utf-8",
+    )
+
+    cfg = yaml_util.load_yaml(device)
+    assert cfg["wifi"]["ssid"] == "!secret wifi_ssid"
+    assert cfg["wifi"]["password"] == "!secret wifi_password"
+
+
 @pytest.mark.parametrize(
     ("ssid", "psk"),
     [
@@ -1519,140 +1562,18 @@ async def test_resolve_default_components_skips_featured_with_missing_body(
         ({"platform": "not-a-real-platform"}, False),
     ],
 )
-@pytest.mark.skipif(
-    device_yaml._esphome_has_native_wifi is not None,
-    reason=(
-        "Fallback constants only populate when upstream's has_native_wifi is "
-        "missing — running on an esphome that ships the helper, the "
-        "implementation-detail tables aren't imported, so the fallback can't "
-        "be exercised in isolation here. Upstream's own tests pin the "
-        "active path on that branch."
-    ),
-)
-def test_fallback_has_native_wifi(kwargs: dict, expected: bool) -> None:
-    """Pin the fallback dispatcher across every platform branch.
-
-    The fallback runs whenever the upstream
-    ``esphome.components.wifi.has_native_wifi`` is missing — that's
-    every ESPHome we currently support, and stays the path until
-    esphome/esphome#16300 ships in a release we depend on.
-    """
-    assert _fallback_has_native_wifi(**kwargs) is expected
-
-
-def test_fallback_has_native_wifi_rp2040_returns_true_when_boards_table_missing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """``rp2040`` defaults to wi-fi-allowlist when the boards table is ``None``.
-
-    This branch is unreachable in practice: the module-load
-    ``try/except ImportError`` only sets
-    ``_ESPHOME_RP2040_BOARDS = None`` when the upstream
-    ``has_native_wifi`` helper IS available, in which case
-    ``_select_wifi_helper`` binds the alias to the upstream
-    dispatcher and the fallback never runs. But the type system
-    can't see that cross-branch correlation and surfaces
-    ``_ESPHOME_RP2040_BOARDS`` as ``dict[str, dict] | None`` —
-    the runtime narrowing (``if _ESPHOME_RP2040_BOARDS is None:
-    return True``) is what closes the gap.
-
-    Pin the runtime behaviour so a future refactor that
-    "simplifies" away the narrowing (and trips a real
-    ``AttributeError`` if both branches ever fire together)
-    surfaces here. ``True`` matches the upstream default for
-    unknown rp2040 boards: assume Wi-Fi present.
-    """
-    monkeypatch.setattr(device_yaml._generation, "_ESPHOME_RP2040_BOARDS", None)
-
-    # Look the helper up through the live module attr rather than
-    # the test-time imported binding — ``tests/test_api_key.py``
-    # calls ``importlib.reload(device_yaml)``, which orphans any
-    # test-module binding captured at import time. The live attr
-    # survives the reload AND points at the same function instance
-    # the monkeypatched module globals are visible to.
-    assert device_yaml._fallback_has_native_wifi(platform="rp2040", board="any-board") is True
-
-
-def test_select_wifi_helper_prefers_upstream_when_available() -> None:
-    """When esphome ships ``has_native_wifi``, the alias binds to it.
-
-    Simulates esphome/esphome#16300 having landed by passing the
-    upstream callable explicitly. ``_select_wifi_helper`` must
-    prefer it over the fallback so the wizard reads through the
-    upstream-tested dispatcher once available.
-    """
-    upstream = lambda **_: True  # noqa: E731
-
-    selected = _select_wifi_helper(upstream)
-
-    assert selected is upstream
-
-
-def test_select_wifi_helper_falls_back_when_upstream_missing() -> None:
-    """When ``has_native_wifi`` isn't importable, the alias binds to the fallback.
-
-    Simulates the pre-#16300 esphome we ship against today.
-    ``None`` is exactly what the module-level ``try/except``
-    produces when ``ImportError`` fires.
-
-    Look the fallback up through the live module attr rather than
-    the test-time imported binding — ``tests/test_api_key.py``
-    calls ``importlib.reload(device_yaml)``, which orphans any
-    test-module binding captured at import time. The live attr
-    survives the reload.
-    """
-    selected = _select_wifi_helper(None)
-
-    assert selected is device_yaml._fallback_has_native_wifi
-
-
-def test_generation_binds_upstream_when_has_native_wifi_present(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Pin the import guard branch that binds an upstream ``has_native_wifi`` helper."""
-    upstream = lambda **_: True  # noqa: E731
-    monkeypatch.setattr(esphome_wifi, "has_native_wifi", upstream, raising=False)
-    reloaded = importlib.reload(device_yaml._generation)
-    try:
-        assert reloaded._esphome_has_native_wifi is upstream
-        assert reloaded._ESPHOME_RP2040_BOARDS is None
-        assert not reloaded._ESP32_NO_WIFI_VARIANTS
-    finally:
-        monkeypatch.undo()
-        importlib.reload(device_yaml._generation)
-
-
-def test_generation_falls_back_when_has_native_wifi_missing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Module load populates the fallback constants when the upstream helper is absent.
-
-    Pins the ``except ImportError`` branch of ``_generation``'s
-    import guard by removing ``has_native_wifi`` and reloading,
-    simulating the pre-#16300 esphome we ship against today.
-    """
-    monkeypatch.delattr(esphome_wifi, "has_native_wifi", raising=False)
-    reloaded = importlib.reload(device_yaml._generation)
-    try:
-        expected_variants = frozenset(v.lower() for v in esphome_wifi.NO_WIFI_VARIANTS)
-        assert reloaded._esphome_has_native_wifi is None
-        assert reloaded._ESPHOME_RP2040_BOARDS is ESPHOME_RP2040_BOARDS
-        assert expected_variants == reloaded._ESP32_NO_WIFI_VARIANTS
-    finally:
-        monkeypatch.undo()
-        importlib.reload(device_yaml._generation)
+def test_has_native_wifi(kwargs: dict, expected: bool) -> None:
+    """Pin the wifi-capability dispatcher across every platform branch."""
+    assert _has_native_wifi(**kwargs) is expected
 
 
 def test_infer_native_wifi_routes_through_module_alias(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``_infer_native_wifi`` reads through ``_has_native_wifi``, not the upstream tables.
+    """``_infer_native_wifi`` dispatches through the ``_has_native_wifi`` module attr.
 
-    Pin the indirection so a regression that re-inlined the lookup
-    against ``_ESP32_NO_WIFI_VARIANTS`` / ``_ESPHOME_RP2040_BOARDS``
-    surfaces here — the inline form would silently bypass the
-    upstream dispatcher once esphome/esphome#16300 ships, defeating
-    the whole point of the alias.
+    Pin the indirection so a regression that re-inlined the lookup against
+    ``_ESP32_NO_WIFI_VARIANTS`` / ``_RP2040_NO_WIFI_BOARDS`` surfaces here.
     """
     calls: list[dict] = []
 
@@ -1668,15 +1589,33 @@ def test_infer_native_wifi_routes_through_module_alias(
     assert device_yaml._infer_native_wifi(esp32_board) is False
     assert device_yaml._infer_native_wifi(rp2040_board) is False
 
-    # Variant is uppercased because the upstream
-    # ``has_native_wifi`` dispatcher compares against the
-    # uppercase ``NO_WIFI_VARIANTS`` literal. See the comment
-    # in ``_infer_native_wifi`` for the case-normalisation
-    # rationale.
     assert calls == [
-        {"platform": "esp32", "board": "", "variant": "ESP32C3"},
+        {"platform": "esp32", "board": "", "variant": "esp32c3"},
         {"platform": "rp2040", "board": "rpipicow", "variant": None},
     ]
+
+
+def test_has_native_wifi_agrees_with_upstream_on_indexed_inputs() -> None:
+    """Our index-fed wifi inference matches esphome for the inputs the index covers.
+
+    Scoped to the variants / platforms in our committed index so it's robust on
+    the CI matrix (newer esphome adds inputs we don't yet know). For the inputs we
+    DO claim, we must agree with upstream's ``has_native_wifi`` — guards logic
+    drift the value-pinned ``test_has_native_wifi`` can't see.
+    """
+    from esphome.components.wifi import has_native_wifi  # noqa: PLC0415
+
+    from esphome_device_builder.definitions import (  # noqa: PLC0415
+        load_platform_capabilities_index,
+    )
+
+    caps = load_platform_capabilities_index()
+    for variant in caps.esp32_variants:
+        assert device_yaml._has_native_wifi(platform="esp32", variant=variant) == has_native_wifi(
+            platform="esp32", variant=variant
+        )
+    for platform in device_yaml._generation._WIFI_FIRST_PLATFORMS:
+        assert device_yaml._has_native_wifi(platform=platform) == has_native_wifi(platform=platform)
 
 
 # ---------------------------------------------------------------------------

@@ -46,6 +46,7 @@ def _board(
     tags: list[BoardTag] | None = None,
     featured: bool = False,
     is_generic: bool = False,
+    mcu: str | None = None,
 ) -> BoardCatalogIndex:
     """Compact factory for slim catalog entries — defaults to a plausible ESP32 board."""
     return BoardCatalogIndex(
@@ -53,7 +54,7 @@ def _board(
         name=name or board_id,
         description=description,
         manufacturer=manufacturer,
-        esphome=BoardEsphomeConfig(platform=platform, board=pio_board, variant=variant),
+        esphome=BoardEsphomeConfig(platform=platform, board=pio_board, variant=variant, mcu=mcu),
         tags=tags or [],
         featured=featured,
         is_generic=is_generic,
@@ -247,6 +248,38 @@ async def test_get_boards_filters_by_tag(catalog: BoardCatalog) -> None:
     assert resp.boards[0].id == "m5stack-cores3"
 
 
+async def test_get_boards_filters_by_mcu_splitting_the_rp2040_platform() -> None:
+    """``mcu`` narrows the shared rp2040 platform to one chip series.
+
+    Drives the picker's separate RP2040 / RP2350 filter chips; both
+    boards share ``platform=rp2040`` so only ``mcu`` tells them apart.
+    """
+    cat = BoardCatalog()
+    _seed_catalog(
+        cat,
+        [
+            _board(
+                board_id="rpipico",
+                platform=Platform.RP2040,
+                pio_board="rpipico",
+                mcu="rp2040",
+            ),
+            _board(
+                board_id="rpipico2",
+                platform=Platform.RP2040,
+                pio_board="rpipico2",
+                mcu="rp2350",
+            ),
+        ],
+    )
+
+    rp2350 = await cat.get_boards(platform=Platform.RP2040, mcu="rp2350")
+    assert {b.id for b in rp2350.boards} == {"rpipico2"}
+
+    rp2040 = await cat.get_boards(platform=Platform.RP2040, mcu="rp2040")
+    assert {b.id for b in rp2040.boards} == {"rpipico"}
+
+
 async def test_get_boards_query_searches_name_description_manufacturer_id_tags(
     catalog: BoardCatalog,
 ) -> None:
@@ -293,15 +326,15 @@ async def test_get_boards_filters_compose(catalog: BoardCatalog) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_get_boards_sorts_featured_first_generic_last(
+async def test_get_boards_sorts_featured_first_generic_after_featured(
     catalog: BoardCatalog,
 ) -> None:
-    """Featured first, generic fallbacks last, the rest alphabetical.
+    """Featured first, generic fallbacks next, the rest alphabetical.
 
-    Drives the dashboard's "browse all" listing — featured boards
-    are what users actually buy, generics are the fallback catch-
-    all. A refactor that flipped the sort key tuple would surface
-    here.
+    Drives the dashboard's "browse all" listing — generics are the
+    safe catch-all most users want, so they sit at the top of each
+    list (below the separately-rendered featured boards). A refactor
+    that flipped the sort key tuple would surface here.
     """
     resp = await catalog.get_boards()
     ids = [b.id for b in resp.boards]
@@ -309,10 +342,45 @@ async def test_get_boards_sorts_featured_first_generic_last(
     # Featured pair, tie-broken alphabetically by name —
     # "Seeed ..." < "Wemos D1 Mini" so Seeed comes first.
     assert ids[0:2] == ["seeed-xiao-esp32c3", "d1-mini"]
-    # Generic fallbacks at the end.
-    assert ids[-3:] == ["generic-esp32c3", "generic-esp32s3", "generic-esp8266"]
-    # Non-featured non-generic in the middle.
-    assert ids[2] == "m5stack-cores3"
+    # Generic fallbacks right after the featured pair.
+    assert ids[2:5] == ["generic-esp32c3", "generic-esp32s3", "generic-esp8266"]
+    # Non-featured non-generic falls to the end.
+    assert ids[-1] == "m5stack-cores3"
+
+
+async def test_get_boards_sorts_wifi_first_within_generic_and_nongeneric_tiers() -> None:
+    """Pin tier order: featured, WiFi generic, generic, WiFi non-generic, non-generic."""
+    cat = BoardCatalog()
+    _seed_catalog(
+        cat,
+        [
+            _board(board_id="featured", name="Featured Board", featured=True),
+            # WiFi generic named after the plain generic; WiFi wins the
+            # tie-break despite the later name.
+            _board(
+                board_id="generic-wifi",
+                name="Generic Zzz",
+                tags=[BoardTag.WIFI],
+                is_generic=True,
+            ),
+            _board(board_id="generic-plain", name="Generic Aaa", is_generic=True),
+            # Alphabetically-first WiFi non-generic; still sorts below both
+            # generics (generics-first outranks both name and WiFi).
+            _board(board_id="nongeneric-wifi", name="Aaa Vendor", tags=[BoardTag.WIFI]),
+            _board(board_id="nongeneric-plain", name="Zzz Vendor"),
+        ],
+    )
+
+    resp = await cat.get_boards()
+    ids = [b.id for b in resp.boards]
+
+    assert ids == [
+        "featured",
+        "generic-wifi",
+        "generic-plain",
+        "nongeneric-wifi",
+        "nongeneric-plain",
+    ]
 
 
 async def test_get_boards_paginates_via_offset_and_limit(
@@ -330,9 +398,8 @@ async def test_get_boards_paginates_via_offset_and_limit(
     assert resp.offset == 2
     assert resp.limit == 2
     assert len(resp.boards) == 2
-    # After-featured slice: the non-featured M5Stack and the first
-    # generic alphabetically.
-    assert [b.id for b in resp.boards] == ["m5stack-cores3", "generic-esp32c3"]
+    # After-featured slice: the first two generics alphabetically.
+    assert [b.id for b in resp.boards] == ["generic-esp32c3", "generic-esp32s3"]
 
 
 async def test_get_boards_offset_past_end_returns_empty_page(

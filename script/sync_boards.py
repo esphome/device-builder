@@ -61,6 +61,7 @@ from esphome_device_builder.models import (  # noqa: E402
     BoardCatalogResponse,
     BoardEsphomeConfig,
     BoardPin,
+    BoardTag,
     Esp32Variant,
     PinFeature,
     Platform,
@@ -355,12 +356,44 @@ def _augment_rp2040_boards(boards: list[BoardCatalogEntry]) -> None:
             continue
         max_pin = meta.get("max_pin", default_max_pin)
         pins = _resolve_board_pins(module.RP2040_BOARD_PINS, name) or {}
-        boards.append(
-            _generated_board(
-                Platform.RP2040, name, _meta_name(meta, name), _derive_rp2040_pins(pins, max_pin)
-            )
+        entry = _generated_board(
+            Platform.RP2040, name, _meta_name(meta, name), _derive_rp2040_pins(pins, max_pin)
         )
+        boards.append(entry)
         ids.add(name)
+
+
+def _backfill_rp2040_wifi(boards: list[BoardCatalogEntry]) -> None:
+    """
+    Tag each WiFi-capable rp2040 board (Pico W, etc.) so the picker shows a chip.
+
+    Derived from the pio board's ESPHome ``wifi`` flag, so it covers curated boards
+    too (e.g. ``generic-rp2040`` maps to the wifi ``rpipicow`` target). Wi-Fi is
+    universal on esp32/esp8266/libretiny, so only rp2040 gets the chip. A backfill
+    (not part of generation) so the manifest-only drift test applies it the same way.
+    """
+    module = importlib.import_module("esphome.components.rp2040.boards")
+    for board in boards:
+        if board.esphome.platform is Platform.RP2040 and BoardTag.WIFI not in board.tags:
+            meta = module.BOARDS.get(board.esphome.board)
+            if isinstance(meta, dict) and meta.get("wifi"):
+                board.tags.append(BoardTag.WIFI)
+
+
+def _backfill_rp2040_mcu(boards: list[BoardCatalogEntry]) -> None:
+    """
+    Set each rp2040 board's chip series ("rp2040" / "rp2350") from ESPHome.
+
+    ESPHome lumps both chips under the rp2040 platform; ``mcu`` is the only
+    structured discriminator, letting the picker split the filter and badge the
+    real chip. Covers curated and generated boards alike; a backfill (not part of
+    generation) so the manifest-only drift test applies it the same way.
+    """
+    module = importlib.import_module("esphome.components.rp2040.boards")
+    for board in boards:
+        if board.esphome.platform is Platform.RP2040:
+            meta = module.BOARDS.get(board.esphome.board)
+            board.esphome.mcu = meta.get("mcu", "rp2040") if isinstance(meta, dict) else "rp2040"
 
 
 def _esp32_generic_pins_by_variant(
@@ -610,6 +643,8 @@ def build_catalog() -> BoardCatalogResponse:
     _backfill_esp32_variants(catalog.boards)
     _augment_libretiny_boards(catalog.boards)
     _augment_rp2040_boards(catalog.boards)
+    _backfill_rp2040_wifi(catalog.boards)
+    _backfill_rp2040_mcu(catalog.boards)
     _augment_esp32_boards(catalog.boards)
     _augment_esp8266_boards(catalog.boards)
     _augment_nrf52_boards(catalog.boards)

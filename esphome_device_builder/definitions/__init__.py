@@ -21,7 +21,9 @@ See any existing manifest for the schema.
 from __future__ import annotations
 
 import logging
+from functools import cache
 from pathlib import Path
+from typing import NamedTuple
 
 import orjson
 import yaml
@@ -54,6 +56,7 @@ _BOARDS_INDEX_JSON = _DEFINITIONS_DIR / "boards.index.json"
 _BOARDS_BODIES_DIR = _DEFINITIONS_DIR / "board_bodies"
 _FEATURED_COMPONENTS_INDEX_JSON = _DEFINITIONS_DIR / "featured_components.index.json"
 _PIN_REGISTRY_MODES_INDEX_JSON = _DEFINITIONS_DIR / "pin_registry_modes.index.json"
+_PLATFORM_CAPABILITIES_INDEX_JSON = _DEFINITIONS_DIR / "platform_capabilities.index.json"
 
 _IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".svg", ".webp")
 _GENERIC_DIR = _BOARDS_DIR / "_generic"
@@ -453,6 +456,105 @@ def load_pin_registry_modes_index() -> dict[str, list[str]]:
         str(key): [str(m) for m in modes if isinstance(m, str)]
         for key, modes in payload.items()
         if isinstance(modes, list)
+    }
+
+
+class PlatformCapabilities(NamedTuple):
+    """Static esphome platform metadata snapshotted by script/sync_components.py."""
+
+    esp32_variants: list[str]
+    esp32_no_wifi_variants: list[str]
+    libretiny_families: list[str]
+    rp2040_no_wifi_boards: list[str]
+    # ``{component: [{title, description, file}]}`` for the platforms whose
+    # download types are static (esp32 / esp8266 / rp2040). Build-dir-dependent
+    # platforms (libretiny / nrf52) are absent and resolved via subprocess.
+    download_types: dict[str, list[dict[str, str]]]
+
+
+@cache
+def load_platform_capabilities_index() -> PlatformCapabilities:
+    """Load the static platform metadata the main process uses instead of esphome.
+
+    Read off a cheap JSON instead of importing ``esphome.components.esp32`` / ``.wifi``
+    (which pull espidf / requests / esphome.config). Cached so the several import-time
+    callers share one parse. Missing / malformed artefact yields empty lists,
+    degrading download routing to "return the raw platform" and wifi inference to
+    "assume wifi" (fail-open). Regenerate with script/sync_components.py.
+    """
+    return _load_platform_capabilities(_PLATFORM_CAPABILITIES_INDEX_JSON)
+
+
+def _load_platform_capabilities(path: Path) -> PlatformCapabilities:
+    """Parse a platform-capabilities index at *path*; empty on missing / malformed."""
+    empty = PlatformCapabilities([], [], [], [], {})
+    if not path.exists():
+        _LOGGER.warning(
+            "platform_capabilities.index.json missing — download routing + wifi "
+            "inference degraded. Run script/sync_components.py to generate it.",
+        )
+        return empty
+    try:
+        payload = orjson.loads(path.read_bytes())
+    except Exception:
+        _LOGGER.exception("Failed to load platform_capabilities.index.json — degraded.")
+        return empty
+    if not isinstance(payload, dict):
+        _LOGGER.warning("platform_capabilities.index.json is not a mapping — ignoring.")
+        return empty
+
+    def _str_list(key: str) -> list[str]:
+        value = payload.get(key)
+        if not isinstance(value, list):
+            return []
+        return [str(item) for item in value if isinstance(item, str)]
+
+    return PlatformCapabilities(
+        esp32_variants=_str_list("esp32_variants"),
+        esp32_no_wifi_variants=_str_list("esp32_no_wifi_variants"),
+        libretiny_families=_str_list("libretiny_families"),
+        rp2040_no_wifi_boards=_str_list("rp2040_no_wifi_boards"),
+        download_types=_parse_download_types(payload.get("download_types")),
+    )
+
+
+def coerce_download_entries(value: object) -> list[dict[str, str]]:
+    """Coerce a download-types list to ``[{title, description, file}]``.
+
+    Drops anything that isn't a dict with a string ``file``; returns ``[]`` for a
+    non-list. The validation boundary for both the generated index and the
+    device-builder-helper subprocess reply, so a malformed payload can't reach a
+    downstream ``entry["file"]``.
+    """
+    if not isinstance(value, list):
+        _LOGGER.warning("download-types payload is not a list: %s", type(value).__name__)
+        return []
+    clean = [
+        {
+            "title": str(entry.get("title", "")),
+            "description": str(entry.get("description", "")),
+            "file": entry["file"],
+        }
+        for entry in value
+        if isinstance(entry, dict) and isinstance(entry.get("file"), str)
+    ]
+    if len(clean) != len(value):
+        _LOGGER.warning(
+            "Dropped %d malformed download-type entry(ies) of %d",
+            len(value) - len(clean),
+            len(value),
+        )
+    return clean
+
+
+def _parse_download_types(value: object) -> dict[str, list[dict[str, str]]]:
+    """Coerce the index ``download_types`` block, dropping any malformed entry."""
+    if not isinstance(value, dict):
+        return {}
+    return {
+        str(component): coerce_download_entries(entries)
+        for component, entries in value.items()
+        if isinstance(entries, list)
     }
 
 

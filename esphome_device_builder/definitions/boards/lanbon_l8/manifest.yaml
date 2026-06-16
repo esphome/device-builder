@@ -37,6 +37,12 @@ pins:
   occupied_by: moodBlue
 docs_url: https://devices.esphome.io/devices/lanbon_l8/
 featured_components:
+- id: display_mipi_spi_1
+  component_id: display.mipi_spi
+  fields:
+    model: LANBON-L8
+    id: display_mipi_spi_1
+    name: Mipi Spi 1
 - id: backlight
   component_id: light.monochromatic
   fields:

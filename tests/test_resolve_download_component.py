@@ -24,23 +24,23 @@ from __future__ import annotations
 import importlib
 
 import pytest
-from esphome.components.esp32 import VARIANTS as ESP32_VARIANTS
 
 from esphome_device_builder.controllers.firmware.download import (
-    _LIBRETINY_TARGET_PLATFORMS,
+    _platform_sets,
     _resolve_download_component,
 )
 
+# Variant / family sets the resolver routes, read from the same generated index
+# production uses. Driven off the index (not a live esphome import) so the test
+# tracks what routing actually knows, independent of the installed esphome
+# version (the CI matrix runs stable / beta / dev esphome).
+_ESP32_VARIANTS = sorted(_platform_sets().esp32_variants)
+_LIBRETINY_TARGET_PLATFORMS = _platform_sets().libretiny_targets
 
-@pytest.mark.parametrize("variant", sorted(ESP32_VARIANTS))
+
+@pytest.mark.parametrize("variant", _ESP32_VARIANTS)
 def test_esp32_variants_resolve_to_esp32(variant: str) -> None:
-    """Every known ESP32 variant maps to the umbrella ``esp32`` component.
-
-    Driven from ``ESP32_VARIANTS`` (imported from upstream) so the
-    test breadth tracks upstream automatically — when ESPHome adds
-    a new variant the parametrisation picks it up without an edit
-    here.
-    """
+    """Every ESP32 variant in the index maps to the umbrella ``esp32`` component."""
     assert _resolve_download_component(variant) == "esp32"
     # Lowercase form (which is how StorageJSON stores it after
     # ``.lower()``) also resolves correctly.

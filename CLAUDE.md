@@ -334,6 +334,16 @@ against legacy behaviour before assuming the simpler version suffices.
   refinement, `unit_of_measurement` options). Component descriptions/
   titles fall back to the docs MDX repo when the schema index is sparse.
   All in `script/sync_components.py`.
+- **The long-lived process never imports `esphome.components.*`.**
+  Importing `esphome.components.esp32` drags in espidf → requests →
+  `esphome.config` (~9s of cold start on an HA Green). Static platform
+  metadata is snapshotted into `platform_capabilities.index.json` by the
+  nightly sync and read at runtime; the one dynamic case
+  (`get_download_types` for libretiny/nrf52, which reads the build dir)
+  runs in the `device-builder-helper` subprocess. `script/check_import_time.py`
+  + `tests/test_cold_import_floor.py` guard the invariant in CI. Don't add
+  an eager (or runtime in-process) `esphome.components.*` import on the
+  dashboard side; precompute into the index or push it into the helper.
 - **Catalog id format**: `<domain>.<stem>` (e.g. `sensor.dht`). The
   schema's natural format is the reverse — `<stem>.<domain>`;
   `_split_qualified_key` flips it.
@@ -583,9 +593,12 @@ When changing the sync script or catalog handling, watch for these:
 | `esphome_device_builder/definitions/components.index.json` + `components/<id>.json` | Generated; do not hand-edit. Slim index loaded eagerly; per-id bodies hydrate lazily via `ComponentCatalog.get_body`. |
 | `esphome_device_builder/definitions/boards.index.json` + `board_bodies/<id>.json` + `featured_components.index.json` | Generated; do not hand-edit. Slim board index + per-id lazy bodies (via `BoardCatalog._body_store`) + aggregated featured-components map (read once by the components controller's registry build). |
 | `esphome_device_builder/definitions/boards/<id>/manifest.yaml` | Curated; hand-edited. The body directory is `board_bodies/` (separate from this manifests dir) so the body-swap rmtree can't trample the hand-curated source. |
+| `esphome_device_builder/definitions/platform_capabilities.index.json` | Generated; do not hand-edit. esphome platform metadata the long-lived process reads instead of importing `esphome.components.*` (download routing, wifi-inference no-wifi sets, static download-types). Loaded via `load_platform_capabilities_index`. |
+| `esphome_device_builder/helper_cli.py` (`device-builder-helper`) | Subprocess for `get_download_types` on build-dir-dependent platforms (libretiny/nrf52), so the child imports `esphome.components.<X>`, not the dashboard process. |
 | `script/sync_boards.py` | Regenerates the split board catalog from the manifests |
-| `script/sync_components.py` | Regenerates the component catalog |
+| `script/sync_components.py` | Regenerates the component catalog + `platform_capabilities.index.json` |
 | `script/check_catalog.py` | Smoke test for popular components |
+| `script/check_import_time.py` | CI guard: fails if `import …device_builder` regresses past `script/import_time_budget.json` (e.g. a fresh eager `esphome.components.*` import) |
 | `script/validate_definitions.py` | Lint board manifests |
 | `docs/ARCHITECTURE.md` | Full architecture + deployment + CI overview |
 | `docs/API.md` | Every WS command + payload shape + event |

@@ -51,7 +51,6 @@ rewrite the frontend's lookup relies on.
 from __future__ import annotations
 
 import base64
-import importlib
 import io
 import logging
 import tarfile
@@ -253,7 +252,7 @@ def _collect_pack_members(  # noqa: C901
     # esphome.dashboard set.
     firmware_bin = Path(storage.firmware_bin_path)
     pioenvs_rel = _relative_or_raise(firmware_bin.parent, build_path, configuration=configuration)
-    for download_file in _download_type_files(storage):
+    for download_file in _download_type_files(storage, storage_path):
         _maybe_add(f"{pioenvs_rel}/{download_file}")
 
     # firmware_bin_path MUST be in the tarball — otherwise the
@@ -285,22 +284,20 @@ def _validated_yaml_is_fresh(validated_yaml: Path, storage_json: Path) -> bool:
     return storage_mtime - validated_mtime <= _VALIDATED_YAML_STALE_THRESHOLD_S
 
 
-def _download_type_files(storage: StorageJSON) -> list[str]:
-    """Return paths (relative to firmware_bin_path.parent) listed by ``get_download_types``."""
-    from ..firmware.download import _resolve_download_component  # noqa: PLC0415
+def _download_type_files(storage: StorageJSON, storage_path: Path) -> list[str]:
+    """Return the build-relative files ``get_download_types`` lists for *storage*.
 
-    component = _resolve_download_component(storage.target_platform)
-    if not component:
-        return []
-    try:
-        module = importlib.import_module(f"esphome.components.{component}")
-        return [entry["file"] for entry in module.get_download_types(storage)]
-    except Exception:
-        _LOGGER.exception(
-            "Could not determine download types for target_platform=%r",
-            storage.target_platform,
-        )
-        return []
+    Shares download.py's resolution: precomputed catalog for the static
+    platforms, device-builder-helper subprocess for libretiny / nrf52, so the
+    receiver process never imports ``esphome.components.*``.
+    """
+    # Function-local: a top-level import pulls firmware/__init__ -> controller ->
+    # remote_runner -> helpers.remote_artifacts_materialise, which imports this
+    # module back (circular). The import cost is gone but the cycle remains.
+    from ..firmware.download import _download_types_for  # noqa: PLC0415
+
+    entries = _download_types_for(storage, storage_path, label=storage.name)
+    return [entry["file"] for entry in entries]
 
 
 def _render_tarball(members: list[tuple[str, Path]], *, configuration: str) -> bytes:

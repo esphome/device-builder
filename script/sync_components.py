@@ -40,6 +40,7 @@ import importlib
 import inspect
 import json
 import logging
+import os
 import re
 import shutil
 import sys
@@ -71,6 +72,7 @@ _OUTPUT_BODIES_DIR = _DEFINITIONS_DIR / "components"
 _AUTOMATIONS_INDEX_FILE = _DEFINITIONS_DIR / "automations.index.json"
 _AUTOMATIONS_BODIES_DIR = _DEFINITIONS_DIR / "automations"
 _PIN_REGISTRY_MODES_INDEX_FILE = _DEFINITIONS_DIR / "pin_registry_modes.index.json"
+_PLATFORM_CAPABILITIES_INDEX_FILE = _DEFINITIONS_DIR / "platform_capabilities.index.json"
 _CACHE_ROOT = _REPO_ROOT / ".cache"
 
 # Fields stripped from index entries — they belong on the per-id body
@@ -961,6 +963,9 @@ def main() -> int:
                 "esphome not importable; %s left untouched",
                 _PIN_REGISTRY_MODES_INDEX_FILE,
             )
+
+        _emit_platform_capabilities_index()
+        _LOGGER.info("Wrote platform capabilities -> %s", _PLATFORM_CAPABILITIES_INDEX_FILE)
     return 0
 
 
@@ -1004,8 +1009,18 @@ def ensure_schema(version: str) -> Path:
 
 
 def _http_get(url: str, *, timeout: int = 30) -> bytes:
-    """GET *url* with our identifying User-Agent and return raw bytes."""
-    req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+    """
+    GET *url* with our identifying User-Agent and return raw bytes.
+
+    Sends ``Authorization: Bearer $GITHUB_TOKEN`` only for api.github.com
+    so the releases call escapes the 60 req/hr unauthenticated cap; the
+    token is never attached to the schema CDN download.
+    """
+    headers = {"User-Agent": _USER_AGENT}
+    token = os.environ.get("GITHUB_TOKEN")
+    if token and url.startswith("https://api.github.com/"):
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read()
 
@@ -1175,7 +1190,7 @@ def build_catalog(
     _backfill_descriptions_from_mdx(out)
 
     # After the MDX backfill so a real MDX title still wins.
-    _fix_borrowed_page_titles(out)
+    _fix_borrowed_page_titles(out, _components_with_own_docs_page())
 
     # Synthesise umbrella entries for legacy bare-key domains so that
     # ``get_component("ota")`` / ``get_component("time")`` resolve for
@@ -1200,24 +1215,42 @@ def build_catalog(
     return out
 
 
-def _fix_borrowed_page_titles(entries: list[dict]) -> None:
+def _fix_borrowed_page_titles(entries: list[dict], own_page_ids: frozenset[str]) -> None:
     """
-    Re-derive a name borrowed from another component's docs page.
+    Re-derive metadata borrowed from another component's docs page.
 
-    Rewrites an entry whose page slug is owned by a different component and
-    whose own stem is unrelated to that slug. In-place.
+    Two borrow shapes, both rewritten in-place:
+
+    - A component links another's *top-level* page (``preferences`` ->
+      ``components/esphome``): re-derive only the name; the shared page stays.
+    - A *bare* component that owns its own docs page (in *own_page_ids*) links a
+      *platform* sub-page ``<domain>/<stem>`` owned by ``<domain>.<stem>``
+      (``lvgl`` took ``number.lvgl``'s page, ``audio_file`` took
+      ``media_source.audio_file``'s): reset to its own identity — name, docs_url,
+      and drop the borrowed description / image. The own-page gate is what
+      distinguishes this from a single-platform component legitimately
+      documented under its category (``adc128s102`` -> ``sensor/adc128s102``),
+      which must keep its page-derived name.
     """
     ids = {entry["id"] for entry in entries}
     for entry in entries:
         cid = entry["id"]
         stem = cid.split(".", 1)[-1]
-        slug = (entry.get("docs_url") or "").rstrip("/").rsplit("/", 1)[-1]
-        # Same page or a same-family variant (``pn532_spi`` -> ``pn532``): the
-        # shared title is correct.
-        if not slug or slug == stem or stem.startswith(slug):
+        segs = (entry.get("docs_url") or "").rstrip("/").split("/")
+        if len(segs) < 2:
             continue
-        if slug in ids:
+        slug, parent = segs[-1], segs[-2]
+        if parent == "components":
+            # Same page or a same-family variant (``pn532_spi`` -> ``pn532``):
+            # the shared title is correct.
+            if slug and slug != stem and not stem.startswith(slug) and slug in ids:
+                entry["name"] = _name_from_stem(stem)
+            continue
+        if cid in own_page_ids and slug == stem and "." not in cid and f"{parent}.{slug}" in ids:
             entry["name"] = _name_from_stem(stem)
+            entry["docs_url"] = _derive_docs_url(cid)
+            entry["description"] = ""
+            entry["image_url"] = ""
 
 
 def _resolve_provides(entries: list[dict], schema_dir: Path) -> None:
@@ -1609,6 +1642,22 @@ def _load_mdx_descriptions() -> dict[str, str]:
             stem = parts[-1]
             out.setdefault(stem, text)
     return out
+
+
+def _components_with_own_docs_page() -> frozenset[str]:
+    """Bare component ids that have a dedicated docs directory (``<stem>/index.mdx``).
+
+    These are hubs documented on their own page (``lvgl``, ``audio_file``); used
+    to tell a genuine page borrow from a single-platform component legitimately
+    documented under its category (``sensor/adc128s102``).
+    """
+    docs_dir = _ensure_docs_repo()
+    if docs_dir is None:
+        return frozenset()
+    root = docs_dir / "src" / "content" / "docs" / "components"
+    if not root.exists():
+        return frozenset()
+    return frozenset(p.parent.name for p in root.glob("*/index.mdx"))
 
 
 def _load_mdx_titles() -> dict[str, str]:
@@ -2215,17 +2264,25 @@ def _promote_template_controls(component_id: str, entries: list[dict]) -> None:
             entry["advanced"] = False
 
 
-def _merge_extends_config_vars(schema_node: dict, schema_dir: Path) -> dict[str, Any]:
+def _merge_extends_config_vars(
+    schema_node: dict, schema_dir: Path, _seen_refs: frozenset[str] = frozenset()
+) -> dict[str, Any]:
     """
     Deep-merge a schema node's ``extends`` ancestry with its local config_vars.
 
     Per-field, not whole-field: a partial override like ``{"default": "x"}``
     keeps the base's inherited ``type`` / enum / docs. Values are usually field
     dicts; a malformed schema can carry a non-dict, hence ``dict[str, Any]``.
+
+    ``_seen_refs`` carries the ``extends`` targets already being expanded up the
+    convert stack; a ref in it is skipped to break self-referential cycles
+    (lvgl widgets extend ``lvgl.WIDGET_TYPES``, which contains a widget list).
     """
     config_vars = dict(schema_node.get("config_vars") or {})
     extended: dict[str, dict] = {}
     for ref in schema_node.get("extends") or []:
+        if ref in _seen_refs:
+            continue
         extended.update(_resolve_extends(ref, schema_dir))
     merged: dict[str, Any] = {}
     for key in {*extended, *config_vars}:
@@ -2243,9 +2300,16 @@ def _convert_config_vars(
     schema_dir: Path,
     *,
     component_id: str = "",
+    _seen_refs: frozenset[str] = frozenset(),
 ) -> list[dict]:
-    """Convert a ``schema`` node (config_vars + extends) to a list of entries."""
-    merged = _merge_extends_config_vars(schema_node, schema_dir)
+    """
+    Convert a ``schema`` node (config_vars + extends) to a list of entries.
+
+    ``_seen_refs`` is threaded to break self-referential ``extends`` cycles; see
+    :func:`_merge_extends_config_vars`.
+    """
+    merged = _merge_extends_config_vars(schema_node, schema_dir, _seen_refs)
+    seen_refs = _seen_refs | frozenset(schema_node.get("extends") or [])
 
     out: list[dict] = []
     for key, raw in merged.items():
@@ -2268,7 +2332,9 @@ def _convert_config_vars(
         # keys (docs, help link) survive (font.file).
         recovered = _RAW_NODE_OVERRIDES.get((component_id, key))
         field_raw = {**(raw or {}), **recovered} if recovered is not None else (raw or {})
-        entry = _convert_field(key, field_raw, schema_dir, top_level=bool(component_id))
+        entry = _convert_field(
+            key, field_raw, schema_dir, top_level=bool(component_id), _seen_refs=seen_refs
+        )
         if entry is None:
             continue
         # Per-(component, field) overrides patch up entries the schema
@@ -2430,7 +2496,11 @@ def _typed_expanding() -> Iterator[None]:
 
 
 def _build_typed_config_entries(
-    typed_node: dict, schema_dir: Path, *, component_id: str = ""
+    typed_node: dict,
+    schema_dir: Path,
+    *,
+    component_id: str = "",
+    _seen_refs: frozenset[str] = frozenset(),
 ) -> list[dict]:
     """
     Render a typed_schema node as a discriminator select + gated fields.
@@ -2453,7 +2523,9 @@ def _build_typed_config_entries(
         by_key: dict[str, list[tuple[str, dict]]] = {}
         for type_name, variant in types.items():
             body = variant if isinstance(variant, dict) else {}
-            for child in _convert_config_vars(body, schema_dir, component_id=component_id):
+            for child in _convert_config_vars(
+                body, schema_dir, component_id=component_id, _seen_refs=_seen_refs
+            ):
                 if child["key"] != typed_key:
                     by_key.setdefault(child["key"], []).append((type_name, child))
 
@@ -2516,13 +2588,19 @@ _RAW_NODE_OVERRIDES: dict[tuple[str, str], dict] = {
 
 
 def _convert_field(  # noqa: PLR0912, PLR0915, C901
-    key: str, raw: dict, schema_dir: Path, *, top_level: bool = False
+    key: str,
+    raw: dict,
+    schema_dir: Path,
+    *,
+    top_level: bool = False,
+    _seen_refs: frozenset[str] = frozenset(),
 ) -> dict | None:
     """Build a single ConfigEntry dict from a schema's config_var entry.
 
     ``top_level`` is True only for a component's own (direct) config
     vars; it gates the action-list ``type: trigger`` → TRIGGER override
-    so nested trigger fields stay ``nested`` (see below).
+    so nested trigger fields stay ``nested`` (see below). ``_seen_refs``
+    is threaded into nested recursion to break ``extends`` cycles.
     """
     if not isinstance(raw, dict):
         # Some schemas use bare ``{}``-shaped placeholders for fields
@@ -2733,12 +2811,14 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
     typed_node = _typed_node(raw, schema_dir)
     if typed_node is not None and not _expanding_typed[0]:
         entry["type"] = "nested"
-        entry["config_entries"] = _build_typed_config_entries(typed_node, schema_dir) or None
+        entry["config_entries"] = (
+            _build_typed_config_entries(typed_node, schema_dir, _seen_refs=_seen_refs) or None
+        )
         return entry
 
     # Recurse into nested schemas for type=nested.
     if entry_type == "nested" and isinstance(inner_schema, dict):
-        inner = _convert_config_vars(inner_schema, schema_dir)
+        inner = _convert_config_vars(inner_schema, schema_dir, _seen_refs=_seen_refs)
         entry["config_entries"] = inner or None
         entry["platform_type"] = _detect_platform_type(inner_schema)
         # When every child would render as advanced anyway, hide the
@@ -2992,6 +3072,57 @@ def _emit_pin_registry_modes_index(registry_modes: dict[str, list[str]]) -> None
         orjson.dumps(registry_modes, option=orjson.OPT_SORT_KEYS | orjson.OPT_APPEND_NEWLINE)
     )
     next_path.replace(_PIN_REGISTRY_MODES_INDEX_FILE)
+
+
+def _emit_platform_capabilities_index() -> None:
+    """Write the static esphome platform metadata the dashboard reads at runtime.
+
+    Importing ``esphome.components.esp32`` / ``.wifi`` at runtime drags in espidf
+    / requests / ``esphome.config`` (~0.5-1.5s of cold start on a slow SBC) just
+    to read these membership lists. Snapshot them here, where esphome is already
+    imported, so the long-lived process reads a cheap JSON instead and never
+    imports ``esphome.components.*``. Atomic temp-then-replace.
+    """
+    from types import SimpleNamespace
+
+    from esphome.components.esp32.const import VARIANTS
+    from esphome.components.libretiny.const import FAMILY_COMPONENT
+    from esphome.components.rp2040.boards import BOARDS as RP2040_BOARDS
+    from esphome.components.wifi import NO_WIFI_VARIANTS
+
+    # Static-per-platform download types. For esp32 / esp8266 / rp2040
+    # ``get_download_types`` returns a fixed file list (only the discarded
+    # ``download`` filename interpolates the device name), so snapshot
+    # ``{title, description, file}`` with a sentinel storage. libretiny (reads
+    # the build's firmware.json) and nrf52 (probes built files) are build-dir
+    # dependent and stay out of the index — device-builder-helper handles them.
+    sentinel = SimpleNamespace(name="{name}")
+    download_types: dict[str, list[dict[str, str]]] = {}
+    for component in ("esp32", "esp8266", "rp2040"):
+        module = importlib.import_module(f"esphome.components.{component}")
+        download_types[component] = [
+            {
+                "title": entry.get("title", ""),
+                "description": entry.get("description", ""),
+                "file": entry["file"],
+            }
+            for entry in module.get_download_types(sentinel)
+        ]
+
+    payload = {
+        "esp32_variants": sorted(VARIANTS),
+        "esp32_no_wifi_variants": sorted(NO_WIFI_VARIANTS),
+        "libretiny_families": sorted(set(FAMILY_COMPONENT.values())),
+        "rp2040_no_wifi_boards": sorted(
+            board for board, info in RP2040_BOARDS.items() if not info.get("wifi", False)
+        ),
+        "download_types": download_types,
+    }
+    next_path = _PLATFORM_CAPABILITIES_INDEX_FILE.with_suffix(".json.next")
+    next_path.write_bytes(
+        orjson.dumps(payload, option=orjson.OPT_SORT_KEYS | orjson.OPT_APPEND_NEWLINE)
+    )
+    next_path.replace(_PLATFORM_CAPABILITIES_INDEX_FILE)
 
 
 def _synthesise_long_form_extra(
@@ -3618,6 +3749,7 @@ _ACRONYM_NORMALISATIONS: dict[str, str] = {
     "Cwww": "CWWW",
     "Led": "LED",
     "Lcd": "LCD",
+    "Lvgl": "LVGL",
     "Oled": "OLED",
     "Tft": "TFT",
     "Usb": "USB",
@@ -4083,6 +4215,13 @@ def _get_esphome_loader() -> Any:
     _ESPHOME_LOADER_CACHE["resolved"] = True
     try:
         from esphome import loader
+        from esphome.const import KEY_CORE, KEY_TARGET_PLATFORM
+        from esphome.core import CORE
+
+        # usb_uart (and any component evaluating a platform-gated schema at
+        # import time) reads CORE.is_esp32; without a target_platform slot the
+        # lookup raises KeyError and introspection silently drops the component.
+        CORE.data.setdefault(KEY_CORE, {}).setdefault(KEY_TARGET_PLATFORM, None)
 
         _ESPHOME_LOADER_CACHE["module"] = loader
         _LOGGER.info("esphome introspection enabled (esphome.loader importable)")
@@ -4164,6 +4303,23 @@ def _strip_defaults(component: dict) -> dict:
     return out
 
 
+# A prerelease schema points its docs links at beta.esphome.io / next.esphome.io
+# — in docs_url, help_link, and markdown links embedded in description text. The
+# catalog tracks beta but must link to the canonical, stable docs host.
+_PRERELEASE_DOCS_HOST_RE = re.compile(r"https://(?:beta|next)\.esphome\.io/")
+
+
+def _canonicalize_docs_hosts(obj: Any) -> Any:
+    """Recursively rewrite prerelease beta/next esphome.io URLs to esphome.io in a JSON tree."""
+    if isinstance(obj, str):
+        return _PRERELEASE_DOCS_HOST_RE.sub("https://esphome.io/", obj)
+    if isinstance(obj, list):
+        return [_canonicalize_docs_hosts(x) for x in obj]
+    if isinstance(obj, dict):
+        return {k: _canonicalize_docs_hosts(v) for k, v in obj.items()}
+    return obj
+
+
 def _emit_split_catalog(catalog: list[dict], version: str) -> None:
     """
     Write the catalog as ``components.index.json`` + per-id body files.
@@ -4185,6 +4341,7 @@ def _emit_split_catalog(catalog: list[dict], version: str) -> None:
     aren't yet listed), so a reader landing in that window
     degrades rather than crashes.
     """
+    catalog = _canonicalize_docs_hosts(catalog)
     next_bodies = _OUTPUT_BODIES_DIR.parent / "components.next"
     prepare_next_bodies_dir(next_bodies)
 
@@ -4243,6 +4400,7 @@ def _emit_split_automations_catalog(automations: dict[str, Any], version: str) -
     ``emit_body_with_roundtrip`` /
     ``swap_split_catalog_in`` helpers.
     """
+    automations = _canonicalize_docs_hosts(automations)
     next_bodies = _AUTOMATIONS_BODIES_DIR.parent / "automations.next"
     prepare_next_bodies_dir(next_bodies)
 

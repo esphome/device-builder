@@ -282,6 +282,33 @@ PR with a diff summary when the rebuild produces a change.
 
 All workflow files are commented — start there for the source of truth.
 
+## Cold-start import discipline
+
+The long-lived dashboard process never imports `esphome.components.*`.
+Importing `esphome.components.esp32` transitively pulls espidf → `requests` →
+`esphome.config`, roughly 9s of cold start before the first log line on an HA
+Green. Two mechanisms keep it out:
+
+- **Snapshot the static data.** Everything the dashboard needs that's keyed on
+  the esphome version (esp32 variants + libretiny families for download
+  routing, esp32 no-wifi variants + rp2040 no-wifi boards for wifi inference,
+  and the static `get_download_types` lists for esp32/esp8266/rp2040) is
+  generated into `definitions/platform_capabilities.index.json` by
+  `script/sync_components.py` and read at runtime via
+  `load_platform_capabilities_index`. The committed index is a subset of the
+  installed esphome (the CI matrix runs newer esphome); the nightly sync keeps
+  it current.
+- **Subprocess the one dynamic case.** `get_download_types` for libretiny and
+  nrf52 reads the build directory, so it can't be precomputed. The dashboard
+  spawns `device-builder-helper` (`helper_cli.py`), which imports
+  `esphome.components.<X>` in a throwaway child and returns JSON; the reply is
+  validated through `coerce_download_entries` at the boundary.
+
+`script/check_import_time.py` (import budget) and
+`tests/test_cold_import_floor.py` (`sys.modules` probe after import + `start()`)
+guard the invariant in CI. New code that needs `esphome.components.*` data
+precomputes it into the index or runs in the helper, never an in-process import.
+
 ## Authentication
 
 Auth is opaque server-issued session tokens, gated by the WebSocket handshake. See [API.md](API.md#authentication) for the wire protocol and [THREAT_MODEL.md](THREAT_MODEL.md) for what the auth gate is defending (short version: authenticated callers are host-equivalent, because `external_components:` provides arbitrary Python at compile time).

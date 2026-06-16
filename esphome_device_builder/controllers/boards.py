@@ -29,9 +29,14 @@ _LOGGER = logging.getLogger(__name__)
 _BODY_CACHE_MAXSIZE = 128
 
 
-def _board_sort_key(board: BoardCatalogIndex) -> tuple[bool, bool, str]:
-    """Catalog display order: featured first, generics last, then by name."""
-    return (not board.featured, board.is_generic, board.name.lower())
+def _board_sort_key(board: BoardCatalogIndex) -> tuple[bool, bool, bool, str]:
+    """Catalog display order: featured, generics, WiFi-capable within each, then by name."""
+    return (
+        not board.featured,
+        not board.is_generic,
+        BoardTag.WIFI not in board.tags,
+        board.name.lower(),
+    )
 
 
 class BoardCatalog:
@@ -68,6 +73,7 @@ class BoardCatalog:
         query: str | None = None,
         platform: Platform | str | None = None,
         variant: Esp32Variant | str | None = None,
+        mcu: str | None = None,
         tag: BoardTag | str | None = None,
         offset: int = 0,
         limit: int = 50,
@@ -77,10 +83,12 @@ class BoardCatalog:
         Get boards with optional filtering, search, and pagination.
 
         ``query`` matches the board id, name, manufacturer, description
-        and tags. Featured boards are sorted first; generic fallback
-        boards last; the rest alphabetically. Returns slim
-        :class:`BoardCatalogIndex` entries — the frontend's board
-        detail view fetches full bodies via ``boards/get_board``.
+        and tags. ``mcu`` narrows the rp2040 platform to one chip series
+        ("rp2040" / "rp2350"). Sort order: featured first; generics next;
+        WiFi-capable boards ahead of non-WiFi within each group; then
+        alphabetically. Returns slim :class:`BoardCatalogIndex` entries —
+        the frontend's board detail view fetches full bodies via
+        ``boards/get_board``.
         """
         results: list[BoardCatalogIndex] = self._boards
 
@@ -94,6 +102,10 @@ class BoardCatalog:
                 for b in results
                 if b.esphome.variant and b.esphome.variant.lower() == variant_lower
             ]
+
+        if mcu:
+            mcu_lower = mcu.lower()
+            results = [b for b in results if b.esphome.mcu and b.esphome.mcu.lower() == mcu_lower]
 
         if tag:
             tag_lower = tag.lower()
@@ -199,7 +211,7 @@ class BoardCatalog:
         pio_board: str,
         platform: Platform | str | None = None,
     ) -> list[BoardCatalogIndex]:
-        """All catalog entries on the same PlatformIO board, featured first then generics last."""
+        """All catalog entries on the same PlatformIO board, featured first then generics next."""
         return sorted(self._matches_pio_board(pio_board, platform), key=_board_sort_key)
 
     def find_by_platform_variant(

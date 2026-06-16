@@ -49,6 +49,13 @@ featured_components:
     use_raw: true
     id: binary_sensor_touchscreen_3
     name: Button C
+- id: display_mipi_spi_1
+  component_id: display.mipi_spi
+  fields:
+    model: M5CORE2
+    show_test_card: true
+    id: display_mipi_spi_1
+    name: Mipi Spi 1
 - id: sensor_mpu6886_1
   component_id: sensor.mpu6886
   fields:

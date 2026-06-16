@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import TYPE_CHECKING
 
 from esphome.helpers import write_file as atomic_write_file
@@ -16,6 +17,14 @@ from .helpers import _looks_binary, clean_friendly_name, slugify_hostname
 
 if TYPE_CHECKING:
     from .controller import DevicesController
+
+# A wifi credential of ``!secret wifi_ssid`` is a caller passing the YAML
+# secret *tag* as a literal value; the field takes literals (empty means
+# "use !secret refs"), so this would silently land an unquoted-looking
+# tag that the generator quotes into a dead string. Match the full tag
+# form (``!secret`` + whitespace + a key char) so an odd-but-real password
+# like ``!secretsauce`` or a literal ``!secret `` without a key is left alone.
+_SECRET_TAG_RE = re.compile(r"^\s*!secret\s+\S")
 
 
 async def create_device(  # noqa: C901, PLR0912
@@ -66,6 +75,19 @@ async def create_device(  # noqa: C901, PLR0912
             ErrorCode.INVALID_ARGS,
             f"name {friendly!r} has no hostname-safe characters",
         )
+
+    # ssid/psk are literal credentials only for the generated flows; the
+    # file_content upload writes user YAML as-is and ignores them. Match
+    # yaml_content_for_create's truthiness selection (``if file_content:``)
+    # so an empty string falls through to the same template flow this guards.
+    if not file_content:
+        for field, value in (("ssid", ssid), ("psk", psk)):
+            if value and _SECRET_TAG_RE.match(value):
+                raise CommandError(
+                    ErrorCode.INVALID_ARGS,
+                    f"{field} must be a literal value; leave it empty to use "
+                    "secrets.yaml (the generated config emits !secret wifi_ssid / wifi_password)",
+                )
 
     filename = f"{name}.yaml"
     config_path = controller._db.settings.rel_path(filename)

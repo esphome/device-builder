@@ -1,0 +1,1 @@
+{"id":"lvgl.on_idle","name":"Lvgl → On Idle","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["lvgl"],"is_device_level":false,"supports_list":true,"config_entries":[{"key":"timeout","type":"time_period","label":"Timeout","required":true,"display_format":null,"templatable":true}]}

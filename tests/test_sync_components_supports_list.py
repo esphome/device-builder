@@ -118,6 +118,10 @@ def test_shipped_catalog_matches_live_introspection() -> None:
         else:
             top_key, key = trigger.id.rsplit(".", 1)
         single = dict(sync_components._live_trigger_singles(top_key)).get(key)
+        if single is None:
+            # Trigger absent from the installed esphome (catalog leads the
+            # runtime); can't cross-check. Parity is the sync workflow's gate.
+            continue
         if trigger.supports_list != (single is False):
             mismatches.append((trigger.id, trigger.supports_list, single))
     assert not mismatches, f"supports_list drift: {mismatches[:20]}"

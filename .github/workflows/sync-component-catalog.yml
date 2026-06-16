@@ -1,10 +1,9 @@
 name: Sync component catalog
 
-# Re-runs ``script/sync_components.py`` against the schema version
-# matching the dashboard's installed ``esphome`` (or a specific
-# version on manual dispatch) and opens a pull request when the
-# generated ``definitions/components.index.json`` or per-id body
-# files under ``definitions/components/`` change.
+# Re-runs ``script/sync_components.py`` against the latest schema
+# release (including prereleases, so betas land early) and opens a
+# pull request when the generated ``definitions/components.index.json``
+# or per-id body files under ``definitions/components/`` change.
 #
 # Triggers
 # --------
@@ -12,10 +11,12 @@ name: Sync component catalog
 #              nothing has changed upstream, so this is cheap and a
 #              no-op on most days.
 # - manual   : ``workflow_dispatch`` with an optional ``version`` input
-#              (e.g. ``2026.4.3``). When empty, the workflow defaults
-#              to the version of ``esphome`` installed in CI to avoid
-#              schema/runtime drift (the live introspection step needs
-#              the matching esphome to load new components).
+#              (e.g. ``2026.4.3``). When empty, the workflow resolves
+#              the latest schema release including prereleases, then
+#              installs that exact esphome before running so live
+#              introspection lines up with the resolved schema (the
+#              introspection step needs the matching esphome to load
+#              new components).
 #
 # Output
 # ------
@@ -31,14 +32,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "ESPHome schema version (e.g. 2026.4.3). Leave empty to match the dashboard's installed esphome."
+        description: "ESPHome schema version (e.g. 2026.4.3). Leave empty to track the latest release, including prereleases."
         required: false
         type: string
-      include_prereleases:
-        description: "Include pre-releases when auto-selecting the latest schema."
-        required: false
-        type: boolean
-        default: false
 
 permissions:
   contents: write
@@ -60,42 +56,58 @@ jobs:
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:
           python-version: "3.13"
-          cache: pip
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
+        with:
+          enable-cache: true
 
       - name: Install package (with esphome extra)
-        run: |
-          python -m pip install --upgrade pip
-          # ``[esphome]`` pulls in the esphome package so the narrow
-          # introspection in sync_components (multi_conf,
-          # platform_defaults, supported_platforms, type refinement)
-          # can run.
-          pip install -e '.[esphome]'
+        # ``[esphome]`` pulls in the esphome package so the narrow
+        # introspection in sync_components (multi_conf,
+        # platform_defaults, supported_platforms, type refinement)
+        # can run. ``--system`` installs into the setup-python
+        # interpreter, matching the rest of CI.
+        run: uv pip install --system -e '.[esphome]'
 
       - name: Resolve schema version
         id: version
-        # Prefer an explicit dispatch input. Otherwise pin to the
-        # installed esphome version so live introspection lines up
-        # exactly — every component the schema lists is importable
-        # for ``multi_conf`` / ``platform_defaults`` extraction.
+        # Prefer an explicit dispatch input. Otherwise resolve the
+        # latest schema release including prereleases so betas land
+        # early. Reuses the script's own resolver (it imports without
+        # pulling esphome) rather than duplicating the GitHub API call.
+        # GITHUB_TOKEN lifts the resolver's releases-API call off the
+        # 60 req/hr unauthenticated cap on shared runner IPs.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           if [ -n "${{ inputs.version }}" ]; then
             echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
             echo "source=manual dispatch" >> "$GITHUB_OUTPUT"
           else
-            INSTALLED=$(python -c "from esphome.const import __version__; print(__version__)")
-            echo "version=$INSTALLED" >> "$GITHUB_OUTPUT"
-            echo "source=installed esphome" >> "$GITHUB_OUTPUT"
+            VERSION=$(python -c "import sys; sys.path.insert(0, 'script'); from sync_components import resolve_latest_release; print(resolve_latest_release(include_prereleases=True))")
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "source=latest schema release (incl. prereleases)" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Align esphome to the schema version
+        # Install the exact esphome the resolved schema came from so
+        # the live introspection (``multi_conf`` / ``platform_defaults``
+        # / ``supported_platforms`` / type refinement) matches it. A
+        # no-op when that version is already installed (stable case);
+        # ``--prerelease=allow`` lets uv accept a beta tag.
+        #
+        # Fails hard on purpose: if the matching esphome wheel isn't on
+        # PyPI yet (the schema-repo and esphome ship from separate
+        # pipelines, so a freshly-cut beta schema can briefly predate
+        # its wheel), introspecting a beta schema with a stale esphome
+        # would regress the catalog. Better a red nightly that retries
+        # than a degraded catalog proposed for merge.
+        run: uv pip install --system --prerelease=allow "esphome==${{ steps.version.outputs.version }}"
+
       - name: Run sync_components
-        run: |
-          set -euo pipefail
-          ARGS=(--version "${{ steps.version.outputs.version }}")
-          if [ "${{ inputs.include_prereleases }}" = "true" ]; then
-            ARGS+=(--include-prereleases)
-          fi
-          python script/sync_components.py "${ARGS[@]}"
+        run: python script/sync_components.py --version "${{ steps.version.outputs.version }}"
 
       - name: Smoke-test catalog
         # Catches regressions in popular components (missing fields,

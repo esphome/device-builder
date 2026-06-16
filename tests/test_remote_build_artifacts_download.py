@@ -652,27 +652,37 @@ def test_download_type_files_empty_for_unknown_component() -> None:
     """``_download_type_files`` returns ``[]`` when the platform has no mapped component."""
     fake_storage = MagicMock()
     fake_storage.target_platform = None
-    assert _download_type_files(fake_storage) == []
+    assert _download_type_files(fake_storage, Path("ignored.json")) == []
 
 
 def test_pack_build_artifacts_logs_download_types_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """If ``get_download_types`` raises, we log the traceback and ship without those files."""
+    """A failing download-types helper logs the traceback and ships the static BUILD_FILES."""
     _write_receiver_state(tmp_path)
 
-    def _raise(_storage: object) -> object:
-        raise RuntimeError("simulated component breakage")
+    from esphome_device_builder.controllers.firmware import (  # noqa: PLC0415
+        download as download_mod,
+    )
 
-    import esphome.components.esp32  # noqa: PLC0415
+    # Force esp32 off the precomputed-index path so the (failing) helper
+    # subprocess path is exercised instead of an instant index lookup.
+    monkeypatch.setattr(
+        download_mod,
+        "_capabilities",
+        lambda: download_mod.PlatformCapabilities([], [], [], [], {}),
+    )
 
-    monkeypatch.setattr(esphome.components.esp32, "get_download_types", _raise)
+    def _raise(*_args: object, **_kwargs: object) -> object:
+        raise RuntimeError("simulated helper breakage")
 
-    with caplog.at_level("ERROR"):
+    monkeypatch.setattr(download_mod.subprocess, "run", _raise)
+
+    with caplog.at_level("WARNING"):
         packed = pack_build_artifacts("kitchen.yaml")
 
     assert packed.tarball  # pack succeeded with the static BUILD_FILES set
-    assert any("Could not determine download types" in r.message for r in caplog.records)
+    assert any("download-types helper failed" in r.message for r in caplog.records)
     assert any(r.exc_info is not None for r in caplog.records)
 
 

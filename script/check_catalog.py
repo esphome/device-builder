@@ -43,18 +43,23 @@ from script.sync_components import _FIELD_BULLET_PATTERN
 
 # Per-component shape assertions. Each entry is a tuple of
 # ``(component_id, [(field_key, type, required, refs)])``. A field
-# is a 4-tuple where ``type`` is a ConfigEntryType.value, ``required``
-# is bool or None (don't care), and ``refs`` is the expected
+# is a 4-tuple where ``type`` is a ConfigEntryType.value (or a tuple
+# of acceptable values, for fields mid-migration), ``required`` is
+# bool or None (don't care), and ``refs`` is the expected
 # ``references_component`` value or None (don't care).
 #
 # The list is intentionally short — these are the components the
 # frontend uses on every device's "Add component" flow. If they
 # break, the whole catalog UX breaks.
-_EXPECTATIONS: list[tuple[str, list[tuple[str, str, bool | None, str | None]]]] = [
+_EXPECTATIONS: list[
+    tuple[str, list[tuple[str, str | tuple[str, ...], bool | None, str | None]]]
+] = [
     (
         "wifi",
         [
-            ("ssid", "string", None, None),
+            # ssid is migrating to a secret-eligible secure_string (2026.6);
+            # accept both while stable still emits a plain string.
+            ("ssid", ("string", "secure_string"), None, None),
             ("password", "secure_string", None, None),
             # ``ap`` is wrapped in a custom validator and would
             # regress to ``string`` if the _FIELD_OVERRIDES entry
@@ -174,7 +179,8 @@ def main() -> int:  # noqa: C901
                 failures.append(f"{component_id}: missing field {key!r}")
                 continue
             actual_type = str(entry.type)
-            if actual_type != expected_type:
+            allowed_types = (expected_type,) if isinstance(expected_type, str) else expected_type
+            if actual_type not in allowed_types:
                 failures.append(
                     f"{component_id}.{key}: type expected {expected_type!r}, got {actual_type!r}"
                 )

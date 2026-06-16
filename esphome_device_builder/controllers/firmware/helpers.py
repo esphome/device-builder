@@ -153,8 +153,12 @@ def _find_esptool_cmd() -> list[str]:
 
 
 @lru_cache(maxsize=8)
-def _find_sibling_cli(name: str) -> tuple[str, ...]:
-    """Sibling script next to ``sys.executable``, else ``python -m <name>``.
+def _find_sibling_cli(name: str, module: str | None = None) -> tuple[str, ...]:
+    """Sibling script next to ``sys.executable``, else ``python -m <module or name>``.
+
+    *module* lets the ``-m`` fallback target an import path that differs from the
+    console-script *name* (e.g. ``device-builder-helper`` ->
+    ``esphome_device_builder.helper_cli``); it defaults to *name*.
 
     Result is cached so the ``sibling.exists()`` filesystem probe
     runs once per ``name`` — async callers (``_run_esptool``,
@@ -168,7 +172,7 @@ def _find_sibling_cli(name: str) -> tuple[str, ...]:
     sibling = Path(python).parent / (f"{name}.exe" if os.name == "nt" else name)
     if sibling.exists():
         return (str(sibling),)
-    return (python, "-m", name)
+    return (python, "-m", module or name)
 
 
 def _parse_progress(line: str) -> int | None:

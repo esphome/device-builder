@@ -3,39 +3,76 @@
 from __future__ import annotations
 
 import asyncio
-import importlib
 import logging
 import re
 import secrets
+import subprocess
 import time
+from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from aiohttp import web
-from esphome.components.esp32 import VARIANTS as ESP32_VARIANTS
-from esphome.components.libretiny.const import (
-    FAMILY_COMPONENT as _LIBRETINY_FAMILY_COMPONENT,
-)
 from esphome.storage_json import StorageJSON
 
+from ...definitions import (
+    PlatformCapabilities,
+    coerce_download_entries,
+    load_platform_capabilities_index,
+)
 from ...helpers.api import CommandError
+from ...helpers.json import JSONDecodeError
+from ...helpers.json import loads as json_loads
 from ...helpers.storage_path import resolve_storage_path
+from .helpers import _find_sibling_cli
 
 if TYPE_CHECKING:
     from .controller import FirmwareController
 
 _LOGGER = logging.getLogger(__name__)
 
+# Generous: the child pays a full esphome import before answering.
+_HELPER_TIMEOUT_S = 60
 
-# Platforms whose ``target_platform`` value isn't the component
-# module name. ESP32 variants collapse to the umbrella ``esp32``
-# component; LibreTiny chip families collapse to ``libretiny``.
-# The LibreTiny set is sourced from upstream's
-# ``FAMILY_COMPONENT.values()`` so it picks up new chip families
-# automatically on the next ``esphome`` dependency bump.
-_LIBRETINY_TARGET_PLATFORMS: frozenset[str] = frozenset(_LIBRETINY_FAMILY_COMPONENT.values()) | {
-    "libretiny"
-}
+
+def _capabilities() -> PlatformCapabilities:
+    """Seam over the (cached) platform-capabilities index loader."""
+    return load_platform_capabilities_index()
+
+
+@dataclass(frozen=True, slots=True)
+class _DownloadRouting:
+    """Sets that map a ``target_platform`` to an ``esphome.components`` module."""
+
+    esp32_variants: frozenset[str]
+    libretiny_targets: frozenset[str]
+
+
+@cache
+def _platform_sets() -> _DownloadRouting:
+    """Return the download-routing sets, derived from the generated index.
+
+    Read from the index rather than ``esphome.components.esp32`` to keep espidf /
+    requests / esphome.config off cold start. LibreTiny chip families collapse to
+    the ``libretiny`` component, so the umbrella name joins that set.
+    """
+    caps = _capabilities()
+    return _DownloadRouting(
+        esp32_variants=frozenset(caps.esp32_variants),
+        libretiny_targets=frozenset(caps.libretiny_families) | {"libretiny"},
+    )
+
+
+# Prime the cached index read at import so the first download request doesn't
+# pay the (small, esphome-free) file read inside the event loop.
+_platform_sets()
+
+
+def _helper_cmd() -> tuple[str, ...]:
+    """Argv prefix for the device-builder-helper child (cached by _find_sibling_cli)."""
+    return _find_sibling_cli("device-builder-helper", "esphome_device_builder.helper_cli")
+
 
 # Stable ``type`` tag per artifact filename so the frontend can map it to a
 # localized label (falling back to the platform-supplied ``title`` for any
@@ -66,15 +103,18 @@ async def get_binaries(controller: FirmwareController, *, configuration: str) ->
     loop = asyncio.get_running_loop()
 
     def _get_types() -> list[dict]:
-        storage = StorageJSON.load(resolve_storage_path(configuration))
+        storage_path = resolve_storage_path(configuration)
+        storage = StorageJSON.load(storage_path)
         if storage is None:
             return []
-        return collect_download_entries(storage, label=configuration)
+        return collect_download_entries(storage, storage_path, label=configuration)
 
     return await loop.run_in_executor(None, _get_types)
 
 
-def collect_download_entries(storage: StorageJSON, *, label: str | None = None) -> list[dict]:
+def collect_download_entries(
+    storage: StorageJSON, storage_path: Path, *, label: str | None = None
+) -> list[dict]:
     """Return the downloadable artifacts on disk for *storage* as ``[{title, file, ...}]``.
 
     The platform's ``get_download_types`` entries that exist under
@@ -84,20 +124,16 @@ def collect_download_entries(storage: StorageJSON, *, label: str | None = None) 
     offers; ``get_binaries`` is its async wrapper. *label* identifies the
     build in the failure log -- the caller's configuration filename when it
     has one (more specific than ``storage.name`` across colliding device
-    names); defaults to ``storage.name``.
+    names); defaults to ``storage.name``. *storage_path* is required to resolve
+    the build-dir-dependent platforms (libretiny / nrf52) through the helper
+    subprocess; the static platforms are answered from the catalog regardless.
     """
-    try:
-        component = _resolve_download_component(storage.target_platform)
-        module = importlib.import_module(f"esphome.components.{component}")
-        types = list(module.get_download_types(storage))
-    except Exception:  # a third-party get_download_types regression could raise anything
-        _LOGGER.warning(
-            "Could not determine download types for %s", label or storage.name, exc_info=True
-        )
-        return []
     # No build dir → can't confirm anything on disk → treat as not built.
+    # Checked before resolving types so an unbuilt libretiny / nrf52 device
+    # doesn't spawn the helper subprocess just to discard the result.
     if storage.firmware_bin_path is None:
         return []
+    types = _download_types_for(storage, storage_path, label=label)
     build_dir = storage.firmware_bin_path.parent
     # Filter to files that exist so a cleaned build reads as "compile
     # first" rather than offering a name ``firmware/download`` would 404 on.
@@ -120,6 +156,73 @@ def collect_download_entries(storage: StorageJSON, *, label: str | None = None) 
         if artifact_type:
             entry["type"] = artifact_type
     return downloads
+
+
+def _download_types_for(
+    storage: StorageJSON, storage_path: Path | None, *, label: str | None
+) -> list[dict]:
+    """Return ``get_download_types`` entries for *storage*'s platform.
+
+    Static platforms (esp32 / esp8266 / rp2040) come straight from the
+    precomputed catalog index. Build-dir-dependent platforms (libretiny / nrf52)
+    are answered by the device-builder-helper subprocess, so the long-lived
+    process never imports ``esphome.components.*``. A missing *storage_path* or a
+    failing helper yields ``[]`` -- the same "treat as not built" fall-through
+    the in-process import used to take on error.
+    """
+    component = _resolve_download_component(storage.target_platform)
+    if not component:
+        return []
+    precomputed = _capabilities().download_types.get(component)
+    if precomputed is not None:
+        # Copy so a caller that mutates the result can't corrupt the @cache'd
+        # index (the helper path likewise returns fresh dicts).
+        return [dict(entry) for entry in precomputed]
+    if storage_path is None:
+        _LOGGER.warning(
+            "No storage path given to resolve %s download types for %s",
+            component,
+            label or storage.name,
+        )
+        return []
+    cmd = [*_helper_cmd(), "download-types", str(storage_path), component]
+    try:
+        # ``close_fds=False`` mirrors helpers.subprocess's policy (skip the
+        # fork-time /proc/self/fd close walk; we inherit nothing the child needs shut).
+        result = subprocess.run(  # noqa: S603 — argv is internally built, no shell
+            cmd,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=_HELPER_TIMEOUT_S,
+            close_fds=False,
+        )
+    except Exception as err:  # spawn / nonzero exit / timeout / esphome regression
+        # An infrastructure failure (helper not installed, timeout, import error)
+        # is distinct from a built device with no artifacts; surface the child's
+        # stderr so it's diagnosable, not an unbuilt-looking empty row. Still
+        # degrade to [] (the listing must keep rendering for other devices).
+        _LOGGER.warning(
+            "download-types helper failed for %s: %s",
+            label or storage.name,
+            getattr(err, "stderr", None) or err,
+            exc_info=True,
+        )
+        return []
+    try:
+        payload = json_loads(result.stdout)
+    except JSONDecodeError:  # non-JSON stdout (rare: the helper isolates its stdout)
+        _LOGGER.warning(
+            "download-types helper returned non-JSON for %s: stdout=%r stderr=%r",
+            label or storage.name,
+            result.stdout[:200],
+            result.stderr[:200],
+            exc_info=True,
+        )
+        return []
+    # Coerce at the boundary so a malformed reply can't reach a downstream
+    # ``entry["file"]``; same validation the index payload goes through.
+    return coerce_download_entries(payload)
 
 
 def _resolve_artifact_path(configuration: str, file: str) -> tuple[Path, str]:
@@ -229,13 +332,21 @@ async def http_download(request: web.Request) -> web.StreamResponse:
 def _resolve_download_component(target_platform: str | None) -> str:
     """Return the ``esphome.components`` module name for *target_platform*.
 
-    ``None`` / empty input collapses to ``""``; the caller's
-    ``importlib.import_module`` then fails in its ``try/except``
-    and logs a warning.
+    ``None`` / empty input collapses to ``""``; ``_download_types_for`` then
+    short-circuits to ``[]`` (no helper spawn, no log) and the build reads as not
+    built. A real but unknown platform routes to the helper, whose import failure
+    is the branch that logs.
     """
     platform = (target_platform or "").lower()
-    if platform.upper() in ESP32_VARIANTS:
+    routing = _platform_sets()
+    if platform.upper() in routing.esp32_variants:
         return "esp32"
-    if platform in _LIBRETINY_TARGET_PLATFORMS:
+    if platform in routing.libretiny_targets:
         return "libretiny"
+    # Every esp32 variant is the umbrella ``esp32`` component, so fold by prefix
+    # even when the index is degraded (empty variants) — a missing index then
+    # makes an ESP32-S3/C3/... download slow (helper spawn) rather than broken
+    # (helper importing a nonexistent ``esphome.components.esp32s3``).
+    if platform.startswith("esp32"):
+        return "esp32"
     return platform

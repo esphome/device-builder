@@ -7,48 +7,26 @@ import secrets
 import string
 from typing import TYPE_CHECKING, Any
 
+from ...definitions import load_platform_capabilities_index
 from ..yaml import _safe_yaml_scalar, merge_component_yaml
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from ...models import BoardCatalogEntry, ComponentCatalogEntry
 
 
-# Prefer the central dispatcher landing in esphome/esphome#16300
-# so we depend on a stable upstream API rather than reaching into
-# ``NO_WIFI_VARIANTS`` / ``BOARDS`` implementation details. When
-# the upstream helper is available the fallback constants below
-# stay unimported — the "new ESPHome" path has zero coupling to
-# upstream internals. The implementation-detail imports + derived
-# frozenset only happen on the ``except ImportError`` branch,
-# which covers every esphome we currently support. Once the
-# floor moves past the release that ships #16300 this whole
-# block collapses to a plain import.
-try:
-    from esphome.components.wifi import has_native_wifi as _esphome_has_native_wifi
+# Native-Wi-Fi capability, snapshotted from esphome into
+# platform_capabilities.index.json so the dashboard never imports
+# esphome.components.wifi (which pulls esp32 -> espidf -> requests ->
+# esphome.config onto cold start). Loaded once at module import — a cheap,
+# esphome-free JSON read. An empty index degrades to "assume Wi-Fi"
+# (fail-open), matching the prior unknown-board behaviour.
+_caps = load_platform_capabilities_index()
+# ESPHome stores variant tags uppercase (``"ESP32H2"``); normalise to the
+# lowercase ``Esp32Variant`` form the wizard compares against.
+_ESP32_NO_WIFI_VARIANTS: frozenset[str] = frozenset(v.lower() for v in _caps.esp32_no_wifi_variants)
+_RP2040_NO_WIFI_BOARDS: frozenset[str] = frozenset(_caps.rp2040_no_wifi_boards)
 
-    _ESPHOME_RP2040_BOARDS: dict[str, dict] | None = None
-    _ESP32_NO_WIFI_VARIANTS: frozenset[str] = frozenset()
-except ImportError:
-    _esphome_has_native_wifi = None  # type: ignore[assignment]
-    # ``no-redef`` covers the rebind of the names declared in the
-    # ``try`` branch above; ``assignment`` covers the type mismatch
-    # between the upstream ``BOARDS`` dict and our ``... | None``
-    # annotation. Both diagnostics are intentional — the fallback
-    # constants are only consumed when the upstream helper is absent.
-    from esphome.components.rp2040.boards import (  # type: ignore[no-redef,assignment]
-        BOARDS as _ESPHOME_RP2040_BOARDS,
-    )
-    from esphome.components.wifi import NO_WIFI_VARIANTS as _ESPHOME_NO_WIFI_VARIANTS
-
-    # ESPHome stores the variant tags in canonical uppercase
-    # (``"ESP32H2"``); the wizard compares against the lowercase
-    # ``Esp32Variant`` enum value, so normalise once at module
-    # load.
-    _ESP32_NO_WIFI_VARIANTS = frozenset(v.lower() for v in _ESPHOME_NO_WIFI_VARIANTS)
-
-_FALLBACK_WIFI_FIRST_PLATFORMS: frozenset[str] = frozenset(
+_WIFI_FIRST_PLATFORMS: frozenset[str] = frozenset(
     {"esp8266", "bk72xx", "rtl87xx", "ln882x", "libretiny"}
 )
 
@@ -81,55 +59,22 @@ _NO_NETWORK_TODO_LINES: tuple[str, ...] = (
 )
 
 
-def _fallback_has_native_wifi(
+def _has_native_wifi(
     *, platform: str, board: str | None = None, variant: str | None = None
 ) -> bool:
-    """Pure-Python fallback for ``esphome.components.wifi.has_native_wifi``.
+    """Return True when *platform* / *board* / *variant* has native Wi-Fi.
 
-    Mirrors the upstream dispatcher's contract — including the
-    allowlist semantics for unknown / Wi-Fi-less platforms
-    (``host``, ``nrf52``, future additions) so the wizard's
-    behaviour stays identical whether the upstream helper is
-    available or not.
+    Mirrors ``esphome.components.wifi.has_native_wifi`` from the snapshotted
+    platform_capabilities index (esp32 no-Wi-Fi variants + rp2040 no-Wi-Fi
+    boards). Allowlist semantics: unknown platforms fail closed, unknown rp2040
+    boards fail open (assume Wi-Fi) — both matching upstream.
     """
     if platform == "esp32":
         return not (variant and variant.lower() in _ESP32_NO_WIFI_VARIANTS)
     if platform == "rp2040":
-        if board is None:
-            return True
-        # ``_ESPHOME_RP2040_BOARDS`` is typed ``dict[str, dict] | None``
-        # because the upstream-helper-available branch leaves it as
-        # ``None`` (the upstream ``has_native_wifi`` handles all
-        # platforms there). This fallback only runs when that branch
-        # didn't take, so the import-from-esphome assignment fired
-        # and the value is a real dict — but mypy can't see the
-        # runtime correlation. ``None`` here is treated the same as
-        # an unknown board: assume Wi-Fi present (matches upstream's
-        # default-to-wifi-allowlist semantics).
-        if _ESPHOME_RP2040_BOARDS is None:
-            return True
-        info = _ESPHOME_RP2040_BOARDS.get(board)
-        return True if info is None else info.get("wifi", False)
-    return platform in _FALLBACK_WIFI_FIRST_PLATFORMS
+        return board is None or board not in _RP2040_NO_WIFI_BOARDS
+    return platform in _WIFI_FIRST_PLATFORMS
 
-
-def _select_wifi_helper(
-    upstream: Callable[..., bool] | None,
-) -> Callable[..., bool]:
-    """Pick the upstream dispatcher when available, the fallback otherwise.
-
-    Factored out so tests can exercise both branches without
-    reloading the module — pass ``None`` to force the fallback
-    path, pass a callable to force the upstream path. The
-    module-level invocation below uses whatever the import-time
-    ``try/except`` produced.
-    """
-    return upstream or _fallback_has_native_wifi
-
-
-# Alias to the upstream helper when present, the fallback otherwise.
-# ``_infer_native_wifi`` calls through this single alias.
-_has_native_wifi = _select_wifi_helper(_esphome_has_native_wifi)
 
 # ---------------------------------------------------------------------------
 # YAML generation
@@ -287,39 +232,19 @@ def _infer_native_wifi(board: BoardCatalogEntry) -> bool:
        emitting a ``wifi:`` block the new platform's component
        would reject.
 
-    The dispatch goes through ``_has_native_wifi`` — a module-level
-    alias that prefers the upstream
-    ``esphome.components.wifi.has_native_wifi`` central dispatcher
-    (landing in esphome/esphome#16300) and falls back to a
-    pure-Python equivalent derived from ``NO_WIFI_VARIANTS`` /
-    ``BOARDS`` when the upstream helper isn't available. The
-    upstream dispatcher knows about every platform ESPHome
-    supports, so a new platform added there flows through to the
-    wizard automatically — no per-platform switch maintained here.
+    Dispatches through ``_has_native_wifi``, which reads the
+    snapshotted platform_capabilities index.
     """
     esphome_cfg = board.esphome
     # ``str(...)`` handles both the production enum (``Platform`` /
     # ``Esp32Variant`` are ``StrEnum``) and bare-string inputs from
     # tests that mock the catalog entry without going through the
-    # enum constructors.
-    #
-    # Variant is uppercased because the upstream
-    # ``esphome.components.wifi.has_native_wifi`` dispatcher
-    # compares against ``NO_WIFI_VARIANTS`` literal-equality and
-    # that list is built from ``const.VARIANT_*`` (uppercase,
-    # ``"ESP32H2"`` / ``"ESP32P4"``) — the dashboard's
-    # ``Esp32Variant`` StrEnum carries the lowercase form
-    # (``"esp32h2"``), so passing it through verbatim falsely
-    # tells the dispatcher H2 / P4 have Wi-Fi and the wizard
-    # emits ``wifi:`` / ``api:`` / ``ota:`` blocks the
-    # downstream compile then rejects. Our pre-#16300 fallback
-    # at ``_fallback_has_native_wifi`` already normalises to
-    # lowercase on both sides; the upstream path needs the
-    # symmetric uppercase normalisation here.
+    # enum constructors. ``_has_native_wifi`` lowercases the variant
+    # itself, so no case normalisation is needed here.
     return _has_native_wifi(
         platform=str(esphome_cfg.platform) if esphome_cfg.platform else "",
         board=esphome_cfg.board,
-        variant=str(esphome_cfg.variant).upper() if esphome_cfg.variant else None,
+        variant=str(esphome_cfg.variant) if esphome_cfg.variant else None,
     )
 
 

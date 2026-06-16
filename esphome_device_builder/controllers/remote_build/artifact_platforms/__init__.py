@@ -9,25 +9,43 @@ libretiny variants re-export ``BUILD_FILES`` from
 
 from __future__ import annotations
 
-from esphome.components.esp32 import VARIANTS as _ESP32_VARIANTS
+from functools import cache
 
+from ....definitions import load_platform_capabilities_index
 from . import bk72xx, esp32, esp8266, ln882x, nrf52, rp2040, rtl87xx
 
 _PLATFORMS = (bk72xx, esp8266, esp32, ln882x, nrf52, rp2040, rtl87xx)
 
-_BY_TARGET: dict[str, tuple[str, ...]] = {
-    mod.TARGET_PLATFORM.lower(): mod.BUILD_FILES for mod in _PLATFORMS
-}
 
-# ESP32 chip variants StorageJSON stores as ``target_platform``
-# (``ESP32S3``, ``ESP32C3``, ``ESP32H2``, …) all build through the
-# umbrella ``esp32`` component, so resolve them to the same module.
-# Sourced from upstream so a new variant lands here without an
-# edit. The base ``"esp32"`` is already in ``_BY_TARGET``.
-for _variant in _ESP32_VARIANTS:
-    _BY_TARGET.setdefault(_variant.lower(), esp32.BUILD_FILES)
+@cache
+def _by_target() -> dict[str, tuple[str, ...]]:
+    """Map ``target_platform`` -> BUILD_FILES, ESP32 chip variants folded to esp32.
+
+    StorageJSON stores variants (``ESP32S3``, ``ESP32C3``, …) as
+    ``target_platform``; they all build through the umbrella ``esp32`` component.
+    The variant list comes from the generated index rather than
+    ``esphome.components.esp32`` so this import stays off cold start.
+    """
+    by_target = {mod.TARGET_PLATFORM.lower(): mod.BUILD_FILES for mod in _PLATFORMS}
+    for variant in load_platform_capabilities_index().esp32_variants:
+        by_target.setdefault(variant.lower(), esp32.BUILD_FILES)
+    return by_target
 
 
 def build_files_for_platform(target_platform: str) -> tuple[str, ...]:
     """Return BUILD_FILES for *target_platform*; empty tuple if unrecognised."""
-    return _BY_TARGET.get(target_platform.lower(), ())
+    key = target_platform.lower()
+    files = _by_target().get(key)
+    if files is not None:
+        return files
+    # Mirror download.py's _resolve_download_component esp32 fold, so an esp32
+    # variant still resolves on a degraded (empty) index and an offload packs
+    # rather than raising on empty build_files.
+    if key.startswith("esp32"):
+        return esp32.BUILD_FILES
+    return ()
+
+
+# Prime the cached map at import so the first artifact build doesn't pay the
+# (small, esphome-free) index read inside the event loop.
+_by_target()
