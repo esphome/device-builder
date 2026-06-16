@@ -15,6 +15,7 @@ from unittest import mock
 
 import pytest
 import yaml
+from esphome import yaml_util
 from esphome.components import wifi as esphome_wifi
 from esphome.components.rp2040.boards import BOARDS as ESPHOME_RP2040_BOARDS
 from esphome.const import ALLOWED_NAME_CHARS
@@ -1043,6 +1044,52 @@ def test_generate_yaml_emits_explicit_wifi_credentials_when_provided() -> None:
     secret = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
     assert "  ssid: !secret wifi_ssid\n" in secret
     assert "  password: !secret wifi_password\n" in secret
+
+
+def test_generate_yaml_secret_refs_resolve_through_esphome_loader(tmp_path: Path) -> None:
+    """Empty ssid/psk emit !secret tags ESPHome's loader resolves from secrets.yaml.
+
+    Pins the contract the wizard depends on (it sends empty creds so
+    the backend emits real references): a regression that quoted them
+    would load as the literal string "!secret wifi_ssid" and silently
+    break wifi.
+    """
+    board = _make_esp32_board(variant=Esp32Variant.ESP32)
+    (tmp_path / "secrets.yaml").write_text(
+        "wifi_ssid: RealNetwork-7f3a\nwifi_password: RealPass-9b21\n", encoding="utf-8"
+    )
+    device = tmp_path / "kitchen.yaml"
+    device.write_text(
+        generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk=""), encoding="utf-8"
+    )
+
+    cfg = yaml_util.load_yaml(device)
+    assert cfg["wifi"]["ssid"] == "RealNetwork-7f3a"
+    assert cfg["wifi"]["password"] == "RealPass-9b21"
+
+
+def test_generate_yaml_literal_secret_string_stays_a_literal(tmp_path: Path) -> None:
+    """A literal "!secret wifi_ssid" ssid is quoted, so the loader keeps it a plain string.
+
+    The devices/create API takes literal credentials; passing the
+    magic secret string yields a literal, not a resolved secret, so
+    the wizard must send empty rather than the string itself.
+    """
+    board = _make_esp32_board(variant=Esp32Variant.ESP32)
+    (tmp_path / "secrets.yaml").write_text(
+        "wifi_ssid: RealNetwork\nwifi_password: RealPass\n", encoding="utf-8"
+    )
+    device = tmp_path / "kitchen.yaml"
+    device.write_text(
+        generate_device_yaml(
+            "kitchen", "Kitchen", board, ssid="!secret wifi_ssid", psk="!secret wifi_password"
+        ),
+        encoding="utf-8",
+    )
+
+    cfg = yaml_util.load_yaml(device)
+    assert cfg["wifi"]["ssid"] == "!secret wifi_ssid"
+    assert cfg["wifi"]["password"] == "!secret wifi_password"
 
 
 @pytest.mark.parametrize(
