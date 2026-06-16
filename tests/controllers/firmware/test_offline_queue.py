@@ -153,9 +153,7 @@ def test_handle_device_wake_triggers_upload(firmware_controller, mock_device):
         patch(
             "esphome_device_builder.controllers.firmware.controller.create_eager_task"
         ) as mock_eager,
-        patch.object(
-            firmware_controller, "upload", new_callable=MagicMock
-        ) as mock_upload,
+        patch.object(firmware_controller, "upload", new_callable=MagicMock) as mock_upload,
     ):
         event = Event(
             EventType.DEVICE_STATE_CHANGED,
