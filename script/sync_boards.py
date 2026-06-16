@@ -368,6 +368,22 @@ def _augment_rp2040_boards(boards: list[BoardCatalogEntry]) -> None:
         ids.add(name)
 
 
+def _backfill_rp2040_mcu(boards: list[BoardCatalogEntry]) -> None:
+    """
+    Set each rp2040 board's chip series ("rp2040" / "rp2350") from ESPHome.
+
+    ESPHome lumps both chips under the rp2040 platform; ``mcu`` is the only
+    structured discriminator, letting the picker split the filter and badge the
+    real chip. Covers curated and generated boards alike; a backfill (not part of
+    generation) so the manifest-only drift test applies it the same way.
+    """
+    module = importlib.import_module("esphome.components.rp2040.boards")
+    for board in boards:
+        if board.esphome.platform is Platform.RP2040:
+            meta = module.BOARDS.get(board.esphome.board)
+            board.esphome.mcu = meta.get("mcu", "rp2040") if isinstance(meta, dict) else "rp2040"
+
+
 def _esp32_generic_pins_by_variant(
     boards: list[BoardCatalogEntry],
 ) -> dict[Esp32Variant, list[BoardPin]]:
@@ -615,6 +631,7 @@ def build_catalog() -> BoardCatalogResponse:
     _backfill_esp32_variants(catalog.boards)
     _augment_libretiny_boards(catalog.boards)
     _augment_rp2040_boards(catalog.boards)
+    _backfill_rp2040_mcu(catalog.boards)
     _augment_esp32_boards(catalog.boards)
     _augment_esp8266_boards(catalog.boards)
     _augment_nrf52_boards(catalog.boards)

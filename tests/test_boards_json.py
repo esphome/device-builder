@@ -49,6 +49,7 @@ from script.sync_boards import (
     _NRF52_PLATFORM,
     _RP2040_PLATFORM,
     _backfill_esp32_variants,
+    _backfill_rp2040_mcu,
 )
 
 _DEFINITIONS_DIR = Path(__file__).parent.parent / "esphome_device_builder" / "definitions"
@@ -76,9 +77,11 @@ def test_split_artefacts_match_manifests() -> None:
     mix: curated manifests stay checked, empty product manifests get filled.
     """
     from_yaml = build_board_catalog_from_manifests(strict=True)
-    # Variant backfill is part of emission (sync_boards.build_catalog), so apply
-    # it here too or esp32 boards that carry only a PIO board id mismatch disk.
+    # Variant + mcu backfills are part of emission (sync_boards.build_catalog), so
+    # apply them here too or esp32 boards carrying only a PIO board id (and rp2040
+    # boards lacking the chip series) mismatch disk.
     _backfill_esp32_variants(from_yaml.boards)
+    _backfill_rp2040_mcu(from_yaml.boards)
     from_disk = load_board_catalog()
     generated = set(_LIBRETINY_FAMILIES) | {_RP2040_PLATFORM, _NRF52_PLATFORM, "esp32", "esp8266"}
     esphome_filled = set(_LIBRETINY_FAMILIES)
@@ -325,3 +328,17 @@ def test_wifi_capable_rp2040_boards_carry_the_wifi_tag() -> None:
     assert BoardTag.WIFI in tags["rpipico2w"]
     assert BoardTag.WIFI not in tags.get("rpipico", set())
     assert BoardTag.WIFI not in tags.get("rpipico2", set())
+
+
+def test_rp2040_boards_carry_the_chip_mcu_other_platforms_do_not() -> None:
+    """RP2040-family entries label their chip series; other platforms leave mcu unset."""
+    mcu = {b.id: b.esphome.mcu for b in load_board_index()}
+    assert mcu["rpipico2"] == "rp2350"
+    assert mcu["rpipico2w"] == "rp2350"
+    assert mcu["pimoroni_plasma2350w"] == "rp2350"
+    assert mcu["generic_rp2350"] == "rp2350"
+    assert mcu["rpipico"] == "rp2040"
+    assert mcu["rpipicow"] == "rp2040"
+    assert mcu["generic-rp2040"] == "rp2040"
+    # ESP32 / ESP8266 boards distinguish chips via ``variant``; mcu stays unset.
+    assert mcu["generic-esp32"] is None

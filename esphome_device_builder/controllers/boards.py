@@ -73,6 +73,7 @@ class BoardCatalog:
         query: str | None = None,
         platform: Platform | str | None = None,
         variant: Esp32Variant | str | None = None,
+        mcu: str | None = None,
         tag: BoardTag | str | None = None,
         offset: int = 0,
         limit: int = 50,
@@ -82,10 +83,12 @@ class BoardCatalog:
         Get boards with optional filtering, search, and pagination.
 
         ``query`` matches the board id, name, manufacturer, description
-        and tags. Sort order: featured first; generics next; WiFi-capable
-        boards ahead of non-WiFi within each group; then alphabetically.
-        Returns slim :class:`BoardCatalogIndex` entries — the frontend's
-        board detail view fetches full bodies via ``boards/get_board``.
+        and tags. ``mcu`` narrows the rp2040 platform to one chip series
+        ("rp2040" / "rp2350"). Sort order: featured first; generics next;
+        WiFi-capable boards ahead of non-WiFi within each group; then
+        alphabetically. Returns slim :class:`BoardCatalogIndex` entries —
+        the frontend's board detail view fetches full bodies via
+        ``boards/get_board``.
         """
         results: list[BoardCatalogIndex] = self._boards
 
@@ -99,6 +102,10 @@ class BoardCatalog:
                 for b in results
                 if b.esphome.variant and b.esphome.variant.lower() == variant_lower
             ]
+
+        if mcu:
+            mcu_lower = mcu.lower()
+            results = [b for b in results if b.esphome.mcu and b.esphome.mcu.lower() == mcu_lower]
 
         if tag:
             tag_lower = tag.lower()

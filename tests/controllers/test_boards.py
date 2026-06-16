@@ -46,6 +46,7 @@ def _board(
     tags: list[BoardTag] | None = None,
     featured: bool = False,
     is_generic: bool = False,
+    mcu: str | None = None,
 ) -> BoardCatalogIndex:
     """Compact factory for slim catalog entries — defaults to a plausible ESP32 board."""
     return BoardCatalogIndex(
@@ -53,7 +54,7 @@ def _board(
         name=name or board_id,
         description=description,
         manufacturer=manufacturer,
-        esphome=BoardEsphomeConfig(platform=platform, board=pio_board, variant=variant),
+        esphome=BoardEsphomeConfig(platform=platform, board=pio_board, variant=variant, mcu=mcu),
         tags=tags or [],
         featured=featured,
         is_generic=is_generic,
@@ -245,6 +246,38 @@ async def test_get_boards_filters_by_tag(catalog: BoardCatalog) -> None:
 
     assert resp.total == 1
     assert resp.boards[0].id == "m5stack-cores3"
+
+
+async def test_get_boards_filters_by_mcu_splitting_the_rp2040_platform() -> None:
+    """``mcu`` narrows the shared rp2040 platform to one chip series.
+
+    Drives the picker's separate RP2040 / RP2350 filter chips; both
+    boards share ``platform=rp2040`` so only ``mcu`` tells them apart.
+    """
+    cat = BoardCatalog()
+    _seed_catalog(
+        cat,
+        [
+            _board(
+                board_id="rpipico",
+                platform=Platform.RP2040,
+                pio_board="rpipico",
+                mcu="rp2040",
+            ),
+            _board(
+                board_id="rpipico2",
+                platform=Platform.RP2040,
+                pio_board="rpipico2",
+                mcu="rp2350",
+            ),
+        ],
+    )
+
+    rp2350 = await cat.get_boards(platform=Platform.RP2040, mcu="rp2350")
+    assert {b.id for b in rp2350.boards} == {"rpipico2"}
+
+    rp2040 = await cat.get_boards(platform=Platform.RP2040, mcu="rp2040")
+    assert {b.id for b in rp2040.boards} == {"rpipico"}
 
 
 async def test_get_boards_query_searches_name_description_manufacturer_id_tags(
