@@ -103,11 +103,11 @@ def _make_build(tmp_path: Path, *files: str) -> Path:
 def test_resolve_download_component_routes_every_esp32_variant_to_umbrella(
     variant: str,
 ) -> None:
-    """Every ESP32 variant in upstream's ``VARIANTS`` collapses to ``"esp32"``.
+    """Every ESP32 variant in the index maps to the umbrella ``"esp32"`` component.
 
-    Drives the parametrization off ``esphome.components.esp32.VARIANTS``
-    directly so an upstream variant addition is automatically covered. Both the
-    canonical upper-case form and a lower-case round-trip are checked since
+    Driven off the generated index (what routing actually reads), not a live
+    esphome import, so it's independent of the installed esphome version. Both
+    the canonical upper-case form and a lower-case round-trip are checked since
     ``StorageJSON`` sometimes stores the lower-cased value.
     """
     assert _resolve_download_component(variant) == "esp32"
