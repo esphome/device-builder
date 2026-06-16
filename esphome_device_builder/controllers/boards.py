@@ -30,8 +30,8 @@ _BODY_CACHE_MAXSIZE = 128
 
 
 def _board_sort_key(board: BoardCatalogIndex) -> tuple[bool, bool, str]:
-    """Catalog display order: featured first, generics last, then by name."""
-    return (not board.featured, board.is_generic, board.name.lower())
+    """Catalog display order: featured first, generics next, then by name."""
+    return (not board.featured, not board.is_generic, board.name.lower())
 
 
 class BoardCatalog:
@@ -78,7 +78,7 @@ class BoardCatalog:
 
         ``query`` matches the board id, name, manufacturer, description
         and tags. Featured boards are sorted first; generic fallback
-        boards last; the rest alphabetically. Returns slim
+        boards next; the rest alphabetically. Returns slim
         :class:`BoardCatalogIndex` entries — the frontend's board
         detail view fetches full bodies via ``boards/get_board``.
         """
@@ -199,7 +199,7 @@ class BoardCatalog:
         pio_board: str,
         platform: Platform | str | None = None,
     ) -> list[BoardCatalogIndex]:
-        """All catalog entries on the same PlatformIO board, featured first then generics last."""
+        """All catalog entries on the same PlatformIO board, featured first then generics next."""
         return sorted(self._matches_pio_board(pio_board, platform), key=_board_sort_key)
 
     def find_by_platform_variant(

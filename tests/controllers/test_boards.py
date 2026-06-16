@@ -293,15 +293,15 @@ async def test_get_boards_filters_compose(catalog: BoardCatalog) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_get_boards_sorts_featured_first_generic_last(
+async def test_get_boards_sorts_featured_first_generic_after_featured(
     catalog: BoardCatalog,
 ) -> None:
-    """Featured first, generic fallbacks last, the rest alphabetical.
+    """Featured first, generic fallbacks next, the rest alphabetical.
 
-    Drives the dashboard's "browse all" listing — featured boards
-    are what users actually buy, generics are the fallback catch-
-    all. A refactor that flipped the sort key tuple would surface
-    here.
+    Drives the dashboard's "browse all" listing — generics are the
+    safe catch-all most users want, so they sit at the top of each
+    list (below the separately-rendered featured boards). A refactor
+    that flipped the sort key tuple would surface here.
     """
     resp = await catalog.get_boards()
     ids = [b.id for b in resp.boards]
@@ -309,10 +309,10 @@ async def test_get_boards_sorts_featured_first_generic_last(
     # Featured pair, tie-broken alphabetically by name —
     # "Seeed ..." < "Wemos D1 Mini" so Seeed comes first.
     assert ids[0:2] == ["seeed-xiao-esp32c3", "d1-mini"]
-    # Generic fallbacks at the end.
-    assert ids[-3:] == ["generic-esp32c3", "generic-esp32s3", "generic-esp8266"]
-    # Non-featured non-generic in the middle.
-    assert ids[2] == "m5stack-cores3"
+    # Generic fallbacks right after the featured pair.
+    assert ids[2:5] == ["generic-esp32c3", "generic-esp32s3", "generic-esp8266"]
+    # Non-featured non-generic falls to the end.
+    assert ids[-1] == "m5stack-cores3"
 
 
 async def test_get_boards_paginates_via_offset_and_limit(
@@ -330,9 +330,8 @@ async def test_get_boards_paginates_via_offset_and_limit(
     assert resp.offset == 2
     assert resp.limit == 2
     assert len(resp.boards) == 2
-    # After-featured slice: the non-featured M5Stack and the first
-    # generic alphabetically.
-    assert [b.id for b in resp.boards] == ["m5stack-cores3", "generic-esp32c3"]
+    # After-featured slice: the first two generics alphabetically.
+    assert [b.id for b in resp.boards] == ["generic-esp32c3", "generic-esp32s3"]
 
 
 async def test_get_boards_offset_past_end_returns_empty_page(
