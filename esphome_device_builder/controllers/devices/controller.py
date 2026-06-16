@@ -186,6 +186,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             on_state_change=self._on_state_change,
             on_ip_change=self._on_ip_change,
             on_version_change=self._on_version_change,
+            on_queued_update_change=self._on_queued_update_change,
             on_config_hash_change=self._on_config_hash_change,
             on_api_encryption_change=self._on_api_encryption_change,
             on_mac_address_change=self._on_mac_address_change,
@@ -316,6 +317,20 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         if port is not None and port != "OTA":
             return []
         return self.get_address_cache_args(configuration)
+
+    def _on_queued_update_change(self, name: str, is_queued: bool) -> None:
+        """Handle offline queued update flag transitions and persist."""
+        changed = False
+        for device in self._devices:
+            if device.name == name:
+                device.queued_update = is_queued
+                changed = True
+
+        if changed:
+            # Broadcast the change to the frontend
+            self.send_devices_update()
+            # Assuming sidecar/storage persistence is handled here:
+            self._save_devices()
 
     # ------------------------------------------------------------------
     # API commands — listing

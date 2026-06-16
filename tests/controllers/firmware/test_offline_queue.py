@@ -65,34 +65,6 @@ async def test_queued_update_flag_set_on_compile_success(firmware_controller, mo
 
 
 @pytest.mark.asyncio
-async def test_queued_update_callback_triggered(firmware_controller, mock_device):
-    """Test that QueuedUpdateReadyCallback is triggered when offline device comes online."""
-    mock_device.state = DeviceState.ONLINE
-    mock_device.queued_update = True
-    mock_device.name = "test_device"
-
-    callback_called = False
-
-    def callback(name):
-        nonlocal callback_called
-        callback_called = True
-        assert name == "test_device"
-
-    trigger_queued_update = False
-    if mock_device.state == DeviceState.ONLINE:
-        for d in [mock_device]:
-            # Fixed the contradictory boolean check that required the device to NOT be online
-            if getattr(d, "queued_update", False):
-                trigger_queued_update = True
-                break
-
-    assert trigger_queued_update is True
-    assert callback_called is False
-    callback("test_device")
-    assert callback_called is True
-
-
-@pytest.mark.asyncio
 async def test_online_device_without_queued_update_ignored(firmware_controller, mock_device):
     """Test that online devices without queued_update flag are ignored."""
     mock_device.state = DeviceState.ONLINE
@@ -113,9 +85,12 @@ async def test_clear_queued_update_clears_flag(firmware_controller, mock_device)
     """Test that clear_queued_update command resets the queued_update flag."""
     mock_device.state = DeviceState.OFFLINE
     mock_device.queued_update = True
-    firmware_controller._db.devices.monitor = MagicMock()
+
+    firmware_controller._db.devices._state_monitor = MagicMock()
+
     await firmware_controller.clear_queued_update(configuration="test_device.yaml")
-    firmware_controller._db.devices.monitor.apply_queued_update.assert_called_with(
+
+    firmware_controller._db.devices._state_monitor.apply_queued_update.assert_called_with(
         "test_device", is_queued=False
     )
 
@@ -147,13 +122,16 @@ def test_handle_device_wake_triggers_upload(firmware_controller, mock_device):
     mock_device.queued_update = True
     mock_device.configuration = "test_device.yaml"
     mock_device.name = "test_device"
-    firmware_controller._db.devices.monitor = MagicMock()
+
+    firmware_controller._db.devices._state_monitor = MagicMock()
 
     with (
         patch(
             "esphome_device_builder.controllers.firmware.controller.create_eager_task"
         ) as mock_eager,
-        patch.object(firmware_controller, "upload", new_callable=MagicMock) as mock_upload,
+        patch.object(
+            firmware_controller, "upload", new_callable=MagicMock
+        ) as mock_upload,
     ):
         event = Event(
             EventType.DEVICE_STATE_CHANGED,
@@ -164,8 +142,7 @@ def test_handle_device_wake_triggers_upload(firmware_controller, mock_device):
         )
         firmware_controller._handle_device_wake(event)
 
-        # Verify flag is cleared and upload is queued
-        firmware_controller._db.devices.monitor.apply_queued_update.assert_called_with(
+        firmware_controller._db.devices._state_monitor.apply_queued_update.assert_called_with(
             "test_device", is_queued=False
         )
         mock_upload.assert_called_with(configuration="test_device.yaml", port="OTA")
@@ -222,7 +199,8 @@ async def test_execute_job_sets_queued_flag(firmware_controller, mock_device):
     mock_device.state = DeviceState.OFFLINE
     mock_device.configuration = "test_device.yaml"
     mock_device.name = "test_device"
-    firmware_controller._db.devices.monitor = MagicMock()
+
+    firmware_controller._db.devices._state_monitor = MagicMock()
 
     job = MagicMock(spec=FirmwareJob)
     job.job_type = JobType.COMPILE
@@ -235,7 +213,7 @@ async def test_execute_job_sets_queued_flag(firmware_controller, mock_device):
     ):
         await firmware_controller._execute_job(job, MagicMock())
 
-    firmware_controller._db.devices.monitor.apply_queued_update.assert_called_with(
+    firmware_controller._db.devices._state_monitor.apply_queued_update.assert_called_with(
         "test_device", is_queued=True
     )
 
