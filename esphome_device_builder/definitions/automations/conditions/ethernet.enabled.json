@@ -1,0 +1,1 @@
+{"id":"ethernet.enabled","name":"Ethernet → Enabled","description":"This [Condition](https://esphome.io/automations/actions#all-conditions) checks if the Ethernet interface is currently enabled.","docs_url":"https://esphome.io/automations/actions","domain":"ethernet","config_entries":[],"accepts_condition_list":false,"scalar_shorthand_key":null}

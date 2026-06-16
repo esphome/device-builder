@@ -1,0 +1,1 @@
+{"id":"ethernet.enable","name":"Ethernet → Enable","description":"This action turns on the Ethernet interface on demand.","docs_url":"https://esphome.io/automations/actions","domain":"ethernet","config_entries":[],"is_control_flow":false,"has_else_branch":false,"accepts_action_list":[],"scalar_shorthand_key":null}
