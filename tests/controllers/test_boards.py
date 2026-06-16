@@ -301,8 +301,7 @@ async def test_get_boards_sorts_featured_first_generic_after_featured(
     Drives the dashboard's "browse all" listing — generics are the
     safe catch-all most users want, so they sit at the top of each
     list (below the separately-rendered featured boards). A refactor
-    that flipped the sort key tuple would surface here. The WiFi
-    intra-generic tie-break is pinned separately below.
+    that flipped the sort key tuple would surface here.
     """
     resp = await catalog.get_boards()
     ids = [b.id for b in resp.boards]
@@ -316,19 +315,15 @@ async def test_get_boards_sorts_featured_first_generic_after_featured(
     assert ids[-1] == "m5stack-cores3"
 
 
-async def test_get_boards_sorts_wifi_generics_above_plain_generics() -> None:
-    """Order: featured, WiFi generics, plain generics, then everything by name.
-
-    WiFi floats generics only — a WiFi-capable non-generic board still
-    sorts by name, not above its alphabetical neighbours.
-    """
+async def test_get_boards_sorts_wifi_first_within_generic_and_nongeneric_tiers() -> None:
+    """Pin tier order: featured, WiFi generic, generic, WiFi non-generic, non-generic."""
     cat = BoardCatalog()
     _seed_catalog(
         cat,
         [
             _board(board_id="featured", name="Featured Board", featured=True),
-            # WiFi generic named after the plain generic — WiFi must win the
-            # intra-generic tie-break despite the later name.
+            # WiFi generic named after the plain generic; WiFi wins the
+            # tie-break despite the later name.
             _board(
                 board_id="generic-wifi",
                 name="Generic Zzz",
@@ -336,10 +331,10 @@ async def test_get_boards_sorts_wifi_generics_above_plain_generics() -> None:
                 is_generic=True,
             ),
             _board(board_id="generic-plain", name="Generic Aaa", is_generic=True),
-            # Non-generic WiFi board named after a non-generic plain board —
-            # WiFi must NOT float it; name decides among non-generics.
-            _board(board_id="nongeneric-wifi", name="Zeta", tags=[BoardTag.WIFI]),
-            _board(board_id="nongeneric-plain", name="Alpha"),
+            # Alphabetically-first WiFi non-generic; still sorts below both
+            # generics (generics-first outranks both name and WiFi).
+            _board(board_id="nongeneric-wifi", name="Aaa Vendor", tags=[BoardTag.WIFI]),
+            _board(board_id="nongeneric-plain", name="Zzz Vendor"),
         ],
     )
 
@@ -350,8 +345,8 @@ async def test_get_boards_sorts_wifi_generics_above_plain_generics() -> None:
         "featured",
         "generic-wifi",
         "generic-plain",
-        "nongeneric-plain",
         "nongeneric-wifi",
+        "nongeneric-plain",
     ]
 
 
