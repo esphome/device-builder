@@ -194,6 +194,7 @@ async def test_update_device_persists_via_executor(
     sidecar = tmp_path / ".device-builder.json"
     assert sidecar.exists()
 
+
 def test_on_queued_update_change_updates_and_persists(make_controller, tmp_path):
     """Test that changing the queued flag updates memory, disk, and the frontend."""
     # 1. Create the controller using the factory fixture,

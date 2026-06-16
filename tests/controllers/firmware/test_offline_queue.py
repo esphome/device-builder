@@ -236,10 +236,12 @@ async def test_execute_job_ignores_online_device(firmware_controller, mock_devic
 
     firmware_controller._db.devices.monitor.apply_queued_update.assert_not_called()
 
+
 def test_device_for_configuration_handles_none(firmware_controller):
     """Test helper bails safely if the devices controller is completely missing."""
     firmware_controller._db.devices = None
     assert firmware_controller._device_for_configuration("kitchen.yaml") is None
+
 
 def test_device_for_configuration_uses_get_devices(firmware_controller):
     """Test standard production path using get_devices()."""
@@ -249,6 +251,7 @@ def test_device_for_configuration_uses_get_devices(firmware_controller):
 
     assert firmware_controller._device_for_configuration("kitchen.yaml") == mock_device
 
+
 def test_device_for_configuration_handles_list_stub(firmware_controller):
     """Test test-stub fallback where the controller is just a raw list."""
     mock_device = MagicMock(configuration="kitchen.yaml")
@@ -256,8 +259,10 @@ def test_device_for_configuration_handles_list_stub(firmware_controller):
 
     assert firmware_controller._device_for_configuration("kitchen.yaml") == mock_device
 
+
 def test_device_for_configuration_handles_unknown_stub(firmware_controller):
     """Test the e2e StubDevices fallback that lacks get_devices and isn't a list."""
+
     class StubDevices:
         pass  # Just an empty dummy object
 
