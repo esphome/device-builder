@@ -403,9 +403,11 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     async def get_binaries(self, *, configuration: str, **kwargs: Any) -> list[dict]:
         return await download_mod.get_binaries(self, configuration=configuration)
 
+    # Artifact bytes are served over HTTP (GET /api/firmware/download), not the
+    # WebSocket — a ~14 MB firmware.elf exceeds a proxy's WS max_msg_size, and a
+    # navigation streams to disk (mobile-friendly). This command mints the
+    # single-use token that authorizes one such download.
     @api_command("firmware/download_token")
-    # Artifact bytes are served over HTTP (GET /api/firmware/download), not the WebSocket —
-    # a ~14 MB firmware.elf exceeds a proxy's WS max_msg_size...
     async def download_token(self, *, configuration: str, file: str, **kwargs: Any) -> dict:
         await self._validate_configuration_boundary(configuration)
         # Resolve up front so the caller learns the exact filename the download
