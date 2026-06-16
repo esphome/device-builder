@@ -76,6 +76,10 @@ jobs:
         # latest schema release including prereleases so betas land
         # early. Reuses the script's own resolver (it imports without
         # pulling esphome) rather than duplicating the GitHub API call.
+        # GITHUB_TOKEN lifts the resolver's releases-API call off the
+        # 60 req/hr unauthenticated cap on shared runner IPs.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           if [ -n "${{ inputs.version }}" ]; then
@@ -93,6 +97,13 @@ jobs:
         # / ``supported_platforms`` / type refinement) matches it. A
         # no-op when that version is already installed (stable case);
         # ``--prerelease=allow`` lets uv accept a beta tag.
+        #
+        # Fails hard on purpose: if the matching esphome wheel isn't on
+        # PyPI yet (the schema-repo and esphome ship from separate
+        # pipelines, so a freshly-cut beta schema can briefly predate
+        # its wheel), introspecting a beta schema with a stale esphome
+        # would regress the catalog. Better a red nightly that retries
+        # than a degraded catalog proposed for merge.
         run: uv pip install --system --prerelease=allow "esphome==${{ steps.version.outputs.version }}"
 
       - name: Run sync_components

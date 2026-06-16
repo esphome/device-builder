@@ -40,6 +40,7 @@ import importlib
 import inspect
 import json
 import logging
+import os
 import re
 import shutil
 import sys
@@ -1008,8 +1009,18 @@ def ensure_schema(version: str) -> Path:
 
 
 def _http_get(url: str, *, timeout: int = 30) -> bytes:
-    """GET *url* with our identifying User-Agent and return raw bytes."""
-    req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+    """
+    GET *url* with our identifying User-Agent and return raw bytes.
+
+    Sends ``Authorization: Bearer $GITHUB_TOKEN`` only for api.github.com
+    so the releases call escapes the 60 req/hr unauthenticated cap; the
+    token is never attached to the schema CDN download.
+    """
+    headers = {"User-Agent": _USER_AGENT}
+    token = os.environ.get("GITHUB_TOKEN")
+    if token and url.startswith("https://api.github.com/"):
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read()
 
