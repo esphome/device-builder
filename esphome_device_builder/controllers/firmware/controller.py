@@ -207,7 +207,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
                 else (self._db.devices if isinstance(self._db.devices, list) else [])
             )
             device = next(
-                (d for d in devices if getattr(d, "configuration", None) == configuration), 
+                (d for d in devices if getattr(d, "configuration", None) == configuration),
                 None,
             )
 
