@@ -34,7 +34,16 @@ def _by_target() -> dict[str, tuple[str, ...]]:
 
 def build_files_for_platform(target_platform: str) -> tuple[str, ...]:
     """Return BUILD_FILES for *target_platform*; empty tuple if unrecognised."""
-    return _by_target().get(target_platform.lower(), ())
+    key = target_platform.lower()
+    files = _by_target().get(key)
+    if files is not None:
+        return files
+    # Mirror download.py's _resolve_download_component esp32 fold, so an esp32
+    # variant still resolves on a degraded (empty) index and an offload packs
+    # rather than raising on empty build_files.
+    if key.startswith("esp32"):
+        return esp32.BUILD_FILES
+    return ()
 
 
 # Prime the cached map at import so the first artifact build doesn't pay the

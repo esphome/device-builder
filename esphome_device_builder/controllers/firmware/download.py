@@ -113,7 +113,7 @@ async def get_binaries(controller: FirmwareController, *, configuration: str) ->
 
 
 def collect_download_entries(
-    storage: StorageJSON, storage_path: Path | None = None, *, label: str | None = None
+    storage: StorageJSON, storage_path: Path, *, label: str | None = None
 ) -> list[dict]:
     """Return the downloadable artifacts on disk for *storage* as ``[{title, file, ...}]``.
 
