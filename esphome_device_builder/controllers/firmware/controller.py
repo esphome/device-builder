@@ -206,7 +206,9 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
                 if hasattr(self._db.devices, "get_devices")
                 else self._db.devices
             )
-            device = next((d for d in devices if getattr(d, "configuration", None) == configuration), None)
+            device = next(
+                (d for d in devices if getattr(d, "configuration", None) == configuration), None
+            )
 
             if device and hasattr(device, "queued_update"):
                 monitor: Any = getattr(

@@ -106,6 +106,7 @@ async def test_online_device_without_queued_update_ignored(firmware_controller, 
 
     assert trigger_queued_update is False
 
+
 @pytest.mark.asyncio
 async def test_clear_queued_update_clears_flag(firmware_controller, mock_device):
     """Test that clear_queued_update command resets the queued_update flag."""
@@ -117,13 +118,15 @@ async def test_clear_queued_update_clears_flag(firmware_controller, mock_device)
         "test_device", is_queued=False
     )
 
+
 @pytest.mark.asyncio
 async def test_clear_queued_update_invalid_config_raises(firmware_controller):
     """Test that clearing a non-existent device configuration raises a CommandError."""
     firmware_controller._db.settings.rel_path.side_effect = Exception("Out of bounds")
 
-    with pytest.raises(Exception): 
+    with pytest.raises(Exception):
         await firmware_controller.clear_queued_update(configuration="non_existent.yaml")
+
 
 @pytest.mark.asyncio
 async def test_queued_update_not_cleared_if_device_missing(firmware_controller):
