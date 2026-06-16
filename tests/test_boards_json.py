@@ -316,3 +316,12 @@ def test_slim_index_round_trip_strips_factory_fields() -> None:
         "esphome": {"platform": "esp32", "board": "esp32dev"},
     }
     assert BoardCatalogIndex.from_dict(payload) == entry
+
+
+def test_wifi_capable_rp2040_boards_carry_the_wifi_tag() -> None:
+    """WiFi-capable RP2040 boards (Pico W, etc.) get the WiFi chip; plain ones don't."""
+    tags = {b.id: set(b.tags) for b in load_board_index()}
+    assert BoardTag.WIFI in tags["rpipicow"]
+    assert BoardTag.WIFI in tags["rpipico2w"]
+    assert BoardTag.WIFI not in tags.get("rpipico", set())
+    assert BoardTag.WIFI not in tags.get("rpipico2", set())
