@@ -191,7 +191,7 @@ The subscription stays open for the connection's lifetime; closing the WebSocket
 
 | Command | Args | Response | Description |
 |---------|------|----------|-------------|
-| `boards/get_boards` | `{query?, platform?, variant?, tag?, offset?, limit?}` | `PagedBoardsResponse` (slim) | Search/list slim board index entries |
+| `boards/get_boards` | `{query?, platform?, variant?, mcu?, tag?, offset?, limit?}` | `PagedBoardsResponse` (slim) | Search/list slim board index entries (`mcu` narrows rp2040 to one chip series) |
 | `boards/get_board` | `{board_id}` | `BoardCatalogEntry` | Get one board's full body (hardware, pins, featured / default components) |
 | `boards/get_compatible_boards` | `{board_id}` | `PagedBoardsResponse` (slim) | Boards interchangeable with `board_id` (same PlatformIO target), the whole set in one page; includes the board itself, empty when unknown. Powers the device editor's "change board" picker |
 
