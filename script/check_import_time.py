@@ -14,8 +14,9 @@ dashboard startup, which is painfully slow on low-power hosts like the HA Green.
 ``main()`` so ``--version`` / ``--help`` stay fast, so profiling its import
 measures nothing.
 
-The budget is an absolute microsecond figure, so regenerate it (``--update``) on
-the CI runner class rather than a dev laptop if the 15%-margin gate flakes; the
+The budget is an absolute microsecond figure measured on a CI runner (a dev
+laptop reads ~3x faster), with a wide margin for runner-to-runner variance.
+Regenerate it (``--update``) from a CI run, not a laptop, if it ever flakes; the
 structural guard in ``tests/test_cold_import_floor.py`` (the heavy esphome
 modules stay out of ``sys.modules``) is the authoritative invariant.
 """
@@ -33,7 +34,12 @@ SCRIPT_DIR = Path(__file__).parent
 BUDGET_PATH = SCRIPT_DIR / "import_time_budget.json"
 
 TARGET_MODULE = "esphome_device_builder.device_builder"
-DEFAULT_MARGIN_PCT = 15
+# Generous: the budget is an absolute wall-clock figure measured on a CI runner,
+# and shared GitHub runners vary substantially run to run (and between
+# generations). The structural guard (tests/test_cold_import_floor.py) is the
+# precise invariant; this gate only catches a gross balloon, so a wide margin
+# trades a little sensitivity for not flaking on unrelated PRs.
+DEFAULT_MARGIN_PCT = 50
 OFFENDERS_TOP_N = 15
 
 
