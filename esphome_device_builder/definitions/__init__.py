@@ -527,6 +527,7 @@ def coerce_download_entries(value: object) -> list[dict[str, str]]:
     downstream ``entry["file"]``.
     """
     if not isinstance(value, list):
+        _LOGGER.warning("download-types payload is not a list: %s", type(value).__name__)
         return []
     clean = [
         {

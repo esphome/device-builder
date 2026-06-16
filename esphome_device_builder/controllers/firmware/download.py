@@ -339,4 +339,10 @@ def _resolve_download_component(target_platform: str | None) -> str:
         return "esp32"
     if platform in routing.libretiny_targets:
         return "libretiny"
+    # Every esp32 variant is the umbrella ``esp32`` component, so fold by prefix
+    # even when the index is degraded (empty variants) — a missing index then
+    # makes an ESP32-S3/C3/... download slow (helper spawn) rather than broken
+    # (helper importing a nonexistent ``esphome.components.esp32s3``).
+    if platform.startswith("esp32"):
+        return "esp32"
     return platform

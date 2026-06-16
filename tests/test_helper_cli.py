@@ -103,6 +103,19 @@ def test_cmd_download_types_prints_entries(tmp_path: Path, capsys: pytest.Captur
     assert entries and entries[0]["file"] == "firmware.uf2"
 
 
+@pytest.mark.parametrize("bad", ["esp32.boards", "../evil", "esp32;rm -rf", "a/b", "ESP32", ""])
+def test_cmd_download_types_rejects_invalid_component(
+    tmp_path: Path, capsys: pytest.CaptureFixture, bad: str
+) -> None:
+    """A component name outside ``[a-z0-9_]+`` is rejected before any import."""
+    storage_path, _build = _make_storage(tmp_path, "bk72xx", "firmware.uf2")
+    args = SimpleNamespace(storage_path=str(storage_path), component=bad)
+
+    assert helper_cli._cmd_download_types(args) == 0  # type: ignore[arg-type]
+
+    assert json.loads(capsys.readouterr().out) == []
+
+
 def test_cmd_download_types_missing_storage_prints_empty(
     tmp_path: Path, capsys: pytest.CaptureFixture
 ) -> None:

@@ -136,6 +136,22 @@ def test_resolve_download_component_handles_none() -> None:
     assert _resolve_download_component("") == ""
 
 
+def test_resolve_download_component_folds_esp32_variants_when_index_degraded(
+    monkeypatch: Any,
+) -> None:
+    """An empty (degraded) index still folds esp32 variants to the umbrella component.
+
+    A missing index then makes an ESP32 variant download slow (helper spawn) rather
+    than broken (helper importing a nonexistent ``esphome.components.esp32s3``).
+    """
+    empty = download_mod._DownloadRouting(frozenset(), frozenset())
+    monkeypatch.setattr(download_mod, "_platform_sets", lambda: empty)
+    assert _resolve_download_component("ESP32S3") == "esp32"
+    assert _resolve_download_component("esp32c3") == "esp32"
+    assert _resolve_download_component("esp32") == "esp32"
+    assert _resolve_download_component("esp8266") == "esp8266"  # non-esp32 unaffected
+
+
 # ---------------------------------------------------------------------------
 # _download_types_for — source resolution (index vs helper)
 # ---------------------------------------------------------------------------

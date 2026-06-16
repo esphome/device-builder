@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import importlib
+import re
 import sys
 from pathlib import Path
 
@@ -27,10 +28,17 @@ from esphome.storage_json import StorageJSON
 from .definitions import coerce_download_entries
 from .helpers.json import dumps_str
 
+# esphome component module names are lowercase identifiers. Validate before
+# interpolating into the import path so a crafted target_platform can't steer
+# ``import_module`` to a dotted sub-path or an unexpected module (defence in
+# depth: the name is already confined to the ``esphome.components.`` prefix and
+# import_module is not eval, but keep the surface minimal).
+_COMPONENT_RE = re.compile(r"[a-z0-9_]+")
+
 
 def _cmd_download_types(args: argparse.Namespace) -> int:
     storage = StorageJSON.load(Path(args.storage_path))
-    if storage is None:
+    if storage is None or not _COMPONENT_RE.fullmatch(args.component):
         sys.stdout.write(dumps_str([]))
         return 0
     # Keep stdout pure JSON: route anything esphome prints to stdout during the
