@@ -235,3 +235,31 @@ async def test_execute_job_ignores_online_device(firmware_controller, mock_devic
         await firmware_controller._execute_job(job, MagicMock())
 
     firmware_controller._db.devices.monitor.apply_queued_update.assert_not_called()
+
+def test_device_for_configuration_handles_none(firmware_controller):
+    """Test helper bails safely if the devices controller is completely missing."""
+    firmware_controller._db.devices = None
+    assert firmware_controller._device_for_configuration("kitchen.yaml") is None
+
+def test_device_for_configuration_uses_get_devices(firmware_controller):
+    """Test standard production path using get_devices()."""
+    mock_device = MagicMock(configuration="kitchen.yaml")
+    firmware_controller._db.devices = MagicMock()
+    firmware_controller._db.devices.get_devices.return_value = [mock_device]
+
+    assert firmware_controller._device_for_configuration("kitchen.yaml") == mock_device
+
+def test_device_for_configuration_handles_list_stub(firmware_controller):
+    """Test test-stub fallback where the controller is just a raw list."""
+    mock_device = MagicMock(configuration="kitchen.yaml")
+    firmware_controller._db.devices = [mock_device]
+
+    assert firmware_controller._device_for_configuration("kitchen.yaml") == mock_device
+
+def test_device_for_configuration_handles_unknown_stub(firmware_controller):
+    """Test the e2e StubDevices fallback that lacks get_devices and isn't a list."""
+    class StubDevices:
+        pass  # Just an empty dummy object
+
+    firmware_controller._db.devices = StubDevices()
+    assert firmware_controller._device_for_configuration("kitchen.yaml") is None

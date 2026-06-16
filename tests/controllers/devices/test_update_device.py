@@ -26,6 +26,8 @@ from esphome_device_builder.controllers.config import (
 )
 from tests.conftest import make_device
 
+from unittest.mock import MagicMock
+
 from .conftest import MakeControllerFactory
 
 
@@ -192,3 +194,30 @@ async def test_update_device_persists_via_executor(
     # The atomic-replace landed a real JSON file on disk.
     sidecar = tmp_path / ".device-builder.json"
     assert sidecar.exists()
+
+def test_on_queued_update_change_updates_and_persists(make_controller, tmp_path):
+    """Test that changing the queued flag updates memory, disk, and the frontend."""
+    # 1. Create the controller using the factory fixture, 
+    # passing the tmp_path as the config_dir
+    devices_controller = make_controller(config_dir=tmp_path)
+
+    # 2. Setup a mock device
+    mock_device = MagicMock()
+    mock_device.name = "kitchen"
+    mock_device.configuration = "kitchen.yaml"
+    mock_device.queued_update = False
+
+    # 3. Wire the controller dependencies
+    devices_controller.get_devices = MagicMock(return_value=[mock_device])
+    devices_controller._metadata_store = MagicMock()
+    devices_controller._fire_device_updated = MagicMock()
+
+    # 4. Execute
+    devices_controller._on_queued_update_change("kitchen", is_queued=True)
+
+    # 5. Assert
+    assert mock_device.queued_update is True
+    devices_controller._metadata_store.update.assert_called_once_with(
+        "kitchen.yaml", queued_update=True
+    )
+    devices_controller._fire_device_updated.assert_called_once_with(mock_device)

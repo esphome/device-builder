@@ -42,3 +42,29 @@ def test_apply_queued_update(monitor):
 
     assert result is True
     monitor._on_queued_update_change.assert_called_with(device_name, False)
+
+def test_apply_queued_update_missing_callback():
+    """Test early return if no callback is registered."""
+    monitor = DeviceStateMonitor(
+        get_devices=MagicMock(),
+        on_state_change=MagicMock(),
+        on_ip_change=MagicMock(),
+        on_queued_update_change=None,  # Callback omitted
+    )
+    assert monitor.apply_queued_update("kitchen", is_queued=True) is False
+
+def test_apply_queued_update_no_diff(monitor):
+    """Test early return if the device state already matches."""
+    monitor._any_matching_device_differs = MagicMock(return_value=False)
+    monitor._on_queued_update_change = MagicMock()
+
+    assert monitor.apply_queued_update("kitchen", is_queued=True) is False
+    monitor._on_queued_update_change.assert_not_called()
+
+def test_apply_queued_update_triggers_callback(monitor):
+    """Test standard execution when the state differs."""
+    monitor._any_matching_device_differs = MagicMock(return_value=True)
+    monitor._on_queued_update_change = MagicMock()
+
+    assert monitor.apply_queued_update("kitchen", is_queued=True) is True
+    monitor._on_queued_update_change.assert_called_once_with("kitchen", True)
