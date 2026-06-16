@@ -1,8 +1,11 @@
 """Tests for the DeviceStateMonitor controller."""
 
-from esphome_device_builder.controllers._device_state_monitor.controller import DeviceStateMonitor
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
+
+from esphome_device_builder.controllers._device_state_monitor.controller import DeviceStateMonitor
+
 
 @pytest.fixture
 def monitor():
@@ -14,8 +17,9 @@ def monitor():
         get_devices=MagicMock(return_value=[]),
         on_state_change=MagicMock(),
         on_ip_change=MagicMock(),
-        on_queued_update_change=mock_on_queued  # Pass the callback here
+        on_queued_update_change=mock_on_queued,  # Pass the callback here
     )
+
 
 def test_apply_queued_update(monitor):
     """Test that apply_queued_update triggers the callback correctly."""
