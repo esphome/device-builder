@@ -76,13 +76,17 @@ async def create_device(  # noqa: C901, PLR0912
             f"name {friendly!r} has no hostname-safe characters",
         )
 
-    for field, value in (("ssid", ssid), ("psk", psk)):
-        if _SECRET_TAG_RE.match(value):
-            raise CommandError(
-                ErrorCode.INVALID_ARGS,
-                f"{field} must be a literal value; leave it empty to use "
-                "secrets.yaml (the generated config emits !secret wifi_ssid / wifi_password)",
-            )
+    # ssid/psk are literal credentials only for the generated flows; the
+    # file_content upload writes user YAML as-is and ignores them. A JSON
+    # null arrives as None (the empty-credential signal), so skip it too.
+    if file_content is None:
+        for field, value in (("ssid", ssid), ("psk", psk)):
+            if value and _SECRET_TAG_RE.match(value):
+                raise CommandError(
+                    ErrorCode.INVALID_ARGS,
+                    f"{field} must be a literal value; leave it empty to use "
+                    "secrets.yaml (the generated config emits !secret wifi_ssid / wifi_password)",
+                )
 
     filename = f"{name}.yaml"
     config_path = controller._db.settings.rel_path(filename)
