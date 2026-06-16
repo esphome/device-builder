@@ -194,6 +194,29 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     async def clean(self, *, configuration: str, **kwargs: Any) -> FirmwareJob:
         return await clean_mod.clean(self, configuration=configuration)
 
+    @api_command("firmware/clear_queued_update")
+    async def clear_queued_update(self, *, configuration: str, **kwargs: Any) -> None:
+        """Manually clear the queued_update flag for a device."""
+        await self._validate_configuration_boundary(configuration)
+
+        if self._db.devices is not None:
+            # Use same iteration logic as _handle_device_wake
+            devices = (
+                self._db.devices.get_devices()
+                if hasattr(self._db.devices, "get_devices")
+                else self._db.devices
+            )
+            device = next((d for d in devices if getattr(d, "configuration", None) == configuration), None)
+
+            if device and hasattr(device, "queued_update"):
+                monitor: Any = getattr(
+                    self._db.devices, "monitor", getattr(self._db.devices, "_monitor", None)
+                )
+                if monitor is not None:
+                    # Clear the flag via the monitor
+                    monitor.apply_queued_update(device.name, is_queued=False)
+                    _LOGGER.info("Queued update cleared for device %s", configuration)
+
     @api_command("firmware/reset_build_env")
     async def reset_build_env(self, **kwargs: Any) -> FirmwareJob:
         """
