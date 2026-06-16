@@ -359,13 +359,25 @@ def _augment_rp2040_boards(boards: list[BoardCatalogEntry]) -> None:
         entry = _generated_board(
             Platform.RP2040, name, _meta_name(meta, name), _derive_rp2040_pins(pins, max_pin)
         )
-        # Most RP2040 boards have no Wi-Fi; tag the few that do (Pico W, etc.) so
-        # the picker card shows a WiFi chip. Wi-Fi is universal on esp32/esp8266/
-        # libretiny, so only rp2040 gets the chip.
-        if meta.get("wifi"):
-            entry.tags.append(BoardTag.WIFI)
         boards.append(entry)
         ids.add(name)
+
+
+def _backfill_rp2040_wifi(boards: list[BoardCatalogEntry]) -> None:
+    """
+    Tag each WiFi-capable rp2040 board (Pico W, etc.) so the picker shows a chip.
+
+    Derived from the pio board's ESPHome ``wifi`` flag, so it covers curated boards
+    too (e.g. ``generic-rp2040`` maps to the wifi ``rpipicow`` target). Wi-Fi is
+    universal on esp32/esp8266/libretiny, so only rp2040 gets the chip. A backfill
+    (not part of generation) so the manifest-only drift test applies it the same way.
+    """
+    module = importlib.import_module("esphome.components.rp2040.boards")
+    for board in boards:
+        if board.esphome.platform is Platform.RP2040 and BoardTag.WIFI not in board.tags:
+            meta = module.BOARDS.get(board.esphome.board)
+            if isinstance(meta, dict) and meta.get("wifi"):
+                board.tags.append(BoardTag.WIFI)
 
 
 def _backfill_rp2040_mcu(boards: list[BoardCatalogEntry]) -> None:
@@ -631,6 +643,7 @@ def build_catalog() -> BoardCatalogResponse:
     _backfill_esp32_variants(catalog.boards)
     _augment_libretiny_boards(catalog.boards)
     _augment_rp2040_boards(catalog.boards)
+    _backfill_rp2040_wifi(catalog.boards)
     _backfill_rp2040_mcu(catalog.boards)
     _augment_esp32_boards(catalog.boards)
     _augment_esp8266_boards(catalog.boards)

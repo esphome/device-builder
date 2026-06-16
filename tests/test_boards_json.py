@@ -50,6 +50,7 @@ from script.sync_boards import (
     _RP2040_PLATFORM,
     _backfill_esp32_variants,
     _backfill_rp2040_mcu,
+    _backfill_rp2040_wifi,
 )
 
 _DEFINITIONS_DIR = Path(__file__).parent.parent / "esphome_device_builder" / "definitions"
@@ -77,10 +78,11 @@ def test_split_artefacts_match_manifests() -> None:
     mix: curated manifests stay checked, empty product manifests get filled.
     """
     from_yaml = build_board_catalog_from_manifests(strict=True)
-    # Variant + mcu backfills are part of emission (sync_boards.build_catalog), so
-    # apply them here too or esp32 boards carrying only a PIO board id (and rp2040
-    # boards lacking the chip series) mismatch disk.
+    # Variant / wifi / mcu backfills are part of emission (sync_boards.build_catalog),
+    # so apply them here too or esp32 boards carrying only a PIO board id (and rp2040
+    # boards lacking the WiFi tag or chip series) mismatch disk.
     _backfill_esp32_variants(from_yaml.boards)
+    _backfill_rp2040_wifi(from_yaml.boards)
     _backfill_rp2040_mcu(from_yaml.boards)
     from_disk = load_board_catalog()
     generated = set(_LIBRETINY_FAMILIES) | {_RP2040_PLATFORM, _NRF52_PLATFORM, "esp32", "esp8266"}
@@ -328,6 +330,10 @@ def test_wifi_capable_rp2040_boards_carry_the_wifi_tag() -> None:
     assert BoardTag.WIFI in tags["rpipico2w"]
     assert BoardTag.WIFI not in tags.get("rpipico", set())
     assert BoardTag.WIFI not in tags.get("rpipico2", set())
+    # The curated generic RP2040 maps to the wifi rpipicow target, so the tag
+    # is derived from the pio board, not only from generated boards.
+    assert BoardTag.WIFI in tags["generic-rp2040"]
+    assert BoardTag.WIFI not in tags.get("generic_rp2350", set())
 
 
 def test_rp2040_boards_carry_the_chip_mcu_other_platforms_do_not() -> None:
