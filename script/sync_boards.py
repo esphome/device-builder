@@ -61,6 +61,7 @@ from esphome_device_builder.models import (  # noqa: E402
     BoardCatalogResponse,
     BoardEsphomeConfig,
     BoardPin,
+    BoardTag,
     Esp32Variant,
     PinFeature,
     Platform,
@@ -355,11 +356,15 @@ def _augment_rp2040_boards(boards: list[BoardCatalogEntry]) -> None:
             continue
         max_pin = meta.get("max_pin", default_max_pin)
         pins = _resolve_board_pins(module.RP2040_BOARD_PINS, name) or {}
-        boards.append(
-            _generated_board(
-                Platform.RP2040, name, _meta_name(meta, name), _derive_rp2040_pins(pins, max_pin)
-            )
+        entry = _generated_board(
+            Platform.RP2040, name, _meta_name(meta, name), _derive_rp2040_pins(pins, max_pin)
         )
+        # Most RP2040 boards have no Wi-Fi; tag the few that do (Pico W, etc.) so
+        # the picker card shows a WiFi chip. Wi-Fi is universal on esp32/esp8266/
+        # libretiny, so only rp2040 gets the chip.
+        if meta.get("wifi"):
+            entry.tags.append(BoardTag.WIFI)
+        boards.append(entry)
         ids.add(name)
 
 

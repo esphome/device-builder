@@ -86,6 +86,7 @@ class BoardTag(StrEnum):
     IMU = "imu"
 
     # Power / connectivity
+    WIFI = "wifi"
     LIPO = "lipo"
     POE = "poe"
     USB_C = "usb-c"
