@@ -318,19 +318,13 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             return []
         return self.get_address_cache_args(configuration)
 
-    def _on_queued_update_change(self, name: str, is_queued: bool) -> None:
+    def _on_queued_update_change(self, name: str, is_queued: bool) -> None:  # noqa: FBT001
         """Handle offline queued update flag transitions and persist."""
-        changed = False
-        for device in self._devices:
+        for device in self.get_devices():
             if device.name == name:
                 device.queued_update = is_queued
-                changed = True
-
-        if changed:
-            # Broadcast the change to the frontend
-            self.send_devices_update()
-            # Assuming sidecar/storage persistence is handled here:
-            self._save_devices()
+                self._metadata_store.update(device.configuration, queued_update=is_queued)
+                self._fire_device_updated(device)
 
     # ------------------------------------------------------------------
     # API commands — listing
