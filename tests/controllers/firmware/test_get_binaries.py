@@ -23,7 +23,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from esphome.components.esp32 import VARIANTS as _ESP32_VARIANTS
 
 from esphome_device_builder.controllers.firmware import download as download_mod
 from esphome_device_builder.controllers.firmware.download import (
@@ -34,9 +33,11 @@ from esphome_device_builder.controllers.firmware.download import (
 from tests._storage_fixtures import write_storage_json
 from tests.controllers.firmware.conftest import FirmwareControllerFactory
 
-# Family set the resolver routes to ``libretiny``, from the same generated
-# index production reads (chip families plus the umbrella key).
-_LIBRETINY_TARGET_PLATFORMS = _platform_sets()[1]
+# Variant / family sets the resolver routes, read from the same generated index
+# production uses. Driven off the index (not a live esphome import) so the test
+# is independent of the installed esphome version (CI runs stable / beta / dev).
+_ESP32_VARIANTS = sorted(_platform_sets().esp32_variants)
+_LIBRETINY_TARGET_PLATFORMS = _platform_sets().libretiny_targets
 
 
 @pytest.fixture(autouse=True)

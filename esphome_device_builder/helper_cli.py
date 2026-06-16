@@ -18,17 +18,18 @@ from __future__ import annotations
 
 import argparse
 import importlib
-import json
 import sys
 from pathlib import Path
 
 from esphome.storage_json import StorageJSON
 
+from .helpers.json import dumps_str
+
 
 def _cmd_download_types(args: argparse.Namespace) -> int:
     storage = StorageJSON.load(Path(args.storage_path))
     if storage is None:
-        json.dump([], sys.stdout)
+        sys.stdout.write(dumps_str([]))
         return 0
     module = importlib.import_module(f"esphome.components.{args.component}")
     entries = [
@@ -39,7 +40,7 @@ def _cmd_download_types(args: argparse.Namespace) -> int:
         }
         for entry in module.get_download_types(storage)
     ]
-    json.dump(entries, sys.stdout)
+    sys.stdout.write(dumps_str(entries))
     return 0
 
 

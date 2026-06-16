@@ -15,9 +15,13 @@ import subprocess
 import sys
 import textwrap
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from esphome.storage_json import StorageJSON
+
+from esphome_device_builder import helper_cli
+from esphome_device_builder.controllers.firmware.download import _helper_cmd
 
 
 def _make_storage(tmp_path: Path, target_platform: str, *build_files: str) -> tuple[Path, Path]:
@@ -59,18 +63,16 @@ def _make_storage(tmp_path: Path, target_platform: str, *build_files: str) -> tu
 def test_helper_download_types_matches_in_process(
     tmp_path: Path, target_platform: str, component: str, build_files: tuple[str, ...]
 ) -> None:
-    """The helper child emits the same entries as an in-process get_download_types call."""
+    """The helper child emits the same entries as an in-process get_download_types call.
+
+    Runs the production command (``_helper_cmd()``) end to end, so the installed
+    ``device-builder-helper`` console-script entry point is exercised under CI
+    (and the ``-m`` fallback in an editable dev checkout).
+    """
     storage_path, _build = _make_storage(tmp_path, target_platform, *build_files)
 
     result = subprocess.run(  # noqa: S603 — args fully test-controlled
-        [
-            sys.executable,
-            "-m",
-            "esphome_device_builder.helper_cli",
-            "download-types",
-            str(storage_path),
-            component,
-        ],
+        [*_helper_cmd(), "download-types", str(storage_path), component],
         check=True,
         capture_output=True,
         text=True,
@@ -88,6 +90,42 @@ def test_helper_download_types_matches_in_process(
     ]
     assert child == expected
     assert child, "fixture should produce at least one downloadable entry"
+
+
+def test_cmd_download_types_prints_entries(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """In-process: the subcommand prints the platform's download-type JSON."""
+    storage_path, _build = _make_storage(tmp_path, "bk72xx", "firmware.uf2")
+    args = SimpleNamespace(storage_path=str(storage_path), component="libretiny")
+
+    assert helper_cli._cmd_download_types(args) == 0  # type: ignore[arg-type]
+
+    entries = json.loads(capsys.readouterr().out)
+    assert entries and entries[0]["file"] == "firmware.uf2"
+
+
+def test_cmd_download_types_missing_storage_prints_empty(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    """A missing sidecar prints ``[]`` rather than raising."""
+    args = SimpleNamespace(storage_path=str(tmp_path / "absent.json"), component="libretiny")
+
+    assert helper_cli._cmd_download_types(args) == 0  # type: ignore[arg-type]
+
+    assert json.loads(capsys.readouterr().out) == []
+
+
+def test_main_dispatches_download_types(
+    tmp_path: Path, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``main`` parses argv and dispatches the download-types subcommand."""
+    storage_path, _build = _make_storage(tmp_path, "ESP8266", "firmware.bin")
+    monkeypatch.setattr(
+        sys, "argv", ["device-builder-helper", "download-types", str(storage_path), "esp8266"]
+    )
+
+    assert helper_cli.main() == 0
+
+    assert any(entry["file"] == "firmware.bin" for entry in json.loads(capsys.readouterr().out))
 
 
 def test_download_path_does_not_import_esphome_components(tmp_path: Path) -> None:

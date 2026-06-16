@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-import os
 import re
 import secrets
 import subprocess
-import sys
 import time
+from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -20,7 +18,9 @@ from esphome.storage_json import StorageJSON
 
 from ...definitions import PlatformCapabilities, load_platform_capabilities_index
 from ...helpers.api import CommandError
+from ...helpers.json import loads as json_loads
 from ...helpers.storage_path import resolve_storage_path
+from .helpers import _find_sibling_cli
 
 if TYPE_CHECKING:
     from .controller import FirmwareController
@@ -31,22 +31,32 @@ _LOGGER = logging.getLogger(__name__)
 _HELPER_TIMEOUT_S = 60
 
 
-@cache
 def _capabilities() -> PlatformCapabilities:
-    """Read the generated platform-capabilities index once (no esphome import)."""
+    """Seam over the (cached) platform-capabilities index loader."""
     return load_platform_capabilities_index()
 
 
-@cache
-def _platform_sets() -> tuple[frozenset[str], frozenset[str]]:
-    """Return ``(esp32_variants, libretiny_target_platforms)`` for download routing.
+@dataclass(frozen=True, slots=True)
+class _DownloadRouting:
+    """Sets that map a ``target_platform`` to an ``esphome.components`` module."""
 
-    Read from the generated index rather than ``esphome.components.esp32`` to keep
-    espidf / requests / esphome.config off cold start. LibreTiny chip families
-    collapse to the ``libretiny`` component, so the umbrella name joins the set.
+    esp32_variants: frozenset[str]
+    libretiny_targets: frozenset[str]
+
+
+@cache
+def _platform_sets() -> _DownloadRouting:
+    """Return the download-routing sets, derived from the generated index.
+
+    Read from the index rather than ``esphome.components.esp32`` to keep espidf /
+    requests / esphome.config off cold start. LibreTiny chip families collapse to
+    the ``libretiny`` component, so the umbrella name joins that set.
     """
     caps = _capabilities()
-    return frozenset(caps.esp32_variants), frozenset(caps.libretiny_families) | {"libretiny"}
+    return _DownloadRouting(
+        esp32_variants=frozenset(caps.esp32_variants),
+        libretiny_targets=frozenset(caps.libretiny_families) | {"libretiny"},
+    )
 
 
 # Prime the cached index read at import so the first download request doesn't
@@ -54,14 +64,9 @@ def _platform_sets() -> tuple[frozenset[str], frozenset[str]]:
 _platform_sets()
 
 
-@cache
 def _helper_cmd() -> tuple[str, ...]:
-    """Argv prefix for the device-builder-helper child: sibling script, else ``-m``."""
-    name = "device-builder-helper.exe" if os.name == "nt" else "device-builder-helper"
-    sibling = Path(sys.executable).parent / name
-    if sibling.exists():
-        return (str(sibling),)
-    return (sys.executable, "-m", "esphome_device_builder.helper_cli")
+    """Argv prefix for the device-builder-helper child (cached by _find_sibling_cli)."""
+    return _find_sibling_cli("device-builder-helper", "esphome_device_builder.helper_cli")
 
 
 # Stable ``type`` tag per artifact filename so the frontend can map it to a
@@ -173,14 +178,17 @@ def _download_types_for(
         return []
     cmd = [*_helper_cmd(), "download-types", str(storage_path), component]
     try:
+        # ``close_fds=False`` mirrors helpers.subprocess's policy (skip the
+        # fork-time /proc/self/fd close walk; we inherit nothing the child needs shut).
         result = subprocess.run(  # noqa: S603 — argv is internally built, no shell
             cmd,
             check=True,
             capture_output=True,
             text=True,
             timeout=_HELPER_TIMEOUT_S,
+            close_fds=False,
         )
-        entries: list[dict] = json.loads(result.stdout)
+        entries: list[dict] = json_loads(result.stdout)
     except Exception:  # helper spawn / esphome regression could raise anything
         _LOGGER.warning(
             "Could not determine download types for %s", label or storage.name, exc_info=True
@@ -300,9 +308,9 @@ def _resolve_download_component(target_platform: str | None) -> str:
     its import and the caller logs a warning and treats the build as not built.
     """
     platform = (target_platform or "").lower()
-    esp32_variants, libretiny_target_platforms = _platform_sets()
-    if platform.upper() in esp32_variants:
+    routing = _platform_sets()
+    if platform.upper() in routing.esp32_variants:
         return "esp32"
-    if platform in libretiny_target_platforms:
+    if platform in routing.libretiny_targets:
         return "libretiny"
     return platform

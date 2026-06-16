@@ -1595,6 +1595,29 @@ def test_infer_native_wifi_routes_through_module_alias(
     ]
 
 
+def test_has_native_wifi_agrees_with_upstream_on_indexed_inputs() -> None:
+    """Our index-fed wifi inference matches esphome for the inputs the index covers.
+
+    Scoped to the variants / platforms in our committed index so it's robust on
+    the CI matrix (newer esphome adds inputs we don't yet know). For the inputs we
+    DO claim, we must agree with upstream's ``has_native_wifi`` — guards logic
+    drift the value-pinned ``test_has_native_wifi`` can't see.
+    """
+    from esphome.components.wifi import has_native_wifi  # noqa: PLC0415
+
+    from esphome_device_builder.definitions import (  # noqa: PLC0415
+        load_platform_capabilities_index,
+    )
+
+    caps = load_platform_capabilities_index()
+    for variant in caps.esp32_variants:
+        assert device_yaml._has_native_wifi(platform="esp32", variant=variant) == has_native_wifi(
+            platform="esp32", variant=variant
+        )
+    for platform in device_yaml._generation._WIFI_FIRST_PLATFORMS:
+        assert device_yaml._has_native_wifi(platform=platform) == has_native_wifi(platform=platform)
+
+
 # ---------------------------------------------------------------------------
 # load_device_from_storage — read-error / firmware bin / target_platform paths
 # ---------------------------------------------------------------------------

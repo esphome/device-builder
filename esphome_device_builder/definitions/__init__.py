@@ -21,6 +21,7 @@ See any existing manifest for the schema.
 from __future__ import annotations
 
 import logging
+from functools import cache
 from pathlib import Path
 from typing import NamedTuple
 
@@ -471,24 +472,30 @@ class PlatformCapabilities(NamedTuple):
     download_types: dict[str, list[dict[str, str]]]
 
 
+@cache
 def load_platform_capabilities_index() -> PlatformCapabilities:
     """Load the static platform metadata the main process uses instead of esphome.
 
     Read off a cheap JSON instead of importing ``esphome.components.esp32`` / ``.wifi``
-    (which pull espidf / requests / esphome.config). Missing / malformed artefact
-    yields empty lists, degrading download routing to "return the raw platform" and
-    wifi inference to "assume wifi" (fail-open, matching the prior fallbacks).
-    Regenerate with script/sync_components.py.
+    (which pull espidf / requests / esphome.config). Cached so the several import-time
+    callers share one parse. Missing / malformed artefact yields empty lists,
+    degrading download routing to "return the raw platform" and wifi inference to
+    "assume wifi" (fail-open). Regenerate with script/sync_components.py.
     """
+    return _load_platform_capabilities(_PLATFORM_CAPABILITIES_INDEX_JSON)
+
+
+def _load_platform_capabilities(path: Path) -> PlatformCapabilities:
+    """Parse a platform-capabilities index at *path*; empty on missing / malformed."""
     empty = PlatformCapabilities([], [], [], [], {})
-    if not _PLATFORM_CAPABILITIES_INDEX_JSON.exists():
+    if not path.exists():
         _LOGGER.warning(
             "platform_capabilities.index.json missing — download routing + wifi "
             "inference degraded. Run script/sync_components.py to generate it.",
         )
         return empty
     try:
-        payload = orjson.loads(_PLATFORM_CAPABILITIES_INDEX_JSON.read_bytes())
+        payload = orjson.loads(path.read_bytes())
     except Exception:
         _LOGGER.exception("Failed to load platform_capabilities.index.json — degraded.")
         return empty
