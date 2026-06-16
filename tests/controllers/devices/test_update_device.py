@@ -19,14 +19,13 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from unittest.mock import MagicMock
 
 from esphome_device_builder.controllers.config import (
     get_device_metadata,
     set_device_metadata,
 )
 from tests.conftest import make_device
-
-from unittest.mock import MagicMock
 
 from .conftest import MakeControllerFactory
 
@@ -197,7 +196,7 @@ async def test_update_device_persists_via_executor(
 
 def test_on_queued_update_change_updates_and_persists(make_controller, tmp_path):
     """Test that changing the queued flag updates memory, disk, and the frontend."""
-    # 1. Create the controller using the factory fixture, 
+    # 1. Create the controller using the factory fixture,
     # passing the tmp_path as the config_dir
     devices_controller = make_controller(config_dir=tmp_path)
 
