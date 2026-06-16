@@ -79,23 +79,32 @@ def test_index_within_installed_esphome() -> None:
         f"committed catalog is {ahead} esphome releases ahead of the installed esphome; "
         "the runtime may trail the catalog by at most one release"
     )
-    if ahead >= 1:
-        # Catalog leads the runtime: it carries data this older esphome can't
-        # expose yet. Exact parity is the sync workflow's regenerate gate.
-        return
     installed_no_wifi_boards = {
         board for board, info in BOARDS.items() if not info.get("wifi", False)
     }
-    assert set(caps.esp32_variants) <= set(VARIANTS)
-    assert set(caps.esp32_no_wifi_variants) <= set(NO_WIFI_VARIANTS)
-    assert set(caps.libretiny_families) <= set(FAMILY_COMPONENT.values())
-    assert set(caps.rp2040_no_wifi_boards) <= installed_no_wifi_boards
     sentinel = SimpleNamespace(name="{name}")
+    pairs = [
+        (set(caps.esp32_variants), set(VARIANTS)),
+        (set(caps.esp32_no_wifi_variants), set(NO_WIFI_VARIANTS)),
+        (set(caps.libretiny_families), set(FAMILY_COMPONENT.values())),
+        (set(caps.rp2040_no_wifi_boards), installed_no_wifi_boards),
+    ]
     for component in ("esp32", "esp8266", "rp2040"):
         module = importlib.import_module(f"esphome.components.{component}")
-        upstream_files = {entry["file"] for entry in module.get_download_types(sentinel)}
-        indexed_files = {entry["file"] for entry in caps.download_types[component]}
-        assert indexed_files <= upstream_files
+        upstream = {entry["file"] for entry in module.get_download_types(sentinel)}
+        pairs.append(({entry["file"] for entry in caps.download_types[component]}, upstream))
+
+    # Within one release the newer side is a superset of the older, so assert a
+    # subset in the direction set by which side leads: committed index ⊆
+    # installed when the runtime leads or matches, installed ⊆ committed index
+    # when the catalog leads (it ships before the docker image's esphome).
+    for indexed, installed in pairs:
+        if ahead >= 1:
+            missing = installed - indexed
+            assert not missing, f"installed esphome data missing from the newer catalog: {missing}"
+        else:
+            extra = indexed - installed
+            assert not extra, f"committed index data no installed esphome exposes: {extra}"
 
 
 def test_load_missing_index_is_empty(tmp_path: Path) -> None:
