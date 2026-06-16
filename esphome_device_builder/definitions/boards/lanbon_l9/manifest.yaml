@@ -15,12 +15,18 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Lanbon-L9/lanbon-l9-header.png
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Lanbon-L9/lanbon-l9-esphome.png
 pins:
+- gpio: 4
+  available: false
+  occupied_by: my_display
 - gpio: 5
   available: false
   occupied_by: Power
 - gpio: 11
   available: false
   occupied_by: Proximity Sensor
+- gpio: 17
+  available: false
+  occupied_by: my_display
 - gpio: 36
   available: false
   occupied_by: Relay
@@ -37,6 +43,26 @@ featured_components:
       locked: true
     id: proximity_sensor
     name: Proximity Sensor
+- id: my_display
+  component_id: display.mipi_spi
+  fields:
+    model: st7789v
+    bus_mode: octal
+    dc_pin:
+      value: 17
+      locked: true
+    reset_pin:
+      value: 4
+      locked: true
+    invert_colors: true
+    show_test_card: true
+    data_rate: 4MHz
+    color_depth: 16BIT
+    color_order: BGR
+    auto_clear_enabled: false
+    update_interval: 250ms
+    id: my_display
+    name: my_display
 - id: display_backlight
   component_id: light.monochromatic
   fields:
@@ -75,12 +101,23 @@ featured_components:
       locked: true
     id: relay
     name: Relay
+- id: my_touchscreen
+  component_id: touchscreen.ft63x6
+  fields:
+    display: my_display
+    id: my_touchscreen
+    name: my_touchscreen
 featured_bundles:
 - id: display_backlight_setup
   name: Display Backlight (full setup)
   component_ids:
   - lcd_backlight_output
   - display_backlight
+- id: my_touchscreen_setup
+  name: my_touchscreen (full setup)
+  component_ids:
+  - my_display
+  - my_touchscreen
 source:
   type: esphome-devices
   remote_id: Lanbon-L9

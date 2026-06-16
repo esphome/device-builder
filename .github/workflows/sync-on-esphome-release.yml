@@ -1,0 +1,65 @@
+name: Sync component catalog on ESPHome release
+
+# Dispatched by esphome/version-notifier right after an ESPHome release. Waits
+# for the new schema to publish, then dispatches the component catalog sync so
+# it refreshes immediately instead of waiting for the nightly. The device/board
+# catalog is sourced from devices.esphome.io plus curated manifests, so a
+# release doesn't change it; it stays on its own schedule.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "ESPHome release version (e.g. 2026.6.0 or 2026.6.0b1)"
+        required: true
+        type: string
+
+permissions:
+  actions: write  # createWorkflowDispatch on this repo's component sync
+
+concurrency:
+  group: sync-on-esphome-release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Wait for the schema bundle to publish
+        # The schema build (esphome-schema) and this run fan out from the same
+        # release event, so the bundle can lag the release by a few minutes. The
+        # component sync consumes it, so wait before kicking that off. ``version``
+        # comes through ``env`` rather than expression-interpolation into the
+        # shell so a crafted input can't inject command substitution. The esphome
+        # wheel the component sync installs isn't gated here; if it lags the
+        # schema the sync fails and the nightly retries.
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          url="https://schema.esphome.io/${VERSION}/schema.zip"
+          for attempt in $(seq 1 40); do
+            if curl -fsSL --connect-timeout 10 --max-time 30 -A "device-builder-release-sync" --head -o /dev/null "$url"; then
+              echo "Schema ready: $url"
+              exit 0
+            fi
+            echo "Schema not published yet (attempt $attempt); waiting 30s"
+            sleep 30
+          done
+          echo "::error::Schema $url did not publish within 20 minutes"
+          exit 1
+
+      - name: Dispatch the component catalog sync
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
+        env:
+          VERSION: ${{ inputs.version }}
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: "sync-component-catalog.yml",
+              ref: "main",
+              inputs: { version: process.env.VERSION },
+            });

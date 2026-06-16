@@ -27,12 +27,18 @@ pins:
 - gpio: 6
   available: false
   occupied_by: button_b
+- gpio: 7
+  available: false
+  occupied_by: my_display
 - gpio: 9
   available: false
   occupied_by: button_d
 - gpio: 10
   available: false
   occupied_by: button_c
+- gpio: 15
+  available: false
+  occupied_by: my_display
 - gpio: 38
   available: false
   occupied_by: button_up
@@ -158,6 +164,23 @@ featured_components:
       locked: true
     id: button_select
     name: button_select
+- id: my_display
+  component_id: display.mipi_spi
+  fields:
+    model: ST7789V
+    dc_pin:
+      value: 15
+      locked: true
+    cs_pin:
+      value: 7
+      locked: true
+    rotation: 270
+    invert_colors: true
+    color_order: BGR
+    pixel_mode: 16bit
+    auto_clear_enabled: false
+    id: my_display
+    name: my_display
 - id: lilka_speaker
   component_id: speaker.i2s_audio
   fields:

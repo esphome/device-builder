@@ -45,6 +45,14 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_2
     name: Button 2
+- id: display_mipi_spi_1
+  component_id: display.mipi_spi
+  fields:
+    model: t-display-s3
+    rotation: 270
+    show_test_card: true
+    id: display_mipi_spi_1
+    name: Mipi Spi 1
 - id: led
   component_id: light.monochromatic
   fields:
