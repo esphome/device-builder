@@ -301,7 +301,8 @@ async def test_get_boards_sorts_featured_first_generic_after_featured(
     Drives the dashboard's "browse all" listing — generics are the
     safe catch-all most users want, so they sit at the top of each
     list (below the separately-rendered featured boards). A refactor
-    that flipped the sort key tuple would surface here.
+    that flipped the sort key tuple would surface here. The WiFi
+    intra-generic tie-break is pinned separately below.
     """
     resp = await catalog.get_boards()
     ids = [b.id for b in resp.boards]
@@ -313,6 +314,45 @@ async def test_get_boards_sorts_featured_first_generic_after_featured(
     assert ids[2:5] == ["generic-esp32c3", "generic-esp32s3", "generic-esp8266"]
     # Non-featured non-generic falls to the end.
     assert ids[-1] == "m5stack-cores3"
+
+
+async def test_get_boards_sorts_wifi_generics_above_plain_generics() -> None:
+    """Order: featured, WiFi generics, plain generics, then everything by name.
+
+    WiFi floats generics only — a WiFi-capable non-generic board still
+    sorts by name, not above its alphabetical neighbours.
+    """
+    cat = BoardCatalog()
+    _seed_catalog(
+        cat,
+        [
+            _board(board_id="featured", name="Featured Board", featured=True),
+            # WiFi generic named after the plain generic — WiFi must win the
+            # intra-generic tie-break despite the later name.
+            _board(
+                board_id="generic-wifi",
+                name="Generic Zzz",
+                tags=[BoardTag.WIFI],
+                is_generic=True,
+            ),
+            _board(board_id="generic-plain", name="Generic Aaa", is_generic=True),
+            # Non-generic WiFi board named after a non-generic plain board —
+            # WiFi must NOT float it; name decides among non-generics.
+            _board(board_id="nongeneric-wifi", name="Zeta", tags=[BoardTag.WIFI]),
+            _board(board_id="nongeneric-plain", name="Alpha"),
+        ],
+    )
+
+    resp = await cat.get_boards()
+    ids = [b.id for b in resp.boards]
+
+    assert ids == [
+        "featured",
+        "generic-wifi",
+        "generic-plain",
+        "nongeneric-plain",
+        "nongeneric-wifi",
+    ]
 
 
 async def test_get_boards_paginates_via_offset_and_limit(
