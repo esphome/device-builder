@@ -77,9 +77,10 @@ async def create_device(  # noqa: C901, PLR0912
         )
 
     # ssid/psk are literal credentials only for the generated flows; the
-    # file_content upload writes user YAML as-is and ignores them. A JSON
-    # null arrives as None (the empty-credential signal), so skip it too.
-    if file_content is None:
+    # file_content upload writes user YAML as-is and ignores them. Match
+    # yaml_content_for_create's truthiness selection (``if file_content:``)
+    # so an empty string falls through to the same template flow this guards.
+    if not file_content:
         for field, value in (("ssid", ssid), ("psk", psk)):
             if value and _SECRET_TAG_RE.match(value):
                 raise CommandError(

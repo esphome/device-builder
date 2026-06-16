@@ -169,6 +169,22 @@ async def test_create_device_skips_credential_guard_for_file_content(
     assert (tmp_path / "kitchen.yaml").read_text("utf-8") == VALID_FILE_CONTENT
 
 
+async def test_create_device_guards_credentials_when_file_content_is_empty(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """An empty file_content falls through to the template flow, so the guard still fires."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.create_device(
+            name="kitchen", board_id="esp32dev", file_content="", ssid="!secret wifi_ssid"
+        )
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "ssid" in excinfo.value.message
+    assert ctrl._scanner.calls == []
+
+
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
 async def test_create_device_emits_minimal_stub_when_no_board_or_file_content(
     tmp_path: Path, make_controller: MakeControllerFactory
