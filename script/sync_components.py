@@ -1190,7 +1190,7 @@ def build_catalog(
     _backfill_descriptions_from_mdx(out)
 
     # After the MDX backfill so a real MDX title still wins.
-    _fix_borrowed_page_titles(out)
+    _fix_borrowed_page_titles(out, _components_with_own_docs_page())
 
     # Synthesise umbrella entries for legacy bare-key domains so that
     # ``get_component("ota")`` / ``get_component("time")`` resolve for
@@ -1215,24 +1215,42 @@ def build_catalog(
     return out
 
 
-def _fix_borrowed_page_titles(entries: list[dict]) -> None:
+def _fix_borrowed_page_titles(entries: list[dict], own_page_ids: frozenset[str]) -> None:
     """
-    Re-derive a name borrowed from another component's docs page.
+    Re-derive metadata borrowed from another component's docs page.
 
-    Rewrites an entry whose page slug is owned by a different component and
-    whose own stem is unrelated to that slug. In-place.
+    Two borrow shapes, both rewritten in-place:
+
+    - A component links another's *top-level* page (``preferences`` ->
+      ``components/esphome``): re-derive only the name; the shared page stays.
+    - A *bare* component that owns its own docs page (in *own_page_ids*) links a
+      *platform* sub-page ``<domain>/<stem>`` owned by ``<domain>.<stem>``
+      (``lvgl`` took ``number.lvgl``'s page, ``audio_file`` took
+      ``media_source.audio_file``'s): reset to its own identity — name, docs_url,
+      and drop the borrowed description / image. The own-page gate is what
+      distinguishes this from a single-platform component legitimately
+      documented under its category (``adc128s102`` -> ``sensor/adc128s102``),
+      which must keep its page-derived name.
     """
     ids = {entry["id"] for entry in entries}
     for entry in entries:
         cid = entry["id"]
         stem = cid.split(".", 1)[-1]
-        slug = (entry.get("docs_url") or "").rstrip("/").rsplit("/", 1)[-1]
-        # Same page or a same-family variant (``pn532_spi`` -> ``pn532``): the
-        # shared title is correct.
-        if not slug or slug == stem or stem.startswith(slug):
+        segs = (entry.get("docs_url") or "").rstrip("/").split("/")
+        if len(segs) < 2:
             continue
-        if slug in ids:
+        slug, parent = segs[-1], segs[-2]
+        if parent == "components":
+            # Same page or a same-family variant (``pn532_spi`` -> ``pn532``):
+            # the shared title is correct.
+            if slug and slug != stem and not stem.startswith(slug) and slug in ids:
+                entry["name"] = _name_from_stem(stem)
+            continue
+        if cid in own_page_ids and slug == stem and "." not in cid and f"{parent}.{slug}" in ids:
             entry["name"] = _name_from_stem(stem)
+            entry["docs_url"] = _derive_docs_url(cid)
+            entry["description"] = ""
+            entry["image_url"] = ""
 
 
 def _resolve_provides(entries: list[dict], schema_dir: Path) -> None:
@@ -1624,6 +1642,22 @@ def _load_mdx_descriptions() -> dict[str, str]:
             stem = parts[-1]
             out.setdefault(stem, text)
     return out
+
+
+def _components_with_own_docs_page() -> frozenset[str]:
+    """Bare component ids that have a dedicated docs directory (``<stem>/index.mdx``).
+
+    These are hubs documented on their own page (``lvgl``, ``audio_file``); used
+    to tell a genuine page borrow from a single-platform component legitimately
+    documented under its category (``sensor/adc128s102``).
+    """
+    docs_dir = _ensure_docs_repo()
+    if docs_dir is None:
+        return frozenset()
+    root = docs_dir / "src" / "content" / "docs" / "components"
+    if not root.exists():
+        return frozenset()
+    return frozenset(p.parent.name for p in root.glob("*/index.mdx"))
 
 
 def _load_mdx_titles() -> dict[str, str]:
@@ -3715,6 +3749,7 @@ _ACRONYM_NORMALISATIONS: dict[str, str] = {
     "Cwww": "CWWW",
     "Led": "LED",
     "Lcd": "LCD",
+    "Lvgl": "LVGL",
     "Oled": "OLED",
     "Tft": "TFT",
     "Usb": "USB",
