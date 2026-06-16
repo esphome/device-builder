@@ -175,7 +175,9 @@ def _download_types_for(
         return []
     precomputed = _capabilities().download_types.get(component)
     if precomputed is not None:
-        return precomputed
+        # Copy so a caller that mutates the result can't corrupt the @cache'd
+        # index (the helper path likewise returns fresh dicts).
+        return [dict(entry) for entry in precomputed]
     if storage_path is None:
         _LOGGER.warning(
             "No storage path given to resolve %s download types for %s",
@@ -330,8 +332,10 @@ async def http_download(request: web.Request) -> web.StreamResponse:
 def _resolve_download_component(target_platform: str | None) -> str:
     """Return the ``esphome.components`` module name for *target_platform*.
 
-    ``None`` / empty input collapses to ``""``; the helper subprocess then fails
-    its import and the caller logs a warning and treats the build as not built.
+    ``None`` / empty input collapses to ``""``; ``_download_types_for`` then
+    short-circuits to ``[]`` (no helper spawn, no log) and the build reads as not
+    built. A real but unknown platform routes to the helper, whose import failure
+    is the branch that logs.
     """
     platform = (target_platform or "").lower()
     routing = _platform_sets()
