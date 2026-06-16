@@ -86,17 +86,12 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
         config = event.data["configuration"]
 
-        # Type-safe fallback for test stubs
         devices = (
-            self._db.devices
-            if isinstance(self._db.devices, list)
-            else self._db.devices.get_devices()
+            self._db.devices.get_devices()
+            if hasattr(self._db.devices, "get_devices")
+            else (self._db.devices if isinstance(self._db.devices, list) else [])
         )
-
-        device = next(
-            (d for d in devices if getattr(d, "configuration", None) == config),
-            None,
-        )
+        device = next((d for d in devices if getattr(d, "configuration", None) == config), None)
 
         if device and getattr(device, "queued_update", False):
             _LOGGER.info("Device %s woke up. Triggering queued offline update.", config)
@@ -206,14 +201,14 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         await self._validate_configuration_boundary(configuration)
 
         if self._db.devices is not None:
-            # Use same iteration logic as _handle_device_wake
-            devices = (
-                self._db.devices
-                if isinstance(self._db.devices, list)
-                else self._db.devices.get_devices()
+            devices: Any = (
+                self._db.devices.get_devices()
+                if hasattr(self._db.devices, "get_devices")
+                else self._db.devices
             )
             device = next(
-                (d for d in devices if getattr(d, "configuration", None) == configuration), None
+                (d for d in devices if getattr(d, "configuration", None) == configuration),
+                None,
             )
 
             if device and hasattr(device, "queued_update"):
@@ -275,9 +270,9 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
         if port == "OTA" and self._db.devices is not None:
             devices = (
-                self._db.devices
-                if isinstance(self._db.devices, list)
-                else self._db.devices.get_devices()
+                self._db.devices.get_devices()
+                if hasattr(self._db.devices, "get_devices")
+                else (self._db.devices if isinstance(self._db.devices, list) else [])
             )
             device = next(
                 (d for d in devices if getattr(d, "configuration", None) == configuration),
@@ -464,9 +459,9 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         is_done = job.status == JobStatus.COMPLETED
         if is_comp and is_done and self._db.devices is not None:
             devices = (
-                self._db.devices
-                if isinstance(self._db.devices, list)
-                else self._db.devices.get_devices()
+                self._db.devices.get_devices()
+                if hasattr(self._db.devices, "get_devices")
+                else (self._db.devices if isinstance(self._db.devices, list) else [])
             )
             dev = next(
                 (d for d in devices if getattr(d, "configuration", None) == job.configuration),
