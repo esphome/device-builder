@@ -7,7 +7,8 @@ import pytest
 
 from esphome_device_builder.controllers.firmware._state import FirmwareState
 from esphome_device_builder.controllers.firmware.controller import FirmwareController
-from esphome_device_builder.models import DeviceState, JobType
+from esphome_device_builder.helpers.event_bus import Event
+from esphome_device_builder.models import DeviceState, EventType, FirmwareJob, JobStatus, JobType
 
 
 @pytest.fixture
@@ -138,3 +139,125 @@ async def test_queued_update_not_cleared_if_device_missing(firmware_controller):
     # Should not raise exception, just return None
     result = await firmware_controller.clear_queued_update(configuration="test_device.yaml")
     assert result is None
+
+
+# --- _handle_device tests ---
+def test_handle_device_wake_triggers_upload(firmware_controller, mock_device):
+    """Test that an online event for a device with a queued update triggers the upload."""
+    mock_device.queued_update = True
+    mock_device.configuration = "test_device.yaml"
+    mock_device.name = "test_device"
+    firmware_controller._db.devices.monitor = MagicMock()
+
+    with (
+        patch(
+            "esphome_device_builder.controllers.firmware.controller.create_eager_task"
+        ) as mock_eager,
+        patch.object(
+            firmware_controller, "upload", new_callable=MagicMock
+        ) as mock_upload,
+    ):
+        event = Event(
+            EventType.DEVICE_STATE_CHANGED,
+            data={
+                "state": DeviceState.ONLINE.value,
+                "configuration": "test_device.yaml",
+            },
+        )
+        firmware_controller._handle_device_wake(event)
+
+        # Verify flag is cleared and upload is queued
+        firmware_controller._db.devices.monitor.apply_queued_update.assert_called_with(
+            "test_device", is_queued=False
+        )
+        mock_upload.assert_called_with(configuration="test_device.yaml", port="OTA")
+        mock_eager.assert_called_once()
+
+
+def test_handle_device_wake_ignored_if_offline(firmware_controller, mock_device):
+    """Test that non-ONLINE state changes are ignored."""
+    with patch.object(firmware_controller, "upload", new_callable=MagicMock) as mock_upload:
+        event = Event(
+            EventType.DEVICE_STATE_CHANGED,
+            data={
+                "state": DeviceState.OFFLINE.value,
+                "configuration": "test_device.yaml",
+            },
+        )
+        firmware_controller._handle_device_wake(event)
+        mock_upload.assert_not_called()
+
+
+def test_handle_device_wake_ignored_if_no_flag(firmware_controller, mock_device):
+    """Test that online devices without the queued_update flag are ignored."""
+    mock_device.queued_update = False
+    with patch.object(firmware_controller, "upload", new_callable=MagicMock) as mock_upload:
+        event = Event(
+            EventType.DEVICE_STATE_CHANGED,
+            data={
+                "state": DeviceState.ONLINE.value,
+                "configuration": "test_device.yaml",
+            },
+        )
+        firmware_controller._handle_device_wake(event)
+        mock_upload.assert_not_called()
+
+
+def test_handle_device_wake_no_devices(firmware_controller):
+    """Test that the handler safely bails if the devices controller is None."""
+    firmware_controller._db.devices = None
+    event = Event(
+        EventType.DEVICE_STATE_CHANGED,
+        data={
+            "state": DeviceState.ONLINE.value,
+            "configuration": "test_device.yaml",
+        },
+    )
+    # Should not raise
+    firmware_controller._handle_device_wake(event)
+
+
+# --- _execute_job tests ---
+@pytest.mark.asyncio
+async def test_execute_job_sets_queued_flag(firmware_controller, mock_device):
+    """Test that a successful compile for an offline device sets the queued flag."""
+    mock_device.state = DeviceState.OFFLINE
+    mock_device.configuration = "test_device.yaml"
+    mock_device.name = "test_device"
+    firmware_controller._db.devices.monitor = MagicMock()
+
+    job = MagicMock(spec=FirmwareJob)
+    job.job_type = JobType.COMPILE
+    job.status = JobStatus.COMPLETED
+    job.configuration = "test_device.yaml"
+
+    with patch(
+        "esphome_device_builder.controllers.firmware.controller.runner.execute_job",
+        new_callable=AsyncMock,
+    ):
+        await firmware_controller._execute_job(job, MagicMock())
+
+    firmware_controller._db.devices.monitor.apply_queued_update.assert_called_with(
+        "test_device", is_queued=True
+    )
+
+
+@pytest.mark.asyncio
+async def test_execute_job_ignores_online_device(firmware_controller, mock_device):
+    """Test that a successful compile for an online device does not set the flag."""
+    mock_device.state = DeviceState.ONLINE
+    mock_device.configuration = "test_device.yaml"
+    firmware_controller._db.devices.monitor = MagicMock()
+
+    job = MagicMock(spec=FirmwareJob)
+    job.job_type = JobType.COMPILE
+    job.status = JobStatus.COMPLETED
+    job.configuration = "test_device.yaml"
+
+    with patch(
+        "esphome_device_builder.controllers.firmware.controller.runner.execute_job",
+        new_callable=AsyncMock,
+    ):
+        await firmware_controller._execute_job(job, MagicMock())
+
+    firmware_controller._db.devices.monitor.apply_queued_update.assert_not_called()
