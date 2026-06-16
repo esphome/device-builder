@@ -139,6 +139,20 @@ async def test_create_device_allows_credential_with_bang_secret_prefix_word(
     assert "bogus" in excinfo.value.message
 
 
+async def test_create_device_allows_secret_word_without_a_key(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """``!secret `` with no key is a literal, not the tag form, so it's accepted."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    StubBoardLookups(ctrl).get_board_returns(None)
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.create_device(name="kitchen", board_id="bogus", ssid="!secret ")
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "bogus" in excinfo.value.message
+
+
 async def test_create_device_allows_none_credentials(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:

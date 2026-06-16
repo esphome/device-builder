@@ -21,10 +21,10 @@ if TYPE_CHECKING:
 # A wifi credential of ``!secret wifi_ssid`` is a caller passing the YAML
 # secret *tag* as a literal value; the field takes literals (empty means
 # "use !secret refs"), so this would silently land an unquoted-looking
-# tag that the generator quotes into a dead string. Match the tag form
-# (``!secret`` + whitespace + key) so an odd-but-real password like
-# ``!secretsauce`` is left alone.
-_SECRET_TAG_RE = re.compile(r"^\s*!secret\s")
+# tag that the generator quotes into a dead string. Match the full tag
+# form (``!secret`` + whitespace + a key char) so an odd-but-real password
+# like ``!secretsauce`` or a literal ``!secret `` without a key is left alone.
+_SECRET_TAG_RE = re.compile(r"^\s*!secret\s+\S")
 
 
 async def create_device(  # noqa: C901, PLR0912
