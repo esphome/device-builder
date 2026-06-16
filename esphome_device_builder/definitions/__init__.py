@@ -518,6 +518,27 @@ def _load_platform_capabilities(path: Path) -> PlatformCapabilities:
     )
 
 
+def coerce_download_entries(value: object) -> list[dict[str, str]]:
+    """Coerce a download-types list to ``[{title, description, file}]``.
+
+    Drops anything that isn't a dict with a string ``file``; returns ``[]`` for a
+    non-list. The validation boundary for both the generated index and the
+    device-builder-helper subprocess reply, so a malformed payload can't reach a
+    downstream ``entry["file"]``.
+    """
+    if not isinstance(value, list):
+        return []
+    return [
+        {
+            "title": str(entry.get("title", "")),
+            "description": str(entry.get("description", "")),
+            "file": entry["file"],
+        }
+        for entry in value
+        if isinstance(entry, dict) and isinstance(entry.get("file"), str)
+    ]
+
+
 def _parse_download_types(value: object) -> dict[str, list[dict[str, str]]]:
     """Coerce the index ``download_types`` block, dropping any malformed entry."""
     if not isinstance(value, dict):
@@ -526,16 +547,7 @@ def _parse_download_types(value: object) -> dict[str, list[dict[str, str]]]:
     for component, entries in value.items():
         if not isinstance(entries, list):
             continue
-        clean = [
-            {
-                "title": str(entry.get("title", "")),
-                "description": str(entry.get("description", "")),
-                "file": entry["file"],
-            }
-            for entry in entries
-            if isinstance(entry, dict) and isinstance(entry.get("file"), str)
-        ]
-        out[str(component)] = clean
+        out[str(component)] = coerce_download_entries(entries)
     return out
 
 

@@ -188,6 +188,35 @@ def test_download_types_for_dynamic_platform_without_path_is_empty(monkeypatch: 
     assert _download_types_for(storage, None, label="kitchen") == []
 
 
+def test_download_types_for_coerces_malformed_helper_reply(monkeypatch: Any) -> None:
+    """A malformed helper reply is coerced; only well-shaped entries survive."""
+
+    def _fake_run(cmd: list[str], **_kwargs: Any) -> Any:
+        return types.SimpleNamespace(
+            returncode=0,
+            stdout='[{"file": "firmware.uf2"}, {"title": "no file"}, "garbage", 7]',
+        )
+
+    monkeypatch.setattr(download_mod.subprocess, "run", _fake_run)
+    storage = types.SimpleNamespace(target_platform="bk72xx", name="kitchen")
+
+    result = _download_types_for(storage, Path("kitchen.json"), label="kitchen")
+
+    assert result == [{"title": "", "description": "", "file": "firmware.uf2"}]
+
+
+def test_download_types_for_non_list_helper_reply_is_empty(monkeypatch: Any) -> None:
+    """A helper reply that isn't a JSON array degrades to empty, never raising."""
+
+    def _fake_run(cmd: list[str], **_kwargs: Any) -> Any:
+        return types.SimpleNamespace(returncode=0, stdout='{"not": "a list"}')
+
+    monkeypatch.setattr(download_mod.subprocess, "run", _fake_run)
+    storage = types.SimpleNamespace(target_platform="bk72xx", name="kitchen")
+
+    assert _download_types_for(storage, Path("kitchen.json"), label="kitchen") == []
+
+
 # ---------------------------------------------------------------------------
 # get_binaries — failure / fallback branches
 # ---------------------------------------------------------------------------

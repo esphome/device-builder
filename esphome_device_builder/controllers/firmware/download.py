@@ -16,8 +16,13 @@ from typing import TYPE_CHECKING
 from aiohttp import web
 from esphome.storage_json import StorageJSON
 
-from ...definitions import PlatformCapabilities, load_platform_capabilities_index
+from ...definitions import (
+    PlatformCapabilities,
+    coerce_download_entries,
+    load_platform_capabilities_index,
+)
 from ...helpers.api import CommandError
+from ...helpers.json import JSONDecodeError
 from ...helpers.json import loads as json_loads
 from ...helpers.storage_path import resolve_storage_path
 from .helpers import _find_sibling_cli
@@ -201,8 +206,8 @@ def _download_types_for(
         )
         return []
     try:
-        entries: list[dict] = json_loads(result.stdout)
-    except Exception:  # non-JSON stdout (should not happen: helper isolates stdout)
+        payload = json_loads(result.stdout)
+    except JSONDecodeError:  # non-JSON stdout (rare: the helper isolates its stdout)
         _LOGGER.warning(
             "download-types helper returned non-JSON for %s: stdout=%r stderr=%r",
             label or storage.name,
@@ -211,7 +216,9 @@ def _download_types_for(
             exc_info=True,
         )
         return []
-    return entries
+    # Coerce at the boundary so a malformed reply can't reach a downstream
+    # ``entry["file"]``; same validation the index payload goes through.
+    return coerce_download_entries(payload)
 
 
 def _resolve_artifact_path(configuration: str, file: str) -> tuple[Path, str]:
