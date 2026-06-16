@@ -121,10 +121,11 @@ async def test_clear_queued_update_clears_flag(firmware_controller, mock_device)
 
 @pytest.mark.asyncio
 async def test_clear_queued_update_invalid_config_raises(firmware_controller):
-    """Test that clearing a non-existent device configuration raises a CommandError."""
-    firmware_controller._db.settings.rel_path.side_effect = Exception("Out of bounds")
+    """Test that clearing an invalid device configuration raises an error."""
+    firmware_controller._db.settings.rel_path.side_effect = ValueError("Out of bounds")
 
-    with pytest.raises(Exception):
+    # Assert that exactly a ValueError is raised with our specific message
+    with pytest.raises(ValueError, match="Out of bounds"): 
         await firmware_controller.clear_queued_update(configuration="non_existent.yaml")
 
 
