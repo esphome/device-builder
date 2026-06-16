@@ -273,10 +273,11 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         _validate_port(port)
         await self._validate_configuration_boundary(configuration)
 
-        if self._db.devices is not None:
-            # Safe fallback for StubDevices in tests
+        if port == "OTA" and self._db.devices is not None:
             devices = (
-                self._db.devices.get_devices() if hasattr(self._db.devices, "get_devices") else []
+                self._db.devices
+                if isinstance(self._db.devices, list)
+                else self._db.devices.get_devices()
             )
             device = next(
                 (d for d in devices if getattr(d, "configuration", None) == configuration),
