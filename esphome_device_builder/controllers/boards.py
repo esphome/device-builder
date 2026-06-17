@@ -195,8 +195,11 @@ class BoardCatalog:
         if not matches:
             return None
         if pio_variant:
+            pio_variant_lower = pio_variant.lower()
             variant_matches = [
-                b for b in matches if b.esphome.variant and b.esphome.variant.value == pio_variant
+                b
+                for b in matches
+                if b.esphome.variant and b.esphome.variant.value == pio_variant_lower
             ]
             if variant_matches:
                 matches = variant_matches
@@ -232,8 +235,9 @@ class BoardCatalog:
         if not matches:
             return None
         if variant:
+            variant_lower = variant.lower()
             variant_matches = [
-                b for b in matches if b.esphome.variant and b.esphome.variant.value == variant
+                b for b in matches if b.esphome.variant and b.esphome.variant.value == variant_lower
             ]
             if variant_matches:
                 matches = variant_matches
