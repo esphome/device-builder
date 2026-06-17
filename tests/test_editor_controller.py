@@ -882,12 +882,51 @@ async def test_reap_keeps_recently_used_session(tmp_path: Path) -> None:
     terminated.assert_not_awaited()
 
 
-async def test_reap_skips_busy_session_then_reaps_when_free(tmp_path: Path) -> None:
-    """A stale session whose lock is held (validate in flight) isn't reaped.
+async def test_reap_skips_session_without_live_proc(tmp_path: Path) -> None:
+    """A session with no proc, or an already-exited one, is skipped."""
+    controller = _make_controller(tmp_path)
+    no_proc = _EditorSession(configuration="a.yaml")
+    no_proc.last_used = time.monotonic() - _IDLE_SUBPROCESS_TIMEOUT - 1.0
+    dead = _idle_session("b.yaml")
+    assert dead.proc is not None
+    dead.proc.returncode = 0
+    controller._sessions["a.yaml"] = no_proc
+    controller._sessions["b.yaml"] = dead
+    terminated = AsyncMock()
+    controller._terminate_subprocess = terminated  # type: ignore[method-assign]
 
-    Termination must only happen under the lock, so a busy session is skipped;
-    once the lock frees, the next sweep reaps it.
-    """
+    await controller._reap_idle_subprocesses()
+
+    terminated.assert_not_awaited()
+
+
+async def test_reap_rechecks_under_lock_and_skips_if_freshly_used(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A validate that stamps last_used while the reaper waits on the lock spares the proc."""
+    controller = _make_controller(tmp_path)
+    proc, _reader, _stdin = _make_fake_proc([])
+    session = _EditorSession(configuration="kitchen.yaml")
+    session.proc = proc
+    session.last_used = 0.0
+    controller._sessions["kitchen.yaml"] = session
+    terminated = AsyncMock()
+    controller._terminate_subprocess = terminated  # type: ignore[method-assign]
+
+    # Stale at the pre-lock check, fresh at the under-lock re-check.
+    clock = iter([1000.0, 100.0])
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.editor.time.monotonic",
+        lambda: next(clock, 100.0),
+    )
+
+    await controller._reap_idle_subprocesses()
+
+    terminated.assert_not_awaited()
+
+
+async def test_reap_skips_busy_session_then_reaps_when_free(tmp_path: Path) -> None:
+    """A stale session whose lock is held is skipped, then reaped once free."""
     controller = _make_controller(tmp_path)
     session = _idle_session("kitchen.yaml")
     controller._sessions["kitchen.yaml"] = session
@@ -922,6 +961,57 @@ async def test_start_creates_reaper_task_stop_cancels_it(
     await controller.stop()
     assert controller._reaper_task is None
     assert task.cancelled()
+
+
+async def test_reaper_loop_logs_and_continues_after_sweep_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed sweep is logged and the loop runs the next one."""
+    controller = _make_controller(tmp_path)
+    sweeps: list[int] = []
+
+    async def _reap() -> None:
+        sweeps.append(1)
+        if len(sweeps) == 1:
+            raise RuntimeError("boom")
+
+    controller._reap_idle_subprocesses = _reap  # type: ignore[method-assign]
+
+    sleeps: list[int] = []
+
+    async def _sleep(_: float) -> None:
+        sleeps.append(1)
+        if len(sleeps) >= 3:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr("esphome_device_builder.controllers.editor.asyncio.sleep", _sleep)
+
+    with pytest.raises(asyncio.CancelledError):
+        await controller._reaper_loop()
+
+    assert sweeps == [1, 1]  # ran again after the first sweep raised
+
+
+async def test_terminate_keeps_proc_handle_when_cancelled_mid_wait(tmp_path: Path) -> None:
+    """A cancel mid-terminate leaves session.proc set so stop() can still reap it."""
+    controller = _make_controller(tmp_path)
+    proc, _reader, _stdin = _make_fake_proc([])
+
+    async def _hang() -> int:
+        await asyncio.Event().wait()
+        return 0
+
+    proc.wait = _hang
+    session = _EditorSession(configuration="kitchen.yaml")
+    session.proc = proc
+
+    task = asyncio.create_task(controller._terminate_subprocess(session))
+    await asyncio.sleep(0)  # let it reach the proc.wait await
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert session.proc is proc  # handle retained, not cleared early
 
 
 async def test_reap_continues_after_one_session_fails(tmp_path: Path) -> None:

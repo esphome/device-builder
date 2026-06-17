@@ -37,10 +37,7 @@ _VALIDATE_TIMEOUT = 30.0
 # collision risk negligible for the ≤dozens of buffers an editor
 # session sees inside one TTL window).
 _VALIDATE_CACHE_TTL = 60.0
-# Reap a warm ``esphome vscode`` subprocess after this long without a
-# validate request: it holds the esphome runtime + loaded config in RAM, so
-# leaving it resident for hours after the user navigates away is pure waste.
-# Long enough to survive a normal mid-edit pause; the next validate respawns it.
+# Idle seconds before a warm vscode subprocess is reaped (respawned on next validate).
 _IDLE_SUBPROCESS_TIMEOUT = 600.0
 _REAP_INTERVAL = 60.0
 
@@ -96,7 +93,7 @@ class EditorController:
         )
 
     async def stop(self) -> None:
-        """Stop the controller.."""
+        """Stop the controller."""
         if self._reaper_task is not None:
             self._reaper_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -162,8 +159,8 @@ class EditorController:
     async def _terminate_subprocess(self, session: _EditorSession) -> None:
         """Terminate the session's subprocess."""
         proc = session.proc
-        session.proc = None
         if proc is None or proc.returncode is not None:
+            session.proc = None
             return
         try:
             if proc.stdin is not None and not proc.stdin.is_closing():
@@ -181,6 +178,9 @@ class EditorController:
             except TimeoutError:
                 kill_quietly(proc)
                 await proc.wait()
+        # Cleared only after the process is gone, so a cancel mid-await leaves
+        # the handle on the session for stop()'s teardown to reap.
+        session.proc = None
 
     async def _reaper_loop(self) -> None:
         """Periodically reap subprocesses idle past ``_IDLE_SUBPROCESS_TIMEOUT``."""
