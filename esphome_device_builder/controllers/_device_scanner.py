@@ -51,6 +51,7 @@ class DeviceFileMetadata(NamedTuple):
     # drawer's "update available" badge renders immediately on cold
     # load instead of waiting for the first mDNS sweep.
     deployed_version: str = ""
+    queued_update: bool = False
     # Last-known mDNS api_encryption value. Truthy cipher string
     # means encryption confirmed; ``""`` means TXT seen but key
     # absent (plaintext-confirmed); ``None`` means not yet

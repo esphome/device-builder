@@ -84,16 +84,14 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         if self._db.devices is None:
             return None
 
-        # Extract devices iterable, safely handling test stubs (like StubDevices)
-        if hasattr(self._db.devices, "get_devices"):
-            devices = self._db.devices.get_devices()
-        elif isinstance(self._db.devices, list):
-            devices = self._db.devices
-        else:
-            devices = []
-
+        # Direct, typed call. Test stubs must implement get_devices().
         return next(
-            (d for d in devices if getattr(d, "configuration", None) == configuration), None
+            (
+                d
+                for d in self._db.devices.get_devices()
+                if getattr(d, "configuration", None) == configuration
+            ),
+            None
         )
 
     def _handle_device_wake(self, event: Event) -> None:
@@ -106,8 +104,8 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
         if device and getattr(device, "queued_update", False):
             _LOGGER.info("Device %s woke up. Triggering queued offline update.", config)
-            if self._db.devices and hasattr(self._db.devices, "_state_monitor"):
-                self._db.devices._state_monitor.apply_queued_update(device.name, is_queued=False)
+            if self._db.devices:
+                self._db.devices.set_queued_update(device.name, is_queued=False)
 
             create_eager_task(self.upload(configuration=config, port="OTA"))
 
@@ -213,9 +211,8 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             device
             and getattr(device, "queued_update", False)
             and self._db.devices
-            and hasattr(self._db.devices, "_state_monitor")
         ):
-            self._db.devices._state_monitor.apply_queued_update(device.name, is_queued=False)
+            self._db.devices.set_queued_update(device.name, is_queued=False)
             _LOGGER.info("Queued update cleared for device %s", configuration)
 
     @api_command("firmware/reset_build_env")
@@ -268,11 +265,12 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
         if port == "OTA":
             device = self._device_for_configuration(configuration)
-            # Suggestion 1: Gated ONLY on OFFLINE, avoiding UNKNOWN startup states
+            # Gated ONLY on OFFLINE, avoiding UNKNOWN startup states
             if device and device.state == DeviceState.OFFLINE:
                 _LOGGER.info("Device %s is offline. Queuing compile-only job.", configuration)
                 build_source = self._resolve_install_source(force_local=True)
                 job = self._create_job(configuration, JobType.COMPILE, build_source=build_source)
+                job.is_deferred_install = True
                 return await self._enqueue(job)
 
         build_source = self._resolve_install_source(force_local=force_local)
@@ -452,15 +450,12 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
         is_comp = job.job_type == JobType.COMPILE
         is_done = job.status == JobStatus.COMPLETED
-        if is_comp and is_done:
+        is_deferred = getattr(job, "is_deferred_install", False)
+
+        if is_comp and is_done and is_deferred:
             device = self._device_for_configuration(job.configuration)
-            if (
-                device
-                and device.state == DeviceState.OFFLINE
-                and self._db.devices
-                and hasattr(self._db.devices, "_state_monitor")
-            ):
-                self._db.devices._state_monitor.apply_queued_update(device.name, is_queued=True)
+            if device and device.state == DeviceState.OFFLINE and self._db.devices:
+                self._db.devices.set_queued_update(device.name, is_queued=True)
 
     async def _execute_remote_job(self, job: FirmwareJob) -> None:
         await runner.execute_remote_job(self, job)

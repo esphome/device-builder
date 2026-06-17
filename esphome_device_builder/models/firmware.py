@@ -155,6 +155,7 @@ class FirmwareJob(DataClassORJSONMixin):
     output: list[str] = field(default_factory=list)
     error: str | None = None
     port: str = ""  # for upload jobs
+    is_deferred_install: bool = False
     # New device name for ``rename`` jobs. Plumbed through to the
     # ``esphome rename`` CLI. Empty for every other job type.
     new_name: str = ""

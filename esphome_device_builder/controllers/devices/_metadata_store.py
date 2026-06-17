@@ -25,6 +25,7 @@ STORE_FIELDS: frozenset[str] = frozenset(
         "ip",
         "deployed_config_hash",
         "deployed_version",
+        "queued_update",
         "api_encryption_active",
         "expected_config_hash",
         "build_size_bytes",

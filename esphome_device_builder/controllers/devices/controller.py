@@ -318,6 +318,12 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             return []
         return self.get_address_cache_args(configuration)
 
+    def set_queued_update(self, name: str, *, is_queued: bool) -> bool:
+        """Public API to mutate the queued update flag for a device."""
+        if hasattr(self, "_state_monitor") and self._state_monitor:
+            return self._state_monitor.apply_queued_update(name, is_queued=is_queued)
+        return False
+
     def _on_queued_update_change(self, name: str, is_queued: bool) -> None:  # noqa: FBT001
         """Handle offline queued update flag transitions and persist."""
         for device in self.get_devices():

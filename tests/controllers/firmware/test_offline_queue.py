@@ -40,44 +40,29 @@ def firmware_controller(mock_device):
 
 
 @pytest.mark.asyncio
-async def test_install_queues_for_offline_device(firmware_controller, mock_device):
-    """Test that offline devices are queued for local compile instead of upload."""
+async def test_install_queues_deferred_compile_for_offline_device(firmware_controller, mock_device):
+    """Test that offline devices queue a COMPILE job marked as a deferred install."""
     mock_device.state = DeviceState.OFFLINE
 
-    # Removed the invalid install_chain patch since it doesn't exist on the controller
-    # and the early return for offline devices bypasses the factories call anyway.
     with patch.object(firmware_controller, "_enqueue", new_callable=AsyncMock) as mock_enqueue:
         await firmware_controller.install(configuration="test_device.yaml")
 
         called_job = mock_enqueue.call_args[0][0]
         assert called_job.job_type == JobType.COMPILE
-        assert mock_device.queued_update is False
+        assert getattr(called_job, "is_deferred_install", False) is True
 
 
 @pytest.mark.asyncio
-async def test_queued_update_flag_set_on_compile_success(firmware_controller, mock_device):
-    """Test that queued_update flag is set after successful compile for offline device."""
+async def test_compile_does_not_mark_deferred(firmware_controller, mock_device):
+    """Test that a plain compile does NOT mark the job as a deferred install."""
     mock_device.state = DeviceState.OFFLINE
 
-    with patch.object(firmware_controller, "_enqueue", new_callable=AsyncMock):
-        await firmware_controller.install(configuration="test_device.yaml")
-        assert mock_device.queued_update is False
+    with patch.object(firmware_controller, "_enqueue", new_callable=AsyncMock) as mock_enqueue:
+        await firmware_controller.compile(configuration="test_device.yaml")
 
-
-@pytest.mark.asyncio
-async def test_online_device_without_queued_update_ignored(firmware_controller, mock_device):
-    """Test that online devices without queued_update flag are ignored."""
-    mock_device.state = DeviceState.ONLINE
-    mock_device.queued_update = False
-    mock_device.name = "test_device"
-
-    trigger_queued_update = False
-    for d in [mock_device]:
-        if getattr(d, "queued_update", False):
-            trigger_queued_update = True
-            break
-
-    assert trigger_queued_update is False
+        called_job = mock_enqueue.call_args[0][0]
+        assert called_job.job_type == JobType.COMPILE
+        assert getattr(called_job, "is_deferred_install", False) is False
 
 
 @pytest.mark.asyncio
@@ -86,11 +71,11 @@ async def test_clear_queued_update_clears_flag(firmware_controller, mock_device)
     mock_device.state = DeviceState.OFFLINE
     mock_device.queued_update = True
 
-    firmware_controller._db.devices._state_monitor = MagicMock()
+    firmware_controller._db.devices.set_queued_update = MagicMock()
 
     await firmware_controller.clear_queued_update(configuration="test_device.yaml")
 
-    firmware_controller._db.devices._state_monitor.apply_queued_update.assert_called_with(
+    firmware_controller._db.devices.set_queued_update.assert_called_with(
         "test_device", is_queued=False
     )
 
@@ -123,7 +108,7 @@ def test_handle_device_wake_triggers_upload(firmware_controller, mock_device):
     mock_device.configuration = "test_device.yaml"
     mock_device.name = "test_device"
 
-    firmware_controller._db.devices._state_monitor = MagicMock()
+    firmware_controller._db.devices.set_queued_update = MagicMock()
 
     with (
         patch(
@@ -140,7 +125,7 @@ def test_handle_device_wake_triggers_upload(firmware_controller, mock_device):
         )
         firmware_controller._handle_device_wake(event)
 
-        firmware_controller._db.devices._state_monitor.apply_queued_update.assert_called_with(
+        firmware_controller._db.devices.set_queued_update.assert_called_with(
             "test_device", is_queued=False
         )
         mock_upload.assert_called_with(configuration="test_device.yaml", port="OTA")
@@ -198,12 +183,13 @@ async def test_execute_job_sets_queued_flag(firmware_controller, mock_device):
     mock_device.configuration = "test_device.yaml"
     mock_device.name = "test_device"
 
-    firmware_controller._db.devices._state_monitor = MagicMock()
+    firmware_controller._db.devices.set_queued_update = MagicMock()
 
     job = MagicMock(spec=FirmwareJob)
     job.job_type = JobType.COMPILE
     job.status = JobStatus.COMPLETED
     job.configuration = "test_device.yaml"
+    job.is_deferred_install = True
 
     with patch(
         "esphome_device_builder.controllers.firmware.controller.runner.execute_job",
@@ -211,9 +197,35 @@ async def test_execute_job_sets_queued_flag(firmware_controller, mock_device):
     ):
         await firmware_controller._execute_job(job, MagicMock())
 
-    firmware_controller._db.devices._state_monitor.apply_queued_update.assert_called_with(
+    firmware_controller._db.devices.set_queued_update.assert_called_with(
         "test_device", is_queued=True
     )
+
+
+@pytest.mark.asyncio
+async def test_compile_only_does_not_arm_queue(firmware_controller, mock_device):
+    """A plain compile job must NOT arm an auto-flash."""
+    mock_device.state = DeviceState.OFFLINE
+    mock_device.configuration = "test_device.yaml"
+    mock_device.name = "test_device"
+
+    firmware_controller._db.devices.set_queued_update = MagicMock()
+
+    # Create a job WITHOUT the is_deferred_install flag
+    job = MagicMock(spec=FirmwareJob)
+    job.job_type = JobType.COMPILE
+    job.status = JobStatus.COMPLETED
+    job.configuration = "test_device.yaml"
+    job.is_deferred_install = False
+
+    with patch(
+        "esphome_device_builder.controllers.firmware.controller.runner.execute_job",
+        new_callable=AsyncMock
+    ):
+        await firmware_controller._execute_job(job, MagicMock())
+
+    # Ensure the arming path was skipped
+    firmware_controller._db.devices.set_queued_update.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -221,12 +233,13 @@ async def test_execute_job_ignores_online_device(firmware_controller, mock_devic
     """Test that a successful compile for an online device does not set the flag."""
     mock_device.state = DeviceState.ONLINE
     mock_device.configuration = "test_device.yaml"
-    firmware_controller._db.devices.monitor = MagicMock()
+    firmware_controller._db.devices.set_queued_update = MagicMock()
 
     job = MagicMock(spec=FirmwareJob)
     job.job_type = JobType.COMPILE
     job.status = JobStatus.COMPLETED
     job.configuration = "test_device.yaml"
+    job.is_deferred_install = True
 
     with patch(
         "esphome_device_builder.controllers.firmware.controller.runner.execute_job",
@@ -234,7 +247,7 @@ async def test_execute_job_ignores_online_device(firmware_controller, mock_devic
     ):
         await firmware_controller._execute_job(job, MagicMock())
 
-    firmware_controller._db.devices.monitor.apply_queued_update.assert_not_called()
+    firmware_controller._db.devices.set_queued_update.assert_not_called()
 
 
 def test_device_for_configuration_handles_none(firmware_controller):
@@ -252,19 +265,12 @@ def test_device_for_configuration_uses_get_devices(firmware_controller):
     assert firmware_controller._device_for_configuration("kitchen.yaml") == mock_device
 
 
-def test_device_for_configuration_handles_list_stub(firmware_controller):
-    """Test test-stub fallback where the controller is just a raw list."""
-    mock_device = MagicMock(configuration="kitchen.yaml")
-    firmware_controller._db.devices = [mock_device]
-
-    assert firmware_controller._device_for_configuration("kitchen.yaml") == mock_device
-
-
 def test_device_for_configuration_handles_unknown_stub(firmware_controller):
-    """Test the e2e StubDevices fallback that lacks get_devices and isn't a list."""
+    """Test the e2e StubDevices fallback that implements get_devices()."""
 
     class StubDevices:
-        pass  # Just an empty dummy object
+        def get_devices(self):
+            return []  # Real interface, empty result
 
     firmware_controller._db.devices = StubDevices()
     assert firmware_controller._device_for_configuration("kitchen.yaml") is None
