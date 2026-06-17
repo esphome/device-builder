@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   close:
-    name: Close fork PR maintainers can't push to
+    name: Close fork PR we can't work with
     runs-on: ubuntu-latest
     # Only fork PRs can hit either problem; same-repo PRs always allow maintainer pushes.
     if: >-
