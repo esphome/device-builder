@@ -42,7 +42,7 @@ def _board_sort_key(board: BoardCatalogIndex) -> tuple[bool, bool, bool, str]:
 def _filter_by_variant(boards: list[BoardCatalogIndex], variant: str) -> list[BoardCatalogIndex]:
     """Boards whose variant equals *variant*, case-insensitively (empty if none)."""
     target = variant.lower()
-    return [b for b in boards if b.esphome.variant and b.esphome.variant.value == target]
+    return [b for b in boards if b.esphome.variant and b.esphome.variant.value.lower() == target]
 
 
 class BoardCatalog:
