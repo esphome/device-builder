@@ -348,3 +348,12 @@ def test_rp2040_boards_carry_the_chip_mcu_other_platforms_do_not() -> None:
     assert mcu["generic-rp2040"] == "rp2040"
     # ESP32 / ESP8266 boards distinguish chips via ``variant``; mcu stays unset.
     assert mcu["generic-esp32"] is None
+
+
+def test_every_board_has_a_docs_url() -> None:
+    """No board renders an empty "More info" link; generated boards fall back to platform docs."""
+    docs = {b.id: b.docs_url for b in load_board_index()}
+    assert all(docs.values()), [bid for bid, url in docs.items() if not url]
+    # Generated (unmanifested) boards take the per-platform default.
+    assert docs["MyRP_2350B"] == "https://esphome.io/components/rp2040.html"
+    assert docs["rpipico2w"] == "https://esphome.io/components/rp2040.html"

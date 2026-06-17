@@ -9,6 +9,7 @@ import os
 import signal
 import sys
 import threading
+import time
 from contextlib import suppress
 from logging.handlers import RotatingFileHandler
 from types import TracebackType
@@ -24,10 +25,14 @@ from .constants import (
     __version__,
 )
 from .helpers.logging import activate_log_queue_handler
+from .helpers.startup_timing import StartupTimer
 
 if TYPE_CHECKING:
     from .controllers.config import DashboardSettings
     from .device_builder import DeviceBuilder
+
+# Timestamp at module load; origin for the startup phase timer.
+_STARTUP_ORIGIN = time.monotonic()
 
 _FORMAT = "%(asctime)s.%(msecs)03d %(levelname)s (%(threadName)s) [%(name)s] %(message)s"
 _DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -318,17 +323,28 @@ def main() -> None:
         )
         sys.exit(1)
 
+    startup_timer = StartupTimer(_STARTUP_ORIGIN)
+    startup_timer.mark("early")
+
+    # Sub-marks separate the esphome base import from our controllers/models tree.
     from esphome.core import CORE  # noqa: PLC0415
 
+    startup_timer.mark("esphome")
+
     from .controllers.config import DashboardSettings  # noqa: PLC0415
+
+    startup_timer.mark("config")
+
     from .device_builder import DeviceBuilder  # noqa: PLC0415
     from .helpers.single_instance import ensure_single_execution  # noqa: PLC0415
     from .helpers.windows_build_paths import windows_short_build_paths  # noqa: PLC0415
 
+    startup_timer.mark("builder")
+
     settings = DashboardSettings()
     settings.parse_args(args)
-
     _warn_if_unprotected(settings)
+    startup_timer.mark("settings")
 
     # Keyed on ``CORE.data_dir`` (not ``config_dir``) so the HA
     # addon's Prod/Beta/DEV flavors — each with its own per-instance
@@ -346,7 +362,9 @@ def main() -> None:
     ):
         if lock.exit_code is not None:
             sys.exit(lock.exit_code)
-        _serve_until_stop(DeviceBuilder(settings))
+        device_builder = DeviceBuilder(settings, startup_timer=startup_timer)
+        startup_timer.mark("init")
+        _serve_until_stop(device_builder)
 
 
 def _serve_until_stop(device_builder: DeviceBuilder) -> None:
