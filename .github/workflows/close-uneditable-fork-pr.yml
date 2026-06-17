@@ -1,0 +1,98 @@
+name: Close Uneditable Fork PR
+
+on:
+  # pull_request_target is required so we have permission to comment and close PRs from forks.
+  pull_request_target:
+    types: [opened, reopened]
+
+permissions:
+  pull-requests: write  # pulls.update to close the PR
+  issues: write         # issues.createComment to explain to the contributor why
+
+jobs:
+  close:
+    name: Close fork PR maintainers can't push to
+    runs-on: ubuntu-latest
+    # Only fork PRs can hit either problem; same-repo PRs always allow maintainer pushes.
+    if: >-
+      github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const prNumber = context.payload.pull_request.number;
+            const author = context.payload.pull_request.user.login;
+
+            // Re-fetch: the webhook payload's maintainer_can_modify can be stale at
+            // open time, and a false close annoys contributors.
+            const { data: pr } = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: prNumber,
+            });
+
+            const headRepo = pr.head.repo.full_name;
+            const forkDefaultBranch = pr.head.repo.default_branch;
+            const noMaintainerEdits = pr.maintainer_can_modify === false;
+            const fromForkDefaultBranch = pr.head.ref === forkDefaultBranch;
+
+            if (!noMaintainerEdits && !fromForkDefaultBranch) {
+              // Normal, pushable fork PR — leave it alone.
+              return;
+            }
+
+            const lines = [
+              `Hi @${author}, thanks for opening a pull request! :tada:`,
+              ``,
+            ];
+
+            if (noMaintainerEdits) {
+              lines.push(
+                `Unfortunately maintainers can't push to this PR's branch (\`${headRepo}:${pr.head.ref}\`), so we can't apply small fixes like a rebase or a test tweak ourselves — every change has to bounce back to you, or we end up opening a duplicate PR.`,
+                ``,
+                `This happens when **Allow edits by maintainers** is off. Either it was unchecked when the PR was created (GitHub doesn't let you toggle it afterward), or the fork is owned by an **organization** — GitHub never permits maintainer pushes to org-owned fork branches.`,
+                ``,
+                `Please re-open this from a **personal** fork with **Allow edits by maintainers** checked.`,
+                ``,
+              );
+            }
+
+            if (fromForkDefaultBranch) {
+              lines.push(
+                `This PR was also opened from the \`${forkDefaultBranch}\` branch of your fork (\`${headRepo}\`), your fork's default branch. Working directly on it causes problems:`,
+                ``,
+                `- Your fork's \`${forkDefaultBranch}\` permanently diverges from \`${owner}/${repo}:${forkDefaultBranch}\`, making it hard to keep your fork up to date.`,
+                `- Any commit you push to \`${forkDefaultBranch}\` is added to this PR, so you can't work on multiple changes at once.`,
+                `- It makes local collaboration painful — \`${forkDefaultBranch}\` becomes ambiguous between upstream and your fork.`,
+                ``,
+                `Open your change from a dedicated feature branch instead:`,
+                ``,
+                `\`\`\`bash`,
+                `git remote add upstream https://github.com/${owner}/${repo}.git  # if you haven't already`,
+                `git fetch upstream`,
+                `git checkout -b my-feature-branch upstream/${forkDefaultBranch}`,
+                `# ...re-apply your changes, then:`,
+                `git push origin my-feature-branch`,
+                `\`\`\``,
+                ``,
+              );
+            }
+
+            lines.push(
+              `Closing this for now — sorry for the friction, and thanks again for contributing! :heart:`,
+            );
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: prNumber,
+              body: lines.join('\n'),
+            });
+
+            await github.rest.pulls.update({
+              owner,
+              repo,
+              pull_number: prNumber,
+              state: 'closed',
+            });
