@@ -419,10 +419,14 @@ def _parse_inline_value(raw: str) -> str:
     Clean a raw YAML scalar value.
 
     Drops a trailing inline ``# comment`` (quote-aware, so ``"Test #1"  # c``
-    -> ``Test #1`` and ``Room#2`` stays literal) and matching surrounding
-    quotes.
+    -> ``Test #1`` and ``Room#2`` stays literal), strips matching surrounding
+    quotes, and unwinds the single-quoted ``''`` escape so ``'Bob''s Room'``
+    -> ``Bob's Room``.
     """
     value, _ = _split_value_and_comment(raw)
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] == "'":
+        return value[1:-1].replace("''", "'")
     return _strip_yaml_quotes(value)
 
 
