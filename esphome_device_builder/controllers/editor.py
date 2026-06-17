@@ -37,7 +37,9 @@ _VALIDATE_TIMEOUT = 30.0
 # collision risk negligible for the ≤dozens of buffers an editor
 # session sees inside one TTL window).
 _VALIDATE_CACHE_TTL = 60.0
-# Idle seconds before a warm vscode subprocess is reaped (respawned on next validate).
+# Idle seconds before a warm vscode subprocess is reaped, respawned on next
+# validate. 10 min outlasts a normal mid-edit pause but frees RAM once the
+# user leaves.
 _IDLE_SUBPROCESS_TIMEOUT = 600.0
 _REAP_INTERVAL = 60.0
 
@@ -188,7 +190,7 @@ class EditorController:
             await asyncio.sleep(_REAP_INTERVAL)
             try:
                 await self._reap_idle_subprocesses()
-            except Exception:  # pylint: disable=broad-except
+            except Exception:
                 # A failed sweep must not kill the reaper.
                 _LOGGER.exception("Idle vscode subprocess reaper sweep failed")
 
@@ -211,8 +213,10 @@ class EditorController:
             async with session.lock:
                 # Re-check under the lock: a validate may have run (and stamped
                 # last_used) while we waited.
+                proc = session.proc
                 if (
-                    session.proc is None
+                    proc is None
+                    or proc.returncode is not None
                     or time.monotonic() - session.last_used < _IDLE_SUBPROCESS_TIMEOUT
                 ):
                     continue
@@ -220,7 +224,7 @@ class EditorController:
                 # One stuck terminate must not strand the rest of the sweep.
                 try:
                     await self._terminate_subprocess(session)
-                except Exception:  # pylint: disable=broad-except
+                except Exception:
                     _LOGGER.exception(
                         "Failed to reap idle vscode subprocess for %s", session.configuration
                     )
