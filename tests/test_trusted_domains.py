@@ -32,6 +32,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from aiohttp import web
+from esphome.core import CORE
 from pytest_aiohttp.plugin import AiohttpClient
 
 from esphome_device_builder.api import ws as ws_module
@@ -282,6 +283,15 @@ def test_settings_parses_cli_flag(tmp_path: object) -> None:
         )
     )
     assert settings.trusted_domains == ["dashboard.local", "192.168.1.10"]
+
+
+def test_settings_parse_args_disables_external_package_fetch(
+    tmp_path: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``parse_args`` pins ``skip_external_update`` so the scan never git-fetches."""
+    monkeypatch.setattr(CORE, "skip_external_update", False)
+    DashboardSettings().parse_args(_ns(configuration=str(tmp_path)))
+    assert CORE.skip_external_update is True
 
 
 def test_settings_parses_env_var_when_flag_unset(tmp_path: object) -> None:

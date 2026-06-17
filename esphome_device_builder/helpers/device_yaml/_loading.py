@@ -445,20 +445,12 @@ def load_device_yaml(path: Path) -> dict | None:
     # misses them. We delegate to ESPHome internals — the loader
     # and merge algorithm live upstream.
     #
-    # ``load_device_yaml`` runs on a worker thread (the device
-    # scanner uses ``run_in_executor``; the devices controller
-    # threads it through too), NOT the WS event loop. Same trade
-    # the validate path lives with: ESPHome's ``vscode`` subprocess
-    # runs the full resolve on every validate call, so a
-    # remote-package config that fires ``git clone`` synchronously
-    # blocks this worker thread for as long as the clone takes
-    # (minutes on a slow connection / large repo) but the dashboard
-    # stays responsive to other clients. The follow-up that mirrors
-    # the validate-style subprocess pattern for metadata refresh
-    # (so a slow remote clone doesn't stall the whole scan) is
-    # tracked separately; this PR closes the local-package gap
-    # behind #288 without trying to solve the remote-package
-    # latency problem at the same time.
+    # This resolves offline: the dashboard sets ``CORE.skip_external_update`` at
+    # startup (``DashboardSettings.parse_args``), so esphome's git layer treats
+    # an already-cloned package as a local no-op and the scan merges from cached
+    # content with no per-repo ``git fetch``. The legacy dashboard read
+    # StorageJSON only and never resolved packages, so it did no git work here;
+    # real builds refresh via the esphome CLI's own resolve.
     if isinstance(config.get(CONF_PACKAGES), (dict, list)):
         try:
             if _resolve_packages is not None:

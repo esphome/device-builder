@@ -213,6 +213,11 @@ class DashboardSettings:
             host.strip().lower() for host in raw_trusted.split(",") if host.strip()
         ]
         CORE.config_path = self.config_dir / _DASHBOARD_SENTINEL_FILE
+        # The long-lived process never fetches external packages in-process:
+        # metadata resolution reads cached checkouts, and real builds run in
+        # esphome CLI subprocesses with their own CORE. Set once here so the
+        # device-scan package merge doesn't git-fetch per repo on every startup.
+        CORE.skip_external_update = True
 
     def rel_path(self, *parts: str) -> Path:
         """
