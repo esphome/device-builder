@@ -25,19 +25,14 @@ class _CatalogConfig(BaseConfig):
 
     omit_default = True
     omit_none = True
-    # Defer mashumaro pack/unpack codegen to first use (cuts cold import).
     lazy_compilation = True
 
 
 class DashboardModel(DataClassORJSONMixin):
-    """Model base that defers mashumaro codegen to first use.
-
-    Wire output is unchanged; ``lazy_compilation`` only moves the
-    pack/unpack codegen off class-definition (import) time.
-    """
+    """Model base that defers mashumaro codegen to first use."""
 
     class Config(BaseConfig):
-        """Defer pack/unpack codegen to first use."""
+        """Defer codegen to first use."""
 
         lazy_compilation = True
 
