@@ -232,9 +232,7 @@ def test_set_queued_update_delegates_to_monitor(make_controller, tmp_path):
     result = controller.set_queued_update("kitchen", is_queued=True)
 
     assert result is True
-    controller._state_monitor.apply_queued_update.assert_called_once_with(
-        "kitchen", is_queued=True
-    )
+    controller._state_monitor.apply_queued_update.assert_called_once_with("kitchen", is_queued=True)
 
 
 def test_set_queued_update_handles_none_monitor(make_controller, tmp_path):
