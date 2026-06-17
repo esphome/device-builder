@@ -412,25 +412,50 @@ def _match_top_level_key(line: str) -> str | None:
     return stripped.split(":", 1)[0].strip()
 
 
-_INLINE_COMMENT_RE = re.compile(r"(?:^|\s)#.*$")
+def _split_inline_comment(raw: str) -> str:
+    """
+    Return *raw* with a quote-aware trailing ``# comment`` removed.
+
+    A ``#`` opens a comment only outside quotes and whitespace-preceded (or at
+    the start of the post-key remainder); ``Room#2`` and ``"a # b"`` keep it.
+    Mirrors the frontend ``splitInlineComment`` in ``util/yaml-scalar.ts``.
+    """
+    in_single = in_double = False
+    i = 0
+    while i < len(raw):
+        c = raw[i]
+        if c == "\\" and in_double:
+            i += 2
+            continue
+        if c == '"' and not in_single:
+            in_double = not in_double
+        elif c == "'" and not in_double:
+            in_single = not in_single
+        elif c == "#" and not in_single and not in_double and (i == 0 or raw[i - 1] in " \t"):
+            return raw[:i]
+        i += 1
+    return raw
+
+
+def _strip_quotes(value: str) -> str:
+    """Strip matching outer quotes; unescape ``''`` in a single-quoted scalar."""
+    if len(value) >= 2 and value[0] == value[-1]:
+        if value[0] == '"':
+            return value[1:-1]
+        if value[0] == "'":
+            return value[1:-1].replace("''", "'")
+    return value
 
 
 def _parse_inline_value(raw: str) -> str:
     """
     Clean a raw YAML scalar value.
 
-    Strips an inline ``# comment`` and matching surrounding quotes. A
-    ``#`` only opens a comment when whitespace-preceded (or at the
-    scalar start); ``Room#2`` is a literal, not ``Room``.
+    Drops a trailing inline ``# comment`` and matching surrounding quotes,
+    quote-aware: ``"Test #1"  # c`` -> ``Test #1`` and ``Room#2`` stays
+    literal. Mirrors the frontend ``parseScalar``.
     """
-    value = raw.strip()
-    if not value.startswith(('"', "'")):
-        value = _INLINE_COMMENT_RE.sub("", value).strip()
-    if (value.startswith('"') and value.endswith('"')) or (
-        value.startswith("'") and value.endswith("'")
-    ):
-        value = value[1:-1]
-    return value
+    return _strip_quotes(_split_inline_comment(raw).strip())
 
 
 _FLOW_AREA_NAME_RE = re.compile(r"""\bname\s*:\s*("[^"]*"|'[^']*'|[^,}]+)""")

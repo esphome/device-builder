@@ -525,6 +525,29 @@ esphome:
     assert comment == "Cost50#tag"
 
 
+def test_parse_meta_strips_comment_after_quoted_friendly_name() -> None:
+    """A comment after a quoted ``friendly_name`` is dropped, quotes too (#1525)."""
+    yaml_content = """
+esphome:
+  name: test-1
+  friendly_name: "Test #1"  # Hello fr_name
+"""
+    _, friendly_name, _, _ = parse_esphome_meta(yaml_content)
+    assert friendly_name == "Test #1"
+
+
+def test_parse_meta_strips_comment_after_quoted_substitution_value() -> None:
+    """A comment after a quoted substitution value doesn't leak into the resolved meta (#1525)."""
+    yaml_content = """
+substitutions:
+  fname: "Test #2"  # Hello fname
+esphome:
+  friendly_name: "${fname}"
+"""
+    _, friendly_name, _, _ = parse_esphome_meta(yaml_content)
+    assert friendly_name == "Test #2"
+
+
 def test_parse_meta_skips_blank_and_comment_lines_inside_block() -> None:
     """Comment lines and blank lines inside the ``esphome:`` block are skipped.
 
@@ -916,6 +939,13 @@ def test_parse_inline_value_strips_trailing_comment() -> None:
     assert _parse_inline_value("Living#Room") == "Living#Room"
     # A leading ``#`` is a comment-only value → empty.
     assert _parse_inline_value("# just a comment") == ""
+    # A comment after a *quoted* value is dropped, quotes and all (#1525); a
+    # ``#`` inside the quotes stays literal.
+    assert _parse_inline_value('"Test #1"  # Hello') == "Test #1"
+    assert _parse_inline_value("'Test #1'  # Hello") == "Test #1"
+    assert _parse_inline_value('"with #hash"  # c') == "with #hash"
+    # YAML single-quote escape: a doubled ``''`` is a literal ``'``.
+    assert _parse_inline_value("'it''s'") == "it's"
 
 
 def test_parse_inline_value_strips_matched_quotes() -> None:
