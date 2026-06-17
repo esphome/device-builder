@@ -210,6 +210,10 @@ class Device(DashboardModel):
     # the catalog entry, so a label rename / recolor needs no
     # device-level write.
     labels: list[str] = field(default_factory=list)
+    # Resolved ``logger: baud_rate`` for the Web Serial log port. ``None`` ⇒
+    # unset (frontend uses 115200); ``0`` ⇒ UART logging disabled; positive ⇒
+    # that baud.
+    logger_baud_rate: int | None = None
 
 
 @dataclass

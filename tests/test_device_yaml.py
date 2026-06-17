@@ -34,7 +34,10 @@ from esphome_device_builder.helpers.device_yaml import (
     parse_esphome_meta,
     parse_platform_from_yaml,
 )
-from esphome_device_builder.helpers.device_yaml._parsing import _is_valid_esphome_name
+from esphome_device_builder.helpers.device_yaml._parsing import (
+    _is_valid_esphome_name,
+    extract_logger_baud_rate,
+)
 from esphome_device_builder.models import (
     BoardCatalogEntry,
     BoardEsphomeConfig,
@@ -768,6 +771,47 @@ def test_extract_meta_from_config_dict_area_uses_name() -> None:
 def test_extract_meta_from_config_no_esphome_block(config: Any) -> None:
     """Missing / malformed config or ``esphome:`` block yields all-``None``."""
     assert extract_esphome_meta_from_config(config) == (None, None, None, None)
+
+
+def test_extract_logger_baud_rate_int() -> None:
+    """A plain integer baud is returned as-is."""
+    assert extract_logger_baud_rate({"logger": {"baud_rate": 19200}}) == 19200
+
+
+def test_extract_logger_baud_rate_string_coerced() -> None:
+    """A quoted-string baud coerces to int."""
+    assert extract_logger_baud_rate({"logger": {"baud_rate": "19200"}}) == 19200
+
+
+def test_extract_logger_baud_rate_resolves_substitution() -> None:
+    """A ``${var}`` baud resolves against the supplied substitutions."""
+    config = {"logger": {"baud_rate": "${log_baud}"}}
+    assert extract_logger_baud_rate(config, {"log_baud": "9600"}) == 9600
+
+
+def test_extract_logger_baud_rate_zero_disabled() -> None:
+    """``baud_rate: 0`` passes through (UART logging disabled)."""
+    assert extract_logger_baud_rate({"logger": {"baud_rate": 0}}) == 0
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        None,
+        {},
+        {"logger": "not-a-dict"},
+        {"logger": {}},  # no baud_rate key
+        {"logger": {"baud_rate": "${unset}"}},  # unresolved token
+        {"logger": {"baud_rate": "fast"}},  # non-numeric
+        {"logger": {"baud_rate": True}},  # bool is not a baud
+        {"logger": {"baud_rate": -1}},  # negative is invalid
+        {"logger": {"baud_rate": "-9600"}},  # negative via string
+        {"logger": {"baud_rate": [115200]}},  # non-scalar
+    ],
+)
+def test_extract_logger_baud_rate_none(config: Any) -> None:
+    """Missing / malformed / unresolvable / negative baud yields ``None``."""
+    assert extract_logger_baud_rate(config) is None
 
 
 def test_parse_meta_top_level_comment_does_not_close_esphome_block() -> None:
@@ -1806,6 +1850,50 @@ def test_load_device_local_substitution_wins_over_package(tmp_path: Path) -> Non
     device = load_device_from_storage(yaml_path)
 
     assert device.friendly_name == "Local Override"
+
+
+def test_load_device_logger_baud_rate(tmp_path: Path) -> None:
+    """A literal ``logger: baud_rate`` surfaces on the device."""
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text(
+        "esphome:\n  name: lamp\nlogger:\n  baud_rate: 19200\n",
+        encoding="utf-8",
+    )
+    write_storage_json(tmp_path, "lamp.yaml")
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.logger_baud_rate == 19200
+
+
+def test_load_device_logger_baud_rate_from_substitution(tmp_path: Path) -> None:
+    """A ``${var}`` baud resolves through the substitutions pass."""
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text(
+        "substitutions:\n"
+        "  log_baud: '9600'\n"
+        "esphome:\n"
+        "  name: lamp\n"
+        "logger:\n"
+        "  baud_rate: ${log_baud}\n",
+        encoding="utf-8",
+    )
+    write_storage_json(tmp_path, "lamp.yaml")
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.logger_baud_rate == 9600
+
+
+def test_load_device_logger_baud_rate_absent(tmp_path: Path) -> None:
+    """No ``logger:`` block leaves the baud unset (frontend defaults to 115200)."""
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text("esphome:\n  name: lamp\n", encoding="utf-8")
+    write_storage_json(tmp_path, "lamp.yaml")
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.logger_baud_rate is None
 
 
 @pytest.mark.usefixtures("_redirect_ext_storage")
