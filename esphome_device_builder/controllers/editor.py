@@ -8,6 +8,7 @@ schema-driven completion, etc.) will live here too.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from dataclasses import dataclass, field
@@ -36,6 +37,12 @@ _VALIDATE_TIMEOUT = 30.0
 # collision risk negligible for the ≤dozens of buffers an editor
 # session sees inside one TTL window).
 _VALIDATE_CACHE_TTL = 60.0
+# Reap a warm ``esphome vscode`` subprocess after this long without a
+# validate request: it holds the esphome runtime + loaded config in RAM, so
+# leaving it resident for hours after the user navigates away is pure waste.
+# Long enough to survive a normal mid-edit pause; the next validate respawns it.
+_IDLE_SUBPROCESS_TIMEOUT = 600.0
+_REAP_INTERVAL = 60.0
 
 
 @dataclass
@@ -60,6 +67,7 @@ class _EditorSession:
     proc: asyncio.subprocess.Process | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     cached: _CachedValidation | None = None
+    last_used: float = field(default_factory=time.monotonic)
 
 
 class EditorController:
@@ -77,14 +85,23 @@ class EditorController:
         self._db = device_builder
         self._sessions: dict[str, _EditorSession] = {}
         self._esphome_cmd: list[str] = []
+        self._reaper_task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
         """Async initialize the controller."""
         # resolve the `esphome` CLI invocation used to spawn validator subprocesses
         self._esphome_cmd = _find_esphome_cmd()
+        self._reaper_task = asyncio.create_task(
+            self._reaper_loop(), name="editor-subprocess-reaper"
+        )
 
     async def stop(self) -> None:
         """Stop the controller.."""
+        if self._reaper_task is not None:
+            self._reaper_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._reaper_task
+            self._reaper_task = None
         sessions = list(self._sessions.values())
         self._sessions.clear()
         # tear down every warm validator subprocess on app shutdown
@@ -165,6 +182,39 @@ class EditorController:
                 kill_quietly(proc)
                 await proc.wait()
 
+    async def _reaper_loop(self) -> None:
+        """Periodically reap subprocesses idle past ``_IDLE_SUBPROCESS_TIMEOUT``."""
+        while True:
+            await asyncio.sleep(_REAP_INTERVAL)
+            await self._reap_idle_subprocesses()
+
+    async def _reap_idle_subprocesses(self) -> None:
+        """Terminate each session's subprocess after a window of no validation.
+
+        Holds ``session.lock`` across the terminate so it can never interrupt an
+        in-flight ``_validate_locked`` round-trip; a busy (locked) session was
+        just used, so it's skipped. The session object stays — the next
+        ``validate_yaml`` respawns via ``_ensure_subprocess``.
+        """
+        for session in list(self._sessions.values()):
+            proc = session.proc
+            if proc is None or proc.returncode is not None:
+                continue
+            if time.monotonic() - session.last_used < _IDLE_SUBPROCESS_TIMEOUT:
+                continue
+            if session.lock.locked():
+                continue
+            async with session.lock:
+                # Re-check under the lock: a validate may have run (and stamped
+                # last_used) while we waited.
+                if (
+                    session.proc is None
+                    or time.monotonic() - session.last_used < _IDLE_SUBPROCESS_TIMEOUT
+                ):
+                    continue
+                _LOGGER.info("Reaping idle vscode subprocess for %s", session.configuration)
+                await self._terminate_subprocess(session)
+
     def _resolve_file(self, requested: str, configuration: str, content: str) -> str:
         """
         Answer a `read_file` request from the validator subprocess.
@@ -228,6 +278,9 @@ class EditorController:
         session = self._sessions.setdefault(
             configuration, _EditorSession(configuration=configuration)
         )
+        # Stamp before any await so the reaper (which re-checks last_used under
+        # the lock) never reaps a session with a request in flight.
+        session.last_used = time.monotonic()
         content_hash = fnv1a_32(content.encode("utf-8"))
         # Fast path: avoid the lock when the previous result is
         # still fresh for the same content.

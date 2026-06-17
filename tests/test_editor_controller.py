@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import time
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -38,6 +39,7 @@ import pytest
 
 from esphome_device_builder.controllers import editor as editor_module
 from esphome_device_builder.controllers.editor import (
+    _IDLE_SUBPROCESS_TIMEOUT,
     EditorController,
     _EditorSession,
 )
@@ -56,6 +58,7 @@ def _make_controller(config_dir: Path) -> EditorController:
     controller._db.settings.config_dir = config_dir
     controller._sessions = {}
     controller._esphome_cmd = ["esphome"]
+    controller._reaper_task = None
     return controller
 
 
@@ -836,6 +839,89 @@ async def test_validate_yaml_cache_misses_on_different_content(tmp_path: Path) -
     )
 
     assert calls == ["esphome:\n  name: kitchen\n", "esphome:\n  name: kitchen-2\n"]
+
+
+# ---------------------------------------------------------------------------
+# Idle subprocess reaping
+# ---------------------------------------------------------------------------
+
+
+def _idle_session(configuration: str) -> _EditorSession:
+    """Build a session with a live proc whose last_used is past the idle timeout."""
+    proc, _reader, _stdin = _make_fake_proc([])
+    session = _EditorSession(configuration=configuration)
+    session.proc = proc
+    session.last_used = time.monotonic() - _IDLE_SUBPROCESS_TIMEOUT - 1.0
+    return session
+
+
+async def test_reap_terminates_idle_session(tmp_path: Path) -> None:
+    """A session idle past the timeout has its subprocess terminated."""
+    controller = _make_controller(tmp_path)
+    session = _idle_session("kitchen.yaml")
+    controller._sessions["kitchen.yaml"] = session
+    terminated = AsyncMock()
+    controller._terminate_subprocess = terminated  # type: ignore[method-assign]
+
+    await controller._reap_idle_subprocesses()
+
+    terminated.assert_awaited_once_with(session)
+
+
+async def test_reap_keeps_recently_used_session(tmp_path: Path) -> None:
+    """A session used within the idle window is left warm."""
+    controller = _make_controller(tmp_path)
+    session = _idle_session("kitchen.yaml")
+    session.last_used = time.monotonic()  # fresh
+    controller._sessions["kitchen.yaml"] = session
+    terminated = AsyncMock()
+    controller._terminate_subprocess = terminated  # type: ignore[method-assign]
+
+    await controller._reap_idle_subprocesses()
+
+    terminated.assert_not_awaited()
+
+
+async def test_reap_skips_busy_session_then_reaps_when_free(tmp_path: Path) -> None:
+    """A stale session whose lock is held (validate in flight) isn't reaped.
+
+    Termination must only happen under the lock, so a busy session is skipped;
+    once the lock frees, the next sweep reaps it.
+    """
+    controller = _make_controller(tmp_path)
+    session = _idle_session("kitchen.yaml")
+    controller._sessions["kitchen.yaml"] = session
+    terminated = AsyncMock()
+    controller._terminate_subprocess = terminated  # type: ignore[method-assign]
+
+    await session.lock.acquire()
+    try:
+        await controller._reap_idle_subprocesses()
+        terminated.assert_not_awaited()
+    finally:
+        session.lock.release()
+
+    await controller._reap_idle_subprocesses()
+    terminated.assert_awaited_once_with(session)
+
+
+async def test_validate_yaml_stamps_last_used(tmp_path: Path) -> None:
+    """Each validate request refreshes last_used so an active editor stays warm."""
+    controller = _make_controller(tmp_path)
+
+    async def _ok(session: Any, configuration: str, content: str) -> dict:
+        return {"yaml_errors": [], "validation_errors": []}
+
+    controller._validate_locked = _ok  # type: ignore[method-assign]
+    # Seed a stale session so we can observe last_used jump forward.
+    session = _EditorSession(configuration="kitchen.yaml")
+    session.last_used = time.monotonic() - 10_000.0
+    controller._sessions["kitchen.yaml"] = session
+    before = session.last_used
+
+    await controller.validate_yaml(configuration="kitchen.yaml", content="x")
+
+    assert session.last_used > before
 
 
 async def test_validate_yaml_cache_expires_after_ttl(
