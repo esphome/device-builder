@@ -60,6 +60,7 @@ from .scalar import ESPHOME_YAML_INDENT as ESPHOME_YAML_INDENT
 from .scalar import YamlUpsertNotSupportedError as YamlUpsertNotSupportedError
 from .scalar import _quote as _quote
 from .scalar import _safe_yaml_scalar as _safe_yaml_scalar
+from .scalar import _split_value_and_comment as _split_value_and_comment
 from .scalar import _strip_yaml_quotes as _strip_yaml_quotes
 from .scalar import is_plain_literal_scalar as is_plain_literal_scalar
 from .scalar import read_yaml_scalar as read_yaml_scalar

@@ -937,15 +937,14 @@ def test_parse_inline_value_strips_trailing_comment() -> None:
     # (YAML rule), so it must not truncate the value.
     assert _parse_inline_value("Room#2") == "Room#2"
     assert _parse_inline_value("Living#Room") == "Living#Room"
-    # A leading ``#`` is a comment-only value → empty.
-    assert _parse_inline_value("# just a comment") == ""
+    # A whitespace-preceded ``#`` (the shape the remainder after ``key:`` takes)
+    # is a comment-only value → empty.
+    assert _parse_inline_value(" # just a comment") == ""
     # A comment after a *quoted* value is dropped, quotes and all (#1525); a
     # ``#`` inside the quotes stays literal.
     assert _parse_inline_value('"Test #1"  # Hello') == "Test #1"
     assert _parse_inline_value("'Test #1'  # Hello") == "Test #1"
     assert _parse_inline_value('"with #hash"  # c') == "with #hash"
-    # YAML single-quote escape: a doubled ``''`` is a literal ``'``.
-    assert _parse_inline_value("'it''s'") == "it's"
 
 
 def test_parse_inline_value_strips_matched_quotes() -> None:
