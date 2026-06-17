@@ -221,3 +221,40 @@ def test_on_queued_update_change_updates_and_persists(make_controller, tmp_path)
         "kitchen.yaml", queued_update=True
     )
     devices_controller._fire_device_updated.assert_called_once_with(mock_device)
+
+
+def test_set_queued_update_delegates_to_monitor(make_controller, tmp_path):
+    """Test that set_queued_update correctly delegates to the state monitor."""
+    controller = make_controller(config_dir=tmp_path)
+    controller._state_monitor = MagicMock()
+    controller._state_monitor.apply_queued_update.return_value = True
+
+    result = controller.set_queued_update("kitchen", is_queued=True)
+
+    assert result is True
+    controller._state_monitor.apply_queued_update.assert_called_once_with(
+        "kitchen", is_queued=True
+    )
+
+
+def test_set_queued_update_handles_none_monitor(make_controller, tmp_path):
+    """Test that set_queued_update returns False if monitor is explicitly None."""
+    controller = make_controller(config_dir=tmp_path)
+    controller._state_monitor = None
+
+    result = controller.set_queued_update("kitchen", is_queued=True)
+
+    assert result is False
+
+
+def test_set_queued_update_handles_missing_attribute(make_controller, tmp_path):
+    """Test that set_queued_update returns False if monitor attribute is completely missing."""
+    controller = make_controller(config_dir=tmp_path)
+
+    # Forcefully remove the attribute to test the hasattr() safety guard
+    if hasattr(controller, "_state_monitor"):
+        delattr(controller, "_state_monitor")
+
+    result = controller.set_queued_update("kitchen", is_queued=True)
+
+    assert result is False
