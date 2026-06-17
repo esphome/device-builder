@@ -4,13 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from mashumaro.mixins.orjson import DataClassORJSONMixin
-
+from ..common import DashboardModel
 from .enums import PeerStatus
 
 
 @dataclass
-class StoredPeer(DataClassORJSONMixin):
+class StoredPeer(DashboardModel):
     """
     Receiver-side record of a paired (or pending) offloader.
 
@@ -67,7 +66,7 @@ class StoredPeer(DataClassORJSONMixin):
 
 
 @dataclass
-class PeerSummary(DataClassORJSONMixin):
+class PeerSummary(DashboardModel):
     """
     Public-facing wire view of :class:`StoredPeer`.
 
@@ -100,7 +99,7 @@ MAX_CLEANUP_TTL_SECONDS = 30 * 24 * 60 * 60
 
 
 @dataclass
-class RemoteBuildSettings(DataClassORJSONMixin):
+class RemoteBuildSettings(DashboardModel):
     """
     Receiver-side settings for the remote-build feature (storage shape).
 
@@ -160,7 +159,7 @@ class RemoteBuildSettings(DataClassORJSONMixin):
 
 
 @dataclass
-class RemoteBuildSettingsView(DataClassORJSONMixin):
+class RemoteBuildSettingsView(DashboardModel):
     """
     Wire view of :class:`RemoteBuildSettings`.
 
@@ -178,7 +177,7 @@ class RemoteBuildSettingsView(DataClassORJSONMixin):
 
 
 @dataclass
-class ReceiverPeers(DataClassORJSONMixin):
+class ReceiverPeers(DashboardModel):
     """
     Receiver-side APPROVED peers (storage shape).
 
@@ -193,7 +192,7 @@ class ReceiverPeers(DataClassORJSONMixin):
 
 
 @dataclass
-class PairingWindowState(DataClassORJSONMixin):
+class PairingWindowState(DashboardModel):
     """
     In-process pairing-window state on the receiver.
 
@@ -209,7 +208,7 @@ class PairingWindowState(DataClassORJSONMixin):
 
 
 @dataclass
-class IdentityView(DataClassORJSONMixin):
+class IdentityView(DashboardModel):
     """
     Receiver-side dashboard identity, projected for the Settings UI.
 

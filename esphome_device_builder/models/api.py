@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from mashumaro.mixins.orjson import DataClassORJSONMixin
+from .common import DashboardModel
 
 
 class ErrorCode(StrEnum):
@@ -66,7 +66,7 @@ class ErrorCode(StrEnum):
 
 
 @dataclass
-class CommandMessage(DataClassORJSONMixin):
+class CommandMessage(DashboardModel):
     """Client -> Server: a command request."""
 
     command: str
@@ -75,7 +75,7 @@ class CommandMessage(DataClassORJSONMixin):
 
 
 @dataclass
-class ResultMessage(DataClassORJSONMixin):
+class ResultMessage(DashboardModel):
     """Server -> Client: successful command result."""
 
     message_id: str
@@ -83,7 +83,7 @@ class ResultMessage(DataClassORJSONMixin):
 
 
 @dataclass
-class ErrorMessage(DataClassORJSONMixin):
+class ErrorMessage(DashboardModel):
     """Server -> Client: command error."""
 
     message_id: str
@@ -92,7 +92,7 @@ class ErrorMessage(DataClassORJSONMixin):
 
 
 @dataclass
-class EventMessage(DataClassORJSONMixin):
+class EventMessage(DashboardModel):
     """Server -> Client: streaming output or push event."""
 
     message_id: str
@@ -101,7 +101,7 @@ class EventMessage(DataClassORJSONMixin):
 
 
 @dataclass
-class ServerInfoMessage(DataClassORJSONMixin):
+class ServerInfoMessage(DashboardModel):
     """Server -> Client: sent on connection."""
 
     server_version: str

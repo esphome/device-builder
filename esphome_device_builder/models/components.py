@@ -6,9 +6,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from mashumaro.mixins.orjson import DataClassORJSONMixin
-
-from .common import ConfigEntry, PagedResponse, RequiredGroup
+from .common import ConfigEntry, DashboardModel, PagedResponse, RequiredGroup
 
 
 class ComponentCategory(StrEnum):
@@ -75,7 +73,7 @@ class ComponentCategory(StrEnum):
 
 
 @dataclass
-class ComponentCatalogIndexEntry(DataClassORJSONMixin):
+class ComponentCatalogIndexEntry(DashboardModel):
     """
     Slim catalog entry returned by list / search endpoints.
 
@@ -112,7 +110,7 @@ class ComponentCatalogIndexEntry(DataClassORJSONMixin):
 
 
 @dataclass
-class ComponentCatalogEntry(DataClassORJSONMixin):
+class ComponentCatalogEntry(DashboardModel):
     """A component in the catalog.
 
     Components map 1:1 to ESPHome's `components/` directory. Each entry
@@ -196,7 +194,7 @@ class ComponentCatalogEntry(DataClassORJSONMixin):
 
 
 @dataclass
-class AddComponentRequest(DataClassORJSONMixin):
+class AddComponentRequest(DashboardModel):
     """Request to add a component to a device config."""
 
     component_id: str
@@ -207,7 +205,7 @@ class AddComponentRequest(DataClassORJSONMixin):
 
 
 @dataclass
-class AddComponentResponse(DataClassORJSONMixin):
+class AddComponentResponse(DashboardModel):
     """Response after adding a component."""
 
     yaml: str

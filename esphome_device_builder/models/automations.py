@@ -20,10 +20,9 @@ from dataclasses import dataclass, field
 from typing import Annotated, Any, Literal
 
 from mashumaro.config import BaseConfig
-from mashumaro.mixins.orjson import DataClassORJSONMixin
 from mashumaro.types import Discriminator
 
-from .common import ConfigEntry
+from .common import ConfigEntry, DashboardModel
 
 # ---------------------------------------------------------------------------
 # Catalog
@@ -31,7 +30,7 @@ from .common import ConfigEntry
 
 
 @dataclass
-class AutomationTrigger(DataClassORJSONMixin):
+class AutomationTrigger(DashboardModel):
     """
     A trigger that can start an automation.
 
@@ -58,7 +57,7 @@ class AutomationTrigger(DataClassORJSONMixin):
 
 
 @dataclass
-class AutomationAction(DataClassORJSONMixin):
+class AutomationAction(DashboardModel):
     """
     An action that can run inside an automation.
 
@@ -86,7 +85,7 @@ class AutomationAction(DataClassORJSONMixin):
 
 
 @dataclass
-class AutomationCondition(DataClassORJSONMixin):
+class AutomationCondition(DashboardModel):
     """
     A condition usable inside an ``if`` / ``while`` / ``wait_until``.
 
@@ -108,7 +107,7 @@ class AutomationCondition(DataClassORJSONMixin):
 
 
 @dataclass
-class LightEffect(DataClassORJSONMixin):
+class LightEffect(DashboardModel):
     """A light effect (pulse, flicker, addressable_lambda, ...).
 
     ``value_type`` is set when the entry takes a single scalar at the
@@ -126,7 +125,7 @@ class LightEffect(DataClassORJSONMixin):
 
 
 @dataclass
-class Filter(DataClassORJSONMixin):
+class Filter(DashboardModel):
     """
     A sensor / binary_sensor / text_sensor filter (``delta``, ``lambda``, ...).
 
@@ -148,7 +147,7 @@ class Filter(DataClassORJSONMixin):
 
 
 @dataclass
-class AutomationCatalog(DataClassORJSONMixin):
+class AutomationCatalog(DashboardModel):
     """Top-level shape of ``definitions/automations.json``."""
 
     esphome_schema_version: str = ""
@@ -168,7 +167,7 @@ class AutomationCatalog(DataClassORJSONMixin):
 
 
 @dataclass
-class AutomationTriggerIndex(DataClassORJSONMixin):
+class AutomationTriggerIndex(DashboardModel):
     """Slim card-view of :class:`AutomationTrigger` (no config_entries)."""
 
     id: str
@@ -181,7 +180,7 @@ class AutomationTriggerIndex(DataClassORJSONMixin):
 
 
 @dataclass
-class AutomationActionIndex(DataClassORJSONMixin):
+class AutomationActionIndex(DashboardModel):
     """Slim card-view of :class:`AutomationAction` (no config_entries)."""
 
     id: str
@@ -197,7 +196,7 @@ class AutomationActionIndex(DataClassORJSONMixin):
 
 
 @dataclass
-class AutomationConditionIndex(DataClassORJSONMixin):
+class AutomationConditionIndex(DashboardModel):
     """Slim card-view of :class:`AutomationCondition` (no config_entries)."""
 
     id: str
@@ -209,7 +208,7 @@ class AutomationConditionIndex(DataClassORJSONMixin):
 
 
 @dataclass
-class LightEffectIndex(DataClassORJSONMixin):
+class LightEffectIndex(DashboardModel):
     """Slim card-view of :class:`LightEffect` (no config_entries)."""
 
     id: str
@@ -220,7 +219,7 @@ class LightEffectIndex(DataClassORJSONMixin):
 
 
 @dataclass
-class FilterIndex(DataClassORJSONMixin):
+class FilterIndex(DashboardModel):
     """Slim card-view of :class:`Filter` (no config_entries)."""
 
     id: str
@@ -231,7 +230,7 @@ class FilterIndex(DataClassORJSONMixin):
 
 
 @dataclass
-class AutomationCatalogIndex(DataClassORJSONMixin):
+class AutomationCatalogIndex(DashboardModel):
     """Slim variant of :class:`AutomationCatalog` — the shape of automations.index.json."""
 
     esphome_schema_version: str = ""
@@ -248,7 +247,7 @@ class AutomationCatalogIndex(DataClassORJSONMixin):
 
 
 @dataclass
-class ScriptLocation(DataClassORJSONMixin):
+class ScriptLocation(DashboardModel):
     """A top-level ``script:`` list item, keyed by the script's ``id``."""
 
     id: str
@@ -256,7 +255,7 @@ class ScriptLocation(DataClassORJSONMixin):
 
 
 @dataclass
-class IntervalLocation(DataClassORJSONMixin):
+class IntervalLocation(DashboardModel):
     """A top-level ``interval:`` list item, indexed by list position."""
 
     index: int
@@ -264,7 +263,7 @@ class IntervalLocation(DataClassORJSONMixin):
 
 
 @dataclass
-class ComponentOnLocation(DataClassORJSONMixin):
+class ComponentOnLocation(DashboardModel):
     """
     An inline ``on_*:`` handler under a configured component instance.
 
@@ -290,7 +289,7 @@ class ComponentOnLocation(DataClassORJSONMixin):
 
 
 @dataclass
-class DeviceOnLocation(DataClassORJSONMixin):
+class DeviceOnLocation(DashboardModel):
     """A device-level ``on_boot`` / ``on_loop`` / ``on_shutdown`` under ``esphome:``.
 
     ``index`` is ``None`` for the single-handler mapping form; for the
@@ -310,7 +309,7 @@ class DeviceOnLocation(DataClassORJSONMixin):
 
 
 @dataclass
-class LightEffectLocation(DataClassORJSONMixin):
+class LightEffectLocation(DashboardModel):
     """A user-defined effect inside a light's ``effects:`` list."""
 
     component_id: str
@@ -319,7 +318,7 @@ class LightEffectLocation(DataClassORJSONMixin):
 
 
 @dataclass
-class ApiActionLocation(DataClassORJSONMixin):
+class ApiActionLocation(DashboardModel):
     """A user-defined action inside the ``api.actions:`` list."""
 
     action_name: str
@@ -327,7 +326,7 @@ class ApiActionLocation(DataClassORJSONMixin):
 
 
 @dataclass
-class ComponentActionFieldLocation(DataClassORJSONMixin):
+class ComponentActionFieldLocation(DashboardModel):
     """A ``type: trigger`` action-list config field (cover ``open_action`` …).
 
     Keyed on the literal ``field`` name (not a catalog trigger); carries a
@@ -357,7 +356,7 @@ AutomationLocation = Annotated[
 
 
 @dataclass
-class ConditionNode(DataClassORJSONMixin):
+class ConditionNode(DashboardModel):
     """
     A single condition node.
 
@@ -372,7 +371,7 @@ class ConditionNode(DataClassORJSONMixin):
 
 
 @dataclass
-class ActionNode(DataClassORJSONMixin):
+class ActionNode(DashboardModel):
     """
     A single action node.
 
@@ -389,7 +388,7 @@ class ActionNode(DataClassORJSONMixin):
 
 
 @dataclass
-class AutomationTree(DataClassORJSONMixin):
+class AutomationTree(DashboardModel):
     """
     The structured form of one automation.
 
@@ -404,7 +403,7 @@ class AutomationTree(DataClassORJSONMixin):
 
 
 @dataclass
-class ParsedAutomation(DataClassORJSONMixin):
+class ParsedAutomation(DashboardModel):
     """
     One automation extracted from a device YAML.
 
@@ -435,7 +434,7 @@ class ParsedAutomation(DataClassORJSONMixin):
 
 
 @dataclass
-class AvailableScriptParameter(DataClassORJSONMixin):
+class AvailableScriptParameter(DashboardModel):
     """A single declared parameter of a ``script:`` block."""
 
     name: str
@@ -443,7 +442,7 @@ class AvailableScriptParameter(DataClassORJSONMixin):
 
 
 @dataclass
-class AvailableScript(DataClassORJSONMixin):
+class AvailableScript(DashboardModel):
     """A declared ``script: id`` in the device YAML."""
 
     id: str
@@ -451,7 +450,7 @@ class AvailableScript(DataClassORJSONMixin):
 
 
 @dataclass
-class AvailableComponentInstance(DataClassORJSONMixin):
+class AvailableComponentInstance(DashboardModel):
     """
     A configured component instance the user can target from an action.
 
@@ -469,7 +468,7 @@ class AvailableComponentInstance(DataClassORJSONMixin):
 
 
 @dataclass
-class AvailableAutomations(DataClassORJSONMixin):
+class AvailableAutomations(DashboardModel):
     """
     Context-aware catalog scoped to one device's YAML.
 
@@ -496,7 +495,7 @@ class AvailableAutomations(DataClassORJSONMixin):
 
 
 @dataclass
-class YamlDiff(DataClassORJSONMixin):
+class YamlDiff(DashboardModel):
     """
     A splice instruction the frontend applies to the editor pane.
 
@@ -520,7 +519,7 @@ class YamlDiff(DataClassORJSONMixin):
 
 
 @dataclass
-class UpsertResponse(DataClassORJSONMixin):
+class UpsertResponse(DashboardModel):
     """Wraps the splice diff returned by upsert / delete."""
 
     yaml_diff: YamlDiff

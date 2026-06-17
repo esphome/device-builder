@@ -5,10 +5,10 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 
 import voluptuous as vol
-from mashumaro.mixins.orjson import DataClassORJSONMixin
 
 from ...helpers.version_compat import VersionMatchPolicy
 from ...helpers.voluptuous_validators import lowercase_hex, not_bool
+from ..common import DashboardModel
 from .enums import PeerStatus, RemoteBuildPeerSource
 
 # Cap on :attr:`StoredPairing.esphome_version`. The wire-extract
@@ -76,7 +76,7 @@ _PAIRING_VALIDATOR = vol.Schema(
 
 
 @dataclass
-class StoredPairing(DataClassORJSONMixin):
+class StoredPairing(DashboardModel):
     """
     Offloader-side record of a paired (or pending) receiver.
 
@@ -142,7 +142,7 @@ class StoredPairing(DataClassORJSONMixin):
 
 
 @dataclass
-class PairingSummary(DataClassORJSONMixin):
+class PairingSummary(DashboardModel):
     """
     Public-facing wire view of :class:`StoredPairing`.
 
@@ -182,7 +182,7 @@ class PairingSummary(DataClassORJSONMixin):
 
 
 @dataclass
-class OffloaderRemoteBuildSettings(DataClassORJSONMixin):
+class OffloaderRemoteBuildSettings(DashboardModel):
     """
     Offloader-side settings for the remote-build feature (storage shape).
 
@@ -211,7 +211,7 @@ class OffloaderRemoteBuildSettings(DataClassORJSONMixin):
 
 
 @dataclass
-class OffloaderRemoteBuildSettingsView(DataClassORJSONMixin):
+class OffloaderRemoteBuildSettingsView(DashboardModel):
     """
     Wire view of :class:`OffloaderRemoteBuildSettings`.
 
@@ -225,7 +225,7 @@ class OffloaderRemoteBuildSettingsView(DataClassORJSONMixin):
 
 
 @dataclass
-class RemoteBuildPeer(DataClassORJSONMixin):
+class RemoteBuildPeer(DashboardModel):
     """
     A peer dashboard known to this dashboard.
 

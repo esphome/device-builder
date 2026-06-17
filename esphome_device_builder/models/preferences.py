@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from mashumaro.mixins.orjson import DataClassORJSONMixin
+from .common import DashboardModel
 
 
 class DashboardView(StrEnum):
@@ -60,7 +60,7 @@ class ExperienceLevel(StrEnum):
 
 
 @dataclass
-class UserPreferences(DataClassORJSONMixin):
+class UserPreferences(DashboardModel):
     """Per-user UI preferences.
 
     Stored in .device-builder.json under the _preferences key.
