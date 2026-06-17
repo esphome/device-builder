@@ -4,10 +4,15 @@ on:
   # pull_request_target is required so we have permission to comment and close PRs from forks.
   pull_request_target:
     types: [opened, reopened]
+    branches: [main]
 
 permissions:
   pull-requests: write  # pulls.update to close the PR
   issues: write         # issues.createComment to explain to the contributor why
+
+concurrency:
+  group: close-uneditable-fork-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   close:
@@ -32,6 +37,11 @@ jobs:
               pull_number: prNumber,
             });
 
+            // Fork deleted between the event and this fetch — nothing left to act on.
+            if (!pr.head.repo) {
+              return;
+            }
+
             const headRepo = pr.head.repo.full_name;
             const forkDefaultBranch = pr.head.repo.default_branch;
             const noMaintainerEdits = pr.maintainer_can_modify === false;
@@ -53,7 +63,7 @@ jobs:
                 ``,
                 `This happens when **Allow edits by maintainers** is off. Either it was unchecked when the PR was created (GitHub doesn't let you toggle it afterward), or the fork is owned by an **organization** — GitHub never permits maintainer pushes to org-owned fork branches.`,
                 ``,
-                `Please re-open this from a **personal** fork with **Allow edits by maintainers** checked.`,
+                `Reopening this PR won't help — the setting is fixed at creation. Please open a **new** PR from a **personal** fork with **Allow edits by maintainers** checked.`,
                 ``,
               );
             }
@@ -80,7 +90,7 @@ jobs:
             }
 
             lines.push(
-              `Closing this for now — sorry for the friction, and thanks again for contributing! :heart:`,
+              `Closing this one — please open a fresh PR using the steps above. Sorry for the friction, and thanks again for contributing! :heart:`,
             );
 
             await github.rest.issues.createComment({
