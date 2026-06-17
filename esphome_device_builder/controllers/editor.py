@@ -186,7 +186,11 @@ class EditorController:
         """Periodically reap subprocesses idle past ``_IDLE_SUBPROCESS_TIMEOUT``."""
         while True:
             await asyncio.sleep(_REAP_INTERVAL)
-            await self._reap_idle_subprocesses()
+            try:
+                await self._reap_idle_subprocesses()
+            except Exception:  # pylint: disable=broad-except
+                # A failed sweep must not kill the reaper.
+                _LOGGER.exception("Idle vscode subprocess reaper sweep failed")
 
     async def _reap_idle_subprocesses(self) -> None:
         """Terminate each session's subprocess after a window of no validation.
@@ -213,7 +217,13 @@ class EditorController:
                 ):
                     continue
                 _LOGGER.info("Reaping idle vscode subprocess for %s", session.configuration)
-                await self._terminate_subprocess(session)
+                # One stuck terminate must not strand the rest of the sweep.
+                try:
+                    await self._terminate_subprocess(session)
+                except Exception:  # pylint: disable=broad-except
+                    _LOGGER.exception(
+                        "Failed to reap idle vscode subprocess for %s", session.configuration
+                    )
 
     def _resolve_file(self, requested: str, configuration: str, content: str) -> str:
         """

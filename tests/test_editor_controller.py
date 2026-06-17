@@ -905,6 +905,38 @@ async def test_reap_skips_busy_session_then_reaps_when_free(tmp_path: Path) -> N
     terminated.assert_awaited_once_with(session)
 
 
+async def test_start_creates_reaper_task_stop_cancels_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``start()`` launches the reaper; ``stop()`` cancels and clears it."""
+    controller = _make_controller(tmp_path)
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.editor._find_esphome_cmd",
+        lambda: ["esphome"],
+    )
+
+    await controller.start()
+    task = controller._reaper_task
+    assert task is not None and not task.done()
+
+    await controller.stop()
+    assert controller._reaper_task is None
+    assert task.cancelled()
+
+
+async def test_reap_continues_after_one_session_fails(tmp_path: Path) -> None:
+    """A failed terminate is logged and the sweep moves on to other sessions."""
+    controller = _make_controller(tmp_path)
+    controller._sessions["a.yaml"] = _idle_session("a.yaml")
+    controller._sessions["b.yaml"] = _idle_session("b.yaml")
+    terminated = AsyncMock(side_effect=[RuntimeError("boom"), None])
+    controller._terminate_subprocess = terminated  # type: ignore[method-assign]
+
+    await controller._reap_idle_subprocesses()  # must not raise
+
+    assert terminated.await_count == 2
+
+
 async def test_validate_yaml_stamps_last_used(tmp_path: Path) -> None:
     """Each validate request refreshes last_used so an active editor stays warm."""
     controller = _make_controller(tmp_path)
