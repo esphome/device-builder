@@ -63,12 +63,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # Use the singular ``git/ref/tags`` endpoint: it matches the tag
+          # exactly and 404s when absent. The plural ``git/refs/tags`` does
+          # PREFIX matching, so an ``X.Y.Z`` query returns 200 with the
+          # ``X.Y.ZbN`` prerelease tags and false-positives "already exists".
           # `gh api` exits 0 on 2xx and non-zero on any other outcome
           # (HTTP error or transport failure), so a bare exit-code check
           # can't tell "tag doesn't exist" apart from "the network ate
           # the request". Capture stderr and require an HTTP 404 before
           # treating the tag as absent — anything else fails loudly.
-          if err=$(gh api "repos/${{ github.repository }}/git/refs/tags/${{ inputs.version }}" --silent 2>&1); then
+          if err=$(gh api "repos/${{ github.repository }}/git/ref/tags/${{ inputs.version }}" --silent 2>&1); then
             echo "::error::Tag '${{ inputs.version }}' already exists. Pick a new version."
             exit 1
           elif ! grep -q "HTTP 404" <<<"$err"; then
