@@ -220,7 +220,7 @@ async def test_compile_only_does_not_arm_queue(firmware_controller, mock_device)
 
     with patch(
         "esphome_device_builder.controllers.firmware.controller.runner.execute_job",
-        new_callable=AsyncMock
+        new_callable=AsyncMock,
     ):
         await firmware_controller._execute_job(job, MagicMock())
 

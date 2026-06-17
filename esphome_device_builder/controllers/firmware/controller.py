@@ -91,7 +91,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
                 for d in self._db.devices.get_devices()
                 if getattr(d, "configuration", None) == configuration
             ),
-            None
+            None,
         )
 
     def _handle_device_wake(self, event: Event) -> None:
@@ -207,11 +207,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         await self._validate_configuration_boundary(configuration)
 
         device = self._device_for_configuration(configuration)
-        if (
-            device
-            and getattr(device, "queued_update", False)
-            and self._db.devices
-        ):
+        if device and getattr(device, "queued_update", False) and self._db.devices:
             self._db.devices.set_queued_update(device.name, is_queued=False)
             _LOGGER.info("Queued update cleared for device %s", configuration)
 
