@@ -44,6 +44,7 @@ jobs:
 
             const headRepo = pr.head.repo.full_name;
             const forkDefaultBranch = pr.head.repo.default_branch;
+            const baseBranch = pr.base.ref;  // upstream branch this PR targets (main)
             const noMaintainerEdits = pr.maintainer_can_modify === false;
             const fromForkDefaultBranch = pr.head.ref === forkDefaultBranch;
 
@@ -72,7 +73,7 @@ jobs:
               lines.push(
                 `This PR was also opened from the \`${forkDefaultBranch}\` branch of your fork (\`${headRepo}\`), your fork's default branch. Working directly on it causes problems:`,
                 ``,
-                `- Your fork's \`${forkDefaultBranch}\` permanently diverges from \`${owner}/${repo}:${forkDefaultBranch}\`, making it hard to keep your fork up to date.`,
+                `- Your fork's \`${forkDefaultBranch}\` permanently diverges from \`${owner}/${repo}:${baseBranch}\`, making it hard to keep your fork up to date.`,
                 `- Any commit you push to \`${forkDefaultBranch}\` is added to this PR, so you can't work on multiple changes at once.`,
                 `- It makes local collaboration painful — \`${forkDefaultBranch}\` becomes ambiguous between upstream and your fork.`,
                 ``,
@@ -81,7 +82,7 @@ jobs:
                 `\`\`\`bash`,
                 `git remote add upstream https://github.com/${owner}/${repo}.git  # if you haven't already`,
                 `git fetch upstream`,
-                `git checkout -b my-feature-branch upstream/${forkDefaultBranch}`,
+                `git checkout -b my-feature-branch upstream/${baseBranch}`,
                 `# ...re-apply your changes, then:`,
                 `git push origin my-feature-branch`,
                 `\`\`\``,
