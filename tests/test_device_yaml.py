@@ -969,6 +969,36 @@ def test_parse_inline_value_strips_matched_quotes() -> None:
     assert _parse_inline_value("\"mismatched'") == "\"mismatched'"
 
 
+def test_parse_inline_value_unwinds_single_quote_escape_only() -> None:
+    """``''`` is an escape inside single quotes only; double quotes keep it literal."""
+    # Single-quoted: each ``''`` collapses to one ``'``.
+    assert _parse_inline_value("'it''s'") == "it's"
+    assert _parse_inline_value("'a''''b'") == "a''b"
+    # Double-quoted: ``''`` is two literal apostrophes — must NOT be unwound.
+    assert _parse_inline_value("\"it''s\"") == "it''s"
+    assert _parse_inline_value("\"a''''b\"") == "a''''b"
+    # Unquoted: nothing to unwind.
+    assert _parse_inline_value("plain''text") == "plain''text"
+
+
+def test_parse_inline_value_leaves_backslash_and_lone_quotes_literal() -> None:
+    """No backslash unescaping in either quote style; a lone inner quote stays literal."""
+    # Single quotes don't honour ``\`` escapes — the backslash is literal.
+    assert _parse_inline_value(r"'a\nb'") == r"a\nb"
+    assert _parse_inline_value(r"'C:\path'") == r"C:\path"
+    # Double quotes: we deliberately don't unescape ``\n`` etc. (mirrors the
+    # frontend), so it stays the two characters.
+    assert _parse_inline_value(r'"a\nb"') == r"a\nb"
+    # ``\"`` is left literal too — the frontend's stripQuotes doesn't unwind it
+    # either, so the round-trip of the backend's own ``_quote('Say "hi"')``
+    # (which emits ``"Say \"hi\""``) parses identically on both sides.
+    assert _parse_inline_value('"Say \\"hi\\""') == 'Say \\"hi\\"'
+    # A lone single quote inside double quotes is literal (no ``''`` escaping).
+    assert _parse_inline_value('"it\'s"') == "it's"
+    # A double quote inside single quotes is literal.
+    assert _parse_inline_value("'say \"hi\"'") == 'say "hi"'
+
+
 # ----------------------------------------------------------------------
 # generate_device_yaml — ESP32 platform branch
 # ----------------------------------------------------------------------
