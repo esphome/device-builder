@@ -590,10 +590,7 @@ def test_find_by_pio_board_prefers_matching_variant(catalog: BoardCatalog) -> No
 
 
 def test_find_by_pio_board_matches_uppercase_variant(catalog: BoardCatalog) -> None:
-    """``pio_variant`` filter is case-insensitive — uppercase ``ESP32S3`` narrows.
-
-    Mirrors the canonicalized YAML variant reaching the lookup (#1538).
-    """
+    """An uppercase ``pio_variant`` still narrows to the matching board."""
     catalog._boards.append(
         _board(
             board_id="alt-c3-board",
@@ -788,13 +785,7 @@ def test_find_by_platform_variant_no_generic_returns_first(
 def test_find_by_platform_variant_matches_uppercase_variant(
     catalog: BoardCatalog,
 ) -> None:
-    """Uppercase ``variant`` matches the lowercase catalog enum (#1538).
-
-    ESPHome canonicalizes ``variant:`` to ``ESP32S3``; a case-sensitive
-    compare missed every board and fell through to the first generic of
-    another variant (``generic-esp32c3`` here, ``esp32-c6-devkitm-1`` in
-    the shipped catalog).
-    """
+    """An uppercase ``variant`` resolves to that variant's board, not a generic of another."""
     board = catalog.find_by_platform_variant("esp32", variant="ESP32S3")
 
     assert board is not None
