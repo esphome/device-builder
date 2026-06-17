@@ -39,6 +39,12 @@ def _board_sort_key(board: BoardCatalogIndex) -> tuple[bool, bool, bool, str]:
     )
 
 
+def _filter_by_variant(boards: list[BoardCatalogIndex], variant: str) -> list[BoardCatalogIndex]:
+    """Boards whose variant equals *variant*, case-insensitively (empty if none)."""
+    target = variant.lower()
+    return [b for b in boards if b.esphome.variant and b.esphome.variant.value == target]
+
+
 class BoardCatalog:
     """In-memory slim board index + lazy-loaded full bodies."""
 
@@ -96,12 +102,7 @@ class BoardCatalog:
             results = [b for b in results if b.esphome.platform == platform]
 
         if variant:
-            variant_lower = variant.lower()
-            results = [
-                b
-                for b in results
-                if b.esphome.variant and b.esphome.variant.lower() == variant_lower
-            ]
+            results = _filter_by_variant(results, variant)
 
         if mcu:
             mcu_lower = mcu.lower()
@@ -195,14 +196,7 @@ class BoardCatalog:
         if not matches:
             return None
         if pio_variant:
-            pio_variant_lower = pio_variant.lower()
-            variant_matches = [
-                b
-                for b in matches
-                if b.esphome.variant and b.esphome.variant.value == pio_variant_lower
-            ]
-            if variant_matches:
-                matches = variant_matches
+            matches = _filter_by_variant(matches, pio_variant) or matches
         normalized_pio = pio_board.replace("_", "-")
         id_match = next((b for b in matches if b.id.replace("_", "-") == normalized_pio), None)
         generic = next((b for b in matches if b.is_generic), None)
@@ -235,12 +229,7 @@ class BoardCatalog:
         if not matches:
             return None
         if variant:
-            variant_lower = variant.lower()
-            variant_matches = [
-                b for b in matches if b.esphome.variant and b.esphome.variant.value == variant_lower
-            ]
-            if variant_matches:
-                matches = variant_matches
+            matches = _filter_by_variant(matches, variant) or matches
         for b in matches:
             if b.is_generic:
                 return b
