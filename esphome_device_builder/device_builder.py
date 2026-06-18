@@ -11,7 +11,6 @@ import asyncio
 import contextlib
 import html
 import logging
-import re
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
@@ -43,7 +42,7 @@ from .controllers.remote_build import OffloaderController, ReceiverController
 from .controllers.version_history import VersionHistoryController
 from .helpers.api import CommandHandler, collect_api_commands
 from .helpers.async_ import create_eager_task
-from .helpers.auth import auth_middleware
+from .helpers.auth import HASHED_FILENAME_RE, auth_middleware
 from .helpers.dashboard_advertise import DashboardAdvertiser
 from .helpers.dashboard_identity import get_or_create_identity as get_or_create_dashboard_identity
 from .helpers.event_bus import Event, EventBus, StreamControls, stream_events
@@ -88,7 +87,6 @@ _SHUTDOWN_TIMEOUT_SECONDS = 5.0
 #     on every rebuild, so they're safe to cache forever.
 _NO_CACHE_HEADERS = {"Cache-Control": "no-cache"}
 _IMMUTABLE_HEADERS = {"Cache-Control": "public, max-age=31536000, immutable"}
-_HASHED_FILENAME_RE = re.compile(r"\.[a-f0-9]{8,}\.")
 
 # Path extensions that should NEVER fall back to ``index.html``. The
 # frontend bundle's entry script is emitted with a relative ``src``
@@ -1036,7 +1034,7 @@ class DeviceBuilder:
                 resolved = await asyncio.to_thread(_resolve_static, candidate)
                 if resolved is not None:
                     headers = (
-                        _IMMUTABLE_HEADERS if _HASHED_FILENAME_RE.search(tail) else shell_headers
+                        _IMMUTABLE_HEADERS if HASHED_FILENAME_RE.search(tail) else shell_headers
                     )
                     return web.FileResponse(resolved, headers=headers)
             # 404 asset-shaped requests instead of returning the SPA

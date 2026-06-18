@@ -6,11 +6,13 @@ import asyncio
 import base64
 import hashlib
 import logging
+import re
 import secrets
 import time
 from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from pathlib import Path
 
 from aiohttp import web
@@ -321,6 +323,16 @@ _PUBLIC_PATHS = frozenset(
 )
 _PUBLIC_PREFIXES = ("/assets/", "/boards/images/")
 
+# Content-hash segment in a frontend bundle filename (app.<hash>.js,
+# <chunk>.<hash>.js, vendors.<hash>.js, plus .js.map / .js.LICENSE.txt
+# sidecars). index.html loads its entry script with a flat ``src``, so
+# these land at the deploy root, not under /assets/, and must be reachable
+# before login or the SPA can't boot to render the login form (#1560).
+# The hash is what makes serving them pre-auth safe: no API/legacy route
+# (/devices, /json-config, /compile, /upload, /api/*) is content-addressed,
+# so this can never expose a sensitive endpoint.
+HASHED_FILENAME_RE = re.compile(r"\.[a-f0-9]{8,}\.")
+
 
 @web.middleware
 async def auth_middleware(  # noqa: PLR0911
@@ -343,7 +355,11 @@ async def auth_middleware(  # noqa: PLR0911
         return await handler(request)
 
     path = request.path
-    if path in _PUBLIC_PATHS or any(path.startswith(p) for p in _PUBLIC_PREFIXES):
+    if (
+        path in _PUBLIC_PATHS
+        or any(path.startswith(p) for p in _PUBLIC_PREFIXES)
+        or _is_public_hashed_asset(request.method, path)
+    ):
         return await handler(request)
 
     header = request.headers.get("Authorization", "")
@@ -364,6 +380,23 @@ async def auth_middleware(  # noqa: PLR0911
         db.auth.rate_limiter.record_failure(ip)
 
     return _unauthorized()
+
+
+# Bounded so adversarial distinct paths can't grow it without limit; the
+# legitimate working set (every top-level bundle/chunk/map/sidecar, GET+HEAD)
+# is only a few dozen entries.
+@lru_cache(maxsize=1024)
+def _is_public_hashed_asset(method: str, path: str) -> bool:
+    """Return True for a safe-method request to a top-level content-hashed bundle.
+
+    ``path.count("/") == 1`` anchors to the deploy root so a deep-link
+    asset (``/device/app.<hash>.js``) stays gated.
+    """
+    return (
+        method in ("GET", "HEAD")
+        and path.count("/") == 1
+        and HASHED_FILENAME_RE.search(path) is not None
+    )
 
 
 def _unauthorized(message: str = "Authentication required") -> web.Response:

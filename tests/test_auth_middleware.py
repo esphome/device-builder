@@ -117,6 +117,8 @@ def _build_app(device_builder: _StubDeviceBuilder) -> web.Application:
       without auth.
     - ``/assets/app.js`` — ``_PUBLIC_PREFIXES`` allowlist (the
       hashed bundles).
+    - top-level content-hashed bundles (``/app.<hash>.js`` etc.) —
+      the deploy-root assets the SPA needs before login (#1560).
     """
     app = web.Application(middlewares=[auth_middleware])
     app["device_builder"] = device_builder
@@ -130,8 +132,25 @@ def _build_app(device_builder: _StubDeviceBuilder) -> web.Application:
     app.router.add_get("/favicon.ico", _ok)
     app.router.add_get("/boards/images/esp32.png", _ok)
     app.router.add_route("OPTIONS", "/api/anything", _ok)
+    # Top-level content-hashed bundles + sidecars served from the deploy root.
+    for hashed in _HASHED_BUNDLES:
+        app.router.add_get(hashed, _ok)
+    # A hashed-looking asset nested under a deep-link path — must stay gated.
+    app.router.add_get("/device/app.5ec0f3c42890e1a7.js", _ok)
 
     return app
+
+
+# Representative top-level frontend bundles: entry script, a numbered lazy
+# chunk, vendors, and the .js.map / .js.LICENSE.txt sidecars — all carry the
+# ``.<hash>.`` segment and live at the deploy root, not under /assets/.
+_HASHED_BUNDLES = (
+    "/app.5ec0f3c42890e1a7.js",
+    "/493.d5c6840fa646b2c4.js",
+    "/vendors.25bbebc05765afee.js",
+    "/app.5ec0f3c42890e1a7.js.map",
+    "/app.5ec0f3c42890e1a7.js.LICENSE.txt",
+)
 
 
 def _basic_auth_header(username: str, password: str) -> str:
@@ -227,6 +246,85 @@ async def test_auth_middleware_public_prefixes_pass_through(
     resp = await client.get(path)
 
     assert resp.status == 200
+
+
+@pytest.mark.parametrize("path", _HASHED_BUNDLES)
+async def test_auth_middleware_top_level_hashed_bundle_passes_through(
+    aiohttp_client: AiohttpClient,
+    path: str,
+) -> None:
+    """Top-level content-hashed bundles load pre-auth (#1560).
+
+    ``index.html`` loads its entry script with a flat ``src``, so the
+    bundle and its lazy chunks land at the deploy root, not under
+    ``/assets/``. Without this they 401 with a password set and the SPA
+    can't boot to render the login form — the blank-screen bug.
+    """
+    db = _StubDeviceBuilder(_StubSettings(using_password=True))
+    client = await aiohttp_client(_build_app(db))
+
+    resp = await client.get(path)
+
+    assert resp.status == 200
+
+
+async def test_auth_middleware_hashed_bundle_head_passes_through(
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """HEAD on a hashed bundle is allowed too (aiohttp auto-handles HEAD for GET)."""
+    db = _StubDeviceBuilder(_StubSettings(using_password=True))
+    client = await aiohttp_client(_build_app(db))
+
+    resp = await client.head("/app.5ec0f3c42890e1a7.js")
+
+    assert resp.status != 401
+
+
+async def test_auth_middleware_unhashed_top_level_path_still_gated(
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """A top-level path without a hash segment is not broadened into public.
+
+    Pins that the hashed-asset bypass didn't open the sensitive legacy
+    REST API (``/devices``, ``/json-config``, …) — those carry no
+    ``.<hash>.`` segment, so they still require auth.
+    """
+    db = _StubDeviceBuilder(_StubSettings(using_password=True))
+    client = await aiohttp_client(_build_app(db))
+
+    resp = await client.get("/api/anything")
+
+    assert resp.status == 401
+
+
+async def test_auth_middleware_nested_hashed_path_still_gated(
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """A hashed asset under a deep-link path stays gated (top-level anchor)."""
+    db = _StubDeviceBuilder(_StubSettings(using_password=True))
+    client = await aiohttp_client(_build_app(db))
+
+    resp = await client.get("/device/app.5ec0f3c42890e1a7.js")
+
+    assert resp.status == 401
+
+
+async def test_auth_middleware_non_get_hashed_path_still_gated(
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """Only GET/HEAD bypass — a write method to a hashed path still needs auth."""
+
+    async def _ok(_request: web.Request) -> web.Response:
+        return web.Response(text="ok")
+
+    db = _StubDeviceBuilder(_StubSettings(using_password=True))
+    app = _build_app(db)
+    app.router.add_post("/app.5ec0f3c42890e1a7.js", _ok)
+    client = await aiohttp_client(app)
+
+    resp = await client.post("/app.5ec0f3c42890e1a7.js")
+
+    assert resp.status == 401
 
 
 # ---------------------------------------------------------------------------
