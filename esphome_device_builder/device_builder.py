@@ -47,7 +47,7 @@ from .helpers.auth import auth_middleware
 from .helpers.dashboard_advertise import DashboardAdvertiser
 from .helpers.dashboard_identity import get_or_create_identity as get_or_create_dashboard_identity
 from .helpers.event_bus import Event, EventBus, StreamControls, stream_events
-from .helpers.json import cors_middleware
+from .helpers.json import cors_middleware, json_response
 from .helpers.network_interfaces import ensure_single_host_for_ephemeral_port, resolve_bind_host
 from .helpers.peer_link_identity import PeerLinkIdentityStore
 from .helpers.secrets_state import write_secrets_locked
@@ -175,6 +175,11 @@ def _resolve_base_href(request: web.Request, *, tail: str = "") -> str:
     # re-added.
     normalized = base.strip("/")
     return f"/{normalized}/" if normalized else "/"
+
+
+async def _handle_version(_request: web.Request) -> web.Response:
+    """Return the esphome version as JSON for the Docker HEALTHCHECK."""
+    return json_response({"version": esphome_version})
 
 
 # Worker-thread budget for the default ``ThreadPoolExecutor``. asyncio's
@@ -762,6 +767,11 @@ class DeviceBuilder:
         # the ingress site). HTTP, not WS, so a large firmware.elf isn't capped
         # by a proxy's WebSocket max_msg_size.
         app.router.add_get("/api/firmware/download", firmware_http_download)
+
+        # Health/version endpoint. Public (see auth._PUBLIC_PATHS) and
+        # registered before the SPA catch-all so the upstream Docker image's
+        # HEALTHCHECK gets a deterministic JSON 200 instead of the SPA shell.
+        app.router.add_get("/version", _handle_version)
 
         # Static file serving for board images
         boards_dir = Path(__file__).parent / "definitions" / "boards"
