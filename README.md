@@ -391,25 +391,24 @@ that path. The wire is Noise-encrypted regardless of how you
 reach it, and the emoji-fingerprint comparison still gates
 pairing the same way.
 
-### Known limitations
+### Install coverage
 
-Remote build works end-to-end for OTA installs over Wi-Fi or
-Ethernet across every chip family ESPHome's OTA component
-supports: ESP32, ESP8266, RP2040 / RP2350, the LibreTiny family
-(BK72xx, RTL87xx, LN882x), and the nRF52 line. Open follow-ups
-tracked separately:
+Remote build runs the compile on a paired receiver for **every
+install type** — OTA over Wi-Fi or Ethernet, and serial /
+USB-attached flashes — across every chip family ESPHome's OTA
+component supports: ESP32, ESP8266, RP2040 / RP2350, the
+LibreTiny family (BK72xx, RTL87xx, LN882x), and the nRF52 line.
+For a serial install the receiver compiles the full
+bootloader / partitions / firmware image set and ships it back;
+the USB flash itself still runs on the sending host, since
+that's where the device is plugged in.
 
-- Serial installs (USB-attached devices) don't route through a
-  paired receiver yet; the runner's local flash step expects a
-  single-image upload, but a wired flash needs the full
-  bootloader / partitions / firmware set stitched at their own
-  offsets. See [#570](https://github.com/esphome/device-builder/issues/570).
-- A toggle to allow major-version mismatches between paired
-  dashboards is planned but not shipped. Pairings whose receiver
-  runs a different ESPHome major version than the sender still
-  build today, with no enforcement gate yet; that gate lands
-  together with the toggle. See
-  [#607](https://github.com/esphome/device-builder/issues/607).
+Receiver / sender ESPHome-version drift is governed by a
+**version-match policy** on the sending side (Settings → Send
+builds): `any`, `release` (major version must match), `exact`,
+or `exact_required` — the last refuses to build rather than
+falling back to a local compile when no version-compatible
+receiver is paired.
 
 ## Roadmap
 
