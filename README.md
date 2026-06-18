@@ -20,8 +20,9 @@ managing automations, and pushing firmware updates.
 > Skip ahead to [Behind a reverse proxy](#behind-a-reverse-proxy)
 > for the nginx / `--trusted-domains` setup.
 
-The dashboard ships as an **opt-in preview** in the official Home Assistant
-add-on and in [ESPHome Desktop](https://github.com/esphome/esphome-desktop).
+The dashboard runs **by default** in the official Home Assistant add-on
+(as of ESPHome 2026.6.0) and ships as an **opt-in backend** in
+[ESPHome Desktop](https://github.com/esphome/esphome-desktop).
 Pick the path that matches how you run ESPHome today:
 
 ### Home Assistant add-on
