@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import TYPE_CHECKING, Any
 
 from esphome.storage_json import StorageJSON
@@ -237,9 +238,10 @@ async def rename_device(
     # When the slugified target filename is the device's own file, the rename
     # changes ``esphome.name`` without moving the file. ``esphome rename``
     # refuses that (it requires a new filename), so route it in place. Compare
-    # resolved paths so a configuration with redundant segments (``./x.yaml``)
-    # still reads as the same file.
-    in_place = new_path.resolve() == old_path.resolve()
+    # lexically-normalized paths so a configuration with redundant segments
+    # (``./x.yaml``) still reads as the same file, without the blocking
+    # filesystem access ``Path.resolve()`` would do in this async path.
+    in_place = os.path.normpath(old_path) == os.path.normpath(new_path)
     # Reject up-front if a *different* file already owns the target filename;
     # ``esphome rename`` doesn't check collisions and would silently overwrite
     # an unrelated device's config and OTA-flash firmware to the wrong device.
