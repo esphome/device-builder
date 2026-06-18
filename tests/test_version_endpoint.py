@@ -2,18 +2,23 @@
 
 The upstream esphome Docker image's HEALTHCHECK curls ``/version`` with no
 credentials. It must return a JSON 200 even when a password is set, so the
-route sits in ``auth_middleware``'s public allowlist. This drives the real
-middleware + ``_handle_version`` through an aiohttp test client and pins that
-a password-protected install still answers with ``{"version": ...}``.
+route sits in ``auth_middleware``'s public allowlist and is registered before
+the SPA catch-all. Two layers here: a focused test driving the real middleware
++ ``_handle_version`` in isolation, and an integration test driving the real
+``create_app`` so the route ordering vs the SPA fallback is pinned too.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
 from aiohttp import web
 from esphome.const import __version__ as esphome_version
 from pytest_aiohttp.plugin import AiohttpClient
 
-from esphome_device_builder.device_builder import _handle_version
+from esphome_device_builder.controllers.config import DashboardSettings
+from esphome_device_builder.device_builder import DeviceBuilder, _handle_version
 from esphome_device_builder.helpers.auth import auth_middleware
 
 
@@ -66,3 +71,34 @@ async def test_version_endpoint_answers_without_auth(aiohttp_client: AiohttpClie
 
     assert resp.status == 200
     assert await resp.json() == {"version": esphome_version}
+
+
+async def test_version_route_wins_over_spa_catch_all(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """Real ``create_app``: ``/version`` serves JSON, not the SPA shell.
+
+    Pins that ``add_get("/version")`` lands before the SPA catch-all in
+    aiohttp's FIFO route table — a future refactor moving it after
+    ``_register_frontend`` would return ``index.html`` (still a 200, so a
+    bare status check wouldn't notice) and this JSON assertion would catch it.
+    Auth is off here so the deep-link probe reaches the catch-all; the
+    public-allowlist bypass with a password set is pinned separately above.
+    """
+    pytest.importorskip("esphome_device_builder_frontend")
+    settings = DashboardSettings()
+    settings.config_dir = tmp_path
+    settings.absolute_config_dir = tmp_path.resolve()
+    db = DeviceBuilder(settings)
+    client = await aiohttp_client(db.create_app(with_lifecycle=False))
+
+    version_resp = await client.get("/version")
+    assert version_resp.status == 200
+    assert await version_resp.json() == {"version": esphome_version}
+
+    # The SPA catch-all is live (a deep link returns the shell), so the
+    # JSON above proves /version won the FIFO match rather than there
+    # being no catch-all to lose to.
+    spa_resp = await client.get("/some/deep/link")
+    assert spa_resp.status == 200
+    assert "<!doctype html>" in (await spa_resp.text()).lower()
