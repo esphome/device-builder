@@ -310,11 +310,20 @@ async def _config_only_rename(
     # A pure ``${var}`` ref whose def isn't in this file would be flattened.
     nonlocal_sub = var is not None and read_yaml_scalar(content, ("substitutions", var)) is None
     if current is None or not is_retargetable_name(current) or nonlocal_sub:
+        # The OTA rename resolves packages / includes / embedded substitutions,
+        # so steer there for a file-move rename. An in-place rename can't fall
+        # back to it (``esphome rename`` won't keep the same filename), so the
+        # only fix is editing the name to a plain value.
+        remedy = (
+            "Edit esphome.name to a plain value and try again."
+            if in_place
+            else "Bring the device online to rename it."
+        )
         raise CommandError(
             ErrorCode.INVALID_ARGS,
-            "Can't rename offline: esphome.name isn't a plain literal or a local "
+            "Can't rename: esphome.name isn't a plain literal or a local "
             "${substitution} (it may come from packages, an !include, or an "
-            "embedded substitution). Bring the device online to rename it.",
+            f"embedded substitution). {remedy}",
         )
 
     new_content = rewrite_name_or_substitution(content, ESPHOME_NAME_PATH, new_name)
