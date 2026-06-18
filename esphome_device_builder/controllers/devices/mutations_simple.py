@@ -203,35 +203,49 @@ async def rename_device(
     Default path delegates to ``esphome rename`` (compile + OTA install,
     via the firmware queue); only succeeds against a reachable device.
     ``config_only`` rewrites the YAML + ``esphome.name`` and renames the
-    file without compiling or flashing, for an offline device.
+    file without compiling or flashing, for an offline device. An in-place
+    rename (target filename equals the device's own file) is always
+    config-only since ``esphome rename`` can't keep the same filename.
     """
     new_filename = f"{new_name}.yaml"
+    loop = asyncio.get_running_loop()
+    old_path = controller._db.settings.rel_path(configuration)
+    new_path = controller._db.settings.rel_path(new_filename)
 
-    # Reject same-name renames up-front; a no-op at the YAML
-    # level but still queues a real ``esphome rename`` job that
-    # re-compiles and OTA-flashes. Compare on the *stem* so
-    # cloning ``kitchen.yml`` to ``new_name=kitchen`` is rejected
-    # too (the device's mDNS hostname comes from the stem and
-    # stays the same either way).
-    source_stem = configuration_stem(configuration)
-    if new_name == source_stem:
+    content = await _read_device_yaml_or_raise(controller, configuration)
+
+    # Reject same-name renames up-front. Compare against the device's real
+    # ``esphome.name``, not the filename stem: an uploaded config keeps its
+    # raw name (``test_1``) while the file is slugified (``test-1.yaml``), so
+    # a stem compare wrongly rejects the legitimate ``test_1`` -> ``test-1``
+    # rename and wrongly accepts a real no-op whose filename differs from its
+    # name. Falls back to the stem when the name can't be parsed.
+    current_name = parse_esphome_meta(content).name or configuration_stem(configuration)
+    if new_name == current_name:
         raise CommandError(
             ErrorCode.INVALID_ARGS,
             "new_name must differ from the current device name",
         )
-    # Reject up-front if the target filename is in use; ``esphome
-    # rename`` itself doesn't check collisions and would silently
-    # overwrite an unrelated device's config and OTA-flash that
-    # firmware to the wrong device. Both ``rel_path`` and
-    # ``.exists()`` are blocking; push the pair to the executor.
-    loop = asyncio.get_running_loop()
-    new_path = controller._db.settings.rel_path(new_filename)
-    if await loop.run_in_executor(None, new_path.exists):
+
+    # When the slugified target filename is the device's own file, the rename
+    # changes ``esphome.name`` without moving the file. ``esphome rename``
+    # refuses that (it requires a new filename), so route it in place.
+    in_place = new_path == old_path
+    # Reject up-front if a *different* file already owns the target filename;
+    # ``esphome rename`` doesn't check collisions and would silently overwrite
+    # an unrelated device's config and OTA-flash firmware to the wrong device.
+    if not in_place and await loop.run_in_executor(None, new_path.exists):
         msg = f"A device named {new_filename} already exists"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
-    if config_only:
-        return await _config_only_rename(controller, configuration=configuration, new_name=new_name)
+    if config_only or in_place:
+        return await _config_only_rename(
+            controller,
+            configuration=configuration,
+            new_name=new_name,
+            content=content,
+            in_place=in_place,
+        )
 
     if controller._db.firmware is None:
         msg = "Firmware controller is unavailable"
@@ -267,20 +281,23 @@ async def _config_only_rename(
     *,
     configuration: str,
     new_name: str,
+    content: str,
+    in_place: bool,
 ) -> dict[str, Any]:
     """
     Rename the YAML + ``esphome.name`` with no compile or OTA.
 
     Validates the rewritten config before touching disk, writes the new
     file atomically, removes the old, and migrates the StorageJSON +
-    sidecar metadata. Returns ``job: None`` (nothing is queued).
+    sidecar metadata. Returns ``job: None`` (nothing is queued). When
+    *in_place* the target filename is the device's own file: the rewrite
+    lands on it and the old-file / old-sidecar removals are skipped so the
+    just-written file isn't deleted.
     """
     new_filename = f"{new_name}.yaml"
     loop = asyncio.get_running_loop()
     old_path = controller._db.settings.rel_path(configuration)
     new_path = controller._db.settings.rel_path(new_filename)
-
-    content = await _read_device_yaml_or_raise(controller, configuration)
 
     # ``esphome.name`` must be retargetable in place: a plain literal (rewrite
     # the leaf) or a pure ``${var}`` ref whose definition lives in this file's
@@ -306,7 +323,8 @@ async def _config_only_rename(
     await controller._validate_rewritten_yaml_or_raise(new_filename, new_content, action="rename")
 
     await controller._write_yaml_atomic_async(new_path, new_content)
-    await loop.run_in_executor(None, lambda: old_path.unlink(missing_ok=True))
+    if not in_place:
+        await loop.run_in_executor(None, lambda: old_path.unlink(missing_ok=True))
     # The YAML is already renamed; storage migration is best-effort (logs on
     # failure) and the shared metadata-migrate-then-scan always rescans.
     await loop.run_in_executor(None, _migrate_storage_json, configuration, new_filename, new_name)
@@ -327,6 +345,7 @@ def _migrate_storage_json(old_configuration: str, new_filename: str, new_name: s
     """
     try:
         old_storage_path = resolve_storage_path(old_configuration)
+        new_storage_path = resolve_storage_path(new_filename)
         storage = StorageJSON.load(old_storage_path)
         if storage is None:
             return
@@ -337,7 +356,10 @@ def _migrate_storage_json(old_configuration: str, new_filename: str, new_name: s
         if storage.address == default_mdns_address(old_name):
             storage.address = default_mdns_address(new_name)
         save_device_storage(new_filename, storage)
-        old_storage_path.unlink(missing_ok=True)
+        # An in-place rename saves the sidecar back to the same path; unlinking
+        # the "old" path would delete the file we just wrote.
+        if old_storage_path != new_storage_path:
+            old_storage_path.unlink(missing_ok=True)
     except OSError:
         # Filesystem hiccup only; a logic bug here should surface, not hide.
         _LOGGER.exception("Could not migrate StorageJSON for %s", new_filename)
