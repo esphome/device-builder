@@ -25,7 +25,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from mashumaro.mixins.orjson import DataClassORJSONMixin
+from .common import DashboardModel
 
 
 class OnboardingStepId(StrEnum):
@@ -48,7 +48,7 @@ class OnboardingStepStatus(StrEnum):
 
 
 @dataclass
-class OnboardingStep(DataClassORJSONMixin):
+class OnboardingStep(DashboardModel):
     """One step in the onboarding flow.
 
     ``status`` is computed by the controller from live data on
@@ -71,7 +71,7 @@ ONBOARDING_VERSION: int = 2
 
 
 @dataclass
-class OnboardingState(DataClassORJSONMixin):
+class OnboardingState(DashboardModel):
     """Full onboarding snapshot the dashboard pulls on app load.
 
     ``current_version`` is the onboarding-flow version the server

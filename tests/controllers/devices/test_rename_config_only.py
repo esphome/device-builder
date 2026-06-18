@@ -162,8 +162,36 @@ async def test_config_only_rename_refuses_non_literal_name(
 
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
     assert "literal" in excinfo.value.message
+    # File-move refusal steers to the OTA rename, which resolves the indirection.
+    assert "online" in excinfo.value.message
     assert (tmp_path / "kitchen.yaml").exists()
     assert not (tmp_path / "livingroom.yaml").exists()
+
+
+async def test_in_place_rename_non_retargetable_name_points_to_editing(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """An in-place non-retargetable name can't fall back to the OTA rename.
+
+    ``esphome rename`` won't keep the same filename, so the refusal must
+    point at editing the name, not at bringing the device online. The
+    embedded ``${suffix}`` resolves to ``kitchen_a1`` (not a pure ref, so it
+    differs from the slugified ``kitchen-a1`` stem and clears the same-name
+    guard) but still isn't retargetable in place.
+    """
+    controller = make_controller(tmp_path)
+    (tmp_path / "kitchen-a1.yaml").write_text(
+        "substitutions:\n  suffix: a1\nesphome:\n  name: kitchen_${suffix}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.rename_device(configuration="kitchen-a1.yaml", new_name="kitchen-a1")
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "Edit esphome.name" in excinfo.value.message
+    assert "online" not in excinfo.value.message
+    assert (tmp_path / "kitchen-a1.yaml").exists()
 
 
 async def test_config_only_rename_rewrites_local_substitution(

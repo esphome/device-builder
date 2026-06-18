@@ -97,6 +97,10 @@ _STARTUP_BLOCKING_OK: tuple[tuple[str, str], ...] = (
     # once at HA-add-on startup as an aiohttp ``on_startup`` hook —
     # the cost is paid once, not on the request path.
     ("device_builder.py", "_start_ingress_site"),
+    # ``create_app`` stat-checks the boards-images directory while
+    # assembling the route table. Runs once per site at startup, off
+    # the request path.
+    ("device_builder.py", "create_app"),
     # ``_find_sibling_cli`` probes for ``<bin>/esphome`` and
     # ``<bin>/esptool`` to pick between a sibling script and
     # ``python -m <cli>``. The result is ``lru_cache``-d so the
@@ -160,6 +164,17 @@ def blockbuster() -> Iterator[BlockBuster | None]:
 @pytest.fixture(autouse=True)
 def _core_config_path_in_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(CORE, "config_path", tmp_path / "___DASHBOARD_SENTINEL___.yaml")
+
+
+@pytest.fixture(autouse=True)
+def _core_skip_external_update_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Start each test from esphome's default so ``parse_args`` can't leak the flag.
+
+    ``DashboardSettings.parse_args`` pins ``CORE.skip_external_update = True`` on
+    the process-global ``CORE``; reset it per-test so a test that calls
+    ``parse_args`` doesn't leak ``True`` into siblings on the same xdist worker.
+    """
+    monkeypatch.setattr(CORE, "skip_external_update", False)
 
 
 @pytest.fixture(autouse=True)

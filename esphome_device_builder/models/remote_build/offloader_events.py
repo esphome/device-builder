@@ -358,11 +358,25 @@ class OffloaderVersionMatchPolicyChangedData(TypedDict):
     version_match_policy: VersionMatchPolicy
 
 
+class OffloaderIncludeLocalChangedData(TypedDict):
+    """
+    Payload for ``EventType.OFFLOADER_INCLUDE_LOCAL_CHANGED``.
+
+    Cross-tab UI sync for the "include local in build pool"
+    advanced toggle. The dispatcher reads the value directly off
+    the in-RAM state via :meth:`build_scheduler_snapshot`, so no
+    scheduler-side listener is needed.
+    """
+
+    include_local_in_pool: bool
+
+
 class OffloaderSettingsSnapshot(TypedDict):
     """Offloader-wide scalars merged into the ``subscribe_events`` seed."""
 
     remote_builds_enabled: bool
     version_match_policy: VersionMatchPolicy
+    include_local_in_pool: bool
 
 
 class OffloaderRemoteJobSnapshotEntry(TypedDict):

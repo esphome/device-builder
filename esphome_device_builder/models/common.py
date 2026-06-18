@@ -25,6 +25,16 @@ class _CatalogConfig(BaseConfig):
 
     omit_default = True
     omit_none = True
+    lazy_compilation = True
+
+
+class DashboardModel(DataClassORJSONMixin):
+    """Model base that defers mashumaro codegen to first use."""
+
+    class Config(BaseConfig):
+        """Defer codegen to first use."""
+
+        lazy_compilation = True
 
 
 # ---------------------------------------------------------------------------
@@ -33,7 +43,7 @@ class _CatalogConfig(BaseConfig):
 
 
 @dataclass
-class PagedResponse(DataClassORJSONMixin):
+class PagedResponse(DashboardModel):
     """Base for paginated API responses."""
 
     total: int = 0
@@ -123,6 +133,8 @@ class EventType(StrEnum):
     OFFLOADER_PAIRING_ENABLED_CHANGED = "offloader_pairing_enabled_changed"
     # Cross-tab sync for the master version-match policy
     OFFLOADER_VERSION_MATCH_POLICY_CHANGED = "offloader_version_match_policy_changed"
+    # Cross-tab sync for the "include local in build pool" advanced toggle
+    OFFLOADER_INCLUDE_LOCAL_CHANGED = "offloader_include_local_changed"
 
 
 class StreamEvent(StrEnum):
@@ -286,7 +298,7 @@ ConfigPrimitive = str | int | float | bool
 
 
 @dataclass
-class ConfigValueOption(DataClassORJSONMixin):
+class ConfigValueOption(DashboardModel):
     """A single choice for a SELECT-type config entry."""
 
     label: str
@@ -325,7 +337,7 @@ class RequiredGroupKind(StrEnum):
 
 
 @dataclass
-class RequiredGroup(DataClassORJSONMixin):
+class RequiredGroup(DashboardModel):
     """
     Cross-field "must specify one of these" constraint.
 
@@ -341,7 +353,7 @@ class RequiredGroup(DataClassORJSONMixin):
 
 
 @dataclass
-class ConfigEntry(DataClassORJSONMixin):
+class ConfigEntry(DashboardModel):
     """A single field in a component's configuration schema.
 
     Drives both the visual editor (rendering, validation, conditional
@@ -591,7 +603,7 @@ class ConfigEntry(DataClassORJSONMixin):
 
 
 @dataclass
-class FieldPreset(DataClassORJSONMixin):
+class FieldPreset(DashboardModel):
     """
     Pre-filled value for a single config-entry on a featured component.
 

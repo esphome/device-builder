@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Literal, TypedDict
 
-from mashumaro.mixins.orjson import DataClassORJSONMixin
+from .common import DashboardModel
 
 
 class DeviceState(StrEnum):
@@ -38,7 +38,7 @@ class ReachabilitySource(StrEnum):
 
 
 @dataclass
-class Device(DataClassORJSONMixin):
+class Device(DashboardModel):
     """A configured ESPHome device."""
 
     name: str
@@ -213,10 +213,14 @@ class Device(DataClassORJSONMixin):
     # the catalog entry, so a label rename / recolor needs no
     # device-level write.
     labels: list[str] = field(default_factory=list)
+    # Resolved ``logger: baud_rate`` for the Web Serial log port. ``None`` ⇒
+    # unset (frontend uses 115200); ``0`` ⇒ UART logging disabled; positive ⇒
+    # that baud.
+    logger_baud_rate: int | None = None
 
 
 @dataclass
-class AdoptableDevice(DataClassORJSONMixin):
+class AdoptableDevice(DashboardModel):
     """A discoverable device available for import/adoption."""
 
     name: str
@@ -234,7 +238,7 @@ class AdoptableDevice(DataClassORJSONMixin):
 
 
 @dataclass
-class DevicesResponse(DataClassORJSONMixin):
+class DevicesResponse(DashboardModel):
     """Response for devices/list command."""
 
     configured: list[Device]
@@ -242,14 +246,14 @@ class DevicesResponse(DataClassORJSONMixin):
 
 
 @dataclass
-class WizardResponse(DataClassORJSONMixin):
+class WizardResponse(DashboardModel):
     """Response after creating a new device."""
 
     configuration: str
 
 
 @dataclass
-class ImportBundleResponse(DataClassORJSONMixin):
+class ImportBundleResponse(DashboardModel):
     """
     Result of a ``devices/import_bundle`` call.
 
@@ -272,7 +276,7 @@ class ImportBundleResponse(DataClassORJSONMixin):
 
 
 @dataclass
-class UpdateDeviceResponse(DataClassORJSONMixin):
+class UpdateDeviceResponse(DashboardModel):
     """Response after updating device metadata."""
 
     name: str

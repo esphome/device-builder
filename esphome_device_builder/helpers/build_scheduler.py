@@ -67,6 +67,14 @@ class BuildSchedulerInputs:
     # excluded from ``eligible`` so a re-pick lands on a *free*
     # server. Empty (the default) leaves every connected peer in play.
     busy_build_server_pins: frozenset[str] = frozenset()
+    # Advanced opt-in: when set, a compile that would otherwise WAIT for a
+    # busy build server runs on the local lane instead, so the local machine
+    # shares the build load. Off by default — single builds still offload.
+    include_local_in_pool: bool = False
+    # Whether the local compile lane is occupied. Late-bound at dispatch like
+    # ``busy_build_server_pins``; the submit-time ``pick_build_path`` snapshot
+    # leaves it at the default since it never reads it.
+    local_compile_busy: bool = False
 
 
 @dataclass(frozen=True)
@@ -174,8 +182,11 @@ def pick_dispatch_target(inputs: BuildSchedulerInputs) -> DispatchDecision:
     Like :func:`pick_build_path` but late-bound at dispatch with
     ``busy_build_server_pins`` set, and with the extra ``WAIT``
     outcome for "a compatible server exists but every one is
-    busy". ``NO_COMPATIBLE_PEER`` is returned (not raised) so the
-    dispatcher can finalise the job FAILED off the request path.
+    busy". ``include_local_in_pool`` turns that busy-server WAIT
+    into LOCAL when the local lane is free, so the local machine
+    shares the load. ``NO_COMPATIBLE_PEER`` is returned (not
+    raised) so the dispatcher can finalise the job FAILED off the
+    request path.
     """
     if not inputs.remote_builds_enabled:
         return DispatchDecision.local()
@@ -184,7 +195,10 @@ def pick_dispatch_target(inputs: BuildSchedulerInputs) -> DispatchDecision:
     if pin_sha256 is not None:
         return DispatchDecision.remote(pin_sha256)
     if result.busy_eligible > 0:
-        return DispatchDecision.wait()
+        # Local shares the load only when opted in and its lane is free;
+        # otherwise hold for a server to free.
+        local_free = inputs.include_local_in_pool and not inputs.local_compile_busy
+        return DispatchDecision.local() if local_free else DispatchDecision.wait()
     if result.intentional > 0 and inputs.version_match_policy is VersionMatchPolicy.EXACT_REQUIRED:
         # EXACT_REQUIRED can't fall back to LOCAL, so don't hard-fail on a
         # transient drop: an intended server that's merely offline may reconnect

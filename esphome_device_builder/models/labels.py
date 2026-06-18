@@ -5,11 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TypedDict
 
-from mashumaro.mixins.orjson import DataClassORJSONMixin
+from .common import DashboardModel
 
 
 @dataclass
-class Label(DataClassORJSONMixin):
+class Label(DashboardModel):
     """
     A user-defined label that can be assigned to devices.
 

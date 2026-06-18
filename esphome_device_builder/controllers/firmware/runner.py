@@ -35,12 +35,21 @@ async def run_lane(controller: FirmwareController, lane: Lane) -> None:
     """Background loop: process one job at a time on *lane* (concurrent with the other lane)."""
     while True:
         job = await lane.queue.get()
-        if job.status == JobStatus.CANCELLED:
-            continue
-        await _await_build_gate(controller, job)
-        if job.status == JobStatus.CANCELLED:
-            continue
-        await controller._execute_job(job, lane)
+        try:
+            if job.status == JobStatus.CANCELLED:
+                continue
+            await _await_build_gate(controller, job)
+            if job.status == JobStatus.CANCELLED:
+                continue
+            await controller._execute_job(job, lane)
+        finally:
+            # A freed compile slot may let an overflow compile held in the remote
+            # pool (include-local-in-pool) run locally; re-arm the matcher here,
+            # where the local compile slot actually opens. In ``finally`` so a
+            # dequeued-then-cancelled job (which still shortens the queue) also
+            # re-arms, not only a completed run.
+            if lane is controller.state.compile_lane:
+                controller.state.remote_dispatch.rearm_if_pending()
 
 
 async def _await_build_gate(controller: FirmwareController, job: FirmwareJob) -> None:

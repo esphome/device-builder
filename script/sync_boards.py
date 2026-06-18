@@ -91,6 +91,20 @@ _LIBRETINY_FAMILIES: dict[str, tuple[str, str]] = {
     "ln882x": ("LN882X_BOARDS", "LN882X_BOARD_PINS"),
 }
 
+# Per-platform documentation page for generated boards (those no manifest
+# covers). Curated manifests already point at these same ESPHome component pages,
+# so a generated board's "More info" link lands on the right docs instead of an
+# empty href.
+_PLATFORM_DOCS_URL: dict[Platform, str] = {
+    Platform.ESP32: "https://esphome.io/components/esp32.html",
+    Platform.ESP8266: "https://esphome.io/components/esp8266.html",
+    Platform.RP2040: "https://esphome.io/components/rp2040.html",
+    Platform.BK72XX: "https://esphome.io/components/libretiny.html",
+    Platform.RTL87XX: "https://esphome.io/components/libretiny.html",
+    Platform.LN882X: "https://esphome.io/components/libretiny.html",
+    Platform.NRF52: "https://esphome.io/components/nrf52.html",
+}
+
 # RP2040/RP2350 also derive pins from ESPHome board data, but as a GPIO matrix:
 # ``BOARDS`` carries ``max_pin`` (full GPIO range), ``RP2040_BOARD_PINS`` only the
 # conventional default-bus pins.
@@ -227,6 +241,7 @@ def _generated_board(
         manufacturer="",
         esphome=BoardEsphomeConfig(platform=platform, board=name, variant=variant, framework=None),
         pins=pins,
+        docs_url=_PLATFORM_DOCS_URL.get(platform, ""),
     )
 
 

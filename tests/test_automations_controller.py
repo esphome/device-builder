@@ -15,7 +15,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from esphome_device_builder.controllers.automations import AutomationsController, catalog
+from esphome_device_builder.controllers.automations import controller as automations_controller
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.models.automations import IntervalLocation, ScriptLocation
 
 # Co-locate every automations-catalog test on one xdist worker so
 # the slim index (cached after first :func:`catalog._load_index`)
@@ -906,3 +908,22 @@ async def test_parse_isolates_unknown_action_id(tmp_path: Path) -> None:
     assert result[0]["error"] is not None
     assert "made_up_action" in result[0]["error"]
     assert result[0]["automation"]["actions"] == []
+
+
+def test_decode_location_compiles_unpacker_once_per_kind() -> None:
+    """Pin compile-once decode: a captured lazy ``from_dict`` stub recompiles per call.
+
+    ``_LOCATION_DECODERS`` must look ``from_dict`` up at call time, not capture
+    the bound method, or mashumaro ``lazy_compilation`` rebuilds the unpacker on
+    every automation upsert/delete.
+    """
+    for model, raw in (
+        (ScriptLocation, {"kind": "script", "id": "s"}),
+        (IntervalLocation, {"kind": "interval", "index": 0}),
+    ):
+        assert automations_controller._decode_location(raw) == model.from_dict(raw)
+        once = model.__dict__["__mashumaro_from_dict__"]
+        automations_controller._decode_location(raw)
+        assert model.__dict__["__mashumaro_from_dict__"] is once, (
+            f"{model.__name__} unpacker recompiled on second decode"
+        )

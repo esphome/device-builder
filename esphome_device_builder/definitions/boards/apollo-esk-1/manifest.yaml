@@ -1,5 +1,5 @@
 id: apollo-esk-1
-name: Apollo ESPHome Starter Kit
+name: ESPHome Starter Kit By Apollo
 description: >
   Official ESPHome Starter Kit by Apollo Automation. Plug-and-play kit with
   an ESP32-C6-MINI-1 module, two 14-pin FPC expansion ports, onboard RGB LED,
@@ -11,9 +11,8 @@ description: >
   coding required.
 manufacturer: Apollo Automation
 images:
-- https://cdn.shopify.com/s/files/1/0792/0959/5187/files/eskboard.jpg?v=1775723467
-- https://cdn.shopify.com/s/files/1/0792/0959/5187/files/ESK-1_PCB.png?v=1775723467
-- https://cdn.shopify.com/s/files/1/0792/0959/5187/files/20260408_121431.jpg?v=1775723467
+- https://cdn.shopify.com/s/files/1/0792/0959/5187/files/rn-image_picker_lib_temp_048f3cdb-e640-4014-9150-3b2044e625dc.jpg?v=1775723467
+- https://cdn.shopify.com/s/files/1/0792/0959/5187/files/Compute_HQ_2.png?v=1781659703
 esphome:
   platform: esp32
   board: esp32-c6-devkitm-1
@@ -130,7 +129,7 @@ featured_components:
       locked: true
 - id: aht20
   component_id: sensor.aht10
-  image_url: https://wiki.apolloautomation.com/assets/esphome-starter-kit-temp-hum-module-only-1.jpg
+  image_url: https://cdn.shopify.com/s/files/1/0792/0959/5187/files/aht_module.png?v=1781660490
   name: AHT20 Temperature & Humidity Module
   description: |
     Temperature and humidity module shipped with the starter kit. Plug
@@ -178,7 +177,7 @@ featured_components:
     internal: true
 - id: motion_module
   component_id: binary_sensor.gpio
-  image_url: https://wiki.apolloautomation.com/assets/esphome-starter-kit-pir-module-only.jpg
+  image_url: https://cdn.shopify.com/s/files/1/0792/0959/5187/files/pir_module.png?v=1781660489
   name: Motion Module (MH-SR602)
   description: |
     Motion sensor module included with the starter kit. Detects motion
@@ -211,7 +210,7 @@ featured_components:
       locked: true
 - id: button_module
   component_id: binary_sensor.gpio
-  image_url: https://wiki.apolloautomation.com/assets/esphome-starter-kit-button-module-only.jpg
+  image_url: https://cdn.shopify.com/s/files/1/0792/0959/5187/files/button_module.png?v=1781660490
   name: Button Module
   description: |
     Pushbutton module shipped with the starter kit. Plug it into the
@@ -228,7 +227,7 @@ featured_components:
         inverted: true
 - id: rgb_leds
   component_id: light.esp32_rmt_led_strip
-  image_url: https://wiki.apolloautomation.com/assets/esphome-starter-kit-rgb-buzzer-module-only.jpg
+  image_url: https://cdn.shopify.com/s/files/1/0792/0959/5187/files/led_buzzer_module.png?v=1781660489
   name: RGB LEDs (module)
   description: |
     The 10 RGB LEDs by themselves, without the buzzer parts. If you have
@@ -261,7 +260,7 @@ featured_components:
     rmt_symbols: 48
 - id: buzzer_output
   component_id: output.ledc
-  image_url: https://wiki.apolloautomation.com/assets/esphome-starter-kit-rgb-buzzer-module-only.jpg
+  image_url: https://cdn.shopify.com/s/files/1/0792/0959/5187/files/led_buzzer_module.png?v=1781660489
   name: Piezo Buzzer (module)
   description: |
     The piezo buzzer output by itself, without the LEDs. If you have
@@ -274,7 +273,7 @@ featured_components:
       value: 18
 - id: rtttl_player
   component_id: rtttl
-  image_url: https://wiki.apolloautomation.com/assets/esphome-starter-kit-rgb-buzzer-module-only.jpg
+  image_url: https://cdn.shopify.com/s/files/1/0792/0959/5187/files/led_buzzer_module.png?v=1781660489
   name: RTTTL Player (buzzer)
   description: |
     Plays ringtones through a piezo buzzer (RTTTL format). If you have
@@ -289,7 +288,7 @@ featured_components:
 featured_bundles:
 - id: rgb_buzzer_module
   name: RGB LED + Buzzer Module
-  image_url: https://wiki.apolloautomation.com/assets/esphome-starter-kit-rgb-buzzer-module-only.jpg
+  image_url: https://cdn.shopify.com/s/files/1/0792/0959/5187/files/led_buzzer_module.png?v=1781660489
   description: |
     The starter kit's RGB + Buzzer module. 10 RGB LEDs across the front.
     On the back: a piezo buzzer plus the FPC connector that plugs into

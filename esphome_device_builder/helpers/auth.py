@@ -313,7 +313,12 @@ def parse_basic_auth(authorization: str) -> tuple[str, str] | None:
 # bearer header; it carries its own single-use capability token instead, minted
 # over the authenticated WS (see firmware/download_token) and validated by the
 # handler — the token is the authorization.
-_PUBLIC_PATHS = frozenset({"/", "/ws", "/favicon.ico", "/manifest.json", "/api/firmware/download"})
+# /version is public so the upstream Docker image's HEALTHCHECK
+# (curl --fail .../version) keeps passing when a password is set; it
+# exposes only the esphome version, matching the legacy dashboard.
+_PUBLIC_PATHS = frozenset(
+    {"/", "/ws", "/favicon.ico", "/manifest.json", "/version", "/api/firmware/download"}
+)
 _PUBLIC_PREFIXES = ("/assets/", "/boards/images/")
 
 

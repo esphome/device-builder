@@ -17,6 +17,7 @@ from ...helpers.version_compat import VersionMatchPolicy
 from ...models import (
     ErrorCode,
     EventType,
+    OffloaderIncludeLocalChangedData,
     OffloaderRemoteBuildSettingsView,
     OffloaderRemoteBuildsToggledData,
     OffloaderVersionMatchPolicyChangedData,
@@ -35,6 +36,7 @@ def offloader_settings_view(
         pairings=controller.pairings_snapshot(),
         remote_builds_enabled=controller.state.remote_builds_enabled,
         version_match_policy=controller.state.version_match_policy,
+        include_local_in_pool=controller.state.include_local_in_pool,
     )
 
 
@@ -50,19 +52,25 @@ async def set_offloader_settings(
     *,
     remote_builds_enabled: bool | None = None,
     version_match_policy: str | None = None,
+    include_local_in_pool: bool | None = None,
 ) -> OffloaderRemoteBuildSettingsView:
     """
-    Flip one or both offloader-side master settings.
+    Flip one or more offloader-side master settings.
 
     Passing ``None`` (or omitting) leaves that field untouched;
     each changed field fires its own event. Refusing the
     all-``None`` call keeps a frontend bug from silently
     no-op'ing.
     """
-    if remote_builds_enabled is None and version_match_policy is None:
+    if (
+        remote_builds_enabled is None
+        and version_match_policy is None
+        and include_local_in_pool is None
+    ):
         msg = (
             "remote_build/set_offloader_settings: at least one of "
-            "remote_builds_enabled or version_match_policy must be supplied"
+            "remote_builds_enabled, version_match_policy or include_local_in_pool "
+            "must be supplied"
         )
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     # Validate both args before mutating anything so a bad
@@ -82,6 +90,15 @@ async def set_offloader_settings(
     clean_policy = (
         _validate_version_match_policy(version_match_policy)
         if version_match_policy is not None
+        else None
+    )
+    clean_include_local = (
+        validate_bool(
+            include_local_in_pool,
+            command="remote_build/set_offloader_settings",
+            field="include_local_in_pool",
+        )
+        if include_local_in_pool is not None
         else None
     )
     # Per-field equality guards so the event + save only fire on
@@ -105,6 +122,16 @@ async def set_offloader_settings(
             "version_match_policy": clean_policy,
         }
         controller._db.bus.fire(EventType.OFFLOADER_VERSION_MATCH_POLICY_CHANGED, changed)
+        save_needed = True
+    if (
+        clean_include_local is not None
+        and clean_include_local != controller.state.include_local_in_pool
+    ):
+        controller.state.include_local_in_pool = clean_include_local
+        include_local_changed: OffloaderIncludeLocalChangedData = {
+            "include_local_in_pool": clean_include_local,
+        }
+        controller._db.bus.fire(EventType.OFFLOADER_INCLUDE_LOCAL_CHANGED, include_local_changed)
         save_needed = True
     if save_needed:
         controller._schedule_pairings_save()

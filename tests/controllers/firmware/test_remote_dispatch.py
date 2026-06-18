@@ -13,12 +13,12 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
 import pytest
 
-from esphome_device_builder.controllers.firmware import remote_dispatch
+from esphome_device_builder.controllers.firmware import remote_dispatch, runner
 from esphome_device_builder.controllers.firmware.remote_runner import RemoteServerLostError
 from esphome_device_builder.helpers.async_ import create_eager_task
 from esphome_device_builder.helpers.build_scheduler import BuildSchedulerInputs
@@ -60,6 +60,7 @@ def _snapshot(
     idle_pins: set[str],
     offloader_version: str = "",
     policy: VersionMatchPolicy = VersionMatchPolicy.ANY,
+    include_local_in_pool: bool = False,
 ) -> BuildSchedulerInputs:
     return build_scheduler_inputs(
         pairings=pairings,
@@ -67,6 +68,7 @@ def _snapshot(
         idle_pins=idle_pins,
         offloader_version=offloader_version,
         policy=policy,
+        include_local_in_pool=include_local_in_pool,
     )
 
 
@@ -271,6 +273,145 @@ async def test_exact_required_busy_server_waits_not_fails(
 
     assert job.status is JobStatus.QUEUED
     assert "j1" in controller.state.remote_dispatch.pending
+
+
+async def test_include_local_overflow_runs_on_local_lane(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """One server, two compiles, opt-in on → one binds remote, the other runs local."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    _stub_offloader(
+        controller,
+        _snapshot(
+            [_pairing(_PIN_A, paired_at=1.0)],
+            open_pins={_PIN_A},
+            idle_pins={_PIN_A},
+            include_local_in_pool=True,
+        ),
+    )
+    controller.state.compile_lane.queue = asyncio.Queue()
+    j1 = _add_pending(controller, "j1")
+    j2 = _add_pending(controller, "j2")
+
+    await remote_dispatch._dispatch_pending(controller)
+
+    pool = controller.state.remote_dispatch
+    assert pool.job_peer == {"j1": _PIN_A}
+    # j2 overflowed onto the local compile lane instead of holding.
+    assert j2.source is JobSource.LOCAL
+    assert "j2" not in pool.pending
+    assert controller.state.compile_lane.queue.qsize() == 1
+    assert j1.source is not JobSource.LOCAL
+
+
+async def test_include_local_one_local_slot_third_compile_waits(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """One local slot: with one server, three compiles place 1 remote + 1 local, 1 waits."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    _stub_offloader(
+        controller,
+        _snapshot(
+            [_pairing(_PIN_A, paired_at=1.0)],
+            open_pins={_PIN_A},
+            idle_pins={_PIN_A},
+            include_local_in_pool=True,
+        ),
+    )
+    controller.state.compile_lane.queue = asyncio.Queue()
+    for jid in ("j1", "j2", "j3"):
+        _add_pending(controller, jid)
+
+    await remote_dispatch._dispatch_pending(controller)
+
+    pool = controller.state.remote_dispatch
+    assert set(pool.job_peer) == {"j1"}
+    # j2 took the single local slot; j3 must hold (queue is non-empty this pass).
+    assert controller.state.compile_lane.queue.qsize() == 1
+    assert set(pool.pending) == {"j3"}
+
+
+async def test_include_local_off_overflow_holds_pending(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """Opt-in off (default) keeps the overflow compile waiting rather than running it local."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    _stub_offloader(
+        controller,
+        _snapshot([_pairing(_PIN_A, paired_at=1.0)], open_pins={_PIN_A}, idle_pins={_PIN_A}),
+    )
+    controller.state.compile_lane.queue = asyncio.Queue()
+    _add_pending(controller, "j1")
+    _add_pending(controller, "j2")
+
+    await remote_dispatch._dispatch_pending(controller)
+
+    pool = controller.state.remote_dispatch
+    assert pool.job_peer == {"j1": _PIN_A}
+    assert set(pool.pending) == {"j2"}
+    assert controller.state.compile_lane.queue.qsize() == 0
+
+
+async def test_compile_lane_completion_wakes_dispatcher_when_pending(
+    firmware_controller_factory: FirmwareControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A compile-lane job finishing re-arms the matcher so an overflow compile can take the slot."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    controller.state.compile_lane.queue = asyncio.Queue()
+    _add_pending(controller, "j1")  # an overflow compile held in the pool
+    pool = controller.state.remote_dispatch
+    pool.wake.clear()
+
+    async def _noop_execute(job: FirmwareJob, lane: Any) -> None:
+        lane.current_job = None  # mirror execute_job's finally clearing the slot
+
+    monkeypatch.setattr(controller, "_execute_job", _noop_execute)
+    lane_job = FirmwareJob(
+        job_id="local1",
+        configuration="dev.yaml",
+        job_type=JobType.COMPILE,
+        source=JobSource.LOCAL,
+    )
+    controller.state.compile_lane.queue.put_nowait(lane_job)
+
+    loop_task = asyncio.create_task(runner.run_lane(controller, controller.state.compile_lane))
+    try:
+        await asyncio.wait_for(pool.wake.wait(), timeout=2.0)
+    finally:
+        loop_task.cancel()
+        await asyncio.gather(loop_task, return_exceptions=True)
+
+    assert pool.wake.is_set()
+
+
+async def test_cancelled_compile_lane_job_still_rearms_dispatcher(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A dequeued-then-cancelled compile still shortens the queue, so the matcher re-arms."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    controller.state.compile_lane.queue = asyncio.Queue()
+    _add_pending(controller, "j1")  # an overflow compile held in the pool
+    pool = controller.state.remote_dispatch
+    pool.wake.clear()
+
+    cancelled = FirmwareJob(
+        job_id="local1",
+        configuration="dev.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.CANCELLED,  # cancelled before the runner claimed it
+        source=JobSource.LOCAL,
+    )
+    controller.state.compile_lane.queue.put_nowait(cancelled)
+
+    loop_task = asyncio.create_task(runner.run_lane(controller, controller.state.compile_lane))
+    try:
+        await asyncio.wait_for(pool.wake.wait(), timeout=2.0)
+    finally:
+        loop_task.cancel()
+        await asyncio.gather(loop_task, return_exceptions=True)
+
+    assert pool.wake.is_set()
 
 
 async def test_supersede_drops_a_pending_remote_compile(
@@ -585,6 +726,45 @@ async def test_loop_wakes_on_peer_link_opened_event(
     finally:
         loop_task.cancel()
         await asyncio.gather(loop_task, return_exceptions=True)
+
+
+async def test_loop_wakes_on_include_local_changed_event(
+    firmware_controller_factory: FirmwareControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Firing the include-local toggle event re-evaluates a compile stuck behind a busy server.
+
+    Without the wake, turning the toggle on wouldn't unstick a REMOTE_PENDING
+    compile until some unrelated pool event fired.
+    """
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    controller.state.compile_lane.queue = asyncio.Queue()
+    # One eligible server, busy, with the opt-in on: the only path off WAIT is local.
+    snapshot = _snapshot(
+        [_pairing(_PIN_A, paired_at=1.0)],
+        open_pins={_PIN_A},
+        idle_pins={_PIN_A},
+        include_local_in_pool=True,
+    )
+    _stub_offloader(controller, snapshot)
+    controller.state.remote_dispatch.job_peer["busy-other"] = _PIN_A  # server busy
+    monkeypatch.setattr(remote_dispatch, "_STARTUP_GRACE_SECONDS", 0)
+
+    loop_task = asyncio.create_task(remote_dispatch.run_dispatch_loop(controller))
+    try:
+        await asyncio.sleep(0)  # let the loop attach its listeners and park
+        job = _add_pending(controller, "j1")
+        controller.bus.fire(
+            EventType.OFFLOADER_INCLUDE_LOCAL_CHANGED, {"include_local_in_pool": True}
+        )
+        async with asyncio.timeout(2.0):
+            while job.source is not JobSource.LOCAL:
+                await asyncio.sleep(0.01)
+    finally:
+        loop_task.cancel()
+        await asyncio.gather(loop_task, return_exceptions=True)
+
+    assert job.source is JobSource.LOCAL
 
 
 async def test_startup_grace_holds_restored_compiles_before_servers_connect(

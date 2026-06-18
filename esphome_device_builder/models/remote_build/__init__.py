@@ -19,6 +19,7 @@ from .offloader import (
 )
 from .offloader_events import (
     OffloaderAlertSnapshotEntry,
+    OffloaderIncludeLocalChangedData,
     OffloaderJobOutputData,
     OffloaderJobStateChangedData,
     OffloaderPairAlertDismissedData,
@@ -90,6 +91,7 @@ __all__ = (
     "JobOutputFrameData",
     "JobStateChangedFrameData",
     "OffloaderAlertSnapshotEntry",
+    "OffloaderIncludeLocalChangedData",
     "OffloaderJobOutputData",
     "OffloaderJobStateChangedData",
     "OffloaderPairAlertDismissedData",

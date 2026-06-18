@@ -3717,11 +3717,13 @@ def test_serialize_pairings_includes_master_settings(tmp_path: Path) -> None:
     controller.offloader.state.pairings[pairing.pin_sha256] = pairing
     controller.offloader.state.remote_builds_enabled = False
     controller.offloader.state.version_match_policy = VersionMatchPolicy.EXACT_REQUIRED
+    controller.offloader.state.include_local_in_pool = True
 
     serialized = controller.offloader._serialize_pairings()
 
     assert serialized.remote_builds_enabled is False
     assert serialized.version_match_policy is VersionMatchPolicy.EXACT_REQUIRED
+    assert serialized.include_local_in_pool is True
     assert serialized.pairings == [pairing]
     # Round-trip through the on-disk codec to pin that every field
     # survives a save / reload cycle.
@@ -4388,6 +4390,7 @@ def test_remote_builds_enabled_default_is_true(tmp_path: Path) -> None:
     assert controller.offloader.offloader_settings_snapshot() == {
         "remote_builds_enabled": True,
         "version_match_policy": VersionMatchPolicy.ANY,
+        "include_local_in_pool": False,
     }
     assert controller.offloader.build_scheduler_snapshot().remote_builds_enabled is True
 
@@ -4430,6 +4433,35 @@ async def test_set_offloader_settings_rejects_non_bool(tmp_path: Path) -> None:
     assert exc.value.code == ErrorCode.INVALID_ARGS
     # Untouched.
     assert controller.offloader.state.remote_builds_enabled is True
+
+
+async def test_set_offloader_settings_toggles_include_local_and_fires_event(
+    tmp_path: Path,
+) -> None:
+    """Pins that the include-local flip mutates RAM, surfaces in both snapshots, and fires once."""
+    controller = _make_controller(config_dir=tmp_path, real_bus=True)
+    captured: list[Any] = []
+    controller.offloader._db.bus.add_listener(
+        EventType.OFFLOADER_INCLUDE_LOCAL_CHANGED,
+        lambda event: captured.append(event.data),
+    )
+
+    view = await controller.offloader.set_offloader_settings(include_local_in_pool=True)
+
+    assert controller.offloader.state.include_local_in_pool is True
+    assert controller.offloader.build_scheduler_snapshot().include_local_in_pool is True
+    assert controller.offloader.offloader_settings_snapshot()["include_local_in_pool"] is True
+    assert view.include_local_in_pool is True
+    assert captured == [{"include_local_in_pool": True}]
+
+
+async def test_set_offloader_settings_include_local_rejects_non_bool(tmp_path: Path) -> None:
+    """A non-bool ``include_local_in_pool`` raises ``INVALID_ARGS``; the flag stays untouched."""
+    controller = _make_controller(config_dir=tmp_path)
+    with pytest.raises(CommandError) as exc:
+        await controller.offloader.set_offloader_settings(include_local_in_pool="true")  # type: ignore[arg-type]
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+    assert controller.offloader.state.include_local_in_pool is False
 
 
 async def test_set_pairing_enabled_flips_field_and_fires_event(tmp_path: Path) -> None:

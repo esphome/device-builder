@@ -7,9 +7,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import NamedTuple, TypedDict
 
-from mashumaro.mixins.orjson import DataClassORJSONMixin
-
-from .common import EventType
+from .common import DashboardModel, EventType
 
 
 def _now_iso() -> str:
@@ -136,7 +134,7 @@ TERMINAL_JOB_EVENTS: frozenset[EventType] = frozenset(
 
 
 @dataclass
-class FirmwareJob(DataClassORJSONMixin):
+class FirmwareJob(DashboardModel):
     """A firmware build/upload job.
 
     Jobs are persistent (survive page refreshes and server restarts)

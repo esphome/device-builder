@@ -1,35 +1,32 @@
 """
 Tests for ``DevicesController.rename_device``.
 
-The handler is now a thin pass-through to ``esphome rename`` via
-the firmware queue. The CLI owns the full atomic flow (YAML edit
-→ revalidate → compile → OTA install → rollback on failure), so
-the dashboard only enforces two preconditions before queueing:
+The default path is a thin pass-through to ``esphome rename`` via the
+firmware queue (YAML edit -> revalidate -> compile -> OTA install ->
+rollback on failure). The dashboard enforces preconditions before
+queueing:
 
-- target filename collision — rejected up-front because the CLI
-  would happily overwrite an unrelated device's YAML
-- same-name renames — rejected up-front because they're a no-op
-  at the YAML level but still queue a real compile + flash
+- target filename collision — rejected up-front because the CLI would
+  happily overwrite an unrelated device's YAML
+- same-name renames — rejected up-front, compared against the device's
+  real ``esphome.name`` (not the filename stem) so a config whose file
+  was slugified away from its name (uploaded ``name: test_1`` ->
+  ``test-1.yaml``) can still be renamed to fix the name
 
-What we used to also do — pre-validate via ``esphome config`` and
-fall back to a file-level rename when validation failed — is gone.
-The fallback silently renamed the YAML on disk while the running
-firmware kept broadcasting the old hostname, leaving dashboard
-label and device state diverged with no error to the user. Rename
-now refuses cleanly when the CLI's own validation fails so the
-user fixes the YAML and retries.
+An in-place rename — the target filename is the device's own file —
+can't go through ``esphome rename`` (it requires a new filename), so it
+rewrites the name in place via the config-only path.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, ClassVar
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.yaml import read_yaml_scalar
 from esphome_device_builder.models import (
     ErrorCode,
     FirmwareJob,
@@ -39,46 +36,39 @@ from esphome_device_builder.models import (
 
 from .conftest import MakeControllerFactory
 
+_YAML = """\
+esphome:
+  name: kitchen
+  friendly_name: Kitchen Light
 
-def _wire_fake_path(controller: DevicesController) -> None:
-    """Swap the factory's tmp_path-based ``rel_path`` for the ``_FakePath`` shim."""
-    controller._db.settings.rel_path = _FakePath
+esp32:
+  board: esp32dev
+"""
 
+# An uploaded config whose file was slugified (``test_1`` -> ``test-1.yaml``)
+# while the body keeps the underscore name.
+_UNDERSCORE_YAML = """\
+esphome:
+  name: test_1
+  friendly_name: Test_1
 
-class _FakePath:
-    """Path stand-in: ``existing`` set drives ``.exists()`` results."""
-
-    existing: ClassVar[set[str]] = set()
-
-    def __init__(self, configuration: str) -> None:
-        self._configuration = configuration
-
-    def __str__(self) -> str:
-        return f"./{self._configuration}"
-
-    def exists(self) -> bool:
-        return self._configuration in _FakePath.existing
-
-
-@pytest.fixture(autouse=True)
-def _reset_fake_path_existing() -> Any:
-    _FakePath.existing = set()
-    yield
-    _FakePath.existing = set()
+esp32:
+  board: esp32dev
+"""
 
 
 async def test_rename_target_filename_collision_raises(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """Renaming onto an existing config rejects before any work runs.
+    """Renaming onto a different existing config rejects before any work runs.
 
     The CLI ``esphome rename`` doesn't check this itself — it would
     happily overwrite the unrelated device's YAML and OTA-install
     the wrong firmware. We have to catch it ourselves at the gate.
     """
     controller = make_controller(tmp_path, esphome_cmd=["esphome"])
-    _wire_fake_path(controller)
-    _FakePath.existing.add("livingroom.yaml")
+    (tmp_path / "kitchen.yaml").write_text(_YAML, encoding="utf-8")
+    (tmp_path / "livingroom.yaml").write_text(_YAML, encoding="utf-8")
 
     with pytest.raises(CommandError) as excinfo:
         await controller.rename_device(configuration="kitchen.yaml", new_name="livingroom")
@@ -98,7 +88,7 @@ async def test_rename_same_name_raises(
     renaming."
     """
     controller = make_controller(tmp_path, esphome_cmd=["esphome"])
-    _wire_fake_path(controller)
+    (tmp_path / "kitchen.yaml").write_text(_YAML, encoding="utf-8")
 
     with pytest.raises(CommandError) as excinfo:
         await controller.rename_device(configuration="kitchen.yaml", new_name="kitchen")
@@ -107,26 +97,108 @@ async def test_rename_same_name_raises(
     assert "must differ" in excinfo.value.message
 
 
-async def test_rename_same_name_raises_for_yml_extension(
+async def test_rename_same_name_compares_real_esphome_name(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """Stem comparison catches ``kitchen.yml`` → ``new_name=kitchen``.
+    """A no-op is judged by ``esphome.name``, not the filename stem.
 
-    The literal filenames differ (``kitchen.yml`` vs the
-    constructed ``kitchen.yaml``) but the device's mDNS hostname
-    comes from the stem and stays the same either way, so the
-    rename would still be a no-op rewrite + redundant flash. A
-    naive ``new_filename == configuration`` check would let this
-    through; comparing on stems catches it.
+    The file is ``test-1.yaml`` but the device is named ``test_1``;
+    renaming to ``test_1`` is the real no-op and must be rejected even
+    though it differs from the filename stem.
     """
     controller = make_controller(tmp_path, esphome_cmd=["esphome"])
-    _wire_fake_path(controller)
+    (tmp_path / "test-1.yaml").write_text(_UNDERSCORE_YAML, encoding="utf-8")
 
     with pytest.raises(CommandError) as excinfo:
-        await controller.rename_device(configuration="kitchen.yml", new_name="kitchen")
+        await controller.rename_device(configuration="test-1.yaml", new_name="test_1")
 
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
     assert "must differ" in excinfo.value.message
+
+
+async def test_rename_same_name_falls_back_to_stem_for_nonlocal_substitution(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """An unresolved ``${var}`` name is treated as unknown, comparing on the stem.
+
+    ``esphome.name: ${devicename}`` with no local definition can't be
+    resolved here, so the no-op guard falls back to the filename stem
+    rather than comparing ``new_name`` against the literal ``${devicename}``.
+    """
+    controller = make_controller(tmp_path, esphome_cmd=["esphome"])
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: ${devicename}\n", encoding="utf-8")
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.rename_device(configuration="kitchen.yaml", new_name="kitchen")
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "must differ" in excinfo.value.message
+
+
+async def test_rename_underscore_name_to_hyphen_in_place(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """``test_1`` (file ``test-1.yaml``) renames to ``test-1`` in place.
+
+    The slugified filename already matches the new name, so the rename
+    rewrites ``esphome.name`` on the same file instead of moving it; the
+    file must survive and nothing is queued.
+    """
+    controller = make_controller(tmp_path)
+    config = tmp_path / "test-1.yaml"
+    config.write_text(_UNDERSCORE_YAML, encoding="utf-8")
+
+    result = await controller.rename_device(configuration="test-1.yaml", new_name="test-1")
+
+    assert result == {"configuration": "test-1.yaml", "job": None}
+    assert config.exists()
+    new_content = config.read_text(encoding="utf-8")
+    assert read_yaml_scalar(new_content, ("esphome", "name")) == "test-1"
+    assert read_yaml_scalar(new_content, ("esphome", "friendly_name")) == "Test_1"
+    assert controller._scanner.calls == [("scan",)]
+
+
+async def test_rename_in_place_with_redundant_path_segments(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A denormalized configuration (``foo/../test-1.yaml``) still reads as in-place.
+
+    ``normpath`` collapses the redundant segment lexically; a textual path
+    compare would miss it and the rename would false-collide with the
+    device's own file.
+    """
+    controller = make_controller(tmp_path)
+    (tmp_path / "foo").mkdir()
+    config = tmp_path / "test-1.yaml"
+    config.write_text(_UNDERSCORE_YAML, encoding="utf-8")
+
+    result = await controller.rename_device(configuration="foo/../test-1.yaml", new_name="test-1")
+
+    assert result["job"] is None
+    assert config.exists()
+    assert read_yaml_scalar(config.read_text(encoding="utf-8"), ("esphome", "name")) == "test-1"
+
+
+async def test_rename_in_place_ignores_config_only_flag(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """An in-place rename rewrites the name even with the default (online) arg.
+
+    ``esphome rename`` can't keep the same filename, so the in-place case
+    routes to the config-only rewrite regardless of ``config_only``; the
+    firmware queue is never touched.
+    """
+    controller = make_controller(tmp_path)
+    controller._db.firmware = MagicMock()
+    controller._db.firmware.rename = AsyncMock()
+    config = tmp_path / "test-1.yaml"
+    config.write_text(_UNDERSCORE_YAML, encoding="utf-8")
+
+    result = await controller.rename_device(configuration="test-1.yaml", new_name="test-1")
+
+    assert result["job"] is None
+    controller._db.firmware.rename.assert_not_awaited()
+    assert read_yaml_scalar(config.read_text(encoding="utf-8"), ("esphome", "name")) == "test-1"
 
 
 async def test_rename_queues_firmware_job(
@@ -134,7 +206,7 @@ async def test_rename_queues_firmware_job(
 ) -> None:
     """Pre-conditions clear → firmware queue, response carries the queued job."""
     controller = make_controller(tmp_path, esphome_cmd=["esphome"])
-    _wire_fake_path(controller)
+    (tmp_path / "kitchen.yaml").write_text(_YAML, encoding="utf-8")
 
     queued = FirmwareJob(
         job_id="abc123",
@@ -163,7 +235,7 @@ async def test_rename_missing_firmware_controller_raises(
 ) -> None:
     """Lifecycle race where firmware controller hasn't started yet."""
     controller = make_controller(tmp_path, esphome_cmd=["esphome"])
-    _wire_fake_path(controller)
+    (tmp_path / "kitchen.yaml").write_text(_YAML, encoding="utf-8")
     controller._db.firmware = None
 
     with pytest.raises(CommandError) as excinfo:

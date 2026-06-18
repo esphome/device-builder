@@ -82,6 +82,11 @@ class RemoteDispatchState:
         self.job_peer.pop(job_id, None)
         self.wake.set()
 
+    def rearm_if_pending(self) -> None:
+        """Wake the matcher if a compile is waiting; a no-op (cheap) when nothing's pending."""
+        if self.pending:
+            self.wake.set()
+
     def record_loss(self, job_id: str) -> int:
         """Count a mid-build server loss for *job_id*; return the running total."""
         self.retries[job_id] = self.retries.get(job_id, 0) + 1

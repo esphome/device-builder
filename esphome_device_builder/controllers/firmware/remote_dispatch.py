@@ -59,6 +59,8 @@ _STARTUP_GRACE_SECONDS = 20.0
 # matcher; the dispatch pass reads the fresh snapshot. The pairing events matter
 # because a job WAITing on a disconnected intended server must re-evaluate if
 # that server is then unpaired or disabled (no peer-link event fires then).
+# OFFLOADER_INCLUDE_LOCAL_CHANGED matters because flipping the toggle on must
+# promptly route a compile WAITing behind a busy server onto the local lane.
 _POOL_WAKE_EVENTS = (
     EventType.OFFLOADER_PEER_LINK_OPENED,
     EventType.OFFLOADER_PEER_LINK_CLOSED,
@@ -66,6 +68,7 @@ _POOL_WAKE_EVENTS = (
     EventType.OFFLOADER_PAIRING_ADDED,
     EventType.OFFLOADER_PAIR_STATUS_CHANGED,
     EventType.OFFLOADER_PAIRING_ENABLED_CHANGED,
+    EventType.OFFLOADER_INCLUDE_LOCAL_CHANGED,
 )
 
 
@@ -119,8 +122,12 @@ def _dispatch_one(
         pool.drop(job.job_id)
         return False
     # Re-derive busy each call so two waiting compiles in one pass can't
-    # both grab the same just-freed server.
-    inputs = replace(snapshot, busy_build_server_pins=pool.busy_pins())
+    # both grab the same just-freed server (or the single local slot).
+    inputs = replace(
+        snapshot,
+        busy_build_server_pins=pool.busy_pins(),
+        local_compile_busy=not controller.compile_queue_status().idle,
+    )
     decision = pick_dispatch_target(inputs)
     if decision.outcome is DispatchOutcome.REMOTE:
         assert decision.pin_sha256 is not None  # narrowed by REMOTE

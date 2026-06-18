@@ -47,10 +47,11 @@ from .helpers.auth import auth_middleware
 from .helpers.dashboard_advertise import DashboardAdvertiser
 from .helpers.dashboard_identity import get_or_create_identity as get_or_create_dashboard_identity
 from .helpers.event_bus import Event, EventBus, StreamControls, stream_events
-from .helpers.json import cors_middleware
+from .helpers.json import cors_middleware, json_response
 from .helpers.network_interfaces import ensure_single_host_for_ephemeral_port, resolve_bind_host
 from .helpers.peer_link_identity import PeerLinkIdentityStore
 from .helpers.secrets_state import write_secrets_locked
+from .helpers.startup_timing import StartupTimer
 from .helpers.subscriber_presence import SubscriberPresence
 from .models import EventType
 
@@ -176,6 +177,11 @@ def _resolve_base_href(request: web.Request, *, tail: str = "") -> str:
     return f"/{normalized}/" if normalized else "/"
 
 
+async def _handle_version(_request: web.Request) -> web.Response:
+    """Return the esphome version as JSON for the Docker HEALTHCHECK."""
+    return json_response({"version": esphome_version})
+
+
 # Worker-thread budget for the default ``ThreadPoolExecutor``. asyncio's
 # default is ``min(32, os.cpu_count() + 4)`` — too tight for the
 # dashboard's I/O-bound workload (DNS resolves on every ping sweep,
@@ -194,9 +200,12 @@ class DeviceBuilder:
     All device state lives in DevicesController.
     """
 
-    def __init__(self, settings: DashboardSettings) -> None:
+    def __init__(
+        self, settings: DashboardSettings, *, startup_timer: StartupTimer | None = None
+    ) -> None:
         """Initialize the Device Builder."""
         self.settings = settings
+        self._startup_timer = startup_timer
         self.bus = EventBus()
         self.peer_link_identity_store = PeerLinkIdentityStore(settings.config_dir)
         # Reference-counted "is anyone watching the dashboard?" gate.
@@ -437,6 +446,10 @@ class DeviceBuilder:
             self.settings.config_dir,
             len(self.command_handlers),
         )
+
+        if self._startup_timer is not None:
+            self._startup_timer.mark("controllers")
+            _LOGGER.info("Startup phases: %s", self._startup_timer.summary())
 
     async def stop(self) -> None:  # noqa: C901, PLR0912
         """Shut down the application."""
@@ -755,6 +768,11 @@ class DeviceBuilder:
         # by a proxy's WebSocket max_msg_size.
         app.router.add_get("/api/firmware/download", firmware_http_download)
 
+        # Health/version endpoint. Public (see auth._PUBLIC_PATHS) and
+        # registered before the SPA catch-all so the upstream Docker image's
+        # HEALTHCHECK gets a deterministic JSON 200 instead of the SPA shell.
+        app.router.add_get("/version", _handle_version)
+
         # Static file serving for board images
         boards_dir = Path(__file__).parent / "definitions" / "boards"
         if boards_dir.is_dir():
@@ -864,6 +882,8 @@ class DeviceBuilder:
                 settings.port,
             )
             app = self.create_app(trusted=True, with_ingress_site=False)
+            if self._startup_timer is not None:
+                self._startup_timer.mark("app")
             hosts = resolve_bind_host(settings.ingress_host or "0.0.0.0")
             ensure_single_host_for_ephemeral_port(hosts, settings.ingress_port, "--ingress-port")
             web.run_app(
@@ -875,6 +895,8 @@ class DeviceBuilder:
             )
             return
         app = self.create_app()
+        if self._startup_timer is not None:
+            self._startup_timer.mark("app")
         hosts = resolve_bind_host(settings.host)
         ensure_single_host_for_ephemeral_port(hosts, settings.port, "--port")
         # ``handle_signals=False``: keep our ``__main__`` SIGTERM/SIGBREAK trap

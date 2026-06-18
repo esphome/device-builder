@@ -91,6 +91,8 @@ def _inputs(
     offloader_esphome_version: str = "",
     version_match_policy: VersionMatchPolicy = VersionMatchPolicy.ANY,
     busy_build_server_pins: set[str] | None = None,
+    include_local_in_pool: bool = False,
+    local_compile_busy: bool = False,
 ) -> BuildSchedulerInputs:
     """Build :class:`BuildSchedulerInputs` with the test's slices.
 
@@ -109,6 +111,8 @@ def _inputs(
         offloader_esphome_version=offloader_esphome_version,
         version_match_policy=version_match_policy,
         busy_build_server_pins=frozenset(busy_build_server_pins or set()),
+        include_local_in_pool=include_local_in_pool,
+        local_compile_busy=local_compile_busy,
     )
 
 
@@ -973,3 +977,83 @@ def test_dispatch_master_switch_off_returns_local() -> None:
         )
     )
     assert decision.outcome is DispatchOutcome.LOCAL
+
+
+# ---------------------------------------------------------------------------
+# include_local_in_pool — local shares overflow when every server is busy.
+# ---------------------------------------------------------------------------
+
+
+def test_dispatch_include_local_busy_server_free_lane_goes_local() -> None:
+    """Opt-in on, only server busy, local lane free → LOCAL instead of WAIT."""
+    pin = "a" * 64
+    decision = pick_dispatch_target(
+        _inputs(
+            pairings={pin: _stub_pairing(pin_sha256=pin)},
+            open_peer_links={pin},
+            peer_queue_status={pin: _stub_queue_status(pin_sha256=pin)},
+            busy_build_server_pins={pin},
+            include_local_in_pool=True,
+        )
+    )
+    assert decision.outcome is DispatchOutcome.LOCAL
+
+
+def test_dispatch_include_local_busy_server_busy_lane_waits() -> None:
+    """Opt-in on but local lane occupied → still WAIT; the one local slot is taken."""
+    pin = "a" * 64
+    decision = pick_dispatch_target(
+        _inputs(
+            pairings={pin: _stub_pairing(pin_sha256=pin)},
+            open_peer_links={pin},
+            peer_queue_status={pin: _stub_queue_status(pin_sha256=pin)},
+            busy_build_server_pins={pin},
+            include_local_in_pool=True,
+            local_compile_busy=True,
+        )
+    )
+    assert decision.outcome is DispatchOutcome.WAIT
+
+
+def test_dispatch_include_local_off_busy_server_waits() -> None:
+    """Opt-in off (default) preserves the busy-server WAIT even with a free local lane."""
+    pin = "a" * 64
+    decision = pick_dispatch_target(
+        _inputs(
+            pairings={pin: _stub_pairing(pin_sha256=pin)},
+            open_peer_links={pin},
+            peer_queue_status={pin: _stub_queue_status(pin_sha256=pin)},
+            busy_build_server_pins={pin},
+        )
+    )
+    assert decision.outcome is DispatchOutcome.WAIT
+
+
+def test_dispatch_include_local_prefers_idle_server_over_local() -> None:
+    """An idle server still wins over local with the opt-in on; local only absorbs overflow."""
+    pin = "a" * 64
+    decision = pick_dispatch_target(
+        _inputs(
+            pairings={pin: _stub_pairing(pin_sha256=pin)},
+            open_peer_links={pin},
+            peer_queue_status={pin: _stub_queue_status(pin_sha256=pin)},
+            include_local_in_pool=True,
+        )
+    )
+    assert decision == DispatchDecision.remote(pin)
+
+
+def test_dispatch_include_local_does_not_override_exact_required() -> None:
+    """EXACT_REQUIRED's refusal to run local is not loosened by the opt-in."""
+    pin = "a" * 64
+    decision = pick_dispatch_target(
+        _inputs(
+            pairings={pin: _stub_pairing(pin_sha256=pin, esphome_version="2026.6.1")},
+            open_peer_links={pin},
+            peer_queue_status={pin: _stub_queue_status(pin_sha256=pin)},
+            offloader_esphome_version="2026.6.0",
+            version_match_policy=VersionMatchPolicy.EXACT_REQUIRED,
+            include_local_in_pool=True,
+        )
+    )
+    assert decision.outcome is DispatchOutcome.NO_COMPATIBLE_PEER

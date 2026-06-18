@@ -4320,6 +4320,20 @@ def _canonicalize_docs_hosts(obj: Any) -> Any:
     return obj
 
 
+# Components the dashboard renders YAML-only (mirrors the frontend's
+# ``YAML_ONLY_SECTIONS``): no structured form is ever shown, so their per-id
+# body is dead weight. lvgl's recursive widget tree is ~14 MB — suppress the
+# config_entries so the wheel doesn't carry a body nothing fetches.
+_YAML_ONLY_COMPONENT_IDS: frozenset[str] = frozenset({"lvgl"})
+
+
+def _suppress_yaml_only_body(component: dict) -> dict:
+    """Drop a YAML-only component's config_entries (the body the UI never renders)."""
+    if component["id"] in _YAML_ONLY_COMPONENT_IDS:
+        return {**component, "config_entries": []}
+    return component
+
+
 def _emit_split_catalog(catalog: list[dict], version: str) -> None:
     """
     Write the catalog as ``components.index.json`` + per-id body files.
@@ -4347,7 +4361,7 @@ def _emit_split_catalog(catalog: list[dict], version: str) -> None:
 
     for component in catalog:
         cid = component["id"]
-        stripped = _strip_defaults(component)
+        stripped = _strip_defaults(_suppress_yaml_only_body(component))
         emit_body_with_roundtrip(
             stripped, cid, next_bodies, ComponentCatalogEntry, log_label="Component"
         )

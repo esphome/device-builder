@@ -111,6 +111,7 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
                 state.pairings[pairing.pin_sha256] = pairing
             state.remote_builds_enabled = settings.remote_builds_enabled
             state.version_match_policy = settings.version_match_policy
+            state.include_local_in_pool = settings.include_local_in_pool
         # Populates ``state.offloader_peer_link_priv`` /
         # ``offloader_dashboard_id`` so the spawns below see them.
         await self._load_offloader_identities_async()
@@ -366,6 +367,7 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         *,
         remote_builds_enabled: bool | None = None,
         version_match_policy: str | None = None,
+        include_local_in_pool: bool | None = None,
         **kwargs: Any,
     ) -> OffloaderRemoteBuildSettingsView:
         """Flip the offloader-side master settings for transparent install."""
@@ -373,6 +375,7 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
             self,
             remote_builds_enabled=remote_builds_enabled,
             version_match_policy=version_match_policy,
+            include_local_in_pool=include_local_in_pool,
         )
 
     @api_command("remote_build/set_pairing_enabled")
@@ -495,6 +498,7 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         return {
             "remote_builds_enabled": self.state.remote_builds_enabled,
             "version_match_policy": self.state.version_match_policy,
+            "include_local_in_pool": self.state.include_local_in_pool,
         }
 
     def build_scheduler_snapshot(self) -> BuildSchedulerInputs:
@@ -511,6 +515,7 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
             peer_queue_status=dict(self.state.peer_queue_status),
             offloader_esphome_version=_esphome_const.__version__,
             version_match_policy=self.state.version_match_policy,
+            include_local_in_pool=self.state.include_local_in_pool,
         )
 
     def pairings_snapshot(self) -> list[PairingSummary]:
@@ -567,6 +572,7 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
             pairings=[p for p in self.state.pairings.values() if p.status is PeerStatus.APPROVED],
             remote_builds_enabled=self.state.remote_builds_enabled,
             version_match_policy=self.state.version_match_policy,
+            include_local_in_pool=self.state.include_local_in_pool,
         )
 
     # ------------------------------------------------------------------
