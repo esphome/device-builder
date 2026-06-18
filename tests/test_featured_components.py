@@ -228,7 +228,7 @@ async def test_get_component_name_from_manifest_field(
 
 
 _APOLLO_PIR_IMAGE = (
-    "https://wiki.apolloautomation.com/assets/esphome-starter-kit-pir-module-only.jpg"
+    "https://cdn.shopify.com/s/files/1/0792/0959/5187/files/pir_module.png?v=1781660489"
 )
 
 

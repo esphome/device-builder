@@ -163,6 +163,17 @@ def _core_config_path_in_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 
 
 @pytest.fixture(autouse=True)
+def _core_skip_external_update_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Start each test from esphome's default so ``parse_args`` can't leak the flag.
+
+    ``DashboardSettings.parse_args`` pins ``CORE.skip_external_update = True`` on
+    the process-global ``CORE``; reset it per-test so a test that calls
+    ``parse_args`` doesn't leak ``True`` into siblings on the same xdist worker.
+    """
+    monkeypatch.setattr(CORE, "skip_external_update", False)
+
+
+@pytest.fixture(autouse=True)
 def _stub_icmp_privilege_probe(monkeypatch: pytest.MonkeyPatch) -> None:
     """Bypass ``PingSource.run``'s ICMP socket privilege probe.
 

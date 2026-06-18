@@ -6,9 +6,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from mashumaro.mixins.orjson import DataClassORJSONMixin
-
 from .common import (
+    DashboardModel,
     FieldPreset,
     PagedResponse,
     PinFeature,
@@ -101,7 +100,7 @@ class BoardTag(StrEnum):
 
 
 @dataclass
-class BoardPin(DataClassORJSONMixin):
+class BoardPin(DashboardModel):
     """A single GPIO pin on a board."""
 
     gpio: int
@@ -117,7 +116,7 @@ class BoardPin(DataClassORJSONMixin):
 
 
 @dataclass
-class BoardEsphomeConfig(DataClassORJSONMixin):
+class BoardEsphomeConfig(DashboardModel):
     """Maps this board to an ESPHome YAML platform configuration."""
 
     platform: Platform
@@ -135,7 +134,7 @@ class BoardEsphomeConfig(DataClassORJSONMixin):
 
 
 @dataclass
-class BoardHardware(DataClassORJSONMixin):
+class BoardHardware(DashboardModel):
     """Hardware specifications of a board."""
 
     flash_size: str | None = None
@@ -148,7 +147,7 @@ class BoardHardware(DataClassORJSONMixin):
 
 
 @dataclass
-class FeaturedComponent(DataClassORJSONMixin):
+class FeaturedComponent(DashboardModel):
     """
     A component recommended for this board.
 
@@ -176,7 +175,7 @@ class FeaturedComponent(DataClassORJSONMixin):
 
 
 @dataclass
-class FeaturedBundle(DataClassORJSONMixin):
+class FeaturedBundle(DashboardModel):
     """
     A logical group of featured components added together.
 
@@ -203,7 +202,7 @@ class FeaturedBundle(DataClassORJSONMixin):
 
 
 @dataclass
-class DefaultComponent(DataClassORJSONMixin):
+class DefaultComponent(DashboardModel):
     """A component installed by default in every new device on this board.
 
     ``id`` resolves through the same two-step lookup the
@@ -223,7 +222,7 @@ class DefaultComponent(DataClassORJSONMixin):
 
 
 @dataclass
-class BoardCatalogEntry(DataClassORJSONMixin):
+class BoardCatalogEntry(DashboardModel):
     """A board definition in the catalog."""
 
     id: str
@@ -257,7 +256,7 @@ class BoardCatalogEntry(DataClassORJSONMixin):
 
 
 @dataclass
-class BoardCatalogIndex(DataClassORJSONMixin):
+class BoardCatalogIndex(DashboardModel):
     """Slim card-view of :class:`BoardCatalogEntry` (no body fields).
 
     Picker / list endpoints (``boards/get_boards``) return this shape:
@@ -283,7 +282,7 @@ class BoardCatalogIndex(DataClassORJSONMixin):
 
 
 @dataclass
-class BoardCatalogResponse(DataClassORJSONMixin):
+class BoardCatalogResponse(DashboardModel):
     """Internal: raw board list from definitions loader."""
 
     boards: list[BoardCatalogEntry]

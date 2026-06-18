@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from ruamel.yaml import YAMLError
@@ -429,16 +428,19 @@ def _component_instance(
     )
 
 
-# Each value's covariant return (a concrete subclass) keeps the dict
-# typed as ``AutomationLocation`` without widening to ``Any``.
-_LOCATION_DECODERS: dict[str, Callable[[dict], AutomationLocation]] = {
-    "script": ScriptLocation.from_dict,
-    "interval": IntervalLocation.from_dict,
-    "component_on": ComponentOnLocation.from_dict,
-    "component_action": ComponentActionFieldLocation.from_dict,
-    "device_on": DeviceOnLocation.from_dict,
-    "light_effect": LightEffectLocation.from_dict,
-    "api_action": ApiActionLocation.from_dict,
+# Map each discriminator to its concrete location type; ``_decode_location``
+# resolves ``from_dict`` per call. Capturing a bound ``from_dict`` here would,
+# under mashumaro ``lazy_compilation``, hold the one-shot stub and recompile the
+# unpacker on every call; a class-attribute lookup hits the compiled method
+# after first use.
+_LOCATION_TYPES: dict[str, type[AutomationLocation]] = {
+    "script": ScriptLocation,
+    "interval": IntervalLocation,
+    "component_on": ComponentOnLocation,
+    "component_action": ComponentActionFieldLocation,
+    "device_on": DeviceOnLocation,
+    "light_effect": LightEffectLocation,
+    "api_action": ApiActionLocation,
 }
 
 
@@ -448,7 +450,7 @@ def _decode_location(raw: dict) -> AutomationLocation:
         msg = f"location must carry a 'kind' discriminator; got {raw!r}"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     kind = raw["kind"]
-    if not isinstance(kind, str) or (decoder := _LOCATION_DECODERS.get(kind)) is None:
+    if not isinstance(kind, str) or (loc_type := _LOCATION_TYPES.get(kind)) is None:
         msg = f"Unknown location kind: {kind!r}"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    return decoder(raw)
+    return loc_type.from_dict(raw)

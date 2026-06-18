@@ -8,6 +8,8 @@ from typing import NamedTuple
 from esphome import const
 from esphome.const import CONF_PACKAGES
 
+from ..yaml import _split_value_and_comment, _strip_yaml_quotes
+
 
 class EsphomeMeta(NamedTuple):
     """The user-facing ``esphome:`` meta fields; ``None`` for any the YAML omits."""
@@ -357,6 +359,31 @@ def extract_esphome_meta_from_config(
     )
 
 
+def extract_logger_baud_rate(
+    config: dict | None,
+    extra_substitutions: dict[str, str] | None = None,
+) -> int | None:
+    """
+    Read the resolved ``logger: baud_rate`` off a config, or ``None`` when absent.
+
+    ``$var`` / ``${var}`` resolve against *extra_substitutions*. ``0`` passes
+    through (UART logging disabled); a non-numeric, unresolved, or negative
+    value is ``None``.
+    """
+    logger = config.get(const.CONF_LOGGER) if isinstance(config, dict) else None
+    value = logger.get(const.CONF_BAUD_RATE) if isinstance(logger, dict) else None
+    if isinstance(value, str):
+        try:
+            value = int(_resolve_substitutions(value, extra_substitutions or {}) or "")
+        except ValueError:
+            value = None
+    # bool is an int subclass; reject ``true``. Negative baud is invalid (Web
+    # Serial rejects it), so treat it as unset.
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
+
+
 def _str_or_none(value: object) -> str | None:
     """Return *value* when it's a string, else ``None``."""
     return value if isinstance(value, str) else None
@@ -412,25 +439,20 @@ def _match_top_level_key(line: str) -> str | None:
     return stripped.split(":", 1)[0].strip()
 
 
-_INLINE_COMMENT_RE = re.compile(r"(?:^|\s)#.*$")
-
-
 def _parse_inline_value(raw: str) -> str:
     """
     Clean a raw YAML scalar value.
 
-    Strips an inline ``# comment`` and matching surrounding quotes. A
-    ``#`` only opens a comment when whitespace-preceded (or at the
-    scalar start); ``Room#2`` is a literal, not ``Room``.
+    Drops a trailing inline ``# comment`` (quote-aware, so ``"Test #1"  # c``
+    -> ``Test #1`` and ``Room#2`` stays literal), strips matching surrounding
+    quotes, and unwinds the single-quoted ``''`` escape so ``'Bob''s Room'``
+    -> ``Bob's Room``.
     """
-    value = raw.strip()
-    if not value.startswith(('"', "'")):
-        value = _INLINE_COMMENT_RE.sub("", value).strip()
-    if (value.startswith('"') and value.endswith('"')) or (
-        value.startswith("'") and value.endswith("'")
-    ):
-        value = value[1:-1]
-    return value
+    value, _ = _split_value_and_comment(raw)
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] == "'":
+        return value[1:-1].replace("''", "'")
+    return _strip_yaml_quotes(value)
 
 
 _FLOW_AREA_NAME_RE = re.compile(r"""\bname\s*:\s*("[^"]*"|'[^']*'|[^,}]+)""")

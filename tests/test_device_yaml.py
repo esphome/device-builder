@@ -34,7 +34,10 @@ from esphome_device_builder.helpers.device_yaml import (
     parse_esphome_meta,
     parse_platform_from_yaml,
 )
-from esphome_device_builder.helpers.device_yaml._parsing import _is_valid_esphome_name
+from esphome_device_builder.helpers.device_yaml._parsing import (
+    _is_valid_esphome_name,
+    extract_logger_baud_rate,
+)
 from esphome_device_builder.models import (
     BoardCatalogEntry,
     BoardEsphomeConfig,
@@ -525,6 +528,40 @@ esphome:
     assert comment == "Cost50#tag"
 
 
+def test_parse_meta_strips_comment_after_quoted_friendly_name() -> None:
+    """A comment after a quoted ``friendly_name`` is dropped, quotes too."""
+    yaml_content = """
+esphome:
+  name: test-1
+  friendly_name: "Test #1"  # Hello fr_name
+"""
+    _, friendly_name, _, _ = parse_esphome_meta(yaml_content)
+    assert friendly_name == "Test #1"
+
+
+def test_parse_meta_strips_comment_after_quoted_substitution_value() -> None:
+    """A comment after a quoted substitution value doesn't leak into the resolved meta."""
+    yaml_content = """
+substitutions:
+  fname: "Test #2"  # Hello fname
+esphome:
+  friendly_name: "${fname}"
+"""
+    _, friendly_name, _, _ = parse_esphome_meta(yaml_content)
+    assert friendly_name == "Test #2"
+
+
+def test_parse_meta_unwinds_single_quote_escape_in_friendly_name() -> None:
+    """A single-quoted ``''`` escape collapses to one ``'`` in the parsed value."""
+    yaml_content = """
+esphome:
+  name: test-1
+  friendly_name: 'Bob''s Room'
+"""
+    _, friendly_name, _, _ = parse_esphome_meta(yaml_content)
+    assert friendly_name == "Bob's Room"
+
+
 def test_parse_meta_skips_blank_and_comment_lines_inside_block() -> None:
     """Comment lines and blank lines inside the ``esphome:`` block are skipped.
 
@@ -736,6 +773,47 @@ def test_extract_meta_from_config_no_esphome_block(config: Any) -> None:
     assert extract_esphome_meta_from_config(config) == (None, None, None, None)
 
 
+def test_extract_logger_baud_rate_int() -> None:
+    """A plain integer baud is returned as-is."""
+    assert extract_logger_baud_rate({"logger": {"baud_rate": 19200}}) == 19200
+
+
+def test_extract_logger_baud_rate_string_coerced() -> None:
+    """A quoted-string baud coerces to int."""
+    assert extract_logger_baud_rate({"logger": {"baud_rate": "19200"}}) == 19200
+
+
+def test_extract_logger_baud_rate_resolves_substitution() -> None:
+    """A ``${var}`` baud resolves against the supplied substitutions."""
+    config = {"logger": {"baud_rate": "${log_baud}"}}
+    assert extract_logger_baud_rate(config, {"log_baud": "9600"}) == 9600
+
+
+def test_extract_logger_baud_rate_zero_disabled() -> None:
+    """``baud_rate: 0`` passes through (UART logging disabled)."""
+    assert extract_logger_baud_rate({"logger": {"baud_rate": 0}}) == 0
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        None,
+        {},
+        {"logger": "not-a-dict"},
+        {"logger": {}},  # no baud_rate key
+        {"logger": {"baud_rate": "${unset}"}},  # unresolved token
+        {"logger": {"baud_rate": "fast"}},  # non-numeric
+        {"logger": {"baud_rate": True}},  # bool is not a baud
+        {"logger": {"baud_rate": -1}},  # negative is invalid
+        {"logger": {"baud_rate": "-9600"}},  # negative via string
+        {"logger": {"baud_rate": [115200]}},  # non-scalar
+    ],
+)
+def test_extract_logger_baud_rate_none(config: Any) -> None:
+    """Missing / malformed / unresolvable / negative baud yields ``None``."""
+    assert extract_logger_baud_rate(config) is None
+
+
 def test_parse_meta_top_level_comment_does_not_close_esphome_block() -> None:
     """A column-0 ``# Comment: ...`` line doesn't terminate the esphome block."""
     yaml_content = """
@@ -914,8 +992,16 @@ def test_parse_inline_value_strips_trailing_comment() -> None:
     # (YAML rule), so it must not truncate the value.
     assert _parse_inline_value("Room#2") == "Room#2"
     assert _parse_inline_value("Living#Room") == "Living#Room"
-    # A leading ``#`` is a comment-only value → empty.
-    assert _parse_inline_value("# just a comment") == ""
+    # A whitespace-preceded ``#`` (the shape the remainder after ``key:`` takes)
+    # is a comment-only value → empty.
+    assert _parse_inline_value(" # just a comment") == ""
+    # A comment after a *quoted* value is dropped, quotes and all; a ``#``
+    # inside the quotes stays literal.
+    assert _parse_inline_value('"Test #1"  # Hello') == "Test #1"
+    assert _parse_inline_value("'Test #1'  # Hello") == "Test #1"
+    assert _parse_inline_value('"with #hash"  # c') == "with #hash"
+    # YAML single-quote escape: a doubled ``''`` is a literal ``'``.
+    assert _parse_inline_value("'it''s'") == "it's"
 
 
 def test_parse_inline_value_strips_matched_quotes() -> None:
@@ -925,6 +1011,36 @@ def test_parse_inline_value_strips_matched_quotes() -> None:
     # Mismatched quotes are left alone — picking one off would change
     # the user's literal value.
     assert _parse_inline_value("\"mismatched'") == "\"mismatched'"
+
+
+def test_parse_inline_value_unwinds_single_quote_escape_only() -> None:
+    """``''`` is an escape inside single quotes only; double quotes keep it literal."""
+    # Single-quoted: each ``''`` collapses to one ``'``.
+    assert _parse_inline_value("'it''s'") == "it's"
+    assert _parse_inline_value("'a''''b'") == "a''b"
+    # Double-quoted: ``''`` is two literal apostrophes — must NOT be unwound.
+    assert _parse_inline_value("\"it''s\"") == "it''s"
+    assert _parse_inline_value("\"a''''b\"") == "a''''b"
+    # Unquoted: nothing to unwind.
+    assert _parse_inline_value("plain''text") == "plain''text"
+
+
+def test_parse_inline_value_leaves_backslash_and_lone_quotes_literal() -> None:
+    """No backslash unescaping in either quote style; a lone inner quote stays literal."""
+    # Single quotes don't honour ``\`` escapes — the backslash is literal.
+    assert _parse_inline_value(r"'a\nb'") == r"a\nb"
+    assert _parse_inline_value(r"'C:\path'") == r"C:\path"
+    # Double quotes: we deliberately don't unescape ``\n`` etc. (mirrors the
+    # frontend), so it stays the two characters.
+    assert _parse_inline_value(r'"a\nb"') == r"a\nb"
+    # ``\"`` is left literal too — the frontend's stripQuotes doesn't unwind it
+    # either, so the round-trip of the backend's own ``_quote('Say "hi"')``
+    # (which emits ``"Say \"hi\""``) parses identically on both sides.
+    assert _parse_inline_value('"Say \\"hi\\""') == 'Say \\"hi\\"'
+    # A lone single quote inside double quotes is literal (no ``''`` escaping).
+    assert _parse_inline_value('"it\'s"') == "it's"
+    # A double quote inside single quotes is literal.
+    assert _parse_inline_value("'say \"hi\"'") == 'say "hi"'
 
 
 # ----------------------------------------------------------------------
@@ -1734,6 +1850,50 @@ def test_load_device_local_substitution_wins_over_package(tmp_path: Path) -> Non
     device = load_device_from_storage(yaml_path)
 
     assert device.friendly_name == "Local Override"
+
+
+def test_load_device_logger_baud_rate(tmp_path: Path) -> None:
+    """A literal ``logger: baud_rate`` surfaces on the device."""
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text(
+        "esphome:\n  name: lamp\nlogger:\n  baud_rate: 19200\n",
+        encoding="utf-8",
+    )
+    write_storage_json(tmp_path, "lamp.yaml")
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.logger_baud_rate == 19200
+
+
+def test_load_device_logger_baud_rate_from_substitution(tmp_path: Path) -> None:
+    """A ``${var}`` baud resolves through the substitutions pass."""
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text(
+        "substitutions:\n"
+        "  log_baud: '9600'\n"
+        "esphome:\n"
+        "  name: lamp\n"
+        "logger:\n"
+        "  baud_rate: ${log_baud}\n",
+        encoding="utf-8",
+    )
+    write_storage_json(tmp_path, "lamp.yaml")
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.logger_baud_rate == 9600
+
+
+def test_load_device_logger_baud_rate_absent(tmp_path: Path) -> None:
+    """No ``logger:`` block leaves the baud unset (frontend defaults to 115200)."""
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text("esphome:\n  name: lamp\n", encoding="utf-8")
+    write_storage_json(tmp_path, "lamp.yaml")
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.logger_baud_rate is None
 
 
 @pytest.mark.usefixtures("_redirect_ext_storage")

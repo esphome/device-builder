@@ -589,6 +589,31 @@ def test_find_by_pio_board_prefers_matching_variant(catalog: BoardCatalog) -> No
     assert board.id == "alt-s3-board"
 
 
+def test_find_by_pio_board_matches_uppercase_variant(catalog: BoardCatalog) -> None:
+    """An uppercase ``pio_variant`` still narrows to the matching board."""
+    catalog._boards.append(
+        _board(
+            board_id="alt-c3-board",
+            platform=Platform.ESP32,
+            variant=Esp32Variant.ESP32C3,
+            pio_board="shared-pio-upper",
+        )
+    )
+    catalog._boards.append(
+        _board(
+            board_id="alt-s3-board",
+            platform=Platform.ESP32,
+            variant=Esp32Variant.ESP32S3,
+            pio_board="shared-pio-upper",
+        )
+    )
+
+    board = catalog.find_by_pio_board("shared-pio-upper", pio_variant="ESP32S3")
+
+    assert board is not None
+    assert board.id == "alt-s3-board"
+
+
 def test_find_by_pio_board_falls_back_to_first_when_variant_unmatched(
     catalog: BoardCatalog,
 ) -> None:
@@ -755,6 +780,16 @@ def test_find_by_platform_variant_no_generic_returns_first(
 
     assert board is not None
     assert board.id == "m5stack-cores3"
+
+
+def test_find_by_platform_variant_matches_uppercase_variant(
+    catalog: BoardCatalog,
+) -> None:
+    """An uppercase ``variant`` resolves to that variant's board, not a generic of another."""
+    board = catalog.find_by_platform_variant("esp32", variant="ESP32S3")
+
+    assert board is not None
+    assert board.id == "generic-esp32s3"
 
 
 def test_find_by_platform_variant_without_variant_falls_through(
