@@ -2,9 +2,9 @@
 
 [![PyPI version](https://img.shields.io/pypi/v/esphome-device-builder.svg)](https://pypi.org/project/esphome-device-builder/) [![codecov](https://codecov.io/gh/esphome/device-builder/branch/main/graph/badge.svg)](https://codecov.io/gh/esphome/device-builder) [![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://codspeed.io/esphome/device-builder)
 
-> **Status:** in active development. Base functions are in late beta;
-> remote / offload functions are in early beta. Expect undocumented
-> breaking changes until the project is marked stable. Issues
+> **Status:** stable. The dashboard reached its 1.0 release and ships
+> as the default builder in the official ESPHome add-on (as of ESPHome
+> 2026.6.0). Issues
 > and feedback welcome — please check existing issues / the
 > [project board](https://github.com/orgs/esphome/projects/7/views/1?filterQuery=project%3A%22device-builder%22)
 > first, and join the [Discord channel](https://discord.gg/Rf2jWGVjaK)
