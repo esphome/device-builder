@@ -247,6 +247,12 @@ async def rename_device(
         msg = f"A device named {new_filename} already exists"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
+    # An in-place rename can't go through ``esphome rename`` (same filename),
+    # so it rewrites the name with no flash even when the caller wanted the OTA
+    # path. The firmware (which broadcasts the raw ``esphome.name``) keeps its
+    # old hostname until the next install; the resulting expected/deployed hash
+    # mismatch surfaces as a pending-changes indicator, same as the offline
+    # ``config_only`` rename, so the divergence is visible rather than silent.
     if config_only or in_place:
         return await _config_only_rename(
             controller,
