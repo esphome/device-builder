@@ -83,11 +83,7 @@ class RemoteDispatchState:
         self.wake.set()
 
     def rearm_if_pending(self) -> None:
-        """Wake the matcher when a worker slot may have freed and a compile is waiting.
-
-        A no-op when nothing's pending so the local compile lane's per-terminal
-        callback stays cheap on the common (no-overflow) path.
-        """
+        """Wake the matcher if a compile is waiting; a no-op (cheap) when nothing's pending."""
         if self.pending:
             self.wake.set()
 

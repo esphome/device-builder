@@ -4438,12 +4438,7 @@ async def test_set_offloader_settings_rejects_non_bool(tmp_path: Path) -> None:
 async def test_set_offloader_settings_toggles_include_local_and_fires_event(
     tmp_path: Path,
 ) -> None:
-    """``set_offloader_settings(include_local_in_pool=True)`` flips the field + fires the event.
-
-    The in-RAM flag flips so the dispatcher sees it on the next
-    pass, the snapshot carries it for first paint, and the bus
-    event keeps other open tabs in sync.
-    """
+    """Pins that the include-local flip mutates RAM, surfaces in both snapshots, and fires once."""
     controller = _make_controller(config_dir=tmp_path, real_bus=True)
     captured: list[Any] = []
     controller.offloader._db.bus.add_listener(

@@ -92,12 +92,7 @@ async def _subscribe_and_get_initial(ws: Any, message_id: str) -> dict[str, Any]
 async def test_include_local_toggle_round_trip_over_ws(
     local_dashboard: tuple[DeviceBuilder, Any],
 ) -> None:
-    """``set_offloader_settings(include_local_in_pool=True)`` seeds initial_state and fans an event.
-
-    Proves the full wire contract end to end: the snapshot
-    default, the command ack view, the cross-tab event, and a
-    fresh subscriber seeing the persisted value on first paint.
-    """
+    """Pins the WS wire contract: snapshot default, command ack, cross-tab event, reseed."""
     db, client = local_dashboard
     assert db.remote_build_offloader is not None
 
