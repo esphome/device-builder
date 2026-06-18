@@ -158,6 +158,27 @@ async def test_rename_underscore_name_to_hyphen_in_place(
     assert controller._scanner.calls == [("scan",)]
 
 
+async def test_rename_in_place_with_redundant_path_segments(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A denormalized configuration (``foo/../test-1.yaml``) still reads as in-place.
+
+    ``normpath`` collapses the redundant segment lexically; a textual path
+    compare would miss it and the rename would false-collide with the
+    device's own file.
+    """
+    controller = make_controller(tmp_path)
+    (tmp_path / "foo").mkdir()
+    config = tmp_path / "test-1.yaml"
+    config.write_text(_UNDERSCORE_YAML, encoding="utf-8")
+
+    result = await controller.rename_device(configuration="foo/../test-1.yaml", new_name="test-1")
+
+    assert result["job"] is None
+    assert config.exists()
+    assert read_yaml_scalar(config.read_text(encoding="utf-8"), ("esphome", "name")) == "test-1"
+
+
 async def test_rename_in_place_ignores_config_only_flag(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
