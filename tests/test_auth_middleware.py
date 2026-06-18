@@ -118,7 +118,7 @@ def _build_app(device_builder: _StubDeviceBuilder) -> web.Application:
     - ``/assets/app.js`` — ``_PUBLIC_PREFIXES`` allowlist (the
       hashed bundles).
     - top-level content-hashed bundles (``/app.<hash>.js`` etc.) —
-      the deploy-root assets the SPA needs before login (#1560).
+      the deploy-root assets the SPA needs before login.
     """
     app = web.Application(middlewares=[auth_middleware])
     app["device_builder"] = device_builder
@@ -253,13 +253,7 @@ async def test_auth_middleware_top_level_hashed_bundle_passes_through(
     aiohttp_client: AiohttpClient,
     path: str,
 ) -> None:
-    """Top-level content-hashed bundles load pre-auth (#1560).
-
-    ``index.html`` loads its entry script with a flat ``src``, so the
-    bundle and its lazy chunks land at the deploy root, not under
-    ``/assets/``. Without this they 401 with a password set and the SPA
-    can't boot to render the login form — the blank-screen bug.
-    """
+    """Top-level content-hashed bundles pass auth pre-login."""
     db = _StubDeviceBuilder(_StubSettings(using_password=True))
     client = await aiohttp_client(_build_app(db))
 
@@ -277,18 +271,13 @@ async def test_auth_middleware_hashed_bundle_head_passes_through(
 
     resp = await client.head("/app.5ec0f3c42890e1a7.js")
 
-    assert resp.status != 401
+    assert resp.status == 200
 
 
 async def test_auth_middleware_unhashed_top_level_path_still_gated(
     aiohttp_client: AiohttpClient,
 ) -> None:
-    """A top-level path without a hash segment is not broadened into public.
-
-    Pins that the hashed-asset bypass didn't open the sensitive legacy
-    REST API (``/devices``, ``/json-config``, …) — those carry no
-    ``.<hash>.`` segment, so they still require auth.
-    """
+    """A top-level path with no hash segment stays gated."""
     db = _StubDeviceBuilder(_StubSettings(using_password=True))
     client = await aiohttp_client(_build_app(db))
 

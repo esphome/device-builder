@@ -324,13 +324,10 @@ _PUBLIC_PATHS = frozenset(
 _PUBLIC_PREFIXES = ("/assets/", "/boards/images/")
 
 # Content-hash segment in a frontend bundle filename (app.<hash>.js,
-# <chunk>.<hash>.js, vendors.<hash>.js, plus .js.map / .js.LICENSE.txt
-# sidecars). index.html loads its entry script with a flat ``src``, so
-# these land at the deploy root, not under /assets/, and must be reachable
-# before login or the SPA can't boot to render the login form (#1560).
-# The hash is what makes serving them pre-auth safe: no API/legacy route
-# (/devices, /json-config, /compile, /upload, /api/*) is content-addressed,
-# so this can never expose a sensitive endpoint.
+# chunks, vendors, .js.map / .js.LICENSE.txt sidecars). These load from the
+# deploy root, not /assets/, so auth must let them through pre-login. Safe
+# because no API/legacy route is content-addressed, so a hashed top-level
+# path can never resolve to a sensitive endpoint.
 HASHED_FILENAME_RE = re.compile(r"\.[a-f0-9]{8,}\.")
 
 
