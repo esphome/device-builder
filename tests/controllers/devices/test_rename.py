@@ -116,6 +116,25 @@ async def test_rename_same_name_compares_real_esphome_name(
     assert "must differ" in excinfo.value.message
 
 
+async def test_rename_same_name_falls_back_to_stem_for_nonlocal_substitution(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """An unresolved ``${var}`` name is treated as unknown, comparing on the stem.
+
+    ``esphome.name: ${devicename}`` with no local definition can't be
+    resolved here, so the no-op guard falls back to the filename stem
+    rather than comparing ``new_name`` against the literal ``${devicename}``.
+    """
+    controller = make_controller(tmp_path, esphome_cmd=["esphome"])
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: ${devicename}\n", encoding="utf-8")
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.rename_device(configuration="kitchen.yaml", new_name="kitchen")
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "must differ" in excinfo.value.message
+
+
 async def test_rename_underscore_name_to_hyphen_in_place(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:

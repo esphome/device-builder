@@ -219,8 +219,15 @@ async def rename_device(
     # raw name (``test_1``) while the file is slugified (``test-1.yaml``), so
     # a stem compare wrongly rejects the legitimate ``test_1`` -> ``test-1``
     # rename and wrongly accepts a real no-op whose filename differs from its
-    # name. Falls back to the stem when the name can't be parsed.
-    current_name = parse_esphome_meta(content).name or configuration_stem(configuration)
+    # name. A nonlocal ``${var}`` (package / !include) stays an unresolved
+    # token, so treat that as unknown and fall back to the filename stem
+    # rather than comparing against the literal ``${var}``.
+    parsed_name = parse_esphome_meta(content).name
+    current_name = (
+        parsed_name
+        if parsed_name and parse_substitution_ref(parsed_name) is None
+        else configuration_stem(configuration)
+    )
     if new_name == current_name:
         raise CommandError(
             ErrorCode.INVALID_ARGS,
@@ -229,8 +236,10 @@ async def rename_device(
 
     # When the slugified target filename is the device's own file, the rename
     # changes ``esphome.name`` without moving the file. ``esphome rename``
-    # refuses that (it requires a new filename), so route it in place.
-    in_place = new_path == old_path
+    # refuses that (it requires a new filename), so route it in place. Compare
+    # resolved paths so a configuration with redundant segments (``./x.yaml``)
+    # still reads as the same file.
+    in_place = new_path.resolve() == old_path.resolve()
     # Reject up-front if a *different* file already owns the target filename;
     # ``esphome rename`` doesn't check collisions and would silently overwrite
     # an unrelated device's config and OTA-flash firmware to the wrong device.
