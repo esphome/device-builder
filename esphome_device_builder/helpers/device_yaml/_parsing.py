@@ -399,6 +399,10 @@ def extract_config_static_ip(
     resolve against *extra_substitutions*; a value that isn't a valid IP
     after resolution is ignored.
     """
+    # Mirror of esphome/components/wifi/__init__.py:421-436 (and
+    # ethernet/__init__.py:261-266) use_address derivation. Re-check this
+    # against upstream on any esphome bump — there is no test pinning the
+    # two together, so the per-network agreement rule can silently drift.
     if not isinstance(config, dict):
         return ""
     subs = extra_substitutions or {}
