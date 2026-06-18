@@ -24,11 +24,14 @@ demands.
 from __future__ import annotations
 
 import base64
+from pathlib import Path
 
 import pytest
 from aiohttp import web
 from pytest_aiohttp.plugin import AiohttpClient
 
+from esphome_device_builder.controllers.config import DashboardSettings
+from esphome_device_builder.device_builder import DeviceBuilder
 from esphome_device_builder.helpers.auth import auth_middleware
 
 
@@ -503,3 +506,51 @@ async def test_auth_middleware_malformed_authorization_header_returns_401(
     )
 
     assert resp.status == 401
+
+
+# ---------------------------------------------------------------------------
+# Real route table — gated-by-default guard
+# ---------------------------------------------------------------------------
+
+# Plain routes the real app intends to be reachable without credentials:
+# / and the SPA catch-all serve the public shell, /ws authenticates in-band,
+# /version is the healthcheck, /api/firmware/download carries its own token.
+# Static dirs (/assets, /boards/images) and the catch-all are non-plain
+# resources and are skipped (public frontend surfaces).
+_PUBLIC_PLAIN_ROUTES = frozenset({"/", "/ws", "/version", "/api/firmware/download"})
+
+
+async def test_create_app_gates_every_non_public_route(
+    tmp_path: Path,
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """Every plain route in the real ``create_app`` is auth-gated unless allowlisted.
+
+    Drives the actual route table (not a stub) so a new route landing in
+    ``_PUBLIC_PATHS`` or matching the hashed-asset bypass by accident fails
+    here; a deliberately-public route must be added to
+    ``_PUBLIC_PLAIN_ROUTES`` to pass.
+    """
+    settings = DashboardSettings()
+    settings.config_dir = tmp_path
+    settings.absolute_config_dir = tmp_path.resolve()
+    settings.using_password = True
+    # No auth controller needed: with no Authorization header the middleware
+    # 401s before touching db.auth, and before reaching any handler.
+    app = DeviceBuilder(settings).create_app(with_lifecycle=False)
+    client = await aiohttp_client(app)
+
+    gated: set[str] = set()
+    for route in app.router.routes():
+        canonical = route.resource.canonical
+        if type(route.resource).__name__ != "PlainResource":
+            continue
+        if canonical in _PUBLIC_PLAIN_ROUTES:
+            continue
+        resp = await client.request(route.method, canonical)
+        assert resp.status == 401, f"{route.method} {canonical} is reachable without auth"
+        gated.add(canonical)
+
+    # The sensitive legacy REST surface must have actually been exercised —
+    # guards against the loop silently skipping everything.
+    assert gated >= {"/devices", "/json-config", "/compile", "/upload"}
