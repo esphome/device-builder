@@ -1,12 +1,4 @@
-"""Coverage for the public ``GET /version`` health/version endpoint.
-
-The upstream esphome Docker image's HEALTHCHECK curls ``/version`` with no
-credentials. It must return a JSON 200 even when a password is set, so the
-route sits in ``auth_middleware``'s public allowlist and is registered before
-the SPA catch-all. Two layers here: a focused test driving the real middleware
-+ ``_handle_version`` in isolation, and an integration test driving the real
-``create_app`` so the route ordering vs the SPA fallback is pinned too.
-"""
+"""Coverage for the public ``GET /version`` health/version endpoint."""
 
 from __future__ import annotations
 
@@ -76,15 +68,7 @@ async def test_version_endpoint_answers_without_auth(aiohttp_client: AiohttpClie
 async def test_version_route_wins_over_spa_catch_all(
     tmp_path: Path, aiohttp_client: AiohttpClient
 ) -> None:
-    """Real ``create_app``: ``/version`` serves JSON, not the SPA shell.
-
-    Pins that ``add_get("/version")`` lands before the SPA catch-all in
-    aiohttp's FIFO route table — a future refactor moving it after
-    ``_register_frontend`` would return ``index.html`` (still a 200, so a
-    bare status check wouldn't notice) and this JSON assertion would catch it.
-    Auth is off here so the deep-link probe reaches the catch-all; the
-    public-allowlist bypass with a password set is pinned separately above.
-    """
+    """Real ``create_app``: ``/version`` serves JSON, not the SPA shell."""
     pytest.importorskip("esphome_device_builder_frontend")
     settings = DashboardSettings()
     settings.config_dir = tmp_path
