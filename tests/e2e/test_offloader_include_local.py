@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -11,9 +12,27 @@ from aiohttp import web
 from pytest_aiohttp.plugin import AiohttpClient
 
 from esphome_device_builder.api import ws as ws_module
+from esphome_device_builder.controllers.firmware import remote_dispatch
 from esphome_device_builder.device_builder import DeviceBuilder
+from esphome_device_builder.models import JobSource, JobStatus
+from esphome_device_builder.models.remote_build import (
+    PeerQueueStatusSnapshotEntry,
+    PeerStatus,
+    StoredPairing,
+)
 
 from ..conftest import MakeSettingsFactory
+
+# Local compile stub: prints the two lines the runner scrapes and exits 0, so a
+# LOCAL-routed compile reaches JOB_COMPLETED without a real toolchain.
+_FAKE_ESPHOME_OK = (
+    "import sys\n"
+    "print('INFO Reading configuration kitchen.yaml...')\n"
+    "print('INFO Compile finished.')\n"
+    "sys.exit(0)\n"
+)
+
+_PIN = "a" * 64
 
 
 async def _send_command(ws: Any, command: str, message_id: str, **args: Any) -> None:
@@ -40,10 +59,13 @@ async def local_dashboard(
     _hermetic_lifecycle: None,
     aiohttp_client: AiohttpClient,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> Any:
     """Real ``DeviceBuilder`` (offloader up) wired into an aiohttp WS test client."""
     settings = make_settings(with_core_path=True)
     settings.using_password = False
+    # Skip the 20s dispatch-loop startup grace so the first matcher pass runs at once.
+    monkeypatch.setattr(remote_dispatch, "_STARTUP_GRACE_SECONDS", 0)
     db = DeviceBuilder(settings)
     await db.start()
 
@@ -113,3 +135,111 @@ async def test_include_local_toggle_round_trip_over_ws(
         await ws2.receive(timeout=2.0)
         initial2 = await _subscribe_and_get_initial(ws2, "sub-2")
         assert initial2["include_local_in_pool"] is True
+
+
+def _seed_busy_build_server(db: DeviceBuilder) -> None:
+    """Make the offloader report one eligible-but-busy paired build server.
+
+    Eligible + idle at submit (so the compile is held ``REMOTE_PENDING``), then
+    pinned busy at dispatch via a fake in-flight pool entry — so the dispatcher
+    must choose between WAIT and the local lane without a real receiver in the
+    loop. The fake entry never clears, modelling a server busy with another build.
+    """
+    offloader = db.remote_build_offloader
+    assert offloader is not None
+    offloader.state.pairings[_PIN] = StoredPairing(
+        receiver_hostname="build.local",
+        receiver_port=6055,
+        pin_sha256=_PIN,
+        static_x25519_pub=b"\x00" * 32,
+        label="desktop",
+        paired_at=1.0,
+        status=PeerStatus.APPROVED,
+        enabled=True,
+        esphome_version="",
+    )
+    offloader.state.open_peer_links.add(_PIN)
+    offloader.state.peer_queue_status[_PIN] = PeerQueueStatusSnapshotEntry(
+        receiver_hostname="build.local",
+        receiver_port=6055,
+        pin_sha256=_PIN,
+        idle=True,
+        running=False,
+        queue_depth=0,
+    )
+    db.firmware.state.remote_dispatch.job_peer["busy-other"] = _PIN
+
+
+async def test_include_local_runs_overflow_compile_on_local_lane(
+    local_dashboard: tuple[DeviceBuilder, Any],
+    tmp_path: Path,
+) -> None:
+    """Opt-in on + the only server busy → the compile runs on the local lane and completes.
+
+    Drives the real WS compile path through the real queue + dispatch loop: the
+    job is held ``REMOTE_PENDING`` at submit, then the dispatcher routes it LOCAL
+    because the lone server is busy and ``include_local_in_pool`` is on.
+    """
+    db, client = local_dashboard
+    db.firmware.state.esphome_cmd = [sys.executable, "-c", _FAKE_ESPHOME_OK]
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    async with client.ws_connect("/ws") as ws:
+        await ws.receive(timeout=2.0)  # server_version / requires_auth handshake
+        await _subscribe_and_get_initial(ws, "sub-1")
+        await _send_command(
+            ws, "remote_build/set_offloader_settings", "set-1", include_local_in_pool=True
+        )
+        await _recv_until(ws, predicate=lambda f: f.get("message_id") == "set-1" and "result" in f)
+
+        _seed_busy_build_server(db)
+
+        await _send_command(ws, "firmware/compile", "comp-1", configuration="kitchen.yaml")
+        ack = await _recv_until(
+            ws, predicate=lambda f: f.get("message_id") == "comp-1" and "result" in f
+        )
+        job_id = ack["result"]["job_id"]
+
+        completed = await _recv_until(
+            ws, predicate=lambda f: f.get("event") == "job_completed", timeout=15.0
+        )
+        assert completed["data"]["job"]["job_id"] == job_id
+
+    job = db.firmware.state.jobs[job_id]
+    assert job.status is JobStatus.COMPLETED
+    # The busy server forced the overflow compile onto the local lane.
+    assert job.source is JobSource.LOCAL
+    assert job_id not in db.firmware.state.remote_dispatch.pending
+
+
+async def test_include_local_off_overflow_compile_waits_for_server(
+    local_dashboard: tuple[DeviceBuilder, Any],
+    tmp_path: Path,
+) -> None:
+    """Opt-in off (default) → the compile holds for the busy server, never runs local."""
+    db, client = local_dashboard
+    db.firmware.state.esphome_cmd = [sys.executable, "-c", _FAKE_ESPHOME_OK]
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    async with client.ws_connect("/ws") as ws:
+        await ws.receive(timeout=2.0)
+        initial = await _subscribe_and_get_initial(ws, "sub-1")
+        assert initial["include_local_in_pool"] is False  # default off
+
+        _seed_busy_build_server(db)
+
+        await _send_command(ws, "firmware/compile", "comp-1", configuration="kitchen.yaml")
+        ack = await _recv_until(
+            ws, predicate=lambda f: f.get("message_id") == "comp-1" and "result" in f
+        )
+        job_id = ack["result"]["job_id"]
+
+        # No local fallback: the compile holds in the pool for a free server, so
+        # no terminal event arrives.
+        with pytest.raises(TimeoutError):
+            await _recv_until(
+                ws, predicate=lambda f: f.get("event") == "job_completed", timeout=0.5
+            )
+
+    assert job_id in db.firmware.state.remote_dispatch.pending
+    assert db.firmware.state.jobs[job_id].status is JobStatus.QUEUED
