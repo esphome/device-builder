@@ -97,6 +97,10 @@ _STARTUP_BLOCKING_OK: tuple[tuple[str, str], ...] = (
     # once at HA-add-on startup as an aiohttp ``on_startup`` hook —
     # the cost is paid once, not on the request path.
     ("device_builder.py", "_start_ingress_site"),
+    # ``create_app`` stat-checks the boards-images directory while
+    # assembling the route table. Runs once per site at startup, off
+    # the request path.
+    ("device_builder.py", "create_app"),
     # ``_find_sibling_cli`` probes for ``<bin>/esphome`` and
     # ``<bin>/esptool`` to pick between a sibling script and
     # ``python -m <cli>``. The result is ``lru_cache``-d so the
