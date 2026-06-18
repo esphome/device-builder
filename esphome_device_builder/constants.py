@@ -38,9 +38,31 @@ def is_secrets_file(configuration: str | Path) -> bool:
 
 
 # Trusted TCP site for HA Ingress. Bound only when ``--ha-addon`` is set,
-# on the supervisor's docker bridge network, and bypasses the password
-# gate (the supervisor has already authenticated the request).
+# and bypasses the password gate (the supervisor has already authenticated
+# the request).
 DEFAULT_INGRESS_PORT = 8099
+
+# Gateway of the HA Supervisor's hassio docker bridge. Mirrors the supervisor's
+# own hardcoded constant (``DOCKER_IPV4_NETWORK_MASK[1]`` of ``172.30.32.0/23``):
+# for a host-network add-on the supervisor computes the ingress target from that
+# constant, not the live network, so it always connects here — binding this
+# address is matching the supervisor by construction, not assuming a docker
+# default. If HA ever changes it, both move in lockstep.
+HA_SUPERVISOR_NETWORK_GATEWAY = "172.30.32.1"
+
+# The supervisor's own address on the hassio bridge
+# (``DOCKER_IPV4_NETWORK_MASK[2]``). The ingress proxy connects from here, so
+# it's the source IP the trusted ingress site sees for the browser-UI path.
+HA_SUPERVISOR_IP = "172.30.32.2"
+
+# Default bind targets for the trusted HA Ingress site: loopback plus the
+# supervisor gateway only — NEVER all interfaces. On a host-network add-on
+# (the ESPHome add-on runs host-network for mDNS) ``0.0.0.0`` would put the
+# no-auth ingress site on the LAN. Loopback serves HA core's host-network
+# ESPHome integration (it connects to ``127.0.0.1:<ingress_port>``); the
+# gateway serves the supervisor's ingress proxy. An explicit ``--ingress-host``
+# overrides this default.
+HA_INGRESS_DEFAULT_BIND_HOSTS = ("127.0.0.1", HA_SUPERVISOR_NETWORK_GATEWAY)
 
 # Receiver-side TCP listener for the remote-build feature (issue #106).
 # Different port from the dashboard's own HTTP listener so a

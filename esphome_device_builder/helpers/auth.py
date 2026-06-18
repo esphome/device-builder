@@ -17,6 +17,7 @@ from pathlib import Path
 
 from aiohttp import web
 
+from ..constants import HA_SUPERVISOR_IP
 from .json import JSONDecodeError, dumps, loads
 
 _LOGGER = logging.getLogger(__name__)
@@ -404,3 +405,36 @@ def _unauthorized(message: str = "Authentication required") -> web.Response:
             "WWW-Authenticate": 'Basic realm="ESPHome Device Builder", Bearer',
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Trusted HA Ingress site peer guard
+# ---------------------------------------------------------------------------
+
+# Source IPs allowed to reach the trusted (auth-bypassing) HA Ingress site:
+# the supervisor (it proxies the already-authenticated browser request) and
+# loopback (HA core's host-network ESPHome integration, plus the host). Mirrors
+# the legacy add-on nginx ACL ``allow 127.0.0.1; allow 172.30.32.2; deny all``.
+# The site skips auth, so the TCP peer is the only gate — a bridge add-on or
+# LAN client reaching the bound address gets 403, not the dashboard.
+_TRUSTED_INGRESS_PEERS = frozenset({"127.0.0.1", "::1", HA_SUPERVISOR_IP})
+
+
+@web.middleware
+async def ingress_peer_guard(
+    request: web.Request,
+    handler: Callable[[web.Request], Awaitable[web.StreamResponse]],
+) -> web.StreamResponse:
+    """Reject trusted-ingress requests whose TCP peer isn't loopback/supervisor.
+
+    Applies regardless of ``--ingress-host`` — the bind address is
+    configurable but the allowed peers are not.
+    """
+    peername = request.transport.get_extra_info("peername") if request.transport else None
+    peer_ip = peername[0] if peername else None
+    if peer_ip not in _TRUSTED_INGRESS_PEERS:
+        # Logged so a misconfigured --ingress-host override (binds fine but
+        # every request 403s) is diagnosable instead of silently failing.
+        _LOGGER.debug("Ingress peer guard rejected non-trusted source %s", peer_ip)
+        return web.Response(status=403, text="Forbidden")
+    return await handler(request)

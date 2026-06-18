@@ -275,9 +275,13 @@ Two ways to make it work:
 CLI tools and the Home Assistant integration omit `Origin`
 entirely, so they're never affected — the gate is browser-only.
 The HA Ingress site (the `--ingress-host` listener the
-supervisor proxies to) skips both checks because it's bound to
-the supervisor's internal docker network and the supervisor
-handles auth upstream.
+supervisor proxies to) skips both checks because the supervisor
+handles auth upstream. It binds only loopback plus the supervisor
+gateway (`127.0.0.1` + `172.30.32.1`), never all interfaces, and a
+peer guard rejects any source other than loopback or the supervisor
+(`172.30.32.2`) — so the no-auth site is never reachable from the LAN
+or another add-on even though the add-on runs host-network. This
+matches the legacy add-on's nginx `allow`/`deny` ACL.
 
 See [docs/ARCHITECTURE.md § Authentication](docs/ARCHITECTURE.md#authentication)
 for the deep dive on the trust model.

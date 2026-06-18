@@ -13,9 +13,15 @@ from esphome.core import CORE
 from esphome.helpers import get_bool_env
 from esphome.helpers import write_file as atomic_write_file
 
-from ...constants import DEFAULT_INGRESS_PORT, DEFAULT_REMOTE_BUILD_PORT, SECRETS_FILENAME
+from ...constants import (
+    DEFAULT_INGRESS_PORT,
+    DEFAULT_REMOTE_BUILD_PORT,
+    HA_INGRESS_DEFAULT_BIND_HOSTS,
+    SECRETS_FILENAME,
+)
 from ...helpers.api import CommandError
 from ...helpers.auth import hash_password
+from ...helpers.network_interfaces import resolve_bind_host
 from ...helpers.secrets_state import PLACEHOLDER_WIFI_PASSWORD, PLACEHOLDER_WIFI_SSID
 from ...models import ErrorCode
 
@@ -262,6 +268,21 @@ class DashboardSettings:
         # DISABLE_HA_AUTHENTICATION lets operators force ingress users
         # through the password-gated public port too.
         return not get_bool_env("DISABLE_HA_AUTHENTICATION")
+
+    @property
+    def ingress_bind_hosts(self) -> list[str]:
+        """
+        Bind targets for the trusted (no-auth) HA Ingress site.
+
+        Defaults to loopback + the supervisor gateway, never all interfaces:
+        ``0.0.0.0`` on a host-network add-on would expose the no-auth site on
+        the LAN. An explicit ``--ingress-host`` overrides the bind (IP or NIC
+        name), but ``ingress_peer_guard`` still restricts sources to loopback
+        and the supervisor regardless, so an override alone can't reopen it.
+        """
+        if self.ingress_host:
+            return resolve_bind_host(self.ingress_host)
+        return list(HA_INGRESS_DEFAULT_BIND_HOSTS)
 
     def check_password(self, username: str, password: str) -> bool:
         """

@@ -90,10 +90,11 @@ def test_ha_addon_no_password_with_ingress_runs_ingress_only(
 
     # Only the ingress site got bound — public port was suppressed.
     assert captured["port"] == 6053  # ingress_port
-    # ``host`` is now always a list — ``resolve_bind_host`` wraps
-    # literals in a singleton so the bind code can fan out
-    # uniformly when the operator passes an interface name.
-    assert captured["host"] == ["0.0.0.0"]  # ingress_host fallback
+    # No ``--ingress-host`` → loopback + supervisor gateway only, NEVER
+    # 0.0.0.0: on a host-network add-on all-interfaces would expose the
+    # no-auth ingress site on the LAN. Loopback serves HA core's ESPHome
+    # integration; the gateway serves the supervisor's ingress proxy.
+    assert captured["host"] == ["127.0.0.1", "172.30.32.1"]
     assert captured["trusted"] is True  # trusted=True (auth bypass)
     assert captured["handle_signals"] is False  # we own the stop signal end-to-end
 
@@ -266,6 +267,10 @@ async def test_start_and_stop_ingress_site_lifecycle(make_settings: MakeSettings
     """
     db = _make_db(make_settings, on_ha_addon=True, using_password=True)
     db.settings.ingress_port = 0  # let OS pick a free port
+    # Single explicit host so the ephemeral port (0) is allowed — the default
+    # bind is multi-host (loopback + gateway), which can't share an OS-assigned
+    # ephemeral port.
+    db.settings.ingress_host = "127.0.0.1"
 
     # _start_ingress_site reads self.settings.ingress_port via
     # web.TCPSite — a real socket bind. The hook also calls
@@ -286,12 +291,9 @@ async def test_start_ingress_site_cleans_up_runner_on_partial_bind_failure(
 ) -> None:
     """Partial multi-host bind failure releases the half-bound runner."""
     db = _make_db(make_settings, on_ha_addon=True, using_password=True)
-    db.settings.ingress_port = 6053  # fixed port; multi-host expansion is allowed
-
-    monkeypatch.setattr(
-        "esphome_device_builder.device_builder.resolve_bind_host",
-        lambda _: ["127.0.0.1", "127.0.0.1"],
-    )
+    # Fixed port + the default multi-host bind (loopback + supervisor gateway):
+    # the first host binds, the second is forced to fail below.
+    db.settings.ingress_port = 6053
 
     real_start = web.TCPSite.start
     calls: list[web.TCPSite] = []
@@ -327,16 +329,10 @@ async def test_start_ingress_site_cleans_up_runner_on_partial_bind_failure(
 
 async def test_start_ingress_site_refuses_port_zero_with_multi_host(
     make_settings: MakeSettingsFactory,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``--ingress-port 0`` paired with a multi-address NIC refuses to bind."""
+    """``--ingress-port 0`` with the default multi-host bind refuses to bind."""
     db = _make_db(make_settings, on_ha_addon=True, using_password=True)
-    db.settings.ingress_port = 0
-
-    monkeypatch.setattr(
-        "esphome_device_builder.device_builder.resolve_bind_host",
-        lambda _: ["192.168.1.10", "192.168.1.11"],
-    )
+    db.settings.ingress_port = 0  # default ingress_host → loopback + gateway (2 hosts)
 
     fake_app: object = object()
     with pytest.raises(RuntimeError, match=r"--ingress-port 0 .* multiple addresses"):

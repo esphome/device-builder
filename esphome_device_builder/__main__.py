@@ -216,9 +216,13 @@ def main() -> None:
         "--ingress-host",
         default="",
         help=(
-            "Bind address for the HA Ingress site (defaults to all interfaces "
-            "inside the addon container). Accepts an IP literal or a local "
-            "network interface name (e.g. 'eth0')"
+            "Bind address for the HA Ingress site. Defaults to loopback plus "
+            "the supervisor gateway (127.0.0.1 + 172.30.32.1) so the no-auth "
+            "site is never exposed on the LAN. Accepts an IP literal or a local "
+            "network interface name (e.g. 'eth0') to override the bind. Note: "
+            "a peer guard still restricts sources to loopback and the supervisor "
+            "(172.30.32.2) regardless of this bind, so overriding it to reach the "
+            "site from another machine will 403"
         ),
     )
     parser.add_argument(

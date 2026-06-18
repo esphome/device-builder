@@ -42,7 +42,7 @@ from .controllers.remote_build import OffloaderController, ReceiverController
 from .controllers.version_history import VersionHistoryController
 from .helpers.api import CommandHandler, collect_api_commands
 from .helpers.async_ import create_eager_task
-from .helpers.auth import HASHED_FILENAME_RE, auth_middleware
+from .helpers.auth import HASHED_FILENAME_RE, auth_middleware, ingress_peer_guard
 from .helpers.dashboard_advertise import DashboardAdvertiser
 from .helpers.dashboard_identity import get_or_create_identity as get_or_create_dashboard_identity
 from .helpers.event_bus import Event, EventBus, StreamControls, stream_events
@@ -735,7 +735,13 @@ class DeviceBuilder:
         IS the ingress) to avoid recursively spawning a second
         ingress site via ``_start_ingress_site``.
         """
-        middlewares: list[Any] = [cors_middleware]
+        # The trusted ingress site bypasses auth, so the peer guard (loopback +
+        # supervisor only) runs outermost to reject everything else before any
+        # other processing. The public site gates by Authorization instead.
+        middlewares: list[Any] = []
+        if trusted:
+            middlewares.append(ingress_peer_guard)
+        middlewares.append(cors_middleware)
         if not trusted:
             middlewares.append(auth_middleware)
 
@@ -804,7 +810,7 @@ class DeviceBuilder:
 
     async def _start_ingress_site(self, _: web.Application) -> None:
         """Start the trusted HA Ingress TCP site alongside the public site."""
-        hosts = resolve_bind_host(self.settings.ingress_host or "0.0.0.0")
+        hosts = self.settings.ingress_bind_hosts
         ensure_single_host_for_ephemeral_port(hosts, self.settings.ingress_port, "--ingress-port")
         ingress_app = self.create_app(trusted=True, with_lifecycle=False)
         runner = web.AppRunner(ingress_app)
@@ -882,7 +888,7 @@ class DeviceBuilder:
             app = self.create_app(trusted=True, with_ingress_site=False)
             if self._startup_timer is not None:
                 self._startup_timer.mark("app")
-            hosts = resolve_bind_host(settings.ingress_host or "0.0.0.0")
+            hosts = settings.ingress_bind_hosts
             ensure_single_host_for_ephemeral_port(hosts, settings.ingress_port, "--ingress-port")
             web.run_app(
                 app,
