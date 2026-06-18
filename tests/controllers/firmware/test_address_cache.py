@@ -84,6 +84,33 @@ def test_local_address_no_cache_no_ip_returns_empty() -> None:
     assert args == []
 
 
+def test_local_address_falls_back_to_config_static_ip() -> None:
+    """Cache miss + no tracked ip + YAML static IP → emit a cache entry.
+
+    A device mDNS never sighted (mDNS off / other subnet / cold start)
+    has no resolved IP, but its config-declared static IP is known a
+    priori; hand it to the CLI so the OTA / logs path can resolve.
+    """
+    args = _build_address_cache_args(_device(config_static_ip="192.168.1.77"), _monitor(None))
+    assert args == ["--mdns-address-cache", "kitchen.local=192.168.1.77"]
+
+
+def test_device_ip_preferred_over_config_static_ip() -> None:
+    """A live-resolved ``device.ip`` wins over the static YAML value."""
+    args = _build_address_cache_args(
+        _device(ip="192.168.1.99", config_static_ip="192.168.1.77"), _monitor(None)
+    )
+    assert args == ["--mdns-address-cache", "kitchen.local=192.168.1.99"]
+
+
+def test_non_local_address_falls_back_to_config_static_ip() -> None:
+    """A non-``.local`` host with only a static IP → ``--dns-address-cache``."""
+    args = _build_address_cache_args(
+        _device(address="esp.example.com", config_static_ip="10.0.0.5"), _monitor()
+    )
+    assert args == ["--dns-address-cache", "esp.example.com=10.0.0.5"]
+
+
 def test_non_local_address_uses_dns_cache() -> None:
     """Non-``.local`` host with DNS-cache hit → ``--dns-address-cache``."""
     args = _build_address_cache_args(

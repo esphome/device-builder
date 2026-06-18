@@ -36,6 +36,7 @@ from esphome_device_builder.helpers.device_yaml import (
 )
 from esphome_device_builder.helpers.device_yaml._parsing import (
     _is_valid_esphome_name,
+    extract_config_static_ip,
     extract_logger_baud_rate,
 )
 from esphome_device_builder.models import (
@@ -812,6 +813,72 @@ def test_extract_logger_baud_rate_zero_disabled() -> None:
 def test_extract_logger_baud_rate_none(config: Any) -> None:
     """Missing / malformed / unresolvable / negative baud yields ``None``."""
     assert extract_logger_baud_rate(config) is None
+
+
+def test_extract_static_ip_wifi_manual_ip() -> None:
+    """A top-level ``wifi.manual_ip.static_ip`` is returned."""
+    config = {"wifi": {"manual_ip": {"static_ip": "192.168.1.50"}}}
+    assert extract_config_static_ip(config) == "192.168.1.50"
+
+
+def test_extract_static_ip_resolves_substitution() -> None:
+    """A ``${var}`` static IP resolves against the supplied substitutions."""
+    config = {"wifi": {"manual_ip": {"static_ip": "${staticip}"}}}
+    assert extract_config_static_ip(config, {"staticip": "10.0.0.7"}) == "10.0.0.7"
+
+
+def test_extract_static_ip_ethernet() -> None:
+    """An ``ethernet.manual_ip.static_ip`` is returned for wired devices."""
+    config = {"ethernet": {"manual_ip": {"static_ip": "172.16.0.3"}}}
+    assert extract_config_static_ip(config) == "172.16.0.3"
+
+
+def test_extract_static_ip_single_network() -> None:
+    """A single ``wifi.networks[].manual_ip.static_ip`` is inferred."""
+    config = {"wifi": {"networks": [{"ssid": "a", "manual_ip": {"static_ip": "192.168.1.9"}}]}}
+    assert extract_config_static_ip(config) == "192.168.1.9"
+
+
+def test_extract_static_ip_multiple_distinct_networks_ambiguous() -> None:
+    """Distinct per-network static IPs are ambiguous → ``""`` (matches use_address)."""
+    config = {
+        "wifi": {
+            "networks": [
+                {"manual_ip": {"static_ip": "192.168.1.9"}},
+                {"manual_ip": {"static_ip": "192.168.1.10"}},
+            ]
+        }
+    }
+    assert extract_config_static_ip(config) == ""
+
+
+def test_extract_static_ip_top_level_wins_over_networks() -> None:
+    """The top-level ``manual_ip`` wins over per-network entries."""
+    config = {
+        "wifi": {
+            "manual_ip": {"static_ip": "192.168.1.1"},
+            "networks": [{"manual_ip": {"static_ip": "192.168.1.9"}}],
+        }
+    }
+    assert extract_config_static_ip(config) == "192.168.1.1"
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        None,
+        {},
+        {"wifi": "not-a-dict"},
+        {"wifi": {}},  # no manual_ip
+        {"wifi": {"manual_ip": {}}},  # no static_ip key
+        {"wifi": {"manual_ip": {"static_ip": "${unset}"}}},  # unresolved token
+        {"wifi": {"manual_ip": {"static_ip": "not-an-ip"}}},  # not a valid IP
+        {"wifi": {"manual_ip": {"static_ip": "my-device.local"}}},  # hostname, not IP
+    ],
+)
+def test_extract_static_ip_absent_or_invalid(config: Any) -> None:
+    """No / malformed / unresolvable / non-IP static IP yields ``""``."""
+    assert extract_config_static_ip(config) == ""
 
 
 def test_parse_meta_top_level_comment_does_not_close_esphome_block() -> None:
@@ -1894,6 +1961,37 @@ def test_load_device_logger_baud_rate_absent(tmp_path: Path) -> None:
     device = load_device_from_storage(yaml_path)
 
     assert device.logger_baud_rate is None
+
+
+def test_load_device_config_static_ip_from_substitution(tmp_path: Path) -> None:
+    """A ``wifi.manual_ip.static_ip: ${var}`` resolves onto ``config_static_ip``."""
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text(
+        "substitutions:\n"
+        "  staticip: 192.168.1.50\n"
+        "esphome:\n"
+        "  name: lamp\n"
+        "wifi:\n"
+        "  manual_ip:\n"
+        "    static_ip: ${staticip}\n",
+        encoding="utf-8",
+    )
+    write_storage_json(tmp_path, "lamp.yaml")
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.config_static_ip == "192.168.1.50"
+
+
+def test_load_device_config_static_ip_absent(tmp_path: Path) -> None:
+    """No static IP in the YAML leaves ``config_static_ip`` empty."""
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text("esphome:\n  name: lamp\nwifi:\n  ssid: net\n", encoding="utf-8")
+    write_storage_json(tmp_path, "lamp.yaml")
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.config_static_ip == ""
 
 
 @pytest.mark.usefixtures("_redirect_ext_storage")

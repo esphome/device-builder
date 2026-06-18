@@ -67,6 +67,14 @@ class Device(DashboardModel):
     # metadata sidecar; the next mDNS pass repopulates after a
     # restart.
     ip_addresses: list[str] = field(default_factory=list)
+    # Static IP declared in the YAML (``wifi``/``ethernet`` ``manual_ip.
+    # static_ip``), resolved through substitutions. A known-a-priori IP
+    # for a device mDNS never sighted (mDNS disabled, different subnet,
+    # cold start): used as the last-resort source for the OTA address
+    # cache so the CLI gets ``--mdns/--dns-address-cache <addr>=<ip>``
+    # instead of failing to resolve. Empty when the YAML declares no
+    # static IP. Recomputed at load from the resolved config.
+    config_static_ip: str = ""
     web_port: int | None = None
     current_version: str = ""
     deployed_version: str = ""

@@ -469,7 +469,11 @@ def _build_address_cache_args(device: Device, monitor: DeviceStateMonitor | None
     #   non-.local  -> DNS cache populated by the ping sweep's
     #                  pre-resolve pass
     # Either falls back to ``device.ip`` (last-known resolved IP)
-    # so an expired cache entry doesn't strip cache args entirely.
+    # so an expired cache entry doesn't strip cache args entirely,
+    # then to the YAML-declared static IP — the only address we can
+    # know for a device mDNS never sighted (mDNS off / other subnet /
+    # cold start). Without it the CLI has nothing to resolve and the
+    # OTA / logs path fails with "could not be resolved".
     addresses: list[str] = []
     if monitor is not None:
         cached = (
@@ -482,6 +486,9 @@ def _build_address_cache_args(device: Device, monitor: DeviceStateMonitor | None
 
     if not addresses and device.ip:
         addresses = [device.ip]
+
+    if not addresses and device.config_static_ip:
+        addresses = [device.config_static_ip]
 
     if not addresses:
         return []

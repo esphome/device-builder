@@ -21,6 +21,7 @@ from ._parsing import (
     config_has_top_level_block,
     configuration_stem,
     detect_platform_from_yaml,
+    extract_config_static_ip,
     extract_directly_referenced_integrations,
     extract_esphome_meta_from_config,
     extract_logger_baud_rate,
@@ -151,6 +152,9 @@ def load_device_from_storage(
     cfg_meta = extract_esphome_meta_from_config(resolved_config, extra_subs)
     # Drives the Web Serial log stream's port baud; None ⇒ frontend default.
     logger_baud_rate = extract_logger_baud_rate(resolved_config, extra_subs)
+    # Static IP from the resolved config — the only IP we can know for a
+    # device mDNS never sighted; seeds the OTA address cache.
+    config_static_ip = extract_config_static_ip(resolved_config, extra_subs)
 
     fallback_name = configuration_stem(filename)
     storage_name = storage.name if storage else None
@@ -327,6 +331,7 @@ def load_device_from_storage(
         address=(storage.address if storage and storage.address else f"{fallback_name}.local"),
         ip=ip,
         ip_addresses=ip_addresses,
+        config_static_ip=config_static_ip,
         web_port=storage.web_port if storage else None,
         current_version=const.__version__,
         deployed_version=deployed_version,

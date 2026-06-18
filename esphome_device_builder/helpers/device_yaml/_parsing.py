@@ -7,6 +7,7 @@ from typing import NamedTuple
 
 from esphome import const
 from esphome.const import CONF_PACKAGES
+from esphome.helpers import is_ip_address
 
 from ..yaml import _split_value_and_comment, _strip_yaml_quotes
 
@@ -382,6 +383,59 @@ def extract_logger_baud_rate(
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         return None
     return value
+
+
+def extract_config_static_ip(
+    config: dict | None,
+    extra_substitutions: dict[str, str] | None = None,
+) -> str:
+    """
+    Return the config-declared static IP, or ``""`` when none resolves.
+
+    Mirrors ESPHome's ``use_address`` default so the dashboard can seed
+    the OTA address cache for a device mDNS never sighted: a top-level
+    ``wifi:`` / ``ethernet:`` ``manual_ip.static_ip`` wins, else a single
+    distinct ``wifi.networks[].manual_ip.static_ip``. ``$var`` tokens
+    resolve against *extra_substitutions*; a value that isn't a valid IP
+    after resolution is ignored.
+    """
+    if not isinstance(config, dict):
+        return ""
+    subs = extra_substitutions or {}
+    for key in (const.CONF_WIFI, const.CONF_ETHERNET):
+        section = config.get(key)
+        if isinstance(section, dict) and (ip := _static_ip_from_section(section, subs)):
+            return ip
+    return ""
+
+
+def _static_ip_from_section(section: dict, subs: dict[str, str]) -> str:
+    """Resolve a static IP from one ``wifi:`` / ``ethernet:`` section."""
+    if ip := _manual_ip_static(section, subs):
+        return ip
+    networks = section.get(const.CONF_NETWORKS)
+    if isinstance(networks, list):
+        # ESPHome only derives use_address from per-network static IPs
+        # when they agree; multiple distinct IPs force an explicit
+        # use_address, so a single value is the only safe inference.
+        found = {ip for net in networks if (ip := _manual_ip_static(net, subs))}
+        if len(found) == 1:
+            return next(iter(found))
+    return ""
+
+
+def _manual_ip_static(block: object, subs: dict[str, str]) -> str:
+    """Resolve ``manual_ip.static_ip`` off a mapping, validated as an IP."""
+    if not isinstance(block, dict):
+        return ""
+    manual = block.get(const.CONF_MANUAL_IP)
+    if not isinstance(manual, dict):
+        return ""
+    value = manual.get(const.CONF_STATIC_IP)
+    if value is None:
+        return ""
+    resolved = _resolve_substitutions(str(value), subs) or ""
+    return resolved if is_ip_address(resolved) else ""
 
 
 def _str_or_none(value: object) -> str | None:
