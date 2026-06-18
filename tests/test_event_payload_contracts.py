@@ -41,7 +41,8 @@ import pytest
 from esphome_device_builder.controllers._reachability_tracker import (
     ReachabilityTracker,
 )
-from esphome_device_builder.models import DeviceReachabilityData
+from esphome_device_builder.controllers.remote_build.offloader import OffloaderController
+from esphome_device_builder.models import DeviceReachabilityData, OffloaderSettingsSnapshot
 
 
 class _OutermostReturnDictFinder(ast.NodeVisitor):
@@ -136,6 +137,7 @@ def _outermost_return_dict_keys(func: Callable[..., Any]) -> set[str]:
 # mypy enforces those at the call site.
 _DICT_LITERAL_BUILDERS: list[tuple[type, Callable[..., Any]]] = [
     (DeviceReachabilityData, ReachabilityTracker.snapshot),
+    (OffloaderSettingsSnapshot, OffloaderController.offloader_settings_snapshot),
 ]
 
 

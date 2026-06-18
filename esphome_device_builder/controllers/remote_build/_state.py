@@ -57,6 +57,7 @@ class OffloaderState:
     rebind_probe_until: dict[str, float] = field(default_factory=dict)
     remote_builds_enabled: bool = True
     version_match_policy: VersionMatchPolicy = VersionMatchPolicy.ANY
+    include_local_in_pool: bool = False
 
     # Identity / discovery refs reassigned during start() / discovery.
     # ``offloader_peer_link_priv`` and ``offloader_dashboard_id`` are

@@ -123,6 +123,8 @@ class EventType(StrEnum):
     OFFLOADER_PAIRING_ENABLED_CHANGED = "offloader_pairing_enabled_changed"
     # Cross-tab sync for the master version-match policy
     OFFLOADER_VERSION_MATCH_POLICY_CHANGED = "offloader_version_match_policy_changed"
+    # Cross-tab sync for the "include local in build pool" advanced toggle
+    OFFLOADER_INCLUDE_LOCAL_CHANGED = "offloader_include_local_changed"
 
 
 class StreamEvent(StrEnum):

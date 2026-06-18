@@ -507,6 +507,7 @@ def build_scheduler_inputs(
     idle_pins: set[str],
     offloader_version: str = "",
     policy: VersionMatchPolicy = VersionMatchPolicy.ANY,
+    include_local_in_pool: bool = False,
 ) -> BuildSchedulerInputs:
     """Build the snapshot a stub offloader hands the scheduler; ``idle_pins`` get an idle entry."""
     return BuildSchedulerInputs(
@@ -526,6 +527,7 @@ def build_scheduler_inputs(
         },
         offloader_esphome_version=offloader_version,
         version_match_policy=policy,
+        include_local_in_pool=include_local_in_pool,
     )
 
 

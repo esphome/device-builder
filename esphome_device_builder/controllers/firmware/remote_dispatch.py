@@ -119,8 +119,12 @@ def _dispatch_one(
         pool.drop(job.job_id)
         return False
     # Re-derive busy each call so two waiting compiles in one pass can't
-    # both grab the same just-freed server.
-    inputs = replace(snapshot, busy_build_server_pins=pool.busy_pins())
+    # both grab the same just-freed server (or the single local slot).
+    inputs = replace(
+        snapshot,
+        busy_build_server_pins=pool.busy_pins(),
+        local_compile_busy=not controller.compile_queue_status().idle,
+    )
     decision = pick_dispatch_target(inputs)
     if decision.outcome is DispatchOutcome.REMOTE:
         assert decision.pin_sha256 is not None  # narrowed by REMOTE

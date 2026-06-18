@@ -208,6 +208,9 @@ class OffloaderRemoteBuildSettings(DataClassORJSONMixin):
     pairings: list[StoredPairing] = field(default_factory=list)
     remote_builds_enabled: bool = True
     version_match_policy: VersionMatchPolicy = VersionMatchPolicy.ANY
+    # Advanced opt-in: include the local machine in the build pool so it
+    # compiles overflow when every eligible build server is busy.
+    include_local_in_pool: bool = False
 
 
 @dataclass
@@ -222,6 +225,7 @@ class OffloaderRemoteBuildSettingsView(DataClassORJSONMixin):
     pairings: list[PairingSummary] = field(default_factory=list)
     remote_builds_enabled: bool = True
     version_match_policy: VersionMatchPolicy = VersionMatchPolicy.ANY
+    include_local_in_pool: bool = False
 
 
 @dataclass

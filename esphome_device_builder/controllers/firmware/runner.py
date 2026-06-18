@@ -41,6 +41,11 @@ async def run_lane(controller: FirmwareController, lane: Lane) -> None:
         if job.status == JobStatus.CANCELLED:
             continue
         await controller._execute_job(job, lane)
+        # A freed compile slot may let an overflow compile held in the remote
+        # pool (include-local-in-pool) run locally; re-arm the matcher here,
+        # where the local compile slot actually opens.
+        if lane is controller.state.compile_lane:
+            controller.state.remote_dispatch.rearm_if_pending()
 
 
 async def _await_build_gate(controller: FirmwareController, job: FirmwareJob) -> None:
