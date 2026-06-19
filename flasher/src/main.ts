@@ -25,6 +25,7 @@ let targetOrigin = params.get("origin") || "*";
 
 let firmware: FirmwareMessage | null = null;
 let busy = false;
+let flashDone = false;
 
 // --- UI -------------------------------------------------------------------
 
@@ -39,21 +40,25 @@ document.body.innerHTML = `
     </div>
     <p id="hint"></p>
     <div id="status" class="status idle">Waiting for firmware&hellip;</div>
-    <div id="bar" hidden><div id="fill"></div></div>
+    <div id="progress" hidden><div id="bar"><div id="fill"></div></div><span id="pct"></span></div>
     <button id="install" disabled>Connect &amp; install</button>
     <details id="manual">
       <summary>No firmware received? Flash a factory file manually</summary>
       <input id="file" type="file" accept=".bin" />
     </details>
-    <pre id="log"></pre>
+    <details id="logbox">
+      <summary>Show log</summary>
+      <pre id="log"></pre>
+    </details>
   </main>
 `;
 
 const el = <T extends HTMLElement>(id: string) =>
   document.getElementById(id) as T;
 const statusEl = el<HTMLDivElement>("status");
-const barEl = el<HTMLDivElement>("bar");
+const progressEl = el<HTMLDivElement>("progress");
 const fillEl = el<HTMLDivElement>("fill");
+const pctEl = el<HTMLSpanElement>("pct");
 const installBtn = el<HTMLButtonElement>("install");
 const fileInput = el<HTMLInputElement>("file");
 const hintEl = el<HTMLParagraphElement>("hint");
@@ -65,7 +70,34 @@ hintEl.textContent = opener
 
 function log(line: string): void {
   logEl.textContent += line + "\n";
+  logEl.scrollTop = logEl.scrollHeight;
 }
+
+// esptool-js streams its output here; a \r redraws the current line (progress),
+// so keep only what follows the last \r when flushing a completed line.
+let pending = "";
+function termWrite(data: string): void {
+  pending += data;
+  let nl = pending.indexOf("\n");
+  while (nl >= 0) {
+    log(pending.slice(0, nl).replace(/.*\r/, ""));
+    pending = pending.slice(nl + 1);
+    nl = pending.indexOf("\n");
+  }
+}
+
+const terminal = {
+  clean(): void {
+    logEl.textContent = "";
+    pending = "";
+  },
+  writeLine(data: string): void {
+    log(data);
+  },
+  write(data: string): void {
+    termWrite(data);
+  },
+};
 
 function post(msg: OutboundMessage): void {
   // targetOrigin narrows from '*' to the opener's real origin once known; see
@@ -74,14 +106,21 @@ function post(msg: OutboundMessage): void {
 }
 
 function setState(state: FlashState, detail: string): void {
-  statusEl.textContent = detail;
   statusEl.className = "status " + state;
+  statusEl.textContent = "";
+  if (state === "connecting" || state === "installing") {
+    const spin = document.createElement("span");
+    spin.className = "spinner";
+    statusEl.appendChild(spin);
+  }
+  statusEl.appendChild(document.createTextNode(detail));
   post({ type: "esphome-web-flash:state", state, detail });
 }
 
 function setProgress(pct: number): void {
-  barEl.hidden = false;
+  progressEl.hidden = false;
   fillEl.style.width = pct + "%";
+  pctEl.textContent = pct + "%";
   post({ type: "esphome-web-flash:progress", pct });
 }
 
@@ -127,6 +166,7 @@ window.addEventListener("message", (ev: MessageEvent) => {
     "connecting",
     `Firmware ready${firmware.name ? ": " + firmware.name : ""}. Press Connect & install.`,
   );
+  installBtn.focus();
 });
 
 // Re-announce until firmware arrives: a single 'ready' can race the opener
@@ -167,13 +207,16 @@ async function flashFiles(
   fileArray: FileToFlash[],
   erase: boolean,
   writeProgress: (pct: number) => void,
+  setPhase: (detail: string) => void,
 ): Promise<void> {
   if (erase) {
+    setPhase("Erasing flash… this can take a moment.");
     await esploader.eraseFlash();
   }
   let totalSize = 0;
   for (const f of fileArray) totalSize += f.data.length;
   let totalWritten = 0;
+  setPhase("Writing firmware… keep this tab visible.");
   writeProgress(0);
   await esploader.writeFlash({
     fileArray,
@@ -226,6 +269,7 @@ async function runFlash(files: FileToFlash[], erase: boolean): Promise<void> {
     transport,
     baudrate: 115200,
     enableTracing: false,
+    terminal,
   });
 
   try {
@@ -244,11 +288,16 @@ async function runFlash(files: FileToFlash[], erase: boolean): Promise<void> {
     }
     log("Detected chip: " + chipName);
 
-    setState("installing", "Installing… keep this tab visible.");
-    await flashFiles(esploader, files, erase, setProgress);
+    await flashFiles(esploader, files, erase, setProgress, (detail) =>
+      setState("installing", detail),
+    );
     await esploader.after();
     await resetDevice(transport);
-    setState("done", "Installed. The device is rebooting.");
+    setState(
+      "done",
+      "Installed. The device is rebooting. You can close this tab and return to the dashboard.",
+    );
+    flashDone = true;
   } catch (err) {
     setState("error", "Installation failed: " + String(err));
   } finally {
@@ -258,12 +307,17 @@ async function runFlash(files: FileToFlash[], erase: boolean): Promise<void> {
       // already closed
     }
     busy = false;
-    installBtn.disabled = false;
     fileInput.disabled = false;
+    installBtn.disabled = false;
+    if (flashDone) installBtn.textContent = "Close this tab";
   }
 }
 
 installBtn.addEventListener("click", async () => {
+  if (flashDone) {
+    window.close();
+    return;
+  }
   if (firmware) {
     const files = firmware.parts.map((p) => ({
       data: new Uint8Array(p.data),
