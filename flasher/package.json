@@ -7,7 +7,8 @@
   "scripts": {
     "build": "node build.mjs",
     "dev": "node build.mjs --serve",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node build.mjs && node test/handshake.test.mjs"
   },
   "dependencies": {
     "esptool-js": "0.6.0"
@@ -15,6 +16,7 @@
   "devDependencies": {
     "@types/w3c-web-serial": "^1.0.7",
     "esbuild": "^0.25.0",
+    "puppeteer": "^24.0.0",
     "typescript": "^5.7.0"
   }
 }

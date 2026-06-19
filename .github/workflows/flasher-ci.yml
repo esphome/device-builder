@@ -1,0 +1,32 @@
+name: Flasher CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - flasher/**
+      - .github/workflows/flasher-ci.yml
+  pull_request:
+    paths:
+      - flasher/**
+      - .github/workflows/flasher-ci.yml
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: flasher/package-lock.json
+      - run: npm ci
+        working-directory: flasher
+      - run: npm run typecheck
+        working-directory: flasher
+      - run: npm test
+        working-directory: flasher

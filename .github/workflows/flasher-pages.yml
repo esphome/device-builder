@@ -32,6 +32,8 @@ jobs:
           cache-dependency-path: flasher/package-lock.json
       - run: npm ci
         working-directory: flasher
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: "true" # deploy only builds; no browser needed
       - run: npm run typecheck
         working-directory: flasher
       - run: npm run build

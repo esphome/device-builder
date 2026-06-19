@@ -5,9 +5,12 @@
 // contract is what PR 2 reimplements inside web.esphome.io.
 //
 // URL hash params the flasher reads: 'nonce' (required, the session secret) and
-// 'origin' (optional; pins the outbound targetOrigin, otherwise it is learned
-// from the first inbound frame). The flasher re-sends 'ready' until firmware
-// arrives so a late opener listener cannot wedge the handoff.
+// 'origin'. 'origin' pins the outbound targetOrigin; without it, outbound stays
+// '*' until the first inbound frame reveals the origin, which means the early
+// 'ready' frames broadcast the nonce to '*'. The production integration (PR 2)
+// MUST pass 'origin=<dashboard-origin>' so 'ready' never broadcasts. The flasher
+// re-sends 'ready' until firmware arrives so a late opener listener cannot wedge
+// the handoff.
 
 export const PROTOCOL_VERSION = 1;
 

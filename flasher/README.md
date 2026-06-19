@@ -29,6 +29,11 @@ See `src/protocol.ts`. The opener origin is unknown (the dashboard runs on an
 arbitrary http origin), so the channel is authenticated by a one-time `nonce`
 plus an `event.source === window.opener` check, not an origin allowlist.
 
+The production integration (PR 2) **must** open the flasher with
+`#origin=<dashboard-origin>` so outbound frames target that origin from the
+start and the `ready` frame never broadcasts the nonce to `*`. Without it the
+page falls back to `*` until the first inbound frame reveals the origin.
+
 1. Dashboard opens `…/#nonce=<random>`.
 2. Flasher posts `{type:"esphome-web-flash:ready", version, nonce}` to its opener.
 3. Dashboard posts `{type:"esphome-web-flash:firmware", nonce, name?, erase?, parts:[{address, data:ArrayBuffer}]}`.
@@ -46,7 +51,13 @@ npm install
 npm run dev        # esbuild serve with watch
 npm run build      # -> dist/
 npm run typecheck  # tsc --noEmit
+npm test           # build + headless Puppeteer check of the postMessage contract
 ```
+
+`npm test` runs the postMessage handshake in headless Chromium (ready frame,
+re-announcement, nonce + source rejection, malformed-payload error, firmware
+acceptance). Web Serial flashing itself needs real hardware and is not covered.
+CI runs the same via `.github/workflows/flasher-ci.yml`.
 
 Open the dev URL directly to use the manual file-picker mode (flash a factory
 `.bin` without a dashboard), or drive it from the dashboard for the postMessage flow.

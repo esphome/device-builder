@@ -1,0 +1,150 @@
+// Headless check of the postMessage contract this subproject exists to pin.
+// Web Serial flashing itself needs real hardware and is not covered here.
+import http from "node:http";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import puppeteer from "puppeteer";
+
+const DIST = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
+const OPENER = `<!doctype html><meta charset=utf-8><script>
+  window.__msgs = [];
+  addEventListener('message', (e) => window.__msgs.push(e.data));
+  window.__open = (url) => { window.__b = window.open(url); };
+</script>opener`;
+
+const server = http.createServer((req, res) => {
+  const path = req.url.split("?")[0];
+  if (path === "/opener.html") {
+    res.writeHead(200, { "content-type": "text/html" });
+    return res.end(OPENER);
+  }
+  const file = path === "/" ? "/index.html" : path;
+  try {
+    const body = readFileSync(DIST + file);
+    const ct = file.endsWith(".js")
+      ? "text/javascript"
+      : file.endsWith(".html")
+        ? "text/html"
+        : "application/octet-stream";
+    res.writeHead(200, { "content-type": ct });
+    res.end(body);
+  } catch {
+    res.writeHead(404);
+    res.end("nf");
+  }
+});
+
+await new Promise((r) => server.listen(0, r));
+const base = `http://localhost:${server.address().port}`;
+
+const browser = await puppeteer.launch({ args: ["--no-sandbox"] });
+let ok = true;
+const fail = (m) => {
+  ok = false;
+  console.log("FAIL:", m);
+};
+
+try {
+  const a = await browser.newPage();
+  await a.goto(`${base}/opener.html`);
+
+  const flasherUrl = `${base}/#nonce=test-nonce-123`;
+  const [popup] = await Promise.all([
+    new Promise((res) => a.once("popup", res)),
+    a.evaluate((u) => window.__open(u), flasherUrl),
+  ]);
+  await popup.waitForNetworkIdle({ idleTime: 300 }).catch(() => {});
+  await new Promise((r) => setTimeout(r, 300));
+
+  // 1. flasher posts a ready frame to its opener with the right nonce
+  const ready = (await a.evaluate(() => window.__msgs)).find(
+    (m) => m && m.type === "esphome-web-flash:ready",
+  );
+  if (!ready) fail("no ready message received by opener");
+  else if (ready.nonce !== "test-nonce-123") fail("ready nonce mismatch");
+  else console.log("PASS: ready received, nonce ok, version", ready.version);
+
+  // 1b. ready is re-announced until firmware arrives (handshake robustness)
+  await a.evaluate(() => {
+    window.__msgs.length = 0;
+  });
+  await new Promise((r) => setTimeout(r, 700));
+  const retried = (await a.evaluate(() => window.__msgs)).some(
+    (m) => m && m.type === "esphome-web-flash:ready",
+  );
+  if (!retried) fail("ready not re-announced before firmware");
+  else console.log("PASS: ready re-announced until firmware arrives");
+
+  // 2. wrong nonce must be ignored
+  await a.evaluate(() => {
+    window.__b.postMessage(
+      {
+        type: "esphome-web-flash:firmware",
+        nonce: "WRONG",
+        name: "bad",
+        parts: [{ address: 0, data: new ArrayBuffer(8) }],
+      },
+      "*",
+    );
+  });
+  await new Promise((r) => setTimeout(r, 200));
+  let label = await popup.$eval("#status", (e) => e.textContent);
+  if (/firmware ready/i.test(label)) fail("wrong-nonce firmware was accepted");
+  else console.log("PASS: wrong-nonce firmware ignored");
+
+  // 2b. malformed parts (data not an ArrayBuffer) -> error state, not a throw
+  await a.evaluate(() => {
+    window.__b.postMessage(
+      {
+        type: "esphome-web-flash:firmware",
+        nonce: "test-nonce-123",
+        name: "bad",
+        parts: [{ address: 0, data: "not-a-buffer" }],
+      },
+      "*",
+    );
+  });
+  await new Promise((r) => setTimeout(r, 200));
+  label = await popup.$eval("#status", (e) => e.textContent);
+  const enabledAfterBad = await popup.$eval("#install", (b) => !b.disabled);
+  if (!/malformed/i.test(label))
+    fail("malformed payload not reported: " + label);
+  else if (enabledAfterBad) fail("install enabled after malformed payload");
+  else console.log("PASS: malformed payload rejected with error state");
+
+  // 3. correct nonce accepted -> button enabled, state mirrored back
+  await a.evaluate(() => {
+    window.__b.postMessage(
+      {
+        type: "esphome-web-flash:firmware",
+        nonce: "test-nonce-123",
+        name: "kitchen.factory.bin",
+        erase: true,
+        parts: [{ address: 0, data: new ArrayBuffer(2048) }],
+      },
+      "*",
+    );
+  });
+  await new Promise((r) => setTimeout(r, 300));
+  const enabled = await popup.$eval("#install", (b) => !b.disabled);
+  label = await popup.$eval("#status", (e) => e.textContent);
+  if (!enabled) fail("install button not enabled after firmware");
+  else if (!/kitchen\.factory\.bin/.test(label))
+    fail("status did not reflect firmware name: " + label);
+  else console.log("PASS: firmware accepted, button enabled, status:", label);
+
+  const stateMsg = (await a.evaluate(() => window.__msgs)).find(
+    (m) => m && m.type === "esphome-web-flash:state",
+  );
+  if (!stateMsg) fail("no state message mirrored to opener");
+  else console.log("PASS: state mirrored to opener ->", stateMsg.state);
+} catch (e) {
+  fail("exception: " + e.message);
+} finally {
+  await browser.close();
+  server.close();
+}
+
+console.log(ok ? "\nALL PASS" : "\nFAILURES");
+process.exit(ok ? 0 : 1);
