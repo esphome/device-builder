@@ -287,7 +287,8 @@ class ArtifactsDownloadSender:
     async def _send_reject(
         self, session: PeerLinkSession, job_id: str, reason: str, *, detail: str = ""
     ) -> None:
-        """Send a single ``artifacts_end{accepted: false, reason}`` and return.
+        """
+        Send a single ``artifacts_end{accepted: false, reason}`` and return.
 
         *detail* (capped) rides on the frame when given so the offloader can
         show the exact missing artefact path instead of just the coarse reason.
