@@ -45,5 +45,5 @@ source:
   type: esphome-devices
   remote_id: Nous-A8M
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Nous-A8M/index.md
-  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
   content_hash: 99be1f356ffa6bda175ca3cd2a459f0458c2cd6d6da4c910c96c30a801407cd7

@@ -26,5 +26,5 @@ source:
   type: esphome-devices
   remote_id: Steren-RGBWW-Desk-Lamp
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Steren-RGBWW-Desk-Lamp/index.md
-  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
   content_hash: 2b0b061a101feb9fc45a21f1f20f1ae4d3457a715ab1c22131a5f445a3c1e734

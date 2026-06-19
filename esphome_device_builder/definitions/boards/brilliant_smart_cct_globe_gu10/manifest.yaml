@@ -53,5 +53,5 @@ source:
   type: esphome-devices
   remote_id: Brilliant-Smart-CCT-Globe-GU10
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Brilliant-Smart-CCT-Globe-GU10/index.md
-  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
   content_hash: 49b28670e92bbb8e310279f929466bd5ac9af1c43b7469368a1aaf0ce2170b17

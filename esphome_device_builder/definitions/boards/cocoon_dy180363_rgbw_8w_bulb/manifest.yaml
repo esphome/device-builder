@@ -77,5 +77,5 @@ source:
   type: esphome-devices
   remote_id: Cocoon-DY180363-RGBW-8W-Bulb
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Cocoon-DY180363-RGBW-8W-Bulb/index.md
-  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
   content_hash: 548583fd81c17b2298ceee18683b91bdd973558dd721741fa1f85d866061da56

@@ -55,5 +55,5 @@ source:
   type: esphome-devices
   remote_id: Wipro-Next-20W-Smart-CCT-Batten
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Wipro-Next-20W-Smart-CCT-Batten/index.md
-  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
   content_hash: 5df1d7e3990a5e6d115252e76a68e28282402a20e16fea536db08b9b36bd34ec

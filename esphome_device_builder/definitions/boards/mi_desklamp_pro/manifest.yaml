@@ -114,5 +114,5 @@ source:
   type: esphome-devices
   remote_id: Mi-Desklamp-Pro
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Mi-Desklamp-Pro/index.md
-  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
   content_hash: ee90a7965984ed12527f8c7286eebefe7359fe7da97051a4a16851f0d6ac4340
