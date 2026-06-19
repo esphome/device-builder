@@ -94,10 +94,12 @@ class ApiInfoSource:
             except Exception:
                 # e.g. a select→fetch TOCTOU where an mDNS/ping callback empties
                 # the address list between selection and the ``addresses[0]`` read.
+                # Count it like a miss so an exception-shaped systemic failure
+                # still trips the WARNING instead of staying debug-only.
                 _LOGGER.debug(
                     "API info probe for %s raised; cooling down", device.name, exc_info=True
                 )
-                self._cooldown[device.name] = time.monotonic() + _FAILURE_COOLDOWN
+                self._record_failure(device)
 
     def _select_targets(self) -> list[Device]:
         """
@@ -115,7 +117,7 @@ class ApiInfoSource:
             device
             for device in monitor._get_devices()
             if device.state is DeviceState.ONLINE
-            and "api" in device.loaded_integrations
+            and device.api_enabled
             and monitor.priority_for(device.name) != ReachabilitySource.MDNS
             and not (device.mac_address and device.deployed_version)
             and self._cooldown.get(device.name, 0.0) <= now
@@ -168,16 +170,22 @@ class ApiInfoSource:
         # Judge success on what the worker actually delivered, not a post-apply
         # re-read of the Device — ``apply_*`` dedupes and fans out across
         # same-named devices, so a re-read could miscount a real hit as a miss.
-        # A full hit clears the streak; anything short backs the device off and
-        # feeds the systemic-failure counter (one WARNING when it's dead fleet-
-        # wide, which would otherwise be debug-only).
         if mac and version:
             self._consecutive_failures = 0
             return
+        self._record_failure(device)
+
+    def _record_failure(self, device: Device) -> None:
+        """
+        Back *device* off and feed the systemic-failure counter.
+
+        Shared by the miss path and the ``_sweep`` exception handler so an
+        exception-shaped fleet-wide failure trips the WARNING just like a
+        miss-shaped one. The streak is strictly +1 per failure and reset to 0
+        on a full success, so equality hits the threshold exactly once.
+        """
         self._cooldown[device.name] = time.monotonic() + _FAILURE_COOLDOWN
         self._consecutive_failures += 1
-        # Strictly +1 per failure and reset to 0 on success, so equality is
-        # hit exactly once per streak — one WARNING, no per-device spam.
         if self._consecutive_failures == _SYSTEMIC_FAILURE_WARN_THRESHOLD:
             _LOGGER.warning(
                 "Native API info fallback has failed for %d devices in a row; "

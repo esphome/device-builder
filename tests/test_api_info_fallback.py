@@ -32,9 +32,10 @@ from .conftest import make_device, make_state_monitor_with_callbacks
 
 
 def _online_api_device(name: str = "kitchen", **overrides: Any) -> Device:
-    """Online device with the API integration and a routable IP, missing mac/version."""
+    """Online device that exposes a Native API, with a routable IP, missing mac/version."""
     base: dict[str, Any] = {
         "state": DeviceState.ONLINE,
+        "api_enabled": True,
         "loaded_integrations": ["api", "wifi"],
         "ip": "192.168.1.50",
         "ip_addresses": ["192.168.1.50"],
@@ -77,10 +78,17 @@ def test_select_targets_skips_offline_device() -> None:
 
 
 def test_select_targets_skips_non_api_device() -> None:
-    """A device whose YAML doesn't load ``api`` can't be reached over the Native API."""
-    devices = [_online_api_device(loaded_integrations=["web_server", "wifi"])]
+    """A device that exposes no Native API can't be reached over it."""
+    devices = [_online_api_device(api_enabled=False, loaded_integrations=["web_server"])]
     monitor, _ = make_state_monitor_with_callbacks(devices)
     assert monitor._api_info._select_targets() == []
+
+
+def test_select_targets_picks_uncompiled_online_api_device() -> None:
+    """An online ``api:`` device never compiled here (empty loaded_integrations) is still probed."""
+    devices = [_online_api_device(loaded_integrations=[])]  # api_enabled set from YAML scan
+    monitor, _ = make_state_monitor_with_callbacks(devices)
+    assert [d.name for d in monitor._api_info._select_targets()] == ["kitchen"]
 
 
 def test_select_targets_skips_when_only_local_hostname_known() -> None:
@@ -425,6 +433,24 @@ async def test_sweep_isolates_a_failing_fetch() -> None:
 
     assert sorted(fetched) == ["a", "b"]  # b still probed after a blew up
     assert "a" in src._cooldown  # the bad device got backed off
+
+
+async def test_sweep_exceptions_feed_systemic_counter(caplog: Any) -> None:
+    """Exception-shaped failures trip the systemic WARNING like miss-shaped ones."""
+    devices = [_online_api_device(f"dev{i}") for i in range(10)]
+    monitor, _ = make_state_monitor_with_callbacks(devices)
+    src = monitor._api_info
+
+    async def _boom(_device: Device) -> None:
+        raise RuntimeError("kaboom")
+
+    src._fetch = _boom  # type: ignore[method-assign]
+    with caplog.at_level(logging.WARNING):
+        await src._sweep()
+
+    assert src._consecutive_failures == 10
+    systemic = [r for r in caplog.records if "failed for" in r.getMessage()]
+    assert len(systemic) == 1
 
 
 # ----------------------------------------------------------------------
