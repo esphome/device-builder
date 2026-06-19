@@ -217,6 +217,40 @@ async def test_fetch_connected_but_empty_sets_cooldown() -> None:
     assert monitor._api_info._select_targets() == []
 
 
+async def test_fetch_partial_fill_is_progress_not_failure() -> None:
+    """A probe that fills only the MAC clears the streak, isn't cooled down, stays eligible."""
+    device = _online_api_device(address="")
+    monitor, _ = make_state_monitor_with_callbacks([device])
+    src = monitor._api_info
+    src._consecutive_failures = 5
+    src._run_worker = AsyncMock(  # type: ignore[method-assign]
+        return_value={"mac_address": "94c9601f8cf1", "esphome_version": ""}
+    )
+
+    await src._fetch(device)
+
+    assert device.mac_address == "94:C9:60:1F:8C:F1"
+    assert device.deployed_version == ""  # version still missing
+    assert src._consecutive_failures == 0  # progress cleared the streak
+    assert "kitchen" not in src._cooldown  # not cooled down → normal-interval retry
+    assert [d.name for d in src._select_targets()] == ["kitchen"]  # still chasing version
+
+
+async def test_fetch_no_new_fill_is_a_failure() -> None:
+    """Re-sending an already-known MAC with no version is a miss (cooldown + streak)."""
+    device = _online_api_device(mac_address="94:C9:60:1F:8C:F1", address="")
+    monitor, _ = make_state_monitor_with_callbacks([device])
+    src = monitor._api_info
+    src._run_worker = AsyncMock(  # type: ignore[method-assign]
+        return_value={"mac_address": "94c9601f8cf1", "esphome_version": ""}
+    )
+
+    await src._fetch(device)
+
+    assert "kitchen" in src._cooldown
+    assert src._consecutive_failures == 1
+
+
 async def test_fetch_falls_back_to_plaintext_when_resolver_raises() -> None:
     """A resolver failure is swallowed; the probe connects plaintext on the default port."""
     device = _online_api_device(address="")

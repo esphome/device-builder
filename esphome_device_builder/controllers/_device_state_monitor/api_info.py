@@ -163,14 +163,16 @@ class ApiInfoSource:
             }
         )
         info = await self._run_worker(device, request) or {}
-        mac = info.get("mac_address", "")
-        version = info.get("esphome_version", "")
-        monitor.apply_mac_address(device.name, mac)
-        monitor.apply_version(device.name, version)
-        # Judge success on what the worker actually delivered, not a post-apply
-        # re-read of the Device — ``apply_*`` dedupes and fans out across
-        # same-named devices, so a re-read could miscount a real hit as a miss.
-        if mac and version:
+        # ``apply_*`` returns True iff it newly wrote the field. Judge on that,
+        # not a post-apply Device re-read (apply dedupes / fans out across
+        # same-named devices). Any newly-filled field means the connection
+        # worked and made progress: clear the streak and don't cool down, so a
+        # device that answered with mac XOR version chases the rest on the next
+        # normal sweep. Nothing newly filled (connect failed, or only a value
+        # we already had) is a real miss → cool down and feed the counter.
+        filled_mac = monitor.apply_mac_address(device.name, info.get("mac_address", ""))
+        filled_version = monitor.apply_version(device.name, info.get("esphome_version", ""))
+        if filled_mac or filled_version:
             self._consecutive_failures = 0
             return
         self._record_failure(device)
