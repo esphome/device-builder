@@ -520,6 +520,7 @@ async def test_add_component_missing_required_field_raises(
     ("entry_kwargs", "fields", "expected"),
     [
         ({}, {}, True),
+        ({"depends_on": "type"}, {"type": "W5500"}, True),
         ({"depends_on": "type", "depends_on_value": "W5500"}, {"type": "W5500"}, True),
         ({"depends_on": "type", "depends_on_value": "W5500"}, {"type": "LAN8720"}, False),
         ({"depends_on": "type", "depends_on_value_not": "W5500"}, {"type": "LAN8720"}, True),
@@ -540,7 +541,7 @@ async def test_add_component_missing_required_field_raises(
 def test_entry_gate_active(
     entry_kwargs: dict[str, Any], fields: dict[str, Any], expected: bool
 ) -> None:
-    """``_entry_gate_active`` mirrors the frontend's depends_on visibility gate."""
+    """``_entry_gate_active`` evaluates each ``depends_on`` value predicate."""
     entry = ConfigEntry(key="clk", type=ConfigEntryType.NESTED, label="Clk", **entry_kwargs)
     assert _entry_gate_active(entry, fields) is expected
 
@@ -550,12 +551,7 @@ async def test_add_component_gated_inactive_required_field_not_demanded(
     make_controller: MakeControllerFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A required field whose variant gate is inactive is not demanded (issue #1579).
-
-    ethernet's ``clk`` is force-required but gated to RMII PHYs; with an
-    SPI ``type`` (W5500) selected, the backend must not reject the add
-    with ``Missing required field: Clk``.
-    """
+    """A required field whose variant gate is inactive is not demanded."""
     controller = make_controller(tmp_path)
     component = MagicMock()
     component.id = "ethernet"
@@ -594,11 +590,7 @@ async def test_add_component_gated_inactive_required_field_not_demanded(
 async def test_add_component_gated_active_required_field_demanded(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """A required field whose variant gate IS active stays demanded (issue #1579).
-
-    With an RMII ``type`` selected, ``clk`` applies and a missing value
-    still raises ``Missing required field: Clk``.
-    """
+    """A required field whose variant gate is active stays demanded."""
     controller = make_controller(tmp_path)
     component = MagicMock()
     component.id = "ethernet"

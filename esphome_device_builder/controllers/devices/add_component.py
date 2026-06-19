@@ -96,15 +96,7 @@ async def add_component(
 
 
 def _entry_gate_active(entry: ConfigEntry, fields: dict[str, Any]) -> bool:
-    """
-    Whether *entry*'s ``depends_on`` value gate is satisfied by *fields*.
-
-    Mirrors the frontend's ``isEntryVisible`` depends_on logic so the
-    required-check doesn't demand a variant-gated field whose gate is
-    inactive (e.g. ethernet's RMII-only ``clk`` when an SPI ``type`` is
-    selected). ``depends_on_component`` is a separate gate handled by
-    :func:`_drop_unconfigured_dependent_fields`.
-    """
+    """Whether *entry*'s ``depends_on`` value gate is satisfied by *fields*."""
     if entry.depends_on is None:
         return True
     dep = fields.get(entry.depends_on)
