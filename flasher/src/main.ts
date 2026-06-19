@@ -26,6 +26,8 @@ let targetOrigin = params.get("origin") || "*";
 let firmware: FirmwareMessage | null = null;
 let busy = false;
 let flashDone = false;
+let streaming = false;
+let stopLogs = false;
 
 // --- UI -------------------------------------------------------------------
 
@@ -63,6 +65,11 @@ const installBtn = el<HTMLButtonElement>("install");
 const fileInput = el<HTMLInputElement>("file");
 const hintEl = el<HTMLParagraphElement>("hint");
 const logEl = el<HTMLPreElement>("log");
+const logbox = el<HTMLDetailsElement>("logbox");
+
+// CSI escapes (colour, cursor moves) in ESPHome's serial log; strip them so
+// the log shows plain text instead of raw control sequences.
+const ANSI_RE = /\[[\d;?]*[A-Za-z]/g;
 
 hintEl.textContent = opener
   ? "Plug the board into this computer over USB, then press Connect & install."
@@ -80,7 +87,7 @@ function termWrite(data: string): void {
   pending += data;
   let nl = pending.indexOf("\n");
   while (nl >= 0) {
-    log(pending.slice(0, nl).replace(/.*\r/, ""));
+    log(pending.slice(0, nl).replace(/.*\r/, "").replace(ANSI_RE, ""));
     pending = pending.slice(nl + 1);
     nl = pending.indexOf("\n");
   }
@@ -247,11 +254,38 @@ async function resetDevice(transport: Transport): Promise<void> {
   await transport.setRTS(false);
 }
 
+// Stream the rebooted device's serial output into the log so a tester can watch
+// the boot over the same port that flashed it. Reads at the flash baud (115200,
+// the ESPHome logger default); a native-USB chip that re-enumerated on reset may
+// end the read early, which is surfaced rather than thrown.
+async function streamSerialLogs(transport: Transport): Promise<void> {
+  streaming = true;
+  logbox.open = true;
+  installBtn.textContent = "Stop logs";
+  installBtn.disabled = false;
+  const decoder = new TextDecoder();
+  try {
+    await transport.rawRead(
+      (chunk) => termWrite(decoder.decode(chunk, { stream: true })),
+      () => stopLogs,
+    );
+  } catch (err) {
+    log("[serial logs unavailable: " + String(err) + "]");
+  } finally {
+    streaming = false;
+  }
+}
+
 async function runFlash(files: FileToFlash[], erase: boolean): Promise<void> {
   if (busy) return;
   busy = true;
   installBtn.disabled = true;
   fileInput.disabled = true;
+  // Clear any stale bar/percent from a previous failed attempt.
+  stopLogs = false;
+  progressEl.hidden = true;
+  fillEl.style.width = "0%";
+  pctEl.textContent = "";
 
   let port: SerialPort;
   try {
@@ -293,11 +327,14 @@ async function runFlash(files: FileToFlash[], erase: boolean): Promise<void> {
     );
     await esploader.after();
     await resetDevice(transport);
+    flashDone = true;
     setState(
       "done",
-      "Installed. The device is rebooting. You can close this tab and return to the dashboard.",
+      opener
+        ? "Installed and rebooting. Live serial logs below; close this tab when finished."
+        : "Installed and rebooting. Live serial logs below; press Stop logs when finished.",
     );
-    flashDone = true;
+    await streamSerialLogs(transport);
   } catch (err) {
     setState("error", "Installation failed: " + String(err));
   } finally {
@@ -308,12 +345,25 @@ async function runFlash(files: FileToFlash[], erase: boolean): Promise<void> {
     }
     busy = false;
     fileInput.disabled = false;
-    installBtn.disabled = false;
-    if (flashDone) installBtn.textContent = "Close this tab";
+    // Only offer the self-close action when an opener exists; window.close() is
+    // blocked on a tab the user navigated to directly.
+    if (flashDone && opener) {
+      installBtn.textContent = "Close this tab";
+      installBtn.disabled = false;
+    } else if (flashDone) {
+      installBtn.textContent = "Done";
+      installBtn.disabled = true;
+    } else {
+      installBtn.disabled = false;
+    }
   }
 }
 
 installBtn.addEventListener("click", async () => {
+  if (streaming) {
+    stopLogs = true; // end the live-log read; the run's finally takes over
+    return;
+  }
   if (flashDone) {
     window.close();
     return;
