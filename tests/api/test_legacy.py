@@ -341,12 +341,7 @@ class _StubStateDevice:
 async def test_ping_returns_tristate_online_map(
     tmp_path: Path, aiohttp_client: AiohttpClient
 ) -> None:
-    """``{<config>.yaml: True|False|None}`` — ONLINE→true, OFFLINE→false, UNKNOWN→null.
-
-    Pins the legacy ``entry_state_to_bool`` contract third-party
-    widgets (gethomepage/homepage) depend on; ``null`` for a
-    never-probed device is the faithful upstream shape, not a bool.
-    """
+    """Tri-state ``/ping`` map: ONLINE->true, OFFLINE->false, UNKNOWN->null, keyed by filename."""
     devices = _make_devices_mock(
         configured=[
             _StubStateDevice("kitchen.yaml", DeviceState.ONLINE),
@@ -1271,18 +1266,7 @@ async def test_spawn_ws_round_trip_through_real_event_bus(
 
 
 def test_legacy_module_exposes_only_documented_routes() -> None:
-    """The legacy module registers exactly the upstream-parity route set.
-
-    Upstream registers each of these:
-    ``ListDevicesHandler`` (``/devices``),
-    ``PingRequestHandler`` (``/ping``),
-    ``JsonConfigRequestHandler`` (``/json-config``),
-    ``EsphomeCompileHandler`` (``/compile``),
-    ``EsphomeUploadHandler`` (``/upload``). Pin the route set so
-    a refactor that adds an undocumented route (or drops one of
-    these) shows up here — the legacy module's purpose is
-    drift-with-upstream parity, not a place to add new routes.
-    """
+    """Pin the legacy route set to the upstream-parity endpoints; no undocumented routes."""
     routes = create_legacy_routes()
     paths = {
         route.path  # type: ignore[union-attr]

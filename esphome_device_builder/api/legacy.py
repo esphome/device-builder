@@ -10,9 +10,10 @@ HA uses:
 - /compile (WebSocket, spawn protocol)
 - /upload (WebSocket, spawn protocol)
 
-GET /ping (``{<config>.yaml: online bool}``) is consumed by third-party
-widgets (gethomepage/homepage) rather than HA core; it is restored here
-for backward compatibility with the legacy dashboard.
+GET /ping (``{<config>.yaml: True|False|None}`` online-status map) is
+consumed by third-party widgets (gethomepage/homepage) rather than HA
+core; it is restored here for backward compatibility with the legacy
+dashboard.
 
 The ``/compile`` and ``/upload`` WebSocket handlers route through the
 new firmware-job queue rather than spawning subprocesses directly.
@@ -328,12 +329,7 @@ def create_legacy_routes() -> web.RouteTableDef:
 
     @routes.get("/ping")
     async def legacy_ping(request: web.Request) -> web.Response:
-        """Legacy online-status map ``{<config>.yaml: True|False|None}``.
-
-        Reproduces the upstream dashboard's ``/ping``: ONLINE→True,
-        OFFLINE→False, never-probed→None. Consumed by third-party
-        widgets (gethomepage/homepage), not HA core.
-        """
+        """Legacy online-status map ``{<config>.yaml: True|False|None}`` (third-party widgets)."""
         db = request.app["device_builder"]
         devices_ctrl = db.devices
         await devices_ctrl.poll()

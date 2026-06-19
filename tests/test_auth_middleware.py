@@ -293,11 +293,7 @@ async def test_auth_middleware_unhashed_top_level_path_still_gated(
 
 
 async def test_auth_middleware_ping_is_gated(aiohttp_client: AiohttpClient) -> None:
-    """``/ping`` requires auth — it is NOT in ``_PUBLIC_PATHS`` like ``/version``.
-
-    The legacy online-status map exposes the device inventory, so a
-    regression that adds ``/ping`` to the allowlist must fail here.
-    """
+    """``/ping`` is gated: it exposes the device inventory, so it stays out of ``_PUBLIC_PATHS``."""
     db = _StubDeviceBuilder(_StubSettings(using_password=True))
     client = await aiohttp_client(_build_app(db))
 
