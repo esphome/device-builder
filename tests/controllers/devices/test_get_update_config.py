@@ -257,10 +257,11 @@ async def test_update_config_writes_before_requesting_reload(
     assert yaml_path.read_text(encoding="utf-8") == new_content
 
 
-async def test_update_config_refuses_empty_content(
-    tmp_path: Path, make_controller: MakeControllerFactory
+@pytest.mark.parametrize("content", ["", "  \n\t\n"])
+async def test_update_config_refuses_blank_secrets_without_allow_wipe(
+    tmp_path: Path, make_controller: MakeControllerFactory, content: str
 ) -> None:
-    """Empty content raises ``INVALID_ARGS``; file and side effects untouched."""
+    """Clearing secrets.yaml without ``allow_wipe`` raises ``INVALID_ARGS``; file untouched."""
     controller = make_controller(tmp_path)
     regenerated = _stub_regenerate(controller)
     target = tmp_path / "secrets.yaml"
@@ -268,7 +269,7 @@ async def test_update_config_refuses_empty_content(
     target.write_text(original, encoding="utf-8")
 
     with pytest.raises(CommandError) as excinfo:
-        await controller.update_config(configuration="secrets.yaml", content="")
+        await controller.update_config(configuration="secrets.yaml", content=content)
 
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
     assert target.read_text(encoding="utf-8") == original
@@ -276,23 +277,57 @@ async def test_update_config_refuses_empty_content(
     assert controller._scanner.calls == []
 
 
-async def test_update_config_refuses_whitespace_only_content(
+@pytest.mark.parametrize("content", ["", "   \n\n"])
+async def test_update_config_wipes_secrets_with_allow_wipe(
+    tmp_path: Path, make_controller: MakeControllerFactory, content: str
+) -> None:
+    """``allow_wipe=True`` clears secrets.yaml (the confirmed destructive save)."""
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
+    target = tmp_path / "secrets.yaml"
+    target.write_text("wifi_password: hunter2\n", encoding="utf-8")
+
+    await controller.update_config(configuration="secrets.yaml", content=content, allow_wipe=True)
+
+    assert target.read_text(encoding="utf-8") == content
+
+
+async def test_update_config_refuses_empty_device_yaml_even_with_allow_wipe(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """Whitespace-only content raises ``INVALID_ARGS``; file and side effects untouched."""
+    """``allow_wipe`` is secrets-scoped; an empty device YAML is still refused."""
     controller = make_controller(tmp_path)
     regenerated = _stub_regenerate(controller)
-    target = tmp_path / "secrets.yaml"
-    original = "wifi_password: hunter2\n"
+    target = tmp_path / "kitchen.yaml"
+    original = "esphome:\n  name: kitchen\n"
     target.write_text(original, encoding="utf-8")
 
     with pytest.raises(CommandError) as excinfo:
-        await controller.update_config(configuration="secrets.yaml", content="  \n\t\n")
+        await controller.update_config(configuration="kitchen.yaml", content="", allow_wipe=True)
 
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "delete action" in excinfo.value.message
     assert target.read_text(encoding="utf-8") == original
     assert regenerated == []
     assert controller._scanner.calls == []
+
+
+async def test_update_config_rejects_non_bool_allow_wipe(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A non-boolean ``allow_wipe`` is rejected with ``INVALID_ARGS``."""
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.update_config(
+            configuration="secrets.yaml",
+            content="",
+            allow_wipe="yes",  # type: ignore[arg-type]
+        )
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "allow_wipe" in excinfo.value.message
 
 
 async def test_update_config_writes_valid_secrets_yaml(
