@@ -1,5 +1,6 @@
 import { ESPLoader, Transport } from "esptool-js";
 import { validateEspImage } from "./image-magic";
+import { hardResetChip } from "./reset";
 import type {
   FirmwareMessage,
   OutboundMessage,
@@ -447,7 +448,9 @@ async function runFlash(files: FileToFlash[], erase: boolean): Promise<void> {
     } catch {
       // tolerate; openLiveLogPort falls back to VID/PID matching
     }
-    await esploader.after(); // hard reset into the new firmware
+    // Reset into the app. esploader.after() only toggles RTS, which leaves the
+    // chip in the stub bootloader (firmware never boots); use a real strategy.
+    await hardResetChip(esploader, transport, port);
     flashDone = true;
     setState(
       "done",
