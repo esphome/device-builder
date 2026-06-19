@@ -217,6 +217,9 @@ async def test_create_device_emits_minimal_stub_when_no_board_or_file_content(
     about to edit.
     """
     ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    # Wi-Fi secrets present (production bootstraps placeholders), so the stub
+    # emits the !secret wifi block.
+    (tmp_path / "secrets.yaml").write_text('wifi_ssid: "x"\nwifi_password: "y"\n', encoding="utf-8")
     boards = StubBoardLookups(ctrl)
     # Catalog returns a board for ``esp32dev`` to model the realistic
     # scenario flagged in review: many curated entries share that
@@ -233,12 +236,34 @@ async def test_create_device_emits_minimal_stub_when_no_board_or_file_content(
     assert "esp32:\n  board: esp32dev\n" in content
     assert "Replace this with your actual platform" in content
     assert "api:\n  encryption:\n    key:" in content
+    assert "  ssid: !secret wifi_ssid\n" in content
     assert ctrl._scanner.calls == [("scan",)]
     # Stub branch deliberately skips the catalog lookup so an
     # arbitrary entry sharing ``esp32dev`` doesn't get pinned to
     # this device's metadata before the user picks real hardware.
     pio_lookup.assert_not_called()
     variant_lookup.assert_not_called()
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_create_device_minimal_stub_omits_wifi_without_secrets(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """No board / no file_content / no wifi secrets → no-network stub (no ``!secret``)."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    StubBoardLookups(ctrl)
+    # No secrets.yaml on disk → wifi_ssid/wifi_password undefined, so a
+    # generated !secret reference would not resolve. The stub must omit it.
+    assert not (tmp_path / "secrets.yaml").exists()
+
+    result = await ctrl.create_device(name="kitchen")
+
+    content = (tmp_path / result.configuration).read_text("utf-8")
+    assert "esp32:\n  board: esp32dev\n" in content
+    assert "!secret" not in content
+    assert "wifi:" not in content.splitlines()
+    assert "api:" not in content.splitlines()
+    assert "No Wi-Fi secrets are set" in content
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")

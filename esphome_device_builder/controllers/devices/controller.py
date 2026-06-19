@@ -25,7 +25,12 @@ from ...helpers.device_yaml import (
     configuration_stem,
 )
 from ...helpers.event_bus import Event
-from ...helpers.secrets_state import SecretsContentError, validate_secrets_content
+from ...helpers.secrets_state import (
+    SecretsContentError,
+    read_secrets_yaml,
+    validate_secrets_content,
+    wifi_secrets_defined,
+)
 from ...helpers.storage import ShutdownCallback
 from ...models import (
     AddComponentResponse,
@@ -503,8 +508,27 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         ssid: str,
         psk: str,
     ) -> tuple[str, mutations_yaml.CreateYamlSource]:
+        # Read secrets only where the generator may emit !secret: skip
+        # file_content (user YAML as-is) and a literal ssid (inlines). The stub
+        # and a board template with no literal ssid qualify; a no-native-Wi-Fi
+        # board with no ssid also reads here but ignores the result (gating that
+        # out would need the board's Wi-Fi capability before the read).
+        wifi_secrets_available = True
+        if not file_content and not (board and ssid):
+            loop = asyncio.get_running_loop()
+            secrets = await loop.run_in_executor(
+                None, read_secrets_yaml, self._db.settings.config_dir
+            )
+            wifi_secrets_available = wifi_secrets_defined(secrets)
         return await mutations_yaml.yaml_content_for_create(
-            name, friendly, board, file_content, ssid, psk, catalog=self._db.components
+            name,
+            friendly,
+            board,
+            file_content,
+            ssid,
+            psk,
+            wifi_secrets_available=wifi_secrets_available,
+            catalog=self._db.components,
         )
 
     async def _validate_rewritten_yaml_or_raise(

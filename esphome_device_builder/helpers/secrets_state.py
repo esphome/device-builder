@@ -147,6 +147,26 @@ def is_wifi_unconfigured(secrets: dict | None) -> bool:
     return val.strip() in _UNCONFIGURED_WIFI_SSID_VALUES
 
 
+def wifi_secrets_defined(secrets: dict | None) -> bool:
+    """
+    Return True when a generated ``!secret`` Wi-Fi block would validate.
+
+    ``wifi_ssid`` must be a non-empty string (ESPHome's ``cv.ssid`` rejects an
+    empty SSID) and ``wifi_password`` a string — empty is allowed (open
+    networks), but ``null`` / non-string is rejected by ``cv.string_strict``, so
+    those count as undefined. A seeded placeholder still counts (non-empty and
+    validates), unlike :func:`is_wifi_unconfigured`.
+    """
+    if secrets is None:
+        return False
+    ssid = secrets.get("wifi_ssid")
+    return (
+        isinstance(ssid, str)
+        and ssid.strip() != ""
+        and isinstance(secrets.get("wifi_password"), str)
+    )
+
+
 def merge_secrets_file(src: Path, dest: Path) -> None:
     """
     Merge *src* secrets into *dest*, adding only keys *dest* lacks.
