@@ -37,7 +37,7 @@ from esphome_device_builder.controllers.devices.mutations_yaml import (
 )
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.yaml import _safe_yaml_scalar
-from esphome_device_builder.models import ErrorCode
+from esphome_device_builder.models import ComponentCatalogEntry, ComponentCategory, ErrorCode
 
 from .conftest import MakeControllerFactory, StubBoardLookups
 
@@ -613,9 +613,11 @@ async def test_create_device_template_invalid_yaml_surfaces_internal_error(
     board.hardware.connectivity = []
     board.name = "Generic ESP32-C3"
     board.manufacturer = "Generic"
-    # Empty default_components skips the awaitable catalog resolver
-    # path — this test only exercises the generator failure mode.
+    # Empty default_components / featured_components skip the awaitable
+    # catalog resolver paths — this test only exercises the generator
+    # failure mode.
     board.default_components = []
+    board.featured_components = []
     ctrl._db.boards.get_board = AsyncMock(return_value=board)
     ctrl._db.editor.validate_yaml = AsyncMock(
         return_value={
@@ -768,9 +770,10 @@ async def test_create_device_with_board_id_overwrites_archived_board_id(
     new_board.id = "rp2040-new-board"
     new_board.esphome.platform = "rp2040"
     new_board.template = None
-    # Skip the awaitable default-components resolver — this test
-    # only cares about the metadata-overwrite path.
+    # Skip the awaitable default- / network-components resolvers — this
+    # test only cares about the metadata-overwrite path.
     new_board.default_components = []
+    new_board.featured_components = []
     ctrl._db.boards.get_board = AsyncMock(return_value=new_board)
 
     await ctrl.create_device(name="kitchen", board_id="rp2040-new-board")
@@ -807,3 +810,115 @@ async def test_yaml_content_for_create_threads_default_components_through(
     assert "web_server:" in yaml
     assert "switch:" in yaml
     assert "platform: gpio" in yaml
+
+
+@pytest.mark.xdist_group("catalog")
+async def test_yaml_content_for_create_defaults_ethernet_board_to_wired(
+    session_component_catalog: Any,
+) -> None:
+    """An onboard-ethernet board defaults to ``ethernet:`` with no ``wifi:``.
+
+    Pins the auto-pull wire-up: buying a wired board is the signal —
+    with no ``ssid`` the board's network suggested hardware is resolved
+    and the Wi-Fi block suppressed, regardless of ``secrets.yaml`` state.
+    """
+    board = await session_component_catalog._db.boards.get_board(board_id="wt32-eth01")
+    assert board is not None
+    yaml_text, source = await yaml_content_for_create(
+        name="wt32",
+        friendly="WT32",
+        board=board,
+        file_content=None,
+        ssid="",
+        psk="",
+        catalog=session_component_catalog,
+    )
+    assert source == "template"
+    assert "ethernet:" in yaml_text
+    assert "wifi:" not in yaml_text
+
+
+@pytest.mark.xdist_group("catalog")
+async def test_yaml_content_for_create_keeps_wifi_for_non_ethernet_board(
+    session_component_catalog: Any,
+) -> None:
+    """A board without onboard ethernet still gets the ``wifi:`` block.
+
+    Exercises the empty-resolve path: a board whose ``featured_components``
+    carry no network provider resolves to no network component, so Wi-Fi
+    stays the default.
+    """
+    board = await session_component_catalog._db.boards.get_board(board_id="apollo-esk-1")
+    assert board is not None
+    yaml_text, _ = await yaml_content_for_create(
+        name="apollo",
+        friendly="Apollo",
+        board=board,
+        file_content=None,
+        ssid="",
+        psk="",
+        catalog=session_component_catalog,
+    )
+    assert "wifi:" in yaml_text
+    assert "ethernet:" not in yaml_text
+
+
+@pytest.mark.xdist_group("catalog")
+async def test_yaml_content_for_create_keeps_wifi_when_ssid_supplied(
+    session_component_catalog: Any,
+) -> None:
+    """Explicit Wi-Fi credentials opt an ethernet board back into Wi-Fi.
+
+    A user typing an SSID in the wizard wants Wi-Fi; the ethernet
+    suggested hardware must not displace the credentials they supplied.
+    """
+    board = await session_component_catalog._db.boards.get_board(board_id="wt32-eth01")
+    assert board is not None
+    yaml_text, _ = await yaml_content_for_create(
+        name="wt32",
+        friendly="WT32",
+        board=board,
+        file_content=None,
+        ssid="MyNetwork",
+        psk="hunter2",
+        catalog=session_component_catalog,
+    )
+    assert "wifi:" in yaml_text
+    assert "MyNetwork" in yaml_text
+    assert "ethernet:" not in yaml_text
+
+
+async def test_yaml_content_for_create_skips_network_pull_when_default_already_networked() -> None:
+    """A board already providing a network via default_components isn't double-injected.
+
+    Pins the dedupe guard: when ``resolve_default_components`` already
+    supplies a network provider (``ethernet``), the featured auto-pull is
+    skipped so ``merge_component_yaml`` never emits the block twice.
+    """
+    board = MagicMock()
+    board.id = "wired-board"
+    board.name = "Wired Board"
+    board.manufacturer = ""
+    board.esphome.platform = "esp32"
+    board.esphome.variant = "esp32"
+    board.esphome.framework = "esp-idf"
+    board.esphome.board = ""
+    board.hardware.flash_size = "4MB"
+    board.hardware.connectivity = []
+    board.default_components = [object()]
+    board.featured_components = [object()]
+
+    eth = ComponentCatalogEntry(
+        id="ethernet", name="ethernet", description="", category=ComponentCategory.CORE
+    )
+    catalog = MagicMock()
+    catalog.resolve_default_components = AsyncMock(return_value=[(eth, {"type": "LAN8720"})])
+    catalog.resolve_network_components = AsyncMock(return_value=[(eth, {"type": "LAN8720"})])
+
+    yaml_text, source = await yaml_content_for_create(
+        name="dev", friendly="Dev", board=board, file_content=None, ssid="", psk="", catalog=catalog
+    )
+
+    assert source == "template"
+    catalog.resolve_network_components.assert_not_called()
+    assert yaml_text.count("ethernet:") == 1

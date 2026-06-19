@@ -9,9 +9,14 @@ Used as a pre-commit hook and in CI.
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import sys
+import urllib.error
+import urllib.request
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import yaml
@@ -31,6 +36,13 @@ COMPONENTS_BODIES_DIR = DEFINITIONS_DIR / "components"
 # Categories excluded from featured-component eligibility — these belong in
 # the dedicated "Add core configuration" dialog, not in board recommendations.
 _FEATURED_EXCLUDED_CATEGORIES = {"core", "ota", "time", "update"}
+
+# Network components offered as board "suggested hardware" despite their
+# ``core`` category — auto-pulled in place of wifi: when a board has onboard
+# wired/Thread networking. Runtime counterpart is
+# ``NETWORK_PROVIDER_COMPONENT_IDS`` in helpers/device_yaml/_generation.py;
+# keep both in sync when adding a provider (this script stays import-free).
+_FEATURED_CATEGORY_EXCEPTIONS = {"ethernet"}
 
 # Required shape for featured-component ids: lowercase letters, digits, and
 # underscores only, starting with a letter. Mirrors what ESPHome accepts
@@ -347,7 +359,10 @@ def _validate_featured_component(  # noqa: C901
         return errors
 
     component = components_index[component_id]
-    if component.get("category") in _FEATURED_EXCLUDED_CATEGORIES:
+    if (
+        component.get("category") in _FEATURED_EXCLUDED_CATEGORIES
+        and component_id not in _FEATURED_CATEGORY_EXCEPTIONS
+    ):
         errors.append(
             f"{path}: component_id '{component_id}' has excluded category "
             f"'{component.get('category')}'; featured components must be "
@@ -498,8 +513,87 @@ def validate_component(manifest: Path) -> list[str]:
     return errors
 
 
+# Browser-like UA: some vendor CDNs 403 the default urllib agent.
+_IMAGE_USER_AGENT = "Mozilla/5.0 (compatible; esphome-device-builder-linkcheck/1.0)"
+_IMAGE_FETCH_TIMEOUT = 15
+_IMAGE_MAX_WORKERS = 32
+
+
+def check_board_images(
+    boards_dir: Path,
+    fetch: Callable[[str], int] | None = None,
+    max_workers: int = _IMAGE_MAX_WORKERS,
+) -> list[str]:
+    """
+    Verify every board manifest ``images:`` URL is reachable (HTTP 2xx).
+
+    Network-gated; returns one error line per unreachable URL. ``fetch``
+    is injectable so tests classify statuses without real I/O.
+    """
+    if fetch is None:
+        fetch = _fetch_image_status
+    url_to_boards = _collect_board_image_urls(boards_dir)
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        statuses = dict(
+            zip(
+                url_to_boards,
+                pool.map(lambda url: _safe_fetch(url, fetch), url_to_boards),
+                strict=True,
+            )
+        )
+    errors: list[str] = []
+    for url, status in statuses.items():
+        if isinstance(status, int) and 200 <= status < 300:
+            continue
+        errors.extend(f"{board_id}: image {url} -> {status}" for board_id in url_to_boards[url])
+    return errors
+
+
+def _collect_board_image_urls(boards_dir: Path) -> dict[str, list[str]]:
+    """Map each unique http(s) ``images:`` URL to the board ids referencing it."""
+    urls: dict[str, list[str]] = {}
+    for manifest in sorted(boards_dir.glob("*/manifest.yaml")):
+        try:
+            data = yaml.safe_load(manifest.read_text(encoding="utf-8"))
+        except yaml.YAMLError:
+            continue
+        if not isinstance(data, dict):
+            continue
+        board_id = manifest.parent.name
+        for img in data.get("images") or []:
+            if isinstance(img, str) and img.startswith(("http://", "https://")):
+                urls.setdefault(img, []).append(board_id)
+    return urls
+
+
+def _safe_fetch(url: str, fetch: Callable[[str], int]) -> int | str:
+    """Run *fetch*, turning any network failure into a reportable string."""
+    try:
+        return fetch(url)
+    except Exception as exc:
+        return f"error: {exc}"
+
+
+def _fetch_image_status(url: str) -> int:
+    """GET *url* and return its HTTP status (4xx/5xx returned, not raised)."""
+    req = urllib.request.Request(url, method="GET", headers={"User-Agent": _IMAGE_USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=_IMAGE_FETCH_TIMEOUT) as resp:
+            return resp.status
+    except urllib.error.HTTPError as exc:
+        return exc.code
+
+
 def main() -> int:
     """Validate all definitions. Returns 0 on success, 1 on errors."""
+    parser = argparse.ArgumentParser(description="Validate definition manifests.")
+    parser.add_argument(
+        "--check-images",
+        action="store_true",
+        help="Also verify board manifest images: URLs resolve (network; opt-in).",
+    )
+    args = parser.parse_args()
+
     all_errors: list[str] = []
 
     components_index = _build_components_index()
@@ -513,6 +607,9 @@ def main() -> int:
     components_dir = DEFINITIONS_DIR / "components"
     for manifest in sorted(components_dir.glob("*/manifest.yaml")):
         all_errors.extend(validate_component(manifest))
+
+    if args.check_images:
+        all_errors.extend(check_board_images(boards_dir))
 
     if all_errors:
         for error in all_errors:

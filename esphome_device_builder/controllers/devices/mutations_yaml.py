@@ -7,7 +7,11 @@ import logging
 from typing import TYPE_CHECKING, Literal
 
 from ...helpers.api import CommandError
-from ...helpers.device_yaml import generate_device_yaml, generate_minimal_stub_yaml
+from ...helpers.device_yaml import (
+    NETWORK_PROVIDER_COMPONENT_IDS,
+    generate_device_yaml,
+    generate_minimal_stub_yaml,
+)
 from ...models import ErrorCode
 
 if TYPE_CHECKING:
@@ -43,15 +47,31 @@ async def yaml_content_for_create(
     wifi_secrets_available: bool = True,
     catalog: ComponentCatalog | None = None,
 ) -> tuple[str, CreateYamlSource]:
-    """Pick the YAML body for ``devices/create`` based on the inputs."""
+    """
+    Pick the YAML body for ``devices/create`` based on the inputs.
+
+    A board with onboard-network suggested hardware (``ethernet:``) is
+    wired by default — the network component is auto-pulled into
+    *defaults*, and the generator drops the ``wifi:`` block in its
+    favour — unless the user supplied an ``ssid``, which opts that
+    device back into Wi-Fi.
+    """
     if file_content:
         return file_content, "user"
     if board:
         defaults = (
             await catalog.resolve_default_components(board)
             if catalog and board.default_components
-            else None
+            else []
         )
+        # Auto-pull onboard ethernet only when the board doesn't already
+        # provide a network through ``default_components`` — a board listing a
+        # provider in both lists would otherwise merge its block twice.
+        already_networked = any(
+            component.id in NETWORK_PROVIDER_COMPONENT_IDS for component, _ in defaults
+        )
+        if catalog and not ssid and not already_networked and board.featured_components:
+            defaults.extend(await catalog.resolve_network_components(board))
         return (
             generate_device_yaml(
                 name,

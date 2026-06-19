@@ -11,6 +11,7 @@ from ...definitions import (
     load_pin_registry_modes_index,
 )
 from ...helpers.api import api_command
+from ...helpers.device_yaml import NETWORK_PROVIDER_COMPONENT_IDS
 from ...helpers.json import loads
 from ...helpers.lazy_catalog import LazyBodyStore
 from ...models import (
@@ -558,6 +559,36 @@ class ComponentCatalog:
             else:
                 out.append((body, dict(entry.fields)))
         return out
+
+    async def resolve_network_components(
+        self,
+        board: BoardCatalogEntry,
+    ) -> list[tuple[ComponentCatalogEntry, dict[str, Any]]]:
+        """
+        Resolve a board's onboard-network suggested hardware to a ``(component, fields)`` pair.
+
+        Networking is a single decision, so the first
+        ``featured_components`` entry whose ``component_id`` is in
+        ``NETWORK_PROVIDER_COMPONENT_IDS`` (``ethernet``) wins — its locked
+        presets seed a wired device in place of Wi-Fi. Returned as a
+        list (at most one) so the caller can ``extend`` *defaults*; empty
+        when the board offers no provider.
+        """
+        for fc in board.featured_components:
+            if fc.component_id not in NETWORK_PROVIDER_COMPONENT_IDS:
+                continue
+            record = self._featured_by_id.get(f"{_FEATURED_PREFIX}{board.id}.{fc.id}")
+            if record is None:
+                continue
+            bodies = await self._load_bodies([record.underlying_id])
+            body = bodies.get(record.underlying_id)
+            if body is None:
+                _LOGGER.warning(
+                    "Board %s network featured %s has no body — skipping", board.id, fc.id
+                )
+                continue
+            return [(body, _apply_featured_presets(record, {}, body))]
+        return []
 
     def _build_featured_registry(self) -> None:
         """Index every featured component from the precomputed map.

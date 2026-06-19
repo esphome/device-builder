@@ -1,4 +1,6 @@
 import { ESPLoader, Transport } from "esptool-js";
+import { validateEspImage } from "./image-magic";
+import { hardResetChip } from "./reset";
 import type {
   FirmwareMessage,
   OutboundMessage,
@@ -25,6 +27,15 @@ let targetOrigin = params.get("origin") || "*";
 
 let firmware: FirmwareMessage | null = null;
 let busy = false;
+let flashDone = false;
+let streaming = false;
+let stopLogs = false;
+// Active log-stream reader, so the Stop button can cancel a blocked read().
+let logReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+
+// Native-USB chips (S3/C3/C6) re-enumerate on reset; wait this long for the
+// running firmware's port to reappear before giving up on logs.
+const LOG_REOPEN_TIMEOUT_MS = 8000;
 
 // --- UI -------------------------------------------------------------------
 
@@ -39,25 +50,34 @@ document.body.innerHTML = `
     </div>
     <p id="hint"></p>
     <div id="status" class="status idle">Waiting for firmware&hellip;</div>
-    <div id="bar" hidden><div id="fill"></div></div>
+    <div id="progress" hidden><div id="bar"><div id="fill"></div></div><span id="pct"></span></div>
     <button id="install" disabled>Connect &amp; install</button>
     <details id="manual">
       <summary>No firmware received? Flash a factory file manually</summary>
       <input id="file" type="file" accept=".bin" />
     </details>
-    <pre id="log"></pre>
+    <details id="logbox">
+      <summary>Show log</summary>
+      <pre id="log"></pre>
+    </details>
   </main>
 `;
 
 const el = <T extends HTMLElement>(id: string) =>
   document.getElementById(id) as T;
 const statusEl = el<HTMLDivElement>("status");
-const barEl = el<HTMLDivElement>("bar");
+const progressEl = el<HTMLDivElement>("progress");
 const fillEl = el<HTMLDivElement>("fill");
+const pctEl = el<HTMLSpanElement>("pct");
 const installBtn = el<HTMLButtonElement>("install");
 const fileInput = el<HTMLInputElement>("file");
 const hintEl = el<HTMLParagraphElement>("hint");
 const logEl = el<HTMLPreElement>("log");
+const logbox = el<HTMLDetailsElement>("logbox");
+
+// CSI escapes (colour, cursor moves) in ESPHome's serial log; strip them so
+// the log shows plain text instead of raw control sequences.
+const ANSI_RE = /\[[\d;?]*[A-Za-z]/g;
 
 hintEl.textContent = opener
   ? "Plug the board into this computer over USB, then press Connect & install."
@@ -65,7 +85,34 @@ hintEl.textContent = opener
 
 function log(line: string): void {
   logEl.textContent += line + "\n";
+  logEl.scrollTop = logEl.scrollHeight;
 }
+
+// esptool-js streams its output here; a \r redraws the current line (progress),
+// so keep only what follows the last \r when flushing a completed line.
+let pending = "";
+function termWrite(data: string): void {
+  pending += data;
+  let nl = pending.indexOf("\n");
+  while (nl >= 0) {
+    log(pending.slice(0, nl).replace(/.*\r/, "").replace(ANSI_RE, ""));
+    pending = pending.slice(nl + 1);
+    nl = pending.indexOf("\n");
+  }
+}
+
+const terminal = {
+  clean(): void {
+    logEl.textContent = "";
+    pending = "";
+  },
+  writeLine(data: string): void {
+    log(data);
+  },
+  write(data: string): void {
+    termWrite(data);
+  },
+};
 
 function post(msg: OutboundMessage): void {
   // targetOrigin narrows from '*' to the opener's real origin once known; see
@@ -74,14 +121,21 @@ function post(msg: OutboundMessage): void {
 }
 
 function setState(state: FlashState, detail: string): void {
-  statusEl.textContent = detail;
   statusEl.className = "status " + state;
+  statusEl.textContent = "";
+  if (state === "connecting" || state === "installing") {
+    const spin = document.createElement("span");
+    spin.className = "spinner";
+    statusEl.appendChild(spin);
+  }
+  statusEl.appendChild(document.createTextNode(detail));
   post({ type: "esphome-web-flash:state", state, detail });
 }
 
 function setProgress(pct: number): void {
-  barEl.hidden = false;
+  progressEl.hidden = false;
   fillEl.style.width = pct + "%";
+  pctEl.textContent = pct + "%";
   post({ type: "esphome-web-flash:progress", pct });
 }
 
@@ -127,6 +181,7 @@ window.addEventListener("message", (ev: MessageEvent) => {
     "connecting",
     `Firmware ready${firmware.name ? ": " + firmware.name : ""}. Press Connect & install.`,
   );
+  installBtn.focus();
 });
 
 // Re-announce until firmware arrives: a single 'ready' can race the opener
@@ -167,13 +222,16 @@ async function flashFiles(
   fileArray: FileToFlash[],
   erase: boolean,
   writeProgress: (pct: number) => void,
+  setPhase: (detail: string) => void,
 ): Promise<void> {
   if (erase) {
+    setPhase("Erasing flash… this can take a moment.");
     await esploader.eraseFlash();
   }
   let totalSize = 0;
   for (const f of fileArray) totalSize += f.data.length;
   let totalWritten = 0;
+  setPhase("Writing firmware… keep this tab visible.");
   writeProgress(0);
   await esploader.writeFlash({
     fileArray,
@@ -198,17 +256,151 @@ async function flashFiles(
   writeProgress(100);
 }
 
-async function resetDevice(transport: Transport): Promise<void> {
-  await transport.setRTS(true); // EN -> LOW
-  await sleep(100);
-  await transport.setRTS(false);
+// Same USB device by vendor/product id; both ids must be present so two non-USB
+// ports don't match on undefined === undefined.
+function matchesDevice(a: SerialPortInfo, b: SerialPortInfo): boolean {
+  return (
+    a.usbVendorId !== undefined &&
+    a.usbProductId !== undefined &&
+    a.usbVendorId === b.usbVendorId &&
+    a.usbProductId === b.usbProductId
+  );
+}
+
+// Find and open the live port for the just-reset device. A native-USB chip
+// re-enumerates, so the flashing handle is dead; prefer the genuinely new handle
+// (not present before the reset) so two identical boards don't cross logs, then
+// other VID/PID matches, then the original handle (UART bridges reopen in
+// place). No re-prompt: every candidate is already authorized. Returns the open
+// port, or null with the last error when none came back in time.
+async function openLiveLogPort(
+  oldPort: SerialPort,
+  before: SerialPort[],
+  baud: number,
+  timeoutMs: number,
+): Promise<{ port: SerialPort | null; error?: string }> {
+  const want = oldPort.getInfo();
+  const beforeSet = new Set(before);
+  const deadline = Date.now() + timeoutMs;
+  let lastError = "";
+  for (;;) {
+    if (stopLogs) return { port: null }; // user pressed Stop during the wait
+    let granted: SerialPort[] = [];
+    try {
+      granted = await navigator.serial.getPorts();
+    } catch (err) {
+      lastError = "getPorts failed: " + String(err);
+    }
+    const matches = granted.filter(
+      (p) => p !== oldPort && matchesDevice(p.getInfo(), want),
+    );
+    const candidates = [
+      ...matches.filter((p) => !beforeSet.has(p)), // the re-enumerated handle
+      ...matches.filter((p) => beforeSet.has(p)),
+      oldPort,
+    ];
+    for (const p of candidates) {
+      if (p.readable) return { port: p }; // already open (reset race left it usable)
+      try {
+        await p.open({ baudRate: baud });
+        return { port: p };
+      } catch (err) {
+        // Unusable this round (still re-enumerating, or a transient open
+        // failure); fall through so the original handle is still tried before
+        // we retry the whole round.
+        lastError = "open failed: " + String(err);
+      }
+    }
+    if (Date.now() >= deadline) return { port: null, error: lastError || undefined };
+    await sleep(200);
+  }
+}
+
+// Stream the rebooted device's serial output into the log so a tester can watch
+// the boot end to end. Reads at 115200 (the ESPHome logger default); a board
+// whose logger uses a different baud (or whose USB id changes when running)
+// won't connect, which is surfaced rather than thrown.
+async function streamSerialLogs(
+  oldPort: SerialPort,
+  before: SerialPort[],
+): Promise<void> {
+  streaming = true;
+  logbox.open = true;
+  installBtn.textContent = "Stop logs";
+  installBtn.disabled = false;
+  const { port, error } = await openLiveLogPort(
+    oldPort,
+    before,
+    115200,
+    LOG_REOPEN_TIMEOUT_MS,
+  );
+  if (stopLogs || !port || !port.readable) {
+    if (port) {
+      try {
+        await port.close();
+      } catch {
+        // already closed
+      }
+    }
+    if (!stopLogs) {
+      log(
+        "[serial logs unavailable: " +
+          (error ?? "the device did not re-enumerate in time") +
+          "]",
+      );
+    }
+    streaming = false;
+    return;
+  }
+  // Clear DTR/RTS so reopening the port doesn't reset the chip into the bootloader.
+  try {
+    await port.setSignals({ dataTerminalReady: false, requestToSend: false });
+  } catch {
+    // tolerate; the chip may already be in a fine state
+  }
+  const decoder = new TextDecoder();
+  const reader = port.readable.getReader();
+  logReader = reader;
+  try {
+    for (;;) {
+      if (stopLogs) break;
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (value) termWrite(decoder.decode(value, { stream: true }));
+    }
+  } catch (err) {
+    log("[serial logs ended: " + String(err) + "]");
+  } finally {
+    logReader = null;
+    try {
+      reader.releaseLock();
+    } catch {
+      // already released
+    }
+    try {
+      await port.close();
+    } catch {
+      // already closed
+    }
+    streaming = false;
+  }
 }
 
 async function runFlash(files: FileToFlash[], erase: boolean): Promise<void> {
   if (busy) return;
+  const invalid = validateEspImage(files);
+  if (invalid) {
+    setState("error", invalid);
+    return;
+  }
   busy = true;
   installBtn.disabled = true;
   fileInput.disabled = true;
+  // Clear any stale bar/percent from a previous failed attempt.
+  stopLogs = false;
+  progressEl.hidden = true;
+  fillEl.style.width = "0%";
+  pctEl.textContent = "";
 
   let port: SerialPort;
   try {
@@ -226,6 +418,7 @@ async function runFlash(files: FileToFlash[], erase: boolean): Promise<void> {
     transport,
     baudrate: 115200,
     enableTracing: false,
+    terminal,
   });
 
   try {
@@ -244,11 +437,34 @@ async function runFlash(files: FileToFlash[], erase: boolean): Promise<void> {
     }
     log("Detected chip: " + chipName);
 
-    setState("installing", "Installing… keep this tab visible.");
-    await flashFiles(esploader, files, erase, setProgress);
-    await esploader.after();
-    await resetDevice(transport);
-    setState("done", "Installed. The device is rebooting.");
+    await flashFiles(esploader, files, erase, setProgress, (detail) =>
+      setState("installing", detail),
+    );
+    // Snapshot authorized ports before the reset so the live-log re-acquire can
+    // tell the genuinely re-enumerated handle from an already-present board.
+    let portsBeforeReset: SerialPort[] = [];
+    try {
+      portsBeforeReset = await navigator.serial.getPorts();
+    } catch {
+      // tolerate; openLiveLogPort falls back to VID/PID matching
+    }
+    // Reset into the app. esploader.after() only toggles RTS, which leaves the
+    // chip in the stub bootloader (firmware never boots); use a real strategy.
+    await hardResetChip(esploader, transport, port);
+    flashDone = true;
+    setState(
+      "done",
+      opener
+        ? "Installed and rebooting. Live serial logs below; close this tab when finished."
+        : "Installed and rebooting. Live serial logs below; press Stop logs when finished.",
+    );
+    // Release the flashing handle before re-acquiring the live (re-enumerated) port.
+    try {
+      await transport.disconnect();
+    } catch {
+      // already closed
+    }
+    await streamSerialLogs(port, portsBeforeReset);
   } catch (err) {
     setState("error", "Installation failed: " + String(err));
   } finally {
@@ -258,12 +474,31 @@ async function runFlash(files: FileToFlash[], erase: boolean): Promise<void> {
       // already closed
     }
     busy = false;
-    installBtn.disabled = false;
     fileInput.disabled = false;
+    // Only offer the self-close action when an opener exists; window.close() is
+    // blocked on a tab the user navigated to directly.
+    if (flashDone && opener) {
+      installBtn.textContent = "Close this tab";
+      installBtn.disabled = false;
+    } else if (flashDone) {
+      installBtn.textContent = "Done";
+      installBtn.disabled = true;
+    } else {
+      installBtn.disabled = false;
+    }
   }
 }
 
 installBtn.addEventListener("click", async () => {
+  if (streaming) {
+    stopLogs = true; // end the live-log read; the run's finally takes over
+    logReader?.cancel().catch(() => {}); // unblock a pending read() immediately
+    return;
+  }
+  if (flashDone) {
+    window.close();
+    return;
+  }
   if (firmware) {
     const files = firmware.parts.map((p) => ({
       data: new Uint8Array(p.data),

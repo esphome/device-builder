@@ -1,0 +1,56 @@
+id: lilygo-t-eth-poe
+name: LilyGO T-ETH-POE
+description: LilyGO T-ETH-POE with ESP32 and onboard LAN8720 Ethernet (802.3af PoE). Compact wired-network board
+  for reliable, low-latency home automation nodes.
+manufacturer: LilyGO
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: esp-idf
+hardware:
+  flash_size: 4MB
+  connectivity:
+  - wifi
+  - bluetooth
+  - ethernet
+tags:
+- compact
+- poe
+docs_url: https://esphome.io/components/ethernet.html
+featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  description: Built-in LAN8720 Ethernet PHY — wired networking with no Wi-Fi setup.
+  fields:
+    type:
+      value: LAN8720
+      locked: true
+    mdc_pin:
+      value: GPIO23
+      locked: true
+    mdio_pin:
+      value: GPIO18
+      locked: true
+    clk:
+      value:
+        pin: GPIO17
+        mode: CLK_OUT
+      locked: true
+    phy_addr:
+      value: 0
+      locked: true
+pins:
+- gpio: 23
+  label: GPIO23
+  available: false
+  occupied_by: Ethernet MDC
+- gpio: 18
+  label: GPIO18
+  available: false
+  occupied_by: Ethernet MDIO
+- gpio: 17
+  label: GPIO17
+  available: false
+  occupied_by: Ethernet CLK

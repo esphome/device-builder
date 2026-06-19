@@ -1,0 +1,65 @@
+id: seeed-xiao-esp32s3-w5500
+name: Seeed Studio XIAO ESP32-S3 + W5500 Ethernet
+description: Seeed Studio XIAO ESP32-S3 paired with a W5500 Ethernet controller over SPI (the standard XIAO
+  W5500 wiring). Wired networking with Wi-Fi/BLE still available.
+manufacturer: Seeed Studio
+esphome:
+  platform: esp32
+  board: seeed_xiao_esp32s3
+  variant: esp32s3
+  framework: esp-idf
+hardware:
+  flash_size: 8MB
+  cpu_frequency: 240MHz
+  connectivity:
+  - wifi
+  - bluetooth
+  - ethernet
+tags:
+- compact
+docs_url: https://esphome.io/components/ethernet.html
+featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  description: W5500 Ethernet controller (SPI) — wired networking with no Wi-Fi setup.
+  fields:
+    type:
+      value: W5500
+      locked: true
+    clk_pin:
+      value: GPIO7
+      locked: true
+    mosi_pin:
+      value: GPIO9
+      locked: true
+    miso_pin:
+      value: GPIO8
+      locked: true
+    cs_pin:
+      value: GPIO2
+      locked: true
+    interrupt_pin:
+      value: GPIO10
+      locked: true
+pins:
+- gpio: 7
+  label: GPIO7
+  available: false
+  occupied_by: Ethernet CLK
+- gpio: 9
+  label: GPIO9
+  available: false
+  occupied_by: Ethernet MOSI
+- gpio: 8
+  label: GPIO8
+  available: false
+  occupied_by: Ethernet MISO
+- gpio: 2
+  label: GPIO2
+  available: false
+  occupied_by: Ethernet CS
+- gpio: 10
+  label: GPIO10
+  available: false
+  occupied_by: Ethernet INT

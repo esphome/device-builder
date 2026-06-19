@@ -1,0 +1,51 @@
+name: Check board images
+
+# Verifies that every board manifest ``images:`` URL still resolves.
+# Curated manifests hotlink vendor CDNs (olimex, m5stack, wemos, ...)
+# that can rename or remove images; a 404 there ships a broken
+# thumbnail in the board picker with no other signal. This turns such
+# a break into a failing scheduled run instead.
+#
+# Kept independent of the catalog-sync workflows so network flakiness
+# here never blocks a sync PR.
+#
+# Triggers
+# --------
+# - schedule : weekly Monday at 05:00 UTC.
+# - manual   : ``workflow_dispatch`` for ad-hoc checks.
+
+on:
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-board-images
+  cancel-in-progress: false
+
+jobs:
+  check-images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
+        with:
+          enable-cache: true
+
+      - name: Install package (test extra for jsonschema)
+        run: uv pip install --system -e '.[test]'
+
+      - name: Check board image URLs
+        run: python script/validate_definitions.py --check-images

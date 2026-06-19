@@ -17,6 +17,7 @@ from __future__ import annotations
 from esphome.storage_json import StorageJSON
 
 from ._generation import (
+    NETWORK_PROVIDER_COMPONENT_IDS,
     _has_native_wifi,
     _infer_native_wifi,
     generate_device_yaml,
@@ -48,6 +49,7 @@ from ._parsing import (
 
 __all__ = [
     "DEFAULT_API_PORT",
+    "NETWORK_PROVIDER_COMPONENT_IDS",
     "EsphomeMeta",
     "StorageJSON",
     "_has_native_wifi",

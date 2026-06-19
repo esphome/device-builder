@@ -22,6 +22,7 @@ import asyncio
 import json
 import logging
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -34,11 +35,13 @@ from esphome_device_builder.controllers.components import (
 )
 from esphome_device_builder.controllers.components import _resolve as components_module
 from esphome_device_builder.models import (
+    ComponentCatalogEntry,
     ComponentCatalogIndexEntry,
     ComponentCategory,
     ConfigEntry,
     ConfigEntryType,
     FeaturedComponent,
+    FieldPreset,
 )
 
 
@@ -1094,3 +1097,55 @@ def test_load_populates_pin_registry_modes(tmp_path: Path) -> None:
         cat.load()
 
     assert cat._pin_registry_modes == {"esp32": ["input", "output", "pullup"]}
+
+
+async def test_resolve_network_components_returns_only_first_match() -> None:
+    """Only the first matching provider is resolved — networking is one decision.
+
+    Guards the documented OpenThread extension path: a board offering two
+    network providers must not seed two network blocks into the YAML.
+    """
+    cat = ComponentCatalog()
+    eth_body = ComponentCatalogEntry(
+        id="ethernet", name="ethernet", description="", category=ComponentCategory.CORE
+    )
+    cat._featured_by_id = {
+        "featured.dual-net.eth_a": _FeaturedRecord(
+            full_id="featured.dual-net.eth_a",
+            board_id="dual-net",
+            featured=FeaturedComponent(
+                id="eth_a",
+                component_id="ethernet",
+                fields={"type": FieldPreset(value="A", locked=True)},
+            ),
+            underlying_id="ethernet",
+        ),
+        "featured.dual-net.eth_b": _FeaturedRecord(
+            full_id="featured.dual-net.eth_b",
+            board_id="dual-net",
+            featured=FeaturedComponent(
+                id="eth_b",
+                component_id="ethernet",
+                fields={"type": FieldPreset(value="B", locked=True)},
+            ),
+            underlying_id="ethernet",
+        ),
+    }
+
+    async def fake_load(component_ids: list[str]) -> dict[str, ComponentCatalogEntry]:
+        return {"ethernet": eth_body}
+
+    cat._load_bodies = fake_load  # type: ignore[assignment]
+    board = SimpleNamespace(
+        id="dual-net",
+        featured_components=[
+            FeaturedComponent(id="eth_a", component_id="ethernet"),
+            FeaturedComponent(id="eth_b", component_id="ethernet"),
+        ],
+    )
+
+    pairs = await cat.resolve_network_components(board)
+
+    assert len(pairs) == 1
+    # The first featured entry (eth_a) wins, not the second.
+    assert pairs[0][1]["type"] == "A"

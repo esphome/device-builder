@@ -1332,7 +1332,13 @@ def _emit_manifest(record: dict[str, Any], src: _DeviceSource) -> Path | None:
     older syncs is removed so the wheel doesn't carry stale mirrors.
     """
     target_dir = _BOARDS_DIR / record["id"]
-    if not _is_writable_target(target_dir):
+    manifest_path = target_dir / "manifest.yaml"
+    prior = _read_manifest_dict(manifest_path)
+    # An existing manifest the sync doesn't own is a slug collision —
+    # leave it untouched. Hand-curated boards (no ``source.type``) and
+    # unparsable files both read as "not imported"; an unreadable file
+    # ``prior is None`` so guard on the file existing, not on the parse.
+    if manifest_path.is_file() and not _imported_remote_id(prior)[0]:
         _LOGGER.warning(
             "Skipping %s — slug collides with a hand-curated board (no source.type)",
             record["id"],
@@ -1344,33 +1350,68 @@ def _emit_manifest(record: dict[str, Any], src: _DeviceSource) -> Path | None:
     if images_dir.is_dir():
         shutil.rmtree(images_dir)
 
-    manifest_path = target_dir / "manifest.yaml"
+    if prior is not None:
+        _graft_local_ethernet(record, prior)
     manifest_path.write_text(_dump_manifest(record), encoding="utf-8")
     return target_dir
 
 
-def _is_writable_target(target_dir: Path) -> bool:
-    """Return True when the sync owns *target_dir* (or it doesn't exist yet)."""
-    manifest = target_dir / "manifest.yaml"
-    if not manifest.is_file():
-        return True
-    is_imported, _ = _is_imported_manifest(manifest)
-    return is_imported
+def _graft_local_ethernet(record: dict[str, Any], prior: dict[str, Any]) -> None:
+    """Re-graft a hand-added onboard-ethernet block from *prior* onto *record*.
+
+    Carries the ``ethernet`` ``featured_components`` entry, the
+    ``ethernet`` connectivity flag, and any ``occupied_by: Ethernet …``
+    pins — none of which the upstream importer can mine.
+    """
+    preserved = [
+        fc
+        for fc in prior.get("featured_components") or []
+        if isinstance(fc, dict) and fc.get("component_id") == "ethernet"
+    ]
+    if not preserved:
+        return
+    existing = record.setdefault("featured_components", [])
+    existing_ids = {fc.get("id") for fc in existing if isinstance(fc, dict)}
+    # Prepend so the network provider sorts ahead of upstream entities.
+    record["featured_components"] = [
+        fc for fc in preserved if fc.get("id") not in existing_ids
+    ] + existing
+    connectivity = record.setdefault("hardware", {}).setdefault("connectivity", [])
+    if "ethernet" not in connectivity:
+        connectivity.append("ethernet")
+    eth_pins = [
+        p
+        for p in prior.get("pins") or []
+        if isinstance(p, dict) and str(p.get("occupied_by", "")).startswith("Ethernet")
+    ]
+    pins = record.setdefault("pins", [])
+    declared = {p.get("gpio") for p in pins if isinstance(p, dict)}
+    pins.extend(p for p in eth_pins if p.get("gpio") not in declared)
 
 
-def _is_imported_manifest(manifest_path: Path) -> tuple[bool, str | None]:
-    """Return ``(is_imported, remote_id)`` for an existing board manifest."""
+def _read_manifest_dict(manifest_path: Path) -> dict[str, Any] | None:
+    """Parse an existing ``manifest.yaml`` to a dict, or ``None`` if missing/unreadable."""
+    if not manifest_path.is_file():
+        return None
     try:
         data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError):
-        return False, None
-    if not isinstance(data, dict):
-        return False, None
-    source = data.get("source")
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _imported_remote_id(prior: dict[str, Any] | None) -> tuple[bool, str | None]:
+    """Return ``(is_imported, remote_id)`` for an already-parsed manifest dict."""
+    source = prior.get("source") if prior is not None else None
     if not isinstance(source, dict) or source.get("type") != _SOURCE_TYPE:
         return False, None
     remote_id = source.get("remote_id")
     return True, remote_id if isinstance(remote_id, str) else None
+
+
+def _is_imported_manifest(manifest_path: Path) -> tuple[bool, str | None]:
+    """Return ``(is_imported, remote_id)`` for an existing board manifest."""
+    return _imported_remote_id(_read_manifest_dict(manifest_path))
 
 
 def _prune_removed(active_remote_ids: set[str]) -> list[str]:
