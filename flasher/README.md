@@ -1,4 +1,11 @@
-# Device Builder USB flasher (test site)
+# Device Builder USB flasher (development / testing only)
+
+> **This is a development site, not production.** The production flasher is
+> <https://web.esphome.io/>. This page exists only to develop and verify the
+> dashboard flashing flow end to end, so we can prove it out **without touching
+> the production site**. The real change is a follow-up PR to web.esphome.io
+> (`esphome/dashboard`) that adds the same `postMessage`-ingest mode; once that
+> lands the dashboard points there and this page retires.
 
 A tiny static page that flashes ESP firmware over **Web Serial**, used to unblock
 USB flashing from the Home Assistant add-on dashboard.

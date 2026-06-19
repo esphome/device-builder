@@ -24,6 +24,12 @@ let busy = false;
 document.body.innerHTML = `
   <main>
     <h1>ESPHome Device Builder USB flasher</h1>
+    <div class="devbanner">
+      <strong>Development build, for testing only.</strong> The production
+      flasher is <a href="https://web.esphome.io/">web.esphome.io</a>. This page
+      exists only to develop and verify the dashboard flashing flow before that
+      capability is added to the production site. Do not rely on it.
+    </div>
     <p id="hint"></p>
     <div id="status" class="status idle">Waiting for firmware&hellip;</div>
     <div id="bar" hidden><div id="fill"></div></div>
