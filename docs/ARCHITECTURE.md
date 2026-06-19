@@ -641,4 +641,4 @@ Baked into the ESPHome container. Legacy dashboard deprecated.
 
 ## Legacy HA Compatibility
 
-`api/legacy.py` serves: `GET /devices`, `GET /json-config`, `/compile`, `/upload` (spawn protocol).
+`api/legacy.py` serves: `GET /devices`, `GET /ping`, `GET /json-config`, `/compile`, `/upload` (spawn protocol).
