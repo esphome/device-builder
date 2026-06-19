@@ -9,11 +9,41 @@ hardware:
   connectivity:
   - wifi
   - bluetooth
+  - ethernet
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-MB/MB-1_05.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-MB/MB-1_06.jpg
+pins:
+- gpio: 17
+  available: false
+  occupied_by: Ethernet CLK
+- gpio: 18
+  available: false
+  occupied_by: Ethernet MDIO
+- gpio: 23
+  available: false
+  occupied_by: Ethernet MDC
 docs_url: https://devices.esphome.io/devices/KinCony-MB/
 featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  fields:
+    type:
+      value: LAN8720
+      locked: true
+    mdc_pin:
+      value: GPIO23
+      locked: true
+    mdio_pin:
+      value: GPIO18
+      locked: true
+    clk_mode:
+      value: GPIO17_OUT
+      locked: true
+    phy_addr:
+      value: 0
+      locked: true
 - id: sensor_ina226_1
   component_id: sensor.ina226
   fields:

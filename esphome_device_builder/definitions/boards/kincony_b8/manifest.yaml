@@ -10,6 +10,7 @@ hardware:
   connectivity:
   - wifi
   - bluetooth
+  - ethernet
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-B8/B8-1.jpg
 tags:
@@ -69,6 +70,18 @@ pins:
 - gpio: 40
   available: false
   occupied_by: b8-W1-io40
+- gpio: 41
+  available: false
+  occupied_by: Ethernet MISO
+- gpio: 42
+  available: false
+  occupied_by: Ethernet CS
+- gpio: 43
+  available: false
+  occupied_by: Ethernet INT
+- gpio: 44
+  available: false
+  occupied_by: Ethernet RESET
 - gpio: 47
   available: false
   occupied_by: b8-W1-io47
@@ -77,6 +90,31 @@ pins:
   occupied_by: b8-W1-io48
 docs_url: https://devices.esphome.io/devices/KinCony-B8/
 featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  fields:
+    type:
+      value: W5500
+      locked: true
+    clk_pin:
+      value: GPIO1
+      locked: true
+    mosi_pin:
+      value: GPIO2
+      locked: true
+    miso_pin:
+      value: GPIO41
+      locked: true
+    cs_pin:
+      value: GPIO42
+      locked: true
+    interrupt_pin:
+      value: GPIO43
+      locked: true
+    reset_pin:
+      value: GPIO44
+      locked: true
 - id: b8_input01
   component_id: binary_sensor.gpio
   fields:

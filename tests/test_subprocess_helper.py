@@ -60,6 +60,44 @@ async def test_create_subprocess_exec_actually_runs() -> None:
     assert b"subprocess-helper-ok" in stdout
 
 
+async def test_run_subprocess_capture_passes_stdin_data() -> None:
+    """``stdin_data`` is written to the child and echoed back on stdout."""
+    result = await subprocess_helper.run_subprocess_capture(
+        sys.executable,
+        "-c",
+        "import sys; sys.stdout.write(sys.stdin.read())",
+        timeout=10,
+        stdin_data=b"hello-stdin",
+    )
+    assert result.returncode == 0
+    assert result.timed_out is False
+    assert result.stdout == b"hello-stdin"
+
+
+async def test_run_subprocess_capture_discards_stderr_when_not_merged() -> None:
+    """``merge_stderr=False`` keeps stderr out of the captured stdout."""
+    result = await subprocess_helper.run_subprocess_capture(
+        sys.executable,
+        "-c",
+        "import sys; sys.stderr.write('noise'); sys.stdout.write('out')",
+        timeout=10,
+        merge_stderr=False,
+    )
+    assert result.stdout == b"out"
+
+
+async def test_run_subprocess_capture_merges_stderr_by_default() -> None:
+    """The default folds stderr into stdout for a unified stream."""
+    result = await subprocess_helper.run_subprocess_capture(
+        sys.executable,
+        "-c",
+        "import sys; sys.stderr.write('noise'); sys.stdout.write('out')",
+        timeout=10,
+    )
+    assert b"noise" in result.stdout
+    assert b"out" in result.stdout
+
+
 def test_no_call_site_uses_asyncio_create_subprocess_exec_directly() -> None:
     """Guard against regressions: no callsite should bypass the helper.
 

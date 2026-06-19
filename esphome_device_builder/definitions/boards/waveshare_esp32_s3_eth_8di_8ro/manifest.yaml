@@ -9,6 +9,7 @@ hardware:
   connectivity:
   - wifi
   - bluetooth
+  - ethernet
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Waveshare-ESP32-S3-ETH-8DI-8RO/image1.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Waveshare-ESP32-S3-ETH-8DI-8RO/image2.jpg
@@ -51,6 +52,21 @@ pins:
 - gpio: 11
   available: false
   occupied_by: DI8
+- gpio: 12
+  available: false
+  occupied_by: Ethernet INT
+- gpio: 13
+  available: false
+  occupied_by: Ethernet MOSI
+- gpio: 14
+  available: false
+  occupied_by: Ethernet MISO
+- gpio: 15
+  available: false
+  occupied_by: Ethernet CLK
+- gpio: 16
+  available: false
+  occupied_by: Ethernet CS
 - gpio: 38
   available: false
   occupied_by: RGB LED
@@ -59,6 +75,28 @@ pins:
   occupied_by: buzzer
 docs_url: https://devices.esphome.io/devices/Waveshare-ESP32-S3-ETH-8DI-8RO/
 featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  fields:
+    type:
+      value: W5500
+      locked: true
+    clk_pin:
+      value: GPIO15
+      locked: true
+    mosi_pin:
+      value: GPIO13
+      locked: true
+    miso_pin:
+      value: GPIO14
+      locked: true
+    cs_pin:
+      value: GPIO16
+      locked: true
+    interrupt_pin:
+      value: GPIO12
+      locked: true
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:

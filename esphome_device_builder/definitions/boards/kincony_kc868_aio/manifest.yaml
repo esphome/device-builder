@@ -10,6 +10,7 @@ hardware:
   connectivity:
   - wifi
   - bluetooth
+  - ethernet
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-KC868-AIO/kc868-aio.jpg
 tags:
@@ -63,6 +64,15 @@ pins:
 - gpio: 15
   available: false
   occupied_by: aio--light32
+- gpio: 17
+  available: false
+  occupied_by: Ethernet CLK
+- gpio: 18
+  available: false
+  occupied_by: Ethernet MDIO
+- gpio: 23
+  available: false
+  occupied_by: Ethernet MDC
 - gpio: 34
   available: false
   occupied_by: aio--AI-18
@@ -77,6 +87,27 @@ pins:
   occupied_by: aio--AI-17
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-AIO/
 featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  fields:
+    type:
+      value: LAN8720
+      locked: true
+    mdc_pin:
+      value: GPIO23
+      locked: true
+    mdio_pin:
+      value: GPIO18
+      locked: true
+    clk:
+      value:
+        pin: GPIO17
+        mode: CLK_OUT
+      locked: true
+    phy_addr:
+      value: 0
+      locked: true
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:

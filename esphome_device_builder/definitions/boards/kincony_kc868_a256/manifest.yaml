@@ -9,6 +9,7 @@ hardware:
   connectivity:
   - wifi
   - bluetooth
+  - ethernet
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-KC868-A256/kc868-a256.jpg
 tags:
@@ -784,6 +785,25 @@ pins:
   occupied_by: a256-light256
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-A256/
 featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  fields:
+    type:
+      value: LAN8720
+      locked: true
+    mdc_pin:
+      value: GPIO23
+      locked: true
+    mdio_pin:
+      value: GPIO18
+      locked: true
+    clk_mode:
+      value: GPIO17_OUT
+      locked: true
+    phy_addr:
+      value: 0
+      locked: true
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:

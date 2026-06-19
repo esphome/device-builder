@@ -241,6 +241,32 @@ async def test_get_api_key_resolves_through_yaml_loader(
     assert result == {"key": "a/c+inline-key=="}
 
 
+async def test_resolve_device_api_connection_returns_key_and_port(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """The state monitor's resolver returns the encryption key and configured port."""
+    controller = make_controller(tmp_path)
+    (tmp_path / "kitchen.yaml").write_text(
+        "esphome:\n  name: kitchen\napi:\n  port: 6055\n  encryption:\n    key: a/c+inline-key==\n",
+        encoding="utf-8",
+    )
+
+    key, port = await controller._resolve_device_api_connection("kitchen.yaml")
+
+    assert key == "a/c+inline-key=="
+    assert port == 6055
+
+
+async def test_resolve_device_api_connection_raises_on_unloadable_config(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A missing / unparsable YAML raises so the probe records a miss, not a doomed connect."""
+    controller = make_controller(tmp_path)
+    # No kitchen.yaml on disk → load_device_yaml returns None.
+    with pytest.raises(ValueError, match="could not load YAML"):
+        await controller._resolve_device_api_connection("kitchen.yaml")
+
+
 async def test_get_api_key_returns_empty_when_no_encryption(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:

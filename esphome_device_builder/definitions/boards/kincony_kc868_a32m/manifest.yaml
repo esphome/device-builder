@@ -9,6 +9,7 @@ hardware:
   connectivity:
   - wifi
   - bluetooth
+  - ethernet
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-KC868-A32M/kc868-a32m.jpg
 tags:
@@ -38,6 +39,15 @@ pins:
 - gpio: 7
   available: false
   occupied_by: a32m-light32
+- gpio: 17
+  available: false
+  occupied_by: Ethernet CLK
+- gpio: 18
+  available: false
+  occupied_by: Ethernet MDIO
+- gpio: 23
+  available: false
+  occupied_by: Ethernet MDC
 - gpio: 34
   available: false
   occupied_by: a32m-analog-1
@@ -52,6 +62,25 @@ pins:
   occupied_by: a32m-analog-3
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-A32M/
 featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  fields:
+    type:
+      value: LAN8720
+      locked: true
+    mdc_pin:
+      value: GPIO23
+      locked: true
+    mdio_pin:
+      value: GPIO18
+      locked: true
+    clk_mode:
+      value: GPIO17_OUT
+      locked: true
+    phy_addr:
+      value: 0
+      locked: true
 - id: sensor_adc_1
   component_id: sensor.adc
   fields:

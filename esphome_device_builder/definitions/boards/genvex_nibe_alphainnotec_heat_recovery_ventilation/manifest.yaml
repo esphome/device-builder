@@ -9,10 +9,40 @@ hardware:
   connectivity:
   - wifi
   - bluetooth
+  - ethernet
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Genvex-Nibe-AlphaInnotec-heat-recovery-ventilation/ECO-375-mark2-lukket.jpg
+pins:
+- gpio: 0
+  available: false
+  occupied_by: Ethernet CLK
+- gpio: 18
+  available: false
+  occupied_by: Ethernet MDIO
+- gpio: 23
+  available: false
+  occupied_by: Ethernet MDC
 docs_url: https://devices.esphome.io/devices/Genvex-Nibe-AlphaInnotec-heat-recovery-ventilation/
 featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  fields:
+    type:
+      value: LAN8720
+      locked: true
+    mdc_pin:
+      value: GPIO23
+      locked: true
+    mdio_pin:
+      value: GPIO18
+      locked: true
+    clk_mode:
+      value: GPIO0_IN
+      locked: true
+    phy_addr:
+      value: 0
+      locked: true
 - id: binary_sensor_modbus_controller_1
   component_id: binary_sensor.modbus_controller
   fields:

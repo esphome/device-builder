@@ -48,6 +48,7 @@ from script.sync_boards import (
     _LIBRETINY_FAMILIES,
     _NRF52_PLATFORM,
     _RP2040_PLATFORM,
+    _augment_rmii_data_pins,
     _backfill_esp32_variants,
     _backfill_rp2040_mcu,
     _backfill_rp2040_wifi,
@@ -84,6 +85,7 @@ def test_split_artefacts_match_manifests() -> None:
     _backfill_esp32_variants(from_yaml.boards)
     _backfill_rp2040_wifi(from_yaml.boards)
     _backfill_rp2040_mcu(from_yaml.boards)
+    _augment_rmii_data_pins(from_yaml.boards)
     from_disk = load_board_catalog()
     generated = set(_LIBRETINY_FAMILIES) | {_RP2040_PLATFORM, _NRF52_PLATFORM, "esp32", "esp8266"}
     esphome_filled = set(_LIBRETINY_FAMILIES)

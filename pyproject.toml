@@ -260,7 +260,7 @@ select = [
 
 [tool.codespell]
 skip = "*.json,*/definitions/*"
-ignore-words-list = "commitish,hass"
+ignore-words-list = "commitish,hass,emac"
 
 [tool.ruff.lint.pydocstyle]
 convention = "pep257"

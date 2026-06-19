@@ -10,10 +10,14 @@ hardware:
   connectivity:
   - wifi
   - bluetooth
+  - ethernet
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/USR-EG118/USR-EG118.png
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/USR-EG118/USR-M100-expansion.png
 pins:
+- gpio: 0
+  available: false
+  occupied_by: Ethernet CLK
 - gpio: 1
   available: false
   occupied_by: DO1
@@ -23,6 +27,15 @@ pins:
 - gpio: 3
   available: false
   occupied_by: WDT_Trigger
+- gpio: 5
+  available: false
+  occupied_by: Ethernet Power
+- gpio: 18
+  available: false
+  occupied_by: Ethernet MDIO
+- gpio: 23
+  available: false
+  occupied_by: Ethernet MDC
 - gpio: 35
   available: false
   occupied_by: AI1
@@ -35,6 +48,30 @@ pins:
 docs_url: https://devices.esphome.io/devices/USR-EG118/
 product_url: https://www.pusr.com/products/arduino-open-source-iot-gateway.html
 featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  fields:
+    type:
+      value: IP101
+      locked: true
+    mdc_pin:
+      value: GPIO23
+      locked: true
+    mdio_pin:
+      value: GPIO18
+      locked: true
+    clk:
+      value:
+        pin: GPIO0
+        mode: CLK_EXT_IN
+      locked: true
+    phy_addr:
+      value: 1
+      locked: true
+    power_pin:
+      value: GPIO5
+      locked: true
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:

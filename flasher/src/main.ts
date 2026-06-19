@@ -117,7 +117,22 @@ const terminal = {
 function post(msg: OutboundMessage): void {
   // targetOrigin narrows from '*' to the opener's real origin once known; see
   // its declaration. Outbound frames carry no nonce (see protocol.ts).
-  opener?.postMessage(msg, targetOrigin);
+  try {
+    opener?.postMessage(msg, targetOrigin);
+  } catch (err) {
+    // A malformed origin= hash param (e.g. origin=null) makes postMessage throw,
+    // which would wedge the ready handshake. Fall back to '*' so frames keep
+    // flowing; outbound frames carry no nonce (see protocol.ts), so the broader
+    // audience leaks nothing. Log rather than swallow so an unrelated failure
+    // (not just a bad origin) is still visible.
+    console.error("Flasher postMessage failed; falling back to '*':", err);
+    targetOrigin = "*";
+    try {
+      opener?.postMessage(msg, "*");
+    } catch (err2) {
+      console.error("Flasher postMessage failed after origin fallback:", err2);
+    }
+  }
 }
 
 function setState(state: FlashState, detail: string): void {
@@ -167,6 +182,9 @@ window.addEventListener("message", (ev: MessageEvent) => {
   if (!data || data.type !== "esphome-web-flash:firmware") return;
   if (data.nonce !== nonce) return;
   if (!isFlashParts(data.parts)) {
+    // The opener has attached and sent, so stop re-announcing ready even though
+    // the payload is unusable, mirroring the accepted path below.
+    stopReadyRetry();
     setState("error", "Received a malformed firmware payload.");
     return;
   }
@@ -504,7 +522,7 @@ installBtn.addEventListener("click", async () => {
       data: new Uint8Array(p.data),
       address: p.address,
     }));
-    await runFlash(files, firmware.erase ?? true);
+    await runFlash(files, firmware.erase !== false);
     return;
   }
   const file = fileInput.files?.[0];
