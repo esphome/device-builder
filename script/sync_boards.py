@@ -647,6 +647,53 @@ def _augment_nrf52_boards(boards: list[BoardCatalogEntry]) -> None:
         platform_by_id[name] = _NRF52_PLATFORM
 
 
+def _has_rmii_ethernet(board: BoardCatalogEntry) -> bool:
+    """Return True when the board's onboard ethernet is RMII (signalled by ``mdc_pin``)."""
+    return any(
+        fc.component_id == "ethernet" and "mdc_pin" in fc.fields for fc in board.featured_components
+    )
+
+
+def _augment_rmii_data_pins(boards: list[BoardCatalogEntry]) -> None:
+    """
+    Mark the hardware-fixed RMII Ethernet data pins occupied on RMII boards.
+
+    The EMAC consumes TXD0/TXD1/TX_EN/RXD0/RXD1/CRS_DV on fixed GPIOs (per ESP32
+    variant) that never appear in the ``ethernet:`` config, so the pin picker
+    would otherwise offer them as free. Sourced from ESPHome so a pinout revision
+    flows through; the configurable pins (MDC/MDIO/CLK/power) are already marked
+    by the board's featured ethernet component.
+    """
+    module = importlib.import_module("esphome.components.ethernet")
+    # No getattr default: an upstream rename should fail the sync loudly.
+    by_variant: dict[Esp32Variant, dict[int, str]] = {
+        Esp32Variant.ESP32: module.ESP32_RMII_FIXED_PINS,
+        Esp32Variant.ESP32P4: module.ESP32P4_RMII_DEFAULT_PINS,
+    }
+    for board in boards:
+        if board.esphome.platform is not Platform.ESP32 or not _has_rmii_ethernet(board):
+            continue
+        fixed = by_variant.get(board.esphome.variant or Esp32Variant.ESP32)
+        if not fixed:
+            continue
+        roles = {gpio: f"Ethernet {emac.removeprefix('EMAC_')}" for gpio, emac in fixed.items()}
+        # Merge keyed by gpio: replace a free data pin in place (leaving an
+        # already-occupied one, e.g. a CLK on a CLK_OUT board, untouched), and
+        # append any fixed pin the manifest didn't declare at all.
+        merged = {pin.gpio: pin for pin in board.pins}
+        for gpio, role in roles.items():
+            pin = merged.get(gpio)
+            if pin is None:
+                merged[gpio] = BoardPin(
+                    gpio=gpio, label=f"GPIO{gpio}", available=False, occupied_by=role
+                )
+            elif not pin.occupied_by:
+                merged[gpio] = replace(
+                    pin, available=False, occupied_by=role, features=[], notes=None
+                )
+        board.pins = list(merged.values())
+
+
 def build_catalog() -> BoardCatalogResponse:
     """
     Build the catalog as emitted: manifests + ESPHome-derived per-platform pins.
@@ -663,6 +710,7 @@ def build_catalog() -> BoardCatalogResponse:
     _augment_esp32_boards(catalog.boards)
     _augment_esp8266_boards(catalog.boards)
     _augment_nrf52_boards(catalog.boards)
+    _augment_rmii_data_pins(catalog.boards)
     catalog.boards.sort(key=attrgetter("id"))
     return catalog
 
