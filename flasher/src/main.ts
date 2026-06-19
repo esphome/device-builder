@@ -16,6 +16,12 @@ const params = new URLSearchParams(location.hash.slice(1));
 const nonce = params.get("nonce") ?? "";
 const opener = window.opener as Window | null;
 
+// Where outbound frames are sent. The opener may pin its origin in the hash;
+// otherwise this stays '*' until the first valid inbound frame reveals
+// ev.origin, after which we target that. The 'ready' frame, sent before any
+// handoff, is unavoidably '*' when no origin was pinned.
+let targetOrigin = params.get("origin") || "*";
+
 let firmware: FirmwareMessage | null = null;
 let busy = false;
 
@@ -61,9 +67,9 @@ function log(line: string): void {
 }
 
 function post(msg: OutboundMessage): void {
-  // Opener origin is unknown; status carries no secrets, so target '*'. The
-  // nonce scopes the message to this session.
-  opener?.postMessage(msg, "*");
+  // targetOrigin narrows from '*' to the opener's real origin once known; see
+  // its declaration. The nonce scopes every frame to this session.
+  opener?.postMessage(msg, targetOrigin);
 }
 
 function setState(state: FlashState, detail: string): void {
@@ -82,6 +88,20 @@ function setProgress(pct: number): void {
 
 // --- handoff --------------------------------------------------------------
 
+function isFlashParts(parts: unknown): parts is FirmwareMessage["parts"] {
+  return (
+    Array.isArray(parts) &&
+    parts.length > 0 &&
+    parts.every(
+      (p) =>
+        !!p &&
+        typeof p === "object" &&
+        typeof (p as { address?: unknown }).address === "number" &&
+        (p as { data?: unknown }).data instanceof ArrayBuffer,
+    )
+  );
+}
+
 window.addEventListener("message", (ev: MessageEvent) => {
   // Only accept the firmware from the window that opened us, and only when the
   // nonce matches. No origin allowlist is possible since the dashboard runs on
@@ -90,19 +110,49 @@ window.addEventListener("message", (ev: MessageEvent) => {
   const data = ev.data as Partial<FirmwareMessage> | undefined;
   if (!data || data.type !== "esphome-web-flash:firmware") return;
   if (data.nonce !== nonce) return;
-  if (!Array.isArray(data.parts) || data.parts.length === 0) return;
+  if (!isFlashParts(data.parts)) {
+    setState("error", "Received a malformed firmware payload.");
+    return;
+  }
+  // The opener origin is now known; stop broadcasting and pin to it.
+  if (targetOrigin === "*" && ev.origin && ev.origin !== "null") {
+    targetOrigin = ev.origin;
+  }
+  stopReadyRetry();
   firmware = data as FirmwareMessage;
   installBtn.disabled = busy;
-  setState("connecting", `Firmware ready${firmware.name ? ": " + firmware.name : ""}. Press Connect & install.`);
+  setState(
+    "connecting",
+    `Firmware ready${firmware.name ? ": " + firmware.name : ""}. Press Connect & install.`,
+  );
 });
 
+// Re-announce until firmware arrives: a single 'ready' can race the opener
+// attaching its message listener after window.open(), wedging the handoff.
+let readyTimer: number | undefined;
+
+function stopReadyRetry(): void {
+  if (readyTimer !== undefined) {
+    clearInterval(readyTimer);
+    readyTimer = undefined;
+  }
+}
+
+function sendReady(): void {
+  post({ type: "esphome-web-flash:ready", version: PROTOCOL_VERSION, nonce });
+}
+
 if (opener && nonce) {
-  const ready: OutboundMessage = {
-    type: "esphome-web-flash:ready",
-    version: PROTOCOL_VERSION,
-    nonce,
-  };
-  opener.postMessage(ready, "*");
+  sendReady();
+  let waited = 0;
+  readyTimer = window.setInterval(() => {
+    waited += 500;
+    if (firmware || waited >= 10000) {
+      stopReadyRetry();
+      return;
+    }
+    sendReady();
+  }, 500);
 }
 
 // --- flashing (mirrors esphome/dashboard src/web-serial) ------------------

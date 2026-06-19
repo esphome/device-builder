@@ -3,6 +3,11 @@
 // The opener origin is unknown, so authentication is the one-time nonce plus an
 // "is this my opener" source check, never an origin allowlist. This same
 // contract is what PR 2 reimplements inside web.esphome.io.
+//
+// URL hash params the flasher reads: 'nonce' (required, the session secret) and
+// 'origin' (optional; pins the outbound targetOrigin, otherwise it is learned
+// from the first inbound frame). The flasher re-sends 'ready' until firmware
+// arrives so a late opener listener cannot wedge the handoff.
 
 export const PROTOCOL_VERSION = 1;
 
