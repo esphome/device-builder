@@ -22,6 +22,7 @@ from ...constants import is_secrets_file
 from ...helpers.api import CommandError, api_command
 from ...helpers.build_size import BuildSizeRefreshResult
 from ...helpers.device_yaml import (
+    board_requires_wifi,
     configuration_stem,
 )
 from ...helpers.event_bus import Event
@@ -553,6 +554,15 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
                 None, read_secrets_yaml, self._db.settings.config_dir
             )
             wifi_secrets_available = wifi_secrets_defined(secrets)
+            # A Wi-Fi-only board with no secrets would generate an unflashable
+            # no-network stub (its api/ota/web_server defaults need a network).
+            # Refuse cleanly instead of letting it surface as a generator bug.
+            if not wifi_secrets_available and board is not None and board_requires_wifi(board):
+                raise CommandError(
+                    ErrorCode.INVALID_ARGS,
+                    "This board connects over Wi-Fi; provide an SSID or set "
+                    "Wi-Fi credentials first.",
+                )
         return await mutations_yaml.yaml_content_for_create(
             name,
             friendly,

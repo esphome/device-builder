@@ -15,6 +15,7 @@ import gzip
 import io
 import warnings
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -302,6 +303,27 @@ async def test_create_device_rejects_invalid_supplied_wifi(
         await ctrl.create_device(name="kitchen", ssid="A" * 33, psk="p")
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
     assert not (tmp_path / "kitchen.yaml").exists()
+
+
+async def test_yaml_content_for_create_refuses_no_wifi_on_wifi_only_board(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A Wi-Fi-only board with no ssid and no secrets refuses cleanly.
+
+    Its api/ota/web_server defaults need a network, so a no-network stub would
+    be unflashable — surface INVALID_ARGS, not an INTERNAL_ERROR generator bug.
+    """
+    ctrl = make_controller(tmp_path, with_boards=True)
+    board = SimpleNamespace(
+        hardware=SimpleNamespace(connectivity=[SimpleNamespace(value="wifi")]),
+        featured_components=[],
+        default_components=[],
+    )
+    assert not (tmp_path / "secrets.yaml").exists()
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl._yaml_content_for_create("dev", "Dev", board, None, "", "")
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "Wi-Fi" in excinfo.value.message
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
@@ -640,6 +662,9 @@ async def test_create_device_template_invalid_yaml_surfaces_internal_error(
     the user with a "config doesn't validate" they didn't write.
     """
     ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    # Wi-Fi secrets present so the no-ssid create reaches generation/validation
+    # (rather than the "this board needs Wi-Fi" refusal).
+    (tmp_path / "secrets.yaml").write_text('wifi_ssid: "x"\nwifi_password: "y"\n', encoding="utf-8")
     # Board returns a valid catalog entry that drives ``generate_device_yaml``.
     board = MagicMock()
     board.id = "esp32-c3"
@@ -803,6 +828,11 @@ async def test_create_device_with_board_id_overwrites_archived_board_id(
 
     ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
     ctrl._db.settings.config_dir = config_dir
+    # Wi-Fi secrets present so the no-ssid create proceeds (the metadata path
+    # under test) rather than refusing on a Wi-Fi-only board.
+    (config_dir / "secrets.yaml").write_text(
+        'wifi_ssid: "x"\nwifi_password: "y"\n', encoding="utf-8"
+    )
     # Catalog returns a usable board for the new id.
     new_board = MagicMock()
     new_board.id = "rp2040-new-board"
