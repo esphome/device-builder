@@ -677,9 +677,10 @@ async def test_worker_fetch_returns_mac_and_version(monkeypatch: Any) -> None:
     client.disconnect.assert_awaited_once()
 
 
-def test_worker_main_returns_2_on_bad_stdin(monkeypatch: Any) -> None:
+def test_worker_main_returns_2_on_bad_stdin(monkeypatch: Any, capsys: Any) -> None:
     monkeypatch.setattr("sys.stdin", io.StringIO("not json"))
     assert api_device_info.main() == 2
+    assert "bad request" in json.loads(capsys.readouterr().out)["error"]
 
 
 def test_worker_main_returns_1_and_reports_reason_on_connect_failure(

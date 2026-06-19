@@ -36,10 +36,12 @@ async def _fetch(request: dict[str, Any]) -> dict[str, str]:
         noise_psk=request.get("noise_psk") or None,
         addresses=request.get("addresses") or None,
     )
-    await client.connect(login=False)
     try:
+        await client.connect(login=False)
         info = await client.device_info()
     finally:
+        # ``disconnect`` on an unconnected client is a no-op, so it's safe even
+        # when ``connect`` itself raised.
         await client.disconnect(force=True)
     return {
         "mac_address": info.mac_address or "",
@@ -50,7 +52,10 @@ async def _fetch(request: dict[str, Any]) -> dict[str, str]:
 def main() -> int:
     try:
         request = json.loads(sys.stdin.read())
-    except (json.JSONDecodeError, ValueError):
+    except (json.JSONDecodeError, ValueError) as exc:
+        # Mirror the connect-failure channel: report why the request was
+        # rejected on stdout so the parent's reason-logging path sees it.
+        sys.stdout.write(json.dumps({"error": f"bad request: {exc!r}"}).decode())
         return 2
     try:
         result = asyncio.run(asyncio.wait_for(_fetch(request), _CONNECT_TIMEOUT))
