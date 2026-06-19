@@ -305,23 +305,6 @@ async def test_create_device_rejects_invalid_supplied_wifi(
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
-async def test_create_device_skip_wifi_omits_network_even_with_secrets(
-    tmp_path: Path, make_controller: MakeControllerFactory
-) -> None:
-    """``skip_wifi`` yields a no-network stub even when Wi-Fi secrets exist."""
-    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
-    StubBoardLookups(ctrl)
-    (tmp_path / "secrets.yaml").write_text('wifi_ssid: "x"\nwifi_password: "y"\n', encoding="utf-8")
-
-    result = await ctrl.create_device(name="kitchen", skip_wifi=True)
-
-    content = (tmp_path / result.configuration).read_text("utf-8")
-    assert "!secret" not in content
-    assert "wifi:" not in content.splitlines()
-    assert "api:" not in content.splitlines()
-
-
-@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
 async def test_create_device_slugifies_hostname_and_preserves_raw_name_as_friendly(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:

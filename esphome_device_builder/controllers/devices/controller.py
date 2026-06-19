@@ -381,7 +381,6 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         psk: str = "",
         file_content: str | None = None,
         overwrite: bool = False,
-        skip_wifi: bool = False,
         **kwargs: Any,
     ) -> WizardResponse:
         """Create a new device configuration."""
@@ -393,7 +392,6 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             psk=psk,
             file_content=file_content,
             overwrite=overwrite,
-            skip_wifi=skip_wifi,
         )
 
     @api_command("devices/import_bundle")
@@ -511,8 +509,6 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         file_content: str | None,
         ssid: str,
         psk: str,
-        *,
-        skip_wifi: bool = False,
     ) -> tuple[str, mutations_yaml.CreateYamlSource]:
         """
         Build the YAML body for ``devices/create``, resolving Wi-Fi.
@@ -521,19 +517,15 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         and the config emits ``!secret`` — bare credentials are never
         written into the device YAML. A supplied *ssid* is an explicit "use
         Wi-Fi" intent, so it keeps the ``wifi:`` block even on an
-        onboard-network board (no Ethernet auto-pull). *skip_wifi* forces the
-        no-network path regardless of stored secrets; an empty *ssid* reuses
-        whatever ``secrets.yaml`` already holds (and lets a networked board
-        default to Ethernet).
+        onboard-network board (no Ethernet auto-pull). An empty *ssid* reuses
+        whatever ``secrets.yaml`` already holds and lets a networked board
+        default to Ethernet (or a no-Wi-Fi board fall to the no-network stub).
         """
         wifi_secrets_available = True
         # A supplied ssid means "this device uses Wi-Fi": keep the wifi block
         # even on a board that would otherwise auto-pull onboard Ethernet.
         wifi_requested = False
-        if skip_wifi:
-            # Explicit no-Wi-Fi intent: no-network stub regardless of secrets.
-            ssid, psk, wifi_secrets_available = "", "", False
-        elif file_content:
+        if file_content:
             pass  # user YAML written as-is; ssid/psk ignored
         elif ssid:
             # Persist the user's Wi-Fi to secrets.yaml and emit !secret rather

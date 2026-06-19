@@ -36,7 +36,6 @@ async def create_device(  # noqa: C901, PLR0912
     psk: str,
     file_content: str | None,
     overwrite: bool = False,
-    skip_wifi: bool = False,
 ) -> WizardResponse:
     """
     Create a new device configuration.
@@ -116,7 +115,7 @@ async def create_device(  # noqa: C901, PLR0912
             raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
     yaml_content, source = await controller._yaml_content_for_create(
-        name, friendly, board, file_content, ssid, psk, skip_wifi=skip_wifi
+        name, friendly, board, file_content, ssid, psk
     )
 
     # Validate generated YAML before write so a regression in
