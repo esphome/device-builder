@@ -1,0 +1,67 @@
+id: wiznet-w6300-evb-pico2
+name: WIZnet W6300-EVB-Pico2
+description: WIZnet W6300-EVB-Pico2 — RP2350 (Raspberry Pi Pico 2 form factor) with an onboard W6300 Ethernet
+  controller wired over SPI. Wired-only networking, no Wi-Fi.
+manufacturer: WIZnet
+esphome:
+  platform: rp2040
+  board: wiznet_6300_evb_pico2
+hardware:
+  flash_size: 4MB
+  connectivity:
+  - ethernet
+tags:
+- dev-kit
+docs_url: https://esphome.io/components/ethernet.html
+featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  description: Built-in W6300 Ethernet controller (SPI) — wired networking with no Wi-Fi setup.
+  fields:
+    type:
+      value: W6300
+      locked: true
+    clk_pin:
+      value: GPIO17
+      locked: true
+    mosi_pin:
+      value: GPIO18
+      locked: true
+    miso_pin:
+      value: GPIO19
+      locked: true
+    cs_pin:
+      value: GPIO16
+      locked: true
+    interrupt_pin:
+      value: GPIO15
+      locked: true
+    reset_pin:
+      value: GPIO22
+      locked: true
+pins:
+- gpio: 17
+  label: GPIO17
+  available: false
+  occupied_by: Ethernet CLK
+- gpio: 18
+  label: GPIO18
+  available: false
+  occupied_by: Ethernet MOSI
+- gpio: 19
+  label: GPIO19
+  available: false
+  occupied_by: Ethernet MISO
+- gpio: 16
+  label: GPIO16
+  available: false
+  occupied_by: Ethernet CS
+- gpio: 15
+  label: GPIO15
+  available: false
+  occupied_by: Ethernet INT
+- gpio: 22
+  label: GPIO22
+  available: false
+  occupied_by: Ethernet RESET

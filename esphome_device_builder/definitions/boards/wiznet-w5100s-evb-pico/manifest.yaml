@@ -1,0 +1,67 @@
+id: wiznet-w5100s-evb-pico
+name: WIZnet W5100S-EVB-Pico
+description: WIZnet W5100S-EVB-Pico — RP2040 (Raspberry Pi Pico form factor) with an onboard W5100S Ethernet
+  controller wired over SPI. Wired-only networking, no Wi-Fi.
+manufacturer: WIZnet
+esphome:
+  platform: rp2040
+  board: wiznet_5100s_evb_pico
+hardware:
+  flash_size: 2MB
+  connectivity:
+  - ethernet
+tags:
+- dev-kit
+docs_url: https://esphome.io/components/ethernet.html
+featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  description: Built-in W5100S Ethernet controller (SPI) — wired networking with no Wi-Fi setup.
+  fields:
+    type:
+      value: W5100
+      locked: true
+    clk_pin:
+      value: GPIO18
+      locked: true
+    mosi_pin:
+      value: GPIO19
+      locked: true
+    miso_pin:
+      value: GPIO16
+      locked: true
+    cs_pin:
+      value: GPIO17
+      locked: true
+    interrupt_pin:
+      value: GPIO21
+      locked: true
+    reset_pin:
+      value: GPIO20
+      locked: true
+pins:
+- gpio: 18
+  label: GPIO18
+  available: false
+  occupied_by: Ethernet CLK
+- gpio: 19
+  label: GPIO19
+  available: false
+  occupied_by: Ethernet MOSI
+- gpio: 16
+  label: GPIO16
+  available: false
+  occupied_by: Ethernet MISO
+- gpio: 17
+  label: GPIO17
+  available: false
+  occupied_by: Ethernet CS
+- gpio: 21
+  label: GPIO21
+  available: false
+  occupied_by: Ethernet INT
+- gpio: 20
+  label: GPIO20
+  available: false
+  occupied_by: Ethernet RESET

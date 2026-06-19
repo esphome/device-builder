@@ -1,0 +1,75 @@
+id: waveshare-esp32-s3-eth
+name: Waveshare ESP32-S3-ETH
+description: Waveshare ESP32-S3-ETH with ESP32-S3 and an onboard W5500 Ethernet controller over SPI. Wired
+  networking with Wi-Fi/BLE still available.
+manufacturer: Waveshare
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: esp-idf
+hardware:
+  flash_size: 16MB
+  cpu_frequency: 240MHz
+  connectivity:
+  - wifi
+  - bluetooth
+  - ethernet
+tags:
+- compact
+docs_url: https://esphome.io/components/ethernet.html
+featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  description: W5500 Ethernet controller (SPI) — wired networking with no Wi-Fi setup.
+  fields:
+    type:
+      value: W5500
+      locked: true
+    clk_pin:
+      value: GPIO12
+      locked: true
+    mosi_pin:
+      value: GPIO11
+      locked: true
+    miso_pin:
+      value: GPIO13
+      locked: true
+    cs_pin:
+      value: GPIO14
+      locked: true
+    interrupt_pin:
+      value: GPIO10
+      locked: true
+    reset_pin:
+      value: GPIO9
+      locked: true
+    clock_speed:
+      value: 25MHz
+      locked: true
+pins:
+- gpio: 12
+  label: GPIO12
+  available: false
+  occupied_by: Ethernet CLK
+- gpio: 11
+  label: GPIO11
+  available: false
+  occupied_by: Ethernet MOSI
+- gpio: 13
+  label: GPIO13
+  available: false
+  occupied_by: Ethernet MISO
+- gpio: 14
+  label: GPIO14
+  available: false
+  occupied_by: Ethernet CS
+- gpio: 10
+  label: GPIO10
+  available: false
+  occupied_by: Ethernet INT
+- gpio: 9
+  label: GPIO9
+  available: false
+  occupied_by: Ethernet RESET
