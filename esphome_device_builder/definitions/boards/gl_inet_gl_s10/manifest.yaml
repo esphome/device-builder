@@ -27,30 +27,26 @@ pins:
 - gpio: 14
   available: false
   occupied_by: power_led
-- gpio: 33
+- gpio: 17
   available: false
-  occupied_by: Reset Button
-- gpio: 23
-  available: false
-  occupied_by: Ethernet MDC
+  occupied_by: Ethernet CLK
 - gpio: 18
   available: false
   occupied_by: Ethernet MDIO
-- gpio: 0
+- gpio: 23
   available: false
-  occupied_by: Ethernet CLK
-- gpio: 5
+  occupied_by: Ethernet MDC
+- gpio: 33
   available: false
-  occupied_by: Ethernet Power
+  occupied_by: Reset Button
 docs_url: https://devices.esphome.io/devices/GL-iNet-GL-S10/
 featured_components:
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
-  description: Built-in IP101 Ethernet PHY — wired networking with no Wi-Fi setup.
   fields:
     type:
-      value: IP101
+      value: LAN8720
       locked: true
     mdc_pin:
       value: GPIO23
@@ -58,16 +54,11 @@ featured_components:
     mdio_pin:
       value: GPIO18
       locked: true
-    clk:
-      value:
-        pin: GPIO0
-        mode: CLK_EXT_IN
+    clk_mode:
+      value: GPIO17_OUT
       locked: true
     phy_addr:
       value: 1
-      locked: true
-    power_pin:
-      value: GPIO5
       locked: true
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio

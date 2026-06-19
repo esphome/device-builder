@@ -10,10 +10,55 @@ hardware:
   connectivity:
   - wifi
   - bluetooth
+  - ethernet
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-N20/N20-1.jpg
+pins:
+- gpio: 1
+  available: false
+  occupied_by: Ethernet RESET
+- gpio: 2
+  available: false
+  occupied_by: Ethernet INT
+- gpio: 41
+  available: false
+  occupied_by: Ethernet CS
+- gpio: 42
+  available: false
+  occupied_by: Ethernet CLK
+- gpio: 43
+  available: false
+  occupied_by: Ethernet MOSI
+- gpio: 44
+  available: false
+  occupied_by: Ethernet MISO
 docs_url: https://devices.esphome.io/devices/KinCony-N20/
 featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  fields:
+    type:
+      value: W5500
+      locked: true
+    clk_pin:
+      value: GPIO42
+      locked: true
+    mosi_pin:
+      value: GPIO43
+      locked: true
+    miso_pin:
+      value: GPIO44
+      locked: true
+    cs_pin:
+      value: GPIO41
+      locked: true
+    interrupt_pin:
+      value: GPIO2
+      locked: true
+    reset_pin:
+      value: GPIO1
+      locked: true
 - id: n20_1_current_1
   component_id: sensor.modbus_controller
   fields:

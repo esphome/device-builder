@@ -10,6 +10,7 @@ hardware:
   connectivity:
   - wifi
   - bluetooth
+  - ethernet
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Hankerila-EA8/hankerila-ea8.jpg
 tags:
@@ -39,8 +40,38 @@ pins:
 - gpio: 7
   available: false
   occupied_by: a8-relay8
+- gpio: 17
+  available: false
+  occupied_by: Ethernet CLK
+- gpio: 18
+  available: false
+  occupied_by: Ethernet MDIO
+- gpio: 23
+  available: false
+  occupied_by: Ethernet MDC
 docs_url: https://devices.esphome.io/devices/Hankerila-EA8/
 featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  fields:
+    type:
+      value: LAN8720
+      locked: true
+    mdc_pin:
+      value: GPIO23
+      locked: true
+    mdio_pin:
+      value: GPIO18
+      locked: true
+    clk:
+      value:
+        pin: GPIO17
+        mode: CLK_OUT
+      locked: true
+    phy_addr:
+      value: 0
+      locked: true
 - id: input1
   component_id: binary_sensor.gpio
   fields:

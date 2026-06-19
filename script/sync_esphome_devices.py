@@ -86,12 +86,13 @@ _ESP32_VARIANT_DEFAULT_BOARD: dict[str, str] = {
     "esp32p4": "esp32-p4-function-ev-board",
 }
 
-# Connectivity defaults inferred from the SoC family / variant. ESP32
+# Built-in radio defaults inferred from the SoC family / variant. ESP32
 # variants differ on what's built in: classic + S3 + C3 + C5 + C6 +
 # C61 carry both wifi + BLE; S2 has wifi only; H2 has BLE/Thread but
-# no wifi; P4 has neither built in. Imports don't try to cover
-# ethernet / zigbee / matter — those need explicit evidence we can't
-# reliably mine from upstream.
+# no wifi; P4 has neither built in. Onboard ethernet is *not* inferred
+# from the SoC here — it's mined from an explicit upstream ``ethernet:``
+# block by ``_extract_ethernet`` (which adds the ``ethernet`` flag).
+# Zigbee / matter still aren't mined; we have no reliable upstream signal.
 _SOC_CONNECTIVITY: dict[str, list[str]] = {
     "esp8266": ["wifi"],
     "bk72xx": ["wifi"],
@@ -193,6 +194,49 @@ _PLACEHOLDER_PATTERNS: list[re.Pattern[str]] = [
 # substitutions block forward, so anything still containing one is
 # unsafe to surface as a preset value or as an ``occupied_by`` label.
 _TEMPLATE_VAR_RE = re.compile(r"\$\{[^}]*\}")
+
+# Legacy flat ``clk_mode: GPIO17_OUT`` encodes the RMII clock pin in the
+# mode string; this pulls the GPIO number out for the occupancy map.
+_CLK_MODE_PIN_RE = re.compile(r"GPIO(\d+)_")
+
+# Hardware fields of a top-level ``ethernet:`` block worth locking as a
+# featured-component preset (the PHY/pinout). Network/runtime fields
+# (``manual_ip``, ``domain``, ``use_address``, ``mac_address``,
+# ``enable_on_boot``, ...) are user/site-specific and deliberately omitted.
+# Every key here is a real ``ethernet`` config_entry, so the locked preset
+# passes manifest validation.
+_ETHERNET_HW_FIELDS: frozenset[str] = frozenset(
+    {
+        "type",
+        "mdc_pin",
+        "mdio_pin",
+        "clk",
+        "clk_mode",
+        "clk_pin",
+        "phy_addr",
+        "power_pin",
+        "mosi_pin",
+        "miso_pin",
+        "cs_pin",
+        "interrupt_pin",
+        "reset_pin",
+        "clock_speed",
+    }
+)
+
+# Pin-valued ethernet fields → the ``occupied_by`` role shown in the pin
+# picker. ``clk`` is nested (``{pin, mode}``) and handled separately.
+_ETHERNET_PIN_ROLES: dict[str, str] = {
+    "mdc_pin": "Ethernet MDC",
+    "mdio_pin": "Ethernet MDIO",
+    "clk_pin": "Ethernet CLK",
+    "power_pin": "Ethernet Power",
+    "mosi_pin": "Ethernet MOSI",
+    "miso_pin": "Ethernet MISO",
+    "cs_pin": "Ethernet CS",
+    "interrupt_pin": "Ethernet INT",
+    "reset_pin": "Ethernet RESET",
+}
 
 # Platforms we never lift, regardless of which domain hosts them. The
 # ``template`` family (``switch.template``, ``binary_sensor.template``,
@@ -1203,7 +1247,70 @@ def _build_tags(name: str, type_field: str | None) -> list[str]:
     return tags
 
 
-def _make_record(  # noqa: C901, PLR0911 — distinct skip reasons each get their own early exit
+def _eth_value_safe(value: Any) -> bool:
+    """Return True when *value* carries no ``${...}`` template or fill-in placeholder."""
+    if isinstance(value, str):
+        return "${" not in value and not _is_placeholder_value(value)
+    if isinstance(value, dict):
+        return all(_eth_value_safe(v) for v in value.values())
+    if isinstance(value, list):
+        return all(_eth_value_safe(v) for v in value)
+    return True
+
+
+def _extract_ethernet(config: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[int, str]]:
+    """
+    Mine a top-level ``ethernet:`` block into a locked featured component.
+
+    Returns ``(featured_entry, gpio_occupancy)`` — the entry is ``None``
+    when there's no ``ethernet:`` block, it lacks a PHY ``type``, or any
+    hardware value is templated/placeholder (we never lock an unresolved
+    ``${...}``). Only the PHY/pinout fields are lifted; the pin GPIOs are
+    returned for the pin picker's occupancy map.
+
+    This only runs for imported boards. A board where upstream lacks an
+    ``ethernet:`` block, or whose ethernet must differ from upstream (a
+    second hardware revision), needs a hand-curated, non-``source`` board
+    the sync never overwrites — see ``gl_inet_gl_s10_v2``.
+    """
+    eth = config.get("ethernet")
+    if not isinstance(eth, dict) or not isinstance(eth.get("type"), str):
+        return None, {}
+    fields: dict[str, Any] = {}
+    occupancy: dict[int, str] = {}
+    for key, value in eth.items():
+        if key not in _ETHERNET_HW_FIELDS:
+            continue
+        if not _eth_value_safe(value):
+            return None, {}
+        if key in _ETHERNET_PIN_ROLES:
+            # A pin field that doesn't resolve to a concrete GPIO (a
+            # ``!secret`` tag, a lambda, ...) can't be locked into a valid
+            # preset — distrust the whole block rather than emit garbage.
+            gpio = _gpio_number(value)
+            if gpio is None:
+                return None, {}
+            occupancy[gpio] = _ETHERNET_PIN_ROLES[key]
+        fields[key] = {"value": value, "locked": True}
+    clk = eth.get("clk")
+    if isinstance(clk, dict):
+        gpio = _gpio_number(clk.get("pin"))
+        if gpio is None:
+            return None, {}
+        occupancy[gpio] = "Ethernet CLK"
+    clk_mode = eth.get("clk_mode")
+    if isinstance(clk_mode, str) and (m := _CLK_MODE_PIN_RE.match(clk_mode)):
+        occupancy[int(m.group(1))] = "Ethernet CLK"
+    entry = {
+        "id": "onboard_ethernet",
+        "component_id": "ethernet",
+        "name": "Onboard Ethernet",
+        "fields": fields,
+    }
+    return entry, occupancy
+
+
+def _make_record(  # noqa: C901, PLR0911, PLR0912 — distinct skip reasons each get their own early exit
     src: _DeviceSource,
     components_index: dict[str, dict[str, Any]],
     revision: str,
@@ -1235,6 +1342,13 @@ def _make_record(  # noqa: C901, PLR0911 — distinct skip reasons each get thei
     featured, bundles, gpio_occupancy = _extract_featured_components(
         src.config_yaml, components_index
     )
+    # Lift a top-level ``ethernet:`` block (the upstream importer otherwise
+    # drops it) so wired boards get their onboard-network provider — and so
+    # an ethernet-only page isn't rejected by the no-featured gate below.
+    eth_entry, eth_occupancy = _extract_ethernet(src.config_yaml)
+    if eth_entry is not None:
+        featured = [eth_entry, *featured]
+        gpio_occupancy = {**eth_occupancy, **gpio_occupancy}
     if not featured:
         return None, "no extractable featured components"
 
@@ -1245,9 +1359,11 @@ def _make_record(  # noqa: C901, PLR0911 — distinct skip reasons each get thei
         "esphome": _build_esphome_block(soc, board, variant, framework),
     }
 
-    connectivity = _connectivity_for(soc, variant)
+    connectivity = list(_connectivity_for(soc, variant) or [])
+    if eth_entry is not None and "ethernet" not in connectivity:
+        connectivity.append("ethernet")
     if connectivity:
-        record["hardware"] = {"connectivity": list(connectivity)}
+        record["hardware"] = {"connectivity": connectivity}
 
     if src.images:
         # Reference upstream raw URLs directly so the wheel doesn't have
@@ -1350,43 +1466,8 @@ def _emit_manifest(record: dict[str, Any], src: _DeviceSource) -> Path | None:
     if images_dir.is_dir():
         shutil.rmtree(images_dir)
 
-    if prior is not None:
-        _graft_local_ethernet(record, prior)
     manifest_path.write_text(_dump_manifest(record), encoding="utf-8")
     return target_dir
-
-
-def _graft_local_ethernet(record: dict[str, Any], prior: dict[str, Any]) -> None:
-    """Re-graft a hand-added onboard-ethernet block from *prior* onto *record*.
-
-    Carries the ``ethernet`` ``featured_components`` entry, the
-    ``ethernet`` connectivity flag, and any ``occupied_by: Ethernet …``
-    pins — none of which the upstream importer can mine.
-    """
-    preserved = [
-        fc
-        for fc in prior.get("featured_components") or []
-        if isinstance(fc, dict) and fc.get("component_id") == "ethernet"
-    ]
-    if not preserved:
-        return
-    existing = record.setdefault("featured_components", [])
-    existing_ids = {fc.get("id") for fc in existing if isinstance(fc, dict)}
-    # Prepend so the network provider sorts ahead of upstream entities.
-    record["featured_components"] = [
-        fc for fc in preserved if fc.get("id") not in existing_ids
-    ] + existing
-    connectivity = record.setdefault("hardware", {}).setdefault("connectivity", [])
-    if "ethernet" not in connectivity:
-        connectivity.append("ethernet")
-    eth_pins = [
-        p
-        for p in prior.get("pins") or []
-        if isinstance(p, dict) and str(p.get("occupied_by", "")).startswith("Ethernet")
-    ]
-    pins = record.setdefault("pins", [])
-    declared = {p.get("gpio") for p in pins if isinstance(p, dict)}
-    pins.extend(p for p in eth_pins if p.get("gpio") not in declared)
 
 
 def _read_manifest_dict(manifest_path: Path) -> dict[str, Any] | None:
