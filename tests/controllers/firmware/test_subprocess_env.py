@@ -141,16 +141,7 @@ def test_remote_build_job_drops_ha_addon_marker(
     firmware_controller_factory: FirmwareControllerFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A receiver-side remote-build job clears ``ESPHOME_IS_HA_ADDON`` for the child.
-
-    esphome's ``CORE.data_dir`` checks ``is_ha_addon()`` before
-    ``ESPHOME_DATA_DIR``, so on an add-on receiver the override
-    would be ignored and the compile would write to ``/data``
-    while the download-read path looks under the per-build
-    subtree — a silent ``build_dir_missing`` on every install.
-    Dropping the marker for remote-build subprocesses lets the
-    child honour the override.
-    """
+    """A remote-build job drops ``ESPHOME_IS_HA_ADDON`` so the child honours the override."""
     monkeypatch.setenv("ESPHOME_IS_HA_ADDON", "1")
     controller = firmware_controller_factory(with_settings=True)
     configuration = ".esphome/.remote_builds/a1b2c3d4/kitchen/kitchen.yaml"
@@ -163,12 +154,7 @@ def test_local_job_keeps_ha_addon_marker(
     firmware_controller_factory: FirmwareControllerFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A local job leaves ``ESPHOME_IS_HA_ADDON`` untouched.
-
-    Local builds on the add-on must keep writing to ``/data``;
-    only remote-build subprocesses redirect, so the marker is
-    dropped only there.
-    """
+    """A local job leaves ``ESPHOME_IS_HA_ADDON`` untouched so local builds still target /data."""
     monkeypatch.setenv("ESPHOME_IS_HA_ADDON", "1")
     controller = firmware_controller_factory(with_settings=True)
     env = controller._compose_subprocess_env(_make_job(configuration="kitchen.yaml"))

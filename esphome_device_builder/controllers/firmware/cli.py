@@ -38,9 +38,8 @@ def compose_subprocess_env(job: FirmwareJob) -> dict[str, str]:
     remote_build_path = parse_remote_build_path(job.configuration)
     if remote_build_path is not None:
         env["ESPHOME_DATA_DIR"] = str(remote_build_path.data_dir(Path(CORE.data_dir)))
-        # esphome's CORE.data_dir prefers is_ha_addon() over ESPHOME_DATA_DIR, so an
-        # add-on receiver would ignore the override, write artefacts to /data, and the
-        # download-read path couldn't find them; drop the marker so the child honours it.
+        # esphome's CORE.data_dir prefers is_ha_addon() over ESPHOME_DATA_DIR; an
+        # add-on receiver would write artefacts to /data and ignore the override.
         env.pop("ESPHOME_IS_HA_ADDON", None)
     return env
 
