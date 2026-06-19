@@ -537,7 +537,14 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             pass  # user YAML written as-is; ssid/psk ignored
         elif ssid:
             # Persist the user's Wi-Fi to secrets.yaml and emit !secret rather
-            # than inlining bare credentials into the device config.
+            # than inlining bare credentials into the device config. The write
+            # must land *before* the caller validates the generated YAML —
+            # validation runs ``esphome config``, which resolves
+            # ``!secret wifi_ssid`` against the on-disk file. A later
+            # generate/validate failure therefore leaves the secret persisted;
+            # that's benign — ``wifi_ssid`` / ``wifi_password`` is a shared,
+            # idempotent upsert (identical to ``config/set_wifi_credentials``)
+            # that the next device reuses, not per-device state.
             try:
                 validate_wifi_credentials(ssid, psk)
             except SecretsContentError as err:
