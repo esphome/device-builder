@@ -877,18 +877,14 @@ async def test_yaml_content_for_create_defaults_ethernet_board_to_wired(
 
 
 @pytest.mark.xdist_group("catalog")
-async def test_get_board_marks_provides_network_and_requires_wifi(
-    session_component_catalog: Any,
-) -> None:
-    """``get_board`` derives the network flags from the board definition."""
+async def test_get_board_marks_requires_wifi(session_component_catalog: Any) -> None:
+    """``get_board`` derives ``requires_wifi`` from the board definition."""
     eth = await session_component_catalog._db.boards.get_board(board_id="wt32-eth01")
     wifi = await session_component_catalog._db.boards.get_board(board_id="apollo-esk-1")
     assert eth is not None and wifi is not None
-    # Onboard-Ethernet board: provides its own network, Wi-Fi not required.
-    assert eth.provides_network is True
+    # Onboard-Ethernet board: brings its own network, so Wi-Fi isn't required.
     assert eth.requires_wifi is False
     # Wi-Fi-only board: no onboard network, so Wi-Fi can't be skipped.
-    assert wifi.provides_network is False
     assert wifi.requires_wifi is True
 
 

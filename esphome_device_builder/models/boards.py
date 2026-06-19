@@ -250,14 +250,10 @@ class BoardCatalogEntry(DashboardModel):
     # presets) or a catalog ``component_id``; the entry's own
     # ``fields`` dict supplements or overrides those presets.
     default_components: list[DefaultComponent] = field(default_factory=list)
-    # True when the board supplies its own non-Wi-Fi network by default
-    # (onboard ``ethernet:`` today, ``openthread:`` once Thread boards are
-    # wired up). Derived at serve time from the network providers above; the
-    # create wizard reads it to skip the Wi-Fi step. Not stored in the JSON.
-    provides_network: bool = False
     # True when Wi-Fi is the board's only built-in network (native Wi-Fi, no
-    # onboard provider): the create wizard must collect Wi-Fi — a no-network
-    # config wouldn't validate. Derived at serve time; not stored in the JSON.
+    # onboard Ethernet/Thread provider): the create wizard must collect Wi-Fi —
+    # a no-network config wouldn't validate. Derived at serve time (from the
+    # network providers above + native-Wi-Fi capability); not stored in the JSON.
     requires_wifi: bool = False
 
     class Config(_CatalogConfig):
