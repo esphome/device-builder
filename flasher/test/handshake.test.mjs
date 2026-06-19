@@ -57,13 +57,14 @@ try {
   await popup.waitForNetworkIdle({ idleTime: 300 }).catch(() => {});
   await new Promise((r) => setTimeout(r, 300));
 
-  // 1. flasher posts a ready frame to its opener with the right nonce
+  // 1. flasher posts a ready frame to its opener that does NOT echo the nonce
   const ready = (await a.evaluate(() => window.__msgs)).find(
     (m) => m && m.type === "esphome-web-flash:ready",
   );
   if (!ready) fail("no ready message received by opener");
-  else if (ready.nonce !== "test-nonce-123") fail("ready nonce mismatch");
-  else console.log("PASS: ready received, nonce ok, version", ready.version);
+  else if ("nonce" in ready) fail("ready frame leaked the nonce");
+  else if (ready.version !== 1) fail("ready version mismatch");
+  else console.log("PASS: ready received, no nonce echoed, version", ready.version);
 
   // 1b. ready is re-announced until firmware arrives (handshake robustness)
   await a.evaluate(() => {

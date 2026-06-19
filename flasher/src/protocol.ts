@@ -4,21 +4,22 @@
 // "is this my opener" source check, never an origin allowlist. This same
 // contract is what PR 2 reimplements inside web.esphome.io.
 //
-// URL hash params the flasher reads: 'nonce' (required, the session secret) and
-// 'origin'. 'origin' pins the outbound targetOrigin; without it, outbound stays
-// '*' until the first inbound frame reveals the origin, which means the early
-// 'ready' frames broadcast the nonce to '*'. The production integration (PR 2)
-// MUST pass 'origin=<dashboard-origin>' so 'ready' never broadcasts. The flasher
-// re-sends 'ready' until firmware arrives so a late opener listener cannot wedge
-// the handoff.
+// URL hash params the flasher reads: 'nonce' (required) and 'origin' (optional).
+// The nonce is a ONE-WAY opener->flasher token: inbound firmware must carry it,
+// but NO outbound frame (ready/state/progress) ever echoes it, so the pre-handoff
+// 'ready' broadcast to '*' leaks no secret. The opener correlates outbound frames
+// by window source, not by nonce. 'origin' pins the outbound targetOrigin from
+// frame zero (otherwise it is learned from the first inbound frame); PR 2 should
+// pass 'origin=<dashboard-origin>' as defense in depth. The flasher re-sends
+// 'ready' until firmware arrives so a late opener listener cannot wedge the handoff.
 
 export const PROTOCOL_VERSION = 1;
 
-// Flasher -> opener, once on load.
+// Flasher -> opener, announced on load and re-sent until firmware arrives. Carries
+// no nonce: the opener identifies us by window source, so this never leaks the secret.
 export interface ReadyMessage {
   type: "esphome-web-flash:ready";
   version: number;
-  nonce: string;
 }
 
 // One image to write at a flash offset. Bytes ride as a transferable
@@ -43,17 +44,16 @@ export type FlashState =
   | "done"
   | "error";
 
-// Flasher -> opener, status + progress so the dashboard can mirror it.
+// Flasher -> opener, status + progress so the dashboard can mirror it. No nonce
+// (see ReadyMessage); the opener correlates by window source.
 export interface StateMessage {
   type: "esphome-web-flash:state";
-  nonce: string;
   state: FlashState;
   detail?: string;
 }
 
 export interface ProgressMessage {
   type: "esphome-web-flash:progress";
-  nonce: string;
   pct: number;
 }
 

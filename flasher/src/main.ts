@@ -17,9 +17,10 @@ const nonce = params.get("nonce") ?? "";
 const opener = window.opener as Window | null;
 
 // Where outbound frames are sent. The opener may pin its origin in the hash;
-// otherwise this stays '*' until the first valid inbound frame reveals
-// ev.origin, after which we target that. The 'ready' frame, sent before any
-// handoff, is unavoidably '*' when no origin was pinned.
+// otherwise this stays '*' until the first valid inbound frame reveals ev.origin,
+// after which we target that. Outbound frames carry no nonce (see protocol.ts),
+// so the pre-handoff '*' fallback leaks no secret; '#origin=' pins it from the
+// start as defense in depth.
 let targetOrigin = params.get("origin") || "*";
 
 let firmware: FirmwareMessage | null = null;
@@ -68,22 +69,20 @@ function log(line: string): void {
 
 function post(msg: OutboundMessage): void {
   // targetOrigin narrows from '*' to the opener's real origin once known; see
-  // its declaration. The nonce scopes every frame to this session.
+  // its declaration. Outbound frames carry no nonce (see protocol.ts).
   opener?.postMessage(msg, targetOrigin);
 }
 
 function setState(state: FlashState, detail: string): void {
   statusEl.textContent = detail;
   statusEl.className = "status " + state;
-  if (nonce) {
-    post({ type: "esphome-web-flash:state", nonce, state, detail });
-  }
+  post({ type: "esphome-web-flash:state", state, detail });
 }
 
 function setProgress(pct: number): void {
   barEl.hidden = false;
   fillEl.style.width = pct + "%";
-  if (nonce) post({ type: "esphome-web-flash:progress", nonce, pct });
+  post({ type: "esphome-web-flash:progress", pct });
 }
 
 // --- handoff --------------------------------------------------------------
@@ -139,7 +138,7 @@ function stopReadyRetry(): void {
 }
 
 function sendReady(): void {
-  post({ type: "esphome-web-flash:ready", version: PROTOCOL_VERSION, nonce });
+  post({ type: "esphome-web-flash:ready", version: PROTOCOL_VERSION });
 }
 
 if (opener && nonce) {

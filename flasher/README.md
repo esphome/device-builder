@@ -29,13 +29,15 @@ See `src/protocol.ts`. The opener origin is unknown (the dashboard runs on an
 arbitrary http origin), so the channel is authenticated by a one-time `nonce`
 plus an `event.source === window.opener` check, not an origin allowlist.
 
-The production integration (PR 2) **must** open the flasher with
-`#origin=<dashboard-origin>` so outbound frames target that origin from the
-start and the `ready` frame never broadcasts the nonce to `*`. Without it the
-page falls back to `*` until the first inbound frame reveals the origin.
+The `nonce` travels one way only (opener to flasher): inbound firmware must
+carry it, but no outbound frame echoes it, so the pre-handoff `ready` broadcast
+leaks no secret. The opener correlates outbound frames by window source. As
+defense in depth the opener should still open the flasher with
+`#origin=<dashboard-origin>` so outbound targets that origin from frame zero;
+without it the page falls back to `*` until the first inbound frame reveals it.
 
-1. Dashboard opens `…/#nonce=<random>`.
-2. Flasher posts `{type:"esphome-web-flash:ready", version, nonce}` to its opener.
+1. Dashboard opens `…/#nonce=<random>` (ideally also `&origin=<dashboard-origin>`).
+2. Flasher posts `{type:"esphome-web-flash:ready", version}` to its opener (no nonce).
 3. Dashboard posts `{type:"esphome-web-flash:firmware", nonce, name?, erase?, parts:[{address, data:ArrayBuffer}]}`.
 4. User presses **Connect & install**, picks the serial port (the required user
    gesture), and the page flashes via esptool-js.
