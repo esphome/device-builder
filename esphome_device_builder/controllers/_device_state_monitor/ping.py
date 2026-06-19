@@ -174,6 +174,12 @@ class PingSource:
                 monitor.apply_ip_addresses(device.name, cached)
                 continue
             if monitor.state.dns_cache.has_cached_failure(device.address):
+                if device.ip_addresses:
+                    # The ``.local`` won't resolve, but a prior MQTT/DNS
+                    # observation left a known IP — ping that instead of
+                    # marking the device offline (mDNS-less devices).
+                    pingable.append(device)
+                    continue
                 # Don't hand the bare hostname to icmplib (it would
                 # hammer the system resolver every sweep). Apply
                 # OFFLINE under the ``ping`` source so a future
@@ -189,6 +195,11 @@ class PingSource:
         monitor = self._monitor
         async with self._concurrency:
             addresses = await monitor.state.dns_cache.async_resolve(device.address)
+            if not addresses:
+                # mDNS-less devices: the ``.local`` won't resolve but a
+                # prior MQTT/DNS observation left a usable IP. Ping that so
+                # ping can confirm a device the network won't resolve.
+                addresses = list(device.ip_addresses)
             if not addresses:
                 monitor.apply(device.name, DeviceState.OFFLINE, "ping")
                 return

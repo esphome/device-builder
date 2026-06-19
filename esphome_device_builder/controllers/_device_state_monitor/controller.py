@@ -231,7 +231,17 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
             self.state.reachability.observe(name, source)
 
         current_source = self.state.state_source.get(name, ReachabilitySource.UNKNOWN)
-        if _SOURCE_PRIORITY.get(source, 0) < _SOURCE_PRIORITY.get(current_source, 0):
+        # Online-wins: a positive reachability from any source brings a
+        # not-online device online, even one a higher-priority source owns
+        # (ping/MQTT reviving a device a stale mdns/mqtt OFFLINE owns). The
+        # priority gate still governs OFFLINE/downgrades so a low-priority
+        # flap can't drop a device a higher source confirmed online.
+        online_takeover = state == DeviceState.ONLINE and any(
+            d.state != DeviceState.ONLINE for d in devices
+        )
+        if not online_takeover and _SOURCE_PRIORITY.get(source, 0) < _SOURCE_PRIORITY.get(
+            current_source, 0
+        ):
             return False
         # Dedupe must look at *every* matching device, not just the
         # first. Duplicate ``esphome.name`` entries (a config plus
