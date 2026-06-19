@@ -267,41 +267,50 @@ function matchesDevice(a: SerialPortInfo, b: SerialPortInfo): boolean {
 }
 
 // Find and open the live port for the just-reset device. A native-USB chip
-// re-enumerates, so the flashing handle is dead; prefer a freshly-granted handle
-// for the same VID/PID (Chrome's re-enumerated port), falling back to the
-// original (UART bridges reopen in place). No re-prompt: every candidate is
-// already authorized. Returns an open port, or null if none came back in time.
+// re-enumerates, so the flashing handle is dead; prefer the genuinely new handle
+// (not present before the reset) so two identical boards don't cross logs, then
+// other VID/PID matches, then the original handle (UART bridges reopen in
+// place). No re-prompt: every candidate is already authorized. Returns the open
+// port, or null with the last error when none came back in time.
 async function openLiveLogPort(
   oldPort: SerialPort,
+  before: SerialPort[],
   baud: number,
   timeoutMs: number,
-): Promise<SerialPort | null> {
+): Promise<{ port: SerialPort | null; error?: string }> {
   const want = oldPort.getInfo();
+  const beforeSet = new Set(before);
   const deadline = Date.now() + timeoutMs;
+  let lastError = "";
   for (;;) {
-    if (stopLogs) return null; // user pressed Stop during the re-enumerate wait
+    if (stopLogs) return { port: null }; // user pressed Stop during the wait
     let granted: SerialPort[] = [];
     try {
       granted = await navigator.serial.getPorts();
-    } catch {
-      // getPorts can transiently reject mid-re-enumeration; retry below.
+    } catch (err) {
+      lastError = "getPorts failed: " + String(err);
     }
+    const matches = granted.filter(
+      (p) => p !== oldPort && matchesDevice(p.getInfo(), want),
+    );
     const candidates = [
-      ...granted.filter((p) => p !== oldPort && matchesDevice(p.getInfo(), want)),
+      ...matches.filter((p) => !beforeSet.has(p)), // the re-enumerated handle
+      ...matches.filter((p) => beforeSet.has(p)),
       oldPort,
     ];
     for (const p of candidates) {
-      if (p.readable) return p; // already open (reset race left it usable)
+      if (p.readable) return { port: p }; // already open (reset race left it usable)
       try {
         await p.open({ baudRate: baud });
-        return p;
-      } catch {
+        return { port: p };
+      } catch (err) {
         // Unusable this round (still re-enumerating, or a transient open
         // failure); fall through so the original handle is still tried before
         // we retry the whole round.
+        lastError = "open failed: " + String(err);
       }
     }
-    if (Date.now() >= deadline) return null;
+    if (Date.now() >= deadline) return { port: null, error: lastError || undefined };
     await sleep(200);
   }
 }
@@ -310,13 +319,21 @@ async function openLiveLogPort(
 // the boot end to end. Reads at 115200 (the ESPHome logger default); a board
 // whose logger uses a different baud (or whose USB id changes when running)
 // won't connect, which is surfaced rather than thrown.
-async function streamSerialLogs(oldPort: SerialPort): Promise<void> {
+async function streamSerialLogs(
+  oldPort: SerialPort,
+  before: SerialPort[],
+): Promise<void> {
   streaming = true;
   logbox.open = true;
   installBtn.textContent = "Stop logs";
   installBtn.disabled = false;
-  const port = await openLiveLogPort(oldPort, 115200, LOG_REOPEN_TIMEOUT_MS);
-  if (stopLogs) {
+  const { port, error } = await openLiveLogPort(
+    oldPort,
+    before,
+    115200,
+    LOG_REOPEN_TIMEOUT_MS,
+  );
+  if (stopLogs || !port || !port.readable) {
     if (port) {
       try {
         await port.close();
@@ -324,11 +341,13 @@ async function streamSerialLogs(oldPort: SerialPort): Promise<void> {
         // already closed
       }
     }
-    streaming = false;
-    return;
-  }
-  if (!port || !port.readable) {
-    log("[serial logs unavailable; the device did not re-enumerate in time]");
+    if (!stopLogs) {
+      log(
+        "[serial logs unavailable: " +
+          (error ?? "the device did not re-enumerate in time") +
+          "]",
+      );
+    }
     streaming = false;
     return;
   }
@@ -420,6 +439,14 @@ async function runFlash(files: FileToFlash[], erase: boolean): Promise<void> {
     await flashFiles(esploader, files, erase, setProgress, (detail) =>
       setState("installing", detail),
     );
+    // Snapshot authorized ports before the reset so the live-log re-acquire can
+    // tell the genuinely re-enumerated handle from an already-present board.
+    let portsBeforeReset: SerialPort[] = [];
+    try {
+      portsBeforeReset = await navigator.serial.getPorts();
+    } catch {
+      // tolerate; openLiveLogPort falls back to VID/PID matching
+    }
     await esploader.after(); // hard reset into the new firmware
     flashDone = true;
     setState(
@@ -434,7 +461,7 @@ async function runFlash(files: FileToFlash[], erase: boolean): Promise<void> {
     } catch {
       // already closed
     }
-    await streamSerialLogs(port);
+    await streamSerialLogs(port, portsBeforeReset);
   } catch (err) {
     setState("error", "Installation failed: " + String(err));
   } finally {
