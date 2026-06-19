@@ -1,8 +1,8 @@
 """Tests for ``helpers.secrets_state``.
 
-Covers the Wi-Fi state predicates (``is_wifi_unconfigured`` /
-``wifi_secrets_defined``), the shared ``validate_wifi_credentials`` guard,
-the read / merge / line-based write helpers, and the secret-key rules.
+Covers the Wi-Fi state predicate (``wifi_secrets_defined``), the shared
+``validate_wifi_credentials`` guard, the placeholder migration, the read /
+merge / line-based write helpers, and the secret-key rules.
 """
 
 from __future__ import annotations
@@ -23,7 +23,6 @@ from esphome_device_builder.helpers.secrets_state import (
     _quote_yaml_string,
     _replace_or_append_secret,
     is_valid_secret_key,
-    is_wifi_unconfigured,
     merge_secrets_file,
     migrate_placeholder_wifi_secrets,
     read_secrets_yaml,
@@ -68,65 +67,6 @@ def test_wifi_secrets_defined_true_for_placeholder_values() -> None:
         )
         is True
     )
-
-
-def test_unconfigured_when_secrets_is_none() -> None:
-    """File missing entirely ⇒ user needs to set credentials."""
-    assert is_wifi_unconfigured(None) is True
-
-
-def test_unconfigured_when_secrets_is_empty_dict() -> None:
-    """File present but empty ⇒ same as missing for our purposes."""
-    assert is_wifi_unconfigured({}) is True
-
-
-def test_unconfigured_when_wifi_ssid_key_is_missing() -> None:
-    """Other secrets present but no ``wifi_ssid`` ⇒ unconfigured."""
-    assert is_wifi_unconfigured({"api_key": "ZZZ", "mqtt_pw": "shhh"}) is True
-
-
-def test_unconfigured_when_wifi_ssid_is_empty_string() -> None:
-    """Existing installs from the previous bootstrap ⇒ still unconfigured."""
-    assert is_wifi_unconfigured({"wifi_ssid": ""}) is True
-
-
-def test_unconfigured_when_wifi_ssid_is_only_whitespace() -> None:
-    """``"  "`` should be treated like empty — strip before comparing."""
-    assert is_wifi_unconfigured({"wifi_ssid": "   "}) is True
-
-
-def test_unconfigured_when_wifi_ssid_matches_bootstrap_placeholder() -> None:
-    """Fresh-install placeholder ⇒ user hasn't replaced it yet."""
-    assert is_wifi_unconfigured({"wifi_ssid": PLACEHOLDER_WIFI_SSID}) is True
-
-
-def test_configured_when_wifi_ssid_is_a_real_value() -> None:
-    assert is_wifi_unconfigured({"wifi_ssid": "home_network"}) is False
-
-
-def test_unconfigured_when_wifi_ssid_is_a_non_string_typo() -> None:
-    """``wifi_ssid: 42`` (missing quotes) — keep onboarding visible.
-
-    ESPHome's compile-time validator rejects non-string SSID, so
-    treating this as 'configured' would clear the onboarding
-    badge while the actual config is still broken — the user
-    would never see the prompt that would have helped them.
-    """
-    assert is_wifi_unconfigured({"wifi_ssid": 42}) is True
-    assert is_wifi_unconfigured({"wifi_ssid": ["x"]}) is True
-    assert is_wifi_unconfigured({"wifi_ssid": None}) is True
-
-
-@pytest.mark.parametrize(
-    "value",
-    ["MyNetwork", "REPLACE_WITH_OTHER_THING", "  spaced  network  "],
-)
-def test_password_does_not_affect_configured_state(value: str) -> None:
-    """Password value is intentionally not part of the check.
-
-    Open networks legitimately have an empty password.
-    """
-    assert is_wifi_unconfigured({"wifi_ssid": value, "wifi_password": ""}) is False
 
 
 def test_read_secrets_yaml_returns_none_for_missing_file(tmp_path: Path) -> None:
@@ -233,10 +173,9 @@ def test_validate_secrets_content_accepts_comment_only_file(tmp_path: Path) -> N
 def test_placeholder_password_constant_is_exported() -> None:
     """Pin the placeholder password export.
 
-    The constant is unused by ``is_wifi_unconfigured`` but
-    exported alongside the SSID one because the bootstrap and
-    the onboarding setter both need it. Locking the export here
-    prevents a future refactor from silently moving it.
+    Kept live by ``migrate_placeholder_wifi_secrets`` (it strips a leftover
+    seeded value only when it equals this exact placeholder). Locking the
+    export here prevents a future refactor from silently moving it.
     """
     assert isinstance(PLACEHOLDER_WIFI_PASSWORD, str)
     assert PLACEHOLDER_WIFI_PASSWORD

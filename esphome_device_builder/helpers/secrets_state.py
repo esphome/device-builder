@@ -59,20 +59,14 @@ except ImportError:
     PLACEHOLDER_WIFI_SSID = "REPLACE_WITH_YOUR_WIFI_NETWORK"
     PLACEHOLDER_WIFI_PASSWORD = "REPLACE_WITH_YOUR_WIFI_PASSWORD"  # noqa: S105
 
-# Values that count as "not user-configured" for ``wifi_ssid``:
-# missing key, empty string, or the bootstrap placeholder. Stored
-# as a frozenset so a future placeholder rotation just appends
-# the old value here for backward compatibility.
-_UNCONFIGURED_WIFI_SSID_VALUES: frozenset[str] = frozenset({"", PLACEHOLDER_WIFI_SSID})
-
 
 def read_secrets_yaml(config_dir: Path) -> dict | None:
     """
     Load ``secrets.yaml`` as a plain dict, or ``None`` on any failure.
 
     Centralised so every reader (``ConfigController.get_secrets``,
-    ``OnboardingController.get_state``, future MQTT-broker pickup
-    etc.) shares one fail-soft contract: missing file ⇒ ``None``,
+    the create wizard's Wi-Fi check, future MQTT-broker pickup etc.)
+    shares one fail-soft contract: missing file ⇒ ``None``,
     parse error ⇒ ``None``, non-dict top-level (``secrets.yaml``
     that's a list or scalar — invalid but possible) ⇒ ``None``.
 
@@ -118,34 +112,6 @@ def validate_secrets_content(content: str, path: Path) -> None:
         raise SecretsContentError("secrets.yaml must be a top-level mapping of name: value entries")
 
 
-def is_wifi_unconfigured(secrets: dict | None) -> bool:
-    """
-    Return True when ``secrets.yaml``'s ``wifi_ssid`` is missing / empty / placeholder.
-
-    Only the SSID is checked — ESPHome's ``cv.ssid`` validator
-    rejects empty strings ("SSID can't be empty.") while
-    ``cv.string_strict`` on the password accepts ``""`` (open
-    networks are valid). So the SSID is the canonical "wifi
-    is configured" signal; matching on it alone keeps the
-    state-check minimal.
-
-    Boundary cases:
-
-    - Missing file / empty dict / missing key → unconfigured.
-    - Non-string value (e.g. ``wifi_ssid: 42`` — quotes stripped
-      by accident) → unconfigured. ESPHome's compile-time
-      validator would reject it later anyway, and clearing
-      onboarding here would mask a real broken-config state from
-      the user.
-    """
-    if not secrets:
-        return True
-    val = secrets.get("wifi_ssid")
-    if not isinstance(val, str):
-        return True
-    return val.strip() in _UNCONFIGURED_WIFI_SSID_VALUES
-
-
 def wifi_secrets_defined(secrets: dict | None) -> bool:
     """
     Return True when a generated ``!secret`` Wi-Fi block would validate.
@@ -153,8 +119,7 @@ def wifi_secrets_defined(secrets: dict | None) -> bool:
     ``wifi_ssid`` must be a non-empty string (ESPHome's ``cv.ssid`` rejects an
     empty SSID) and ``wifi_password`` a string — empty is allowed (open
     networks), but ``null`` / non-string is rejected by ``cv.string_strict``, so
-    those count as undefined. A seeded placeholder still counts (non-empty and
-    validates), unlike :func:`is_wifi_unconfigured`.
+    those count as undefined.
     """
     if secrets is None:
         return False
@@ -213,7 +178,7 @@ def merge_secrets_file(src: Path, dest: Path) -> None:
 # a trailing comment. The rewrite still produces valid YAML
 # because the new value is re-quoted, but the spurious tail is
 # preserved as a comment. See the dedicated regression test in
-# ``tests/test_onboarding_controller.py``. Realistic impact is
+# ``tests/test_secrets_state.py``. Realistic impact is
 # low — ``#`` in SSIDs is uncommon and the user's hand-edit has
 # to land before they re-run the wizard.
 _SECRET_LINE_RE = re.compile(r"^(\s*)([a-zA-Z_]\w*)\s*:[^#\n]*?(\s+#.*)?$")
