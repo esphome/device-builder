@@ -196,12 +196,17 @@ class ArtifactsEndFrameData(TypedDict):
     fires *instead of* any ``artifacts_start`` / ``artifacts_chunk``
     when the receiver refuses upfront (with a structured
     ``reason``). ``reason`` is ``NotRequired`` — omitted on accept.
+    ``detail`` is an optional human-readable elaboration on a
+    reject (e.g. the exact missing artefact path) the offloader
+    appends to its error; ``NotRequired`` and only set on
+    ``accepted=false``.
     """
 
     type: Literal["artifacts_end"]
     job_id: str
     accepted: bool
     reason: NotRequired[str]
+    detail: NotRequired[str]
 
 
 class CancelJobFrameData(TypedDict):

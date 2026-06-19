@@ -253,12 +253,14 @@ def dispatch_artifacts_end(client: PeerLinkClient, parsed: dict[str, Any]) -> No
         return
     if not wire["accepted"]:
         reason = parsed.get("reason", "unknown")
-        state.future.set_exception(
-            DownloadArtifactsError(
-                f"download_artifacts: receiver rejected ({reason})",
-                reason=str(reason),
-            )
-        )
+        # The receiver may include a ``detail`` (e.g. the exact missing artefact
+        # path) so the operator-facing error names the real problem rather than
+        # just the coarse reason code. ``reason`` still drives recovery policy.
+        detail = parsed.get("detail")
+        message = f"download_artifacts: receiver rejected ({reason})"
+        if isinstance(detail, str) and detail:
+            message = f"{message}: {detail}"
+        state.future.set_exception(DownloadArtifactsError(message, reason=str(reason)))
         return
     if state.assembler is None:
         state.future.set_exception(
