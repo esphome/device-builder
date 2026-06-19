@@ -10,6 +10,7 @@ hardware:
   connectivity:
   - wifi
   - bluetooth
+  - ethernet
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/GL-iNet-GL-S10/image1.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/GL-iNet-GL-S10/image2.jpg
@@ -31,6 +32,31 @@ pins:
   occupied_by: Reset Button
 docs_url: https://devices.esphome.io/devices/GL-iNet-GL-S10/
 featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  description: Built-in IP101 Ethernet PHY — wired networking with no Wi-Fi setup.
+  fields:
+    type:
+      value: IP101
+      locked: true
+    mdc_pin:
+      value: GPIO23
+      locked: true
+    mdio_pin:
+      value: GPIO18
+      locked: true
+    clk:
+      value:
+        pin: GPIO0
+        mode: CLK_EXT_IN
+      locked: true
+    phy_addr:
+      value: 1
+      locked: true
+    power_pin:
+      value: GPIO5
+      locked: true
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:
