@@ -245,6 +245,36 @@ def _generated_board(
     )
 
 
+def _generation_dedup_keys(
+    boards: list[BoardCatalogEntry],
+) -> tuple[set[str], set[tuple[Platform, str]]]:
+    """Seed the id and (platform, display-name) sets a generator skips covered boards by."""
+    ids = {b.id for b in boards}
+    names = {(b.esphome.platform, b.name) for b in boards}
+    return ids, names
+
+
+def _name_already_listed(
+    platform: Platform, name: str, display: str, names: set[tuple[Platform, str]]
+) -> bool:
+    """
+    Return True when ``(platform, display)`` is already in the catalog; log the skip.
+
+    A curated/generated twin today; the log surfaces a future upstream board
+    shadowed by a name collision (generated ``id == board key``, so it would
+    otherwise vanish without a catalog entry).
+    """
+    if (platform, display) not in names:
+        return False
+    _LOGGER.debug(
+        "Not generating %s board %r: display name %r already in the catalog",
+        platform.value,
+        name,
+        display,
+    )
+    return True
+
+
 def _augment_libretiny_boards(boards: list[BoardCatalogEntry]) -> None:
     """
     Fill LibreTiny pins from ESPHome and add the boards manifests don't cover.
@@ -254,34 +284,31 @@ def _augment_libretiny_boards(boards: list[BoardCatalogEntry]) -> None:
     canonical entry for every ESPHome board no manifest *id* already defines, so
     ``board: bw15`` resolves with its pinout and lists in the picker. Dedup is on
     board ``id`` (the unique key), not ``esphome.board`` — a chip referenced only
-    by vendor-product manifests still gets its own canonical board.
+    by vendor-product manifests still gets its own canonical board — and on
+    display name so a curated board claiming an ESPHome key isn't twinned.
     """
-    ids = {b.id for b in boards}
+    ids, names = _generation_dedup_keys(boards)
     for platform, (boards_attr, pins_attr) in _LIBRETINY_FAMILIES.items():
         module = importlib.import_module(f"esphome.components.{platform}.boards")
         # No getattr default: an upstream rename of these (private) symbols
         # should fail the sync loudly, not silently emit a pinless catalog.
         board_list: dict[str, Any] = getattr(module, boards_attr)
         pin_map: dict[str, Any] = getattr(module, pins_attr)
+        pf = Platform(platform)
         for board in boards:
             if board.esphome.platform.value == platform and not board.pins:
                 pins = _resolve_board_pins(pin_map, board.esphome.board)
                 if pins:
                     board.pins = _derive_pins_from_aliases(pins)
         for name, meta in board_list.items():
-            if name in ids:
+            display = _meta_name(meta, name)
+            if name in ids or _name_already_listed(pf, name, display, names):
                 continue
             pins = _resolve_board_pins(pin_map, name)
             if pins:
-                boards.append(
-                    _generated_board(
-                        Platform(platform),
-                        name,
-                        _meta_name(meta, name),
-                        _derive_pins_from_aliases(pins),
-                    )
-                )
+                boards.append(_generated_board(pf, name, display, _derive_pins_from_aliases(pins)))
                 ids.add(name)
+                names.add((pf, display))
 
 
 # RP2350B (48-GPIO, max_pin 47) routes its ADC inputs to GPIO40-47; rp2040 and
@@ -360,22 +387,24 @@ def _augment_rp2040_boards(boards: list[BoardCatalogEntry]) -> None:
     Add catalog entries for RP2040/RP2350 boards no manifest id covers.
 
     No empty-pin fill step — the manifested rp2040 boards already ship full
-    pinouts; only generation matters. Dedup on board ``id``. A board missing from
-    ``RP2040_BOARD_PINS`` still gets the matrix (GPIO0..max_pin + pwm + adc).
+    pinouts; only generation matters. Dedup on board ``id`` and display name, so a
+    curated board claiming an ESPHome key under a different id doesn't also emit a
+    same-named twin. A board missing from ``RP2040_BOARD_PINS`` still gets the matrix.
     """
-    ids = {b.id for b in boards}
+    ids, names = _generation_dedup_keys(boards)
     module = importlib.import_module("esphome.components.rp2040.boards")
     default_max_pin: int = module.DEFAULT_MAX_PIN
     for name, meta in module.BOARDS.items():
-        if name in ids:
+        display = _meta_name(meta, name)
+        if name in ids or _name_already_listed(Platform.RP2040, name, display, names):
             continue
         max_pin = meta.get("max_pin", default_max_pin)
         pins = _resolve_board_pins(module.RP2040_BOARD_PINS, name) or {}
-        entry = _generated_board(
-            Platform.RP2040, name, _meta_name(meta, name), _derive_rp2040_pins(pins, max_pin)
+        boards.append(
+            _generated_board(Platform.RP2040, name, display, _derive_rp2040_pins(pins, max_pin))
         )
-        boards.append(entry)
         ids.add(name)
+        names.add((Platform.RP2040, display))
 
 
 def _backfill_rp2040_wifi(boards: list[BoardCatalogEntry]) -> None:
@@ -489,24 +518,26 @@ def _augment_esp32_boards(boards: list[BoardCatalogEntry]) -> None:
     curated subset. Each uncovered board takes its chip's ``generic-<variant>``
     pinout, enriched with any named ``ESP32_BOARD_PINS`` aliases. Dedup is on
     board ``id`` (the unique key), so a board referenced only by vendor
-    manifests still gets its own canonical entry.
+    manifests still gets its own canonical entry, and on display name so an
+    ESPHome key-aliased board (``freenove-esp32-s3-n8r8`` /
+    ``freenove_esp32_s3_wroom``) isn't listed twice.
     """
-    ids = {b.id for b in boards}
+    ids, names = _generation_dedup_keys(boards)
     generic_pins = _esp32_generic_pins_by_variant(boards)
     module = importlib.import_module(_ESP32_BOARDS_MODULE)
     # No getattr default: an upstream rename should fail the sync loudly.
     board_list: dict[str, Any] = getattr(module, _ESP32_BOARDS_ATTR)
     pin_map: dict[str, Any] = getattr(module, _ESP32_BOARD_PINS_ATTR)
     for name, meta in board_list.items():
-        if name in ids:
+        display = _meta_name(meta, name)
+        if name in ids or _name_already_listed(Platform("esp32"), name, display, names):
             continue
         variant = Esp32Variant(meta["variant"].lower())
         pins = _resolve_board_pins(pin_map, name)
         derived = _esp32_board_pins(generic_pins.get(variant, []), pins)
-        boards.append(
-            _generated_board(Platform("esp32"), name, _meta_name(meta, name), derived, variant)
-        )
+        boards.append(_generated_board(Platform("esp32"), name, display, derived, variant))
         ids.add(name)
+        names.add((Platform("esp32"), display))
 
 
 def _esp8266_generic_pins(boards: list[BoardCatalogEntry]) -> list[BoardPin]:
@@ -560,7 +591,9 @@ def _augment_esp8266_boards(boards: list[BoardCatalogEntry]) -> None:
     pin resolver uses. Dedup on board ``id`` (curated esp8266 manifests use the
     ESPHome board name verbatim, so a base board referenced only by vendor
     products still generates its own canonical entry, e.g. ``esp01_1m``;
-    otherwise ``find_by_pio_board`` falls back to an arbitrary product — #395).
+    otherwise ``find_by_pio_board`` falls back to an arbitrary product — #395),
+    and on display name so a curated product claiming an ESPHome key under a
+    different id (``sonoff-basic`` for ``sonoff_basic``) isn't listed twice.
     """
     module = importlib.import_module("esphome.components.esp8266.boards")
     # Direct access (not getattr-with-default): an upstream rename of these
@@ -569,25 +602,24 @@ def _augment_esp8266_boards(boards: list[BoardCatalogEntry]) -> None:
     pin_map: dict[str, Any] = module.ESP8266_BOARD_PINS
     base: dict[str, int] = module.ESP8266_BASE_PINS
     generic = _esp8266_generic_pins(boards)
-    ids = {b.id for b in boards}
+    ids, names = _generation_dedup_keys(boards)
     for board in boards:
         if board.esphome.platform.value != "esp8266" or board.pins:
             continue
         amap = {**base, **(_resolve_board_pins(pin_map, board.esphome.board) or {})}
         board.pins = _overlay_esp8266_aliases(generic, amap)
     for name, meta in board_list.items():
-        if name in ids:
+        display = _meta_name(meta, name)
+        if name in ids or _name_already_listed(Platform("esp8266"), name, display, names):
             continue
         amap = {**base, **(_resolve_board_pins(pin_map, name) or {})}
         boards.append(
             _generated_board(
-                Platform("esp8266"),
-                name,
-                _meta_name(meta, name),
-                _overlay_esp8266_aliases(generic, amap),
+                Platform("esp8266"), name, display, _overlay_esp8266_aliases(generic, amap)
             )
         )
         ids.add(name)
+        names.add((Platform("esp8266"), display))
 
 
 def _derive_nrf52_pins(adc_gpios: set[int]) -> list[BoardPin]:
@@ -618,9 +650,11 @@ def _augment_nrf52_boards(boards: list[BoardCatalogEntry]) -> None:
     whose catalog id is already owned by another platform (rp2040's
     ``adafruit_itsybitsy``, the PlatformIO string both platforms share) can't be
     served by an id-keyed catalog, so it's skipped with a warning rather than
-    shadowed onto the other platform's pinout.
+    shadowed onto the other platform's pinout. Also deduped on display name so a
+    curated nRF52 board claiming a Zephyr id under a different id isn't twinned.
     """
     platform_by_id = {b.id: b.esphome.platform.value for b in boards}
+    _, names = _generation_dedup_keys(boards)
     boards_module = importlib.import_module("esphome.components.nrf52.boards")
     const_module = importlib.import_module("esphome.components.nrf52.const")
     adc_gpios = set(const_module.AIN_TO_GPIO.values())
@@ -636,15 +670,14 @@ def _augment_nrf52_boards(boards: list[BoardCatalogEntry]) -> None:
                     owner,
                 )
             continue
+        display = _NRF52_BOARD_NAMES.get(name, name)
+        if _name_already_listed(Platform.NRF52, name, display, names):
+            continue
         boards.append(
-            _generated_board(
-                Platform.NRF52,
-                name,
-                _NRF52_BOARD_NAMES.get(name, name),
-                _derive_nrf52_pins(adc_gpios),
-            )
+            _generated_board(Platform.NRF52, name, display, _derive_nrf52_pins(adc_gpios))
         )
         platform_by_id[name] = _NRF52_PLATFORM
+        names.add((Platform.NRF52, display))
 
 
 def _has_rmii_ethernet(board: BoardCatalogEntry) -> bool:

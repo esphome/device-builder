@@ -121,6 +121,34 @@ def test_split_artefacts_match_manifests() -> None:
         )
 
 
+def test_no_duplicate_platform_name_boards() -> None:
+    """
+    No two catalog entries share a ``(platform, display-name)``.
+
+    A curated manifest claiming an ESPHome board key under a different id must not
+    leave a same-named generated twin in the picker (the WIZnet/Freenove/Sonoff
+    duplicates).
+    """
+    seen: dict[tuple[str, str], str] = {}
+    dups: list[str] = []
+    for board in load_board_catalog().boards:
+        key = (board.esphome.platform.value, board.name)
+        if key in seen:
+            dups.append(f"{board.name!r}: {board.id} vs {seen[key]}")
+        else:
+            seen[key] = board.id
+    assert not dups, "Duplicate (platform, name) board entries:\n" + "\n".join(dups)
+
+
+def test_wiznet_w6300_resolves_to_curated_ethernet_board() -> None:
+    """The W6300-EVB-Pico2 lists once, as the curated board carrying onboard ethernet."""
+    hits = [b for b in load_board_catalog().boards if b.name == "WIZnet W6300-EVB-Pico2"]
+    assert len(hits) == 1
+    board = hits[0]
+    assert board.esphome.board == "wiznet_6300_evb_pico2"
+    assert any(fc.component_id == "ethernet" for fc in board.featured_components)
+
+
 def test_boards_index_omits_body_fields() -> None:
     """The slim index strips ``hardware`` / ``pins`` / featured_* fields."""
     raw = _BOARDS_INDEX_JSON.read_text(encoding="utf-8")
