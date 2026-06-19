@@ -25,6 +25,9 @@ let targetOrigin = params.get("origin") || "*";
 
 let firmware: FirmwareMessage | null = null;
 let busy = false;
+let flashDone = false;
+let streaming = false;
+let stopLogs = false;
 
 // --- UI -------------------------------------------------------------------
 
@@ -39,25 +42,34 @@ document.body.innerHTML = `
     </div>
     <p id="hint"></p>
     <div id="status" class="status idle">Waiting for firmware&hellip;</div>
-    <div id="bar" hidden><div id="fill"></div></div>
+    <div id="progress" hidden><div id="bar"><div id="fill"></div></div><span id="pct"></span></div>
     <button id="install" disabled>Connect &amp; install</button>
     <details id="manual">
       <summary>No firmware received? Flash a factory file manually</summary>
       <input id="file" type="file" accept=".bin" />
     </details>
-    <pre id="log"></pre>
+    <details id="logbox">
+      <summary>Show log</summary>
+      <pre id="log"></pre>
+    </details>
   </main>
 `;
 
 const el = <T extends HTMLElement>(id: string) =>
   document.getElementById(id) as T;
 const statusEl = el<HTMLDivElement>("status");
-const barEl = el<HTMLDivElement>("bar");
+const progressEl = el<HTMLDivElement>("progress");
 const fillEl = el<HTMLDivElement>("fill");
+const pctEl = el<HTMLSpanElement>("pct");
 const installBtn = el<HTMLButtonElement>("install");
 const fileInput = el<HTMLInputElement>("file");
 const hintEl = el<HTMLParagraphElement>("hint");
 const logEl = el<HTMLPreElement>("log");
+const logbox = el<HTMLDetailsElement>("logbox");
+
+// CSI escapes (colour, cursor moves) in ESPHome's serial log; strip them so
+// the log shows plain text instead of raw control sequences.
+const ANSI_RE = /\[[\d;?]*[A-Za-z]/g;
 
 hintEl.textContent = opener
   ? "Plug the board into this computer over USB, then press Connect & install."
@@ -65,7 +77,34 @@ hintEl.textContent = opener
 
 function log(line: string): void {
   logEl.textContent += line + "\n";
+  logEl.scrollTop = logEl.scrollHeight;
 }
+
+// esptool-js streams its output here; a \r redraws the current line (progress),
+// so keep only what follows the last \r when flushing a completed line.
+let pending = "";
+function termWrite(data: string): void {
+  pending += data;
+  let nl = pending.indexOf("\n");
+  while (nl >= 0) {
+    log(pending.slice(0, nl).replace(/.*\r/, "").replace(ANSI_RE, ""));
+    pending = pending.slice(nl + 1);
+    nl = pending.indexOf("\n");
+  }
+}
+
+const terminal = {
+  clean(): void {
+    logEl.textContent = "";
+    pending = "";
+  },
+  writeLine(data: string): void {
+    log(data);
+  },
+  write(data: string): void {
+    termWrite(data);
+  },
+};
 
 function post(msg: OutboundMessage): void {
   // targetOrigin narrows from '*' to the opener's real origin once known; see
@@ -74,14 +113,21 @@ function post(msg: OutboundMessage): void {
 }
 
 function setState(state: FlashState, detail: string): void {
-  statusEl.textContent = detail;
   statusEl.className = "status " + state;
+  statusEl.textContent = "";
+  if (state === "connecting" || state === "installing") {
+    const spin = document.createElement("span");
+    spin.className = "spinner";
+    statusEl.appendChild(spin);
+  }
+  statusEl.appendChild(document.createTextNode(detail));
   post({ type: "esphome-web-flash:state", state, detail });
 }
 
 function setProgress(pct: number): void {
-  barEl.hidden = false;
+  progressEl.hidden = false;
   fillEl.style.width = pct + "%";
+  pctEl.textContent = pct + "%";
   post({ type: "esphome-web-flash:progress", pct });
 }
 
@@ -127,6 +173,7 @@ window.addEventListener("message", (ev: MessageEvent) => {
     "connecting",
     `Firmware ready${firmware.name ? ": " + firmware.name : ""}. Press Connect & install.`,
   );
+  installBtn.focus();
 });
 
 // Re-announce until firmware arrives: a single 'ready' can race the opener
@@ -167,13 +214,16 @@ async function flashFiles(
   fileArray: FileToFlash[],
   erase: boolean,
   writeProgress: (pct: number) => void,
+  setPhase: (detail: string) => void,
 ): Promise<void> {
   if (erase) {
+    setPhase("Erasing flash… this can take a moment.");
     await esploader.eraseFlash();
   }
   let totalSize = 0;
   for (const f of fileArray) totalSize += f.data.length;
   let totalWritten = 0;
+  setPhase("Writing firmware… keep this tab visible.");
   writeProgress(0);
   await esploader.writeFlash({
     fileArray,
@@ -204,11 +254,38 @@ async function resetDevice(transport: Transport): Promise<void> {
   await transport.setRTS(false);
 }
 
+// Stream the rebooted device's serial output into the log so a tester can watch
+// the boot over the same port that flashed it. Reads at the flash baud (115200,
+// the ESPHome logger default); a native-USB chip that re-enumerated on reset may
+// end the read early, which is surfaced rather than thrown.
+async function streamSerialLogs(transport: Transport): Promise<void> {
+  streaming = true;
+  logbox.open = true;
+  installBtn.textContent = "Stop logs";
+  installBtn.disabled = false;
+  const decoder = new TextDecoder();
+  try {
+    await transport.rawRead(
+      (chunk) => termWrite(decoder.decode(chunk, { stream: true })),
+      () => stopLogs,
+    );
+  } catch (err) {
+    log("[serial logs unavailable: " + String(err) + "]");
+  } finally {
+    streaming = false;
+  }
+}
+
 async function runFlash(files: FileToFlash[], erase: boolean): Promise<void> {
   if (busy) return;
   busy = true;
   installBtn.disabled = true;
   fileInput.disabled = true;
+  // Clear any stale bar/percent from a previous failed attempt.
+  stopLogs = false;
+  progressEl.hidden = true;
+  fillEl.style.width = "0%";
+  pctEl.textContent = "";
 
   let port: SerialPort;
   try {
@@ -226,6 +303,7 @@ async function runFlash(files: FileToFlash[], erase: boolean): Promise<void> {
     transport,
     baudrate: 115200,
     enableTracing: false,
+    terminal,
   });
 
   try {
@@ -244,11 +322,19 @@ async function runFlash(files: FileToFlash[], erase: boolean): Promise<void> {
     }
     log("Detected chip: " + chipName);
 
-    setState("installing", "Installing… keep this tab visible.");
-    await flashFiles(esploader, files, erase, setProgress);
+    await flashFiles(esploader, files, erase, setProgress, (detail) =>
+      setState("installing", detail),
+    );
     await esploader.after();
     await resetDevice(transport);
-    setState("done", "Installed. The device is rebooting.");
+    flashDone = true;
+    setState(
+      "done",
+      opener
+        ? "Installed and rebooting. Live serial logs below; close this tab when finished."
+        : "Installed and rebooting. Live serial logs below; press Stop logs when finished.",
+    );
+    await streamSerialLogs(transport);
   } catch (err) {
     setState("error", "Installation failed: " + String(err));
   } finally {
@@ -258,12 +344,30 @@ async function runFlash(files: FileToFlash[], erase: boolean): Promise<void> {
       // already closed
     }
     busy = false;
-    installBtn.disabled = false;
     fileInput.disabled = false;
+    // Only offer the self-close action when an opener exists; window.close() is
+    // blocked on a tab the user navigated to directly.
+    if (flashDone && opener) {
+      installBtn.textContent = "Close this tab";
+      installBtn.disabled = false;
+    } else if (flashDone) {
+      installBtn.textContent = "Done";
+      installBtn.disabled = true;
+    } else {
+      installBtn.disabled = false;
+    }
   }
 }
 
 installBtn.addEventListener("click", async () => {
+  if (streaming) {
+    stopLogs = true; // end the live-log read; the run's finally takes over
+    return;
+  }
+  if (flashDone) {
+    window.close();
+    return;
+  }
   if (firmware) {
     const files = firmware.parts.map((p) => ({
       data: new Uint8Array(p.data),

@@ -45,7 +45,14 @@
       .status.installing { background: #ff980044; }
       .status.done { background: #4caf5044; }
       .status.error { background: #f4433644; }
+      #progress {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        margin: 1rem 0;
+      }
       #bar {
+        flex: 1;
         height: 0.5rem;
         border-radius: 0.25rem;
         background: #8884;
@@ -56,6 +63,28 @@
         width: 0%;
         background: #2196f3;
         transition: width 0.2s;
+      }
+      #pct {
+        font-size: 0.85rem;
+        opacity: 0.8;
+        min-width: 4ch;
+        font-variant-numeric: tabular-nums;
+      }
+      .spinner {
+        display: inline-block;
+        width: 1em;
+        height: 1em;
+        margin-right: 0.5em;
+        border: 2px solid currentColor;
+        border-top-color: transparent;
+        border-radius: 50%;
+        vertical-align: -0.15em;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
       }
       button {
         margin-top: 1rem;
@@ -75,8 +104,13 @@
         margin-top: 1.5rem;
         font-size: 0.9rem;
       }
+      summary {
+        cursor: pointer;
+      }
       pre {
-        margin-top: 1rem;
+        margin-top: 0.5rem;
+        max-height: 18rem;
+        overflow: auto;
         font-size: 0.8rem;
         white-space: pre-wrap;
         opacity: 0.7;
