@@ -1,4 +1,5 @@
 import { ESPLoader, Transport } from "esptool-js";
+import { validateEspImage } from "./image-magic";
 import type {
   FirmwareMessage,
   OutboundMessage,
@@ -30,10 +31,6 @@ let streaming = false;
 let stopLogs = false;
 // Active log-stream reader, so the Stop button can cancel a blocked read().
 let logReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
-
-// ESP32/ESP8266 firmware (and the bootloader a factory image starts with) begin
-// with the ESP image magic byte at offset 0.
-const ESP_IMAGE_MAGIC = 0xe9;
 
 // Native-USB chips (S3/C3/C6) re-enumerate on reset; wait this long for the
 // running firmware's port to reappear before giving up on logs.
@@ -258,20 +255,6 @@ async function flashFiles(
   writeProgress(100);
 }
 
-// Reject anything that isn't an ESP image before we erase the chip: the part at
-// offset 0 (factory bootloader, or the ESP8266 firmware) must carry the magic
-// byte. Returns an error string, or null when it looks valid.
-function validateEspImage(files: FileToFlash[]): string | null {
-  const boot = files.find((f) => f.address === 0);
-  if (!boot) {
-    return "No image at offset 0x0; expected an ESP32/ESP8266 factory image.";
-  }
-  if (boot.data.length < 1 || boot.data[0] !== ESP_IMAGE_MAGIC) {
-    return "This does not look like ESP32/ESP8266 firmware (missing 0xE9 image magic at 0x0).";
-  }
-  return null;
-}
-
 // Same USB device by vendor/product id; both ids must be present so two non-USB
 // ports don't match on undefined === undefined.
 function matchesDevice(a: SerialPortInfo, b: SerialPortInfo): boolean {
@@ -312,11 +295,10 @@ async function openLiveLogPort(
       try {
         await p.open({ baudRate: baud });
         return p;
-      } catch (err) {
-        const name = err instanceof DOMException ? err.name : "";
-        // NetworkError = still gone mid-re-enumeration: keep retrying. Anything
-        // else won't fix itself by waiting.
-        if (name !== "NetworkError") return null;
+      } catch {
+        // Unusable this round (still re-enumerating, or a transient open
+        // failure); fall through so the original handle is still tried before
+        // we retry the whole round.
       }
     }
     if (Date.now() >= deadline) return null;

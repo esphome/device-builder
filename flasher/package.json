@@ -8,7 +8,7 @@
     "build": "node build.mjs",
     "dev": "node build.mjs --serve",
     "typecheck": "tsc --noEmit",
-    "test": "node build.mjs && node test/handshake.test.mjs"
+    "test": "node build.mjs && node test/validate.test.mjs && node test/handshake.test.mjs"
   },
   "dependencies": {
     "esptool-js": "0.6.0"
