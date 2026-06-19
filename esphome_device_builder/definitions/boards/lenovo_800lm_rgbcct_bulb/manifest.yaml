@@ -91,5 +91,5 @@ source:
   type: esphome-devices
   remote_id: Lenovo-800lm-RGBCCT-Bulb
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Lenovo-800lm-RGBCCT-Bulb/index.md
-  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
   content_hash: 2ce5a49eee5dc9a825b262b98ef3779738cade0a0eb9c995020ce7bd3c0c0228

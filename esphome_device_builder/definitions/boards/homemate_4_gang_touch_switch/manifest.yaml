@@ -83,5 +83,5 @@ source:
   type: esphome-devices
   remote_id: HomeMate-4-Gang-Touch-Switch
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/HomeMate-4-Gang-Touch-Switch/index.md
-  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
   content_hash: 1f5c8d688bf091c5dd33138c68fb9ad1ee89bb54970c0caca75bf592a8911200

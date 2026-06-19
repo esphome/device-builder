@@ -32,5 +32,5 @@ source:
   type: esphome-devices
   remote_id: Oyajia-LED-Ceiling-light-AS105
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Oyajia-LED-Ceiling-light-AS105/index.md
-  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
   content_hash: 1d2452f856bc69d6313d72dc6bf1407addcc7c5cd82a5f9c009abc0a8c8e915b

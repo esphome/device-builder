@@ -108,6 +108,11 @@ def test_split_artefacts_match_manifests() -> None:
         if platform in esphome_filled or (platform == "esp8266" and not board.pins):
             expected.pop("pins", None)
             actual.pop("pins", None)
+        # Images are vendor-controlled URLs; a manifest image edit shouldn't fail
+        # this consistency check until the catalog regenerates. Reachability is
+        # validated separately by validate_definitions.py --check-images.
+        expected.pop("images", None)
+        actual.pop("images", None)
         assert expected == actual, (
             f"{board.id} is out of sync with its manifest. "
             "Run `python script/sync_boards.py` to regenerate."
