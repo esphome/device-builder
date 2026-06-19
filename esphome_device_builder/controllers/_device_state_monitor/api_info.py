@@ -21,6 +21,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from ...helpers import json
+from ...helpers.device_yaml import DEFAULT_API_PORT
 from ...helpers.hostname import is_local_hostname
 from ...helpers.subprocess import run_subprocess_capture
 from ...models import Device, DeviceState, ReachabilitySource
@@ -43,9 +44,6 @@ _SUBPROCESS_TIMEOUT = 15.0
 # subprocess timeout, so an mDNS-dark all-failing fleet would otherwise spawn
 # interpreters back-to-back for minutes; the overflow rolls to the next sweep.
 _MAX_PROBES_PER_SWEEP = 8
-# Fallback only when no resolver is wired; the real per-device port is
-# read from ``api.port`` by the injected ``resolve_api_connection``.
-_DEFAULT_API_PORT = 6053
 # Distinct devices stuck failing (due but on cooldown) before one WARNING
 # fires, so a systemically broken fallback (resolver bug, worker that never
 # runs, wrong keys for a large subset) surfaces above debug — and a single
@@ -177,7 +175,7 @@ class ApiInfoSource:
             # list after selection. Back off rather than indexing an empty list.
             self._record_failure(device)
             return
-        noise_psk, port = "", _DEFAULT_API_PORT
+        noise_psk, port = "", DEFAULT_API_PORT
         if monitor._resolve_api_connection is not None:
             try:
                 noise_psk, port = await monitor._resolve_api_connection(device.configuration)

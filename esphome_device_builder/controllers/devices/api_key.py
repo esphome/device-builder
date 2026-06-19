@@ -45,18 +45,15 @@ async def get_api_connection(controller: DevicesController, configuration: str) 
     to ``esphome config``, so the background API-info sweep pays no
     per-device subprocess. A device whose key resolves only through
     Jinja-templated ``packages`` returns an empty key here and is left
-    for mDNS rather than dragging a multi-second subprocess into the loop.
+    for mDNS. Raises :class:`ValueError` when the YAML is missing or
+    unparsable so the caller records a miss instead of dialing a doomed
+    plaintext/default-port connection it can't have resolved correctly.
     """
     path = controller._db.settings.rel_path(configuration)
     loop = asyncio.get_running_loop()
     config = await loop.run_in_executor(None, load_device_yaml, path)
     if config is None:
-        # Missing / unparsable YAML resolves to ("", 6053) below — log so a
-        # doomed plaintext/default-port attempt isn't mistaken for a real
-        # unencrypted device.
-        _LOGGER.debug(
-            "Could not load YAML for %s; using plaintext on the default port", configuration
-        )
+        raise ValueError(f"could not load YAML for {configuration}")
     return get_api_encryption_key(config), get_api_port(config)
 
 

@@ -257,16 +257,14 @@ async def test_resolve_device_api_connection_returns_key_and_port(
     assert port == 6055
 
 
-async def test_resolve_device_api_connection_defaults_on_unloadable_config(
+async def test_resolve_device_api_connection_raises_on_unloadable_config(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """A missing / unparsable YAML resolves to plaintext on the default port."""
+    """A missing / unparsable YAML raises so the probe records a miss, not a doomed connect."""
     controller = make_controller(tmp_path)
     # No kitchen.yaml on disk → load_device_yaml returns None.
-    key, port = await controller._resolve_device_api_connection("kitchen.yaml")
-
-    assert key == ""
-    assert port == 6053
+    with pytest.raises(ValueError, match="could not load YAML"):
+        await controller._resolve_device_api_connection("kitchen.yaml")
 
 
 async def test_get_api_key_returns_empty_when_no_encryption(

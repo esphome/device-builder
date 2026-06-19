@@ -28,6 +28,7 @@ from ._loading import (
     load_device_yaml,
 )
 from ._parsing import (
+    DEFAULT_API_PORT,
     EsphomeMeta,
     _parse_inline_value,
     config_has_top_level_block,
@@ -46,6 +47,7 @@ from ._parsing import (
 )
 
 __all__ = [
+    "DEFAULT_API_PORT",
     "EsphomeMeta",
     "StorageJSON",
     "_has_native_wifi",
