@@ -475,6 +475,14 @@ def test_migrate_placeholder_wifi_noop_on_missing_file(tmp_path: Path) -> None:
     assert not _secrets(tmp_path).exists()
 
 
+def test_migrate_placeholder_wifi_noop_on_comment_only_file(tmp_path: Path) -> None:
+    """A comment-only / empty secrets.yaml parses to nothing — leave it untouched."""
+    original = "# nothing here yet\n"
+    _secrets(tmp_path).write_text(original, "utf-8")
+    migrate_placeholder_wifi_secrets(tmp_path)
+    assert _secrets(tmp_path).read_text("utf-8") == original
+
+
 # ---------------------------------------------------------------------------
 # write_wifi_secrets — line-based two-key setter
 # ---------------------------------------------------------------------------
