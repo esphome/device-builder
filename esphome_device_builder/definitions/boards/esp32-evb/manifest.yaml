@@ -4,7 +4,7 @@ description: Olimex ESP32-EVB evaluation board with ESP32-WROOM, Ethernet (LAN87
   and UEXT connector. Industrial-grade board for automation.
 manufacturer: OLIMEX
 images:
-- https://www.olimex.com/Products/IoT/ESP32/ESP32-EVB/images/thumbs/350x/ESP32-EVB-01.jpg
+- https://www.olimex.com/Products/IoT/ESP32/ESP32-EVB/images/thumbs/310x230/ESP32-EVB-1.jpg
 esphome:
   platform: esp32
   board: esp32-evb

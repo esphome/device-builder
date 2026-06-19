@@ -4,7 +4,7 @@ description: Olimex ESP32-GATEWAY with ESP32-WROOM, Ethernet (LAN8710A), and mic
   for bridging Wi-Fi and wired networks in home automation.
 manufacturer: OLIMEX
 images:
-- https://www.olimex.com/Products/IoT/ESP32/ESP32-GATEWAY/images/thumbs/350x/ESP32-GATEWAY-03.jpg
+- https://www.olimex.com/Products/IoT/ESP32/ESP32-GATEWAY/images/thumbs/310x230/ESP32-GATEWAY-1.jpg
 esphome:
   platform: esp32
   board: esp32-gateway

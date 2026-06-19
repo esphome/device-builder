@@ -4,7 +4,7 @@ description: Olimex ESP32-POE-ISO with ESP32-WROOM, Ethernet with galvanically i
   microSD slot. No separate power supply needed.
 manufacturer: OLIMEX
 images:
-- https://www.olimex.com/Products/IoT/ESP32/ESP32-POE-ISO/images/thumbs/350x/ESP32-POE-ISO-02.jpg
+- https://www.olimex.com/Products/IoT/ESP32/ESP32-POE-ISO/images/thumbs/310x230/ESP32-POE-ISO-1.jpg
 esphome:
   platform: esp32
   board: esp32-poe-iso
