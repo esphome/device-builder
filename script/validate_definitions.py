@@ -32,6 +32,13 @@ COMPONENTS_BODIES_DIR = DEFINITIONS_DIR / "components"
 # the dedicated "Add core configuration" dialog, not in board recommendations.
 _FEATURED_EXCLUDED_CATEGORIES = {"core", "ota", "time", "update"}
 
+# Network components offered as board "suggested hardware" despite their
+# ``core`` category — auto-pulled in place of wifi: when a board has onboard
+# wired/Thread networking. Runtime counterpart is
+# ``NETWORK_PROVIDER_COMPONENT_IDS`` in helpers/device_yaml/_generation.py;
+# keep both in sync when adding a provider (this script stays import-free).
+_FEATURED_CATEGORY_EXCEPTIONS = {"ethernet"}
+
 # Required shape for featured-component ids: lowercase letters, digits, and
 # underscores only, starting with a letter. Mirrors what ESPHome accepts
 # as a valid identifier and what the sync script's auto-id format produces.
@@ -347,7 +354,10 @@ def _validate_featured_component(  # noqa: C901
         return errors
 
     component = components_index[component_id]
-    if component.get("category") in _FEATURED_EXCLUDED_CATEGORIES:
+    if (
+        component.get("category") in _FEATURED_EXCLUDED_CATEGORIES
+        and component_id not in _FEATURED_CATEGORY_EXCEPTIONS
+    ):
         errors.append(
             f"{path}: component_id '{component_id}' has excluded category "
             f"'{component.get('category')}'; featured components must be "

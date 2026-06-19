@@ -71,6 +71,14 @@ _NO_WIFI_SECRETS_TODO_LINES: tuple[str, ...] = (
     "",
 )
 
+# Catalog ids of components that satisfy ESPHome's ``network`` dependency.
+# When one is supplied through *defaults*, ``generate_device_yaml`` emits
+# ``api:`` / ``ota:`` and drops the ``wifi:`` block in its favour. Ethernet
+# today; ``openthread`` joins here when Thread boards are wired up. Shared
+# with the components controller (``resolve_network_components``) so the
+# "what to auto-pull" and "what counts as a network" sets can't diverge.
+NETWORK_PROVIDER_COMPONENT_IDS: frozenset[str] = frozenset({"ethernet"})
+
 
 def _has_native_wifi(
     *, platform: str, board: str | None = None, variant: str | None = None
@@ -111,7 +119,10 @@ def generate_device_yaml(
     and Wi-Fi — the most common/sane defaults for a new device. When
     *defaults* is non-empty each ``(component, fields)`` pair is
     appended via :func:`merge_component_yaml`, matching the shape
-    ``add_component`` would produce on a fresh YAML.
+    ``add_component`` would produce on a fresh YAML. When *defaults*
+    supplies a network component (``NETWORK_PROVIDER_COMPONENT_IDS``,
+    e.g. onboard ``ethernet:``) it takes precedence: the ``wifi:``
+    block is dropped and *ssid* / *psk* are ignored.
     """
     esphome_cfg = board.esphome
     lines: list[str] = []
@@ -175,12 +186,38 @@ def generate_device_yaml(
     connectivity = [c.value for c in board.hardware.connectivity] if board.hardware else []
     has_wifi = "wifi" in connectivity if connectivity else _infer_native_wifi(board)
 
-    # A literal ssid always inlines; a !secret reference needs the secrets to
-    # exist or ESPHome's config validation fails with "Secret not defined".
-    if has_wifi and not ssid and not wifi_secrets_available:
-        lines.extend(_NO_WIFI_SECRETS_TODO_LINES)
+    # ``api:`` / ``ota:`` both require a ``network`` component
+    # (DEPENDENCIES=["network"]), so they're emitted only when one is
+    # actually present — an injected provider (onboard ``ethernet:``) or
+    # a usable ``wifi:`` block — otherwise validation rejects the config
+    # with "Component api requires component network." A network provider
+    # in *defaults* takes precedence over Wi-Fi (wired board). Wi-Fi is
+    # usable only with a literal ssid (always inlines) or resolvable
+    # secrets; a bare ``!secret`` reference with no secrets defined fails
+    # validation with "Secret not defined".
+    network_provided = any(
+        component.id in NETWORK_PROVIDER_COMPONENT_IDS for component, _ in (defaults or ())
+    )
+    emit_wifi = has_wifi and not network_provided and (bool(ssid) or wifi_secrets_available)
+    if network_provided or emit_wifi:
+        # Home Assistant API — unique encryption key per device.
+        api_key = base64.b64encode(secrets.token_bytes(32)).decode()
+        lines.append("api:")
+        lines.append("  encryption:")
+        lines.append(f'    key: "{api_key}"')
+        lines.append("")
+
+        # OTA — same network dependency as ``api:`` above.
+        lines.append("ota:")
+        lines.append("  - platform: esphome")
+        lines.append("")
+
+        if emit_wifi:
+            lines.extend(_wifi_block_lines(ssid, psk, friendly_name or name, platform))
     elif has_wifi:
-        lines.extend(_wifi_network_lines(ssid, psk, platform, friendly_name or name))
+        # Native Wi-Fi but no usable credentials and no wired network →
+        # point the user at adding one (no ``api:`` / ``ota:`` yet).
+        lines.extend(_NO_WIFI_SECRETS_TODO_LINES)
     else:
         # No native Wi-Fi → leave a TODO so the user knows what they
         # need to configure before adding ``api:`` / ``ota:``. Both
@@ -194,6 +231,27 @@ def generate_device_yaml(
         lines.extend(_NO_NETWORK_TODO_LINES)
 
     return _apply_default_components("\n".join(lines), defaults)
+
+
+def _wifi_block_lines(ssid: str, psk: str, ap_name: str, platform: str) -> list[str]:
+    """
+    Build the ``wifi:`` block lines plus the fallback AP / captive portal.
+
+    With *ssid* set, emits explicit credentials; otherwise ``!secret``
+    references. *ap_name* / *platform* drive the recovery AP.
+    """
+    lines = ["wifi:"]
+    if ssid:
+        # An unquoted SSID like 'Home #2' truncates at the # comment
+        # marker; a password starting with an indicator char (*, !, &)
+        # fails to parse. Route raw user input through scalar-safe quoting.
+        lines.append(f"  ssid: {_safe_yaml_scalar(ssid)}")
+        lines.append(f"  password: {_safe_yaml_scalar(psk)}")
+    else:
+        lines.append("  ssid: !secret wifi_ssid")
+        lines.append("  password: !secret wifi_password")
+    lines.extend(_fallback_recovery_lines(ap_name, platform))
+    return lines
 
 
 def _infer_native_wifi(board: BoardCatalogEntry) -> bool:
@@ -299,37 +357,6 @@ def generate_minimal_stub_yaml(
         "  password: !secret wifi_password\n"
         f"{recovery}"
     )
-
-
-def _wifi_network_lines(ssid: str, psk: str, platform: str, ap_label: str) -> list[str]:
-    """
-    Render the ``api:`` + ``ota:`` + ``wifi:`` network block for a Wi-Fi board.
-
-    A literal *ssid* inlines (scalar-safe quoted); an empty *ssid* falls back to
-    ``!secret`` references. ``api:`` / ``ota:`` are included here because both
-    need a ``network`` component, which the Wi-Fi block provides.
-    """
-    api_key = base64.b64encode(secrets.token_bytes(32)).decode()
-    lines = [
-        "api:",
-        "  encryption:",
-        f'    key: "{api_key}"',
-        "",
-        "ota:",
-        "  - platform: esphome",
-        "",
-        "wifi:",
-    ]
-    if ssid:
-        # An unquoted SSID like 'Home #2' truncates at the # comment marker; a
-        # password starting with an indicator char (*, !, &) fails to parse.
-        lines.append(f"  ssid: {_safe_yaml_scalar(ssid)}")
-        lines.append(f"  password: {_safe_yaml_scalar(psk)}")
-    else:
-        lines.append("  ssid: !secret wifi_ssid")
-        lines.append("  password: !secret wifi_password")
-    lines.extend(_fallback_recovery_lines(ap_label, platform))
-    return lines
 
 
 def _fallback_recovery_lines(label: str, platform: str) -> list[str]:
