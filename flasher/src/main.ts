@@ -28,6 +28,16 @@ let busy = false;
 let flashDone = false;
 let streaming = false;
 let stopLogs = false;
+// Active log-stream reader, so the Stop button can cancel a blocked read().
+let logReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+
+// ESP32/ESP8266 firmware (and the bootloader a factory image starts with) begin
+// with the ESP image magic byte at offset 0.
+const ESP_IMAGE_MAGIC = 0xe9;
+
+// Native-USB chips (S3/C3/C6) re-enumerate on reset; wait this long for the
+// running firmware's port to reappear before giving up on logs.
+const LOG_REOPEN_TIMEOUT_MS = 8000;
 
 // --- UI -------------------------------------------------------------------
 
@@ -248,36 +258,139 @@ async function flashFiles(
   writeProgress(100);
 }
 
-async function resetDevice(transport: Transport): Promise<void> {
-  await transport.setRTS(true); // EN -> LOW
-  await sleep(100);
-  await transport.setRTS(false);
+// Reject anything that isn't an ESP image before we erase the chip: the part at
+// offset 0 (factory bootloader, or the ESP8266 firmware) must carry the magic
+// byte. Returns an error string, or null when it looks valid.
+function validateEspImage(files: FileToFlash[]): string | null {
+  const boot = files.find((f) => f.address === 0);
+  if (!boot) {
+    return "No image at offset 0x0; expected an ESP32/ESP8266 factory image.";
+  }
+  if (boot.data.length < 1 || boot.data[0] !== ESP_IMAGE_MAGIC) {
+    return "This does not look like ESP32/ESP8266 firmware (missing 0xE9 image magic at 0x0).";
+  }
+  return null;
+}
+
+// Same USB device by vendor/product id; both ids must be present so two non-USB
+// ports don't match on undefined === undefined.
+function matchesDevice(a: SerialPortInfo, b: SerialPortInfo): boolean {
+  return (
+    a.usbVendorId !== undefined &&
+    a.usbProductId !== undefined &&
+    a.usbVendorId === b.usbVendorId &&
+    a.usbProductId === b.usbProductId
+  );
+}
+
+// Find and open the live port for the just-reset device. A native-USB chip
+// re-enumerates, so the flashing handle is dead; prefer a freshly-granted handle
+// for the same VID/PID (Chrome's re-enumerated port), falling back to the
+// original (UART bridges reopen in place). No re-prompt: every candidate is
+// already authorized. Returns an open port, or null if none came back in time.
+async function openLiveLogPort(
+  oldPort: SerialPort,
+  baud: number,
+  timeoutMs: number,
+): Promise<SerialPort | null> {
+  const want = oldPort.getInfo();
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (stopLogs) return null; // user pressed Stop during the re-enumerate wait
+    let granted: SerialPort[] = [];
+    try {
+      granted = await navigator.serial.getPorts();
+    } catch {
+      // getPorts can transiently reject mid-re-enumeration; retry below.
+    }
+    const candidates = [
+      ...granted.filter((p) => p !== oldPort && matchesDevice(p.getInfo(), want)),
+      oldPort,
+    ];
+    for (const p of candidates) {
+      if (p.readable) return p; // already open (reset race left it usable)
+      try {
+        await p.open({ baudRate: baud });
+        return p;
+      } catch (err) {
+        const name = err instanceof DOMException ? err.name : "";
+        // NetworkError = still gone mid-re-enumeration: keep retrying. Anything
+        // else won't fix itself by waiting.
+        if (name !== "NetworkError") return null;
+      }
+    }
+    if (Date.now() >= deadline) return null;
+    await sleep(200);
+  }
 }
 
 // Stream the rebooted device's serial output into the log so a tester can watch
-// the boot over the same port that flashed it. Reads at the flash baud (115200,
-// the ESPHome logger default); a native-USB chip that re-enumerated on reset may
-// end the read early, which is surfaced rather than thrown.
-async function streamSerialLogs(transport: Transport): Promise<void> {
+// the boot end to end. Reads at 115200 (the ESPHome logger default); a board
+// whose logger uses a different baud (or whose USB id changes when running)
+// won't connect, which is surfaced rather than thrown.
+async function streamSerialLogs(oldPort: SerialPort): Promise<void> {
   streaming = true;
   logbox.open = true;
   installBtn.textContent = "Stop logs";
   installBtn.disabled = false;
-  const decoder = new TextDecoder();
+  const port = await openLiveLogPort(oldPort, 115200, LOG_REOPEN_TIMEOUT_MS);
+  if (stopLogs) {
+    if (port) {
+      try {
+        await port.close();
+      } catch {
+        // already closed
+      }
+    }
+    streaming = false;
+    return;
+  }
+  if (!port || !port.readable) {
+    log("[serial logs unavailable; the device did not re-enumerate in time]");
+    streaming = false;
+    return;
+  }
+  // Clear DTR/RTS so reopening the port doesn't reset the chip into the bootloader.
   try {
-    await transport.rawRead(
-      (chunk) => termWrite(decoder.decode(chunk, { stream: true })),
-      () => stopLogs,
-    );
+    await port.setSignals({ dataTerminalReady: false, requestToSend: false });
+  } catch {
+    // tolerate; the chip may already be in a fine state
+  }
+  const decoder = new TextDecoder();
+  const reader = port.readable.getReader();
+  logReader = reader;
+  try {
+    for (;;) {
+      if (stopLogs) break;
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (value) termWrite(decoder.decode(value, { stream: true }));
+    }
   } catch (err) {
-    log("[serial logs unavailable: " + String(err) + "]");
+    log("[serial logs ended: " + String(err) + "]");
   } finally {
+    logReader = null;
+    try {
+      reader.releaseLock();
+    } catch {
+      // already released
+    }
+    try {
+      await port.close();
+    } catch {
+      // already closed
+    }
     streaming = false;
   }
 }
 
 async function runFlash(files: FileToFlash[], erase: boolean): Promise<void> {
   if (busy) return;
+  const invalid = validateEspImage(files);
+  if (invalid) {
+    setState("error", invalid);
+    return;
+  }
   busy = true;
   installBtn.disabled = true;
   fileInput.disabled = true;
@@ -325,8 +438,7 @@ async function runFlash(files: FileToFlash[], erase: boolean): Promise<void> {
     await flashFiles(esploader, files, erase, setProgress, (detail) =>
       setState("installing", detail),
     );
-    await esploader.after();
-    await resetDevice(transport);
+    await esploader.after(); // hard reset into the new firmware
     flashDone = true;
     setState(
       "done",
@@ -334,7 +446,13 @@ async function runFlash(files: FileToFlash[], erase: boolean): Promise<void> {
         ? "Installed and rebooting. Live serial logs below; close this tab when finished."
         : "Installed and rebooting. Live serial logs below; press Stop logs when finished.",
     );
-    await streamSerialLogs(transport);
+    // Release the flashing handle before re-acquiring the live (re-enumerated) port.
+    try {
+      await transport.disconnect();
+    } catch {
+      // already closed
+    }
+    await streamSerialLogs(port);
   } catch (err) {
     setState("error", "Installation failed: " + String(err));
   } finally {
@@ -362,6 +480,7 @@ async function runFlash(files: FileToFlash[], erase: boolean): Promise<void> {
 installBtn.addEventListener("click", async () => {
   if (streaming) {
     stopLogs = true; // end the live-log read; the run's finally takes over
+    logReader?.cancel().catch(() => {}); // unblock a pending read() immediately
     return;
   }
   if (flashDone) {
