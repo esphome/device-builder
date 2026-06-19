@@ -12,6 +12,16 @@
 // frame zero (otherwise it is learned from the first inbound frame); PR 2 should
 // pass 'origin=<dashboard-origin>' as defense in depth. The flasher re-sends
 // 'ready' until firmware arrives so a late opener listener cannot wedge the handoff.
+//
+// EXTENDING THE PROTOCOL: keep changes additive. New optional fields and new
+// message types stay forward- and backward-compatible because every receiver
+// reads only the fields it knows and ignores unknown message types, and senders
+// default absent fields. That is how 'deviceName' was added without a bump.
+// Both sides exchange PROTOCOL_VERSION (ReadyMessage.version from the flasher,
+// FirmwareMessage.version from the opener); a peer that sees a higher version
+// than it speaks should proceed with its known subset (and may warn). Bump
+// PROTOCOL_VERSION only for a BREAKING change, and branch on the peer's version
+// at that point; additive changes never bump it.
 
 export const PROTOCOL_VERSION = 1;
 
@@ -33,7 +43,13 @@ export interface FlashPart {
 export interface FirmwareMessage {
   type: "esphome-web-flash:firmware";
   nonce: string;
+  // The opener's protocol version, so the flasher can branch on it for a future
+  // breaking change. Absent means v1.
+  version?: number;
   name?: string;
+  // The device's friendly name, so the flasher window and tab title identify
+  // which device they're for.
+  deviceName?: string;
   erase?: boolean;
   parts: FlashPart[];
 }
