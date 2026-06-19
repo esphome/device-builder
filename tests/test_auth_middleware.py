@@ -130,6 +130,9 @@ def _build_app(device_builder: _StubDeviceBuilder) -> web.Application:
         return web.Response(text="ok")
 
     app.router.add_get("/api/anything", _ok)
+    # Legacy online-status map — must stay gated (exposes the device
+    # inventory), unlike the public /version healthcheck.
+    app.router.add_get("/ping", _ok)
     app.router.add_get("/", _ok)
     app.router.add_get("/assets/app.js", _ok)
     app.router.add_get("/favicon.ico", _ok)
@@ -287,6 +290,16 @@ async def test_auth_middleware_unhashed_top_level_path_still_gated(
     resp = await client.get("/api/anything")
 
     assert resp.status == 401
+
+
+async def test_auth_middleware_ping_is_gated(aiohttp_client: AiohttpClient) -> None:
+    """``/ping`` is gated: it exposes the device inventory, so it stays out of ``_PUBLIC_PATHS``."""
+    db = _StubDeviceBuilder(_StubSettings(using_password=True))
+    client = await aiohttp_client(_build_app(db))
+
+    assert (await client.get("/ping")).status == 401
+    auth = {"Authorization": _basic_auth_header("admin", "hunter2")}
+    assert (await client.get("/ping", headers=auth)).status == 200
 
 
 async def test_auth_middleware_nested_hashed_path_still_gated(

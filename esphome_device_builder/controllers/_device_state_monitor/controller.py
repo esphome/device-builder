@@ -229,15 +229,16 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         Record a state observation from *source*.
 
         Returns True iff the state was forwarded to the callback.
-        Sources below the current source's priority are ignored;
+        A source below the current source's priority is ignored,
+        except a positive ONLINE always revives a not-online device;
         observations where every matching device already carries
         *state* no-op.
 
         ``claim=True`` lets *source* take ownership even when the
         state is unchanged, blocking a lower-priority observation
         from later flipping the device back. The priority check
-        still applies — ``claim`` can't override a higher-priority
-        owner.
+        governs OFFLINE/downgrades; a positive ONLINE from any
+        source still revives a not-online device regardless of owner.
         """
         devices = self._get_devices_by_name(name)
         if not devices:
@@ -257,14 +258,23 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
             self.state.reachability.observe(name, source)
 
         current_source = self.state.state_source.get(name, ReachabilitySource.UNKNOWN)
-        if _SOURCE_PRIORITY.get(source, 0) < _SOURCE_PRIORITY.get(current_source, 0):
+        # Scan *every* matching device, not just the first. Duplicate
+        # ``esphome.name`` entries (a config plus a ``foo (1).yaml``
+        # copy, dashboard_import siblings) share the broadcast — if one
+        # sibling was rebuilt with state=UNKNOWN the first-match bail
+        # would leave it stale.
+        all_match = all(d.state == state for d in devices)
+        # Online-wins: a positive reachability from any source brings a
+        # not-online device online, even one a higher-priority source owns
+        # (ping/MQTT reviving a device a stale mdns/mqtt OFFLINE owns). The
+        # priority gate still governs OFFLINE/downgrades so a low-priority
+        # flap can't drop a device a higher source confirmed online.
+        online_takeover = state == DeviceState.ONLINE and not all_match
+        if not online_takeover and _SOURCE_PRIORITY.get(source, 0) < _SOURCE_PRIORITY.get(
+            current_source, 0
+        ):
             return False
-        # Dedupe must look at *every* matching device, not just the
-        # first. Duplicate ``esphome.name`` entries (a config plus
-        # a ``foo (1).yaml`` copy, dashboard_import siblings) share
-        # the broadcast — if one sibling was rebuilt with
-        # state=UNKNOWN the first-match bail would leave it stale.
-        if all(d.state == state for d in devices):
+        if all_match:
             if claim:
                 self.state.state_source[name] = source
             return False

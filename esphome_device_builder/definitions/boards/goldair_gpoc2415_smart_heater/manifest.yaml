@@ -93,5 +93,5 @@ source:
   type: esphome-devices
   remote_id: Goldair-GPOC2415-Smart-Heater
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Goldair-GPOC2415-Smart-Heater/index.md
-  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
   content_hash: 2b017b6751c224c489a1b19beeb50bbc3daf0eda97279ab24478871b8906fca2

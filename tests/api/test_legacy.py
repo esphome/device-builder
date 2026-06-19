@@ -52,6 +52,7 @@ from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.models import (
+    DeviceState,
     ErrorCode,
     EventType,
     FirmwareJob,
@@ -322,6 +323,54 @@ async def test_devices_route_call_chain_matches_real_controller(
     # missing method becomes a 500 with the AttributeError in
     # the response body — both 4xx/5xx would fail this.)
     assert resp.status == 200
+
+
+# ---------------------------------------------------------------------------
+# /ping
+# ---------------------------------------------------------------------------
+
+
+class _StubStateDevice:
+    """Minimal ``Device`` stand-in exposing ``configuration`` + ``state``."""
+
+    def __init__(self, configuration: str, state: DeviceState) -> None:
+        self.configuration = configuration
+        self.state = state
+
+
+async def test_ping_returns_tristate_online_map(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """Tri-state ``/ping`` map: ONLINE->true, OFFLINE->false, UNKNOWN->null, keyed by filename."""
+    devices = _make_devices_mock(
+        configured=[
+            _StubStateDevice("kitchen.yaml", DeviceState.ONLINE),
+            _StubStateDevice("garage.yaml", DeviceState.OFFLINE),
+            _StubStateDevice("attic.yaml", DeviceState.UNKNOWN),
+        ],
+    )
+    client = await aiohttp_client(_make_app(tmp_path, devices=devices))
+
+    resp = await client.get("/ping")
+
+    assert resp.status == 200
+    assert await resp.json() == {
+        "kitchen.yaml": True,
+        "garage.yaml": False,
+        "attic.yaml": None,
+    }
+
+
+async def test_ping_triggers_poll(tmp_path: Path, aiohttp_client: AiohttpClient) -> None:
+    """``/ping`` refreshes the scanner before reading, like ``/devices``."""
+    devices = _make_devices_mock()
+    client = await aiohttp_client(_make_app(tmp_path, devices=devices))
+
+    resp = await client.get("/ping")
+
+    assert resp.status == 200
+    assert await resp.json() == {}
+    devices.poll.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
@@ -1217,20 +1266,10 @@ async def test_spawn_ws_round_trip_through_real_event_bus(
 
 
 def test_legacy_module_exposes_only_documented_routes() -> None:
-    """The legacy module registers exactly the four routes HA's library knows.
-
-    Upstream registers the same four:
-    ``ListDevicesHandler`` (``/devices``),
-    ``JsonConfigRequestHandler`` (``/json-config``),
-    ``EsphomeCompileHandler`` (``/compile``),
-    ``EsphomeUploadHandler`` (``/upload``). Pin the route set so
-    a refactor that adds an undocumented route (or drops one of
-    the four) shows up here — the legacy module's purpose is
-    drift-with-upstream parity, not a place to add new routes.
-    """
+    """Pin the legacy route set to the upstream-parity endpoints; no undocumented routes."""
     routes = create_legacy_routes()
     paths = {
         route.path  # type: ignore[union-attr]
         for route in routes
     }
-    assert paths == {"/devices", "/json-config", "/compile", "/upload"}
+    assert paths == {"/devices", "/ping", "/json-config", "/compile", "/upload"}

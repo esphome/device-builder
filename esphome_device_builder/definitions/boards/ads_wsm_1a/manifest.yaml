@@ -45,5 +45,5 @@ source:
   type: esphome-devices
   remote_id: ADS-WSM-1A
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/ADS-WSM-1A/index.md
-  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
   content_hash: c662c97ca9727e9e02678513c0423003511f6d447ca3196ae72433da32a46199

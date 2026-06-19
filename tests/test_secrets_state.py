@@ -25,9 +25,44 @@ from esphome_device_builder.helpers.secrets_state import (
     merge_secrets_file,
     read_secrets_yaml,
     validate_secrets_content,
+    wifi_secrets_defined,
     write_secret,
     write_secrets_locked,
 )
+
+
+def test_wifi_secrets_defined_requires_both_keys() -> None:
+    """Non-empty ssid + password key ⇒ True; missing either / None / empty ⇒ False."""
+    assert wifi_secrets_defined({"wifi_ssid": "x", "wifi_password": "y"}) is True
+    # Open network: an empty password is still a defined key.
+    assert wifi_secrets_defined({"wifi_ssid": "x", "wifi_password": ""}) is True
+    assert wifi_secrets_defined({"wifi_ssid": "x"}) is False
+    assert wifi_secrets_defined({"wifi_password": "y"}) is False
+    assert wifi_secrets_defined({}) is False
+    assert wifi_secrets_defined(None) is False
+
+
+def test_wifi_secrets_defined_false_for_empty_or_non_string_ssid() -> None:
+    """A present-but-empty / blank / non-string ssid would fail cv.ssid, so it's not defined."""
+    assert wifi_secrets_defined({"wifi_ssid": "", "wifi_password": "y"}) is False
+    assert wifi_secrets_defined({"wifi_ssid": "   ", "wifi_password": "y"}) is False
+    assert wifi_secrets_defined({"wifi_ssid": 42, "wifi_password": "y"}) is False
+
+
+def test_wifi_secrets_defined_false_for_null_or_non_string_password() -> None:
+    """A null / non-string password would fail cv.string_strict, so it's not defined."""
+    assert wifi_secrets_defined({"wifi_ssid": "x", "wifi_password": None}) is False
+    assert wifi_secrets_defined({"wifi_ssid": "x", "wifi_password": 12345678}) is False
+
+
+def test_wifi_secrets_defined_true_for_placeholder_values() -> None:
+    """Seeded placeholders still count as defined — the keys exist, so ``!secret`` resolves."""
+    assert (
+        wifi_secrets_defined(
+            {"wifi_ssid": PLACEHOLDER_WIFI_SSID, "wifi_password": PLACEHOLDER_WIFI_PASSWORD}
+        )
+        is True
+    )
 
 
 def test_unconfigured_when_secrets_is_none() -> None:

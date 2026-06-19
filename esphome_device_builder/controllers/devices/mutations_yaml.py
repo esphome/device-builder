@@ -40,6 +40,7 @@ async def yaml_content_for_create(
     ssid: str,
     psk: str,
     *,
+    wifi_secrets_available: bool = True,
     catalog: ComponentCatalog | None = None,
 ) -> tuple[str, CreateYamlSource]:
     """Pick the YAML body for ``devices/create`` based on the inputs."""
@@ -52,10 +53,21 @@ async def yaml_content_for_create(
             else None
         )
         return (
-            generate_device_yaml(name, friendly, board, ssid, psk, defaults=defaults),
+            generate_device_yaml(
+                name,
+                friendly,
+                board,
+                ssid,
+                psk,
+                wifi_secrets_available=wifi_secrets_available,
+                defaults=defaults,
+            ),
             "template",
         )
-    return generate_minimal_stub_yaml(name, friendly), "stub"
+    return (
+        generate_minimal_stub_yaml(name, friendly, wifi_secrets_available=wifi_secrets_available),
+        "stub",
+    )
 
 
 async def validate_rewritten_yaml_or_raise(

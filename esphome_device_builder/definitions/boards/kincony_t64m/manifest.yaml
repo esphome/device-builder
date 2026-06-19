@@ -1736,5 +1736,5 @@ source:
   type: esphome-devices
   remote_id: KinCony-T64M
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-T64M/index.md
-  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
   content_hash: e5ae3e3a96563e71267913d180d99b303b814ad8ca73975cb78fbf7ca75d2c73

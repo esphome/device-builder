@@ -4560,6 +4560,15 @@ def _walk_schema_keys(
             return
         candidate = _unwrap_schema_to_dict(node)
         if candidate is None:
+            # A ``cv.typed_schema`` is a closure, not a ``vol.*`` wrapper, so
+            # ``_unwrap_schema_to_dict`` can't peel it. Descend each per-type
+            # branch at the same path (typed variants flatten in YAML and add
+            # no path segment) so the collectors reach variant-only fields
+            # like ethernet's ``clock_speed``.
+            branches = _typed_branch_schemas(node)
+            if branches is not None:
+                for branch in branches.values():
+                    walk(branch, path, depth + 1)
             return
         if id(candidate) in visited:
             return
@@ -4956,6 +4965,21 @@ def _collect_refined_types(  # noqa: C901
     return out
 
 
+def _closure_nonlocals(func: Any) -> dict[str, Any]:
+    """Map *func*'s closure freevar names to values, ``{}`` for a non-closure.
+
+    Reads ``__code__.co_freevars`` / ``__closure__`` directly instead of
+    ``inspect.getclosurevars``, whose global/builtin name analysis dominates the
+    schema walk. Raises ``ValueError`` on an unbound cell (as ``getclosurevars``
+    does); callers suppress it.
+    """
+    code = getattr(func, "__code__", None)
+    closure = getattr(func, "__closure__", None)
+    if code is None or not closure:
+        return {}
+    return {name: cell.cell_contents for name, cell in zip(code.co_freevars, closure, strict=True)}
+
+
 def _typed_closure_default(node: Any) -> tuple[tuple[str, Any] | None, dict[str, Any]]:
     """Read a ``cv.typed_schema`` validator's ``(typed_key, default)`` + its closure vars.
 
@@ -4967,7 +4991,7 @@ def _typed_closure_default(node: Any) -> tuple[tuple[str, Any] | None, dict[str,
     if not (callable(node) and getattr(node, "__closure__", None)):
         return None, {}
     try:
-        nonlocals = inspect.getclosurevars(node).nonlocals
+        nonlocals = _closure_nonlocals(node)
     except (TypeError, ValueError):
         return None, {}
     default = nonlocals.get("default_schema_option")
@@ -4976,12 +5000,15 @@ def _typed_closure_default(node: Any) -> tuple[tuple[str, Any] | None, dict[str,
     return None, nonlocals
 
 
-def _typed_default_of(node: Any) -> tuple[str, Any] | None:
-    """Return ``(typed_key, default_type)`` for a ``cv.typed_schema`` reachable from *node*.
+def _search_validator_graph[ProbeResult](
+    node: Any, probe: Callable[[Any], ProbeResult | None]
+) -> ProbeResult | None:
+    """Return the first non-None ``probe(current)`` across the validator graph from *node*.
 
-    ``cv.All(cv.ensure_list(...))`` buries the typed validator two
-    closures deep (``spi``), so descend ``.validators`` / ``.schema`` /
-    closure cells. ``None`` when no reachable typed_schema has a default.
+    Walks the union of each node's closure freevars, ``.validators`` tuple, and
+    ``.schema`` attribute — the nesting ``cv.All`` / ``cv.ensure_list`` /
+    ``cv.typed_schema`` use to bury validators — deduping by ``id`` so a cyclic
+    schema terminates.
     """
     seen: set[int] = set()
     stack: list[Any] = [node]
@@ -4990,10 +5017,12 @@ def _typed_default_of(node: Any) -> tuple[str, Any] | None:
         if id(current) in seen:
             continue
         seen.add(id(current))
-        found, nonlocals = _typed_closure_default(current)
-        if found is not None:
-            return found
-        stack.extend(nonlocals.values())
+        result = probe(current)
+        if result is not None:
+            return result
+        if callable(current) and getattr(current, "__closure__", None):
+            with contextlib.suppress(TypeError, ValueError):
+                stack.extend(_closure_nonlocals(current).values())
         inner = getattr(current, "validators", None)
         if isinstance(inner, (list, tuple)):
             stack.extend(inner)
@@ -5001,6 +5030,35 @@ def _typed_default_of(node: Any) -> tuple[str, Any] | None:
         if schema is not None and schema is not current:
             stack.append(schema)
     return None
+
+
+def _typed_branch_schemas(node: Any) -> dict[str, Any] | None:
+    """Return a reachable ``cv.typed_schema``'s per-type branch sub-schemas, or None.
+
+    Reads the ``schemas`` freevar — the ``{type_name: sub_schema}`` dict
+    ``cv.typed_schema(schemas, ...)`` captures — off the first reachable
+    typed_schema closure.
+    """
+
+    def _branches(current: Any) -> dict[str, Any] | None:
+        if not (callable(current) and getattr(current, "__closure__", None)):
+            return None
+        try:
+            schemas = _closure_nonlocals(current).get("schemas")
+        except (TypeError, ValueError):
+            return None
+        return schemas if isinstance(schemas, dict) and schemas else None
+
+    return _search_validator_graph(node, _branches)
+
+
+def _typed_default_of(node: Any) -> tuple[str, Any] | None:
+    """Return ``(typed_key, default_type)`` for a ``cv.typed_schema`` reachable from *node*.
+
+    ``cv.All(cv.ensure_list(...))`` buries the typed validator two closures deep
+    (``spi``); ``None`` when no reachable typed_schema has a default.
+    """
+    return _search_validator_graph(node, lambda current: _typed_closure_default(current)[0])
 
 
 def _collect_typed_defaults(manifest: Any) -> dict[tuple[str, ...], Any]:
@@ -5910,7 +5968,7 @@ def _platform_set(node: Any) -> frozenset[str] | None:
     """
     if callable(node) and getattr(node, "__closure__", None):
         try:
-            nonlocals = inspect.getclosurevars(node).nonlocals
+            nonlocals = _closure_nonlocals(node)
         except (TypeError, ValueError):
             nonlocals = {}
         platforms = nonlocals.get("platforms")
@@ -6028,7 +6086,7 @@ def _required_group_from_validator(node: Any) -> dict[str, Any] | None:
     if kind is None:
         return None
     try:
-        nonlocals = inspect.getclosurevars(node).nonlocals
+        nonlocals = _closure_nonlocals(node)
     except (TypeError, ValueError):
         return None
     keys = nonlocals.get("keys")

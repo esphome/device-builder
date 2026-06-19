@@ -1158,6 +1158,48 @@ def test_generate_yaml_emits_explicit_wifi_credentials_when_provided() -> None:
     assert "  password: !secret wifi_password\n" in secret
 
 
+def test_generate_yaml_omits_wifi_when_board_has_wifi_but_no_secrets() -> None:
+    """No literal ssid and no wifi secrets → no ``!secret`` block, network TODO instead."""
+    board = _make_esp32_board(variant=Esp32Variant.ESP32)
+
+    out = generate_device_yaml(
+        "kitchen", "Kitchen", board, ssid="", psk="", wifi_secrets_available=False
+    )
+
+    assert "!secret" not in out
+    # Line-anchored: the TODO comment mentions ``wifi:`` / ``api:`` in prose.
+    assert "wifi:" not in out.splitlines()
+    assert "api:" not in out.splitlines()
+    assert "ota:" not in out.splitlines()
+    assert "No Wi-Fi secrets are set" in out
+
+
+def test_generate_yaml_literal_ssid_inlines_regardless_of_secrets() -> None:
+    """A literal ssid still inlines even when wifi secrets are absent."""
+    board = _make_esp32_board(variant=Esp32Variant.ESP32)
+
+    out = generate_device_yaml(
+        "kitchen", "Kitchen", board, ssid="MyNet", psk="pw", wifi_secrets_available=False
+    )
+
+    assert "  ssid: MyNet\n" in out
+    assert "!secret" not in out
+    assert "No Wi-Fi secrets are set" not in out
+
+
+def test_generate_minimal_stub_yaml_omits_wifi_without_secrets() -> None:
+    """Stub with no wifi secrets drops wifi/api/ota and emits a network TODO."""
+    out = generate_minimal_stub_yaml("kitchen", "Kitchen Lamp", wifi_secrets_available=False)
+
+    assert "esphome:\n  name: kitchen\n  friendly_name: Kitchen Lamp\n" in out
+    assert "esp32:\n  board: esp32dev\n" in out
+    assert "!secret" not in out
+    assert "wifi:" not in out.splitlines()
+    assert "api:" not in out.splitlines()
+    assert "ota:" not in out.splitlines()
+    assert "No Wi-Fi secrets are set" in out
+
+
 def test_generate_yaml_secret_refs_resolve_through_esphome_loader(tmp_path: Path) -> None:
     """Empty ssid/psk emit !secret tags ESPHome's loader resolves from secrets.yaml.
 

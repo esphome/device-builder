@@ -86,5 +86,5 @@ source:
   type: esphome-devices
   remote_id: Acenx-SOP04-US
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Acenx-SOP04-US/index.md
-  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
   content_hash: e0338729cd9b45e17a23c4583ed758d92d8c31d18d482f05c67ed88cf12c97fe

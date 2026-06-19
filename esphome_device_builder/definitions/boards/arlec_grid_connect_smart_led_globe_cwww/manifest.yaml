@@ -55,5 +55,5 @@ source:
   type: esphome-devices
   remote_id: Arlec-Grid-Connect-Smart-LED-Globe-CWWW
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Arlec-Grid-Connect-Smart-LED-Globe-CWWW/index.md
-  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
   content_hash: 6482cd98d285a574554355dca9ef1c50c578fc43269fb13ac0b02bcfbf1951a5

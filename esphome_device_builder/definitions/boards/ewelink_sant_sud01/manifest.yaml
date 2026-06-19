@@ -54,5 +54,5 @@ source:
   type: esphome-devices
   remote_id: eWeLink-SANT-SUD01
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/eWeLink-SANT-SUD01/index.md
-  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
   content_hash: 5f5d6c1c85f24f9a777e7f8d9e89b71a85ee1c40dd17cd98f8bab4b680857edf

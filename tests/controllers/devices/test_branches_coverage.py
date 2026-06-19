@@ -32,8 +32,10 @@ from unittest.mock import ANY, AsyncMock, MagicMock
 
 import pytest
 
+import esphome_device_builder.controllers.devices.add_component as add_component_mod
 import esphome_device_builder.controllers.devices.api_key as api_key_mod
 from esphome_device_builder.controllers._device_scanner import ScanChange
+from esphome_device_builder.controllers.devices.add_component import _entry_gate_active
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.build_size import BuildDirSignal, BuildSizeRefreshResult
 from esphome_device_builder.helpers.event_bus import Event
@@ -538,6 +540,108 @@ async def test_add_component_missing_required_field_raises(
             configuration="kitchen.yaml",
             component_id="dht",
             fields={"name": "Bedroom Temp"},
+        )
+    assert exc.value.code is ErrorCode.INVALID_ARGS
+
+
+@pytest.mark.parametrize(
+    ("entry_kwargs", "fields", "expected"),
+    [
+        ({}, {}, True),
+        ({"depends_on": "type"}, {"type": "W5500"}, True),
+        ({"depends_on": "type", "depends_on_value": "W5500"}, {"type": "W5500"}, True),
+        ({"depends_on": "type", "depends_on_value": "W5500"}, {"type": "LAN8720"}, False),
+        ({"depends_on": "type", "depends_on_value_not": "W5500"}, {"type": "LAN8720"}, True),
+        ({"depends_on": "type", "depends_on_value_not": "W5500"}, {"type": "W5500"}, False),
+        (
+            {"depends_on": "type", "depends_on_value_any": ["LAN8720", "DP83848"]},
+            {"type": "LAN8720"},
+            True,
+        ),
+        (
+            {"depends_on": "type", "depends_on_value_any": ["LAN8720", "DP83848"]},
+            {"type": "W5500"},
+            False,
+        ),
+        ({"depends_on": "type", "depends_on_value_any": ["LAN8720"]}, {}, False),
+    ],
+)
+def test_entry_gate_active(
+    entry_kwargs: dict[str, Any], fields: dict[str, Any], expected: bool
+) -> None:
+    """``_entry_gate_active`` evaluates each ``depends_on`` value predicate."""
+    entry = ConfigEntry(key="clk", type=ConfigEntryType.NESTED, label="Clk", **entry_kwargs)
+    assert _entry_gate_active(entry, fields) is expected
+
+
+async def test_add_component_gated_inactive_required_field_not_demanded(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A required field whose variant gate is inactive is not demanded."""
+    controller = make_controller(tmp_path)
+    component = MagicMock()
+    component.id = "ethernet"
+    component.config_entries = [
+        ConfigEntry(key="type", type=ConfigEntryType.STRING, label="Type", required=True),
+        ConfigEntry(
+            key="clk",
+            type=ConfigEntryType.NESTED,
+            label="Clk",
+            required=True,
+            depends_on="type",
+            depends_on_value_any=["LAN8720", "DP83848"],
+        ),
+        ConfigEntry(
+            key="clk_pin",
+            type=ConfigEntryType.PIN,
+            label="Clk Pin",
+            required=True,
+            depends_on="type",
+            depends_on_value_any=["W5500"],
+        ),
+    ]
+    controller._db.components = MagicMock()
+    controller._db.components.get_component = AsyncMock(return_value=component)
+    monkeypatch.setattr(add_component_mod, "merge_component_yaml", lambda *a, **k: "merged: ok\n")
+
+    response = await controller.add_component(
+        configuration="kitchen.yaml",
+        component_id="ethernet",
+        fields={"type": "W5500", "clk_pin": "GPIO10"},
+        yaml="esphome:\n  name: kitchen\n",
+    )
+    assert response.yaml == "merged: ok\n"
+
+
+async def test_add_component_gated_active_required_field_demanded(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A required field whose variant gate is active stays demanded."""
+    controller = make_controller(tmp_path)
+    component = MagicMock()
+    component.id = "ethernet"
+    component.config_entries = [
+        ConfigEntry(key="type", type=ConfigEntryType.STRING, label="Type", required=True),
+        ConfigEntry(
+            key="clk",
+            type=ConfigEntryType.NESTED,
+            label="Clk",
+            required=True,
+            depends_on="type",
+            depends_on_value_any=["LAN8720", "DP83848"],
+        ),
+    ]
+    controller._db.components = MagicMock()
+    controller._db.components.get_component = AsyncMock(return_value=component)
+
+    with pytest.raises(CommandError, match="Missing required field: Clk") as exc:
+        await controller.add_component(
+            configuration="kitchen.yaml",
+            component_id="ethernet",
+            fields={"type": "LAN8720"},
+            yaml="esphome:\n  name: kitchen\n",
         )
     assert exc.value.code is ErrorCode.INVALID_ARGS
 

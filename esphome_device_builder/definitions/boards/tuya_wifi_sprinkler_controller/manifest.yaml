@@ -233,5 +233,5 @@ source:
   type: esphome-devices
   remote_id: Tuya-WIFI-Sprinkler-Controller
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-WIFI-Sprinkler-Controller/index.md
-  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
   content_hash: 6d7bf10c35b6961bea168848585c2833db18d5691cb086ac2e4dd268d3e1d81b

@@ -191,6 +191,62 @@ def test_apply_with_no_tracker_does_not_raise() -> None:
     monitor.apply("kitchen", DeviceState.ONLINE, "mdns")
 
 
+def test_lower_priority_online_revives_higher_priority_offline() -> None:
+    """A ping ONLINE brings online a device a higher-priority mqtt OFFLINE owns."""
+    devices = [_make_device(state=DeviceState.OFFLINE)]
+    monitor = _make_monitor(devices)
+    monitor.state.state_source["kitchen"] = "mqtt"
+
+    assert monitor.apply("kitchen", DeviceState.ONLINE, "ping") is True
+    assert devices[0].state is DeviceState.ONLINE
+    assert monitor.state.state_source["kitchen"] == "ping"
+
+
+def test_lower_priority_offline_does_not_drop_higher_priority_online() -> None:
+    """The gate still protects an mdns ONLINE from a ping OFFLINE flap."""
+    devices = [_make_device(state=DeviceState.ONLINE)]
+    monitor = _make_monitor(devices)
+    monitor.state.state_source["kitchen"] = "mdns"
+
+    assert monitor.apply("kitchen", DeviceState.OFFLINE, "ping") is False
+    assert devices[0].state is DeviceState.ONLINE
+    assert monitor.state.state_source["kitchen"] == "mdns"
+
+
+def test_select_ping_targets_keeps_device_with_known_ip_when_dns_failed() -> None:
+    """A cached DNS failure with a known IP pings the IP, not OFFLINE+dns_failed."""
+    devices = [_make_device(state=DeviceState.OFFLINE, ip_addresses=["10.0.0.5"])]
+    monitor = _make_monitor(devices)
+    monitor.get_cached_addresses = lambda _a: None
+    monitor.state.dns_cache.has_cached_failure = MagicMock(return_value=True)
+
+    pingable, dns_failed = monitor._ping._select_ping_targets()
+
+    assert devices[0] in pingable
+    assert dns_failed == []
+    assert devices[0].state is DeviceState.OFFLINE
+
+
+async def test_resolve_and_ping_falls_back_to_known_ip() -> None:
+    """When the .local won't resolve, ping the MQTT/last-known IP and go ONLINE."""
+    devices = [_make_device(state=DeviceState.OFFLINE, ip_addresses=["10.0.0.5"])]
+    monitor = _make_monitor(devices)
+    # async_resolve returns None (not []) on resolution failure.
+    monitor.state.dns_cache.async_resolve = AsyncMock(return_value=None)
+
+    fake_result = MagicMock()
+    fake_result.is_alive = True
+    fake_result.min_rtt = 1.0
+    with patch(
+        "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
+        AsyncMock(return_value=fake_result),
+    ) as mock_ping:
+        await monitor._ping._resolve_and_ping(devices[0])
+
+    assert mock_ping.await_args.args[0] == "10.0.0.5"
+    assert devices[0].state is DeviceState.ONLINE
+
+
 async def test_ping_success_records_rtt_and_observation() -> None:
     """A successful ICMP probe captures ``min_rtt`` and stamps freshness."""
     devices = [_make_device()]

@@ -46,5 +46,5 @@ source:
   type: esphome-devices
   remote_id: geekmagic-ultra
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/geekmagic-ultra/index.md
-  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
   content_hash: ebfdb4b2d29edb6d392a3ce70b36c57298c677ef128cdc7f4b85fe13e8cfc2dd

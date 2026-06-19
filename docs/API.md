@@ -462,6 +462,7 @@ For Home Assistant ESPHome integration backward compat only.
 | Endpoint | Description |
 |----------|-------------|
 | `GET /devices` | List devices |
+| `GET /ping` | Online-status map `{<config>.yaml: true\|false\|null}` (third-party widgets, e.g. homepage) |
 | `GET /json-config?configuration=...` | Get parsed YAML as JSON |
 | `GET /compile` (WebSocket) | Compile via spawn protocol |
 | `GET /upload` (WebSocket) | Upload via spawn protocol |

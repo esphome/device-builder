@@ -67,5 +67,5 @@ source:
   type: esphome-devices
   remote_id: Zemismart-Bulb-BR30
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Zemismart-Bulb-BR30/index.md
-  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
   content_hash: 0921cffe63546e0658a79783b707cafb5992b2c491a3810b0e7b016541cc0a62
