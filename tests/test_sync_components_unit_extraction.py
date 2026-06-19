@@ -15,6 +15,7 @@ warning fires for the cases we've already curated as follow-ups.
 from __future__ import annotations
 
 import logging
+import types
 
 import pytest
 
@@ -24,6 +25,7 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _enumerate_platform_manifests,
     _extract_validator_units,
     _present_non_introspectable_units,
+    _walk_schema_keys,
 )
 
 
@@ -325,6 +327,34 @@ def test_missing_non_introspectable_validator_warns(caplog) -> None:
     assert "temperature_delta" in caplog.text
     assert "temperature_delta" not in present
     assert {"data_size", "temperature"} <= present.keys()
+
+
+def test_walk_descends_typed_schema_branches(cv) -> None:
+    """``_walk_schema_keys`` visits fields inside ``cv.typed_schema`` branches."""
+    typed = cv.typed_schema(
+        {
+            "W5500": cv.Schema({cv.Optional("clock_speed", default="26.67MHz"): cv.frequency}),
+            "LAN8720": cv.Schema({cv.Optional("phy_addr", default=0): cv.int_}),
+        },
+        upper=True,
+    )
+    keys: set[str] = set()
+    _walk_schema_keys(typed, lambda _k, key_name, _v, _path: keys.add(key_name))
+    assert {"clock_speed", "phy_addr"} <= keys
+
+
+def test_collect_refined_types_descends_typed_schema(cv) -> None:
+    """A ``cv.frequency`` field inside a typed_schema branch refines to ``float_with_unit``."""
+    typed = cv.typed_schema(
+        {"W5500": cv.Schema({cv.Optional("clock_speed", default="26.67MHz"): cv.frequency})},
+        upper=True,
+    )
+    manifest = types.SimpleNamespace(config_schema=typed)
+    refined = _collect_refined_types(manifest)
+    clock_speed = refined.get(("clock_speed",))
+    assert clock_speed is not None
+    assert clock_speed.type == "float_with_unit"
+    assert clock_speed.unit_options is not None and "MHz" in clock_speed.unit_options
 
 
 def test_audit_silent_when_no_mismatches(caplog) -> None:
