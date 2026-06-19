@@ -5398,6 +5398,30 @@ async def test_dispatch_artifacts_end_rejected_surfaces_detail(
     assert "/data/storage/x.json" in str(exc_info.value)
 
 
+async def test_dispatch_artifacts_end_rejected_caps_oversize_detail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An oversize peer-supplied detail is re-capped before it reaches the error."""
+    bus = EventBus()
+    client = _make_offloader_client(bus)
+    job_id = "dl-rejected-bigdetail"
+    fut: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
+    client._artifacts_downloads[job_id] = _DownloadArtifactsState(future=fut)
+    frame = {
+        "type": "artifacts_end",
+        "job_id": job_id,
+        "accepted": False,
+        "reason": "build_dir_missing",
+        "detail": "x" * 1000,
+    }
+    async with _drive_session_with_frames(client, monkeypatch, [frame]):
+        with pytest.raises(DownloadArtifactsError) as exc_info:
+            await asyncio.wait_for(fut, timeout=2.0)
+
+    # The reason/prefix carry no "x", so the surviving detail is exactly the cap.
+    assert str(exc_info.value).count("x") == 256
+
+
 async def test_run_session_loops_drains_pending_artifacts_downloads(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

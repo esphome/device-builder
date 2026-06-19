@@ -71,6 +71,11 @@ _ARTIFACTS_CHUNK_SCHEMA = frame_schema(
 
 _ARTIFACTS_END_SCHEMA = frame_schema({"job_id": str, "accepted": bool})
 
+# Mirror of the receiver-side reject-detail cap; re-applied here so a peer that
+# ignores its own cap can't make our error string / job log unbounded (the
+# session frame cap already bounds it, this is defense-in-depth).
+_MAX_REJECT_DETAIL = 256
+
 # Membership check on top of the str shape gate so a buggy
 # receiver sending status="unknown" is dropped at the wire layer
 # instead of fanning out a malformed bus event.
@@ -259,7 +264,9 @@ def dispatch_artifacts_end(client: PeerLinkClient, parsed: dict[str, Any]) -> No
         detail = parsed.get("detail")
         message = f"download_artifacts: receiver rejected ({reason})"
         if isinstance(detail, str) and detail:
-            message = f"{message}: {detail}"
+            # Re-cap on this side too: don't trust the peer to have honoured the
+            # sender's cap before echoing its detail into our error / job log.
+            message = f"{message}: {detail[:_MAX_REJECT_DETAIL]}"
         state.future.set_exception(DownloadArtifactsError(message, reason=str(reason)))
         return
     if state.assembler is None:
