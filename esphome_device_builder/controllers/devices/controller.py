@@ -650,15 +650,25 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             raise CommandError(ErrorCode.NOT_FOUND, f"Device {configuration!r} not found") from err
 
     @api_command("devices/update_config")
-    async def update_config(self, *, configuration: str, content: str, **kwargs: Any) -> None:
-        """Write device config YAML."""
-        if not content.strip():
-            raise CommandError(
-                ErrorCode.INVALID_ARGS,
-                f"refusing to write empty content to {configuration!r} to prevent "
-                "accidental data loss; use the delete action to remove a file",
-            )
+    async def update_config(
+        self, *, configuration: str, content: str, allow_wipe: bool = False, **kwargs: Any
+    ) -> None:
+        """
+        Write device config YAML.
+
+        ``allow_wipe`` permits clearing secrets.yaml to empty; without it an
+        empty secrets save is refused. An empty device YAML is always refused.
+        """
+        if not isinstance(allow_wipe, bool):
+            raise CommandError(ErrorCode.INVALID_ARGS, "allow_wipe must be a boolean")
+        is_empty = not content.strip()
         if is_secrets_file(configuration):
+            if is_empty and not allow_wipe:
+                raise CommandError(
+                    ErrorCode.INVALID_ARGS,
+                    "refusing to clear all secrets from secrets.yaml without "
+                    "confirmation; pass allow_wipe to confirm",
+                )
             try:
                 validate_secrets_content(content, self._db.settings.rel_path(configuration))
             except SecretsContentError as err:
@@ -674,6 +684,12 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
                     configuration, content, message=f"Edit {configuration}"
                 )
             return
+        if is_empty:
+            raise CommandError(
+                ErrorCode.INVALID_ARGS,
+                f"refusing to write empty content to {configuration!r} to prevent "
+                "accidental data loss; use the delete action to remove a file",
+            )
         await self._persist_yaml_mutation(configuration, content, message=f"Edit {configuration}")
 
     async def apply_restored_yaml(
