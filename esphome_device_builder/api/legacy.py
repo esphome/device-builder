@@ -75,13 +75,11 @@ def _exit_frame(exit_code: int | None) -> dict[str, Any]:
     return {"event": "exit", "code": exit_code if exit_code is not None else 1}
 
 
-def _state_to_bool(state: DeviceState) -> bool | None:
-    """Legacy ``/ping`` tri-state: ONLINE→True, OFFLINE→False, UNKNOWN→None."""
-    if state is DeviceState.ONLINE:
-        return True
-    if state is DeviceState.OFFLINE:
-        return False
-    return None
+# Legacy ``/ping`` tri-state; ``.get`` defaults UNKNOWN (and any future state) to None.
+_STATE_TO_BOOL: dict[DeviceState, bool] = {
+    DeviceState.ONLINE: True,
+    DeviceState.OFFLINE: False,
+}
 
 
 class _LegacyWSWriter:
@@ -340,7 +338,7 @@ def create_legacy_routes() -> web.RouteTableDef:
         devices_ctrl = db.devices
         await devices_ctrl.poll()
         return json_response(
-            {d.configuration: _state_to_bool(d.state) for d in devices_ctrl.get_devices()}
+            {d.configuration: _STATE_TO_BOOL.get(d.state) for d in devices_ctrl.get_devices()}
         )
 
     @routes.get("/json-config")
