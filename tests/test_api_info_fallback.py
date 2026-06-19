@@ -218,11 +218,10 @@ async def test_fetch_connected_but_empty_sets_cooldown() -> None:
 
 
 async def test_fetch_partial_fill_is_progress_not_failure() -> None:
-    """A probe that fills only the MAC clears the streak, isn't cooled down, stays eligible."""
+    """A probe that fills only the MAC isn't cooled down and stays eligible for the rest."""
     device = _online_api_device(address="")
     monitor, _ = make_state_monitor_with_callbacks([device])
     src = monitor._api_info
-    src._consecutive_failures = 5
     src._run_worker = AsyncMock(  # type: ignore[method-assign]
         return_value={"mac_address": "94c9601f8cf1", "esphome_version": ""}
     )
@@ -231,13 +230,12 @@ async def test_fetch_partial_fill_is_progress_not_failure() -> None:
 
     assert device.mac_address == "94:C9:60:1F:8C:F1"
     assert device.deployed_version == ""  # version still missing
-    assert src._consecutive_failures == 0  # progress cleared the streak
     assert "kitchen" not in src._cooldown  # not cooled down → normal-interval retry
     assert [d.name for d in src._select_targets()] == ["kitchen"]  # still chasing version
 
 
 async def test_fetch_no_new_fill_is_a_failure() -> None:
-    """Re-sending an already-known MAC with no version is a miss (cooldown + streak)."""
+    """Re-sending an already-known MAC with no version is a miss (cooldown)."""
     device = _online_api_device(mac_address="94:C9:60:1F:8C:F1", address="")
     monitor, _ = make_state_monitor_with_callbacks([device])
     src = monitor._api_info
@@ -248,7 +246,6 @@ async def test_fetch_no_new_fill_is_a_failure() -> None:
     await src._fetch(device)
 
     assert "kitchen" in src._cooldown
-    assert src._consecutive_failures == 1
 
 
 async def test_fetch_resolver_failure_is_a_recorded_miss() -> None:
@@ -285,47 +282,76 @@ async def test_fetch_skips_encrypted_device_without_key() -> None:
     assert "kitchen" in monitor._api_info._cooldown
 
 
-async def test_systemic_failures_warn_once(caplog: Any) -> None:
-    """A streak of non-populating probes logs one WARNING, not one per device."""
-    devices = [_online_api_device(f"dev{i}") for i in range(12)]
+async def test_fetch_skips_when_addresses_emptied_after_select() -> None:
+    """A select→fetch TOCTOU (no addresses left) is a recorded miss, not an IndexError."""
+    device = _online_api_device(ip="", ip_addresses=[], address="kitchen.local")
+    monitor, _ = make_state_monitor_with_callbacks([device])
+    monitor._api_info._run_worker = AsyncMock(return_value=None)  # type: ignore[method-assign]
+
+    await monitor._api_info._fetch(device)  # must not raise IndexError
+
+    monitor._api_info._run_worker.assert_not_called()
+    assert "kitchen" in monitor._api_info._cooldown
+
+
+async def test_systemic_warning_fires_once_when_many_devices_failing(
+    caplog: Any, monkeypatch: Any
+) -> None:
+    """A sweep that leaves >= threshold distinct devices on cooldown logs one WARNING."""
+    monkeypatch.setattr(api_info_module, "_MAX_PROBES_PER_SWEEP", 20)  # probe all in one sweep
+    devices = [_online_api_device(f"dev{i}") for i in range(10)]
     monitor, _ = make_state_monitor_with_callbacks(devices)
     src = monitor._api_info
     src._run_worker = AsyncMock(return_value=None)  # type: ignore[method-assign]
 
     with caplog.at_level(logging.WARNING):
-        for device in devices:
-            await src._fetch(device)
+        await src._sweep()
 
-    systemic = [r for r in caplog.records if "failed for" in r.getMessage()]
+    systemic = [r for r in caplog.records if "is failing for" in r.getMessage()]
     assert len(systemic) == 1
     assert systemic[0].levelno == logging.WARNING
 
 
-async def test_systemic_failure_warning_rearms_after_success(caplog: Any) -> None:
-    """A full success clears the streak so a later outage warns a second time."""
-    devices = [_online_api_device(f"dev{i}") for i in range(10)]
-    good = _online_api_device("good", address="")
-    monitor, _ = make_state_monitor_with_callbacks([*devices, good])
+async def test_systemic_warning_not_masked_by_one_healthy_device(
+    caplog: Any, monkeypatch: Any
+) -> None:
+    """A healthy probe among broken ones doesn't suppress the WARNING (counts distinct failures)."""
+    monkeypatch.setattr(api_info_module, "_MAX_PROBES_PER_SWEEP", 20)
+    devices = [_online_api_device(f"bad{i}") for i in range(10)]
+    healthy = _online_api_device("good")
+    monitor, _ = make_state_monitor_with_callbacks([*devices, healthy])
     src = monitor._api_info
 
+    async def _run_worker(device: Device, _request: bytes) -> dict[str, str] | None:
+        if device.name == "good":
+            return {"mac_address": "94c9601f8cf1", "esphome_version": "2026.6.1"}
+        return None
+
+    src._run_worker = _run_worker  # type: ignore[method-assign]
     with caplog.at_level(logging.WARNING):
-        src._run_worker = AsyncMock(return_value=None)  # type: ignore[method-assign]
-        for device in devices:
-            await src._fetch(device)
-        assert src._consecutive_failures == 10
+        await src._sweep()
 
-        src._run_worker = AsyncMock(  # type: ignore[method-assign]
-            return_value={"mac_address": "94c9601f8cf1", "esphome_version": "2026.6.1"}
-        )
-        await src._fetch(good)
-        assert src._consecutive_failures == 0
+    systemic = [r for r in caplog.records if "is failing for" in r.getMessage()]
+    assert len(systemic) == 1  # 10 broken devices still trip it despite 'good' succeeding
 
-        src._run_worker = AsyncMock(return_value=None)  # type: ignore[method-assign]
-        for device in devices:
-            await src._fetch(device)
 
-    systemic = [r for r in caplog.records if "failed for" in r.getMessage()]
-    assert len(systemic) == 2
+async def test_systemic_warning_rearms_after_recovery(monkeypatch: Any) -> None:
+    """When the failing-device count drops below threshold, the WARNING re-arms."""
+    monkeypatch.setattr(api_info_module, "_MAX_PROBES_PER_SWEEP", 20)
+    devices = [_online_api_device(f"dev{i}") for i in range(10)]
+    monitor, _ = make_state_monitor_with_callbacks(devices)
+    src = monitor._api_info
+    src._run_worker = AsyncMock(return_value=None)  # type: ignore[method-assign]
+
+    await src._sweep()
+    assert src._warned_systemic is True
+
+    # Devices recover (mDNS fills both) → no longer due → failing count drops.
+    for device in devices:
+        device.mac_address = "94:C9:60:1F:8C:F1"
+        device.deployed_version = "2026.6.1"
+    src._evaluate_systemic_health()
+    assert src._warned_systemic is False
 
 
 async def test_sweep_prunes_cooldown_for_removed_devices() -> None:
@@ -381,6 +407,28 @@ async def test_run_sweeps_then_idles(monkeypatch: Any) -> None:
     with pytest.raises(asyncio.CancelledError):
         await src.run()
     assert swept == [1]
+
+
+async def test_run_survives_a_sweep_error(monkeypatch: Any) -> None:
+    """An unexpected error from a sweep is logged and the loop keeps going."""
+    monitor, _ = make_state_monitor_with_callbacks([])
+    src = monitor._api_info
+    monkeypatch.setattr(api_info_module, "_BOOTSTRAP_DELAY", 0)
+    reached_idle: list[int] = []
+
+    async def _boom_sweep() -> None:
+        raise RuntimeError("sweep blew up")
+
+    async def _idle() -> None:
+        reached_idle.append(1)
+        raise asyncio.CancelledError
+
+    src._sweep = _boom_sweep  # type: ignore[method-assign]
+    src._idle = _idle  # type: ignore[method-assign]
+
+    with pytest.raises(asyncio.CancelledError):
+        await src.run()
+    assert reached_idle == [1]  # the sweep error didn't escape run(); we reached idle
 
 
 class _FakePresence:
@@ -500,9 +548,11 @@ async def test_sweep_isolates_a_failing_fetch() -> None:
     assert "a" in src._cooldown  # the bad device got backed off
 
 
-async def test_sweep_exceptions_feed_systemic_counter(caplog: Any, monkeypatch: Any) -> None:
-    """Exception-shaped failures trip the systemic WARNING like miss-shaped ones."""
-    monkeypatch.setattr(api_info_module, "_MAX_PROBES_PER_SWEEP", 20)  # probe all in one sweep
+async def test_sweep_exceptions_cool_down_and_count_as_failing(
+    caplog: Any, monkeypatch: Any
+) -> None:
+    """An unexpected per-device error logs at WARNING, cools the device down, and counts."""
+    monkeypatch.setattr(api_info_module, "_MAX_PROBES_PER_SWEEP", 20)
     devices = [_online_api_device(f"dev{i}") for i in range(10)]
     monitor, _ = make_state_monitor_with_callbacks(devices)
     src = monitor._api_info
@@ -514,9 +564,9 @@ async def test_sweep_exceptions_feed_systemic_counter(caplog: Any, monkeypatch: 
     with caplog.at_level(logging.WARNING):
         await src._sweep()
 
-    assert src._consecutive_failures == 10
-    systemic = [r for r in caplog.records if "failed for" in r.getMessage()]
-    assert len(systemic) == 1
+    assert any("raised unexpectedly" in r.getMessage() for r in caplog.records)
+    systemic = [r for r in caplog.records if "is failing for" in r.getMessage()]
+    assert len(systemic) == 1  # 10 cooled-down devices trip the systemic WARNING
 
 
 # ----------------------------------------------------------------------

@@ -46,9 +46,10 @@ _MAX_PROBES_PER_SWEEP = 8
 # Fallback only when no resolver is wired; the real per-device port is
 # read from ``api.port`` by the injected ``resolve_api_connection``.
 _DEFAULT_API_PORT = 6053
-# Consecutive probe failures before one WARNING fires, so a systemically
-# broken fallback (resolver bug, worker that never runs, wrong keys fleet-
-# wide) surfaces above debug instead of every device silently cooling down.
+# Distinct devices stuck failing (due but on cooldown) before one WARNING
+# fires, so a systemically broken fallback (resolver bug, worker that never
+# runs, wrong keys for a large subset) surfaces above debug — and a single
+# healthy device elsewhere can't mask it.
 _SYSTEMIC_FAILURE_WARN_THRESHOLD = 10
 
 
@@ -60,9 +61,9 @@ class ApiInfoSource:
         self._wake = asyncio.Event()
         # name -> monotonic deadline before which we won't retry a fetch.
         self._cooldown: dict[str, float] = {}
-        # Streak of probes that didn't populate; resets on the first full
-        # success. The WARNING fires once, when the streak hits the threshold.
-        self._consecutive_failures = 0
+        # One-shot latch for the systemic WARNING; re-arms once the count of
+        # distinct devices stuck failing drops back below the threshold.
+        self._warned_systemic = False
         if monitor._presence is not None:
             monitor._presence.add_subscriber_callback(self._wake.set)
 
@@ -79,7 +80,13 @@ class ApiInfoSource:
             if monitor._presence is not None:
                 await monitor._presence.wait_for_subscriber()
             self._wake.clear()
-            await self._sweep()
+            try:
+                await self._sweep()
+            except Exception:
+                # A failure outside the per-device guard (``_select_targets``,
+                # the cooldown prune, the health check) must not kill the loop
+                # for the process lifetime; log it and try again next interval.
+                _LOGGER.exception("API info sweep failed; continuing")
             await self._idle()
 
     async def _idle(self) -> None:
@@ -109,36 +116,41 @@ class ApiInfoSource:
             try:
                 await self._fetch(device)
             except Exception:
-                # e.g. a select→fetch TOCTOU where an mDNS/ping callback empties
-                # the address list between selection and the ``addresses[0]`` read.
-                # Count it like a miss so an exception-shaped systemic failure
-                # still trips the WARNING instead of staying debug-only.
-                _LOGGER.debug(
-                    "API info probe for %s raised; cooling down", device.name, exc_info=True
+                # The benign select→fetch race (emptied address list) is handled
+                # inside ``_fetch``; anything reaching here is unexpected (a real
+                # bug), so log at WARNING rather than masking it as a debug miss.
+                _LOGGER.warning(
+                    "API info probe for %s raised unexpectedly; cooling down",
+                    device.name,
+                    exc_info=True,
                 )
                 self._record_failure(device)
+        self._evaluate_systemic_health()
 
-    def _select_targets(self) -> list[Device]:
+    def _is_due(self, device: Device) -> bool:
         """
-        Online, API-capable devices that mDNS isn't supplying mac/version for.
+        Report whether *device* needs an API probe, ignoring cooldown.
 
-        A device whose ONLINE state is owned by the mDNS source is skipped:
-        mDNS is reaching it, so mac/version arrive on the ``_esphomelib._tcp``
-        TXT records for free. We probe only when mDNS isn't delivering, the
-        device still misses a field, it's off cooldown, and it has a routable
-        IP — never once both fields are already known.
+        Due means: online, exposes a Native API, not owned by the mDNS source
+        (so the ``_esphomelib._tcp`` TXT records aren't arriving), still missing
+        a field, and reachable by IP.
         """
-        now = time.monotonic()
         monitor = self._monitor
-        return [
-            device
-            for device in monitor._get_devices()
-            if device.state is DeviceState.ONLINE
+        return (
+            device.state is DeviceState.ONLINE
             and device.api_enabled
             and monitor.priority_for(device.name) != ReachabilitySource.MDNS
             and not (device.mac_address and device.deployed_version)
-            and self._cooldown.get(device.name, 0.0) <= now
-            and self._candidate_addresses(device)
+            and bool(self._candidate_addresses(device))
+        )
+
+    def _select_targets(self) -> list[Device]:
+        """Due devices that are off cooldown — the probe candidates for this sweep."""
+        now = time.monotonic()
+        return [
+            device
+            for device in self._monitor._get_devices()
+            if self._is_due(device) and self._cooldown.get(device.name, 0.0) <= now
         ]
 
     @staticmethod
@@ -160,6 +172,11 @@ class ApiInfoSource:
     async def _fetch(self, device: Device) -> None:
         monitor = self._monitor
         addresses = self._candidate_addresses(device)
+        if not addresses:
+            # select→fetch TOCTOU: an mDNS/ping callback emptied the address
+            # list after selection. Back off rather than indexing an empty list.
+            self._record_failure(device)
+            return
         noise_psk, port = "", _DEFAULT_API_PORT
         if monitor._resolve_api_connection is not None:
             try:
@@ -188,34 +205,46 @@ class ApiInfoSource:
         # ``apply_*`` returns True iff it newly wrote the field. Judge on that,
         # not a post-apply Device re-read (apply dedupes / fans out across
         # same-named devices). Any newly-filled field means the connection
-        # worked and made progress: clear the streak and don't cool down, so a
-        # device that answered with mac XOR version chases the rest on the next
-        # normal sweep. Nothing newly filled (connect failed, or only a value
-        # we already had) is a real miss → cool down and feed the counter.
+        # worked and made progress: don't cool down, so a device that answered
+        # with mac XOR version chases the rest on the next normal sweep. Nothing
+        # newly filled (connect failed, or only a value we already had) is a
+        # real miss → cool the device down.
         filled_mac = monitor.apply_mac_address(device.name, info.get("mac_address", ""))
         filled_version = monitor.apply_version(device.name, info.get("esphome_version", ""))
         if filled_mac or filled_version:
-            self._consecutive_failures = 0
             return
         self._record_failure(device)
 
     def _record_failure(self, device: Device) -> None:
-        """
-        Back *device* off and feed the systemic-failure counter.
-
-        Shared by the miss path and the ``_sweep`` exception handler so an
-        exception-shaped fleet-wide failure trips the WARNING just like a
-        miss-shaped one. The streak is strictly +1 per failure and reset to 0
-        on a full success, so equality hits the threshold exactly once.
-        """
+        """Back *device* off so the next sweep skips it until the cooldown expires."""
         self._cooldown[device.name] = time.monotonic() + _FAILURE_COOLDOWN
-        self._consecutive_failures += 1
-        if self._consecutive_failures == _SYSTEMIC_FAILURE_WARN_THRESHOLD:
+
+    def _evaluate_systemic_health(self) -> None:
+        """
+        Warn once when too many *distinct* devices are stuck failing; re-arm on recovery.
+
+        Counts devices that are due *and* currently on cooldown — i.e. genuinely
+        failing right now — by cross-referencing live eligibility, so a device
+        that recovered (mDNS filled it, went offline, or was deleted) drops out
+        and a single healthy probe elsewhere can't mask a persistently broken
+        subset (which a fleet-wide success streak could).
+        """
+        now = time.monotonic()
+        failing = sum(
+            1
+            for device in self._monitor._get_devices()
+            if self._is_due(device) and self._cooldown.get(device.name, 0.0) > now
+        )
+        if failing < _SYSTEMIC_FAILURE_WARN_THRESHOLD:
+            self._warned_systemic = False
+            return
+        if not self._warned_systemic:
+            self._warned_systemic = True
             _LOGGER.warning(
-                "Native API info fallback has failed for %d devices in a row; "
-                "MAC/version may stay blank — check device API reachability, "
-                "encryption keys, and the api.port setting",
-                self._consecutive_failures,
+                "Native API info fallback is failing for %d devices; MAC/version "
+                "may stay blank — check device API reachability, encryption keys, "
+                "and the api.port setting",
+                failing,
             )
 
     async def _run_worker(self, device: Device, request: bytes) -> dict[str, Any] | None:
