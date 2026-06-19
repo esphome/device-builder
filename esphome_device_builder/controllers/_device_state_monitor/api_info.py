@@ -39,6 +39,10 @@ _BOOTSTRAP_DELAY = 15
 # / non-API device isn't reconnected every sweep.
 _FAILURE_COOLDOWN = 600  # seconds
 _SUBPROCESS_TIMEOUT = 15.0
+# Max devices probed per sweep. Each probe is serial and can run the full
+# subprocess timeout, so an mDNS-dark all-failing fleet would otherwise spawn
+# interpreters back-to-back for minutes; the overflow rolls to the next sweep.
+_MAX_PROBES_PER_SWEEP = 8
 # Fallback only when no resolver is wired; the real per-device port is
 # read from ``api.port`` by the injected ``resolve_api_connection``.
 _DEFAULT_API_PORT = 6053
@@ -88,7 +92,20 @@ class ApiInfoSource:
         # not a fleet sweep — serialising keeps it unobtrusive.
         live = {device.name for device in self._monitor._get_devices()}
         self._cooldown = {name: t for name, t in self._cooldown.items() if name in live}
-        for device in self._select_targets():
+        # Cap probes per sweep so an mDNS-dark fleet where every probe runs
+        # the full subprocess timeout doesn't churn out back-to-back
+        # interpreter spawns for minutes. The overflow rolls to the next
+        # interval; failures cool down and drop out, so the fleet drains in
+        # bounded bursts.
+        targets = self._select_targets()
+        if len(targets) > _MAX_PROBES_PER_SWEEP:
+            _LOGGER.debug(
+                "API info: probing %d of %d due devices this sweep; %d roll to the next",
+                _MAX_PROBES_PER_SWEEP,
+                len(targets),
+                len(targets) - _MAX_PROBES_PER_SWEEP,
+            )
+        for device in targets[:_MAX_PROBES_PER_SWEEP]:
             try:
                 await self._fetch(device)
             except Exception:
@@ -147,13 +164,18 @@ class ApiInfoSource:
         if monitor._resolve_api_connection is not None:
             try:
                 noise_psk, port = await monitor._resolve_api_connection(device.configuration)
-            except Exception as exc:  # noqa: BLE001 — best-effort; fall back to plaintext/default
-                _LOGGER.debug(
-                    "API key/port resolve failed for %s; using plaintext/%d: %s",
-                    device.name,
-                    _DEFAULT_API_PORT,
-                    exc,
-                )
+            except Exception as exc:  # noqa: BLE001 — can't resolve how to reach the device
+                # A plaintext/default guess would only fail the handshake;
+                # record the miss instead of spawning a doomed worker.
+                _LOGGER.debug("API key/port resolve failed for %s; skipping: %s", device.name, exc)
+                self._record_failure(device)
+                return
+        if device.api_encrypted and not noise_psk:
+            # The config declares Noise encryption but no key resolved (e.g. a
+            # templated key) — a plaintext connect can only fail the handshake.
+            _LOGGER.debug("No Native API key resolved for encrypted %s; skipping", device.name)
+            self._record_failure(device)
+            return
         request = json.dumps(
             {
                 "address": addresses[0],

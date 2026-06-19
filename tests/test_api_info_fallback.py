@@ -251,8 +251,8 @@ async def test_fetch_no_new_fill_is_a_failure() -> None:
     assert src._consecutive_failures == 1
 
 
-async def test_fetch_falls_back_to_plaintext_when_resolver_raises() -> None:
-    """A resolver failure is swallowed; the probe connects plaintext on the default port."""
+async def test_fetch_resolver_failure_is_a_recorded_miss() -> None:
+    """A resolver exception records a miss and skips the doomed plaintext probe."""
     device = _online_api_device(address="")
     monitor = DeviceStateMonitor(
         get_devices=lambda: [device],
@@ -264,9 +264,25 @@ async def test_fetch_falls_back_to_plaintext_when_resolver_raises() -> None:
 
     await monitor._api_info._fetch(device)
 
-    request = json.loads(monitor._api_info._run_worker.call_args.args[1])
-    assert request["noise_psk"] == ""
-    assert request["port"] == 6053
+    monitor._api_info._run_worker.assert_not_called()
+    assert "kitchen" in monitor._api_info._cooldown
+
+
+async def test_fetch_skips_encrypted_device_without_key() -> None:
+    """A declared-encrypted device with no resolvable key is a recorded miss, not a probe."""
+    device = _online_api_device(api_encrypted=True, address="")
+    monitor = DeviceStateMonitor(
+        get_devices=lambda: [device],
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+        resolve_api_connection=AsyncMock(return_value=("", 6053)),  # encrypted, key empty
+    )
+    monitor._api_info._run_worker = AsyncMock(return_value=None)  # type: ignore[method-assign]
+
+    await monitor._api_info._fetch(device)
+
+    monitor._api_info._run_worker.assert_not_called()
+    assert "kitchen" in monitor._api_info._cooldown
 
 
 async def test_systemic_failures_warn_once(caplog: Any) -> None:
@@ -450,6 +466,21 @@ async def test_sweep_noop_when_no_targets() -> None:
     monitor._api_info._fetch.assert_not_called()
 
 
+async def test_sweep_caps_probes_per_sweep(monkeypatch: Any) -> None:
+    """A large due fleet is probed in bounded batches; the overflow rolls to the next sweep."""
+    monkeypatch.setattr(api_info_module, "_MAX_PROBES_PER_SWEEP", 3)
+    devices = [_online_api_device(f"dev{i}") for i in range(7)]
+    monitor, _ = make_state_monitor_with_callbacks(devices)
+    fetched: list[str] = []
+
+    async def _fetch(device: Device) -> None:
+        fetched.append(device.name)
+
+    monitor._api_info._fetch = _fetch  # type: ignore[method-assign]
+    await monitor._api_info._sweep()
+    assert len(fetched) == 3
+
+
 async def test_sweep_isolates_a_failing_fetch() -> None:
     """One device whose fetch raises is cooled down; the sweep finishes the rest."""
     a, b = _online_api_device("a"), _online_api_device("b")
@@ -469,8 +500,9 @@ async def test_sweep_isolates_a_failing_fetch() -> None:
     assert "a" in src._cooldown  # the bad device got backed off
 
 
-async def test_sweep_exceptions_feed_systemic_counter(caplog: Any) -> None:
+async def test_sweep_exceptions_feed_systemic_counter(caplog: Any, monkeypatch: Any) -> None:
     """Exception-shaped failures trip the systemic WARNING like miss-shaped ones."""
+    monkeypatch.setattr(api_info_module, "_MAX_PROBES_PER_SWEEP", 20)  # probe all in one sweep
     devices = [_online_api_device(f"dev{i}") for i in range(10)]
     monitor, _ = make_state_monitor_with_callbacks(devices)
     src = monitor._api_info
