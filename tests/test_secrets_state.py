@@ -25,6 +25,7 @@ from esphome_device_builder.helpers.secrets_state import (
     is_valid_secret_key,
     is_wifi_unconfigured,
     merge_secrets_file,
+    migrate_placeholder_wifi_secrets,
     read_secrets_yaml,
     validate_secrets_content,
     validate_wifi_credentials,
@@ -435,6 +436,43 @@ def test_validate_wifi_credentials_rejects_invalid(
 ) -> None:
     with pytest.raises(SecretsContentError, match=match):
         validate_wifi_credentials(ssid, password)  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# migrate_placeholder_wifi_secrets — one-shot cleanup for existing installs
+# ---------------------------------------------------------------------------
+
+
+def test_migrate_placeholder_wifi_removes_seeded_placeholders(tmp_path: Path) -> None:
+    _secrets(tmp_path).write_text(
+        f'# secrets\napi_key: ABC\nwifi_ssid: "{PLACEHOLDER_WIFI_SSID}"\n'
+        f'wifi_password: "{PLACEHOLDER_WIFI_PASSWORD}"\n',
+        "utf-8",
+    )
+    migrate_placeholder_wifi_secrets(tmp_path)
+    assert read_secrets_yaml(tmp_path) == {"api_key": "ABC"}
+    # Unrelated content is preserved.
+    assert "# secrets" in _secrets(tmp_path).read_text("utf-8")
+
+
+def test_migrate_placeholder_wifi_keeps_real_values(tmp_path: Path) -> None:
+    _secrets(tmp_path).write_text("wifi_ssid: home\nwifi_password: hunter2\n", "utf-8")
+    migrate_placeholder_wifi_secrets(tmp_path)
+    assert read_secrets_yaml(tmp_path) == {"wifi_ssid": "home", "wifi_password": "hunter2"}
+
+
+def test_migrate_placeholder_wifi_drops_only_placeholder_key(tmp_path: Path) -> None:
+    """A real SSID with a placeholder password drops only the placeholder."""
+    _secrets(tmp_path).write_text(
+        f'wifi_ssid: home\nwifi_password: "{PLACEHOLDER_WIFI_PASSWORD}"\n', "utf-8"
+    )
+    migrate_placeholder_wifi_secrets(tmp_path)
+    assert read_secrets_yaml(tmp_path) == {"wifi_ssid": "home"}
+
+
+def test_migrate_placeholder_wifi_noop_on_missing_file(tmp_path: Path) -> None:
+    migrate_placeholder_wifi_secrets(tmp_path)
+    assert not _secrets(tmp_path).exists()
 
 
 # ---------------------------------------------------------------------------

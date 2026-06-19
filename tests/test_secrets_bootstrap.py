@@ -15,6 +15,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 from esphome_device_builder.controllers.config import DashboardSettings
+from esphome_device_builder.helpers.secrets_state import (
+    PLACEHOLDER_WIFI_PASSWORD,
+    PLACEHOLDER_WIFI_SSID,
+    read_secrets_yaml,
+)
 
 
 def _ns(**overrides: object) -> Namespace:
@@ -63,8 +68,18 @@ def test_bootstrap_creates_secrets_without_wifi_placeholders(
 
 
 def test_bootstrap_does_not_overwrite_existing_secrets(tmp_path: Path) -> None:
-    """An existing ``secrets.yaml`` is left alone — no clobbering user data."""
+    """An existing ``secrets.yaml`` with real values is left alone."""
     existing = "wifi_ssid: home_network\nwifi_password: real_password\n"
     (tmp_path / "secrets.yaml").write_text(existing)
     _bootstrap(tmp_path)
     assert (tmp_path / "secrets.yaml").read_text() == existing
+
+
+def test_bootstrap_migrates_away_seeded_wifi_placeholders(tmp_path: Path) -> None:
+    """An existing install's leftover placeholder Wi-Fi secrets are stripped."""
+    (tmp_path / "secrets.yaml").write_text(
+        f'api_key: keep\nwifi_ssid: "{PLACEHOLDER_WIFI_SSID}"\n'
+        f'wifi_password: "{PLACEHOLDER_WIFI_PASSWORD}"\n'
+    )
+    _bootstrap(tmp_path)
+    assert read_secrets_yaml(tmp_path) == {"api_key": "keep"}

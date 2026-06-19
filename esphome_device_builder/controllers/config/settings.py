@@ -22,6 +22,7 @@ from ...constants import (
 from ...helpers.api import CommandError
 from ...helpers.auth import hash_password
 from ...helpers.network_interfaces import resolve_bind_host
+from ...helpers.secrets_state import migrate_placeholder_wifi_secrets
 from ...models import ErrorCode
 
 _LOGGER = logging.getLogger(__name__)
@@ -135,6 +136,11 @@ class DashboardSettings:
                 "# Add Wi-Fi credentials here, or let the create-device\n"
                 "# wizard add them for you.\n",
             )
+        else:
+            # Existing install: drop any leftover seeded Wi-Fi placeholders so a
+            # no-ssid create doesn't emit a !secret pointing at the placeholder
+            # (compiles, never joins). No-op once the user has set real values.
+            migrate_placeholder_wifi_secrets(self.config_dir)
         self.log_level = getattr(args, "log_level", "info")
         self.port = getattr(args, "port", 6052)
         self.host = getattr(args, "host", "0.0.0.0")

@@ -263,6 +263,43 @@ def validate_wifi_credentials(ssid: str, password: str) -> None:
             raise SecretsContentError(f"{label} can't contain control characters.")
 
 
+def migrate_placeholder_wifi_secrets(config_dir: Path) -> None:
+    """
+    Drop seeded placeholder Wi-Fi secrets from an existing ``secrets.yaml``.
+
+    Older builds bootstrapped ``wifi_ssid`` / ``wifi_password`` placeholders.
+    Wi-Fi is now collected per-device, so a leftover placeholder would make a
+    no-``ssid`` create emit ``!secret wifi_ssid`` pointing at the placeholder
+    (the device compiles but never joins). Remove each key only while it still
+    holds the exact placeholder, leaving real values and other secrets intact.
+    Idempotent; a no-op on fresh installs (no placeholders seeded).
+    """
+    secrets_path = config_dir / SECRETS_FILENAME
+    if not secrets_path.exists():
+        return
+    data = read_secrets_yaml(config_dir)
+    if not data:
+        return
+    drop = {
+        key
+        for key, placeholder in (
+            ("wifi_ssid", PLACEHOLDER_WIFI_SSID),
+            ("wifi_password", PLACEHOLDER_WIFI_PASSWORD),
+        )
+        if data.get(key) == placeholder
+    }
+    if not drop:
+        return
+    original = secrets_path.read_text(encoding="utf-8")
+    updated = "\n".join(
+        line
+        for line in original.split("\n")
+        if not ((m := _SECRET_LINE_RE.match(line)) and m.group(2) in drop)
+    )
+    if updated != original:
+        atomic_write_file(secrets_path, updated)
+
+
 def write_wifi_secrets(config_dir: Path, ssid: str, password: str) -> None:
     """
     Update ``wifi_ssid`` and ``wifi_password`` in ``secrets.yaml`` in place.
