@@ -255,6 +255,10 @@ class BoardCatalogEntry(DashboardModel):
     # wired up). Derived at serve time from the network providers above; the
     # create wizard reads it to skip the Wi-Fi step. Not stored in the JSON.
     provides_network: bool = False
+    # True when Wi-Fi is the board's only built-in network (native Wi-Fi, no
+    # onboard provider): the create wizard must collect Wi-Fi — a no-network
+    # config wouldn't validate. Derived at serve time; not stored in the JSON.
+    requires_wifi: bool = False
 
     class Config(_CatalogConfig):
         """Skip empty defaults on serialise; see :class:`_CatalogConfig`."""
