@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ESPHome Device Builder USB flasher</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: system-ui, sans-serif;
+      }
+      body {
+        margin: 0;
+        display: grid;
+        place-items: center;
+        min-height: 100vh;
+      }
+      main {
+        width: min(34rem, 92vw);
+        padding: 1.5rem;
+      }
+      h1 {
+        font-size: 1.25rem;
+      }
+      .status {
+        padding: 0.75rem 1rem;
+        border-radius: 0.5rem;
+        margin: 1rem 0;
+        background: #8884;
+      }
+      .status.connecting { background: #2196f344; }
+      .status.installing { background: #ff980044; }
+      .status.done { background: #4caf5044; }
+      .status.error { background: #f4433644; }
+      #bar {
+        height: 0.5rem;
+        border-radius: 0.25rem;
+        background: #8884;
+        overflow: hidden;
+      }
+      #fill {
+        height: 100%;
+        width: 0%;
+        background: #2196f3;
+        transition: width 0.2s;
+      }
+      button {
+        margin-top: 1rem;
+        padding: 0.6rem 1.2rem;
+        font-size: 1rem;
+        border-radius: 0.5rem;
+        border: 0;
+        background: #03a9f4;
+        color: #fff;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      details {
+        margin-top: 1.5rem;
+        font-size: 0.9rem;
+      }
+      pre {
+        margin-top: 1rem;
+        font-size: 0.8rem;
+        white-space: pre-wrap;
+        opacity: 0.7;
+      }
+    </style>
+  </head>
+  <body>
+    <script type="module" src="./flasher.js"></script>
+  </body>
+</html>
