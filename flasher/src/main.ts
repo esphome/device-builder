@@ -117,7 +117,14 @@ const terminal = {
 function post(msg: OutboundMessage): void {
   // targetOrigin narrows from '*' to the opener's real origin once known; see
   // its declaration. Outbound frames carry no nonce (see protocol.ts).
-  opener?.postMessage(msg, targetOrigin);
+  try {
+    opener?.postMessage(msg, targetOrigin);
+  } catch {
+    // A malformed origin= hash param (e.g. origin=null) makes postMessage throw,
+    // which would wedge the ready handshake before the retry interval is set up.
+    targetOrigin = "*";
+    opener?.postMessage(msg, "*");
+  }
 }
 
 function setState(state: FlashState, detail: string): void {
@@ -167,6 +174,9 @@ window.addEventListener("message", (ev: MessageEvent) => {
   if (!data || data.type !== "esphome-web-flash:firmware") return;
   if (data.nonce !== nonce) return;
   if (!isFlashParts(data.parts)) {
+    // The opener has attached and sent — stop re-announcing ready even though
+    // the payload is unusable, mirroring the accepted path below.
+    stopReadyRetry();
     setState("error", "Received a malformed firmware payload.");
     return;
   }
@@ -504,7 +514,7 @@ installBtn.addEventListener("click", async () => {
       data: new Uint8Array(p.data),
       address: p.address,
     }));
-    await runFlash(files, firmware.erase ?? true);
+    await runFlash(files, firmware.erase !== false);
     return;
   }
   const file = fileInput.files?.[0];

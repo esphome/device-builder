@@ -114,6 +114,18 @@ try {
   else if (enabledAfterBad) fail("install enabled after malformed payload");
   else console.log("PASS: malformed payload rejected with error state");
 
+  // 2b-ii. ...and the malformed payload stops the ready re-announce: the opener
+  // has clearly attached, so it must not keep receiving ready frames.
+  await a.evaluate(() => {
+    window.__msgs.length = 0;
+  });
+  await new Promise((r) => setTimeout(r, 700));
+  const readyAfterBad = (await a.evaluate(() => window.__msgs)).some(
+    (m) => m && m.type === "esphome-web-flash:ready",
+  );
+  if (readyAfterBad) fail("ready still re-announced after malformed payload");
+  else console.log("PASS: ready retry stopped after malformed payload");
+
   // 2c. a negative/non-integer address is rejected at the boundary
   await a.evaluate(() => {
     window.__b.postMessage(
@@ -131,6 +143,26 @@ try {
   if (!/malformed/i.test(label))
     fail("negative address not rejected: " + label);
   else console.log("PASS: negative address rejected at boundary");
+
+  // 2d. a malformed origin= hash param must not wedge the ready handshake:
+  // postMessage to a bad targetOrigin throws, and the receiver falls back to '*'.
+  {
+    const c = await browser.newPage();
+    await c.goto(`${base}/opener.html`);
+    const [pop2] = await Promise.all([
+      new Promise((res) => c.once("popup", res)),
+      c.evaluate((u) => window.__open(u), `${base}/#nonce=n2&origin=null`),
+    ]);
+    await pop2.waitForNetworkIdle({ idleTime: 300 }).catch(() => {});
+    await new Promise((r) => setTimeout(r, 300));
+    const ready2 = (await c.evaluate(() => window.__msgs)).find(
+      (m) => m && m.type === "esphome-web-flash:ready",
+    );
+    if (!ready2) fail("ready not received when origin= hash param is malformed");
+    else console.log("PASS: malformed origin falls back to '*', ready still sent");
+    await pop2.close();
+    await c.close();
+  }
 
   // 3. correct nonce accepted -> button enabled, state mirrored back
   await a.evaluate(() => {
