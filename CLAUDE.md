@@ -367,6 +367,14 @@ against legacy behaviour before assuming the simpler version suffices.
   | HA addon (`is_ha_addon()` true) | `/data` | `/data/storage/<file>.json` | `/data/build/<name>/` |
   | `ESPHOME_DATA_DIR` env override | `$ESPHOME_DATA_DIR` | `$ESPHOME_DATA_DIR/storage/<file>.json` | `$ESPHOME_DATA_DIR/build/<name>/` |
 
+  The rows aren't independent: esphome's `CORE.data_dir` resolves
+  `is_ha_addon()` *before* `$ESPHOME_DATA_DIR`, so on an HA-addon host the
+  override is silently ignored unless `ESPHOME_IS_HA_ADDON` is also cleared —
+  which is why a remote-build receiver running as an addon would write
+  artefacts to `/data` instead of its per-build `ESPHOME_DATA_DIR` subtree, and
+  why `controllers/firmware/cli.py:compose_subprocess_env` drops the marker for
+  remote-build compile subprocesses.
+
   The HA-addon shape is dominant in production: YAML configs at
   `/config/esphome/` (HA's `/config` mount), every ESPHome artefact at
   `/data/` (the addon's per-instance volume). The split lets the addon
