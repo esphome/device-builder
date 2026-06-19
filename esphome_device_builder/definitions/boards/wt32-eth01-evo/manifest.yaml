@@ -1,0 +1,72 @@
+id: wt32-eth01-evo
+name: WT32-ETH01-EVO
+description: Wireless-Tag WT32-ETH01-EVO with ESP32-C3 and an onboard DM9051 Ethernet controller over SPI. The
+  ESP32-C3 successor to the original ESP32 WT32-ETH01.
+manufacturer: Wireless-Tag
+esphome:
+  platform: esp32
+  board: esp32-c3-devkitm-1
+  variant: esp32c3
+  framework: esp-idf
+hardware:
+  flash_size: 4MB
+  connectivity:
+  - wifi
+  - bluetooth
+  - ethernet
+tags:
+- compact
+- module
+docs_url: https://esphome.io/components/ethernet.html
+featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  description: Built-in DM9051 Ethernet controller (SPI) — wired networking with no Wi-Fi setup.
+  fields:
+    type:
+      value: DM9051
+      locked: true
+    clk_pin:
+      value: GPIO7
+      locked: true
+    mosi_pin:
+      value: GPIO10
+      locked: true
+    miso_pin:
+      value: GPIO3
+      locked: true
+    cs_pin:
+      value: GPIO9
+      locked: true
+    interrupt_pin:
+      value: GPIO8
+      locked: true
+    reset_pin:
+      value: GPIO6
+      locked: true
+pins:
+- gpio: 7
+  label: GPIO7
+  available: false
+  occupied_by: Ethernet CLK
+- gpio: 10
+  label: GPIO10
+  available: false
+  occupied_by: Ethernet MOSI
+- gpio: 3
+  label: GPIO3
+  available: false
+  occupied_by: Ethernet MISO
+- gpio: 9
+  label: GPIO9
+  available: false
+  occupied_by: Ethernet CS
+- gpio: 8
+  label: GPIO8
+  available: false
+  occupied_by: Ethernet INT
+- gpio: 6
+  label: GPIO6
+  available: false
+  occupied_by: Ethernet RESET

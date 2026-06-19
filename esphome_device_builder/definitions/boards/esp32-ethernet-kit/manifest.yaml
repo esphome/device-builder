@@ -1,0 +1,62 @@
+id: esp32-ethernet-kit
+name: Espressif ESP32-Ethernet-Kit
+description: Espressif's official ESP32-Ethernet-Kit development board with ESP32-WROVER and an onboard IP101
+  Ethernet PHY.
+manufacturer: Espressif
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: esp-idf
+hardware:
+  flash_size: 4MB
+  connectivity:
+  - wifi
+  - bluetooth
+  - ethernet
+tags:
+- dev-kit
+docs_url: https://esphome.io/components/ethernet.html
+featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  description: Built-in IP101 Ethernet PHY — wired networking with no Wi-Fi setup.
+  fields:
+    type:
+      value: IP101
+      locked: true
+    mdc_pin:
+      value: GPIO23
+      locked: true
+    mdio_pin:
+      value: GPIO18
+      locked: true
+    clk:
+      value:
+        pin: GPIO0
+        mode: CLK_EXT_IN
+      locked: true
+    phy_addr:
+      value: 1
+      locked: true
+    power_pin:
+      value: GPIO5
+      locked: true
+pins:
+- gpio: 23
+  label: GPIO23
+  available: false
+  occupied_by: Ethernet MDC
+- gpio: 18
+  label: GPIO18
+  available: false
+  occupied_by: Ethernet MDIO
+- gpio: 0
+  label: GPIO0
+  available: false
+  occupied_by: Ethernet CLK
+- gpio: 5
+  label: GPIO5
+  available: false
+  occupied_by: Ethernet Power
