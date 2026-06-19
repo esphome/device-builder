@@ -203,7 +203,8 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         Record a state observation from *source*.
 
         Returns True iff the state was forwarded to the callback.
-        Sources below the current source's priority are ignored;
+        A source below the current source's priority is ignored,
+        except a positive ONLINE always revives a not-online device;
         observations where every matching device already carries
         *state* no-op.
 

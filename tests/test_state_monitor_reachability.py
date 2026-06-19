@@ -231,7 +231,8 @@ async def test_resolve_and_ping_falls_back_to_known_ip() -> None:
     """When the .local won't resolve, ping the MQTT/last-known IP and go ONLINE."""
     devices = [_make_device(state=DeviceState.OFFLINE, ip_addresses=["10.0.0.5"])]
     monitor = _make_monitor(devices)
-    monitor.state.dns_cache.async_resolve = AsyncMock(return_value=[])
+    # async_resolve returns None (not []) on resolution failure.
+    monitor.state.dns_cache.async_resolve = AsyncMock(return_value=None)
 
     fake_result = MagicMock()
     fake_result.is_alive = True
