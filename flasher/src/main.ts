@@ -91,13 +91,16 @@ function isFlashParts(parts: unknown): parts is FirmwareMessage["parts"] {
   return (
     Array.isArray(parts) &&
     parts.length > 0 &&
-    parts.every(
-      (p) =>
-        !!p &&
-        typeof p === "object" &&
-        typeof (p as { address?: unknown }).address === "number" &&
-        (p as { data?: unknown }).data instanceof ArrayBuffer,
-    )
+    parts.every((p) => {
+      if (!p || typeof p !== "object") return false;
+      const address = (p as { address?: unknown }).address;
+      return (
+        typeof address === "number" &&
+        Number.isInteger(address) &&
+        address >= 0 &&
+        (p as { data?: unknown }).data instanceof ArrayBuffer
+      );
+    })
   );
 }
 

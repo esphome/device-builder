@@ -114,6 +114,24 @@ try {
   else if (enabledAfterBad) fail("install enabled after malformed payload");
   else console.log("PASS: malformed payload rejected with error state");
 
+  // 2c. a negative/non-integer address is rejected at the boundary
+  await a.evaluate(() => {
+    window.__b.postMessage(
+      {
+        type: "esphome-web-flash:firmware",
+        nonce: "test-nonce-123",
+        name: "bad-addr",
+        parts: [{ address: -1, data: new ArrayBuffer(8) }],
+      },
+      "*",
+    );
+  });
+  await new Promise((r) => setTimeout(r, 200));
+  label = await popup.$eval("#status", (e) => e.textContent);
+  if (!/malformed/i.test(label))
+    fail("negative address not rejected: " + label);
+  else console.log("PASS: negative address rejected at boundary");
+
   // 3. correct nonce accepted -> button enabled, state mirrored back
   await a.evaluate(() => {
     window.__b.postMessage(
