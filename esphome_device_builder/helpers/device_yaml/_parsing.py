@@ -557,6 +557,18 @@ def get_api_encryption_key(config: dict | None) -> str:
     return key if isinstance(key, str) else ""
 
 
+def get_api_port(config: dict | None) -> int:
+    """Return the configured Native API port (1..65535), defaulting to 6053."""
+    api_block = config.get("api") if isinstance(config, dict) else None
+    if isinstance(api_block, dict):
+        port = api_block.get("port")
+        if isinstance(port, str) and port.isdigit():
+            port = int(port)
+        if isinstance(port, int) and not isinstance(port, bool) and 1 <= port <= 65535:
+            return port
+    return 6053
+
+
 def _resolve_substitutions(value: str | None, subs: dict[str, str]) -> str | None:
     """
     Replace ``$var`` / ``${var}`` references in *value* with values from *subs*.

@@ -81,16 +81,23 @@ class CapturedSubprocess:
 async def run_subprocess_capture(
     *args: str,
     timeout: float,
+    stdin_data: bytes | None = None,
+    merge_stderr: bool = True,
 ) -> CapturedSubprocess:
-    """Spawn *args*, await completion (or *timeout*), capture stdout+stderr.
+    """Spawn *args*, await completion (or *timeout*), capture stdout.
 
     Shared shape between every "run a command to completion and
     inspect its exit code + output" caller (currently
-    :func:`controllers.firmware.helpers._verify_esphome_importable`
-    and :func:`helpers.config_bundle.build_yaml_bundle`). Stderr is
-    redirected onto stdout so callers see a unified output stream;
-    if a future caller needs them split, lift this to take the
-    redirect flag as a parameter.
+    :func:`controllers.firmware.helpers._verify_esphome_importable`,
+    :func:`helpers.config_bundle.build_yaml_bundle`, and the
+    Native-API info worker in
+    :class:`controllers._device_state_monitor.api_info.ApiInfoSource`).
+
+    *stdin_data*, when given, is written to the child's stdin (stdin is
+    opened as a pipe only then). *merge_stderr* (default) redirects
+    stderr onto stdout for a unified stream; pass ``False`` to discard
+    stderr so stdout carries only the child's real output (e.g. a clean
+    JSON payload).
 
     Timeout handling: :func:`asyncio.wait_for` raises
     :class:`TimeoutError`; we :func:`kill_quietly` the process,
@@ -116,11 +123,12 @@ async def run_subprocess_capture(
     """
     proc = await create_subprocess_exec(
         *args,
+        stdin=asyncio.subprocess.PIPE if stdin_data is not None else None,
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
+        stderr=asyncio.subprocess.STDOUT if merge_stderr else asyncio.subprocess.DEVNULL,
     )
     try:
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        stdout, _ = await asyncio.wait_for(proc.communicate(stdin_data), timeout=timeout)
     except TimeoutError:
         kill_quietly(proc)
         await proc.wait()

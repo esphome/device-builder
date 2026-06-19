@@ -32,6 +32,7 @@ from esphome_device_builder.controllers._device_state_monitor import importable 
 from esphome_device_builder.controllers._device_state_monitor import mdns as mdns_module
 from esphome_device_builder.controllers._device_state_monitor import ping as ping_module
 from esphome_device_builder.controllers._device_state_monitor._state import MonitorState
+from esphome_device_builder.controllers._device_state_monitor.api_info import ApiInfoSource
 from esphome_device_builder.controllers._device_state_monitor.importable import ImportableDiscovery
 from esphome_device_builder.controllers._device_state_monitor.mdns import MdnsSource
 from esphome_device_builder.controllers._device_state_monitor.ping import PingSource
@@ -77,6 +78,8 @@ def _make_monitor(
 
     monitor._presence = None  # ping loop runs unconditionally in tests
     monitor._ping = PingSource(monitor)
+    monitor._api_info = ApiInfoSource(monitor)
+    monitor._resolve_api_connection = None
     monitor._get_devices = lambda: devices
     monitor._get_devices_by_name = lambda name: [d for d in devices if d.name == name]
     monitor._is_ignored = lambda _name: False
@@ -85,6 +88,7 @@ def _make_monitor(
     monitor._mdns._zeroconf = None
     monitor._mdns._mdns_browser = None
     monitor._ping_task = None
+    monitor._api_info_task = None
     monitor._tasks = set()
     monitor._importable._import_discovery = None
 

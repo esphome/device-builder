@@ -193,6 +193,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             on_importable_removed=self._on_importable_removed,
             is_ignored=self.state.ignored_devices.__contains__,
             presence=self._db.subscriber_presence,
+            resolve_api_connection=self._resolve_device_api_connection,
         )
         # Per-signal freshness tracker (mDNS / ping / MQTT last-seen,
         # ping RTT) feeding the device drawer's Reachability section.
@@ -722,6 +723,10 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
     async def _resolve_api_key_via_esphome_config(self, configuration: str) -> str:
         return await api_key.resolve_via_esphome_config(self, configuration)
+
+    async def _resolve_device_api_connection(self, configuration: str) -> tuple[str, int]:
+        """Native API (encryption key, port) for the state monitor's API info fallback."""
+        return await api_key.get_api_connection(self, configuration)
 
     @api_command("devices/add_component")
     async def add_component(
