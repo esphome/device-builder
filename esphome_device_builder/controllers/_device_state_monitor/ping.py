@@ -173,17 +173,15 @@ class PingSource:
                 # primary for ICMP / OTA targeting.
                 monitor.apply_ip_addresses(device.name, cached)
                 continue
-            if monitor.state.dns_cache.has_cached_failure(device.address):
-                if device.ip_addresses:
-                    # The ``.local`` won't resolve, but a prior MQTT/DNS
-                    # observation left a known IP — ping that instead of
-                    # marking the device offline (mDNS-less devices).
-                    pingable.append(device)
-                    continue
-                # Don't hand the bare hostname to icmplib (it would
-                # hammer the system resolver every sweep). Apply
-                # OFFLINE under the ``ping`` source so a future
-                # successful resolve can flip the device back.
+            if monitor.state.dns_cache.has_cached_failure(device.address) and (
+                not device.ip_addresses
+            ):
+                # The ``.local`` won't resolve and we have no known IP.
+                # Don't hand the bare hostname to icmplib (it would hammer
+                # the system resolver every sweep). Apply OFFLINE under the
+                # ``ping`` source so a future successful resolve can flip
+                # the device back. A device with a known IP (e.g. from MQTT)
+                # falls through to ``pingable`` and is pinged at that IP.
                 monitor.apply(device.name, DeviceState.OFFLINE, "ping")
                 dns_failed.append(device)
                 continue
