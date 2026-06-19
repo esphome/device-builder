@@ -30,6 +30,18 @@ pins:
 - gpio: 33
   available: false
   occupied_by: Reset Button
+- gpio: 23
+  available: false
+  occupied_by: Ethernet MDC
+- gpio: 18
+  available: false
+  occupied_by: Ethernet MDIO
+- gpio: 0
+  available: false
+  occupied_by: Ethernet CLK
+- gpio: 5
+  available: false
+  occupied_by: Ethernet Power
 docs_url: https://devices.esphome.io/devices/GL-iNet-GL-S10/
 featured_components:
 - id: onboard_ethernet

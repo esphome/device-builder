@@ -1334,9 +1334,11 @@ def _emit_manifest(record: dict[str, Any], src: _DeviceSource) -> Path | None:
     target_dir = _BOARDS_DIR / record["id"]
     manifest_path = target_dir / "manifest.yaml"
     prior = _read_manifest_dict(manifest_path)
-    # A pre-existing manifest the sync doesn't own (hand-curated, no
-    # ``source.type``) is a slug collision — leave it untouched.
-    if prior is not None and not _imported_remote_id(prior)[0]:
+    # An existing manifest the sync doesn't own is a slug collision —
+    # leave it untouched. Hand-curated boards (no ``source.type``) and
+    # unparsable files both read as "not imported"; an unreadable file
+    # ``prior is None`` so guard on the file existing, not on the parse.
+    if manifest_path.is_file() and not _imported_remote_id(prior)[0]:
         _LOGGER.warning(
             "Skipping %s — slug collides with a hand-curated board (no source.type)",
             record["id"],
@@ -1355,15 +1357,11 @@ def _emit_manifest(record: dict[str, Any], src: _DeviceSource) -> Path | None:
 
 
 def _graft_local_ethernet(record: dict[str, Any], prior: dict[str, Any]) -> None:
-    """
-    Carry a hand-added onboard-ethernet block across regeneration.
+    """Re-graft a hand-added onboard-ethernet block from *prior* onto *record*.
 
-    Upstream device pages don't describe the ethernet PHY pinout, so the
-    sync can't mine it (see the connectivity note in the module header).
-    When a maintainer hand-adds an ``ethernet`` ``featured_components``
-    entry to a generated manifest, the next regen would drop it; this
-    re-grafts that entry (and the ``ethernet`` connectivity flag) from
-    *prior* onto the rebuilt *record* so the wired config survives.
+    Carries the ``ethernet`` ``featured_components`` entry, the
+    ``ethernet`` connectivity flag, and any ``occupied_by: Ethernet …``
+    pins — none of which the upstream importer can mine.
     """
     preserved = [
         fc
@@ -1381,6 +1379,14 @@ def _graft_local_ethernet(record: dict[str, Any], prior: dict[str, Any]) -> None
     connectivity = record.setdefault("hardware", {}).setdefault("connectivity", [])
     if "ethernet" not in connectivity:
         connectivity.append("ethernet")
+    eth_pins = [
+        p
+        for p in prior.get("pins") or []
+        if isinstance(p, dict) and str(p.get("occupied_by", "")).startswith("Ethernet")
+    ]
+    pins = record.setdefault("pins", [])
+    declared = {p.get("gpio") for p in pins if isinstance(p, dict)}
+    pins.extend(p for p in eth_pins if p.get("gpio") not in declared)
 
 
 def _read_manifest_dict(manifest_path: Path) -> dict[str, Any] | None:
