@@ -250,6 +250,11 @@ class BoardCatalogEntry(DashboardModel):
     # presets) or a catalog ``component_id``; the entry's own
     # ``fields`` dict supplements or overrides those presets.
     default_components: list[DefaultComponent] = field(default_factory=list)
+    # True when the board supplies its own non-Wi-Fi network by default
+    # (onboard ``ethernet:`` today, ``openthread:`` once Thread boards are
+    # wired up). Derived at serve time from the network providers above; the
+    # create wizard reads it to skip the Wi-Fi step. Not stored in the JSON.
+    provides_network: bool = False
 
     class Config(_CatalogConfig):
         """Skip empty defaults on serialise; see :class:`_CatalogConfig`."""

@@ -22,7 +22,6 @@ from ...constants import (
 from ...helpers.api import CommandError
 from ...helpers.auth import hash_password
 from ...helpers.network_interfaces import resolve_bind_host
-from ...helpers.secrets_state import PLACEHOLDER_WIFI_PASSWORD, PLACEHOLDER_WIFI_SSID
 from ...models import ErrorCode
 
 _LOGGER = logging.getLogger(__name__)
@@ -116,33 +115,25 @@ class DashboardSettings:
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.absolute_config_dir = self.config_dir.resolve()
         # Ensure secrets.yaml exists (ESPHome fails if !secret references
-        # can't find it). Atomic write — a crash mid-write would leave the
-        # user with a half-bootstrap'd secrets file and the next startup
-        # would see ``not exists() == False`` on the partial and skip
-        # this branch, leaving them stuck. ``write_file`` stages in a
-        # sibling tempfile + ``shutil.move`` so the file is either fully
-        # there or not at all.
+        # can't find it, and the Secrets editor expects a real file).
+        # Atomic write — a crash mid-write would leave the user with a
+        # half-bootstrap'd secrets file and the next startup would see
+        # ``not exists() == False`` on the partial and skip this branch,
+        # leaving them stuck. ``write_file`` stages in a sibling tempfile +
+        # ``shutil.move`` so the file is either fully there or not at all.
         #
-        # Use non-empty placeholder strings rather than ``""``: ESPHome's
-        # ``wifi`` validator rejects an empty SSID with
-        # "SSID can't be empty.", so a fresh-install ``create_device``
-        # whose generated YAML uses ``!secret wifi_ssid`` would
-        # validation-fail before the device is even saved
-        # ("Failed to create device: SSID can't be empty."). The
-        # placeholders validate clean and clearly signal to the user
-        # that the values need to be replaced before flashing —
-        # ``OnboardingController`` reads the same constants from
-        # ``helpers.secrets_state`` to detect the unconfigured state
-        # and surface the setup wizard.
+        # No Wi-Fi placeholders are seeded: Wi-Fi credentials are collected
+        # per-device in the create wizard (which writes them here via
+        # ``config/set_wifi_credentials``), and generation is adaptive — a
+        # device created before any Wi-Fi secret exists gets a no-network
+        # stub rather than a broken ``!secret wifi_ssid``.
         secrets_path = self.config_dir / SECRETS_FILENAME
         if not secrets_path.exists():
             atomic_write_file(
                 secrets_path,
                 "# Secrets — referenced from device configs via !secret\n"
-                "# Replace these placeholders with your real Wi-Fi\n"
-                "# credentials before flashing or installing OTA.\n"
-                f'wifi_ssid: "{PLACEHOLDER_WIFI_SSID}"\n'
-                f'wifi_password: "{PLACEHOLDER_WIFI_PASSWORD}"\n',
+                "# Add Wi-Fi credentials here, or let the create-device\n"
+                "# wizard add them for you.\n",
             )
         self.log_level = getattr(args, "log_level", "info")
         self.port = getattr(args, "port", 6052)

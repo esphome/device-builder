@@ -80,6 +80,20 @@ _NO_WIFI_SECRETS_TODO_LINES: tuple[str, ...] = (
 NETWORK_PROVIDER_COMPONENT_IDS: frozenset[str] = frozenset({"ethernet"})
 
 
+def board_provides_network(board: BoardCatalogEntry) -> bool:
+    """
+    Whether *board* supplies its own network (onboard ``ethernet:``, …).
+
+    True when a featured component (or a bare default-component id) names a
+    provider in :data:`NETWORK_PROVIDER_COMPONENT_IDS`. A no-``ssid`` create
+    on such a board is wired by default — the generator drops the ``wifi:``
+    block — so the wizard skips the Wi-Fi step rather than asking.
+    """
+    if any(fc.component_id in NETWORK_PROVIDER_COMPONENT_IDS for fc in board.featured_components):
+        return True
+    return any(dc.id in NETWORK_PROVIDER_COMPONENT_IDS for dc in board.default_components)
+
+
 def _has_native_wifi(
     *, platform: str, board: str | None = None, variant: str | None = None
 ) -> bool:

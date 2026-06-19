@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from copy import deepcopy
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, ClassVar
 from unittest import mock
 
@@ -25,6 +26,7 @@ from esphome_device_builder.helpers import device_yaml
 from esphome_device_builder.helpers.device_yaml import (
     _has_native_wifi,
     _parse_inline_value,
+    board_provides_network,
     compute_has_pending_changes,
     configuration_stem,
     extract_esphome_meta_from_config,
@@ -2707,3 +2709,23 @@ async def test_every_curated_ethernet_board_generates_wired_only_config(
     assert parsed["ethernet"]["clk"] == clk
     assert parsed["ethernet"]["mdc_pin"] == "GPIO23"
     assert parsed["ethernet"]["mdio_pin"] == "GPIO18"
+
+
+def _board(*, featured: list[str] | None = None, default: list[str] | None = None) -> Any:
+    """Build a board stub with only the network-provider fields the helper reads."""
+    return SimpleNamespace(
+        featured_components=[SimpleNamespace(component_id=c) for c in (featured or [])],
+        default_components=[SimpleNamespace(id=c) for c in (default or [])],
+    )
+
+
+def test_board_provides_network_detects_featured_ethernet() -> None:
+    assert board_provides_network(_board(featured=["ethernet"])) is True
+
+
+def test_board_provides_network_detects_bare_default_component() -> None:
+    assert board_provides_network(_board(default=["ethernet"])) is True
+
+
+def test_board_provides_network_false_for_wifi_only_board() -> None:
+    assert board_provides_network(_board(featured=["relay"], default=["status_led"])) is False

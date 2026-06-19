@@ -39,7 +39,6 @@ class OnboardingStepId(StrEnum):
 
     USE_CASE = "use_case"
     EXPERIENCE_LEVEL = "experience_level"
-    WIFI_CREDENTIALS = "wifi_credentials"
 
 
 class OnboardingStepStatus(StrEnum):

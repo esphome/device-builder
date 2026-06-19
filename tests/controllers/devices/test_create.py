@@ -267,6 +267,61 @@ async def test_create_device_minimal_stub_omits_wifi_without_secrets(
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_create_device_persists_supplied_wifi_to_secrets_and_uses_secret_ref(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """Supplied Wi-Fi is written to secrets.yaml and referenced via ``!secret``.
+
+    Bare credentials are never written into the device YAML; the next device
+    reuses the same shared secret.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    StubBoardLookups(ctrl)
+    assert not (tmp_path / "secrets.yaml").exists()
+
+    result = await ctrl.create_device(name="kitchen", ssid="MyNetwork", psk="hunter2")
+
+    content = (tmp_path / result.configuration).read_text("utf-8")
+    assert "  ssid: !secret wifi_ssid\n" in content
+    assert "  password: !secret wifi_password\n" in content
+    assert "MyNetwork" not in content
+    assert "hunter2" not in content
+    secrets = (tmp_path / "secrets.yaml").read_text("utf-8")
+    assert 'wifi_ssid: "MyNetwork"' in secrets
+    assert 'wifi_password: "hunter2"' in secrets
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_create_device_rejects_invalid_supplied_wifi(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """An oversize SSID is refused (shared validator) before anything is written."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    StubBoardLookups(ctrl)
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.create_device(name="kitchen", ssid="A" * 33, psk="p")
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert not (tmp_path / "kitchen.yaml").exists()
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_create_device_skip_wifi_omits_network_even_with_secrets(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """``skip_wifi`` yields a no-network stub even when Wi-Fi secrets exist."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    StubBoardLookups(ctrl)
+    (tmp_path / "secrets.yaml").write_text('wifi_ssid: "x"\nwifi_password: "y"\n', encoding="utf-8")
+
+    result = await ctrl.create_device(name="kitchen", skip_wifi=True)
+
+    content = (tmp_path / result.configuration).read_text("utf-8")
+    assert "!secret" not in content
+    assert "wifi:" not in content.splitlines()
+    assert "api:" not in content.splitlines()
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
 async def test_create_device_slugifies_hostname_and_preserves_raw_name_as_friendly(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -836,6 +891,16 @@ async def test_yaml_content_for_create_defaults_ethernet_board_to_wired(
     assert source == "template"
     assert "ethernet:" in yaml_text
     assert "wifi:" not in yaml_text
+
+
+@pytest.mark.xdist_group("catalog")
+async def test_get_board_marks_provides_network(session_component_catalog: Any) -> None:
+    """``get_board`` derives ``provides_network`` from the board's network providers."""
+    eth = await session_component_catalog._db.boards.get_board(board_id="wt32-eth01")
+    wifi = await session_component_catalog._db.boards.get_board(board_id="apollo-esk-1")
+    assert eth is not None and wifi is not None
+    assert eth.provides_network is True
+    assert wifi.provides_network is False
 
 
 @pytest.mark.xdist_group("catalog")

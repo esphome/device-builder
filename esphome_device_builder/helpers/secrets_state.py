@@ -2,12 +2,11 @@
 Shared ``secrets.yaml`` read / merge / write helpers.
 
 One home for every ``secrets.yaml`` touch so the bundle-import merge,
-the onboarding wifi writer, and the placeholder-state detection don't
-drift apart. The dashboard's first-run bootstrap writes deterministic
-placeholder strings into ``secrets.yaml`` so ``!secret wifi_ssid``
-references in generated YAML resolve cleanly through ESPHome's
-validator; the same constants here detect whether the user has
-supplied real values yet.
+the Wi-Fi writer (the create wizard and the kebab "Set up Wi-Fi"
+action), and the placeholder-state detection don't drift apart. Wi-Fi
+credentials are collected per-device in the create wizard, which writes
+them here so generated YAML can reference ``!secret wifi_ssid`` instead
+of inlining bare credentials.
 
 Two mutation shapes live here on purpose:
 ``_replace_or_append_secret`` / ``write_wifi_secrets`` *set* specific
@@ -228,6 +227,40 @@ _SECRET_KEY_RE = re.compile(r"[a-zA-Z_]\w*\Z")
 def is_valid_secret_key(key: str) -> bool:
     """Whether *key* is a writable ``!secret`` name (identifier-shaped)."""
     return isinstance(key, str) and _SECRET_KEY_RE.match(key) is not None
+
+
+# Cap inputs at the same length ESPHome's own validators enforce —
+# ``cv.ssid`` (32 chars) and the WPA password validator (64 chars).
+MAX_SSID_LEN = 32
+MAX_WIFI_PASSWORD_LEN = 64
+
+
+def validate_wifi_credentials(ssid: str, password: str) -> None:
+    """
+    Raise ``SecretsContentError`` unless *ssid* / *password* are writable.
+
+    Enforces ESPHome's SSID (32) / WPA password (64) length caps, rejects an
+    empty / all-whitespace SSID, and bans control characters (except TAB) the
+    single-line ``secrets.yaml`` rewrite can't carry. Shared by
+    ``config/set_wifi_credentials`` and ``devices/create`` so both surfaces
+    persist the same valid values. SSID whitespace is otherwise preserved —
+    a network may legitimately be named with leading / trailing spaces.
+    """
+    if not isinstance(ssid, str):
+        raise SecretsContentError("SSID must be a string.")
+    if not isinstance(password, str):
+        raise SecretsContentError("Password must be a string.")
+    if not ssid.strip():
+        raise SecretsContentError("SSID can't be empty.")
+    if len(ssid) > MAX_SSID_LEN:
+        raise SecretsContentError(f"SSID can't be longer than {MAX_SSID_LEN} characters.")
+    if len(password) > MAX_WIFI_PASSWORD_LEN:
+        raise SecretsContentError(
+            f"Password can't be longer than {MAX_WIFI_PASSWORD_LEN} characters."
+        )
+    for label, value in (("SSID", ssid), ("Password", password)):
+        if any(c != "\t" and (ord(c) < 0x20 or ord(c) == 0x7F) for c in value):
+            raise SecretsContentError(f"{label} can't contain control characters.")
 
 
 def write_wifi_secrets(config_dir: Path, ssid: str, password: str) -> None:

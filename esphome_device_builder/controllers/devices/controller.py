@@ -29,7 +29,9 @@ from ...helpers.secrets_state import (
     SecretsContentError,
     read_secrets_yaml,
     validate_secrets_content,
+    validate_wifi_credentials,
     wifi_secrets_defined,
+    write_wifi_secrets,
 )
 from ...helpers.storage import ShutdownCallback
 from ...models import (
@@ -379,6 +381,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         psk: str = "",
         file_content: str | None = None,
         overwrite: bool = False,
+        skip_wifi: bool = False,
         **kwargs: Any,
     ) -> WizardResponse:
         """Create a new device configuration."""
@@ -390,6 +393,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             psk=psk,
             file_content=file_content,
             overwrite=overwrite,
+            skip_wifi=skip_wifi,
         )
 
     @api_command("devices/import_bundle")
@@ -507,14 +511,36 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         file_content: str | None,
         ssid: str,
         psk: str,
+        *,
+        skip_wifi: bool = False,
     ) -> tuple[str, mutations_yaml.CreateYamlSource]:
-        # Read secrets only where the generator may emit !secret: skip
-        # file_content (user YAML as-is) and a literal ssid (inlines). The stub
-        # and a board template with no literal ssid qualify; a no-native-Wi-Fi
-        # board with no ssid also reads here but ignores the result (gating that
-        # out would need the board's Wi-Fi capability before the read).
+        """
+        Build the YAML body for ``devices/create``, resolving Wi-Fi.
+
+        Provided credentials are persisted to ``secrets.yaml`` (validated)
+        and the config emits ``!secret`` — bare credentials are never
+        written into the device YAML. *skip_wifi* forces the no-network
+        path regardless of stored secrets; an empty *ssid* reuses whatever
+        ``secrets.yaml`` already holds.
+        """
         wifi_secrets_available = True
-        if not file_content and not (board and ssid):
+        if skip_wifi:
+            # Explicit no-Wi-Fi intent: no-network stub regardless of secrets.
+            ssid, psk, wifi_secrets_available = "", "", False
+        elif file_content:
+            pass  # user YAML written as-is; ssid/psk ignored
+        elif ssid:
+            # Persist the user's Wi-Fi to secrets.yaml and emit !secret rather
+            # than inlining bare credentials into the device config.
+            try:
+                validate_wifi_credentials(ssid, psk)
+            except SecretsContentError as err:
+                raise CommandError(ErrorCode.INVALID_ARGS, str(err)) from err
+            await self._db.write_secrets_locked(
+                write_wifi_secrets, self._db.settings.config_dir, ssid, psk
+            )
+            ssid, psk = "", ""  # force the !secret path in the generator
+        else:
             loop = asyncio.get_running_loop()
             secrets = await loop.run_in_executor(
                 None, read_secrets_yaml, self._db.settings.config_dir

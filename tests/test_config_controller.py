@@ -887,6 +887,84 @@ async def test_set_secret_waits_on_the_shared_lock(tmp_path: Path) -> None:
     assert await task == {"created": True}
 
 
+# ---------------------------------------------------------------------------
+# config/set_wifi_credentials — the kebab "Set up Wi-Fi" write path
+# ---------------------------------------------------------------------------
+
+
+async def test_set_wifi_credentials_writes_to_secrets_yaml(tmp_path: Path) -> None:
+    controller = _make_controller(tmp_path)
+    result = await controller.set_wifi_credentials(ssid="home_network", password="hunter2")
+    assert result == {}
+    content = (tmp_path / "secrets.yaml").read_text()
+    assert 'wifi_ssid: "home_network"' in content
+    assert 'wifi_password: "hunter2"' in content
+
+
+async def test_set_wifi_credentials_preserves_other_secrets_and_comments(tmp_path: Path) -> None:
+    """Line-based update keeps unrelated keys + comments untouched."""
+    (tmp_path / "secrets.yaml").write_text(
+        "# my secrets file\napi_key: ABC123\nmqtt_broker: 10.0.0.1\n", "utf-8"
+    )
+    controller = _make_controller(tmp_path)
+    await controller.set_wifi_credentials(ssid="MyAP", password="secret")
+    content = (tmp_path / "secrets.yaml").read_text()
+    assert "# my secrets file" in content
+    assert "api_key: ABC123" in content
+    assert "mqtt_broker: 10.0.0.1" in content
+    assert 'wifi_ssid: "MyAP"' in content
+    assert 'wifi_password: "secret"' in content
+
+
+async def test_set_wifi_credentials_creates_file_when_missing(tmp_path: Path) -> None:
+    controller = _make_controller(tmp_path)
+    await controller.set_wifi_credentials(ssid="MyAP", password="secret")
+    content = (tmp_path / "secrets.yaml").read_text()
+    assert 'wifi_ssid: "MyAP"' in content
+    assert 'wifi_password: "secret"' in content
+
+
+async def test_set_wifi_credentials_preserves_ssid_whitespace(tmp_path: Path) -> None:
+    """IEEE 802.11 allows leading/trailing whitespace; preserve the value as typed."""
+    controller = _make_controller(tmp_path)
+    await controller.set_wifi_credentials(ssid="  MyNetwork  ", password="hunter2")
+    assert 'wifi_ssid: "  MyNetwork  "' in (tmp_path / "secrets.yaml").read_text()
+
+
+async def test_set_wifi_credentials_accepts_empty_password(tmp_path: Path) -> None:
+    """Open networks have empty passwords — must not be rejected."""
+    controller = _make_controller(tmp_path)
+    assert await controller.set_wifi_credentials(ssid="OpenNet", password="") == {}
+
+
+@pytest.mark.parametrize(
+    ("ssid", "password", "match"),
+    [
+        ("   ", "p", "SSID can't be empty"),
+        (42, "p", "SSID must be a string"),
+        ("MyAP", None, "Password must be a string"),
+        ("A" * 33, "p", "32 characters"),
+        ("MyAP", "P" * 65, "64 characters"),
+        ("My\nNetwork", "p", "control character"),
+        ("MyAP", "p\nass", "control character"),
+    ],
+)
+async def test_set_wifi_credentials_rejects_invalid_input(
+    tmp_path: Path, ssid: Any, password: Any, match: str
+) -> None:
+    controller = _make_controller(tmp_path)
+    with pytest.raises(CommandError) as excinfo:
+        await controller.set_wifi_credentials(ssid=ssid, password=password)
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert match in str(excinfo.value)
+
+
+async def test_set_wifi_credentials_allows_tab_in_value(tmp_path: Path) -> None:
+    """TAB is the one control character ESPHome's ``cv.string_strict`` accepts."""
+    controller = _make_controller(tmp_path)
+    assert await controller.set_wifi_credentials(ssid="MyAP", password="hunter\t2") == {}
+
+
 async def test_get_info_returns_storage_metadata_dict(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
