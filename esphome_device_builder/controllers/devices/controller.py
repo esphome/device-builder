@@ -519,11 +519,17 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
         Provided credentials are persisted to ``secrets.yaml`` (validated)
         and the config emits ``!secret`` — bare credentials are never
-        written into the device YAML. *skip_wifi* forces the no-network
-        path regardless of stored secrets; an empty *ssid* reuses whatever
-        ``secrets.yaml`` already holds.
+        written into the device YAML. A supplied *ssid* is an explicit "use
+        Wi-Fi" intent, so it keeps the ``wifi:`` block even on an
+        onboard-network board (no Ethernet auto-pull). *skip_wifi* forces the
+        no-network path regardless of stored secrets; an empty *ssid* reuses
+        whatever ``secrets.yaml`` already holds (and lets a networked board
+        default to Ethernet).
         """
         wifi_secrets_available = True
+        # A supplied ssid means "this device uses Wi-Fi": keep the wifi block
+        # even on a board that would otherwise auto-pull onboard Ethernet.
+        wifi_requested = False
         if skip_wifi:
             # Explicit no-Wi-Fi intent: no-network stub regardless of secrets.
             ssid, psk, wifi_secrets_available = "", "", False
@@ -540,6 +546,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
                 write_wifi_secrets, self._db.settings.config_dir, ssid, psk
             )
             ssid, psk = "", ""  # force the !secret path in the generator
+            wifi_requested = True
         else:
             loop = asyncio.get_running_loop()
             secrets = await loop.run_in_executor(
@@ -554,6 +561,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             ssid,
             psk,
             wifi_secrets_available=wifi_secrets_available,
+            wifi_requested=wifi_requested,
             catalog=self._db.components,
         )
 

@@ -953,6 +953,35 @@ async def test_yaml_content_for_create_keeps_wifi_when_ssid_supplied(
     assert "ethernet:" not in yaml_text
 
 
+@pytest.mark.xdist_group("catalog")
+async def test_yaml_content_for_create_wifi_requested_keeps_secret_wifi_on_ethernet_board(
+    session_component_catalog: Any,
+) -> None:
+    """``wifi_requested`` opts an ethernet board into Wi-Fi via ``!secret``.
+
+    The controller persists typed creds to secrets.yaml and clears ``ssid`` to
+    force the ``!secret`` path; ``wifi_requested`` must still suppress the
+    Ethernet auto-pull so the user's Wi-Fi intent isn't silently dropped, and
+    no bare credentials appear.
+    """
+    board = await session_component_catalog._db.boards.get_board(board_id="wt32-eth01")
+    assert board is not None
+    yaml_text, _ = await yaml_content_for_create(
+        name="wt32",
+        friendly="WT32",
+        board=board,
+        file_content=None,
+        ssid="",
+        psk="",
+        wifi_secrets_available=True,
+        wifi_requested=True,
+        catalog=session_component_catalog,
+    )
+    assert "wifi:" in yaml_text
+    assert "ssid: !secret wifi_ssid" in yaml_text
+    assert "ethernet:" not in yaml_text
+
+
 async def test_yaml_content_for_create_skips_network_pull_when_default_already_networked() -> None:
     """A board already providing a network via default_components isn't double-injected.
 

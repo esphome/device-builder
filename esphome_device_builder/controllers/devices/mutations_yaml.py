@@ -45,6 +45,7 @@ async def yaml_content_for_create(
     psk: str,
     *,
     wifi_secrets_available: bool = True,
+    wifi_requested: bool = False,
     catalog: ComponentCatalog | None = None,
 ) -> tuple[str, CreateYamlSource]:
     """
@@ -53,8 +54,9 @@ async def yaml_content_for_create(
     A board with onboard-network suggested hardware (``ethernet:``) is
     wired by default — the network component is auto-pulled into
     *defaults*, and the generator drops the ``wifi:`` block in its
-    favour — unless the user supplied an ``ssid``, which opts that
-    device back into Wi-Fi.
+    favour — unless the user opts that device into Wi-Fi. *wifi_requested*
+    is that opt-in for the ``!secret`` path (the caller persisted the
+    credentials and cleared *ssid*); a literal *ssid* opts in the same way.
     """
     if file_content:
         return file_content, "user"
@@ -70,7 +72,8 @@ async def yaml_content_for_create(
         already_networked = any(
             component.id in NETWORK_PROVIDER_COMPONENT_IDS for component, _ in defaults
         )
-        if catalog and not ssid and not already_networked and board.featured_components:
+        wants_wifi = bool(ssid) or wifi_requested
+        if catalog and not wants_wifi and not already_networked and board.featured_components:
             defaults.extend(await catalog.resolve_network_components(board))
         return (
             generate_device_yaml(
