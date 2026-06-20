@@ -144,9 +144,10 @@ def test_ha_addon_front_door_open_with_mapped_port_binds_public_unauthenticated(
 
     The explicit two-part opt-in (``DISABLE_HA_AUTHENTICATION`` +
     a mapped port via ``allow_public_port``) must NOT crash; it
-    binds ``0.0.0.0:6052`` with auth disabled and the peer guard
-    off so a LAN client reaches it, logs the wide-open banner, and
-    still registers the trusted ingress site so HA-sidebar access
+    binds ``0.0.0.0:6052`` with the peer guard off so a LAN client
+    reaches it (auth is a no-op without a password) but the site
+    untrusted so the origin gate stays, logs the wide-open banner,
+    and still registers the ingress site so HA-sidebar access
     survives.
     """
     monkeypatch.setenv("DISABLE_HA_AUTHENTICATION", "true")
@@ -157,7 +158,7 @@ def test_ha_addon_front_door_open_with_mapped_port_binds_public_unauthenticated(
     def fake_run_app(app, *, host: list[str], port: int, **_: object) -> None:
         captured["host"] = host
         captured["port"] = port
-        captured["trusted"] = bool(app.get("trusted_site"))
+        captured["trusted_site"] = bool(app.get("trusted_site"))
         captured["ingress_hook"] = db._start_ingress_site in app.on_startup
 
     with (
@@ -167,16 +168,19 @@ def test_ha_addon_front_door_open_with_mapped_port_binds_public_unauthenticated(
     ):
         db.run()
 
-    # Public port bound on all interfaces, auth bypassed.
+    # Public port bound on all interfaces.
     assert captured["port"] == 6052
     assert captured["host"] == ["0.0.0.0"]
-    assert captured["trusted"] is True
+    # Not a trusted site: the WS origin/Host gate stays active (auth is a no-op
+    # without a password), so a plain cross-origin drive-by is still rejected.
+    assert captured["trusted_site"] is False
     # Ingress site still bound alongside it (HA sidebar keeps working).
     assert captured["ingress_hook"] is True
 
-    # The public app skips auth AND drops the peer guard so the LAN reaches it.
+    # The public app drops the peer guard so the LAN reaches it, but stays
+    # untrusted to keep the origin gate.
     main_call = create_app_spy.call_args_list[0]
-    assert main_call.kwargs == {"trusted": True, "peer_guard": False}
+    assert main_call.kwargs == {"trusted": False, "peer_guard": False}
 
     banner = [r.getMessage() for r in caplog.records if "FRONT DOOR OPEN" in r.getMessage()]
     assert banner, "expected the loud FRONT DOOR OPEN banner"

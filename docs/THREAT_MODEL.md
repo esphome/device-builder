@@ -154,10 +154,10 @@ These are explicitly *not* threats the dashboard defends against:
   boundary themselves, so the resulting wide-open LAN dashboard is
   not a breach of anything we defend. It is LAN-equivalent to handing
   out shell access on the host, by explicit request; the dashboard
-  logs a loud banner saying exactly that. This mode is marked
-  trusted, so the `Origin` / `Host` gate is off too: a remote web page
-  loaded in a LAN browser can drive it cross-origin (DNS rebinding),
-  so the reach is wider than "only hosts on your network." That
-  matches the legacy `leave_front_door_open`, which also disabled auth
-  with no origin gate. Both opt-ins are required (legacy parity), so
-  it can't happen by accident.
+  logs a loud banner saying exactly that. The public site stays
+  untrusted, so the WS `Origin` gate still rejects a plain
+  cross-origin browser drive-by; the residual reach is DNS rebinding
+  (where `Origin` and `Host` both become the attacker's rebound name),
+  which an operator who cares closes with `--trusted-domains` (the
+  `Host` allowlist). Both opt-ins are required (legacy parity), so it
+  can't happen by accident.

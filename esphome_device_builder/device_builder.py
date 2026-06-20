@@ -890,11 +890,15 @@ class DeviceBuilder:
         if settings.on_ha_addon and not settings.using_password:
             if settings.serve_public_unauthenticated:
                 self._warn_front_door_open()
-                # Auth disabled and peer guard off so LAN clients (e.g.
-                # the VS Code ESPHome plugin) can reach it; the ingress
-                # site is still bound via the on_ha_addon lifecycle hook
-                # so the HA sidebar keeps working.
-                app = self.create_app(trusted=True, peer_guard=False)
+                # peer_guard=False so LAN clients (e.g. the VS Code ESPHome
+                # plugin) can reach it; the ingress site is still bound via the
+                # on_ha_addon lifecycle hook so the HA sidebar keeps working.
+                # trusted=False keeps the WS origin/Host gate active so a plain
+                # cross-origin browser drive-by is still rejected; auth itself is
+                # a no-op here because the add-on configures no password, so the
+                # site stays unauthenticated for same-origin and non-browser
+                # clients (which omit Origin) without paying the open-origin cost.
+                app = self.create_app(trusted=False, peer_guard=False)
                 if self._startup_timer is not None:
                     self._startup_timer.mark("app")
                 hosts = resolve_bind_host(settings.host)
