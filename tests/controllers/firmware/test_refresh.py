@@ -29,12 +29,14 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
+from esphome.core import CORE
+
 from esphome_device_builder.controllers._device_scanner import (
     DeviceFileMetadata,
     DeviceScanner,
     ScanChange,
 )
-from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.controllers.devices import DevicesController, firmware_sync
 from esphome_device_builder.controllers.devices._metadata_store import DeviceMetadataStore
 from esphome_device_builder.helpers.event_bus import Event
 from esphome_device_builder.models import (
@@ -45,6 +47,7 @@ from esphome_device_builder.models import (
     JobType,
 )
 from tests._recording_scanner import RecordingScanner
+from tests._storage_fixtures import write_storage_json
 from tests.conftest import make_device
 
 
@@ -585,3 +588,46 @@ async def test_reprobe_after_flash_unknown_configuration_is_noop(monkeypatch: An
     await controller._reprobe_version_after_flash("kitchen.yaml")
 
     controller._state_monitor.request_version_reprobe.assert_not_called()
+
+
+# ----------------------------------------------------------------------
+# Helpers: _read_compiled_esphome_version + DeviceScanner.get_by_configuration
+# ----------------------------------------------------------------------
+
+
+def test_read_compiled_esphome_version_reads_storage(tmp_path: Path, monkeypatch: Any) -> None:
+    """The version is read off the device's StorageJSON sidecar."""
+    monkeypatch.setattr(CORE, "config_path", tmp_path / "___sentinel___.yaml")
+    write_storage_json(tmp_path, "kitchen.yaml", overrides={"esphome_version": "2026.6.2"})
+    assert firmware_sync._read_compiled_esphome_version("kitchen.yaml") == "2026.6.2"
+
+
+def test_read_compiled_esphome_version_missing_storage_is_empty(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """No sidecar (never compiled / wiped) → empty string, never raise."""
+    monkeypatch.setattr(CORE, "config_path", tmp_path / "___sentinel___.yaml")
+    assert firmware_sync._read_compiled_esphome_version("ghost.yaml") == ""
+
+
+def test_read_compiled_esphome_version_blank_version_is_empty(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """A sidecar with no esphome_version → empty string."""
+    monkeypatch.setattr(CORE, "config_path", tmp_path / "___sentinel___.yaml")
+    write_storage_json(tmp_path, "kitchen.yaml", overrides={"esphome_version": None})
+    assert firmware_sync._read_compiled_esphome_version("kitchen.yaml") == ""
+
+
+def test_scanner_get_by_configuration(tmp_path: Path) -> None:
+    """The indexed lookup returns the device for a tracked filename, else ``None``."""
+    scanner = DeviceScanner(
+        config_dir=tmp_path,
+        get_metadata=lambda _config_dir, _filename: DeviceFileMetadata(board_id="", ip=""),
+        on_change=lambda _kind, _device: None,
+    )
+    device = _device()
+    scanner._index.set(tmp_path / "kitchen.yaml", device, (0, 0, 0.0, 0))
+
+    assert scanner.get_by_configuration("kitchen.yaml") is device
+    assert scanner.get_by_configuration("ghost.yaml") is None

@@ -804,3 +804,11 @@ async def test_sweep_prunes_force_reprobe_for_dead_devices() -> None:
     await src._sweep()
 
     assert "ghost" not in src._force_reprobe
+
+
+def test_monitor_request_version_reprobe_forwards_to_api_info() -> None:
+    """The monitor facade forwards a version re-probe request to the API source."""
+    device = _online_api_device()
+    monitor, _ = make_state_monitor_with_callbacks([device])
+    monitor.request_version_reprobe("kitchen")
+    assert "kitchen" in monitor._api_info._force_reprobe
