@@ -342,7 +342,7 @@ class DashboardAdvertiser:
         # Human label rides in TXT; the instance label is the stable
         # SRV target's leftmost label.
         self._friendly_name = friendly
-        self._name = host.split(".", 1)[0] if host else friendly
+        self._name = host.split(".", 1)[0]
         self._hostname = host
         self._server_version = server_version
         self._esphome_version = esphome_version
@@ -474,10 +474,8 @@ class DashboardAdvertiser:
         if self._remote_build_port is not None:
             properties["remote_build_port"] = str(self._remote_build_port)
         # ``server`` is the SRV record's target. Zeroconf appends
-        # ``.local.`` if missing; pass it through as-is. The friendly-name
-        # fallback only guards an explicit empty ``hostname=`` override.
-        host = self._hostname or f"{self._name}.local"
-        server = host if host.endswith(".") else f"{host}."
+        # ``.local.`` if missing; pass it through as-is.
+        server = self._hostname if self._hostname.endswith(".") else f"{self._hostname}."
         # Publishing the host's addresses explicitly avoids relying
         # on the receiver's A/AAAA lookup against ``server``, which
         # on macOS can return loopback while mDNSResponder is in a
