@@ -157,7 +157,8 @@ class ApiInfoSource:
         )
 
     def _select_targets(self) -> list[Device]:
-        """Due devices that are off cooldown — the probe candidates for this sweep.
+        """
+        Due devices that are off cooldown — the probe candidates for this sweep.
 
         A forced re-probe ignores cooldown: it's a deliberate one-shot request.
         """
@@ -187,8 +188,12 @@ class ApiInfoSource:
 
     async def _fetch(self, device: Device) -> None:
         monitor = self._monitor
-        # One-shot: a forced re-probe is consumed by this attempt, so a device
-        # with no reachable API isn't probed every sweep forever.
+        # One-shot, consumed up front — before the dial / key-resolve
+        # early-returns below — so a device we can't even reach (no address,
+        # unresolvable Noise key) isn't force-probed every sweep, since a
+        # forced probe bypasses cooldown. The trade-off is deliberate: that
+        # device's post-flash rollback check is skipped, but it can't be
+        # API-verified anyway.
         forced = device.name in self._force_reprobe
         self._force_reprobe.discard(device.name)
         addresses = self._candidate_addresses(device)

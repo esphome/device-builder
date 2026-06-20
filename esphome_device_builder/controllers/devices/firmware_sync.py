@@ -179,7 +179,8 @@ async def sync_deployed_state_after_flash(
 
 
 def schedule_version_reprobe(controller: DevicesController, configuration: str) -> None:
-    """Arm a one-shot Native-API version re-probe ~60s after a flash.
+    """
+    Arm a one-shot Native-API version re-probe ~60s after a flash.
 
     The delay lets the device reboot into the new image before we
     connect; the re-probe then confirms the optimistically-pinned
@@ -215,7 +216,8 @@ async def migrate_metadata_then_scan(
 
 
 def _fire_version_reprobe(controller: DevicesController, configuration: str) -> None:
-    """Timer callback: ask the monitor to verify the device's running version.
+    """
+    Timer callback: ask the monitor to verify the device's running version.
 
     A no-op if the device vanished in the interim. The request still
     honours the monitor's ``priority_for != MDNS`` guard, so a device
