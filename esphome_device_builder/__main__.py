@@ -490,6 +490,11 @@ def _warn_if_unprotected(settings: DashboardSettings) -> None:
     """Print a banner when starting without any authentication boundary."""
     if settings.using_password:
         return
+    # The wide-open add-on opt-in gets a more accurate banner from
+    # DeviceBuilder.run (_warn_front_door_open); the generic one below points
+    # at $ESPHOME_USERNAME/$ESPHOME_PASSWORD env vars the add-on doesn't expose.
+    if settings.serve_public_unauthenticated:
+        return
     # HA add-on installs are exempt — the supervisor's ingress proxy
     # authenticates upstream of the trusted site.
     if settings.create_ingress_site:

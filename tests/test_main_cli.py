@@ -35,6 +35,8 @@ from esphome_device_builder import constants
 from esphome_device_builder.helpers.logging import LoggingQueueHandler
 from esphome_device_builder.helpers.single_instance import SingleInstanceLock
 
+from .conftest import MakeSettingsFactory
+
 # ---------------------------------------------------------------------------
 # constants._resolve_version
 # ---------------------------------------------------------------------------
@@ -457,3 +459,36 @@ def test_main_runs_device_builder_when_lock_acquired(
 
     device_builder_ctor.assert_called_once()
     instance.run.assert_called_once()
+
+
+def test_warn_if_unprotected_skips_wide_open_addon(
+    make_settings: MakeSettingsFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The wide-open add-on opt-in suppresses the generic banner (run logs its own)."""
+    monkeypatch.setenv("DISABLE_HA_AUTHENTICATION", "true")
+    settings = make_settings()
+    settings.on_ha_addon = True
+    settings.using_password = False
+    settings.allow_public_port = True
+
+    with caplog.at_level("WARNING", logger=main_module._LOGGER_NAME):
+        main_module._warn_if_unprotected(settings)
+
+    assert not any("WITHOUT AUTHENTICATION" in r.getMessage() for r in caplog.records)
+
+
+def test_warn_if_unprotected_warns_standalone_without_password(
+    make_settings: MakeSettingsFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A standalone install with no password still gets the unprotected banner."""
+    settings = make_settings()
+    settings.on_ha_addon = False
+    settings.using_password = False
+
+    with caplog.at_level("WARNING", logger=main_module._LOGGER_NAME):
+        main_module._warn_if_unprotected(settings)
+
+    assert any("WITHOUT AUTHENTICATION" in r.getMessage() for r in caplog.records)
