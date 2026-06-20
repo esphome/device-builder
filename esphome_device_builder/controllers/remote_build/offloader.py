@@ -239,13 +239,18 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         )
 
     async def _refresh_identity_and_respawn_clients(self) -> None:
-        """Reload the identity snapshot and respawn every APPROVED peer-link client."""
+        """Reload the identity snapshot and respawn every APPROVED peer-link client.
+
+        Awaits each old client's teardown before respawning: rotation keeps the
+        ``dashboard_id`` and reconnects to the same receiver, so a late old
+        registration would supersede the fresh client (same race as rebind).
+        """
         await self._load_offloader_identities_async()
         for pin_sha256 in list(self.state.peer_link_clients):
             pairing = self.state.pairings.get(pin_sha256)
             if pairing is None or pairing.status is not PeerStatus.APPROVED:
                 continue
-            self._cancel_peer_link_client(pin_sha256)
+            await self._cancel_peer_link_client_and_wait(pin_sha256)
             self._spawn_peer_link_client(pairing)
 
     def _on_offloader_queue_status_changed(

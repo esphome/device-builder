@@ -2010,16 +2010,18 @@ async def test_identity_rotation_refreshes_snapshot_and_respawns_approved_client
     controller.offloader.state.pairings["b" * 64] = pending
     controller.offloader.state.peer_link_clients["a" * 64] = MagicMock()
     controller.offloader.state.peer_link_clients["b" * 64] = MagicMock()
-    cancel = MagicMock()
+    cancel = AsyncMock()
     spawn = MagicMock()
-    monkeypatch.setattr(controller.offloader, "_cancel_peer_link_client", cancel)
+    monkeypatch.setattr(controller.offloader, "_cancel_peer_link_client_and_wait", cancel)
     monkeypatch.setattr(controller.offloader, "_spawn_peer_link_client", spawn)
 
     rotated = await controller.offloader._db.peer_link_identity_store.async_rotate()
     await controller.offloader._refresh_identity_and_respawn_clients()
 
     assert controller.offloader.state.offloader_peer_link_priv == rotated.private_bytes
-    cancel.assert_called_once_with("a" * 64)
+    # Awaits teardown before respawn (same supersede race as rebind: rotation
+    # keeps the dashboard_id and reconnects to the same receiver).
+    cancel.assert_awaited_once_with("a" * 64)
     spawn.assert_called_once_with(approved)
 
 
