@@ -87,7 +87,7 @@ async def probe_pairing_endpoint(
     return RebindProbeResult(RebindProbeOutcome.OK)
 
 
-def commit_endpoint_rebind(
+async def commit_endpoint_rebind(
     controller: OffloaderController, pairing: StoredPairing, *, hostname: str, port: int
 ) -> None:
     """Mutate *pairing* to (*hostname*, *port*) and run the rebind epilogue.
@@ -99,19 +99,20 @@ def commit_endpoint_rebind(
     pairing.receiver_hostname = hostname
     pairing.receiver_port = port
     controller._schedule_pairings_save()
-    _respawn_peer_link_at_new_endpoint(controller, pairing)
+    await _respawn_peer_link_at_new_endpoint(controller, pairing)
     controller.state.rebind_probe_until.pop(pairing.pin_sha256, None)
 
 
-def _respawn_peer_link_at_new_endpoint(
+async def _respawn_peer_link_at_new_endpoint(
     controller: OffloaderController, pairing: StoredPairing
 ) -> None:
     """Cancel + respawn the peer-link client and fire the rebind event.
 
-    The caller has already mutated *pairing*'s
-    hostname/port; this is the shared epilogue.
+    Awaits the old client's teardown first (see
+    :func:`peer_link_lifecycle.cancel_peer_link_client_and_wait`). The
+    caller has already mutated *pairing*'s hostname/port.
     """
-    controller._cancel_peer_link_client(pairing.pin_sha256)
+    await controller._cancel_peer_link_client_and_wait(pairing.pin_sha256)
     controller._spawn_peer_link_client(pairing)
     _fire_offloader_pair_endpoint_rebound(
         controller,
@@ -212,7 +213,7 @@ async def probe_and_rebind_endpoint(
             # Updated callbacks doesn't re-fire the probe
             # against state that's already moved on.
             return
-        controller._commit_endpoint_rebind(pairing, hostname=new_hostname, port=new_port)
+        await controller._commit_endpoint_rebind(pairing, hostname=new_hostname, port=new_port)
         _LOGGER.info("rebound pairing %s to %s:%d", pin, new_hostname, new_port)
 
 

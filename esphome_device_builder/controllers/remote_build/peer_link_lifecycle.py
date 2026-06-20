@@ -19,6 +19,7 @@ lookup) reach into a stable surface.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from typing import TYPE_CHECKING
 
 from ...helpers.api import CommandError
@@ -78,6 +79,24 @@ def cancel_peer_link_client(controller: OffloaderController, pin_sha256: str) ->
     handle = controller.state.peer_link_clients.pop(pin_sha256, None)
     if handle is not None and not handle.task.done():
         handle.task.cancel()
+
+
+async def cancel_peer_link_client_and_wait(
+    controller: OffloaderController, pin_sha256: str
+) -> None:
+    """Cancel the peer-link client for *pin_sha256* and await its teardown.
+
+    The rebind respawn must let the old client's in-flight connect fully
+    unwind (its ``terminate`` sent, the receiver's ``dashboard_id`` slot
+    freed) before a new client connects; otherwise the late old
+    registration supersedes the fresh client and orphans it.
+    """
+    handle = controller.state.peer_link_clients.pop(pin_sha256, None)
+    if handle is None or handle.task.done():
+        return
+    handle.task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await handle.task
 
 
 def lookup_open_peer_link_client(

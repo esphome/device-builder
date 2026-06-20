@@ -329,5 +329,5 @@ async def edit_pairing_endpoint(
                 error=result.transport_error,
             ),
         )
-    controller._commit_endpoint_rebind(pairing, hostname=clean_host, port=clean_port)
+    await controller._commit_endpoint_rebind(pairing, hostname=clean_host, port=clean_port)
     return controller._pairing_summary_for(pairing)

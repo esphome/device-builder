@@ -328,9 +328,11 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
             self, pairing=pairing, new_hostname=new_hostname, new_port=new_port
         )
 
-    def _commit_endpoint_rebind(self, pairing: StoredPairing, *, hostname: str, port: int) -> None:
+    async def _commit_endpoint_rebind(
+        self, pairing: StoredPairing, *, hostname: str, port: int
+    ) -> None:
         """Mutate *pairing* to (*hostname*, *port*) and run the rebind epilogue."""
-        rebind.commit_endpoint_rebind(self, pairing, hostname=hostname, port=port)
+        await rebind.commit_endpoint_rebind(self, pairing, hostname=hostname, port=port)
 
     # ------------------------------------------------------------------
     # mDNS auto-rebind
@@ -599,6 +601,10 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
     def _cancel_peer_link_client(self, pin_sha256: str) -> None:
         """Cancel the peer-link client for *pin_sha256*. No-op if none running."""
         peer_link_lifecycle.cancel_peer_link_client(self, pin_sha256)
+
+    async def _cancel_peer_link_client_and_wait(self, pin_sha256: str) -> None:
+        """Cancel the peer-link client for *pin_sha256* and await its teardown."""
+        await peer_link_lifecycle.cancel_peer_link_client_and_wait(self, pin_sha256)
 
     def _sweep_stale_pairings_at_endpoint(
         self, hostname: str, port: int, *, keep_pin_sha256: str

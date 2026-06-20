@@ -40,6 +40,7 @@ from esphome_device_builder.controllers.remote_build._mdns import (
     decode_txt_value,
     peer_from_service_info,
 )
+from esphome_device_builder.controllers.remote_build._models import PeerLinkClientHandle
 from esphome_device_builder.controllers.remote_build._storage_codecs import (
     decode_pairings,
     encode_pairings,
@@ -351,8 +352,8 @@ def _patch_probe_internals(
     """Stub the probe's three external calls and seed an optional cooldown.
 
     Every probe test mocks the same three surfaces:
-    ``_cancel_peer_link_client`` (assert called or not),
-    ``_spawn_peer_link_client`` (same), and
+    ``_cancel_peer_link_client_and_wait`` (assert called or
+    not), ``_spawn_peer_link_client`` (same), and
     ``peer_link_preview_pair`` (return the observed pin or
     raise). Tests that pin "the cooldown is preserved on
     failure" also seed ``_rebind_probe_until[pin]`` before
@@ -362,12 +363,13 @@ def _patch_probe_internals(
     Returns ``(cancel_mock, spawn_mock)`` so the caller can do
     ``cancel.assert_called_once_with(pin)`` on the success
     path or ``cancel.assert_not_called()`` on every failure
-    path. Pass exactly one of *preview_return* /
+    path. The rebind respawn awaits the cancel, so the mock is
+    an ``AsyncMock``. Pass exactly one of *preview_return* /
     *preview_side_effect*.
     """
-    cancel = MagicMock()
+    cancel = AsyncMock()
     spawn = MagicMock()
-    monkeypatch.setattr(controller.offloader, "_cancel_peer_link_client", cancel)
+    monkeypatch.setattr(controller.offloader, "_cancel_peer_link_client_and_wait", cancel)
     monkeypatch.setattr(controller.offloader, "_spawn_peer_link_client", spawn)
     if preview_side_effect is not None:
         monkeypatch.setattr(
@@ -414,6 +416,57 @@ async def test_rebind_probe_match_mutates_pairing_and_fires_event(
     # Successful rebind clears the cooldown so a future move
     # gets probed immediately rather than waiting out the window.
     assert pin not in controller.offloader.state.rebind_probe_until
+
+
+async def test_cancel_peer_link_client_and_wait_awaits_teardown(tmp_path: Path) -> None:
+    """The awaiting cancel cancels the client task and waits for it to finish."""
+    pin = "a" * 64
+    pairing = _valid_stored_pairing()
+    controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
+    running = asyncio.Event()
+
+    async def _park() -> None:
+        running.set()
+        await asyncio.sleep(3600)
+
+    task = asyncio.create_task(_park())
+    await running.wait()
+    controller.offloader.state.peer_link_clients[pin] = PeerLinkClientHandle(
+        client=MagicMock(), task=task
+    )
+
+    await controller.offloader._cancel_peer_link_client_and_wait(pin)
+
+    assert task.done()
+    assert pin not in controller.offloader.state.peer_link_clients
+
+
+async def test_rebind_respawn_awaits_old_client_before_spawn(tmp_path: Path) -> None:
+    """Respawn waits for the old client to tear down before spawning the new one."""
+    pin = "a" * 64
+    pairing = _valid_stored_pairing(receiver_hostname="new.local", receiver_port=7000)
+    controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
+    running = asyncio.Event()
+
+    async def _park() -> None:
+        running.set()
+        await asyncio.sleep(3600)
+
+    old_task = asyncio.create_task(_park())
+    await running.wait()
+    controller.offloader.state.peer_link_clients[pin] = PeerLinkClientHandle(
+        client=MagicMock(), task=old_task
+    )
+
+    old_done_at_spawn: list[bool] = []
+    controller.offloader._spawn_peer_link_client = lambda _p: old_done_at_spawn.append(  # type: ignore[method-assign]
+        old_task.done()
+    )
+
+    await rb_rebind._respawn_peer_link_at_new_endpoint(controller.offloader, pairing)
+
+    assert old_done_at_spawn == [True]
+    assert old_task.cancelled()
 
 
 async def test_rebind_probe_pin_mismatch_does_not_mutate(
@@ -920,9 +973,9 @@ async def test_edit_pairing_endpoint_raises_not_found_when_pairing_replaced_mid_
         return pin
 
     monkeypatch.setattr(rb_rebind, "peer_link_preview_pair", _replace_during_preview)
-    cancel = MagicMock()
+    cancel = AsyncMock()
     spawn = MagicMock()
-    monkeypatch.setattr(controller.offloader, "_cancel_peer_link_client", cancel)
+    monkeypatch.setattr(controller.offloader, "_cancel_peer_link_client_and_wait", cancel)
     monkeypatch.setattr(controller.offloader, "_spawn_peer_link_client", spawn)
 
     with pytest.raises(CommandError) as exc_info:
@@ -989,9 +1042,9 @@ async def test_edit_pairing_endpoint_status_changed_mid_probe_raises_preconditio
         return pin
 
     monkeypatch.setattr(rb_rebind, "peer_link_preview_pair", _flip_status_during_preview)
-    cancel = MagicMock()
+    cancel = AsyncMock()
     spawn = MagicMock()
-    monkeypatch.setattr(controller.offloader, "_cancel_peer_link_client", cancel)
+    monkeypatch.setattr(controller.offloader, "_cancel_peer_link_client_and_wait", cancel)
     monkeypatch.setattr(controller.offloader, "_spawn_peer_link_client", spawn)
 
     with pytest.raises(CommandError) as exc_info:
