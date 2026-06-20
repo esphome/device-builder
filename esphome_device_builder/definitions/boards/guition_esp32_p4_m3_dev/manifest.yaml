@@ -1,0 +1,58 @@
+id: guition_esp32_p4_m3_dev
+name: Guition ESP32-P4-M3-Dev
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-p4-function-ev-board
+  variant: esp32p4
+  framework: esp-idf
+hardware:
+  connectivity:
+  - ethernet
+images:
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Guition-ESP32-P4-M3-Dev/guition_jc_esp32_p4_m3_dev.webp
+pins:
+- gpio: 31
+  available: false
+  occupied_by: Ethernet MDC
+- gpio: 50
+  available: false
+  occupied_by: Ethernet CLK
+- gpio: 51
+  available: false
+  occupied_by: Ethernet Power
+- gpio: 52
+  available: false
+  occupied_by: Ethernet MDIO
+docs_url: https://devices.esphome.io/devices/Guition-ESP32-P4-M3-Dev/
+featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  fields:
+    type:
+      value: IP101
+      locked: true
+    mdc_pin:
+      value: GPIO31
+      locked: true
+    mdio_pin:
+      value: GPIO52
+      locked: true
+    power_pin:
+      value: GPIO51
+      locked: true
+    clk:
+      value:
+        mode: CLK_EXT_IN
+        pin: GPIO50
+      locked: true
+    phy_addr:
+      value: 1
+      locked: true
+source:
+  type: esphome-devices
+  remote_id: Guition-ESP32-P4-M3-Dev
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Guition-ESP32-P4-M3-Dev/index.md
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
+  content_hash: 060bd95535fb0b0572cf92d3882c34636b45f597097fd4f54500e7e3bfd63869

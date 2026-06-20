@@ -4,6 +4,7 @@ description: Imported from devices.esphome.io — see linked docs for community 
 esphome:
   platform: esp32
   board: esp32-s3-devkitc-1
+  variant: esp32s3
   framework: arduino
 hardware:
   connectivity:

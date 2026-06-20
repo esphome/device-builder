@@ -4,6 +4,7 @@ description: Imported from devices.esphome.io — see linked docs for community 
 esphome:
   platform: esp32
   board: esp32-c6-devkitm-1
+  variant: esp32c6
   framework: esp-idf
 hardware:
   connectivity:

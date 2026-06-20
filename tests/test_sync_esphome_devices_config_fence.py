@@ -75,3 +75,52 @@ def test_strips_dot_slash_prefix(tmp_path: Path) -> None:
     parsed = _first_config_yaml(body, tmp_path)
     assert parsed is not None
     assert parsed[0]["bk72xx"]["board"] == "cb2s"
+
+
+# Device pages split optional snippets across fences; a standalone ``ethernet:``
+# fence after the base config (the ESP32-P4 ethernet boards) must be folded in.
+_MULTI_FENCE_BODY = """\
+## Base
+
+```yaml
+esp32:
+  board: esp32-p4-evboard
+```
+
+## Ethernet
+
+```yaml
+ethernet:
+  type: IP101
+  mdc_pin: GPIO31
+```
+
+## BLE example
+
+```yaml
+esp32_ble_tracker:
+bluetooth_proxy:
+```
+"""
+
+
+def test_folds_ethernet_from_later_fence(tmp_path: Path) -> None:
+    """A standalone ``ethernet:`` fence is merged into the primary config."""
+    parsed = _first_config_yaml(_MULTI_FENCE_BODY, tmp_path)
+    assert parsed is not None
+    assert parsed[0]["esp32"]["board"] == "esp32-p4-evboard"
+    assert parsed[0]["ethernet"]["type"] == "IP101"
+    # Unrelated example snippets stay out — only ethernet is folded in.
+    assert "esp32_ble_tracker" not in parsed[0]
+    assert "bluetooth_proxy" not in parsed[0]
+
+
+def test_primary_ethernet_not_overwritten(tmp_path: Path) -> None:
+    """When the first fence already has ethernet, a later one doesn't replace it."""
+    body = (
+        "```yaml\nesp32:\n  board: a\nethernet:\n  type: W5500\n```\n"
+        "```yaml\nethernet:\n  type: IP101\n```\n"
+    )
+    parsed = _first_config_yaml(body, tmp_path)
+    assert parsed is not None
+    assert parsed[0]["ethernet"]["type"] == "W5500"

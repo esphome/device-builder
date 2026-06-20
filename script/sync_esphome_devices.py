@@ -43,13 +43,17 @@ from typing import Any
 
 import yaml
 
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_REPO_ROOT))
+
+from esphome_device_builder.models.boards import Esp32Variant  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
 _LOGGER = logging.getLogger("sync_esphome_devices")
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
 _DEFINITIONS_DIR = _REPO_ROOT / "esphome_device_builder" / "definitions"
 _BOARDS_DIR = _DEFINITIONS_DIR / "boards"
 _COMPONENTS_INDEX_JSON = _DEFINITIONS_DIR / "components.index.json"
@@ -85,6 +89,25 @@ _ESP32_VARIANT_DEFAULT_BOARD: dict[str, str] = {
     "esp32h2": "esp32-h2-devkitm-1",
     "esp32p4": "esp32-p4-function-ev-board",
 }
+
+# ESPHome esp32 board ids encode the chip variant (``esp32-p4-evboard``,
+# ``esp32-c6-devkitc-1``); infer it when a page gives ``board:`` but no
+# ``variant:``. Load-bearing for esp32p4 — it has no built-in radio, so the
+# wrong (classic-esp32) variant would mislabel it wifi-capable and emit a
+# ``wifi:`` block that fails validation (P4 wifi needs ``esp32_hosted``). Built
+# from ``Esp32Variant`` longest-first so e.g. ``esp32s31`` isn't swallowed by
+# ``esp32s3`` (nor ``esp32c61`` by ``esp32c6``).
+_ESP32_VARIANT_SUFFIXES = sorted(
+    (v.value.removeprefix("esp32") for v in Esp32Variant if v is not Esp32Variant.ESP32),
+    key=len,
+    reverse=True,
+)
+# Suffix must end the token (next char is ``-``, ``_``, or end) — a bare ``\b``
+# wouldn't fire before ``_`` (underscore is a word char) so ``esp32_s3_zero`` would
+# miss, and it keeps ``s3`` from matching inside ``s31``.
+_ESP32_BOARD_VARIANT_RE = re.compile(
+    r"esp32[-_]?(" + "|".join(_ESP32_VARIANT_SUFFIXES) + r")(?=[-_]|$)"
+)
 
 # Built-in radio defaults inferred from the SoC family / variant. ESP32
 # variants differ on what's built in: classic + S3 + C3 + C5 + C6 +
@@ -506,15 +529,42 @@ def _resolve_fenced_yaml(info: str, inline: str, device_dir: Path) -> str | None
 
 
 def _first_config_yaml(body: str, device_dir: Path) -> tuple[dict[str, Any], str] | None:
-    """First parseable ``yaml`` config fence as ``(parsed, raw_text)``, following ``file=``."""
+    """
+    First parseable ``yaml`` config fence as ``(parsed, raw_text)``, following ``file=``.
+
+    A device page often splits optional snippets across separate fences. The
+    onboard ``ethernet:`` block (real hardware we lift) is sometimes a standalone
+    fence after the base config, so fold just that one into the primary fence when
+    the primary lacks it — the other example snippets (BLE, OTA, …) are left out.
+    """
+    primary: tuple[dict[str, Any], str] | None = None
+    ethernet: Any = None
+    ethernet_text: str | None = None
     for match in _YAML_FENCE_RE.finditer(body):
         text = _resolve_fenced_yaml(match.group(1), match.group(2), device_dir)
         if text is None:
             continue
         parsed = _safe_load_yaml(text)
-        if isinstance(parsed, dict):
-            return parsed, text
-    return None
+        if not isinstance(parsed, dict):
+            continue
+        if primary is None:
+            primary = parsed, text
+        if ethernet is None and isinstance(parsed.get("ethernet"), dict):
+            ethernet = parsed["ethernet"]
+            ethernet_text = text
+        if primary is not None and ethernet is not None:
+            break  # nothing later can change the result — the common single-fence case
+    if primary is None:
+        return None
+    parsed, text = primary
+    if ethernet is not None and "ethernet" not in parsed:
+        parsed = {**parsed, "ethernet": ethernet}
+        # A ``file=``-referenced ethernet fence isn't in *body*, so fold its
+        # resolved text into the returned raw_text or the source hash would miss
+        # edits to it. An inline fence is already in *body* — leave it be.
+        if ethernet_text is not None and ethernet_text not in body:
+            text = f"{text}\n{ethernet_text}"
+    return parsed, text
 
 
 def _extract_local_images(body: str, device_dir: Path) -> list[str]:
@@ -693,8 +743,15 @@ def _resolve_board_and_variant(
     elif isinstance(raw_framework, str):
         framework = raw_framework
 
-    if soc == "esp32" and not board and variant:
-        board = _ESP32_VARIANT_DEFAULT_BOARD.get(variant)
+    if soc == "esp32":
+        if board and not variant:
+            # Import-time resolver (connectivity is frozen here from the variant);
+            # the catalog's authoritative ``_backfill_esp32_variants`` runs later
+            # and only fixes ``esphome.variant``, not ``hardware.connectivity``.
+            match = _ESP32_BOARD_VARIANT_RE.search(board.lower())
+            variant = f"esp32{match.group(1)}" if match else None
+        elif not board and variant:
+            board = _ESP32_VARIANT_DEFAULT_BOARD.get(variant)
 
     return board, variant, framework
 
