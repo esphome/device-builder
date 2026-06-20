@@ -409,12 +409,20 @@ against legacy behaviour before assuming the simpler version suffices.
   `apply_api_encryption` both lean on the empty-string-means-plaintext
   distinction; a nullable boolean would lose it.
 - **Optimistic post-flash sync** in
-  `DevicesController._sync_deployed_hash_after_flash` pre-pins
-  `deployed_config_hash = expected_config_hash` after a successful
-  UPLOAD/INSTALL via `DeviceStateMonitor.apply_config_hash`, so the dot
-  clears immediately instead of waiting on the rebooted device's mDNS
-  announce. If the OTA silently failed, the next real announce pushes the
-  truth back through the same callback.
+  `DevicesController._sync_deployed_state_after_flash` pre-pins both
+  `deployed_config_hash = expected_config_hash` *and*
+  `deployed_version = StorageJSON.esphome_version` after a successful
+  UPLOAD/INSTALL via `DeviceStateMonitor.apply_config_hash` /
+  `apply_version`, so the dot and the "update available" badge clear
+  immediately instead of waiting on the rebooted device's mDNS announce.
+  A real announce later overwrites either through the same callback. mDNS
+  is dark in some deployments (Docker-bridge), so `refresh_after_job`
+  also arms a `loop.call_later` timer (`_schedule_version_reprobe`,
+  tracked in `_reprobe_timers`, cancelled in `stop()`) that ~60s later
+  forces one Native-API version probe via `request_version_reprobe` —
+  the only signal of a rollback / failed boot where the announce never
+  arrives. The forced probe still honours `_is_due`'s `priority_for !=
+  MDNS` guard, so a device already seen over mDNS is skipped.
 - **Two mDNS paths with different OFFLINE semantics:**
   - **Browser callback** (`_on_service_state_change`) — passively
     subscribed to `_esphomelib._tcp.local.`. Trust mDNS **both
