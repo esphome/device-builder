@@ -41,7 +41,11 @@ def resolve_credentials(
     # configured legacy auth" signal. ``$USERNAME`` *is* the login user on
     # Linux/Windows, so it must never trigger the fallback or be read on its
     # own — doing so would silently promote the OS user to the dashboard
-    # username (the footgun the ESPHOME_* rename fixed).
+    # username (the footgun the ESPHOME_* rename fixed). On Windows
+    # ``$USERNAME`` is always populated, so the gate there reduces to
+    # "``$PASSWORD`` is set" and the adopted username is the OS login name;
+    # that fails safe (more locked down, and the deprecation banner fires),
+    # not open.
     if not username and not password and environ.get("PASSWORD"):
         username = environ.get("USERNAME", "")
         password = environ.get("PASSWORD", "")

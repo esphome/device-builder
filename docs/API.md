@@ -70,6 +70,8 @@ On connect, the server sends a [`ServerInfoMessage`](../esphome_device_builder/m
 
 When the dashboard is started with `--username`/`--password` (or `$ESPHOME_USERNAME`/`$ESPHOME_PASSWORD` env vars), every WebSocket connection on the public port must authenticate before any other command will be accepted.
 
+The legacy bare `$USERNAME`/`$PASSWORD` pair is still accepted as a deprecated fallback, so dashboards configured before the `ESPHOME_*` rename stay protected; it is adopted only when `$PASSWORD` is set and no newer source supplied credentials, and the dashboard logs a deprecation warning at startup. Rename to `$ESPHOME_USERNAME`/`$ESPHOME_PASSWORD`; the bare names will be removed in a future release.
+
 The handshake:
 
 1. Server sends `ServerInfoMessage` with `requires_auth: true`.
