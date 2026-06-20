@@ -17,8 +17,9 @@ _LOGGER = logging.getLogger(__name__)
 def on_scan_change(controller: DevicesController, kind: ScanChange, device: Device) -> None:
     """Forward scanner changes onto the event bus and fan out per-kind side effects."""
     # UPDATED and RELOADED both refresh the client row via DEVICE_UPDATED;
-    # only UPDATED (a real on-disk YAML change) also fires DEVICE_YAML_UPDATED,
-    # so version history commits on edits but not on metadata reloads.
+    # only UPDATED (the scanner saw the YAML's mtime/size/inode change) also
+    # fires DEVICE_YAML_UPDATED, so version history commits on edits but not
+    # on metadata reloads.
     event = {
         ScanChange.ADDED: EventType.DEVICE_ADDED,
         ScanChange.UPDATED: EventType.DEVICE_UPDATED,

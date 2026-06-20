@@ -64,9 +64,9 @@ class ScanChange(StrEnum):
     ADDED = "added"
     UPDATED = "updated"
     REMOVED = "removed"
-    # A forced re-read whose YAML bytes did not change (binary mtime,
+    # A forced re-read with no YAML cache-key change (binary mtime,
     # sidecar, StorageJSON). Distinct from UPDATED so consumers that only
-    # care about real YAML edits (version history) can skip it.
+    # care about on-disk YAML edits (version history) can skip it.
     RELOADED = "reloaded"
 
 
