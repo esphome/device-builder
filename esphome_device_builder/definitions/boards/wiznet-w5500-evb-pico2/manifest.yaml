@@ -1,13 +1,13 @@
-id: wiznet-w5500-evb-pico
-name: WIZnet W5500-EVB-Pico
-description: WIZnet W5500-EVB-Pico — RP2040 (Raspberry Pi Pico form factor) with an onboard W5500 Ethernet
+id: wiznet-w5500-evb-pico2
+name: WIZnet W5500-EVB-Pico2
+description: WIZnet W5500-EVB-Pico2 — RP2350 (Raspberry Pi Pico 2 form factor) with an onboard W5500 Ethernet
   controller wired over SPI. Wired-only networking, no Wi-Fi.
 manufacturer: WIZnet
 esphome:
   platform: rp2040
-  board: wiznet_5500_evb_pico
+  board: wiznet_5500_evb_pico2
 hardware:
-  flash_size: 2MB
+  flash_size: 4MB
   connectivity:
   - ethernet
 tags:
