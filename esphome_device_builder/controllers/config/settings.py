@@ -21,6 +21,7 @@ from ...constants import (
 )
 from ...helpers.api import CommandError
 from ...helpers.auth import hash_password
+from ...helpers.credentials import resolve_credentials
 from ...helpers.network_interfaces import resolve_bind_host
 from ...helpers.secrets_state import migrate_placeholder_wifi_secrets
 from ...models import ErrorCode
@@ -101,19 +102,19 @@ class DashboardSettings:
         """Parse CLI arguments into settings."""
         self.on_ha_addon = getattr(args, "ha_addon", False)
         self.allow_public_port = getattr(args, "ha_addon_allow_public", False)
-        # Env-var fallback uses ``ESPHOME_*`` rather than the legacy
-        # dashboard's bare ``USERNAME`` / ``PASSWORD``: the bare names
-        # collide with login-shell / Windows system vars (``$USERNAME``
-        # is the OS user on both), which would silently promote the
-        # OS user to the dashboard username when only ``--password``
-        # / ``$ESPHOME_PASSWORD`` is set. Intentional divergence from
-        # ``esphome/dashboard/settings.py``.
-        username = getattr(args, "username", None) or os.getenv("ESPHOME_USERNAME") or ""
-        password = getattr(args, "password", None) or os.getenv("ESPHOME_PASSWORD") or ""
-        self.username = username
-        self.using_password = bool(username and password)
+        # Credentials resolve through ``resolve_credentials``: CLI flag, then
+        # ``$ESPHOME_*``, then the deprecated bare ``$USERNAME`` / ``$PASSWORD``
+        # pair (kept for back-compat with pre-rename dashboards, warned about at
+        # startup). The bare pair is adopted only when ``$PASSWORD`` is set, so
+        # the OS-provided ``$USERNAME`` is never read on its own.
+        resolved = resolve_credentials(
+            getattr(args, "username", "") or "",
+            getattr(args, "password", "") or "",
+        )
+        self.username = resolved.username
+        self.using_password = bool(resolved.username and resolved.password)
         if self.using_password:
-            self.password_hash = hash_password(password)
+            self.password_hash = hash_password(resolved.password)
         self.config_dir = Path(args.configuration)
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.absolute_config_dir = self.config_dir.resolve()

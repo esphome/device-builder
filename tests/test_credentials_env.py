@@ -1,21 +1,19 @@
 """Tests for ``ESPHOME_USERNAME`` / ``ESPHOME_PASSWORD`` env-var handling.
 
-Two layers exercise the same precedence rules:
+Both layers share one resolver (``helpers.credentials.resolve_credentials``):
 
 * ``__main__._validate_credentials`` — the CLI-time mismatch guard
   that errors out before ``DashboardSettings`` is even built when
   one half of the credential pair is set without the other.
-* ``DashboardSettings.parse_args`` — the actual env-var lookup
-  that populates ``settings.username`` / ``settings.password_hash``.
+* ``DashboardSettings.parse_args`` — the actual lookup that
+  populates ``settings.username`` / ``settings.password_hash``.
 
-Both layers must:
-
-* Read ``$ESPHOME_USERNAME`` / ``$ESPHOME_PASSWORD`` as fallbacks
-  for ``--username`` / ``--password``.
-* Let CLI flags win over env vars.
-* **Ignore bare ``$USERNAME`` / ``$PASSWORD``** — those collide
-  with the OS user on Linux/Windows shells and are the regression
-  the rename fixes.
+Precedence per credential: ``--flag`` > ``$ESPHOME_*`` >
+deprecated bare ``$USERNAME`` / ``$PASSWORD`` pair. The bare pair is
+kept for back-compat with pre-rename dashboards (warned about at
+startup via ``_warn_legacy_credential_env``) but is adopted **only
+as a pair, gated on ``$PASSWORD``** — the OS-set ``$USERNAME`` is
+never read on its own.
 """
 
 from __future__ import annotations
@@ -30,8 +28,10 @@ import pytest
 from esphome_device_builder.__main__ import (
     _validate_credentials,
     _warn_deprecated_credential_flags,
+    _warn_legacy_credential_env,
 )
 from esphome_device_builder.controllers.config import DashboardSettings
+from esphome_device_builder.helpers.credentials import resolve_credentials
 
 
 def _ns(configuration: str, **kwargs: object) -> SimpleNamespace:
@@ -91,10 +91,9 @@ def _validate(env: dict[str, str], *, username: str = "", password: str = "") ->
         ({"ESPHOME_PASSWORD": "hunter2"}, "admin", ""),
         # Mix-and-match: env username + CLI password.
         ({"ESPHOME_USERNAME": "admin"}, "", "hunter2"),
-        # Bare ``USERNAME`` / ``PASSWORD`` together — the regression
-        # case. The login-shell-set vars must not satisfy either side
-        # of the both-or-neither check, so this lands on the "both
-        # unset" branch and starts unauthenticated.
+        # Bare ``USERNAME`` / ``PASSWORD`` together — adopted as a
+        # back-compat pair (both halves present), so it's a matched
+        # pair, not a mismatch.
         ({"USERNAME": "jesse", "PASSWORD": "shellsecret"}, "", ""),
     ],
 )
@@ -118,13 +117,17 @@ def test_validate_credentials_accepts(env: dict[str, str], username: str, passwo
         ({"ESPHOME_USERNAME": "admin"}, "", ""),
         ({"ESPHOME_PASSWORD": "hunter2"}, "", ""),
         # Bare ``USERNAME`` paired with a real ``--password`` must
-        # still error: the bare var doesn't count as a username, so
-        # only one half of the pair is actually set. Without this,
-        # the dashboard would silently start with ``username="jesse"``
-        # and whatever the operator typed for ``--password``.
+        # still error: the new scheme supplied a password, so the
+        # legacy pair is not adopted, and the bare ``$USERNAME`` is
+        # never read on its own — only one half is set.
         ({"USERNAME": "jesse"}, "", "hunter2"),
-        # Symmetric: bare ``PASSWORD`` + real ``--username``.
+        # Symmetric: bare ``PASSWORD`` + real ``--username``. The new
+        # scheme supplied a username, so the legacy pair isn't adopted.
         ({"PASSWORD": "shellsecret"}, "admin", ""),
+        # Legacy ``$PASSWORD`` with no ``$USERNAME`` (atypical — the
+        # getting-started guide sets both). Adopted as a pair, but the
+        # username half is empty, so it's a mismatch, not silent auth.
+        ({"PASSWORD": "shellsecret"}, "", ""),
     ],
 )
 def test_validate_credentials_rejects_mismatch(
@@ -281,23 +284,35 @@ def test_parse_args_mixes_env_username_with_cli_password(tmp_path: object) -> No
 
 
 # ---------------------------------------------------------------------------
-# DashboardSettings.parse_args — bare $USERNAME / $PASSWORD must be ignored
+# DashboardSettings.parse_args — legacy bare $USERNAME / $PASSWORD fallback
 # ---------------------------------------------------------------------------
 
 
-def test_parse_args_ignores_bare_username_and_password(tmp_path: object) -> None:
-    """Login-shell ``$USERNAME`` / ``$PASSWORD`` do not enable auth.
+def test_parse_args_adopts_legacy_bare_pair(tmp_path: object) -> None:
+    """A pre-rename ``$USERNAME`` + ``$PASSWORD`` pair keeps the dashboard protected.
 
-    The regression-fix this commit ships. Before the rename, this
-    env state would have silently produced ``using_password=True``
-    with ``username="jesse"`` — the OS user — and the operator's
-    ``--password`` not being set would have left the dashboard
-    requiring an unknowable password.
+    The back-compat path: an operator who set the legacy bare names
+    stays authenticated after upgrading into device-builder (warned
+    about separately via ``_warn_legacy_credential_env``).
     """
     settings = _parse(
         tmp_path,
         {"USERNAME": "jesse", "PASSWORD": "shellsecret"},
     )
+    assert settings.username == "jesse"
+    assert settings.using_password is True
+    assert settings.check_password("jesse", "shellsecret") is True
+
+
+def test_parse_args_ignores_bare_username_without_password(tmp_path: object) -> None:
+    """A lone OS-set ``$USERNAME`` (no ``$PASSWORD``) never enables auth.
+
+    The footgun the pair-gating avoids: ``$USERNAME`` is the login
+    user on Linux/Windows, so reading it on its own would promote the
+    OS user to the dashboard username. Gated on ``$PASSWORD``, this
+    starts unauthenticated.
+    """
+    settings = _parse(tmp_path, {"USERNAME": "jesse"})
     assert settings.username == ""
     assert settings.using_password is False
 
@@ -306,11 +321,12 @@ def test_parse_args_bare_username_does_not_satisfy_esphome_username(tmp_path: ob
     """Bare ``$USERNAME`` doesn't substitute for ``$ESPHOME_USERNAME``.
 
     ``$ESPHOME_PASSWORD`` is set, ``$USERNAME`` is set (e.g. by the
-    shell), but ``$ESPHOME_USERNAME`` is missing → the username side
-    is empty, the password side is set, ``using_password`` falls
-    back to False. The mismatch is real (and ``_validate_credentials``
-    would reject it before we got here) but ``parse_args`` itself
-    must also degrade safely if a caller bypasses the validator.
+    shell), but ``$ESPHOME_USERNAME`` is missing → the new scheme
+    supplied a password, so the legacy pair isn't adopted and the bare
+    ``$USERNAME`` is not read; the username side stays empty,
+    ``using_password`` falls back to False. ``_validate_credentials``
+    rejects this before we get here, but ``parse_args`` must also
+    degrade safely if a caller bypasses the validator.
     """
     settings = _parse(
         tmp_path,
@@ -343,3 +359,110 @@ def test_parse_args_no_credentials_disables_password(tmp_path: object) -> None:
     settings = _parse(tmp_path, {})
     assert settings.username == ""
     assert settings.using_password is False
+
+
+# ---------------------------------------------------------------------------
+# resolve_credentials — precedence + legacy fallback (the shared resolver)
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_cli_flags_win_over_every_env() -> None:
+    """CLI flags beat both the new and legacy env vars."""
+    r = resolve_credentials(
+        "cli-user",
+        "cli-pass",
+        {
+            "ESPHOME_USERNAME": "env-user",
+            "ESPHOME_PASSWORD": "env-pass",
+            "USERNAME": "shell-user",
+            "PASSWORD": "shell-pass",
+        },
+    )
+    assert (r.username, r.password) == ("cli-user", "cli-pass")
+    assert r.used_legacy is False
+    assert r.mismatch is False
+
+
+def test_resolve_esphome_env_wins_over_legacy() -> None:
+    """``$ESPHOME_*`` beats the bare names; the legacy pair isn't adopted."""
+    r = resolve_credentials(
+        "",
+        "",
+        {
+            "ESPHOME_USERNAME": "admin",
+            "ESPHOME_PASSWORD": "hunter2",
+            "USERNAME": "shell-user",
+            "PASSWORD": "shell-pass",
+        },
+    )
+    assert (r.username, r.password) == ("admin", "hunter2")
+    assert r.used_legacy is False
+
+
+def test_resolve_adopts_legacy_pair() -> None:
+    """Bare ``$USERNAME`` + ``$PASSWORD`` with no new scheme → adopted pair."""
+    r = resolve_credentials("", "", {"USERNAME": "jesse", "PASSWORD": "shellsecret"})
+    assert (r.username, r.password) == ("jesse", "shellsecret")
+    assert r.used_legacy is True
+    assert r.mismatch is False
+
+
+def test_resolve_ignores_lone_bare_username() -> None:
+    """A lone OS-set ``$USERNAME`` (no ``$PASSWORD``) is never read."""
+    r = resolve_credentials("", "", {"USERNAME": "jesse"})
+    assert (r.username, r.password) == ("", "")
+    assert r.used_legacy is False
+    assert r.mismatch is False
+
+
+def test_resolve_lone_bare_password_is_mismatch() -> None:
+    """Bare ``$PASSWORD`` with no username resolves to a half-set mismatch."""
+    r = resolve_credentials("", "", {"PASSWORD": "shellsecret"})
+    assert r.used_legacy is False
+    assert r.mismatch is True
+
+
+def test_resolve_does_not_adopt_legacy_when_new_username_set() -> None:
+    """A new-scheme username present blocks legacy adoption (stays a mismatch)."""
+    r = resolve_credentials("", "", {"ESPHOME_USERNAME": "admin", "PASSWORD": "shellsecret"})
+    assert (r.username, r.password) == ("admin", "")
+    assert r.used_legacy is False
+    assert r.mismatch is True
+
+
+# ---------------------------------------------------------------------------
+# _warn_legacy_credential_env — loud banner only when the legacy pair is used
+# ---------------------------------------------------------------------------
+
+
+def test_warn_legacy_credential_env_fires_on_legacy_pair(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Adopting the bare pair logs a deprecation banner naming the new vars."""
+    args = argparse.Namespace(username="", password="")
+    with (
+        patch.dict(os.environ, {"USERNAME": "jesse", "PASSWORD": "shellsecret"}, clear=True),
+        caplog.at_level("WARNING", logger="esphome_device_builder"),
+    ):
+        _warn_legacy_credential_env(args)
+    msg = "\n".join(r.getMessage() for r in caplog.records)
+    assert "DEPRECATION" in msg
+    assert "$ESPHOME_USERNAME" in msg
+    assert "$ESPHOME_PASSWORD" in msg
+
+
+def test_warn_legacy_credential_env_silent_on_new_scheme(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """No banner when the new ``$ESPHOME_*`` scheme supplies the credentials."""
+    args = argparse.Namespace(username="", password="")
+    with (
+        patch.dict(
+            os.environ,
+            {"ESPHOME_USERNAME": "admin", "ESPHOME_PASSWORD": "hunter2"},
+            clear=True,
+        ),
+        caplog.at_level("WARNING", logger="esphome_device_builder"),
+    ):
+        _warn_legacy_credential_env(args)
+    assert caplog.records == []

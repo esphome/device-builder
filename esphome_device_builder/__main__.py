@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
-import os
 import signal
 import sys
 import threading
@@ -24,6 +23,7 @@ from .constants import (
     DEFAULT_REMOTE_BUILD_PORT,
     __version__,
 )
+from .helpers.credentials import resolve_credentials
 from .helpers.logging import activate_log_queue_handler
 from .helpers.startup_timing import StartupTimer
 
@@ -322,6 +322,8 @@ def main() -> None:
 
     _warn_deprecated_credential_flags(args)
 
+    _warn_legacy_credential_env(args)
+
     # ``--version`` / ``--help`` exit above before reaching this
     # point, so the lazy imports below are reachable only when the
     # user actually meant to run the dashboard. Gate on
@@ -465,9 +467,7 @@ def _format_version() -> str:
 
 def _validate_credentials(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     """Reject mismatched --username / --password (or env equivalents)."""
-    has_user = bool(args.username or os.getenv("ESPHOME_USERNAME"))
-    has_pass = bool(args.password or os.getenv("ESPHOME_PASSWORD"))
-    if has_user != has_pass:
+    if resolve_credentials(args.username, args.password).mismatch:
         parser.error(
             "--username and --password must both be set (or both unset). "
             "Use $ESPHOME_USERNAME / $ESPHOME_PASSWORD env vars as alternatives."
@@ -483,6 +483,23 @@ def _warn_deprecated_credential_flags(args: argparse.Namespace) -> None:
         "removed in a future release. Use $ESPHOME_USERNAME / "
         "$ESPHOME_PASSWORD env vars instead; command-line arguments are "
         "visible to every other local user via process listings."
+    )
+
+
+def _warn_legacy_credential_env(args: argparse.Namespace) -> None:
+    """Warn loudly when auth came from the deprecated bare $USERNAME / $PASSWORD."""
+    if not resolve_credentials(args.username, args.password).used_legacy:
+        return
+    banner = "=" * 70
+    logging.getLogger(_LOGGER_NAME).warning(
+        "\n%s\n"
+        " DEPRECATION: authenticating with the legacy $USERNAME / $PASSWORD\n"
+        " environment variables. Rename them to $ESPHOME_USERNAME /\n"
+        " $ESPHOME_PASSWORD; the bare names will stop working in a future\n"
+        " release.\n"
+        "%s",
+        banner,
+        banner,
     )
 
 
