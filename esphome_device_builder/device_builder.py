@@ -190,6 +190,14 @@ async def _handle_version(_request: web.Request) -> web.Response:
 # and the test suite's pin-down assertion can reference it.
 _EXECUTOR_MAX_WORKERS = 64
 
+# Event types broadcast to every ``subscribe_events`` client. Two are held
+# back: ``DEVICE_REACHABILITY`` fires per-signal for every device (60+/min
+# under fleet load) and rides the per-device ``subscribe_reachability``
+# stream instead, and ``DEVICE_YAML_UPDATED`` is an internal version-history
+# signal (clients already get ``DEVICE_UPDATED`` for the row). Computed once.
+_INTERNAL_ONLY_EVENTS = frozenset({EventType.DEVICE_REACHABILITY, EventType.DEVICE_YAML_UPDATED})
+_BROADCAST_EVENT_TYPES = [et for et in EventType if et not in _INTERNAL_ONLY_EVENTS]
+
 
 class DeviceBuilder:
     """Core application singleton.
@@ -675,19 +683,6 @@ class DeviceBuilder:
             # massive backlog.
             controls.push_or_terminate(event.event_type.value, serialized)
 
-        # ``DEVICE_REACHABILITY`` is intentionally excluded — it fires
-        # on every per-signal observation (every mDNS announce, every
-        # ping success, every MQTT discover response) for *every*
-        # configured device, which would push 60+ events/min/device
-        # at every connected client. The drawer's per-device
-        # subscription is the only consumer; broadcasting these
-        # would defeat the point of having a per-device stream and
-        # could trip the bounded queue's backpressure terminator
-        # under fleet load.
-        # DEVICE_YAML_UPDATED is an internal version-history signal; clients
-        # already get DEVICE_UPDATED for the row, so it stays off the wire.
-        _internal_only = (EventType.DEVICE_REACHABILITY, EventType.DEVICE_YAML_UPDATED)
-        broadcast_event_types = [et for et in EventType if et not in _internal_only]
         # Hold a presence reference for the lifetime of the stream so
         # idle-time ICMP discovery resumes the moment a client
         # subscribes and pauses again on disconnect. The 0→1
@@ -699,7 +694,7 @@ class DeviceBuilder:
                 client=client,
                 message_id=message_id,
                 bus=self.bus,
-                event_types=broadcast_event_types,
+                event_types=_BROADCAST_EVENT_TYPES,
                 handle_event=_handle_event,
                 send_initial=_send_initial,
             )
