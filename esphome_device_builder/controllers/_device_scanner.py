@@ -293,6 +293,11 @@ class DeviceScanner(WakeWorker[str]):
         """
         return self._index.get_by_name(name)
 
+    def get_by_configuration(self, configuration: str) -> Device | None:
+        """Return the configured device for YAML filename *configuration*, or ``None``."""
+        path = self._index.find_path_by_filename(configuration)
+        return self._index.by_path.get(path) if path is not None else None
+
     async def scan(self) -> None:
         """Refresh the device cache from disk, emitting per-file change events."""
         async with self._lock:

@@ -402,6 +402,7 @@ def _flush_controller(device: Device) -> tuple[Any, list[Any]]:
     scanner = MagicMock()
     scanner.devices = [device]
     scanner.get_by_name = lambda name: [device] if device.name == name else []
+    scanner.get_by_configuration = lambda cfg: device if device.configuration == cfg else None
 
     state_monitor = MagicMock()
     # Drive the same de-dup behaviour the real ``apply_*`` methods have —
@@ -560,7 +561,9 @@ async def test_reprobe_after_flash_requests_version_reprobe(monkeypatch: Any) ->
     device = _device()
     controller = DevicesController.__new__(DevicesController)
     controller._scanner = MagicMock()
-    controller._scanner.devices = [device]
+    controller._scanner.get_by_configuration = lambda cfg: (
+        device if device.configuration == cfg else None
+    )
     controller._state_monitor = MagicMock()
 
     await controller._reprobe_version_after_flash("kitchen.yaml")
@@ -576,7 +579,7 @@ async def test_reprobe_after_flash_unknown_configuration_is_noop(monkeypatch: An
     )
     controller = DevicesController.__new__(DevicesController)
     controller._scanner = MagicMock()
-    controller._scanner.devices = []
+    controller._scanner.get_by_configuration = lambda _cfg: None
     controller._state_monitor = MagicMock()
 
     await controller._reprobe_version_after_flash("kitchen.yaml")

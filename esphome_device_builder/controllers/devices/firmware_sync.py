@@ -170,10 +170,7 @@ async def sync_deployed_state_after_flash(
     the "update available" badge without waiting on an mDNS announce —
     one that never arrives in mDNS-dark deployments (Docker-bridge).
     """
-    device = next(
-        (d for d in controller._scanner.devices if d.configuration == configuration),
-        None,
-    )
+    device = controller._scanner.get_by_configuration(configuration)
     if device is None:
         return
     if device.expected_config_hash:
@@ -190,10 +187,7 @@ async def reprobe_version_after_flash(controller: DevicesController, configurati
     way to catch a rollback / failed boot when mDNS can't reach us.
     """
     await asyncio.sleep(_POST_FLASH_VERSION_REPROBE_DELAY)
-    device = next(
-        (d for d in controller._scanner.devices if d.configuration == configuration),
-        None,
-    )
+    device = controller._scanner.get_by_configuration(configuration)
     if device is not None:
         controller._state_monitor.request_version_reprobe(device.name)
 

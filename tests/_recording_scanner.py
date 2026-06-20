@@ -80,3 +80,11 @@ class RecordingScanner:
         # Fresh list snapshot — mirrors production semantics so
         # callers can iterate / mutate without poisoning the index.
         return list(self._devices_by_name.get(name, []))
+
+    def get_by_configuration(self, configuration: str) -> object | None:
+        # A read accessor like ``devices`` / ``by_path`` — not recorded in
+        # ``calls`` (those track side-effecting / awaitable operations).
+        return next(
+            (d for d in self.devices if getattr(d, "configuration", None) == configuration),
+            None,
+        )
