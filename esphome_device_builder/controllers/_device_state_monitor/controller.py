@@ -349,6 +349,10 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         self._on_ip_change(name, primary, addresses)
         return True
 
+    def request_version_reprobe(self, name: str) -> None:
+        """Force one Native-API version probe of *name*, ignoring the mac+version guard."""
+        self._api_info.request_reprobe(name)
+
     def apply_version(self, name: str, version: str) -> bool:
         """Record a firmware version observation; True iff forwarded."""
         if not version or self._on_version_change is None:

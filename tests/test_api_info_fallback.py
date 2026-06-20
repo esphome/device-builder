@@ -15,6 +15,7 @@ import asyncio
 import io
 import json
 import logging
+import time
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -747,3 +748,59 @@ def test_log_task_exit_logs_crash(caplog: Any) -> None:
     with caplog.at_level(logging.ERROR):
         DeviceStateMonitor._log_api_info_task_exit(task)
     assert "API info fallback loop crashed" in caplog.text
+
+
+# ----------------------------------------------------------------------
+# Forced re-probe — request_reprobe (post-flash version verification)
+# ----------------------------------------------------------------------
+
+
+def test_request_reprobe_makes_filled_device_due() -> None:
+    """A forced re-probe overrides the mac+version guard that would skip the device."""
+    device = _online_api_device(mac_address="94:C9:60:1F:8C:F1", deployed_version="2026.6.1")
+    monitor, _ = make_state_monitor_with_callbacks([device])
+    src = monitor._api_info
+    assert src._select_targets() == []  # both fields present → normally skipped
+    src.request_reprobe("kitchen")
+    assert [d.name for d in src._select_targets()] == ["kitchen"]
+
+
+def test_request_reprobe_bypasses_cooldown() -> None:
+    """A forced re-probe is deliberate — it ignores the per-device failure cooldown."""
+    device = _online_api_device()
+    monitor, _ = make_state_monitor_with_callbacks([device])
+    src = monitor._api_info
+    src._cooldown["kitchen"] = time.monotonic() + 600
+    assert src._select_targets() == []  # parked on cooldown
+    src.request_reprobe("kitchen")
+    assert [d.name for d in src._select_targets()] == ["kitchen"]
+
+
+async def test_forced_reprobe_probes_then_clears_itself() -> None:
+    """The forced probe runs even with both fields set, then the flag is consumed."""
+    device = _online_api_device(mac_address="94:C9:60:1F:8C:F1", deployed_version="2026.6.1")
+    monitor, _ = make_state_monitor_with_callbacks([device])
+    src = monitor._api_info
+    src.request_reprobe("kitchen")
+    src._run_worker = AsyncMock(  # type: ignore[method-assign]
+        return_value={"esphome_version": "2026.6.2"}
+    )
+
+    await src._fetch(device)
+
+    assert device.deployed_version == "2026.6.2"
+    assert "kitchen" not in src._force_reprobe  # one-shot
+    assert src._select_targets() == []  # consumed → no longer due
+
+
+async def test_sweep_prunes_force_reprobe_for_dead_devices() -> None:
+    """A force flag for a device that's no longer present is dropped on the next sweep."""
+    device = _online_api_device()
+    monitor, _ = make_state_monitor_with_callbacks([device])
+    src = monitor._api_info
+    src.request_reprobe("ghost")  # not a live device
+    src._fetch = AsyncMock()  # type: ignore[method-assign]
+
+    await src._sweep()
+
+    assert "ghost" not in src._force_reprobe

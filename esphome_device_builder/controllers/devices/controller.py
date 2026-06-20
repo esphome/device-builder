@@ -1120,8 +1120,11 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     async def _persist_expected_config_hash(self, configuration: str) -> None:
         await firmware_sync.persist_expected_config_hash(self, configuration)
 
-    def _sync_deployed_hash_after_flash(self, configuration: str) -> None:
-        firmware_sync.sync_deployed_hash_after_flash(self, configuration)
+    async def _sync_deployed_state_after_flash(self, configuration: str) -> None:
+        await firmware_sync.sync_deployed_state_after_flash(self, configuration)
+
+    async def _reprobe_version_after_flash(self, configuration: str) -> None:
+        await firmware_sync.reprobe_version_after_flash(self, configuration)
 
     def _persist_build_size(self, configuration: str, result: BuildSizeRefreshResult) -> None:
         """Merge a fresh build-size triple into the metadata store."""
