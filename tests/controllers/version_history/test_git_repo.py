@@ -627,6 +627,25 @@ def test_run_write_retries_in_place_after_clearing_a_stale_lock(
     assert calls["n"] == 2
 
 
+def test_run_write_reclassifies_a_post_clear_recollision_as_busy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fresh writer grabbing the lock right after a stale-clear is still retryable busy."""
+    repo = _bare_repo(tmp_path)
+    monkeypatch.setattr(GitRepo, "_clear_stale_index_lock", lambda _self, _exc: True)
+    monkeypatch.setattr(GitRepo, "_index_lock_is_fresh", lambda _self: True)
+    calls = {"n": 0}
+
+    def _fake_run(_self: GitRepo, args: list[str], *, check: bool) -> object:
+        calls["n"] += 1
+        raise _lock_error()  # the cleared lock is immediately re-taken
+
+    monkeypatch.setattr(GitRepo, "_run", _fake_run)
+    with pytest.raises(git_repo_mod.GitIndexLockBusyError):
+        repo._run_write(["add", "--", "x"])
+    assert calls["n"] == 2  # original attempt + one post-clear retry, then busy
+
+
 def test_run_write_propagates_a_non_lock_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -459,28 +459,35 @@ class GitRepo:
         """
         Run a checked git write, handling index.lock contention.
 
-        A stale lock is cleared and the write retried at once; a fresh
-        lock raises :class:`GitIndexLockBusyError` for the async caller to
-        back off and retry. Any other failure propagates.
+        A stale lock is cleared and the write retried in place (once); a
+        fresh lock raises :class:`GitIndexLockBusyError` for the async
+        caller to back off and retry. Any other failure propagates.
         """
-        try:
-            self._run(args, check=True)
-        except subprocess.CalledProcessError as exc:
-            if not self._is_index_lock_error(exc):
-                raise
-            if self._clear_stale_index_lock(exc):
-                self._run(args, check=True)  # cleared a stale lock; retry now
+        cleared_stale = False
+        while True:
+            try:
+                self._run(args, check=True)
+            except subprocess.CalledProcessError as exc:
+                if not self._is_index_lock_error(exc):
+                    raise
+                # Clear a stale lock once and retry in place; a re-collision
+                # after that (a fresh writer grabbed it) drops to the
+                # freshness check below and becomes a retryable busy.
+                if not cleared_stale and self._clear_stale_index_lock(exc):
+                    cleared_stale = True
+                    continue
+                if not self._index_lock_is_fresh():
+                    # Stale but unclearable (an adopted repo we won't touch, or
+                    # a lock we couldn't unlink): it won't free itself, so
+                    # surface the original failure instead of spinning on it.
+                    raise
+                # A fresh lock is a live concurrent writer; tell the async
+                # caller to back off and retry.
+                raise GitIndexLockBusyError(
+                    exc.returncode, exc.cmd, output=exc.output, stderr=exc.stderr
+                ) from exc
+            else:
                 return
-            if not self._index_lock_is_fresh():
-                # Stale but unclearable (an adopted repo we won't touch, or a
-                # lock we couldn't unlink): it won't free itself, so surface
-                # the original failure instead of spinning on it.
-                raise
-            # A fresh lock is a live concurrent writer; tell the async caller
-            # to back off and retry.
-            raise GitIndexLockBusyError(
-                exc.returncode, exc.cmd, output=exc.output, stderr=exc.stderr
-            ) from exc
 
     @staticmethod
     def _is_index_lock_error(exc: subprocess.CalledProcessError) -> bool:
