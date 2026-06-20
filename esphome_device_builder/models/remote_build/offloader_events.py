@@ -185,9 +185,9 @@ class RemoteBuildHostAddedData(TypedDict):
     semantics — frontend keys on ``name`` (mDNS service-instance
     name) and replaces an existing row with the same key.
 
-    ``pin_sha256`` and ``remote_build_port`` come from the
-    ``_esphomebuilder._tcp.local.`` TXT record; empty / 0 for
-    receivers that haven't bound the peer-link listener.
+    ``friendly_name``, ``pin_sha256`` and ``remote_build_port``
+    come from the ``_esphomebuilder._tcp.local.`` TXT record;
+    empty / 0 for receivers that don't broadcast them.
     """
 
     name: str
@@ -197,6 +197,7 @@ class RemoteBuildHostAddedData(TypedDict):
     addresses: list[str]
     server_version: str
     esphome_version: str
+    friendly_name: str
     pin_sha256: str
     remote_build_port: int
 
