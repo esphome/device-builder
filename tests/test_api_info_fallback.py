@@ -793,6 +793,22 @@ async def test_forced_reprobe_probes_then_clears_itself() -> None:
     assert src._select_targets() == []  # consumed → no longer due
 
 
+async def test_forced_reprobe_confirming_existing_version_is_not_a_failure() -> None:
+    """A forced probe that connected and confirmed the version isn't cooled down."""
+    device = _online_api_device(mac_address="94:C9:60:1F:8C:F1", deployed_version="2026.6.2")
+    monitor, _ = make_state_monitor_with_callbacks([device])
+    src = monitor._api_info
+    src.request_reprobe("kitchen")
+    src._run_worker = AsyncMock(  # type: ignore[method-assign]
+        return_value={"mac_address": "94c9601f8cf1", "esphome_version": "2026.6.2"}
+    )
+
+    await src._fetch(device)
+
+    # Nothing newly filled, but the connect succeeded — no cooldown.
+    assert "kitchen" not in src._cooldown
+
+
 async def test_sweep_prunes_force_reprobe_for_dead_devices() -> None:
     """A force flag for a device that's no longer present is dropped on the next sweep."""
     device = _online_api_device()

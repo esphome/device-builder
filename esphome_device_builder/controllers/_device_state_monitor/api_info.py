@@ -189,6 +189,7 @@ class ApiInfoSource:
         monitor = self._monitor
         # One-shot: a forced re-probe is consumed by this attempt, so a device
         # with no reachable API isn't probed every sweep forever.
+        forced = device.name in self._force_reprobe
         self._force_reprobe.discard(device.name)
         addresses = self._candidate_addresses(device)
         if not addresses:
@@ -231,6 +232,13 @@ class ApiInfoSource:
         filled_mac = monitor.apply_mac_address(device.name, info.get("mac_address", ""))
         filled_version = monitor.apply_version(device.name, info.get("esphome_version", ""))
         if filled_mac or filled_version:
+            return
+        # A forced re-probe that connected (``info`` truthy) but changed
+        # nothing confirmed the existing version — a success, not a miss, so
+        # don't cool it down. The normal path still cools down here: it was
+        # due *because* a field was missing, so "nothing newly filled" is a
+        # real miss to retry later.
+        if forced and info:
             return
         self._record_failure(device)
 
