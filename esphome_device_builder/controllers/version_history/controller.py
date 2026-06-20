@@ -141,11 +141,13 @@ class VersionHistoryController:
             return None
         async with self._lock:
             backoff = _LOCK_RETRY_BACKOFF
-            for attempt in range(_LOCK_RETRY_ATTEMPTS + 1):
+            attempts = 0
+            while True:
                 try:
                     sha = await self._in_executor(self._repo.commit_paths, paths, message)
                 except GitIndexLockBusyError:
-                    if attempt == _LOCK_RETRY_ATTEMPTS:
+                    attempts += 1
+                    if attempts > _LOCK_RETRY_ATTEMPTS:
                         self._note_commit_failure()
                         raise
                     await asyncio.sleep(backoff)
@@ -156,7 +158,6 @@ class VersionHistoryController:
                     raise
                 self._note_commit_success()
                 return sha
-        return None  # unreachable; the loop returns or raises
 
     def _note_commit_failure(self) -> None:
         """Count a git failure; flag degraded once they stop looking one-off."""
