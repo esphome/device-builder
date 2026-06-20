@@ -239,6 +239,50 @@ def test_ha_addon_mapped_port_without_front_door_runs_ingress_only(
     assert warnings and "#85" in warnings[0]
 
 
+@pytest.mark.parametrize(
+    ("on_ha_addon", "disable_env", "allow_public_port", "front", "serve", "ingress"),
+    [
+        # On the add-on: serve_public needs BOTH opt-ins; create_ingress_site
+        # is the inverse of serve_public (so the no-auth banner fires only there).
+        (True, False, False, False, False, True),
+        (True, False, True, False, False, True),
+        (True, True, False, True, False, True),
+        (True, True, True, True, True, False),
+        # Off the add-on the env var and flag are inert.
+        (False, True, True, False, False, False),
+    ],
+    ids=[
+        "addon_default",
+        "addon_mapped_no_frontdoor",
+        "addon_frontdoor_unmapped",
+        "addon_both_optins",
+        "off_addon_inert",
+    ],
+)
+def test_front_door_property_truth_table(
+    make_settings: MakeSettingsFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    on_ha_addon: bool,
+    disable_env: bool,
+    allow_public_port: bool,
+    front: bool,
+    serve: bool,
+    ingress: bool,
+) -> None:
+    """Pin the security-relevant property matrix so a refactor can't widen exposure."""
+    if disable_env:
+        monkeypatch.setenv("DISABLE_HA_AUTHENTICATION", "true")
+    else:
+        monkeypatch.delenv("DISABLE_HA_AUTHENTICATION", raising=False)
+    settings = make_settings()
+    settings.on_ha_addon = on_ha_addon
+    settings.allow_public_port = allow_public_port
+
+    assert settings.front_door_open is front
+    assert settings.serve_public_unauthenticated is serve
+    assert settings.create_ingress_site is ingress
+
+
 def test_ha_addon_with_password_binds_public_site_normally(
     make_settings: MakeSettingsFactory,
     monkeypatch: pytest.MonkeyPatch,

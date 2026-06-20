@@ -78,3 +78,24 @@ def test_create_app_wires_peer_guard_on_trusted_site_only(tmp_path: Path) -> Non
     assert auth_middleware not in trusted.middlewares
     assert ingress_peer_guard not in public.middlewares
     assert auth_middleware in public.middlewares
+
+
+def test_create_app_front_door_open_drops_both_auth_and_peer_guard(tmp_path: Path) -> None:
+    """The front-door-open public app skips auth AND the peer guard so the LAN reaches it.
+
+    ``trusted=True`` bypasses auth and marks the site pre-authenticated;
+    ``peer_guard=False`` removes the loopback/supervisor restriction the trusted
+    ingress site relies on, which is the whole point of the wide-open opt-in. If
+    either gate sneaked back in, the VS Code plugin (a non-loopback LAN peer)
+    would be 403'd or challenged for auth that doesn't exist.
+    """
+    settings = DashboardSettings()
+    settings.config_dir = tmp_path
+    settings.absolute_config_dir = tmp_path.resolve()
+    db = DeviceBuilder(settings)
+
+    front_door = db.create_app(trusted=True, peer_guard=False, with_lifecycle=False)
+
+    assert ingress_peer_guard not in front_door.middlewares
+    assert auth_middleware not in front_door.middlewares
+    assert front_door["trusted_site"] is True

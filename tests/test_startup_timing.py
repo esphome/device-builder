@@ -86,6 +86,23 @@ def test_run_marks_app_phase_on_ingress_only_path(
     assert "app=" in timer.summary()
 
 
+def test_run_marks_app_phase_on_front_door_open_path(
+    make_settings: MakeSettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DISABLE_HA_AUTHENTICATION", "true")
+    timer = StartupTimer(0.0)
+    settings = make_settings()
+    settings.on_ha_addon = True
+    settings.using_password = False
+    settings.allow_public_port = True
+    settings.host = "0.0.0.0"
+    settings.port = 6052
+    settings.ingress_port = 6053
+    settings.ingress_host = ""
+    _stub_run(DeviceBuilder(settings, startup_timer=timer))
+    assert "app=" in timer.summary()
+
+
 async def test_start_marks_controllers_and_logs_summary(
     make_settings: MakeSettingsFactory,
     caplog: pytest.LogCaptureFixture,
