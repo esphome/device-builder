@@ -520,7 +520,7 @@ def test_commit_keeps_fresh_index_lock(tmp_path: Path) -> None:
 
 
 def test_adopted_repo_never_clears_index_lock(tmp_path: Path) -> None:
-    """An adopted work tree (user's ``/config``) is never auto-unlocked, even when stale."""
+    """An adopted work tree is never auto-unlocked; a stale lock there propagates as-is."""
     _make_repo(tmp_path)
     repo = GitRepo(config_dir=tmp_path)
     repo.discover_or_init()
@@ -528,6 +528,24 @@ def test_adopted_repo_never_clears_index_lock(tmp_path: Path) -> None:
     yaml = tmp_path / "kitchen.yaml"
     yaml.write_text("v1\n", encoding="utf-8")
     lock = _index_lock(tmp_path, age_seconds=3600)
+
+    # Stale (won't free itself) and unclearable (adopted) → the original
+    # failure surfaces, not a retryable busy signal.
+    with pytest.raises(subprocess.CalledProcessError) as excinfo:
+        repo.commit_paths([yaml], "Create kitchen.yaml")
+    assert not isinstance(excinfo.value, git_repo_mod.GitIndexLockBusyError)
+    assert lock.exists()
+
+
+def test_adopted_repo_fresh_lock_is_retryable_busy(tmp_path: Path) -> None:
+    """A live writer's fresh lock in an adopted repo is the retryable case (the PR's target)."""
+    _make_repo(tmp_path)
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+    assert not repo.managed
+    yaml = tmp_path / "kitchen.yaml"
+    yaml.write_text("v1\n", encoding="utf-8")
+    lock = _index_lock(tmp_path, age_seconds=0)
 
     with pytest.raises(git_repo_mod.GitIndexLockBusyError):
         repo.commit_paths([yaml], "Create kitchen.yaml")
@@ -557,6 +575,7 @@ def test_run_write_raises_busy_on_a_fresh_lock(
     """A fresh lock (a live writer) becomes GitIndexLockBusyError for the async caller to retry."""
     repo = _bare_repo(tmp_path)
     monkeypatch.setattr(GitRepo, "_clear_stale_index_lock", lambda _self, _exc: False)
+    monkeypatch.setattr(GitRepo, "_index_lock_is_fresh", lambda _self: True)
     calls = {"n": 0}
 
     def _fake_run(_self: GitRepo, args: list[str], *, check: bool) -> object:
@@ -567,6 +586,26 @@ def test_run_write_raises_busy_on_a_fresh_lock(
     with pytest.raises(git_repo_mod.GitIndexLockBusyError):
         repo._run_write(["add", "--", "x"])
     assert calls["n"] == 1  # no in-thread retry; the wait belongs on the loop
+
+
+def test_run_write_propagates_a_stale_unclearable_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stale lock that couldn't be cleared surfaces the original error, not a busy retry."""
+    repo = _bare_repo(tmp_path)
+    monkeypatch.setattr(GitRepo, "_clear_stale_index_lock", lambda _self, _exc: False)
+    monkeypatch.setattr(GitRepo, "_index_lock_is_fresh", lambda _self: False)
+    calls = {"n": 0}
+
+    def _fake_run(_self: GitRepo, args: list[str], *, check: bool) -> object:
+        calls["n"] += 1
+        raise _lock_error()
+
+    monkeypatch.setattr(GitRepo, "_run", _fake_run)
+    with pytest.raises(subprocess.CalledProcessError) as excinfo:
+        repo._run_write(["add", "--", "x"])
+    assert not isinstance(excinfo.value, git_repo_mod.GitIndexLockBusyError)
+    assert calls["n"] == 1
 
 
 def test_run_write_retries_in_place_after_clearing_a_stale_lock(
@@ -606,8 +645,29 @@ def test_run_write_propagates_a_non_lock_error(
     assert calls["n"] == 1
 
 
-def test_commit_raises_busy_when_stale_lock_cannot_be_removed(tmp_path: Path) -> None:
-    """A stale lock we can't unlink (e.g. it's a directory) falls through to retryable busy."""
+def test_index_lock_is_fresh_classifies_by_age(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unresolvable / vanished / young locks count as fresh; only an aged one is stale."""
+    repo = _bare_repo(tmp_path)
+    lock = tmp_path / "index.lock"
+
+    monkeypatch.setattr(GitRepo, "_index_lock_path", lambda _self: None)
+    assert repo._index_lock_is_fresh() is True  # can't resolve → retry resolves it
+
+    monkeypatch.setattr(GitRepo, "_index_lock_path", lambda _self: lock)
+    assert repo._index_lock_is_fresh() is True  # vanished (stat raises) → fresh
+
+    lock.write_text("", encoding="utf-8")
+    assert repo._index_lock_is_fresh() is True  # young → a live writer may hold it
+
+    stamp = time.time() - 3600
+    os.utime(lock, (stamp, stamp))
+    assert repo._index_lock_is_fresh() is False  # aged → won't free itself
+
+
+def test_commit_propagates_a_stale_lock_it_cannot_remove(tmp_path: Path) -> None:
+    """A stale lock we can't unlink (e.g. it's a directory) surfaces the original error."""
     repo = GitRepo(config_dir=tmp_path)
     repo.discover_or_init()
     yaml = tmp_path / "kitchen.yaml"
@@ -618,8 +678,10 @@ def test_commit_raises_busy_when_stale_lock_cannot_be_removed(tmp_path: Path) ->
     stamp = time.time() - 3600
     os.utime(lock_dir, (stamp, stamp))
 
-    with pytest.raises(git_repo_mod.GitIndexLockBusyError):
+    # Stale (won't free itself) and unclearable → not a retryable busy signal.
+    with pytest.raises(subprocess.CalledProcessError) as excinfo:
         repo.commit_paths([yaml], "Create kitchen.yaml")
+    assert not isinstance(excinfo.value, git_repo_mod.GitIndexLockBusyError)
     assert lock_dir.exists()
 
 
