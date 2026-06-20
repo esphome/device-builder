@@ -51,11 +51,8 @@ _DEBOUNCE_SECONDS = 2.0
 # one-off hiccup, which a future History pane can surface to the user.
 _DEGRADED_THRESHOLD = 3
 
-# A fresh index.lock means another writer (commonly a second dashboard
-# instance sharing one config-dir repo) is mid-commit; it releases within
-# milliseconds, so back off on the event loop and retry rather than drop
-# the edit or trip the degraded flag. The wait is async, so the executor
-# thread isn't held during it.
+# Bounded backoff for a fresh index.lock (a live concurrent writer); the
+# wait is awaited on the event loop, never inside the executor thread.
 _LOCK_RETRY_ATTEMPTS = 4
 _LOCK_RETRY_BACKOFF = 0.2  # seconds; doubled after each attempt
 

@@ -132,10 +132,10 @@ class GitCommandError(subprocess.CalledProcessError):
 
 
 class GitIndexLockBusyError(GitCommandError):
-    """A *fresh* ``index.lock`` blocked the write — a live concurrent writer.
+    """A live concurrent writer holds the ``index.lock``; safe to retry.
 
-    Raised instead of waiting inside the executor thread, so the async
-    caller can back off on the event loop and retry the whole commit.
+    Raised so the async caller backs off on the event loop rather than
+    blocking the executor thread.
     """
 
 
@@ -463,17 +463,14 @@ class GitRepo:
         """
         Run a checked git write, handling index.lock contention.
 
-        A *stale* lock (a crashed prior run) is cleared and the write
-        retried at once. A *fresh* lock (a live concurrent writer, e.g.
-        another dashboard instance on the same repo) raises
-        :class:`GitIndexLockBusyError` so the async caller backs off on the
-        event loop instead of blocking this executor thread. Any other
-        failure propagates.
+        A stale lock is cleared and the write retried at once; a fresh
+        lock raises :class:`GitIndexLockBusyError` for the async caller to
+        back off and retry. Any other failure propagates.
         """
         try:
             self._run(args, check=True)
         except subprocess.CalledProcessError as exc:
-            if "index.lock" not in (exc.stderr or ""):
+            if not self._is_index_lock_error(exc):
                 raise
             if self._clear_stale_index_lock(exc):
                 self._run(args, check=True)  # cleared a stale lock; retry now
@@ -481,6 +478,11 @@ class GitRepo:
             raise GitIndexLockBusyError(
                 exc.returncode, exc.cmd, output=exc.output, stderr=exc.stderr
             ) from exc
+
+    @staticmethod
+    def _is_index_lock_error(exc: subprocess.CalledProcessError) -> bool:
+        """Whether *exc*'s stderr blames a contended ``index.lock``."""
+        return "index.lock" in (exc.stderr or "")
 
     def _clear_stale_index_lock(self, exc: subprocess.CalledProcessError) -> bool:
         """
@@ -490,7 +492,7 @@ class GitRepo:
         ``/config``) and age (:data:`_STALE_LOCK_SECONDS`), so a lock a
         live git is actively holding is never deleted out from under it.
         """
-        if not self.managed or "index.lock" not in (exc.stderr or ""):
+        if not self.managed or not self._is_index_lock_error(exc):
             return False
         lock = self._index_lock_path()
         if lock is None or not lock.exists():
