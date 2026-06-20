@@ -168,9 +168,9 @@ async def test_reload_swallows_oserror_on_post_load_stat(tmp_path: Path) -> None
         ok = await scanner.reload("kitchen.yaml")
 
     assert ok is True
-    # UPDATED still fired with the freshly-loaded Device.
+    # RELOADED still fired with the freshly-loaded Device.
     assert [(kind, dev.friendly_name) for kind, dev in events] == [
-        (ScanChange.UPDATED, "Kitchen Renamed")
+        (ScanChange.RELOADED, "Kitchen Renamed")
     ]
 
 
