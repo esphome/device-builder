@@ -95,10 +95,10 @@ async def cancel_peer_link_client_and_wait(
     if handle is None or handle.task.done():
         return
     # ``drain_tasks`` cancels + awaits and retrieves the outcome via
-    # ``gather(return_exceptions=True)``: a teardown exception is absorbed
-    # (not "never retrieved") and can't abort the caller's respawn, while a
-    # cancellation of *this* task still propagates. Same idiom as ``stop()``.
-    await drain_tasks((handle.task,))
+    # ``gather(return_exceptions=True)``: a teardown exception is logged and
+    # absorbed (not "never retrieved") so it can't abort the caller's respawn,
+    # while a cancellation of *this* task still propagates.
+    await drain_tasks((handle.task,), log_exceptions=True)
 
 
 def lookup_open_peer_link_client(

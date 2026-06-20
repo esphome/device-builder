@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import secrets as _secrets
 from pathlib import Path
@@ -41,6 +42,7 @@ from esphome_device_builder.controllers.remote_build._mdns import (
     peer_from_service_info,
 )
 from esphome_device_builder.controllers.remote_build._models import PeerLinkClientHandle
+from esphome_device_builder.controllers.remote_build._shared import drain_tasks
 from esphome_device_builder.controllers.remote_build._storage_codecs import (
     decode_pairings,
     encode_pairings,
@@ -473,6 +475,58 @@ async def test_cancel_peer_link_client_and_wait_propagates_caller_cancellation(
 
     child.cancel()
     await asyncio.gather(child, return_exceptions=True)
+
+
+async def test_drain_tasks_logs_exception_when_requested(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """``log_exceptions=True`` logs a non-cancel teardown failure and absorbs it."""
+
+    async def _bad_teardown() -> None:
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            raise RuntimeError("terminate send failed") from None
+
+    task = asyncio.create_task(_bad_teardown(), name="bad-teardown")
+    await asyncio.sleep(0)
+    with caplog.at_level(logging.WARNING):
+        await drain_tasks((task,), log_exceptions=True)
+    assert any(
+        "bad-teardown" in rec.getMessage() and rec.levelno == logging.WARNING
+        for rec in caplog.records
+    )
+
+
+async def test_drain_tasks_does_not_log_plain_cancellation(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A clean cancellation isn't logged even with ``log_exceptions=True``."""
+
+    async def _park() -> None:
+        await asyncio.sleep(3600)
+
+    task = asyncio.create_task(_park(), name="parked")
+    await asyncio.sleep(0)
+    with caplog.at_level(logging.WARNING):
+        await drain_tasks((task,), log_exceptions=True)
+    assert not any("parked" in rec.getMessage() for rec in caplog.records)
+
+
+async def test_drain_tasks_silent_by_default(caplog: pytest.LogCaptureFixture) -> None:
+    """Without the flag, a teardown failure is swallowed without logging."""
+
+    async def _bad_teardown() -> None:
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            raise RuntimeError("boom") from None
+
+    task = asyncio.create_task(_bad_teardown(), name="silent-boom")
+    await asyncio.sleep(0)
+    with caplog.at_level(logging.WARNING):
+        await drain_tasks((task,))
+    assert not any("silent-boom" in rec.getMessage() for rec in caplog.records)
 
 
 async def test_rebind_respawn_awaits_old_client_before_spawn(tmp_path: Path) -> None:
