@@ -207,6 +207,16 @@ def main() -> None:
     )
     parser.add_argument("--ha-addon", action="store_true", help="Running as HA add-on")
     parser.add_argument(
+        "--ha-addon-allow-public",
+        action="store_true",
+        help=(
+            "Bind the public port on the LAN with no authentication. Only with "
+            "--ha-addon, and only honoured together with the front-door-open "
+            "option; the add-on passes this exclusively when the operator has "
+            "mapped port 6052"
+        ),
+    )
+    parser.add_argument(
         "--ingress-port",
         type=int,
         default=DEFAULT_INGRESS_PORT,

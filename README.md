@@ -174,21 +174,26 @@ there's no separate username or password to configure for the
 add-on, and port `6052` stays unbound to keep the dashboard off the
 LAN by default.
 
-This is the supported way to use the add-on and we're not planning
-to add a "just expose the port directly" option for it. The classic
-dashboard let you opt in to binding port `6052` on the LAN and
-forwarded your Home Assistant username and password through the
-supervisor `/auth` endpoint to gate it; that endpoint has no rate
-limiting or lockout, so opting into the exposed port turned the
-dashboard into an open brute-force target against every account on
-the Home Assistant instance. We chose not to carry that risk
-forward (see
+This is the supported way to use the add-on. The classic dashboard
+also let you forward your Home Assistant username and password
+through the supervisor `/auth` endpoint to gate an exposed port
+`6052`; that endpoint has no rate limiting or lockout, so it turned
+the dashboard into an open brute-force target against every account
+on the Home Assistant instance, and we don't carry that path forward
+(see
 [device-builder issue #85](https://github.com/esphome/device-builder/issues/85)).
 
-If you need port `6052` reachable on the LAN, please file a feature
-request describing the use case. For LAN access today, run the
-standalone PyPI install on the same network as your add-on with its
-own dashboard-managed password.
+The classic dashboard's other option, "Disable external
+authentication" (`leave_front_door_open`), is honored. With it on
+*and* port `6052` mapped in the add-on's Network options, the
+dashboard binds the port on the LAN with no authentication at all,
+for example so the VS Code ESPHome plugin can reach it. Both opt-ins
+are required, matching the classic add-on; the dashboard logs a loud
+banner because this leaves the dashboard wide open to anyone on your
+network. Turn the option off, or unmap the port, for ingress-only
+access. For password-gated LAN access instead, run the standalone
+PyPI install on the same network with its own dashboard-managed
+password.
 
 ### Standalone (PyPI)
 

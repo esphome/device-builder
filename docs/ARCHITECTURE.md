@@ -320,7 +320,7 @@ When `--ha-addon` is set, the server binds **two** TCP sites on a shared `Device
 
 This is the Music Assistant pattern: physically separating the listeners is the security boundary, rather than trusting an `X-Ingress-Path` header. It also means HA app users can keep ingress access (no password) while operators can still secure direct access from outside HA with a username/password.
 
-The legacy `DISABLE_HA_AUTHENTICATION=true` env var skips the ingress site entirely — operators get only the password-gated public port.
+The legacy `DISABLE_HA_AUTHENTICATION=true` env var (the add-on's "Disable external authentication" / `leave_front_door_open` option) opens the front door: when it is set *and* the operator has mapped port 6052 (the add-on passes `--ha-addon-allow-public`), the public port is bound on `0.0.0.0` with no authentication at all, while the trusted ingress site stays bound so the HA sidebar keeps working. Both opt-ins are required, mirroring the legacy add-on, where nginx only listened on 6052 when the port was mapped and `leave_front_door_open` only cleared auth on that direct block; setting just one is a no-op (ingress-only) with an explanatory log line. The supervisor `/auth` credential-forwarding path is not carried forward (issue #85), so a mapped port without the front-door opt-in stays ingress-only rather than gating with HA credentials. `run` logs a loud banner whenever it binds the unauthenticated public port.
 
 ### Reverse-proxy / cross-origin deployments
 

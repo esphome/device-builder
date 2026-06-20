@@ -717,6 +717,7 @@ class DeviceBuilder:
         self,
         *,
         trusted: bool = False,
+        peer_guard: bool | None = None,
         with_lifecycle: bool = True,
         with_ingress_site: bool = True,
     ) -> web.Application:
@@ -724,6 +725,10 @@ class DeviceBuilder:
         Build the aiohttp application.
 
         ``trusted`` skips the auth middleware (HA Ingress site).
+        ``peer_guard`` restricts sources to loopback + the supervisor;
+        it defaults to ``trusted`` so the ingress site is locked down,
+        but the front-door-open public site passes ``False`` to stay
+        reachable from the LAN while still skipping auth.
         ``with_lifecycle`` toggles startup/cleanup hooks; the ingress
         app reuses the public app's controller singleton and so passes
         ``False`` to avoid re-initialising them.
@@ -735,11 +740,13 @@ class DeviceBuilder:
         IS the ingress) to avoid recursively spawning a second
         ingress site via ``_start_ingress_site``.
         """
+        if peer_guard is None:
+            peer_guard = trusted
         # The trusted ingress site bypasses auth, so the peer guard (loopback +
         # supervisor only) runs outermost to reject everything else before any
         # other processing. The public site gates by Authorization instead.
         middlewares: list[Any] = []
-        if trusted:
+        if peer_guard:
             middlewares.append(ingress_peer_guard)
         middlewares.append(cors_middleware)
         if not trusted:
@@ -795,7 +802,11 @@ class DeviceBuilder:
 
         if with_lifecycle:
             app.on_startup.append(self._on_startup)
-            if with_ingress_site and self.settings.create_ingress_site:
+            # Every add-on shape needs the trusted ingress site for the HA
+            # sidebar, including the front-door-open one whose main app is the
+            # unauthenticated public site. The ingress-only path passes
+            # ``with_ingress_site=False`` (it IS the ingress).
+            if with_ingress_site and self.settings.on_ha_addon:
                 app.on_startup.append(self._start_ingress_site)
                 app.on_cleanup.append(self._stop_ingress_site)
             app.on_cleanup.append(self._on_cleanup)
@@ -841,50 +852,95 @@ class DeviceBuilder:
             await self._ingress_runner.cleanup()
             self._ingress_runner = None
 
+    def _warn_front_door_open(self) -> None:
+        """Log the wide-open banner before binding the unauthenticated public port."""
+        settings = self.settings
+        banner = "=" * 70
+        _LOGGER.warning(
+            "\n%s\n"
+            " FRONT DOOR OPEN: external authentication is DISABLED.\n"
+            " The dashboard is serving on %s:%d with NO authentication.\n"
+            " ANYONE on your network can flash firmware and run code on this host.\n"
+            ' You enabled this with the add-on option "Disable external\n'
+            ' authentication" (leave_front_door_open) plus a mapped port %d.\n'
+            " There is no password, no login, no protection of any kind.\n"
+            " Turn that option OFF (or unmap the port) for ingress-only access.\n"
+            "%s",
+            banner,
+            settings.host,
+            settings.port,
+            settings.port,
+            banner,
+        )
+
     def run(self) -> None:
         """Start the HTTP server (blocking)."""
         # Logging is already configured by __main__.py
         settings = self.settings
-        # Fail-secure on the HA add-on path. The legacy dashboard
-        # had a supervisor ``/auth`` fallback that gated the public
-        # port with HA credentials when ``PASSWORD`` wasn't set; we
-        # don't carry that forward (see issue #85). Without the
-        # fallback, binding the public port without
-        # ``USERNAME``/``PASSWORD`` would leave the dashboard
-        # wide-open on the LAN whenever the add-on's ``ports:``
-        # mapping exposed it. So when on-ha-addon and no password
-        # is configured, run ingress-only and tell the operator
-        # loudly how to enable LAN access if they want it.
+        # On the HA add-on with no password we never gate the public
+        # port with HA credentials — the legacy supervisor ``/auth``
+        # fallback is gone (an unrate-limited brute-force vector,
+        # issue #85). The default is ingress-only: the dashboard is
+        # reached through the HA sidebar and the public port stays
+        # unbound. The one exception is the operator's explicit,
+        # two-part opt-in to a wide-open dashboard — the
+        # ``leave_front_door_open`` add-on option *and* a mapped port
+        # 6052 — which binds the public port with no auth at all
+        # (legacy parity; legacy required both too).
         if settings.on_ha_addon and not settings.using_password:
-            if not settings.create_ingress_site:
-                # ``DISABLE_HA_AUTHENTICATION`` forces all traffic
-                # through the public port (no trusted ingress site)
-                # — but we have no credentials to gate it. Refuse
-                # to start rather than expose an unauthenticated
-                # dashboard. The supervisor surfaces this in the
-                # add-on log so the operator sees exactly what to
-                # change.
-                msg = (
-                    "Refusing to start: DISABLE_HA_AUTHENTICATION "
-                    "forces public-port auth, but the HA add-on is "
-                    "ingress-only by design and doesn't expose "
-                    "USERNAME/PASSWORD options. Turn "
-                    '"Disable external authentication" off to use '
-                    "ingress-only mode, or run the standalone PyPI "
-                    "install for password-gated LAN access. See "
-                    'README "Home Assistant add-on".'
+            if settings.serve_public_unauthenticated:
+                self._warn_front_door_open()
+                # Auth disabled and peer guard off so LAN clients (e.g.
+                # the VS Code ESPHome plugin) can reach it; the ingress
+                # site is still bound via the on_ha_addon lifecycle hook
+                # so the HA sidebar keeps working.
+                app = self.create_app(trusted=True, peer_guard=False)
+                if self._startup_timer is not None:
+                    self._startup_timer.mark("app")
+                hosts = resolve_bind_host(settings.host)
+                ensure_single_host_for_ephemeral_port(hosts, settings.port, "--port")
+                web.run_app(
+                    app,
+                    host=hosts,
+                    port=settings.port,
+                    shutdown_timeout=_SHUTDOWN_TIMEOUT_SECONDS,
+                    handle_signals=False,
                 )
-                raise RuntimeError(msg)
-            _LOGGER.warning(
-                "Public port %d NOT bound: the HA add-on is "
-                "ingress-only by design and doesn't expose "
-                "USERNAME/PASSWORD options. The dashboard is "
-                "reachable through the Home Assistant UI. For "
-                "password-gated LAN access, run the standalone PyPI "
-                'install on the same network. See README "Home '
-                'Assistant add-on".',
-                settings.port,
-            )
+                return
+            if settings.front_door_open:
+                # Front door open but the port isn't mapped, so there's
+                # nothing to expose (legacy parity: nginx only listened
+                # on 6052 when the operator mapped it).
+                _LOGGER.warning(
+                    'Public port %d NOT bound: "Disable external authentication" is '
+                    "on but port 6052 is not mapped, so nothing is exposed on the "
+                    "LAN. Map the port in the add-on Network options to expose the "
+                    "dashboard without auth.",
+                    settings.port,
+                )
+            elif settings.allow_public_port:
+                # Mapped port without front-door-open: the new dashboard
+                # has no HA-credential gate to put on it (#85), so it
+                # stays ingress-only rather than silently exposing it.
+                _LOGGER.warning(
+                    "Public port %d NOT bound: port 6052 is mapped but the new "
+                    "dashboard can't gate it with Home Assistant credentials (see "
+                    'issue #85). Turn on "Disable external authentication" to expose '
+                    "it without auth, or run the standalone PyPI install for "
+                    "password-gated LAN access.",
+                    settings.port,
+                )
+            else:
+                _LOGGER.warning(
+                    "Public port %d NOT bound: the HA add-on is "
+                    "ingress-only by design and doesn't expose "
+                    "USERNAME/PASSWORD options. The dashboard is "
+                    "reachable through the Home Assistant UI. For "
+                    "password-gated LAN access, run the standalone PyPI "
+                    'install on the same network. See README "Home '
+                    'Assistant add-on".',
+                    settings.port,
+                )
             app = self.create_app(trusted=True, with_ingress_site=False)
             if self._startup_timer is not None:
                 self._startup_timer.mark("app")

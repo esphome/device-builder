@@ -40,6 +40,7 @@ class DashboardSettings:
     password_hash: bytes = field(default_factory=bytes)
     using_password: bool = False
     on_ha_addon: bool = False
+    allow_public_port: bool = False
     log_level: str = "info"
     port: int = 6052
     host: str = "0.0.0.0"
@@ -99,6 +100,7 @@ class DashboardSettings:
     def parse_args(self, args: Any) -> None:
         """Parse CLI arguments into settings."""
         self.on_ha_addon = getattr(args, "ha_addon", False)
+        self.allow_public_port = getattr(args, "ha_addon_allow_public", False)
         # Env-var fallback uses ``ESPHOME_*`` rather than the legacy
         # dashboard's bare ``USERNAME`` / ``PASSWORD``: the bare names
         # collide with login-shell / Windows system vars (``$USERNAME``
@@ -258,13 +260,32 @@ class DashboardSettings:
         return bool(get_bool_env("ESPHOME_DASHBOARD_USE_MQTT"))
 
     @property
+    def front_door_open(self) -> bool:
+        """Operator disabled external auth (legacy leave_front_door_open env var)."""
+        return self.on_ha_addon and get_bool_env("DISABLE_HA_AUTHENTICATION")
+
+    @property
+    def serve_public_unauthenticated(self) -> bool:
+        """
+        Bind the public LAN port with no auth at all.
+
+        Requires both the front-door-open opt-in *and* the operator having
+        mapped port 6052 (``--ha-addon-allow-public``); legacy parity needed
+        both, and the add-on is host-network with no nginx, so the bind is the
+        LAN exposure.
+        """
+        return self.front_door_open and self.allow_public_port
+
+    @property
     def create_ingress_site(self) -> bool:
-        """Whether to bind the trusted HA Ingress TCP site alongside the public site."""
-        if not self.on_ha_addon:
-            return False
-        # DISABLE_HA_AUTHENTICATION lets operators force ingress users
-        # through the password-gated public port too.
-        return not get_bool_env("DISABLE_HA_AUTHENTICATION")
+        """
+        Whether the trusted HA Ingress site is the add-on's auth boundary.
+
+        True for every add-on shape except the deliberately wide-open one
+        (front door open + mapped port), where the public port carries no auth
+        and the unprotected-startup banner must fire.
+        """
+        return self.on_ha_addon and not self.serve_public_unauthenticated
 
     @property
     def ingress_bind_hosts(self) -> list[str]:
