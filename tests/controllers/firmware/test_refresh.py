@@ -58,8 +58,8 @@ def _device(name: str = "kitchen", **overrides: Any) -> Device:
 # ----------------------------------------------------------------------
 
 
-async def test_reload_rereads_state_and_fires_updated(tmp_path: Path) -> None:
-    """Reload re-runs the loader and fires ``UPDATED`` so listeners refresh."""
+async def test_reload_rereads_state_and_fires_reloaded(tmp_path: Path) -> None:
+    """Reload re-runs the loader and fires ``RELOADED`` so listeners refresh."""
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("esphome:\n  name: kitchen\n")
 
@@ -80,7 +80,7 @@ async def test_reload_rereads_state_and_fires_updated(tmp_path: Path) -> None:
 
     assert await scanner.reload("kitchen.yaml") is True
     assert scanner.by_path[yaml_path] is refreshed
-    assert changes == [(ScanChange.UPDATED, refreshed)]
+    assert changes == [(ScanChange.RELOADED, refreshed)]
 
 
 async def test_reload_unknown_filename_is_noop(tmp_path: Path) -> None:

@@ -71,7 +71,7 @@ async def test_request_drains_one_file(tmp_path: Path) -> None:
         finally:
             await scanner.stop()
 
-    assert [(kind, dev.name) for kind, dev in events] == [(ScanChange.UPDATED, "kitchen")]
+    assert [(kind, dev.name) for kind, dev in events] == [(ScanChange.RELOADED, "kitchen")]
 
 
 async def test_request_coalesces_duplicate_filenames(tmp_path: Path) -> None:
@@ -142,7 +142,7 @@ async def test_request_before_start_drains_on_start(tmp_path: Path) -> None:
         finally:
             await scanner.stop()
 
-    assert [(kind, dev.name) for kind, dev in events] == [(ScanChange.UPDATED, "kitchen")]
+    assert [(kind, dev.name) for kind, dev in events] == [(ScanChange.RELOADED, "kitchen")]
 
 
 async def test_start_is_idempotent(tmp_path: Path) -> None:

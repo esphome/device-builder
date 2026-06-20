@@ -960,6 +960,43 @@ def test_on_scan_change_updated_clears_regenerate_failed_marker(
     assert "kitchen.yaml" not in controller.state.regenerate_failed
 
 
+def test_on_scan_change_updated_fires_yaml_updated(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    capture_devices_events: CaptureDevicesEventsFactory,
+) -> None:
+    """A real YAML edit fires DEVICE_UPDATED for clients and DEVICE_YAML_UPDATED for history."""
+    controller = make_controller(tmp_path, with_state_monitor=True, with_regenerate_state=True)
+    device = _device("kitchen")
+    captured = capture_devices_events(
+        controller, EventType.DEVICE_UPDATED, EventType.DEVICE_YAML_UPDATED
+    )
+
+    controller._on_scan_change(ScanChange.UPDATED, device)
+
+    assert [e.event_type for e in captured] == [
+        EventType.DEVICE_UPDATED,
+        EventType.DEVICE_YAML_UPDATED,
+    ]
+
+
+def test_on_scan_change_reloaded_skips_yaml_updated(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    capture_devices_events: CaptureDevicesEventsFactory,
+) -> None:
+    """A metadata reload refreshes the row but never commits to version history."""
+    controller = make_controller(tmp_path, with_state_monitor=True, with_regenerate_state=True)
+    device = _device("kitchen")
+    captured = capture_devices_events(
+        controller, EventType.DEVICE_UPDATED, EventType.DEVICE_YAML_UPDATED
+    )
+
+    controller._on_scan_change(ScanChange.RELOADED, device)
+
+    assert [e.event_type for e in captured] == [EventType.DEVICE_UPDATED]
+
+
 def test_on_scan_change_removed_revisits_importables(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:

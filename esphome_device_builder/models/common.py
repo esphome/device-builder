@@ -63,6 +63,10 @@ class EventType(StrEnum):
     DEVICE_ADDED = "device_added"
     DEVICE_REMOVED = "device_removed"
     DEVICE_UPDATED = "device_updated"
+    # Fires only when a device's YAML file changed on disk (an external
+    # edit), unlike DEVICE_UPDATED which also rides every runtime tick and
+    # metadata reload. Internal-only; not broadcast to clients.
+    DEVICE_YAML_UPDATED = "device_yaml_updated"
 
     # Device online/offline state change
     DEVICE_STATE_CHANGED = "device_state_changed"

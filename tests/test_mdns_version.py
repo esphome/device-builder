@@ -112,6 +112,9 @@ async def test_on_version_change_updates_device_fires_event_and_persists(
     # current_version is "2026.5.0" too, so update_available should be False.
     assert device.update_available is False
     assert any(e.event_type == EventType.DEVICE_UPDATED for e in captured)
+    # A runtime mDNS tick must not look like a YAML edit, or version history
+    # would commit (and contend for the git index) on every announce.
+    assert not any(e.event_type == EventType.DEVICE_YAML_UPDATED for e in captured)
     # Persisted to the store (deployed_version is a STORE_FIELDS member).
     assert controller._metadata_store.get(device.configuration) == {"deployed_version": "2026.5.0"}
 

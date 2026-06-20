@@ -684,7 +684,10 @@ class DeviceBuilder:
         # would defeat the point of having a per-device stream and
         # could trip the bounded queue's backpressure terminator
         # under fleet load.
-        broadcast_event_types = [et for et in EventType if et is not EventType.DEVICE_REACHABILITY]
+        # DEVICE_YAML_UPDATED is an internal version-history signal; clients
+        # already get DEVICE_UPDATED for the row, so it stays off the wire.
+        _internal_only = (EventType.DEVICE_REACHABILITY, EventType.DEVICE_YAML_UPDATED)
+        broadcast_event_types = [et for et in EventType if et not in _internal_only]
         # Hold a presence reference for the lifetime of the stream so
         # idle-time ICMP discovery resumes the moment a client
         # subscribes and pauses again on disconnect. The 0→1

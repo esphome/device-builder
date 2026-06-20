@@ -54,7 +54,7 @@ _DEGRADED_THRESHOLD = 3
 # Catch-all commit message per scanner change kind (external edits).
 _EXTERNAL_MESSAGE: dict[EventType, str] = {
     EventType.DEVICE_ADDED: "Add {configuration}",
-    EventType.DEVICE_UPDATED: "Edit {configuration}",
+    EventType.DEVICE_YAML_UPDATED: "Edit {configuration}",
     EventType.DEVICE_REMOVED: "Delete {configuration}",
 }
 
@@ -96,10 +96,10 @@ class VersionHistoryController:
         if not self._repo.enabled:
             return
         _LOGGER.info("Version history active (git work tree: %s)", self._repo.toplevel)
-        # Catch-all for edits made outside the dashboard: the scanner
-        # fires these only on an actual disk cache-key change (mtime /
-        # size / inode), so runtime mDNS / ping state ticks don't reach
-        # us. Dashboard mutations have already committed by the time the
+        # Catch-all for edits made outside the dashboard. DEVICE_YAML_UPDATED
+        # fires only when a YAML's bytes changed on disk, so runtime mDNS /
+        # ping ticks and metadata reloads (which ride DEVICE_UPDATED) never
+        # reach us. Dashboard mutations have already committed by the time the
         # debounced flush runs, so those become no-ops here.
         for event_type in _EXTERNAL_MESSAGE:
             self._unsubs.append(self._db.bus.add_listener(event_type, self._on_disk_change))
