@@ -28,13 +28,13 @@ featured_components:
       value: W5500
       locked: true
     clk_pin:
-      value: GPIO12
+      value: GPIO13
       locked: true
     mosi_pin:
       value: GPIO11
       locked: true
     miso_pin:
-      value: GPIO13
+      value: GPIO12
       locked: true
     cs_pin:
       value: GPIO14
@@ -52,7 +52,7 @@ pins:
 - gpio: 12
   label: GPIO12
   available: false
-  occupied_by: Ethernet CLK
+  occupied_by: Ethernet MISO
 - gpio: 11
   label: GPIO11
   available: false
@@ -60,7 +60,7 @@ pins:
 - gpio: 13
   label: GPIO13
   available: false
-  occupied_by: Ethernet MISO
+  occupied_by: Ethernet CLK
 - gpio: 14
   label: GPIO14
   available: false
