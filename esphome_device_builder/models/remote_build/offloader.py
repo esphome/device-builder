@@ -240,8 +240,8 @@ class RemoteBuildPeer(DashboardModel):
     ``REMOTE_BUILD_HOST_REMOVED`` events. The only source today
     is ``source="mdns"``: ``name`` is the mDNS service-instance
     name; ``hostname`` is the SRV target; ``addresses`` is the
-    parsed A / AAAA list with IPv6 scope preserved; versions
-    come from TXT.
+    parsed A / AAAA list with IPv6 scope preserved; versions and
+    ``friendly_name`` come from TXT.
     """
 
     name: str
@@ -251,6 +251,9 @@ class RemoteBuildPeer(DashboardModel):
     addresses: list[str] = field(default_factory=list)
     server_version: str = ""
     esphome_version: str = ""
+    # Human machine label from the TXT ``friendly_name`` entry; the
+    # displayable name. Empty for older receivers that don't broadcast it.
+    friendly_name: str = ""
     # Receiver's peer-link X25519 pubkey hash + port, pulled
     # from the ``_esphomebuilder._tcp.local.`` TXT record.
     # Lets the offloader match a discovered broadcast against a

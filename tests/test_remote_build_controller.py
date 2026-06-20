@@ -98,6 +98,7 @@ def _fake_service_info(
     addresses: list[str] | None = None,
     server_version: str = "1.2.3",
     esphome_version: str = "2026.5.0",
+    friendly_name: str = "",
 ) -> MagicMock:
     """Build a stand-in for ``AsyncServiceInfo`` carrying the fields we read."""
     info = MagicMock()
@@ -109,6 +110,8 @@ def _fake_service_info(
         b"server_version": server_version.encode("utf-8"),
         b"esphome_version": esphome_version.encode("utf-8"),
     }
+    if friendly_name:
+        info.properties[b"friendly_name"] = friendly_name.encode("utf-8")
     return info
 
 
@@ -224,6 +227,15 @@ def test_peer_from_service_info_handles_missing_txt_keys() -> None:
     peer = peer_from_service_info(f"desktop.{SERVICE_TYPE}", info)
     assert peer.server_version == ""
     assert peer.esphome_version == ""
+    assert peer.friendly_name == ""
+
+
+def test_peer_from_service_info_reads_friendly_name_from_txt() -> None:
+    """The human machine label is read from the ``friendly_name`` TXT entry."""
+    info = _fake_service_info(name="esphome-builder-jwywnve", friendly_name="MacBook-Pro")
+    peer = peer_from_service_info(f"esphome-builder-jwywnve.{SERVICE_TYPE}", info)
+    assert peer.name == "esphome-builder-jwywnve"
+    assert peer.friendly_name == "MacBook-Pro"
 
 
 # ---------------------------------------------------------------------------
