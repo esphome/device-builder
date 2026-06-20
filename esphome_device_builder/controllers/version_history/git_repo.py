@@ -132,11 +132,7 @@ class GitCommandError(subprocess.CalledProcessError):
 
 
 class GitIndexLockBusyError(GitCommandError):
-    """A live concurrent writer holds the ``index.lock``; safe to retry.
-
-    Raised so the async caller backs off on the event loop rather than
-    blocking the executor thread.
-    """
+    """A live writer holds the ``index.lock``; the async caller should retry."""
 
 
 @dataclass(slots=True)
@@ -475,6 +471,10 @@ class GitRepo:
             if self._clear_stale_index_lock(exc):
                 self._run(args, check=True)  # cleared a stale lock; retry now
                 return
+            # Couldn't clear it: a live writer (the common case in an adopted
+            # shared repo, where we never touch the lock) or a rare
+            # stale-but-unremovable lock. Treat both as retryable; the latter
+            # just re-fails after the bounded backoff, never silently.
             raise GitIndexLockBusyError(
                 exc.returncode, exc.cmd, output=exc.output, stderr=exc.stderr
             ) from exc

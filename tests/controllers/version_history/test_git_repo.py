@@ -606,8 +606,8 @@ def test_run_write_propagates_a_non_lock_error(
     assert calls["n"] == 1
 
 
-def test_commit_raises_when_stale_lock_cannot_be_removed(tmp_path: Path) -> None:
-    """If the stale lock can't be unlinked (e.g. it's a directory), the write still raises."""
+def test_commit_raises_busy_when_stale_lock_cannot_be_removed(tmp_path: Path) -> None:
+    """A stale lock we can't unlink (e.g. it's a directory) falls through to retryable busy."""
     repo = GitRepo(config_dir=tmp_path)
     repo.discover_or_init()
     yaml = tmp_path / "kitchen.yaml"
@@ -618,7 +618,7 @@ def test_commit_raises_when_stale_lock_cannot_be_removed(tmp_path: Path) -> None
     stamp = time.time() - 3600
     os.utime(lock_dir, (stamp, stamp))
 
-    with pytest.raises(subprocess.CalledProcessError):
+    with pytest.raises(git_repo_mod.GitIndexLockBusyError):
         repo.commit_paths([yaml], "Create kitchen.yaml")
     assert lock_dir.exists()
 
