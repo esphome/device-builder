@@ -35,11 +35,12 @@ async function watchdogReset(loader: ESPLoader, transport: Transport): Promise<b
     // setSignals may fail; the WDT can still reset the chip.
   }
   // Sequence + magic value from esptool python's watchdog_reset(): unlock, set
-  // timeout, enable+arm, re-lock.
+  // timeout, enable+arm, re-lock. >>> 0 keeps config0 an unsigned u32
+  // (1 << 31 alone is negative in JS).
   try {
     await loader.writeReg(regs.wdtWProtect, RTC_CNTL_WDT_WKEY);
     await loader.writeReg(regs.wdtConfig1, 2000);
-    await loader.writeReg(regs.wdtConfig0, (1 << 31) | (5 << 28) | (1 << 8) | 2);
+    await loader.writeReg(regs.wdtConfig0, ((1 << 31) | (5 << 28) | (1 << 8) | 2) >>> 0);
     await loader.writeReg(regs.wdtWProtect, 0);
   } catch {
     // A writeReg can race the reset firing; the WDT has already done its job.
