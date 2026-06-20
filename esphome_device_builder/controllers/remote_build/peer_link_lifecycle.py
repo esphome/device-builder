@@ -19,7 +19,6 @@ lookup) reach into a stable surface.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 from typing import TYPE_CHECKING
 
 from ...helpers.api import CommandError
@@ -95,8 +94,12 @@ async def cancel_peer_link_client_and_wait(
     if handle is None or handle.task.done():
         return
     handle.task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await handle.task
+    # ``asyncio.wait`` rather than ``await handle.task``: it absorbs the
+    # task's own outcome (cancellation or any teardown exception) without
+    # adopting it, but still propagates a cancellation of *this* task — so
+    # shutdown isn't swallowed and a settling-task error can't abort the
+    # caller's respawn.
+    await asyncio.wait({handle.task})
 
 
 def lookup_open_peer_link_client(

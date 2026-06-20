@@ -441,6 +441,40 @@ async def test_cancel_peer_link_client_and_wait_awaits_teardown(tmp_path: Path) 
     assert pin not in controller.offloader.state.peer_link_clients
 
 
+async def test_cancel_peer_link_client_and_wait_propagates_caller_cancellation(
+    tmp_path: Path,
+) -> None:
+    """A cancel of the calling task isn't swallowed by the teardown wait."""
+    pin = "a" * 64
+    pairing = _valid_stored_pairing()
+    controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
+    child_cancelled = asyncio.Event()
+
+    async def _stubborn() -> None:
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            # Swallow the first cancel so the helper stays parked in its
+            # ``asyncio.wait`` while we cancel the calling task.
+            child_cancelled.set()
+            await asyncio.sleep(3600)
+
+    child = asyncio.create_task(_stubborn())
+    await asyncio.sleep(0)
+    controller.offloader.state.peer_link_clients[pin] = PeerLinkClientHandle(
+        client=MagicMock(), task=child
+    )
+
+    outer = asyncio.create_task(controller.offloader._cancel_peer_link_client_and_wait(pin))
+    await child_cancelled.wait()
+    outer.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await outer
+
+    child.cancel()
+    await asyncio.gather(child, return_exceptions=True)
+
+
 async def test_rebind_respawn_awaits_old_client_before_spawn(tmp_path: Path) -> None:
     """Respawn waits for the old client to tear down before spawning the new one."""
     pin = "a" * 64
