@@ -1310,6 +1310,60 @@ def test_chip_family_to_descriptor_maps_esp8266() -> None:
     }
 
 
+def test_chip_family_to_descriptor_maps_classic_esp32_packages() -> None:
+    """Esptool's package-specific classic names collapse to esp32."""
+    for name in ("ESP32-D0WD-V3", "ESP32-D0WDQ6", "ESP32-PICO-D4", "ESP32-U4WDH"):
+        assert _chip_family_to_descriptor(name) == {
+            "chip_family": "ESP32",
+            "variant": "esp32",
+            "platform": "esp32",
+        }
+
+
+def test_chip_family_to_descriptor_maps_esp8266_and_esp8285_packages() -> None:
+    for name in ("ESP8266EX", "ESP8285"):
+        assert _chip_family_to_descriptor(name) == {
+            "chip_family": "ESP8266",
+            "variant": "",
+            "platform": "esp8266",
+        }
+
+
+def test_chip_family_to_descriptor_keeps_s0wd_classic_not_s_variant() -> None:
+    """ESP32-S0WD is a classic SKU, not a sub-variant — must map to esp32."""
+    assert _chip_family_to_descriptor("ESP32-S0WD") == {
+        "chip_family": "ESP32",
+        "variant": "esp32",
+        "platform": "esp32",
+    }
+
+
+def test_chip_family_to_descriptor_recognizes_new_variants() -> None:
+    """S31/H4/H21 are real esphome variants now in the catalog enum."""
+    assert _chip_family_to_descriptor("ESP32-S31") == {
+        "chip_family": "ESP32-S31",
+        "variant": "esp32s31",
+        "platform": "esp32",
+    }
+    assert _chip_family_to_descriptor("ESP32-H21")["variant"] == "esp32h21"
+
+
+def test_parse_chip_family_line_classic_from_chip_type_line() -> None:
+    """The ``Chip type:`` line alone identifies a classic ESP32 (no rescue)."""
+    output = "Chip type:          ESP32-D0WD-V3 (revision v3.1)\n"
+    assert _parse_chip_family_line(output) == {
+        "chip_family": "ESP32",
+        "variant": "esp32",
+        "platform": "esp32",
+    }
+
+
+def test_parse_chip_family_line_keeps_s3_off_classic() -> None:
+    """An ESP32-S3 package must stay on the S3 variant, not collapse to esp32."""
+    output = "Chip type:          ESP32-S3 (QFN56) (revision v0.2)\n"
+    assert _parse_chip_family_line(output)["variant"] == "esp32s3"
+
+
 def test_parse_project_name_returns_project_name_when_magic_matches() -> None:
     blob = _app_descriptor_blob("starter-kit")
     assert _parse_project_name(blob) == "starter-kit"
