@@ -1,11 +1,11 @@
-id: wiznet-w5500-evb-pico
-name: WIZnet W5500-EVB-Pico
-description: WIZnet W5500-EVB-Pico — RP2040 (Raspberry Pi Pico form factor) with an onboard W5500 Ethernet
+id: wiznet-w6300-evb-pico
+name: WIZnet W6300-EVB-Pico
+description: WIZnet W6300-EVB-Pico — RP2040 (Raspberry Pi Pico form factor) with an onboard W6300 Ethernet
   controller wired over SPI. Wired-only networking, no Wi-Fi.
 manufacturer: WIZnet
 esphome:
   platform: rp2040
-  board: wiznet_5500_evb_pico
+  board: wiznet_6300_evb_pico
 hardware:
   flash_size: 2MB
   connectivity:
@@ -17,26 +17,26 @@ featured_components:
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
-  description: Built-in W5500 Ethernet controller (SPI) — wired networking with no Wi-Fi setup.
+  description: Built-in W6300 Ethernet controller (SPI) — wired networking with no Wi-Fi setup.
   fields:
     type:
-      value: W5500
+      value: W6300
       locked: true
     clk_pin:
-      value: GPIO18
-      locked: true
-    mosi_pin:
-      value: GPIO19
-      locked: true
-    miso_pin:
-      value: GPIO16
-      locked: true
-    cs_pin:
       value: GPIO17
       locked: true
+    mosi_pin:
+      value: GPIO18
+      locked: true
+    miso_pin:
+      value: GPIO19
+      locked: true
+    cs_pin:
+      value: GPIO16
+      locked: true
     interrupt_pin:
-      value: GPIO21
+      value: GPIO15
       locked: true
     reset_pin:
-      value: GPIO20
+      value: GPIO22
       locked: true

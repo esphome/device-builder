@@ -440,6 +440,66 @@ def _backfill_rp2040_mcu(boards: list[BoardCatalogEntry]) -> None:
             board.esphome.mcu = meta.get("mcu", "rp2040") if isinstance(meta, dict) else "rp2040"
 
 
+# SPI ethernet pin field -> the occupied_by label shown on the overlaid pin.
+_RP2040_ETHERNET_PIN_ROLES: dict[str, str] = {
+    "clk_pin": "Ethernet CLK",
+    "mosi_pin": "Ethernet MOSI",
+    "miso_pin": "Ethernet MISO",
+    "cs_pin": "Ethernet CS",
+    "interrupt_pin": "Ethernet INT",
+    "reset_pin": "Ethernet RESET",
+}
+
+# Canonical Pico/Pico2 pinout each onboard-ethernet board overlays onto, by chip
+# series. Reusing these curated bodies (not ESPHome's matrix) fixes RP2350A, whose
+# ESPHome ``max_pin`` is 47 though the Pico2 form factor exposes 30 GPIOs.
+_RP2040_BASE_PINOUT_BOARD: dict[str, str] = {"rp2040": "rpipico", "rp2350": "rpipico2"}
+
+
+def _gpio_number(value: object) -> int | None:
+    """GPIO number from a pin-field value (``"GPIO17"`` or ``17``), or ``None``."""
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and (match := re.search(r"\d+", value)):
+        return int(match.group())
+    return None
+
+
+def _augment_rp2040_onboard_ethernet_pins(boards: list[BoardCatalogEntry]) -> None:
+    """
+    Overlay a pinless rp2040 ethernet board's SPI pins onto the Pico pinout.
+
+    Uses rpipico / rpipico2 by chip series and locks the ethernet pins; skips
+    boards that already ship pins.
+    """
+    base_by_mcu = {
+        board.esphome.mcu: board.pins
+        for board in boards
+        if board.esphome.board in _RP2040_BASE_PINOUT_BOARD.values()
+    }
+    for board in boards:
+        if board.esphome.platform is not Platform.RP2040 or board.pins:
+            continue
+        ethernet = next(
+            (fc for fc in board.featured_components if fc.component_id == "ethernet"), None
+        )
+        base = base_by_mcu.get(board.esphome.mcu or "rp2040")
+        if ethernet is None or not base:
+            continue
+        roles: dict[int, str] = {}
+        for field, role in _RP2040_ETHERNET_PIN_ROLES.items():
+            preset = ethernet.fields.get(field)
+            gpio = _gpio_number(preset.value) if preset is not None else None
+            if gpio is not None:
+                roles[gpio] = role
+        board.pins = [
+            replace(pin, available=False, occupied_by=roles[pin.gpio], features=[], notes=None)
+            if pin.gpio in roles
+            else replace(pin, features=list(pin.features))
+            for pin in base
+        ]
+
+
 def _esp32_generic_pins_by_variant(
     boards: list[BoardCatalogEntry],
 ) -> dict[Esp32Variant, list[BoardPin]]:
@@ -740,6 +800,7 @@ def build_catalog() -> BoardCatalogResponse:
     _augment_rp2040_boards(catalog.boards)
     _backfill_rp2040_wifi(catalog.boards)
     _backfill_rp2040_mcu(catalog.boards)
+    _augment_rp2040_onboard_ethernet_pins(catalog.boards)
     _augment_esp32_boards(catalog.boards)
     _augment_esp8266_boards(catalog.boards)
     _augment_nrf52_boards(catalog.boards)

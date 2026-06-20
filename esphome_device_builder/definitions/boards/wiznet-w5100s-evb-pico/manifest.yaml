@@ -40,28 +40,3 @@ featured_components:
     reset_pin:
       value: GPIO20
       locked: true
-pins:
-- gpio: 18
-  label: GPIO18
-  available: false
-  occupied_by: Ethernet CLK
-- gpio: 19
-  label: GPIO19
-  available: false
-  occupied_by: Ethernet MOSI
-- gpio: 16
-  label: GPIO16
-  available: false
-  occupied_by: Ethernet MISO
-- gpio: 17
-  label: GPIO17
-  available: false
-  occupied_by: Ethernet CS
-- gpio: 21
-  label: GPIO21
-  available: false
-  occupied_by: Ethernet INT
-- gpio: 20
-  label: GPIO20
-  available: false
-  occupied_by: Ethernet RESET
