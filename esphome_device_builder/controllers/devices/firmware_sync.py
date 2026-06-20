@@ -115,9 +115,7 @@ async def refresh_after_job(
     await controller._scanner.reload(configuration)
     if flashed:
         await controller._sync_deployed_state_after_flash(configuration)
-        controller._db.create_background_task(
-            controller._reprobe_version_after_flash(configuration)
-        )
+        controller._schedule_version_reprobe(configuration)
     # A real compile moves the build-size cache's freshness
     # pair (build-dir mtime + ``build_info.json`` mtime); the
     # worker short-circuits when the pair didn't actually move
@@ -180,16 +178,23 @@ async def sync_deployed_state_after_flash(
         controller._state_monitor.apply_version(device.name, version)
 
 
-async def reprobe_version_after_flash(controller: DevicesController, configuration: str) -> None:
-    """Re-probe the device's running version over the Native API after a flash.
+def schedule_version_reprobe(controller: DevicesController, configuration: str) -> None:
+    """Arm a one-shot Native-API version re-probe ~60s after a flash.
 
-    Confirms the optimistic pin once the device has rebooted — the only
-    way to catch a rollback / failed boot when mDNS can't reach us.
+    The delay lets the device reboot into the new image before we
+    connect; the re-probe then confirms the optimistically-pinned
+    version (and catches a rollback) where mDNS can't reach us.
+    Re-arming for the same configuration cancels the prior timer so a
+    rapid re-flash doesn't stack probes; the handle is tracked on the
+    controller so ``stop`` can cancel anything still pending.
     """
-    await asyncio.sleep(_POST_FLASH_VERSION_REPROBE_DELAY)
-    device = controller._scanner.get_by_configuration(configuration)
-    if device is not None:
-        controller._state_monitor.request_version_reprobe(device.name)
+    existing = controller._reprobe_timers.pop(configuration, None)
+    if existing is not None:
+        existing.cancel()
+    loop = asyncio.get_running_loop()
+    controller._reprobe_timers[configuration] = loop.call_later(
+        _POST_FLASH_VERSION_REPROBE_DELAY, _fire_version_reprobe, controller, configuration
+    )
 
 
 async def migrate_metadata_then_scan(
@@ -207,6 +212,19 @@ async def migrate_metadata_then_scan(
             new_configuration,
         )
     await controller._scanner.scan()
+
+
+def _fire_version_reprobe(controller: DevicesController, configuration: str) -> None:
+    """Timer callback: ask the monitor to verify the device's running version.
+
+    A no-op if the device vanished in the interim. The request still
+    honours the monitor's ``priority_for != MDNS`` guard, so a device
+    already seen over mDNS by now is skipped rather than probed.
+    """
+    controller._reprobe_timers.pop(configuration, None)
+    device = controller._scanner.get_by_configuration(configuration)
+    if device is not None:
+        controller._state_monitor.request_version_reprobe(device.name)
 
 
 def _read_compiled_esphome_version(configuration: str) -> str:

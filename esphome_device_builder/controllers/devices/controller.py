@@ -115,6 +115,10 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         # Unsubscribe handle for the firmware-job-completion listener
         # wired up in start(); held so stop() can detach cleanly.
         self._unsub_job_completed: Any = None
+        # Pending post-flash version re-probe timers, keyed on
+        # configuration so a re-flash cancels its predecessor; cancelled
+        # en masse in stop().
+        self._reprobe_timers: dict[str, asyncio.TimerHandle] = {}
 
         # Constructed before the scanner so the first
         # ``_resolve_device_metadata`` reads off the store.
@@ -266,6 +270,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         if self._unsub_job_completed is not None:
             self._unsub_job_completed()
             self._unsub_job_completed = None
+        self._cancel_reprobe_timers()
         await self._scanner.stop()
         await self._build_size.stop()
         await self._mqtt_coordinator.stop()
@@ -1123,8 +1128,14 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     async def _sync_deployed_state_after_flash(self, configuration: str) -> None:
         await firmware_sync.sync_deployed_state_after_flash(self, configuration)
 
-    async def _reprobe_version_after_flash(self, configuration: str) -> None:
-        await firmware_sync.reprobe_version_after_flash(self, configuration)
+    def _schedule_version_reprobe(self, configuration: str) -> None:
+        firmware_sync.schedule_version_reprobe(self, configuration)
+
+    def _cancel_reprobe_timers(self) -> None:
+        """Cancel any pending post-flash re-probe timers."""
+        for handle in self._reprobe_timers.values():
+            handle.cancel()
+        self._reprobe_timers.clear()
 
     def _persist_build_size(self, configuration: str, result: BuildSizeRefreshResult) -> None:
         """Merge a fresh build-size triple into the metadata store."""

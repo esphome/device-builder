@@ -24,6 +24,7 @@ Three pieces are covered:
 
 from __future__ import annotations
 
+import asyncio
 import tempfile as _tempfile
 from pathlib import Path
 from typing import Any
@@ -362,20 +363,20 @@ async def test_refresh_after_upload_skips_hash_compute(tmp_path: Path, monkeypat
     db = MagicMock()
     db.settings.config_dir = tmp_path
     db.settings.rel_path = lambda c: tmp_path / c
-    # The flashed branch schedules the post-flash re-probe; close the coro
-    # so it doesn't leak (no device seeded, so the state sync is a no-op).
-    db.create_background_task.side_effect = lambda coro: coro.close()
 
     controller = DevicesController.__new__(DevicesController)
     controller._db = db
     controller._scanner = RecordingScanner()
     controller._build_size = MagicMock()
     controller._state_monitor = MagicMock()
+    # The flashed branch arms a post-flash re-probe timer.
+    controller._reprobe_timers = {}
 
     await controller._refresh_after_firmware_job("kitchen.yaml", recompute_hash=False, flashed=True)
 
     assert compute_calls == []
     assert controller._scanner.calls == [("reload", "kitchen.yaml")]
+    controller._cancel_reprobe_timers()
 
 
 # ----------------------------------------------------------------------
@@ -546,48 +547,79 @@ async def test_sync_after_flash_unknown_configuration_is_noop(monkeypatch: Any) 
 
 
 # ----------------------------------------------------------------------
-# DevicesController._reprobe_version_after_flash
+# Post-flash version re-probe timer
 #
 # A successful flash optimistically pins the version, but in an mDNS-dark
 # deployment the dashboard can't see a rollback / failed boot. A one-shot
-# Native-API re-probe scheduled after the device reboots confirms (or
-# corrects) the running version.
+# Native-API re-probe armed ~60s after the device reboots confirms (or
+# corrects) the running version. Scheduled via ``loop.call_later`` and
+# tracked so ``stop`` can cancel anything still pending.
 # ----------------------------------------------------------------------
 
+_DELAY = (
+    "esphome_device_builder.controllers.devices.firmware_sync._POST_FLASH_VERSION_REPROBE_DELAY"
+)
 
-async def test_reprobe_after_flash_requests_version_reprobe(monkeypatch: Any) -> None:
-    """After the delay, the device's name is handed to the monitor's re-probe."""
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.firmware_sync._POST_FLASH_VERSION_REPROBE_DELAY",
-        0,
-    )
-    device = _device()
+
+def _reprobe_controller(device: Device | None) -> Any:
+    """Build a bare controller wired for the re-probe timer path."""
     controller = DevicesController.__new__(DevicesController)
+    controller._reprobe_timers = {}
     controller._scanner = MagicMock()
     controller._scanner.get_by_configuration = lambda cfg: (
-        device if device.configuration == cfg else None
+        device if device is not None and device.configuration == cfg else None
     )
     controller._state_monitor = MagicMock()
+    return controller
 
-    await controller._reprobe_version_after_flash("kitchen.yaml")
+
+async def test_schedule_version_reprobe_fires_and_requests(monkeypatch: Any) -> None:
+    """When the timer fires, the device's name is handed to the monitor's re-probe."""
+    monkeypatch.setattr(_DELAY, 0)
+    device = _device()
+    controller = _reprobe_controller(device)
+
+    controller._schedule_version_reprobe("kitchen.yaml")
+    await asyncio.sleep(0.01)  # let the call_later(0) timer fire
 
     controller._state_monitor.request_version_reprobe.assert_called_once_with(device.name)
+    assert controller._reprobe_timers == {}  # consumed
 
 
-async def test_reprobe_after_flash_unknown_configuration_is_noop(monkeypatch: Any) -> None:
-    """No matching device → nothing to re-probe."""
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.firmware_sync._POST_FLASH_VERSION_REPROBE_DELAY",
-        0,
-    )
-    controller = DevicesController.__new__(DevicesController)
-    controller._scanner = MagicMock()
-    controller._scanner.get_by_configuration = lambda _cfg: None
-    controller._state_monitor = MagicMock()
+async def test_fire_version_reprobe_unknown_configuration_is_noop() -> None:
+    """No matching device when the timer fires → nothing to re-probe."""
+    controller = _reprobe_controller(None)
 
-    await controller._reprobe_version_after_flash("kitchen.yaml")
+    firmware_sync._fire_version_reprobe(controller, "kitchen.yaml")
 
     controller._state_monitor.request_version_reprobe.assert_not_called()
+
+
+async def test_schedule_version_reprobe_reschedule_cancels_previous(monkeypatch: Any) -> None:
+    """Re-arming for the same configuration cancels the prior pending timer."""
+    monkeypatch.setattr(_DELAY, 60)  # long enough that neither fires during the test
+    controller = _reprobe_controller(_device())
+
+    controller._schedule_version_reprobe("kitchen.yaml")
+    first = controller._reprobe_timers["kitchen.yaml"]
+    controller._schedule_version_reprobe("kitchen.yaml")
+
+    assert first.cancelled()
+    assert controller._reprobe_timers["kitchen.yaml"] is not first
+    controller._cancel_reprobe_timers()
+
+
+async def test_cancel_reprobe_timers_cancels_pending(monkeypatch: Any) -> None:
+    """``stop`` cancels any armed-but-unfired re-probe timers."""
+    monkeypatch.setattr(_DELAY, 60)
+    controller = _reprobe_controller(_device())
+
+    controller._schedule_version_reprobe("kitchen.yaml")
+    handle = controller._reprobe_timers["kitchen.yaml"]
+    controller._cancel_reprobe_timers()
+
+    assert handle.cancelled()
+    assert controller._reprobe_timers == {}
 
 
 # ----------------------------------------------------------------------
