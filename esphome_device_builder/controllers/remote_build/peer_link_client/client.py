@@ -323,10 +323,11 @@ class PeerLinkClient:
                 self._fire_closed(close_reason, error_detail=self._last_connect_error)
                 if close_reason == TerminateReason.SUPERSEDED.value:
                     _LOGGER.info(
-                        "peer-link client to %s:%d superseded by another instance "
+                        "peer-link client to %s:%d (%r) superseded by another instance "
                         "with the same dashboard_id; orphaning",
                         self._hostname,
                         self._port,
+                        self._receiver_label,
                     )
                     self._orphaned = True
                     return
@@ -379,9 +380,10 @@ class PeerLinkClient:
             ):
                 peer = ws.get_extra_info("peername")
                 _LOGGER.info(
-                    "peer-link client connected to %s:%d (peer=%s)",
+                    "peer-link client connected to %s:%d (%r, peer=%s)",
                     self._hostname,
                     self._port,
+                    self._receiver_label,
                     peer,
                 )
                 session = PeerLinkNoiseSession.initiator(self._identity_priv)
@@ -412,12 +414,13 @@ class PeerLinkClient:
                     # stored-row corruption symptom instead of a
                     # wire-level one.
                     _LOGGER.warning(
-                        "peer-link client to %s:%d observed pin drift "
+                        "peer-link client to %s:%d (%r) observed pin drift "
                         "(stored_pin=%s expected_pin=%s expected_bytes=%s "
                         "observed_pin=%s observed_bytes=%s); orphaning "
                         "until the operator re-pairs or unpairs",
                         self._hostname,
                         self._port,
+                        self._receiver_label,
                         self._pin_sha256,
                         pin_sha256_for_pubkey(self._pinned_static_x25519_pub),
                         self._pinned_static_x25519_pub.hex(),
@@ -451,9 +454,10 @@ class PeerLinkClient:
                     raise
         except (TimeoutError, aiohttp.ClientError, OSError, ValueError, TypeError) as exc:
             _LOGGER.debug(
-                "peer-link client to %s:%d transport error: %s",
+                "peer-link client to %s:%d (%r) transport error: %s",
                 self._hostname,
                 self._port,
+                self._receiver_label,
                 exc,
                 exc_info=True,
             )
@@ -461,9 +465,10 @@ class PeerLinkClient:
             return _LOCAL_CLOSE_TRANSPORT_ERROR
         except NOISE_ERRORS as exc:
             _LOGGER.warning(
-                "peer-link client to %s:%d Noise failure: %s",
+                "peer-link client to %s:%d (%r) Noise failure: %s",
                 self._hostname,
                 self._port,
+                self._receiver_label,
                 exc,
                 exc_info=True,
             )
@@ -492,9 +497,10 @@ class PeerLinkClient:
         async def _on_dead() -> None:
             state.close_reason = _LOCAL_CLOSE_HEARTBEAT_TIMEOUT
             _LOGGER.info(
-                "peer-link client to %s:%d heartbeat timeout; closing",
+                "peer-link client to %s:%d (%r) heartbeat timeout; closing",
                 self._hostname,
                 self._port,
+                self._receiver_label,
             )
             # ``ws.close()`` can raise ``ClientConnectionError`` /
             # ``ClientError`` when the peer has already gone
@@ -657,18 +663,20 @@ class PeerLinkClient:
         self._last_connect_error = message
         if terminal:
             _LOGGER.warning(
-                "peer-link client to %s:%d rejected by receiver (reason=%s); orphaning "
+                "peer-link client to %s:%d (%r) rejected by receiver (reason=%s); orphaning "
                 "until the operator re-pairs or unpairs",
                 self._hostname,
                 self._port,
+                self._receiver_label,
                 reason,
             )
             self._fire_peer_revoked()
             return _LOCAL_CLOSE_RECEIVER_REJECTED
         _LOGGER.warning(
-            "peer-link client to %s:%d rejected at handshake: %r",
+            "peer-link client to %s:%d (%r) rejected at handshake: %r",
             self._hostname,
             self._port,
+            self._receiver_label,
             response,
         )
         return _LOCAL_CLOSE_AUTH_REJECTED
@@ -678,12 +686,13 @@ class PeerLinkClient:
         if isinstance(peer, tuple) and peer and isinstance(peer[0], str):
             self._self_loopback_ips.add(peer[0])
         _LOGGER.error(
-            "peer-link client to %s:%d observed our own static pubkey from the responder "
+            "peer-link client to %s:%d (%r) observed our own static pubkey from the responder "
             "(peer=%s pin=%s); check mDNS / routing (hostname resolves to one of this "
             "host's own IPs) or identity collision (receiver running with a copy of our "
             "peer-link key)",
             self._hostname,
             self._port,
+            self._receiver_label,
             peer,
             self._pin_sha256,
         )

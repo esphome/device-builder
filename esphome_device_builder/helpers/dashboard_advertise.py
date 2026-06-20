@@ -522,9 +522,10 @@ class DashboardAdvertiser:
         self._info = info
         self._zeroconf = zeroconf
         _LOGGER.info(
-            "Advertising dashboard on %s as %r (port %d, esphome %s)",
+            "Advertising dashboard on %s as %r (%r, port %d, esphome %s)",
             SERVICE_TYPE,
             info.name,
+            self._friendly_name,
             self._port,
             self._esphome_version,
         )
