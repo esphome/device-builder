@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 from ...helpers.api import CommandError, api_command
 from ...models import ErrorCode, EventType
-from .git_repo import GIT_COMMIT_ERRORS, GitRepo
+from .git_repo import GIT_COMMIT_ERRORS, GitIndexLockBusyError, GitRepo
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -50,6 +50,14 @@ _DEBOUNCE_SECONDS = 2.0
 # — enough to tell a persistent breakage (corrupt repo, disk full) from a
 # one-off hiccup, which a future History pane can surface to the user.
 _DEGRADED_THRESHOLD = 3
+
+# A fresh index.lock means another writer (commonly a second dashboard
+# instance sharing one config-dir repo) is mid-commit; it releases within
+# milliseconds, so back off on the event loop and retry rather than drop
+# the edit or trip the degraded flag. The wait is async, so the executor
+# thread isn't held during it.
+_LOCK_RETRY_ATTEMPTS = 4
+_LOCK_RETRY_BACKOFF = 0.2  # seconds; doubled after each attempt
 
 # Catch-all commit message per scanner change kind (external edits).
 _EXTERNAL_MESSAGE: dict[EventType, str] = {
@@ -132,13 +140,23 @@ class VersionHistoryController:
         if not self._repo.enabled or not paths:
             return None
         async with self._lock:
-            try:
-                sha = await self._in_executor(self._repo.commit_paths, paths, message)
-            except GIT_COMMIT_ERRORS:
-                self._note_commit_failure()
-                raise
-            self._note_commit_success()
-            return sha
+            backoff = _LOCK_RETRY_BACKOFF
+            for attempt in range(_LOCK_RETRY_ATTEMPTS + 1):
+                try:
+                    sha = await self._in_executor(self._repo.commit_paths, paths, message)
+                except GitIndexLockBusyError:
+                    if attempt == _LOCK_RETRY_ATTEMPTS:
+                        self._note_commit_failure()
+                        raise
+                    await asyncio.sleep(backoff)
+                    backoff *= 2
+                    continue
+                except GIT_COMMIT_ERRORS:
+                    self._note_commit_failure()
+                    raise
+                self._note_commit_success()
+                return sha
+        return None  # unreachable; the loop returns or raises
 
     def _note_commit_failure(self) -> None:
         """Count a git failure; flag degraded once they stop looking one-off."""

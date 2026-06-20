@@ -131,6 +131,14 @@ class GitCommandError(subprocess.CalledProcessError):
         return f"{base}: {detail}" if detail else base
 
 
+class GitIndexLockBusyError(GitCommandError):
+    """A *fresh* ``index.lock`` blocked the write — a live concurrent writer.
+
+    Raised instead of waiting inside the executor thread, so the async
+    caller can back off on the event loop and retry the whole commit.
+    """
+
+
 @dataclass(slots=True)
 class CommitInfo:
     """One commit touching a file, as surfaced to the history UI."""
@@ -452,13 +460,27 @@ class GitRepo:
     # ------------------------------------------------------------------
 
     def _run_write(self, args: list[str]) -> None:
-        """Run a checked git write, clearing a *stale* index.lock and retrying once."""
+        """
+        Run a checked git write, handling index.lock contention.
+
+        A *stale* lock (a crashed prior run) is cleared and the write
+        retried at once. A *fresh* lock (a live concurrent writer, e.g.
+        another dashboard instance on the same repo) raises
+        :class:`GitIndexLockBusyError` so the async caller backs off on the
+        event loop instead of blocking this executor thread. Any other
+        failure propagates.
+        """
         try:
             self._run(args, check=True)
         except subprocess.CalledProcessError as exc:
-            if not self._clear_stale_index_lock(exc):
+            if "index.lock" not in (exc.stderr or ""):
                 raise
-            self._run(args, check=True)
+            if self._clear_stale_index_lock(exc):
+                self._run(args, check=True)  # cleared a stale lock; retry now
+                return
+            raise GitIndexLockBusyError(
+                exc.returncode, exc.cmd, output=exc.output, stderr=exc.stderr
+            ) from exc
 
     def _clear_stale_index_lock(self, exc: subprocess.CalledProcessError) -> bool:
         """

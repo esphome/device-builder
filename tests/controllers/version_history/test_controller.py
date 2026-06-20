@@ -16,6 +16,8 @@ from unittest.mock import AsyncMock
 import pytest
 
 from esphome_device_builder.controllers.version_history import VersionHistoryController
+from esphome_device_builder.controllers.version_history import controller as vh_controller
+from esphome_device_builder.controllers.version_history.git_repo import GitIndexLockBusyError
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.models import Device, DeviceEventData, ErrorCode, EventType
@@ -105,6 +107,58 @@ async def test_external_edit_committed_via_scanner_catch_all(
 
     versions = await controller.list_versions(configuration="kitchen.yaml")
     assert [v["message"] for v in versions] == ["Edit kitchen.yaml"]
+
+
+async def test_commit_retries_a_busy_index_lock_then_succeeds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A live concurrent writer's lock is waited out on the loop, then the commit lands."""
+    monkeypatch.setattr(vh_controller, "_LOCK_RETRY_BACKOFF", 0.0)
+    sleeps: list[float] = []
+
+    async def _fake_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    monkeypatch.setattr(vh_controller.asyncio, "sleep", _fake_sleep)
+    controller = _make_controller(tmp_path)
+    calls = {"n": 0}
+
+    def _commit_paths(paths: list[Path], message: str) -> str:
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise GitIndexLockBusyError(128, ["git", "add"], stderr="...index.lock...")
+        return "deadbeef"
+
+    controller._repo = SimpleNamespace(enabled=True, commit_paths=_commit_paths)  # type: ignore[assignment]
+
+    assert await controller.commit([tmp_path / "kitchen.yaml"], "Edit") == "deadbeef"
+    assert calls["n"] == 3
+    assert len(sleeps) == 2  # one wait per retry
+    assert controller.degraded is False
+
+
+async def test_commit_gives_up_after_retries_on_persistent_busy_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A lock that never clears propagates after the bounded retries and counts a failure."""
+    monkeypatch.setattr(vh_controller, "_LOCK_RETRY_BACKOFF", 0.0)
+
+    async def _fake_sleep(_delay: float) -> None:
+        return None
+
+    monkeypatch.setattr(vh_controller.asyncio, "sleep", _fake_sleep)
+    controller = _make_controller(tmp_path)
+    calls = {"n": 0}
+
+    def _commit_paths(paths: list[Path], message: str) -> str:
+        calls["n"] += 1
+        raise GitIndexLockBusyError(128, ["git", "add"], stderr="...index.lock...")
+
+    controller._repo = SimpleNamespace(enabled=True, commit_paths=_commit_paths)  # type: ignore[assignment]
+
+    with pytest.raises(GitIndexLockBusyError):
+        await controller.commit([tmp_path / "kitchen.yaml"], "Edit")
+    assert calls["n"] == vh_controller._LOCK_RETRY_ATTEMPTS + 1
 
 
 async def test_external_edit_self_heals_stale_index_lock_after_restart(
