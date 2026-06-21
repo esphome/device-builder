@@ -18,6 +18,7 @@ loads and the command-handler registration walk.
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -289,6 +290,33 @@ async def test_stop_cancels_background_tasks_and_tears_down_controllers(
     assert db.devices is not None
     assert db.devices._unsub_job_completed is None  # type: ignore[attr-defined]
     # Executor pool drained.
+    assert db._executor is None
+
+
+async def test_on_shutdown_releases_network_before_local_flush(
+    make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
+) -> None:
+    """The ``on_shutdown`` hook frees the network resources; ``stop()`` then only flushes local.
+
+    Pins the split that releases the mDNS / peer-link sockets at the top of
+    shutdown, before the slower local flush, and that ``stop()`` doesn't repeat
+    the network teardown (the ``_network_stopped`` latch).
+    """
+    db = DeviceBuilder(make_settings(with_core_path=True))
+    await db.start()
+    assert db.devices is not None
+
+    # on_shutdown fires the network teardown early...
+    await db._on_shutdown(MagicMock())
+    assert db._network_stopped is True
+    assert db.devices._unsub_job_completed is None  # type: ignore[attr-defined]
+    # ...but the local flush hasn't run yet — the executor pool is still live.
+    assert db._executor is not None
+
+    # stop() must not repeat the network teardown; it only flushes local state.
+    db.devices.stop = AsyncMock()  # would be awaited again if the latch failed
+    await db.stop()
+    db.devices.stop.assert_not_awaited()
     assert db._executor is None
 
 

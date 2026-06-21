@@ -264,6 +264,10 @@ class DeviceBuilder:
         self._background_tasks: set[asyncio.Task] = set()
         self._bg_task: asyncio.Task | None = None
 
+        # Latches the one-time network teardown so it can run early (in the
+        # aiohttp ``on_shutdown`` hook) and stop() doesn't repeat it.
+        self._network_stopped = False
+
         self._ingress_runner: web.AppRunner | None = None
         # Remote-build peer-link listener lifecycle (issue #106) —
         # bind / teardown / rebuild of the Noise-XX receiver site and
@@ -457,9 +461,28 @@ class DeviceBuilder:
             self._startup_timer.mark("controllers")
             _LOGGER.info("Startup phases: %s", self._startup_timer.summary())
 
-    async def stop(self) -> None:  # noqa: C901, PLR0912
-        """Shut down the application."""
+    async def stop(self) -> None:
+        """Shut down the application: free network sockets first, then flush local state."""
         _LOGGER.info("Shutting down ESPHome Device Builder")
+        await self._stop_network()
+        await self._stop_local()
+
+    async def _on_shutdown(self, app: web.Application) -> None:
+        """
+        Free the network sockets (mDNS, peer-link) at the top of shutdown.
+
+        Runs in aiohttp's ``on_shutdown`` (right after the HTTP sites stop, before
+        the slower ``on_cleanup`` local flush) so UDP 5353 is released early; a
+        relaunched backend then isn't left co-binding 5353 with this one while it
+        drains.
+        """
+        await self._stop_network()
+
+    async def _stop_network(self) -> None:
+        """Tear down network-facing resources (remote-build, mDNS) once; idempotent."""
+        if self._network_stopped:
+            return
+        self._network_stopped = True
         if self._bg_task:
             self._bg_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -491,6 +514,9 @@ class DeviceBuilder:
             self._dashboard_advertiser = None
         if self.devices is not None:
             await self.devices.stop()
+
+    async def _stop_local(self) -> None:
+        """Flush local state (editor, version history, settings) and drain the executor pool."""
         if self.editor is not None:
             await self.editor.stop()
         if self.version_history is not None:
@@ -800,6 +826,10 @@ class DeviceBuilder:
 
         if with_lifecycle:
             app.on_startup.append(self._on_startup)
+            # Release the network sockets (mDNS / peer-link) early, before the
+            # local-state flush in on_cleanup. Registered after init_ws_app's
+            # close_active_websockets so WS handlers unwind first.
+            app.on_shutdown.append(self._on_shutdown)
             # Every add-on shape needs the trusted ingress site for the HA
             # sidebar, including the front-door-open one whose main app is the
             # unauthenticated public site. The ingress-only path passes
