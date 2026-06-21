@@ -82,6 +82,10 @@ SERVICE_TYPE = "_esphomebuilder._tcp.local."
 # with zero wire traffic.
 _REFRESH_INTERVAL_SECONDS = 300
 
+# Bound on the mDNS goodbye broadcast at shutdown; a wedged socket must not
+# stall the dashboard's exit.
+_UNREGISTER_TIMEOUT = 1.0
+
 
 def _default_friendly_name() -> str:
     """
@@ -647,6 +651,6 @@ class DashboardAdvertiser:
         if info is None or zeroconf is None:
             return
         try:
-            await zeroconf.async_unregister_service(info)
+            await asyncio.wait_for(zeroconf.async_unregister_service(info), _UNREGISTER_TIMEOUT)
         except Exception:
-            _LOGGER.debug("Dashboard advertise unregister failed", exc_info=True)
+            _LOGGER.debug("Dashboard advertise unregister failed or timed out", exc_info=True)

@@ -252,6 +252,27 @@ async def test_stop_swallows_zeroconf_close_exception(
     assert monitor._mdns._zeroconf is None
 
 
+async def test_close_zeroconf_is_bounded_when_async_close_hangs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A wedged ``async_close`` can't stall shutdown past ``_MDNS_CLOSE_TIMEOUT``."""
+    monitor, _callbacks = _make_monitor()
+    await _start_with_captured_dispatch(monitor, monkeypatch)
+    monkeypatch.setattr(mdns_module, "_MDNS_CLOSE_TIMEOUT", 0.05)
+
+    async def _hang() -> None:
+        await asyncio.sleep(30)
+
+    monitor._mdns._zeroconf.async_close = _hang
+
+    # Returns far under the 30s hang (timeout guard fails fast on a regression).
+    async with asyncio.timeout(5):
+        await monitor._mdns.close_zeroconf()
+
+    assert monitor._mdns._zeroconf is None
+    await _stop_and_drain(monitor)
+
+
 # ---------------------------------------------------------------------------
 # start() — failure fallbacks
 # ---------------------------------------------------------------------------

@@ -9,6 +9,7 @@ cache-inspection accessors the drawer's reachability snapshot reads.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable
 from operator import attrgetter
@@ -42,6 +43,10 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 _MDNS_RESOLVE_TIMEOUT_MS = 2000
+
+# Bound on the zeroconf close. ``async_close`` broadcasts mDNS goodbyes and can
+# hang on a wedged socket; shutdown must not block on it.
+_MDNS_CLOSE_TIMEOUT = 1.0
 
 
 class MdnsSource:
@@ -115,12 +120,12 @@ class MdnsSource:
             self._mdns_browser = None
 
     async def close_zeroconf(self) -> None:
-        """Close the zeroconf responder. Called after the resolve-task drain."""
+        """Close the zeroconf responder, bounded so a wedged socket can't stall shutdown."""
         if self._zeroconf is not None:
             try:
-                await self._zeroconf.async_close()
+                await asyncio.wait_for(self._zeroconf.async_close(), _MDNS_CLOSE_TIMEOUT)
             except Exception:
-                _LOGGER.debug("zeroconf close failed", exc_info=True)
+                _LOGGER.debug("zeroconf close failed or timed out", exc_info=True)
             self._zeroconf = None
 
     async def refresh_mdns(self, name: str) -> None:

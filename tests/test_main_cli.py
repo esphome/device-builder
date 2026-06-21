@@ -22,6 +22,7 @@ import builtins
 import logging
 import sys
 import threading
+import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from importlib.metadata import PackageNotFoundError
@@ -492,3 +493,49 @@ def test_warn_if_unprotected_warns_standalone_without_password(
         main_module._warn_if_unprotected(settings)
 
     assert any("WITHOUT AUTHENTICATION" in r.getMessage() for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# _arm_hard_exit_watchdog — the shutdown safety net
+# ---------------------------------------------------------------------------
+
+
+def test_hard_exit_watchdog_forces_exit_after_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Past the deadline the watchdog calls ``os._exit(0)`` so a wedged shutdown can't hang."""
+    monkeypatch.setattr(main_module, "_hard_exit_armed", False)
+    fired = threading.Event()
+    codes: list[int] = []
+
+    def fake_exit(code: int) -> None:
+        codes.append(code)
+        fired.set()
+
+    monkeypatch.setattr(main_module.os, "_exit", fake_exit)
+
+    main_module._arm_hard_exit_watchdog(deadline=0.01)
+
+    assert fired.wait(2.0)
+    assert codes == [0]
+
+
+def test_hard_exit_watchdog_arms_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A second arm is a no-op, so only one watchdog ever force-exits."""
+    monkeypatch.setattr(main_module, "_hard_exit_armed", False)
+    fired = threading.Event()
+    codes: list[int] = []
+
+    def fake_exit(code: int) -> None:
+        codes.append(code)
+        fired.set()
+
+    monkeypatch.setattr(main_module.os, "_exit", fake_exit)
+
+    main_module._arm_hard_exit_watchdog(deadline=0.01)
+    main_module._arm_hard_exit_watchdog(deadline=0.01)
+
+    assert fired.wait(2.0)
+    # Give a hypothetical second watchdog a chance to also fire before asserting.
+    time.sleep(0.1)
+    assert codes == [0]
