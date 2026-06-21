@@ -277,6 +277,44 @@ Two ways to make it work:
    restriction entirely (handy when the Host varies per request
    — but then operator-supplied auth becomes the only gate).
 
+### Subpath mounts (X-Forwarded-Prefix)
+
+If you run the standalone dashboard behind an HTTP reverse proxy
+(nginx, Traefik, Caddy, nginx-proxy-manager, …) at a subpath (for
+example `https://example.com/esphome/`), the proxy must forward the
+mount prefix to the backend using the `X-Forwarded-Prefix` header so
+the server can render the SPA's `<base href>` correctly per request.
+The header value does not need a trailing slash — the server
+normalises the prefix internally.
+
+Minimal nginx example:
+
+```nginx
+location /esphome/ {
+    proxy_pass http://localhost:6052/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Prefix /esphome;
+    proxy_read_timeout 86400s;
+}
+```
+
+Notes:
+
+- Home Assistant ingress deployments do not need this because the
+  supervisor sets `X-Ingress-Path` automatically; the dashboard
+  prefers `X-Ingress-Path` when present.
+- Traefik and Caddy provide equivalent ways to forward or strip
+  prefixes (look for `X-Forwarded-Prefix` or `stripPrefix`-style
+  options in their docs).
+- For the exact precedence and normalization logic, see
+  `_resolve_base_href()` in the backend source:
+  https://github.com/esphome/device-builder/blob/main/esphome_device_builder/device_builder.py#L124-L176
+
 CLI tools and the Home Assistant integration omit `Origin`
 entirely, so they're never affected — the gate is browser-only.
 The HA Ingress site (the `--ingress-host` listener the
