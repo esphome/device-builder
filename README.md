@@ -313,7 +313,7 @@ Notes:
   options in their docs).
 - For the exact precedence and normalization logic, see
   `_resolve_base_href()` in the backend source:
-  https://github.com/esphome/device-builder/blob/main/esphome_device_builder/device_builder.py#L124-L176
+  https://github.com/esphome/device-builder/blob/main/esphome_device_builder/device_builder.py
 
 CLI tools and the Home Assistant integration omit `Origin`
 entirely, so they're never affected — the gate is browser-only.
