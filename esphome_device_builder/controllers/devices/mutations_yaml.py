@@ -131,9 +131,7 @@ async def validate_rewritten_yaml_or_raise(
         except TimeoutError:
             if not tolerate_unavailable:
                 raise
-            # Expected on adopt: the imported config's cold ``github://``
-            # fetch outran the budget. Keep the file; compile/install
-            # surfaces any real error later.
+            # Expected on adopt: the cold ``github://`` fetch outran the budget.
             _LOGGER.info(
                 "Validation of %s for %s timed out; keeping file, deferring to compile/install",
                 configuration,
@@ -144,11 +142,8 @@ async def validate_rewritten_yaml_or_raise(
         except (ValidatorUnavailableError, BrokenPipeError):
             if not tolerate_unavailable:
                 raise
-            # Abnormal: the validator subprocess died / wedged. A generic
-            # RuntimeError (a bug in the validate path) is deliberately not
-            # caught here, so it surfaces instead of masquerading as success.
-            # WARNING because an always-down validator is operationally
-            # significant, not a routine timeout.
+            # Subprocess down (a generic RuntimeError still propagates); WARNING
+            # since an always-down validator is operationally significant.
             _LOGGER.warning(
                 "Validator subprocess unavailable during %s of %s; keeping file unvalidated",
                 action,

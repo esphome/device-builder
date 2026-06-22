@@ -29,10 +29,8 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 _STARTUP_TIMEOUT = 15.0
 _VALIDATE_TIMEOUT = 30.0
-# Short budget for the adopt path: a generator YAML-syntax error surfaces at
-# parse (well under a second), before esphome's network packages pass. An
-# imported config triggers a cold ``github://`` package fetch; that fetch is
-# abandoned rather than blocking adoption, and compile/install runs it later.
+# Short budget for adopt: a YAML-syntax error surfaces at parse (sub-second,
+# pre-network); the cold ``github://`` package fetch is abandoned, not awaited.
 _IMPORT_VALIDATE_TIMEOUT = 8.0
 # Linter and save both call ``validate_yaml`` on identical
 # content (typing-stops → linter at 600 ms → user clicks save).
@@ -305,8 +303,7 @@ class EditorController:
         internal-only; a WS client always gets the default.
         """
         if client is not None:
-            # ``timeout`` is an internal knob; ignore any value a WS
-            # client supplied so the wire contract stays fixed.
+            # ``timeout`` is internal-only; ignore a WS client's value.
             timeout = None
         if timeout is None:
             timeout = _VALIDATE_TIMEOUT
@@ -329,19 +326,16 @@ class EditorController:
             if cached is not None and cached.is_fresh_for(content_hash):
                 return cached.result
             try:
-                # Spawn / warm the subprocess outside the round-trip budget:
-                # a cold start has its own ``_STARTUP_TIMEOUT`` and counting it
-                # against a short import timeout would skip the fast pre-network
-                # YAML parse before the budget runs out.
+                # Warm the subprocess outside the budget so a cold start
+                # (own ``_STARTUP_TIMEOUT``) doesn't eat a short import timeout.
                 await self._ensure_subprocess(session)
                 result = await asyncio.wait_for(
                     self._validate_locked(session, configuration, content),
                     timeout=timeout,
                 )
             except (TimeoutError, ValidatorUnavailableError, BrokenPipeError):
-                # Subprocess wedged or died — kill it so the next call respawns.
-                # A generic RuntimeError (a bug in the validate path) propagates
-                # without being mistaken for subprocess unavailability.
+                # Subprocess wedged or died, kill it so the next call respawns;
+                # a generic RuntimeError (a real bug) propagates instead.
                 await self._terminate_subprocess(session)
                 raise
             session.cached = _CachedValidation(
