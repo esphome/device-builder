@@ -482,10 +482,9 @@ class DeviceBuilder:
             _LOGGER.exception("Early network teardown failed; continuing shutdown")
 
     async def _stop_network(self) -> None:
-        """Tear down network-facing resources (remote-build, mDNS) once; idempotent."""
+        """Tear down network-facing resources (remote-build, mDNS) once a full pass completes."""
         if self._network_stopped:
             return
-        self._network_stopped = True
         if self._bg_task:
             self._bg_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -517,6 +516,9 @@ class DeviceBuilder:
             self._dashboard_advertiser = None
         if self.devices is not None:
             await self.devices.stop()
+        # Latch only after a full pass, so a partial teardown (a step raising in
+        # the swallowing on_shutdown hook) can still be retried by stop().
+        self._network_stopped = True
 
     async def _stop_local(self) -> None:
         """Flush local state (editor, version history, settings) and drain the executor pool."""

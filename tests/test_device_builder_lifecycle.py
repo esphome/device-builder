@@ -320,25 +320,53 @@ async def test_on_shutdown_releases_network_before_local_flush(
     assert db._executor is None
 
 
-async def test_on_shutdown_swallows_network_teardown_error(
-    make_settings: MakeSettingsFactory,
-    _hermetic_lifecycle: None,
-    monkeypatch: pytest.MonkeyPatch,
+async def test_on_shutdown_error_is_swallowed_retried_and_local_flush_runs(
+    make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
 ) -> None:
-    """A raise in the early network teardown is logged, not propagated.
+    """A network-teardown step raising in ``on_shutdown`` doesn't latch or abort cleanup.
 
-    Pins that ``_on_shutdown`` can't abort aiohttp cleanup (which would skip the
-    ``on_cleanup`` local flush).
+    It's logged not propagated, the latch stays unset so ``stop()`` retries the
+    teardown, and the local flush still runs.
     """
     db = DeviceBuilder(make_settings(with_core_path=True))
     await db.start()
-    boom = AsyncMock(side_effect=RuntimeError("teardown boom"))
+    assert db.devices is not None
+
+    real_stop = db.devices.stop
+    calls = {"n": 0}
+
+    async def flaky_stop() -> None:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("zeroconf close boom")
+        await real_stop()
+
+    db.devices.stop = flaky_stop  # type: ignore[method-assign]
+
+    # on_shutdown runs _stop_network; devices.stop raises; _on_shutdown logs it.
+    await db._on_shutdown(MagicMock())  # must not raise
+    assert db._network_stopped is False  # not latched, so a retry is possible
+
+    # on_cleanup -> stop() retries the network teardown, then flushes local.
+    await db.stop()
+    assert calls["n"] == 2  # the failed teardown was retried
+    assert db._network_stopped is True
+    assert db._executor is None  # local flush ran despite the earlier error
+
+
+async def test_create_app_registers_on_shutdown_after_ws_closer(
+    make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
+) -> None:
+    """The lifecycle app wires ``_on_shutdown``, after ``init_ws_app``'s WS closer."""
+    db = DeviceBuilder(make_settings(with_core_path=True))
+    await db.start()
     try:
-        monkeypatch.setattr(db, "_stop_network", boom)
-        await db._on_shutdown(MagicMock())  # must not raise
-        boom.assert_awaited_once()
+        app = db.create_app(with_lifecycle=True)
+        handlers = list(app.on_shutdown)
+        assert db._on_shutdown in handlers
+        # close_active_websockets (from init_ws_app) is registered first.
+        assert handlers.index(db._on_shutdown) > 0
     finally:
-        monkeypatch.undo()  # restore the real teardown for cleanup
         await db.stop()
 
 
