@@ -61,6 +61,7 @@ from _catalog_split import (  # noqa: E402
     prepare_next_bodies_dir,
     swap_split_catalog_in,
 )
+from _esphome_version import assert_installed_esphome  # noqa: E402
 
 from esphome_device_builder.definitions import (  # noqa: E402
     build_board_catalog_from_manifests,
@@ -982,24 +983,15 @@ def _require_matching_esphome() -> None:
             f"sync_boards: could not read esphome_version from {_INDEX_FILE}.\n"
             f"To fix, regenerate the whole catalog first: python script/sync_boards.py"
         ) from None
-    try:
-        from esphome.const import __version__ as raw_installed
-    except ImportError:
-        raise SystemExit(
-            f"sync_boards: ESPHome is not importable in this interpreter ({sys.executable}).\n"
-            f"To fix, install it into the project venv and re-run:\n"
-            f"    uv pip install 'esphome=={expected}'   # or: pip install 'esphome=={expected}'"
-        ) from None
-    installed = _canonical_esphome_version(raw_installed)
-    if installed != expected:
-        raise SystemExit(
-            f"sync_boards: single-board mode needs ESPHome {expected} (the version "
-            f"boards.index.json was generated with), but {installed} is installed.\n"
-            f"To fix, install the matching version into this venv and re-run:\n"
-            f"    uv pip install 'esphome=={expected}'   # or: pip install 'esphome=={expected}'\n"
-            f"Or regenerate the whole catalog against your installed ESPHome instead:\n"
-            f"    python script/sync_boards.py"
-        )
+    assert_installed_esphome(
+        expected,
+        what="sync_boards single-board mode",
+        normalize=_canonical_esphome_version,
+        alt_fix=(
+            "Or regenerate the whole catalog against your installed ESPHome instead:\n"
+            "    python script/sync_boards.py"
+        ),
+    )
 
 
 def _emit_featured_components_index(boards: list[BoardCatalogEntry]) -> None:

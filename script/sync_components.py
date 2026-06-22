@@ -112,6 +112,7 @@ from _catalog_split import (  # noqa: E402
     prepare_next_bodies_dir,
     swap_split_catalog_in,
 )
+from _esphome_version import assert_installed_esphome  # noqa: E402
 
 from esphome_device_builder.controllers.components import (  # noqa: E402
     INTERNAL_COMPONENT_IDS as _INTERNAL_COMPONENT_IDS,
@@ -900,6 +901,12 @@ def main() -> int:
         include_prereleases=args.include_prereleases,
     )
     _LOGGER.info("Using ESPHome schema version: %s", version)
+
+    # Platform metadata (variants, board tables, wifi sets) is introspected from
+    # the installed ESPHome, but the schema bundle and the stamped
+    # esphome_schema_version come from *version*. They must be the same release
+    # or the catalog ships one ESPHome's metadata labelled as another's.
+    assert_installed_esphome(version, what="sync_components")
 
     schema_dir = ensure_schema(version)
     _LOGGER.info("Schema cached at: %s", schema_dir)
