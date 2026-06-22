@@ -201,15 +201,20 @@ class GitRepo:
                     "worktree whose git dir isn't mounted); version history disabled",
                     self.config_dir,
                 )
+                self._disable()
                 return
             self._init_repo()
         except GIT_COMMIT_ERRORS as exc:
-            # Leave the feature fully disabled, never half-enabled, so a
-            # failure after the adopt branch set ``enabled`` can't strand it.
-            self.enabled = False
-            self.toplevel = None
-            self.managed = False
+            # Never leave the repo half-enabled: a failure after the adopt
+            # branch set ``enabled`` would otherwise strand it.
+            self._disable()
             _LOGGER.warning("Could not set up version-history git repo: %s", exc)
+
+    def _disable(self) -> None:
+        """Reset to the fully-disabled state (no work tree adopted or created)."""
+        self.enabled = False
+        self.toplevel = None
+        self.managed = False
 
     def _discover_toplevel(self) -> Path | None:
         """Return the enclosing work tree's root, or ``None`` if there is none."""
