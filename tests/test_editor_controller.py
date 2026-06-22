@@ -816,11 +816,7 @@ async def test_validate_yaml_propagates_generic_runtime_error_without_teardown(
 async def test_validate_yaml_warms_subprocess_outside_round_trip_budget(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Subprocess startup runs before the timeout budget, which wraps only the round-trip.
-
-    Guards the adopt path: a cold start (its own ``_STARTUP_TIMEOUT``)
-    must not eat a short import budget before the YAML is parsed.
-    """
+    """Subprocess startup runs before the timeout budget, which wraps only the round-trip."""
     controller = _make_controller(tmp_path)
     events: list[str] = []
 

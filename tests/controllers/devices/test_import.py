@@ -438,13 +438,7 @@ async def test_import_device_keeps_yaml_when_validator_unavailable(
     make_controller: MakeControllerFactory,
     exc: Exception,
 ) -> None:
-    """A validator timeout / subprocess error keeps the file and proceeds.
-
-    The adopt path tolerates an unavailable validator: an imported
-    config's ``github://`` package fetch can outlast the validate
-    budget, and that fetch happens again at compile/install. The file
-    stays, adoption completes, and the scan runs.
-    """
+    """Adopt tolerates an unavailable validator: file kept, adoption completes, scan runs."""
     monkeypatch.setattr("esphome.components.dashboard_import.import_config", _import_config_stub())
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
@@ -466,12 +460,7 @@ async def test_import_device_propagates_generic_runtime_error(
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """A generic RuntimeError (a bug, not subprocess loss) is not swallowed by adopt.
-
-    Tolerance is scoped to ``ValidatorUnavailableError`` / timeouts; an
-    unexpected RuntimeError must surface (and roll the YAML back) rather
-    than commit an unvalidated config as success.
-    """
+    """A generic RuntimeError (a bug, not subprocess loss) propagates and rolls the YAML back."""
     monkeypatch.setattr("esphome.components.dashboard_import.import_config", _import_config_stub())
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)

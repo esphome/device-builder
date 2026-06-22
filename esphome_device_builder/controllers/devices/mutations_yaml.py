@@ -115,9 +115,8 @@ async def validate_rewritten_yaml_or_raise(
     non-success path so callers that wrote the YAML before
     validating can roll back.
 
-    *tolerate_unavailable* treats a validator timeout / subprocess
-    failure as success (file kept, no cleanup): the adopt path uses it
-    so a cold ``github://`` package fetch can't gate adoption. Genuine
+    *tolerate_unavailable* treats validator unavailability (timeout /
+    subprocess failure) as success: file kept, no cleanup; genuine
     YAML/schema errors still raise. *timeout* overrides the validator's
     round-trip budget.
     """

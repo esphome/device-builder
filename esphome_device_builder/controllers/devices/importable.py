@@ -88,7 +88,7 @@ async def import_device(
     # half-import. The generated config carries a ``github://`` package
     # ref whose cold fetch can outlast a full validate, so the adopt
     # path tolerates a validator timeout (keeps the file) and uses a
-    # short budget — the fast pre-network YAML-syntax check still runs.
+    # short budget; the fast pre-network YAML-syntax check still runs.
     def _read() -> str:
         return path.read_text(encoding="utf-8")
 

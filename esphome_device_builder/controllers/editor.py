@@ -50,11 +50,7 @@ _REAP_INTERVAL = 60.0
 
 
 class ValidatorUnavailableError(RuntimeError):
-    """The validator subprocess couldn't be reached (failed to start / closed its pipe).
-
-    A narrow signal callers can tolerate, distinct from a generic
-    ``RuntimeError`` raised by an actual bug in the validate path.
-    """
+    """Validator subprocess couldn't be reached (failed to start / closed its pipe)."""
 
 
 @dataclass
@@ -305,10 +301,8 @@ class EditorController:
         ``_VALIDATE_CACHE_TTL`` seconds; the linter and the
         save-time re-validate hit the same content back-to-back.
 
-        ``timeout`` bounds the validate round-trip (not subprocess
-        startup); it is internal-only — the import path passes a short
-        budget so adoption isn't gated on a cold remote-package fetch,
-        while a WS client always gets the default.
+        ``timeout`` bounds the round-trip (not subprocess startup) and is
+        internal-only; a WS client always gets the default.
         """
         if client is not None:
             # ``timeout`` is an internal knob; ignore any value a WS
