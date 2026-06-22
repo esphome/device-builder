@@ -483,7 +483,7 @@ async def test_import_device_validates_with_short_timeout(
     make_controller: MakeControllerFactory,
 ) -> None:
     """Adopt passes the short import budget so it isn't gated on a cold fetch."""
-    from esphome_device_builder.controllers.editor import _IMPORT_VALIDATE_TIMEOUT  # noqa: PLC0415
+    from esphome_device_builder.controllers.editor import IMPORT_VALIDATE_TIMEOUT  # noqa: PLC0415
 
     monkeypatch.setattr("esphome.components.dashboard_import.import_config", _import_config_stub())
     ctrl = make_controller(tmp_path, with_state_monitor=True)
@@ -497,7 +497,7 @@ async def test_import_device_validates_with_short_timeout(
         package_import_url="github://x",
     )
 
-    assert validate.await_args.kwargs["timeout"] == _IMPORT_VALIDATE_TIMEOUT
+    assert validate.await_args.kwargs["timeout"] == IMPORT_VALIDATE_TIMEOUT
 
 
 async def test_import_device_skips_validation_when_editor_unavailable(

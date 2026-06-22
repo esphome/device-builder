@@ -793,10 +793,14 @@ async def test_validate_yaml_terminates_session_on_validator_unavailable(
     terminated.assert_awaited_once()
 
 
-async def test_validate_yaml_propagates_generic_runtime_error_without_teardown(
+async def test_validate_yaml_propagates_generic_runtime_error_and_tears_down(
     tmp_path: Path,
 ) -> None:
-    """A generic ``RuntimeError`` (a bug, not subprocess loss) propagates, no teardown."""
+    """A generic ``RuntimeError`` propagates by type, but the subprocess is still torn down.
+
+    The round-trip may have left the stateful protocol mid-message, so a bug
+    must not strand a desynced subprocess for the next validate to misread.
+    """
     controller = _make_controller(tmp_path)
 
     async def _raise_runtime(*_args: Any, **_kwargs: Any) -> dict:
@@ -810,7 +814,7 @@ async def test_validate_yaml_propagates_generic_runtime_error_without_teardown(
     with pytest.raises(RuntimeError, match="unexpected bug"):
         await controller.validate_yaml(configuration="kitchen.yaml", content="")
 
-    terminated.assert_not_awaited()
+    terminated.assert_awaited_once()
 
 
 async def test_validate_yaml_warms_subprocess_outside_round_trip_budget(

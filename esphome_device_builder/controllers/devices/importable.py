@@ -21,7 +21,7 @@ from ...models import (
     ImportableDeviceAddedData,
     ImportableDeviceRemovedData,
 )
-from ..editor import _IMPORT_VALIDATE_TIMEOUT
+from ..editor import IMPORT_VALIDATE_TIMEOUT
 
 if TYPE_CHECKING:
     from .controller import DevicesController
@@ -103,7 +103,7 @@ async def import_device(
         action="import",
         on_error_cleanup=_cleanup,
         tolerate_unavailable=True,
-        timeout=_IMPORT_VALIDATE_TIMEOUT,
+        timeout=IMPORT_VALIDATE_TIMEOUT,
     )
 
     await controller._commit_history(configuration, f"Import {configuration}")

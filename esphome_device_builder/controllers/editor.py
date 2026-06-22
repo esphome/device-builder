@@ -31,7 +31,7 @@ _STARTUP_TIMEOUT = 15.0
 _VALIDATE_TIMEOUT = 30.0
 # Short budget for adopt: a YAML-syntax error surfaces at parse (sub-second,
 # pre-network); the cold ``github://`` package fetch is abandoned, not awaited.
-_IMPORT_VALIDATE_TIMEOUT = 8.0
+IMPORT_VALIDATE_TIMEOUT = 8.0
 # Linter and save both call ``validate_yaml`` on identical
 # content (typing-stops → linter at 600 ms → user clicks save).
 # Cache covers that hand-off; longer would risk staleness for
@@ -325,6 +325,7 @@ class EditorController:
             cached = session.cached
             if cached is not None and cached.is_fresh_for(content_hash):
                 return cached.result
+            ok = False
             try:
                 # Warm the subprocess outside the budget so a cold start
                 # (own ``_STARTUP_TIMEOUT``) doesn't eat a short import timeout.
@@ -333,11 +334,14 @@ class EditorController:
                     self._validate_locked(session, configuration, content),
                     timeout=timeout,
                 )
-            except (TimeoutError, ValidatorUnavailableError, BrokenPipeError):
-                # Subprocess wedged or died, kill it so the next call respawns;
-                # a generic RuntimeError (a real bug) propagates instead.
-                await self._terminate_subprocess(session)
-                raise
+                ok = True
+            finally:
+                # Any failure (timeout, subprocess loss, a bug, cancellation)
+                # can leave the stateful stdin/stdout protocol mid-message;
+                # kill it so the next call respawns clean. The exception (typed
+                # for callers) propagates unchanged.
+                if not ok:
+                    await self._terminate_subprocess(session)
             session.cached = _CachedValidation(
                 content_hash=content_hash, result=result, at=time.monotonic()
             )
