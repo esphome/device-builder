@@ -13,11 +13,10 @@ import orjson
 import pytest
 
 import script.sync_boards as sb
+from esphome_device_builder.models import BoardCatalogResponse
 
-
-@pytest.fixture(scope="module")
-def catalog():
-    return sb.build_catalog()
+# Reuse the session-scoped catalog (one ESPHome import + generation per worker).
+pytestmark = pytest.mark.xdist_group("board_sync")
 
 
 def _redirect_outputs(monkeypatch, tmp_path):
@@ -26,8 +25,10 @@ def _redirect_outputs(monkeypatch, tmp_path):
     monkeypatch.setattr(sb, "_FEATURED_INDEX_FILE", tmp_path / "featured_components.index.json")
 
 
-def test_single_board_emit_matches_full_index_and_featured(catalog, monkeypatch, tmp_path):
-    boards = catalog.boards
+def test_single_board_emit_matches_full_index_and_featured(
+    generated_board_catalog: BoardCatalogResponse, monkeypatch, tmp_path
+):
+    boards = generated_board_catalog.boards
     full_payloads = [board.to_dict() for board in boards]
     board_id = boards[0].id
     _redirect_outputs(monkeypatch, tmp_path)
@@ -43,8 +44,10 @@ def test_single_board_emit_matches_full_index_and_featured(catalog, monkeypatch,
     assert sb._FEATURED_INDEX_FILE.read_bytes() == featured_full
 
 
-def test_single_board_writes_only_the_target_body(catalog, monkeypatch, tmp_path):
-    boards = catalog.boards
+def test_single_board_writes_only_the_target_body(
+    generated_board_catalog: BoardCatalogResponse, monkeypatch, tmp_path
+):
+    boards = generated_board_catalog.boards
     full_payloads = [board.to_dict() for board in boards]
     board_id = boards[0].id
     _redirect_outputs(monkeypatch, tmp_path)
@@ -55,10 +58,12 @@ def test_single_board_writes_only_the_target_body(catalog, monkeypatch, tmp_path
     assert [p.name for p in sb._BODIES_DIR.iterdir()] == [f"{board_id}.json"]
 
 
-def test_emit_single_board_unknown_id_raises(catalog, monkeypatch, tmp_path):
+def test_emit_single_board_unknown_id_raises(
+    generated_board_catalog: BoardCatalogResponse, monkeypatch, tmp_path
+):
     _redirect_outputs(monkeypatch, tmp_path)
     with pytest.raises(SystemExit):
-        sb._emit_single_board(catalog.boards, [], "no_such_board")
+        sb._emit_single_board(generated_board_catalog.boards, [], "no_such_board")
 
 
 def test_require_matching_esphome(monkeypatch, tmp_path):

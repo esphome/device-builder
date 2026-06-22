@@ -966,7 +966,13 @@ def _require_matching_esphome() -> None:
     a different ESPHome (or none, e.g. a bare ``python`` outside the venv)
     rewrites every ESPHome-derived board, so refuse rather than drift.
     """
-    expected = orjson.loads(_COMPONENTS_INDEX_FILE.read_bytes())["esphome_schema_version"]
+    try:
+        expected = orjson.loads(_COMPONENTS_INDEX_FILE.read_bytes())["esphome_schema_version"]
+    except (OSError, orjson.JSONDecodeError, KeyError):
+        raise SystemExit(
+            f"sync_boards: could not read esphome_schema_version from {_COMPONENTS_INDEX_FILE}.\n"
+            f"To fix, regenerate the component catalog: python script/sync_components.py"
+        ) from None
     try:
         from esphome.const import __version__ as installed
     except ImportError:

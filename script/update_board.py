@@ -24,7 +24,10 @@ from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _SCRIPT_DIR = Path(__file__).resolve().parent
-_BOARDS_DIR = _REPO_ROOT / "esphome_device_builder" / "definitions" / "boards"
+# Repo-relative POSIX path: used as a git pathspec (git resolves these against
+# the repo root, cross-platform) and shown in messages as the on-disk location.
+_BOARDS_REL = "esphome_device_builder/definitions/boards"
+_BOARDS_DIR = _REPO_ROOT / _BOARDS_REL
 
 
 def main() -> int:
@@ -34,7 +37,7 @@ def main() -> int:
     parser.add_argument(
         "board",
         nargs="?",
-        help="Board id (the folder name under definitions/boards/). "
+        help=f"Board id (the folder name under {_BOARDS_REL}/). "
         "Omit to auto-detect the manifest you edited.",
     )
     args = parser.parse_args()
@@ -44,7 +47,7 @@ def main() -> int:
         return 1
     if not (_BOARDS_DIR / board_id / "manifest.yaml").is_file():
         print(
-            f"update_board: no manifest at definitions/boards/{board_id}/manifest.yaml",
+            f"update_board: no manifest at {_BOARDS_REL}/{board_id}/manifest.yaml",
             file=sys.stderr,
         )
         return 1
@@ -68,7 +71,7 @@ def main() -> int:
 def _detect_edited_board() -> str | None:
     """Return the single board id with an edited manifest, or None (and explain)."""
     result = subprocess.run(
-        ["git", "status", "--porcelain", "--", str(_BOARDS_DIR)],
+        ["git", "status", "--porcelain", "--", _BOARDS_REL],
         cwd=_REPO_ROOT,
         capture_output=True,
         text=True,
@@ -90,8 +93,8 @@ def _detect_edited_board() -> str | None:
         return ids[0]
     if not ids:
         print(
-            "update_board: no edited board manifest found. Edit "
-            "definitions/boards/<id>/manifest.yaml first, or pass a board id.",
+            f"update_board: no edited board manifest found. Edit "
+            f"{_BOARDS_REL}/<id>/manifest.yaml first, or pass a board id.",
             file=sys.stderr,
         )
         return None
@@ -105,7 +108,7 @@ def _detect_edited_board() -> str | None:
 def _board_id_from_status_line(line: str) -> str | None:
     """Pull ``<id>`` from a ``git status --porcelain`` line touching a board manifest."""
     path = line[3:].rsplit(" -> ", maxsplit=1)[-1].strip().strip('"')
-    prefix = "esphome_device_builder/definitions/boards/"
+    prefix = f"{_BOARDS_REL}/"
     if not path.startswith(prefix) or not path.endswith("/manifest.yaml"):
         return None
     return path[len(prefix) :].split("/", 1)[0]
