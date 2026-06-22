@@ -318,11 +318,7 @@ async def test_on_shutdown_releases_network_before_local_flush(
 async def test_on_shutdown_error_is_swallowed_retried_and_local_flush_runs(
     make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
 ) -> None:
-    """A network-teardown step raising in ``on_shutdown`` doesn't latch or abort cleanup.
-
-    It's logged not propagated, the latch stays unset so ``stop()`` retries the
-    teardown, and the local flush still runs.
-    """
+    """A network-teardown raise in on_shutdown is retried by stop(); local still flushes."""
     db = DeviceBuilder(make_settings(with_core_path=True))
     await db.start()
     assert db.devices is not None
