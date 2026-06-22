@@ -314,7 +314,8 @@ async def test_stop_drain_timeout_is_logged(
     with caplog.at_level("DEBUG"):
         await monitor.stop()
 
-    assert "Timed out draining state-monitor tasks" in caplog.text
+    assert "Timed out draining" in caplog.text
+    assert "state-monitor task(s) at shutdown" in caplog.text
 
 
 # ---------------------------------------------------------------------------

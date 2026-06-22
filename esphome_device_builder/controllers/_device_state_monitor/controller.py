@@ -190,7 +190,9 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
                     asyncio.gather(*drain, return_exceptions=True), _STOP_DRAIN_TIMEOUT
                 )
             except TimeoutError:
-                _LOGGER.debug("Timed out draining state-monitor tasks at shutdown")
+                # wait_for settles the gather before raising, so report the drain
+                # batch size rather than a (now ~0) still-pending count.
+                _LOGGER.debug("Timed out draining %d state-monitor task(s) at shutdown", len(drain))
         await self._mdns.close_zeroconf()
 
     @staticmethod
