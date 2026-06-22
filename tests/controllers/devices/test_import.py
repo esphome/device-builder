@@ -22,6 +22,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.controllers.editor import ValidatorUnavailableError
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import AdoptableDevice, DeviceState, ErrorCode, EventType
 
@@ -425,7 +426,11 @@ async def test_import_device_preserves_original_error_when_cleanup_fails(
 
 @pytest.mark.parametrize(
     "exc",
-    [TimeoutError("subprocess wedged"), RuntimeError("closed stdout"), BrokenPipeError()],
+    [
+        TimeoutError("subprocess wedged"),
+        ValidatorUnavailableError("closed stdout"),
+        BrokenPipeError(),
+    ],
 )
 async def test_import_device_keeps_yaml_when_validator_unavailable(
     tmp_path: Path,
@@ -454,6 +459,33 @@ async def test_import_device_keeps_yaml_when_validator_unavailable(
     assert result == {"configuration": "kitchen.yaml"}
     assert (tmp_path / "kitchen.yaml").exists()
     assert ctrl._scanner.calls == [("scan",)]
+
+
+async def test_import_device_propagates_generic_runtime_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A generic RuntimeError (a bug, not subprocess loss) is not swallowed by adopt.
+
+    Tolerance is scoped to ``ValidatorUnavailableError`` / timeouts; an
+    unexpected RuntimeError must surface (and roll the YAML back) rather
+    than commit an unvalidated config as success.
+    """
+    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _import_config_stub())
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=RuntimeError("unexpected bug"))
+
+    with pytest.raises(RuntimeError, match="unexpected bug"):
+        await ctrl.import_device(
+            name="kitchen",
+            project_name="x",
+            package_import_url="github://x",
+        )
+
+    assert not (tmp_path / "kitchen.yaml").exists()
+    assert ctrl._scanner.calls == []
 
 
 async def test_import_device_validates_with_short_timeout(

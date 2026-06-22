@@ -13,6 +13,7 @@ from ...helpers.device_yaml import (
     generate_minimal_stub_yaml,
 )
 from ...models import ErrorCode
+from ..editor import ValidatorUnavailableError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -141,11 +142,12 @@ async def validate_rewritten_yaml_or_raise(
             )
             succeeded = True
             return
-        except (RuntimeError, BrokenPipeError):
+        except (ValidatorUnavailableError, BrokenPipeError):
             if not tolerate_unavailable:
                 raise
-            # Abnormal: the validator subprocess died / wedged (mirrors the
-            # set ``validate_yaml`` itself treats as subprocess failure).
+            # Abnormal: the validator subprocess died / wedged. A generic
+            # RuntimeError (a bug in the validate path) is deliberately not
+            # caught here, so it surfaces instead of masquerading as success.
             # WARNING because an always-down validator is operationally
             # significant, not a routine timeout.
             _LOGGER.warning(

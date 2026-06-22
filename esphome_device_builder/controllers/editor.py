@@ -49,6 +49,14 @@ _IDLE_SUBPROCESS_TIMEOUT = 600.0
 _REAP_INTERVAL = 60.0
 
 
+class ValidatorUnavailableError(RuntimeError):
+    """The validator subprocess couldn't be reached (failed to start / closed its pipe).
+
+    A narrow signal callers can tolerate, distinct from a generic
+    ``RuntimeError`` raised by an actual bug in the validate path.
+    """
+
+
 @dataclass
 class _CachedValidation:
     """Snapshot of a validate_yaml result, with the inputs needed to reuse it."""
@@ -161,7 +169,9 @@ class EditorController:
             await asyncio.wait_for(session.proc.stdout.readline(), timeout=_STARTUP_TIMEOUT)
         except TimeoutError as err:
             await self._terminate_subprocess(session)
-            raise RuntimeError("esphome vscode subprocess did not start in time") from err
+            raise ValidatorUnavailableError(
+                "esphome vscode subprocess did not start in time"
+            ) from err
 
     async def _terminate_subprocess(self, session: _EditorSession) -> None:
         """Terminate the session's subprocess."""
@@ -334,8 +344,10 @@ class EditorController:
                     self._validate_locked(session, configuration, content),
                     timeout=timeout,
                 )
-            except (TimeoutError, RuntimeError, BrokenPipeError):
+            except (TimeoutError, ValidatorUnavailableError, BrokenPipeError):
                 # Subprocess wedged or died — kill it so the next call respawns.
+                # A generic RuntimeError (a bug in the validate path) propagates
+                # without being mistaken for subprocess unavailability.
                 await self._terminate_subprocess(session)
                 raise
             session.cached = _CachedValidation(
@@ -363,7 +375,7 @@ class EditorController:
         while True:
             line = await proc.stdout.readline()
             if not line:
-                raise RuntimeError("esphome vscode subprocess closed stdout")
+                raise ValidatorUnavailableError("esphome vscode subprocess closed stdout")
             try:
                 # The subprocess emits one UTF-8 JSON object per line;
                 # orjson decodes bytes directly so no .decode() round-trip.

@@ -42,6 +42,7 @@ from esphome_device_builder.controllers.editor import (
     _IDLE_SUBPROCESS_TIMEOUT,
     _VALIDATE_TIMEOUT,
     EditorController,
+    ValidatorUnavailableError,
     _EditorSession,
 )
 from esphome_device_builder.helpers.json import dumps
@@ -772,24 +773,44 @@ async def test_validate_yaml_terminates_session_on_timeout(
     terminated.assert_awaited_once()
 
 
-async def test_validate_yaml_terminates_session_on_runtime_error(
+async def test_validate_yaml_terminates_session_on_validator_unavailable(
     tmp_path: Path,
 ) -> None:
-    """``_validate_locked`` raising ``RuntimeError`` (subprocess died) → teardown + re-raise."""
+    """``_validate_locked`` raising ``ValidatorUnavailableError`` → teardown + re-raise."""
+    controller = _make_controller(tmp_path)
+
+    async def _raise_unavailable(*_args: Any, **_kwargs: Any) -> dict:
+        raise ValidatorUnavailableError("subprocess closed stdout")
+
+    controller._validate_locked = _raise_unavailable  # type: ignore[method-assign]
+    controller._ensure_subprocess = AsyncMock()  # type: ignore[method-assign]
+    terminated = AsyncMock()
+    controller._terminate_subprocess = terminated  # type: ignore[method-assign]
+
+    with pytest.raises(ValidatorUnavailableError, match="closed stdout"):
+        await controller.validate_yaml(configuration="kitchen.yaml", content="")
+
+    terminated.assert_awaited_once()
+
+
+async def test_validate_yaml_propagates_generic_runtime_error_without_teardown(
+    tmp_path: Path,
+) -> None:
+    """A generic ``RuntimeError`` (a bug, not subprocess loss) propagates, no teardown."""
     controller = _make_controller(tmp_path)
 
     async def _raise_runtime(*_args: Any, **_kwargs: Any) -> dict:
-        raise RuntimeError("subprocess closed stdout")
+        raise RuntimeError("unexpected bug")
 
     controller._validate_locked = _raise_runtime  # type: ignore[method-assign]
     controller._ensure_subprocess = AsyncMock()  # type: ignore[method-assign]
     terminated = AsyncMock()
     controller._terminate_subprocess = terminated  # type: ignore[method-assign]
 
-    with pytest.raises(RuntimeError, match="closed stdout"):
+    with pytest.raises(RuntimeError, match="unexpected bug"):
         await controller.validate_yaml(configuration="kitchen.yaml", content="")
 
-    terminated.assert_awaited_once()
+    terminated.assert_not_awaited()
 
 
 async def test_validate_yaml_warms_subprocess_outside_round_trip_budget(
