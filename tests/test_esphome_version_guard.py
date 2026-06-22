@@ -34,3 +34,18 @@ def test_not_importable_message(monkeypatch):
     monkeypatch.delattr(esphome.const, "__version__")
     with pytest.raises(SystemExit, match="not importable"):
         assert_installed_esphome("2026.6.2", what="t")
+
+
+def test_sync_components_main_requires_exact_match(monkeypatch):
+    # The guard runs before any schema fetch / esphome.components import, so a
+    # mismatch raises with no network. A base release does NOT satisfy a beta
+    # install here: components match exactly (unlike the board catalog), so this
+    # pins that main() wires the guard without a canonicalizing normalize.
+    # Imported lazily so the lightweight helper tests above don't pay the
+    # heavy sync_components import at collection.
+    from script import sync_components  # noqa: PLC0415
+
+    monkeypatch.setattr("sys.argv", ["sync_components.py", "--version", "2026.6.2"])
+    monkeypatch.setattr(esphome.const, "__version__", "2026.6.2b1")
+    with pytest.raises(SystemExit, match=r"needs ESPHome 2026\.6\.2"):
+        sync_components.main()
