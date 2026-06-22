@@ -31,9 +31,12 @@ from ._loading import (
     load_device_yaml,
 )
 from ._parsing import (
+    _UNRESOLVED_SUBSTITUTION_RE,
     DEFAULT_API_PORT,
     EsphomeMeta,
+    _extract_resolved_substitutions,
     _parse_inline_value,
+    _resolve_substitutions,
     config_has_top_level_block,
     configuration_stem,
     detect_platform_from_yaml,
@@ -52,11 +55,14 @@ from ._parsing import (
 __all__ = [
     "DEFAULT_API_PORT",
     "NETWORK_PROVIDER_COMPONENT_IDS",
+    "_UNRESOLVED_SUBSTITUTION_RE",
     "EsphomeMeta",
     "StorageJSON",
+    "_extract_resolved_substitutions",
     "_has_native_wifi",
     "_infer_native_wifi",
     "_parse_inline_value",
+    "_resolve_substitutions",
     "board_provides_network",
     "board_requires_wifi",
     "compute_has_pending_changes",
