@@ -158,9 +158,8 @@ def _arm_hard_exit_watchdog(deadline: float = _HARD_EXIT_DEADLINE_SECONDS) -> No
 
     def _force_exit() -> None:
         time.sleep(deadline)
-        # Best-effort note straight to stderr (the queue listener may be gone);
-        # os._exit must run even if stderr is closed/broken, or the safety net
-        # is defeated.
+        # Best-effort note to stderr (the queue listener may be gone); os._exit
+        # must still run if that write fails.
         with suppress(Exception):
             sys.stderr.write(f"Graceful shutdown exceeded {deadline:.0f}s; forcing exit\n")
             sys.stderr.flush()

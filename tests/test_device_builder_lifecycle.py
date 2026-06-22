@@ -296,12 +296,7 @@ async def test_stop_cancels_background_tasks_and_tears_down_controllers(
 async def test_on_shutdown_releases_network_before_local_flush(
     make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
 ) -> None:
-    """The ``on_shutdown`` hook frees the network resources; ``stop()`` then only flushes local.
-
-    Pins the split that releases the mDNS / peer-link sockets at the top of
-    shutdown, before the slower local flush, and that ``stop()`` doesn't repeat
-    the network teardown (the ``_network_stopped`` latch).
-    """
+    """on_shutdown frees the network resources; stop() then only flushes local (latch holds)."""
     db = DeviceBuilder(make_settings(with_core_path=True))
     await db.start()
     assert db.devices is not None

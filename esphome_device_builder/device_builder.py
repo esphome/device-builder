@@ -470,15 +470,11 @@ class DeviceBuilder:
         await self._stop_local()
 
     async def _on_shutdown(self, app: web.Application) -> None:
-        """
-        Free the network sockets early (aiohttp ``on_shutdown``).
-
-        A raise here would abort aiohttp's cleanup before ``on_cleanup``, so the
-        local flush is swallowed-and-logged rather than allowed to escape.
-        """
+        """Free the network sockets early (aiohttp ``on_shutdown``)."""
         try:
             await self._stop_network()
         except Exception:
+            # A raise here would abort aiohttp cleanup before on_cleanup runs.
             _LOGGER.exception("Early network teardown failed; continuing shutdown")
 
     async def _stop_network(self) -> None:

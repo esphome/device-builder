@@ -500,10 +500,10 @@ def test_warn_if_unprotected_warns_standalone_without_password(
 # ---------------------------------------------------------------------------
 
 
-def test_hard_exit_watchdog_forces_exit_after_deadline(
+def _capture_force_exit(
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Past the deadline the watchdog calls ``os._exit(0)`` so a wedged shutdown can't hang."""
+) -> tuple[list[int], threading.Event]:
+    """Reset the arm latch and patch ``os._exit``; return ``(exit_codes, fired)``."""
     monkeypatch.setattr(main_module, "_hard_exit_armed", False)
     fired = threading.Event()
     codes: list[int] = []
@@ -513,6 +513,14 @@ def test_hard_exit_watchdog_forces_exit_after_deadline(
         fired.set()
 
     monkeypatch.setattr(main_module.os, "_exit", fake_exit)
+    return codes, fired
+
+
+def test_hard_exit_watchdog_forces_exit_after_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Past the deadline the watchdog calls ``os._exit(0)`` so a wedged shutdown can't hang."""
+    codes, fired = _capture_force_exit(monkeypatch)
 
     main_module._arm_hard_exit_watchdog(deadline=0.01)
 
@@ -522,15 +530,7 @@ def test_hard_exit_watchdog_forces_exit_after_deadline(
 
 def test_hard_exit_watchdog_arms_once(monkeypatch: pytest.MonkeyPatch) -> None:
     """A second arm is a no-op, so only one watchdog ever force-exits."""
-    monkeypatch.setattr(main_module, "_hard_exit_armed", False)
-    fired = threading.Event()
-    codes: list[int] = []
-
-    def fake_exit(code: int) -> None:
-        codes.append(code)
-        fired.set()
-
-    monkeypatch.setattr(main_module.os, "_exit", fake_exit)
+    codes, fired = _capture_force_exit(monkeypatch)
 
     main_module._arm_hard_exit_watchdog(deadline=0.01)
     main_module._arm_hard_exit_watchdog(deadline=0.01)
