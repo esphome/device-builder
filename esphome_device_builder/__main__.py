@@ -59,12 +59,8 @@ _LOG_COLORS = {
 # shutdown apart from a genuine startup crash when ``run_app`` propagates.
 _stop_requested = False
 
-# Hard cap on graceful shutdown. The desktop app sends SIGTERM and waits for the
-# backend to release its mDNS / HTTP sockets before relaunching; a teardown step
-# that wedges (mDNS goodbye broadcast, peer-link drain, git flush) would
-# otherwise hold those sockets for tens of seconds. Past this deadline we
-# force-exit and let the OS reclaim them. The normal graceful path finishes well
-# under it and never trips it.
+# Hard cap on graceful shutdown: past this the watchdog force-exits so a wedged
+# teardown can't hold the mDNS / HTTP sockets indefinitely.
 _HARD_EXIT_DEADLINE_SECONDS = 8.0
 
 # One-shot latch so a second stop signal doesn't arm a second watchdog.
@@ -162,12 +158,12 @@ def _arm_hard_exit_watchdog(deadline: float = _HARD_EXIT_DEADLINE_SECONDS) -> No
 
     def _force_exit() -> None:
         time.sleep(deadline)
-        # Reached only if graceful shutdown is still running past the deadline.
-        # Write straight to stderr (the desktop captures it) since the logging
-        # queue listener may already be torn down, then exit hard so the OS
-        # reclaims the still-held mDNS / HTTP sockets.
-        sys.stderr.write(f"Graceful shutdown exceeded {deadline:.0f}s; forcing exit\n")
-        sys.stderr.flush()
+        # Best-effort note straight to stderr (the queue listener may be gone);
+        # os._exit must run even if stderr is closed/broken, or the safety net
+        # is defeated.
+        with suppress(Exception):
+            sys.stderr.write(f"Graceful shutdown exceeded {deadline:.0f}s; forcing exit\n")
+            sys.stderr.flush()
         os._exit(0)
 
     threading.Thread(target=_force_exit, name="hard-exit-watchdog", daemon=True).start()

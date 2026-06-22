@@ -333,6 +333,8 @@ class DeviceBuilder:
     async def start(self) -> None:
         """Start the application — load catalogs, initialize controllers."""
         self.loop = asyncio.get_running_loop()
+        # Re-arm the network-teardown latch so a restart-in-place teardown runs.
+        self._network_stopped = False
         # Pool itself was constructed in ``__init__`` (so callers
         # probing ``self._executor`` pre-start see the right value);
         # here we just register it as the loop's default. See
@@ -469,14 +471,15 @@ class DeviceBuilder:
 
     async def _on_shutdown(self, app: web.Application) -> None:
         """
-        Free the network sockets (mDNS, peer-link) at the top of shutdown.
+        Free the network sockets early (aiohttp ``on_shutdown``).
 
-        Runs in aiohttp's ``on_shutdown`` (right after the HTTP sites stop, before
-        the slower ``on_cleanup`` local flush) so UDP 5353 is released early; a
-        relaunched backend then isn't left co-binding 5353 with this one while it
-        drains.
+        A raise here would abort aiohttp's cleanup before ``on_cleanup``, so the
+        local flush is swallowed-and-logged rather than allowed to escape.
         """
-        await self._stop_network()
+        try:
+            await self._stop_network()
+        except Exception:
+            _LOGGER.exception("Early network teardown failed; continuing shutdown")
 
     async def _stop_network(self) -> None:
         """Tear down network-facing resources (remote-build, mDNS) once; idempotent."""
@@ -826,9 +829,8 @@ class DeviceBuilder:
 
         if with_lifecycle:
             app.on_startup.append(self._on_startup)
-            # Release the network sockets (mDNS / peer-link) early, before the
-            # local-state flush in on_cleanup. Registered after init_ws_app's
-            # close_active_websockets so WS handlers unwind first.
+            # After init_ws_app's close_active_websockets so WS handlers unwind
+            # before the network teardown.
             app.on_shutdown.append(self._on_shutdown)
             # Every add-on shape needs the trusted ingress site for the HA
             # sidebar, including the front-door-open one whose main app is the
