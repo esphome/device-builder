@@ -30,9 +30,9 @@ _LOGGER = logging.getLogger(__name__)
 _STARTUP_TIMEOUT = 15.0
 _VALIDATE_TIMEOUT = 30.0
 # Short budget for the adopt path: a generator YAML-syntax error surfaces at
-# parse (well under a second), before esphome's network packages pass. The
-# cold ``github://`` package fetch an imported config triggers is abandoned
-# rather than blocking adoption; compile/install fetches it later.
+# parse (well under a second), before esphome's network packages pass. An
+# imported config triggers a cold ``github://`` package fetch; that fetch is
+# abandoned rather than blocking adoption, and compile/install runs it later.
 _IMPORT_VALIDATE_TIMEOUT = 8.0
 # Linter and save both call ``validate_yaml`` on identical
 # content (typing-stops → linter at 600 ms → user clicks save).
@@ -295,9 +295,15 @@ class EditorController:
         ``_VALIDATE_CACHE_TTL`` seconds; the linter and the
         save-time re-validate hit the same content back-to-back.
 
-        ``timeout`` bounds the round-trip; the import path passes a short
-        budget so adoption isn't gated on a cold remote-package fetch.
+        ``timeout`` bounds the validate round-trip (not subprocess
+        startup); it is internal-only — the import path passes a short
+        budget so adoption isn't gated on a cold remote-package fetch,
+        while a WS client always gets the default.
         """
+        if client is not None:
+            # ``timeout`` is an internal knob; ignore any value a WS
+            # client supplied so the wire contract stays fixed.
+            timeout = None
         if timeout is None:
             timeout = _VALIDATE_TIMEOUT
         session = self._sessions.setdefault(
@@ -319,6 +325,11 @@ class EditorController:
             if cached is not None and cached.is_fresh_for(content_hash):
                 return cached.result
             try:
+                # Spawn / warm the subprocess outside the round-trip budget:
+                # a cold start has its own ``_STARTUP_TIMEOUT`` and counting it
+                # against a short import timeout would skip the fast pre-network
+                # YAML parse before the budget runs out.
+                await self._ensure_subprocess(session)
                 result = await asyncio.wait_for(
                     self._validate_locked(session, configuration, content),
                     timeout=timeout,
@@ -338,10 +349,10 @@ class EditorController:
         """
         Run a single validation round-trip against `session`'s subprocess.
 
-        Caller must hold ``session.lock``; the stdin/stdout protocol is stateful
-        and any interleaving would corrupt subsequent responses.
+        Caller must hold ``session.lock`` and have brought the subprocess up
+        via ``_ensure_subprocess``; the stdin/stdout protocol is stateful and
+        any interleaving would corrupt subsequent responses.
         """
-        await self._ensure_subprocess(session)
         proc = session.proc
         assert proc is not None and proc.stdin is not None and proc.stdout is not None
 

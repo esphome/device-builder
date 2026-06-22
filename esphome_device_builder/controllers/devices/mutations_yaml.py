@@ -128,14 +128,28 @@ async def validate_rewritten_yaml_or_raise(
             result = await editor.validate_yaml(
                 configuration=configuration, content=content, timeout=timeout
             )
-        except (TimeoutError, RuntimeError, BrokenPipeError):
+        except TimeoutError:
             if not tolerate_unavailable:
                 raise
-            # Validator wedged or the remote-package fetch ran long;
-            # keep the written file and let compile/install surface any
-            # real error later.
+            # Expected on adopt: the imported config's cold ``github://``
+            # fetch outran the budget. Keep the file; compile/install
+            # surfaces any real error later.
             _LOGGER.info(
-                "Validator unavailable during %s of %s; keeping file unvalidated",
+                "Validation of %s for %s timed out; keeping file, deferring to compile/install",
+                configuration,
+                action,
+            )
+            succeeded = True
+            return
+        except (RuntimeError, BrokenPipeError):
+            if not tolerate_unavailable:
+                raise
+            # Abnormal: the validator subprocess died / wedged (mirrors the
+            # set ``validate_yaml`` itself treats as subprocess failure).
+            # WARNING because an always-down validator is operationally
+            # significant, not a routine timeout.
+            _LOGGER.warning(
+                "Validator subprocess unavailable during %s of %s; keeping file unvalidated",
                 action,
                 configuration,
             )
