@@ -19,6 +19,7 @@ and so stays out of the precedence ledger.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -184,15 +185,12 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         self._tasks.clear()
         if drain:
             # Drain here (with a bound) rather than leaving the cancelled ping /
-            # API-info tasks for aiohttp's unbounded terminal task sweep.
-            try:
+            # API-info tasks for aiohttp's unbounded terminal task sweep. The
+            # tasks honor cancellation promptly, so the bound is a defensive cap.
+            with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(
                     asyncio.gather(*drain, return_exceptions=True), _STOP_DRAIN_TIMEOUT
                 )
-            except TimeoutError:
-                # wait_for settles the gather before raising, so report the drain
-                # batch size rather than a (now ~0) still-pending count.
-                _LOGGER.debug("Timed out draining %d state-monitor task(s) at shutdown", len(drain))
         await self._mdns.close_zeroconf()
 
     @staticmethod
