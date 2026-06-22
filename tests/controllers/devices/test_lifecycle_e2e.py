@@ -247,11 +247,7 @@ async def test_poll_rescans_and_reconciles_mqtt(tmp_path: Path, make_db: MakeDbF
 
 
 async def test_poll_is_noop_after_stop(tmp_path: Path, make_db: MakeDbFactory) -> None:
-    """``poll()`` doesn't re-arm the stopped scanner / MQTT.
-
-    stop() runs in the on_shutdown hook before aiohttp drains in-flight HTTP, so
-    an in-flight legacy REST GET calling poll() must not restart torn-down work.
-    """
+    """``poll()`` no-ops once stopped, so a shutdown-drain GET can't re-arm torn-down work."""
     db = make_db(tmp_path)
     controller = DevicesController(db)
     controller._stopped = True  # as stop() sets it

@@ -115,9 +115,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         # Unsubscribe handle for the firmware-job-completion listener
         # wired up in start(); held so stop() can detach cleanly.
         self._unsub_job_completed: Any = None
-        # Set in stop() so poll() no-ops afterwards: stop() runs in the
-        # on_shutdown hook (before aiohttp drains in-flight HTTP), and a legacy
-        # REST handler calling poll() must not re-arm the stopped scanner / MQTT.
+        # Guards poll() from re-arming a torn-down scanner during the shutdown drain.
         self._stopped = False
         # Pending post-flash version re-probe timers, keyed on
         # configuration so a re-flash cancels its predecessor; cancelled

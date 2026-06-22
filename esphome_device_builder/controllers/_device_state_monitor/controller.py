@@ -42,8 +42,7 @@ from .ping import PingSource
 from .shared import _SOURCE_PRIORITY
 
 _LOGGER = logging.getLogger(__name__)
-# Bound on draining the ping / API-info / resolve tasks at shutdown; they cancel
-# promptly, but don't wait on a wedged in-flight probe.
+# Cap on draining the ping / API-info / resolve tasks at shutdown.
 _STOP_DRAIN_TIMEOUT = 2.0
 # Padding added to the cached A record's TTL when the drawer's
 # refresh loop schedules its next probe. Sleeping ``ttl + this``
@@ -184,9 +183,8 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         drain.extend(self._tasks)
         self._tasks.clear()
         if drain:
-            # Drain here (with a bound) rather than leaving the cancelled ping /
-            # API-info tasks for aiohttp's unbounded terminal task sweep. The
-            # tasks honor cancellation promptly, so the bound is a defensive cap.
+            # Drain bounded here so the cancelled tasks don't leak to aiohttp's
+            # unbounded terminal sweep.
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(
                     asyncio.gather(*drain, return_exceptions=True), _STOP_DRAIN_TIMEOUT

@@ -363,11 +363,7 @@ async def test_stop_flushes_local_even_when_network_teardown_keeps_failing(
 async def test_stop_network_is_idempotent_under_retry(
     make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
 ) -> None:
-    """A full second _stop_network pass (the swallowed-error retry) is second-call-safe.
-
-    Pins that the real remote-build / devices / advertiser teardowns tolerate the
-    double call the latch-after-full-pass retry can make.
-    """
+    """A full second _stop_network pass (the swallowed-error retry) is second-call-safe."""
     db = DeviceBuilder(make_settings(with_core_path=True))
     await db.start()
     assert db.remote_build_offloader is not None
