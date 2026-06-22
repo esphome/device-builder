@@ -320,6 +320,28 @@ async def test_on_shutdown_releases_network_before_local_flush(
     assert db._executor is None
 
 
+async def test_on_shutdown_swallows_network_teardown_error(
+    make_settings: MakeSettingsFactory,
+    _hermetic_lifecycle: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A raise in the early network teardown is logged, not propagated.
+
+    Pins that ``_on_shutdown`` can't abort aiohttp cleanup (which would skip the
+    ``on_cleanup`` local flush).
+    """
+    db = DeviceBuilder(make_settings(with_core_path=True))
+    await db.start()
+    boom = AsyncMock(side_effect=RuntimeError("teardown boom"))
+    try:
+        monkeypatch.setattr(db, "_stop_network", boom)
+        await db._on_shutdown(MagicMock())  # must not raise
+        boom.assert_awaited_once()
+    finally:
+        monkeypatch.undo()  # restore the real teardown for cleanup
+        await db.stop()
+
+
 async def test_stop_is_safe_without_start(make_settings: MakeSettingsFactory) -> None:
     """``stop()`` on a never-started instance doesn't crash.
 
