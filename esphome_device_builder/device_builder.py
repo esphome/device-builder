@@ -466,8 +466,11 @@ class DeviceBuilder:
     async def stop(self) -> None:
         """Shut down the application: free network sockets first, then flush local state."""
         _LOGGER.info("Shutting down ESPHome Device Builder")
-        await self._stop_network()
-        await self._stop_local()
+        # finally so a wedged network teardown can't skip the local-state flush.
+        try:
+            await self._stop_network()
+        finally:
+            await self._stop_local()
 
     async def _on_shutdown(self, app: web.Application) -> None:
         """Free the network sockets early (aiohttp ``on_shutdown``)."""

@@ -349,6 +349,20 @@ async def test_on_shutdown_error_is_swallowed_retried_and_local_flush_runs(
     assert db._executor is None  # local flush ran despite the earlier error
 
 
+async def test_stop_flushes_local_even_when_network_teardown_keeps_failing(
+    make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
+) -> None:
+    """A persistently failing network teardown still runs the local flush (stop()'s finally)."""
+    db = DeviceBuilder(make_settings(with_core_path=True))
+    await db.start()
+    assert db.devices is not None
+    db.devices.stop = AsyncMock(side_effect=RuntimeError("wedged"))  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="wedged"):
+        await db.stop()
+    assert db._executor is None  # local flush ran despite the failure
+
+
 async def test_create_app_registers_on_shutdown_after_ws_closer(
     make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
 ) -> None:
