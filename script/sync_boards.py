@@ -23,10 +23,12 @@ The YAML manifests under ``definitions/boards/<id>/manifest.yaml``
 remain the human-editable source of truth; this script is the only
 thing that writes the three artefacts.
 
-The sync must run against the same ESPHome the catalog was generated
-against (``esphome_schema_version`` in ``components.index.json``); a
-mismatch silently rewrites every ESPHome-derived board, so the script
-refuses to run otherwise.
+Single-board mode (``BOARD_ID``) must run against the same ESPHome the
+rest of the committed catalog was generated against
+(``esphome_schema_version`` in ``components.index.json``), since it
+rebuilds the shared index from every board; it refuses on a mismatch. A
+full sync regenerates everything from the installed ESPHome and is
+internally consistent regardless, so it does not check.
 
 Usage
 -----
@@ -831,7 +833,13 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    _require_matching_esphome()
+    # Single-board mode rewrites one body but rebuilds the index from *all*
+    # boards, so the installed esphome must match what the other committed
+    # bodies were generated against or their index entries silently drift. A
+    # full sync regenerates everything from the installed esphome and is
+    # internally consistent regardless, so it (and CI/automation) skips this.
+    if args.board:
+        _require_matching_esphome()
 
     # Abort the sync on the first bad manifest — partial output here
     # would silently ship a board-shaped hole to every install.
@@ -963,14 +971,18 @@ def _require_matching_esphome() -> None:
         from esphome.const import __version__ as installed
     except ImportError:
         raise SystemExit(
-            f"sync_boards: ESPHome is not importable in this interpreter ({sys.executable}). "
-            f"Run inside the project venv with ESPHome {expected} installed."
+            f"sync_boards: ESPHome is not importable in this interpreter ({sys.executable}).\n"
+            f"To fix, install it into the project venv and re-run:\n"
+            f"    uv pip install 'esphome=={expected}'   # or: pip install 'esphome=={expected}'"
         ) from None
     if installed != expected:
         raise SystemExit(
-            f"sync_boards: ESPHome {installed} is installed, but the catalog is generated "
-            f"against {expected} (esphome_schema_version in components.index.json). "
-            f"Install the matching version (pip install 'esphome=={expected}') and retry."
+            f"sync_boards: single-board mode needs ESPHome {expected} (esphome_schema_version "
+            f"in components.index.json), but {installed} is installed.\n"
+            f"To fix, install the matching version into this venv and re-run:\n"
+            f"    uv pip install 'esphome=={expected}'   # or: pip install 'esphome=={expected}'\n"
+            f"Or regenerate the whole catalog against your installed ESPHome instead:\n"
+            f"    python script/sync_boards.py"
         )
 
 

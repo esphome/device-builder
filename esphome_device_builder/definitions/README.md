@@ -55,21 +55,21 @@ a broken image URL passes the sync but is caught here.
 
 `sync_boards.py` imports ESPHome: it generates the boards no manifest covers
 straight from your installed ESPHome's board tables, and fills curated boards'
-pin aliases the same way. It must run against the exact ESPHome version the
-committed catalog was generated against (`esphome_schema_version` in
-`components.index.json`), or every ESPHome-derived board is silently rewritten.
-The script enforces this: it refuses to run on a mismatched (or missing)
-ESPHome and prints the version to install. Run it from the project venv:
+pin aliases the same way. Run it from the project venv:
 
 ```bash
 source .venv/bin/activate    # or call .venv/bin/python directly
-python script/sync_boards.py
+python script/sync_boards.py my-board
 ```
 
-The pre-commit `sync-boards` hook runs `python` from `PATH`, so activate the
-venv before committing. If the hook fails saying ESPHome is the wrong version,
-that is the interpreter mismatch; activate the venv (or `pip install` the
-version it names) and commit again.
+Single-board mode (and `update_board.py`) rewrites one body but rebuilds the
+shared index from every board, so the installed ESPHome must match what the
+other committed bodies were generated against (`esphome_schema_version` in
+`components.index.json`) or their index entries silently drift; it refuses on a
+mismatch and prints the version to install. A full `python script/sync_boards.py`
+regenerates everything against your installed ESPHome and is internally
+consistent regardless, so it does not check; still run it from the venv so you
+don't commit catalog-wide changes from a different ESPHome.
 
 ### Curated vs generated vs imported boards
 
