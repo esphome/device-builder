@@ -24,11 +24,11 @@ remain the human-editable source of truth; this script is the only
 thing that writes the three artefacts.
 
 Single-board mode (``BOARD_ID``) must run against the same ESPHome the
-rest of the committed catalog was generated against
-(``esphome_schema_version`` in ``components.index.json``), since it
-rebuilds the shared index from every board; it refuses on a mismatch. A
-full sync regenerates everything from the installed ESPHome and is
-internally consistent regardless, so it does not check.
+rest of the committed catalog was generated against (the
+``esphome_version`` a full sync stamps into ``boards.index.json``),
+since it rebuilds the shared index from every board; it refuses on a
+mismatch. A full sync regenerates everything from the installed ESPHome
+and re-stamps that version, so it does not check.
 
 Usage
 -----
