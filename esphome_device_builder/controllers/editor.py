@@ -278,7 +278,7 @@ class EditorController:
         *,
         configuration: str,
         content: str,
-        timeout: float = _VALIDATE_TIMEOUT,
+        timeout: float | None = None,
         client: Any = None,
         message_id: str = "",
         **kwargs: Any,
@@ -298,6 +298,8 @@ class EditorController:
         ``timeout`` bounds the round-trip; the import path passes a short
         budget so adoption isn't gated on a cold remote-package fetch.
         """
+        if timeout is None:
+            timeout = _VALIDATE_TIMEOUT
         session = self._sessions.setdefault(
             configuration, _EditorSession(configuration=configuration)
         )

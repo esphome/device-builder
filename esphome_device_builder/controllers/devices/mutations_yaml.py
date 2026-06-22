@@ -122,14 +122,11 @@ async def validate_rewritten_yaml_or_raise(
     """
     if editor is None:
         return
-    validate_kwargs: dict[str, object] = {}
-    if timeout is not None:
-        validate_kwargs["timeout"] = timeout
     succeeded = False
     try:
         try:
             result = await editor.validate_yaml(
-                configuration=configuration, content=content, **validate_kwargs
+                configuration=configuration, content=content, timeout=timeout
             )
         except (TimeoutError, RuntimeError, BrokenPipeError):
             if not tolerate_unavailable:
