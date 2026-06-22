@@ -63,13 +63,14 @@ python script/sync_boards.py my-board
 ```
 
 Single-board mode (and `update_board.py`) rewrites one body but rebuilds the
-shared index from every board, so the installed ESPHome must match what the
-other committed bodies were generated against (`esphome_schema_version` in
-`components.index.json`) or their index entries silently drift; it refuses on a
-mismatch and prints the version to install. A full `python script/sync_boards.py`
-regenerates everything against your installed ESPHome and is internally
-consistent regardless, so it does not check; still run it from the venv so you
-don't commit catalog-wide changes from a different ESPHome.
+shared index from every board, so the installed ESPHome must match the version
+the committed catalog was generated against (stamped as `esphome_version` in
+`boards.index.json` by the last full sync, betas canonicalized to their base
+release) or their index entries silently drift; it refuses on a mismatch and
+prints the version to install. A full `python script/sync_boards.py` regenerates
+everything against your installed ESPHome and re-stamps that version, so it does
+not check; still run it from the venv so you don't commit catalog-wide changes
+from a different ESPHome.
 
 ### Curated vs generated vs imported boards
 

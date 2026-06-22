@@ -83,7 +83,6 @@ _DEFINITIONS_DIR = _REPO_ROOT / "esphome_device_builder" / "definitions"
 _INDEX_FILE = _DEFINITIONS_DIR / "boards.index.json"
 _BODIES_DIR = _DEFINITIONS_DIR / "board_bodies"
 _FEATURED_INDEX_FILE = _DEFINITIONS_DIR / "featured_components.index.json"
-_COMPONENTS_INDEX_FILE = _DEFINITIONS_DIR / "components.index.json"
 
 # Fields stripped from the slim index entry — they belong on the
 # per-board body file only.
@@ -934,13 +933,32 @@ def _emit_split_catalog(
 
 
 def _index_payload(full_payloads: list[dict[str, Any]]) -> dict[str, Any]:
-    """Build the slim ``{"boards": [...]}`` index payload, id-sorted."""
+    """Build the slim index payload, stamped with the ESPHome it was generated from."""
     return {
+        "esphome_version": _installed_esphome_version(),
         "boards": sorted(
             (_strip_body_fields(payload) for payload in full_payloads),
             key=lambda p: p["id"],
         ),
     }
+
+
+# ESPHome betas/dev builds (``2026.7.0b1``, ``2026.7.0-dev``) share board tables
+# with their base release, so canonicalize to the base for both the stamp and
+# the guard or a beta would false-mismatch its own release.
+_ESPHOME_BASE_VERSION_RE = re.compile(r"^(\d+\.\d+\.\d+)")
+
+
+def _canonical_esphome_version(version: str) -> str:
+    """Drop a prerelease/dev suffix: ``2026.7.0b1`` -> ``2026.7.0``."""
+    match = _ESPHOME_BASE_VERSION_RE.match(version)
+    return match.group(1) if match else version
+
+
+def _installed_esphome_version() -> str:
+    from esphome.const import __version__
+
+    return _canonical_esphome_version(__version__)
 
 
 def _write_index(full_payloads: list[dict[str, Any]]) -> None:
@@ -956,26 +974,27 @@ def _write_index(full_payloads: list[dict[str, Any]]) -> None:
 
 
 def _require_matching_esphome() -> None:
-    """Abort unless installed ESPHome matches the catalog's ``esphome_schema_version`` pin."""
+    """Abort unless installed ESPHome matches the ``esphome_version`` boards.index.json was built with."""
     try:
-        expected = orjson.loads(_COMPONENTS_INDEX_FILE.read_bytes())["esphome_schema_version"]
+        expected = orjson.loads(_INDEX_FILE.read_bytes())["esphome_version"]
     except (OSError, orjson.JSONDecodeError, KeyError):
         raise SystemExit(
-            f"sync_boards: could not read esphome_schema_version from {_COMPONENTS_INDEX_FILE}.\n"
-            f"To fix, regenerate the component catalog: python script/sync_components.py"
+            f"sync_boards: could not read esphome_version from {_INDEX_FILE}.\n"
+            f"To fix, regenerate the whole catalog first: python script/sync_boards.py"
         ) from None
     try:
-        from esphome.const import __version__ as installed
+        from esphome.const import __version__ as raw_installed
     except ImportError:
         raise SystemExit(
             f"sync_boards: ESPHome is not importable in this interpreter ({sys.executable}).\n"
             f"To fix, install it into the project venv and re-run:\n"
             f"    uv pip install 'esphome=={expected}'   # or: pip install 'esphome=={expected}'"
         ) from None
+    installed = _canonical_esphome_version(raw_installed)
     if installed != expected:
         raise SystemExit(
-            f"sync_boards: single-board mode needs ESPHome {expected} (esphome_schema_version "
-            f"in components.index.json), but {installed} is installed.\n"
+            f"sync_boards: single-board mode needs ESPHome {expected} (the version "
+            f"boards.index.json was generated with), but {installed} is installed.\n"
             f"To fix, install the matching version into this venv and re-run:\n"
             f"    uv pip install 'esphome=={expected}'   # or: pip install 'esphome=={expected}'\n"
             f"Or regenerate the whole catalog against your installed ESPHome instead:\n"
