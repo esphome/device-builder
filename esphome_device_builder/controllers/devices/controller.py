@@ -115,6 +115,10 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         # Unsubscribe handle for the firmware-job-completion listener
         # wired up in start(); held so stop() can detach cleanly.
         self._unsub_job_completed: Any = None
+        # Set in stop() so poll() no-ops afterwards: stop() runs in the
+        # on_shutdown hook (before aiohttp drains in-flight HTTP), and a legacy
+        # REST handler calling poll() must not re-arm the stopped scanner / MQTT.
+        self._stopped = False
         # Pending post-flash version re-probe timers, keyed on
         # configuration so a re-flash cancels its predecessor; cancelled
         # en masse in stop().
@@ -244,6 +248,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
     async def start(self) -> None:
         """Initialise — load state, scan files, start mDNS + ping + MQTT discovery."""
+        self._stopped = False
         self.state.esphome_cmd = _find_esphome_cmd()
         loop = asyncio.get_running_loop()
         # Seed the store (and migrate on first post-upgrade boot)
@@ -267,6 +272,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
     async def stop(self) -> None:
         """Stop background monitors so the process exits cleanly."""
+        self._stopped = True
         if self._unsub_job_completed is not None:
             self._unsub_job_completed()
             self._unsub_job_completed = None
@@ -279,7 +285,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             await callback()
 
     async def poll(self) -> None:
-        """Poll for file changes."""
+        """Poll for file changes; a no-op once stopped (don't re-arm during shutdown)."""
+        if self._stopped:
+            return
         await self._scanner.scan()
         await self._mqtt_coordinator.reconcile()
 
