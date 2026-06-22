@@ -53,11 +53,8 @@ async def test_exit_cleanly_on_signal_with_loop_defers_graceful_exit(
     assert scheduled == [main_module._raise_graceful_exit]
 
 
-def test_raise_graceful_exit_raises_graceful_exit(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_raise_graceful_exit_raises_graceful_exit() -> None:
     """The deferred callback raises aiohttp's ``GracefulExit``."""
-    # Don't arm the real hard-exit watchdog in-process — its daemon thread would
-    # os._exit(0) the test worker after the deadline.
-    monkeypatch.setattr(main_module, "_arm_hard_exit_watchdog", lambda: None)
     with pytest.raises(GracefulExit):
         main_module._raise_graceful_exit()
 

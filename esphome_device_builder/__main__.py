@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
-import os
 import signal
 import sys
 import threading
@@ -58,13 +57,6 @@ _LOG_COLORS = {
 # Set by the stop-signal trap so ``main`` can tell a user-requested
 # shutdown apart from a genuine startup crash when ``run_app`` propagates.
 _stop_requested = False
-
-# Backstop hard cap on graceful shutdown: a force-exit for the awaits a timeout
-# can't gracefully cut (executor threads, a wedged git commit).
-_HARD_EXIT_DEADLINE_SECONDS = 8.0
-
-# One-shot latch so a second stop signal doesn't arm a second watchdog.
-_hard_exit_armed = False
 
 
 def _setup_logging(log_level: str, log_file: str | None = None) -> None:
@@ -145,27 +137,7 @@ def _raise_graceful_exit() -> None:
     from aiohttp.web import GracefulExit  # noqa: PLC0415
 
     logging.getLogger(_LOGGER_NAME).info("Received stop signal; shutting down cleanly")
-    _arm_hard_exit_watchdog()
     raise GracefulExit
-
-
-def _arm_hard_exit_watchdog(deadline: float = _HARD_EXIT_DEADLINE_SECONDS) -> None:
-    """Force-exit if graceful shutdown overruns ``deadline``; idempotent."""
-    global _hard_exit_armed  # noqa: PLW0603 — process-wide one-shot latch
-    if _hard_exit_armed:
-        return
-    _hard_exit_armed = True
-
-    def _force_exit() -> None:
-        time.sleep(deadline)
-        # Best-effort note to stderr (the queue listener may be gone); os._exit
-        # must still run if that write fails.
-        with suppress(Exception):
-            sys.stderr.write(f"Graceful shutdown exceeded {deadline:.0f}s; forcing exit\n")
-            sys.stderr.flush()
-        os._exit(0)
-
-    threading.Thread(target=_force_exit, name="hard-exit-watchdog", daemon=True).start()
 
 
 def main() -> None:
