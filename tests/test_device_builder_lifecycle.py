@@ -22,6 +22,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from esphome_device_builder.api.ws import close_active_websockets
 from esphome_device_builder.device_builder import DeviceBuilder
 
 from .conftest import MakeSettingsFactory
@@ -362,15 +363,16 @@ async def test_stop_flushes_local_even_when_network_teardown_keeps_failing(
 async def test_create_app_registers_on_shutdown_after_ws_closer(
     make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
 ) -> None:
-    """The lifecycle app wires ``_on_shutdown``, after ``init_ws_app``'s WS closer."""
+    """The lifecycle app wires ``_on_shutdown`` after ``init_ws_app``'s WS closer."""
     db = DeviceBuilder(make_settings(with_core_path=True))
     await db.start()
     try:
         app = db.create_app(with_lifecycle=True)
         handlers = list(app.on_shutdown)
+        assert close_active_websockets in handlers
         assert db._on_shutdown in handlers
-        # close_active_websockets (from init_ws_app) is registered first.
-        assert handlers.index(db._on_shutdown) > 0
+        # WS handlers must unwind before the network teardown.
+        assert handlers.index(close_active_websockets) < handlers.index(db._on_shutdown)
     finally:
         await db.stop()
 

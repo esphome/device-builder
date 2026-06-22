@@ -288,6 +288,35 @@ async def test_stop_drains_ping_and_api_info_tasks(monkeypatch: pytest.MonkeyPat
     assert api.done()
 
 
+async def test_stop_drain_timeout_is_logged(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A drain task slow to settle trips the bound and is debug-logged."""
+    monitor, _callbacks = _make_monitor()
+    await _start_with_captured_dispatch(monitor, monkeypatch)
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers._device_state_monitor.controller._STOP_DRAIN_TIMEOUT",
+        0.01,
+    )
+
+    async def _slow_to_settle() -> None:
+        # The finally delays settling past the bound after the first cancel; the
+        # wait_for-driven second cancel then interrupts it so wait_for returns.
+        try:
+            await asyncio.sleep(30)
+        finally:
+            await asyncio.sleep(0.2)
+
+    monitor._ping_task.cancel()
+    monitor._ping_task = asyncio.create_task(_slow_to_settle())
+    await asyncio.sleep(0)  # let it reach the sleep(30)
+
+    with caplog.at_level("DEBUG"):
+        await monitor.stop()
+
+    assert "Timed out draining state-monitor tasks" in caplog.text
+
+
 # ---------------------------------------------------------------------------
 # start() — failure fallbacks
 # ---------------------------------------------------------------------------
