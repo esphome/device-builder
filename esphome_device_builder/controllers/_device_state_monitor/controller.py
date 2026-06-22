@@ -26,6 +26,7 @@ from typing import Any
 
 from esphome.zeroconf import AsyncEsphomeZeroconf
 
+from ...helpers.async_ import create_eager_task
 from ...helpers.subscriber_presence import SubscriberPresence
 from ...models import AdoptableDevice, Device, DeviceState, ReachabilitySource
 from .._reachability_tracker import MdnsCacheInfo, ReachabilityTracker
@@ -182,6 +183,8 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
             task.cancel()
         drain.extend(self._tasks)
         self._tasks.clear()
+        # Close zeroconf eagerly so 5353 frees now, overlapping the task drain.
+        close = create_eager_task(self._mdns.close_zeroconf())
         if drain:
             # Drain bounded here so the cancelled tasks don't leak to aiohttp's
             # unbounded terminal sweep.
@@ -189,7 +192,7 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
                 await asyncio.wait_for(
                     asyncio.gather(*drain, return_exceptions=True), _STOP_DRAIN_TIMEOUT
                 )
-        await self._mdns.close_zeroconf()
+        await close
 
     @staticmethod
     def _log_api_info_task_exit(task: asyncio.Task) -> None:
