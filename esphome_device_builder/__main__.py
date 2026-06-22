@@ -391,12 +391,8 @@ def _serve_until_stop(device_builder: DeviceBuilder) -> None:
     try/finally — so a half-started controller's teardown can surface a
     non-``CancelledError`` that escapes ``run_app``. With a stop pending
     that's a clean exit; a crash with no stop pending propagates.
-
-    The pre-serve check covers a stop signal whose ``SystemExit(0)`` was
-    swallowed (signals raised inside an import-machinery weakref callback are
-    ignored by CPython): ``_stop_requested`` is still set, so honour it here
-    rather than serving forever.
     """
+    # Honour a startup stop whose SystemExit was swallowed (e.g. in a weakref callback).
     if _stop_requested:
         logging.getLogger(_LOGGER_NAME).info("Stop signal received during startup; exiting")
         return
