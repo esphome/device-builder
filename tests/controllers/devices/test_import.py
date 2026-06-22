@@ -423,36 +423,60 @@ async def test_import_device_preserves_original_error_when_cleanup_fails(
     assert "required key not provided: a platform" in excinfo.value.message
 
 
-async def test_import_device_rolls_back_on_validator_subprocess_error(
+@pytest.mark.parametrize(
+    "exc",
+    [TimeoutError("subprocess wedged"), RuntimeError("closed stdout"), BrokenPipeError()],
+)
+async def test_import_device_keeps_yaml_when_validator_unavailable(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
+    exc: Exception,
 ) -> None:
-    """A non-CommandError failure from the validator still rolls the YAML back.
+    """A validator timeout / subprocess error keeps the file and proceeds.
 
-    The validator subprocess can raise ``TimeoutError`` /
-    ``RuntimeError`` / ``BrokenPipeError`` (or even an
-    ``OSError`` from the post-write read) without going through
-    ``CommandError``. Without a broad ``except`` the rollback
-    would skip and the half-imported YAML would stick around,
-    tripping ``FileExistsError`` on every retry — exactly the
-    foot-gun this PR is meant to prevent.
+    The adopt path tolerates an unavailable validator: an imported
+    config's ``github://`` package fetch can outlast the validate
+    budget, and that fetch happens again at compile/install. The file
+    stays, adoption completes, and the scan runs.
     """
     monkeypatch.setattr("esphome.components.dashboard_import.import_config", _import_config_stub())
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
-    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=TimeoutError("subprocess wedged"))
+    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=exc)
 
-    with pytest.raises(TimeoutError):
-        await ctrl.import_device(
-            name="kitchen",
-            project_name="x",
-            package_import_url="github://x",
-        )
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x",
+    )
 
-    # YAML must be unlinked even though the failure wasn't a CommandError.
-    assert not (tmp_path / "kitchen.yaml").exists()
-    assert ctrl._scanner.calls == []
+    assert result == {"configuration": "kitchen.yaml"}
+    assert (tmp_path / "kitchen.yaml").exists()
+    assert ctrl._scanner.calls == [("scan",)]
+
+
+async def test_import_device_validates_with_short_timeout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Adopt passes the short import budget so it isn't gated on a cold fetch."""
+    from esphome_device_builder.controllers.editor import _IMPORT_VALIDATE_TIMEOUT  # noqa: PLC0415
+
+    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _import_config_stub())
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    validate = AsyncMock(return_value={"yaml_errors": [], "validation_errors": []})
+    ctrl._db.editor.validate_yaml = validate
+
+    await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x",
+    )
+
+    assert validate.await_args.kwargs["timeout"] == _IMPORT_VALIDATE_TIMEOUT
 
 
 async def test_import_device_skips_validation_when_editor_unavailable(

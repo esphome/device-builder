@@ -101,6 +101,8 @@ async def validate_rewritten_yaml_or_raise(
     action: str,
     on_failure: ErrorCode = ErrorCode.INVALID_ARGS,
     on_error_cleanup: Callable[[], None] | None = None,
+    tolerate_unavailable: bool = False,
+    timeout: float | None = None,
 ) -> None:
     """
     Schema-validate *content* via the editor; raise if invalid.
@@ -111,12 +113,37 @@ async def validate_rewritten_yaml_or_raise(
     generators. *on_error_cleanup* runs in a finally on any
     non-success path so callers that wrote the YAML before
     validating can roll back.
+
+    *tolerate_unavailable* treats a validator timeout / subprocess
+    failure as success (file kept, no cleanup): the adopt path uses it
+    so a cold ``github://`` package fetch can't gate adoption. Genuine
+    YAML/schema errors still raise. *timeout* overrides the validator's
+    round-trip budget.
     """
     if editor is None:
         return
+    validate_kwargs: dict[str, object] = {}
+    if timeout is not None:
+        validate_kwargs["timeout"] = timeout
     succeeded = False
     try:
-        result = await editor.validate_yaml(configuration=configuration, content=content)
+        try:
+            result = await editor.validate_yaml(
+                configuration=configuration, content=content, **validate_kwargs
+            )
+        except (TimeoutError, RuntimeError, BrokenPipeError):
+            if not tolerate_unavailable:
+                raise
+            # Validator wedged or the remote-package fetch ran long;
+            # keep the written file and let compile/install surface any
+            # real error later.
+            _LOGGER.info(
+                "Validator unavailable during %s of %s; keeping file unvalidated",
+                action,
+                configuration,
+            )
+            succeeded = True
+            return
         errors = [
             *(err.get("message", "") for err in result.get("yaml_errors", [])),
             *(err.get("message", "") for err in result.get("validation_errors", [])),

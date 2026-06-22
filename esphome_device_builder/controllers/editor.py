@@ -29,6 +29,11 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 _STARTUP_TIMEOUT = 15.0
 _VALIDATE_TIMEOUT = 30.0
+# Short budget for the adopt path: a generator YAML-syntax error surfaces at
+# parse (well under a second), before esphome's network packages pass. The
+# cold ``github://`` package fetch an imported config triggers is abandoned
+# rather than blocking adoption; compile/install fetches it later.
+_IMPORT_VALIDATE_TIMEOUT = 8.0
 # Linter and save both call ``validate_yaml`` on identical
 # content (typing-stops → linter at 600 ms → user clicks save).
 # Cache covers that hand-off; longer would risk staleness for
@@ -273,6 +278,7 @@ class EditorController:
         *,
         configuration: str,
         content: str,
+        timeout: float = _VALIDATE_TIMEOUT,
         client: Any = None,
         message_id: str = "",
         **kwargs: Any,
@@ -288,6 +294,9 @@ class EditorController:
         Results are cached per session by content hash for
         ``_VALIDATE_CACHE_TTL`` seconds; the linter and the
         save-time re-validate hit the same content back-to-back.
+
+        ``timeout`` bounds the round-trip; the import path passes a short
+        budget so adoption isn't gated on a cold remote-package fetch.
         """
         session = self._sessions.setdefault(
             configuration, _EditorSession(configuration=configuration)
@@ -310,7 +319,7 @@ class EditorController:
             try:
                 result = await asyncio.wait_for(
                     self._validate_locked(session, configuration, content),
-                    timeout=_VALIDATE_TIMEOUT,
+                    timeout=timeout,
                 )
             except (TimeoutError, RuntimeError, BrokenPipeError):
                 # Subprocess wedged or died — kill it so the next call respawns.
