@@ -487,7 +487,9 @@ receiver is paired.
 - **[docs/API.md](docs/API.md)** — every WebSocket command, request/response
   shapes, event types.
 - **[esphome_device_builder/definitions/README.md](esphome_device_builder/definitions/README.md)** —
-  contributor guide for board manifests.
+  board (and component) contributor guide: manifest schema plus the
+  edit, regenerate (`script/sync_boards.py`), and validate workflow for
+  adding or updating a board.
 
 ## Contributing
 

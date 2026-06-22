@@ -23,14 +23,21 @@ The YAML manifests under ``definitions/boards/<id>/manifest.yaml``
 remain the human-editable source of truth; this script is the only
 thing that writes the three artefacts.
 
+The sync must run against the same ESPHome the catalog was generated
+against (``esphome_schema_version`` in ``components.index.json``); a
+mismatch silently rewrites every ESPHome-derived board, so the script
+refuses to run otherwise.
+
 Usage
 -----
 
-    python script/sync_boards.py
+    python script/sync_boards.py              # regenerate every board
+    python script/sync_boards.py BOARD_ID     # regenerate only one board
 """
 
 from __future__ import annotations
 
+import argparse
 import importlib
 import logging
 import re
@@ -73,6 +80,7 @@ _DEFINITIONS_DIR = _REPO_ROOT / "esphome_device_builder" / "definitions"
 _INDEX_FILE = _DEFINITIONS_DIR / "boards.index.json"
 _BODIES_DIR = _DEFINITIONS_DIR / "board_bodies"
 _FEATURED_INDEX_FILE = _DEFINITIONS_DIR / "featured_components.index.json"
+_COMPONENTS_INDEX_FILE = _DEFINITIONS_DIR / "components.index.json"
 
 # Fields stripped from the slim index entry — they belong on the
 # per-board body file only.
@@ -811,6 +819,18 @@ def build_catalog() -> BoardCatalogResponse:
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    parser = argparse.ArgumentParser(
+        description="Regenerate the board catalog JSON from the YAML manifests."
+    )
+    parser.add_argument(
+        "board",
+        nargs="?",
+        help="Board id (the folder name under definitions/boards/) to regenerate on its own. "
+        "Omit to regenerate the whole catalog.",
+    )
+    args = parser.parse_args()
+
+    _require_matching_esphome()
 
     # Abort the sync on the first bad manifest — partial output here
     # would silently ship a board-shaped hole to every install.
@@ -819,6 +839,10 @@ def main() -> int:
     # ``to_dict`` here already applies the omit_default Configs, so
     # body files and index entries both ship the stripped wire shape.
     full_payloads = [board.to_dict() for board in catalog.boards]
+
+    if args.board:
+        return _emit_single_board(catalog.boards, full_payloads, args.board)
+
     _emit_split_catalog(catalog.boards, full_payloads)
     _emit_featured_components_index(catalog.boards)
 
@@ -829,6 +853,37 @@ def main() -> int:
         _BODIES_DIR,
         _FEATURED_INDEX_FILE,
     )
+    return 0
+
+
+def _emit_single_board(
+    boards: list[BoardCatalogEntry], full_payloads: list[dict[str, Any]], board_id: str
+) -> int:
+    """
+    Rewrite one board's body file, then refresh the index and featured map.
+
+    Only the target's ``board_bodies/<id>.json`` is rewritten; the index and
+    featured-components files are single cheap rebuilds whose other entries are
+    byte-identical (the version guard rules out drift), so the diff stays
+    scoped to the edited board.
+    """
+    idx = next((i for i, board in enumerate(boards) if board.id == board_id), None)
+    if idx is None:
+        raise SystemExit(
+            f"sync_boards: no board with id {board_id!r}; "
+            f"expected a folder name under {_DEFINITIONS_DIR / 'boards'}"
+        )
+    emit_body_with_roundtrip(
+        full_payloads[idx],
+        board_id,
+        _BODIES_DIR,
+        BoardCatalogEntry,
+        log_label="Board",
+        sort_keys=True,
+    )
+    _write_index(full_payloads)
+    _emit_featured_components_index(boards)
+    _LOGGER.info("Regenerated board_bodies/%s.json + refreshed index and featured map", board_id)
     return 0
 
 
@@ -853,21 +908,61 @@ def _emit_split_catalog(
             sort_keys=True,
         )
 
-    index_payload = {
-        "boards": sorted(
-            (_strip_body_fields(payload) for payload in full_payloads),
-            key=lambda p: p["id"],
-        ),
-    }
     swap_split_catalog_in(
         next_bodies=next_bodies,
         live_bodies=_BODIES_DIR,
-        index_payload=index_payload,
+        index_payload=_index_payload(full_payloads),
         live_index=_INDEX_FILE,
         index_cls=BoardCatalogIndex,
         index_entries_key="boards",
         sort_keys=True,
     )
+
+
+def _index_payload(full_payloads: list[dict[str, Any]]) -> dict[str, Any]:
+    """Build the slim ``{"boards": [...]}`` index payload, id-sorted."""
+    return {
+        "boards": sorted(
+            (_strip_body_fields(payload) for payload in full_payloads),
+            key=lambda p: p["id"],
+        ),
+    }
+
+
+def _write_index(full_payloads: list[dict[str, Any]]) -> None:
+    """Rewrite ``boards.index.json`` only, leaving the body files untouched."""
+    index_payload = _index_payload(full_payloads)
+    for entry in index_payload["boards"]:
+        BoardCatalogIndex.from_dict(entry)
+    next_index = _INDEX_FILE.with_suffix(".json.next")
+    next_index.write_bytes(
+        orjson.dumps(index_payload, option=orjson.OPT_SORT_KEYS | orjson.OPT_APPEND_NEWLINE)
+    )
+    next_index.replace(_INDEX_FILE)
+
+
+def _require_matching_esphome() -> None:
+    """
+    Abort unless the installed ESPHome matches the catalog's generation version.
+
+    The pin to match is ``esphome_schema_version`` in ``components.index.json``;
+    a different ESPHome (or none, e.g. a bare ``python`` outside the venv)
+    rewrites every ESPHome-derived board, so refuse rather than drift.
+    """
+    expected = orjson.loads(_COMPONENTS_INDEX_FILE.read_bytes())["esphome_schema_version"]
+    try:
+        from esphome.const import __version__ as installed
+    except ImportError:
+        raise SystemExit(
+            f"sync_boards: ESPHome is not importable in this interpreter ({sys.executable}). "
+            f"Run inside the project venv with ESPHome {expected} installed."
+        ) from None
+    if installed != expected:
+        raise SystemExit(
+            f"sync_boards: ESPHome {installed} is installed, but the catalog is generated "
+            f"against {expected} (esphome_schema_version in components.index.json). "
+            f"Install the matching version (pip install 'esphome=={expected}') and retry."
+        )
 
 
 def _emit_featured_components_index(boards: list[BoardCatalogEntry]) -> None:

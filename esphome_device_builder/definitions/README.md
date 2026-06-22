@@ -20,8 +20,9 @@ artefacts, all written by `script/sync_boards.py`:
 So every manifest edit is a three-step loop:
 
 ```bash
-# 1. regenerate the JSON from the manifests (run in the project venv)
-python script/sync_boards.py
+# 1. regenerate the JSON (run in the project venv). Pass a board id to
+#    regenerate just that board; omit it to rebuild the whole catalog.
+python script/sync_boards.py my-awesome-board
 
 # 2. validate the manifests against the schema and cross-references
 python script/validate_definitions.py
@@ -29,6 +30,11 @@ python script/validate_definitions.py
 # 3. confirm the JSON matches the manifests
 python -m pytest tests/test_boards_json.py
 ```
+
+Passing the board id (the folder name under `boards/`) rewrites only that
+board's `board_bodies/<id>.json` and refreshes the two index files, so the diff
+stays scoped to what you edited; a bare `python script/sync_boards.py` rebuilds
+all ~990 body files.
 
 Commit the manifest **and** the regenerated JSON together. **Never hand-edit the
 JSON** (`boards.index.json`, `board_bodies/*.json`); it is overwritten on the
@@ -43,20 +49,21 @@ a broken image URL passes the sync but is caught here.
 
 `sync_boards.py` imports ESPHome: it generates the boards no manifest covers
 straight from your installed ESPHome's board tables, and fills curated boards'
-pin aliases the same way. Run it with the venv's interpreter so it uses the
-ESPHome version the committed catalog was generated against:
+pin aliases the same way. It must run against the exact ESPHome version the
+committed catalog was generated against (`esphome_schema_version` in
+`components.index.json`), or every ESPHome-derived board is silently rewritten.
+The script enforces this: it refuses to run on a mismatched (or missing)
+ESPHome and prints the version to install. Run it from the project venv:
 
 ```bash
 source .venv/bin/activate    # or call .venv/bin/python directly
 python script/sync_boards.py
 ```
 
-A different interpreter (a system `python` with no ESPHome, or a newer ESPHome
-release) silently rewrites unrelated generated boards. The pre-commit
-`sync-boards` hook runs `python` from `PATH`, so activate the venv before
-committing. If a commit aborts with "files were modified by this hook" and the
-changed files are boards you never touched, that is the interpreter mismatch;
-activate the venv and commit again.
+The pre-commit `sync-boards` hook runs `python` from `PATH`, so activate the
+venv before committing. If the hook fails saying ESPHome is the wrong version,
+that is the interpreter mismatch; activate the venv (or `pip install` the
+version it names) and commit again.
 
 ### Curated vs generated vs imported boards
 
