@@ -41,6 +41,9 @@ from .ping import PingSource
 from .shared import _SOURCE_PRIORITY
 
 _LOGGER = logging.getLogger(__name__)
+# Bound on draining the ping / API-info / resolve tasks at shutdown; they cancel
+# promptly, but don't wait on a wedged in-flight probe.
+_STOP_DRAIN_TIMEOUT = 2.0
 # Padding added to the cached A record's TTL when the drawer's
 # refresh loop schedules its next probe. Sleeping ``ttl + this``
 # guarantees ``async_resolve_host`` falls through its cache short-
@@ -161,12 +164,15 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         self._api_info_task.add_done_callback(self._log_api_info_task_exit)
 
     async def stop(self) -> None:
-        """Tear down the browser and cancel the ping + API info loops."""
+        """Tear down the browser and drain the ping + API-info + resolve tasks (bounded)."""
+        drain: list[asyncio.Task[Any]] = []
         if self._ping_task is not None:
             self._ping_task.cancel()
+            drain.append(self._ping_task)
             self._ping_task = None
         if self._api_info_task is not None:
             self._api_info_task.cancel()
+            drain.append(self._api_info_task)
             self._api_info_task = None
         # Cancel the browser FIRST so it stops dispatching new mDNS
         # callbacks; otherwise the drain below would race against
@@ -174,9 +180,17 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         await self._mdns.cancel_browser()
         for task in self._tasks:
             task.cancel()
-        if self._tasks:
-            await asyncio.gather(*self._tasks, return_exceptions=True)
-            self._tasks.clear()
+        drain.extend(self._tasks)
+        self._tasks.clear()
+        if drain:
+            # Drain here (with a bound) rather than leaving the cancelled ping /
+            # API-info tasks for aiohttp's unbounded terminal task sweep.
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*drain, return_exceptions=True), _STOP_DRAIN_TIMEOUT
+                )
+            except TimeoutError:
+                _LOGGER.debug("Timed out draining state-monitor tasks at shutdown")
         await self._mdns.close_zeroconf()
 
     @staticmethod

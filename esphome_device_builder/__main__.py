@@ -59,8 +59,10 @@ _LOG_COLORS = {
 # shutdown apart from a genuine startup crash when ``run_app`` propagates.
 _stop_requested = False
 
-# Hard cap on graceful shutdown: past this the watchdog force-exits so a wedged
-# teardown can't hold the mDNS / HTTP sockets indefinitely.
+# Backstop hard cap on graceful shutdown. The slow awaits a timeout can cut
+# (mDNS goodbyes, state-monitor drain) are bounded directly; this force-exit
+# covers the rest a timeout can't gracefully cut (executor worker threads, a
+# wedged git commit) so a stuck teardown can't hold the sockets indefinitely.
 _HARD_EXIT_DEADLINE_SECONDS = 8.0
 
 # One-shot latch so a second stop signal doesn't arm a second watchdog.

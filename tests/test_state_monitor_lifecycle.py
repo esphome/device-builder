@@ -273,6 +273,21 @@ async def test_close_zeroconf_is_bounded_when_async_close_hangs(
     await _stop_and_drain(monitor)
 
 
+async def test_stop_drains_ping_and_api_info_tasks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """stop() awaits the cancelled ping / API-info tasks, not leaving them for aiohttp's sweep."""
+    monitor, _callbacks = _make_monitor()
+    await _start_with_captured_dispatch(monitor, monkeypatch)
+    ping = monitor._ping_task
+    api = monitor._api_info_task
+    assert ping is not None
+    assert api is not None
+
+    await monitor.stop()
+
+    assert ping.done()
+    assert api.done()
+
+
 # ---------------------------------------------------------------------------
 # start() — failure fallbacks
 # ---------------------------------------------------------------------------
