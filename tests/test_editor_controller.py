@@ -40,7 +40,9 @@ import pytest
 from esphome_device_builder.controllers import editor as editor_module
 from esphome_device_builder.controllers.editor import (
     _IDLE_SUBPROCESS_TIMEOUT,
+    _VALIDATE_TIMEOUT,
     EditorController,
+    ValidatorUnavailableError,
     _EditorSession,
 )
 from esphome_device_builder.helpers.json import dumps
@@ -726,6 +728,7 @@ async def test_validate_yaml_creates_session_and_delegates(
         return {"yaml_errors": [], "validation_errors": []}
 
     controller._validate_locked = _fake_validate  # type: ignore[method-assign]
+    controller._ensure_subprocess = AsyncMock()  # type: ignore[method-assign]
 
     result = await controller.validate_yaml(configuration="kitchen.yaml", content="esphome:\n")
 
@@ -749,6 +752,7 @@ async def test_validate_yaml_terminates_session_on_timeout(
         return {}
 
     controller._validate_locked = _hangs  # type: ignore[method-assign]
+    controller._ensure_subprocess = AsyncMock()  # type: ignore[method-assign]
 
     async def _raise_timeout(awaitable: Any, *_args: Any, **_kwargs: Any) -> None:
         if hasattr(awaitable, "close"):
@@ -769,23 +773,111 @@ async def test_validate_yaml_terminates_session_on_timeout(
     terminated.assert_awaited_once()
 
 
-async def test_validate_yaml_terminates_session_on_runtime_error(
+async def test_validate_yaml_terminates_session_on_validator_unavailable(
     tmp_path: Path,
 ) -> None:
-    """``_validate_locked`` raising ``RuntimeError`` (subprocess died) → teardown + re-raise."""
+    """``_validate_locked`` raising ``ValidatorUnavailableError`` → teardown + re-raise."""
     controller = _make_controller(tmp_path)
 
-    async def _raise_runtime(*_args: Any, **_kwargs: Any) -> dict:
-        raise RuntimeError("subprocess closed stdout")
+    async def _raise_unavailable(*_args: Any, **_kwargs: Any) -> dict:
+        raise ValidatorUnavailableError("subprocess closed stdout")
 
-    controller._validate_locked = _raise_runtime  # type: ignore[method-assign]
+    controller._validate_locked = _raise_unavailable  # type: ignore[method-assign]
+    controller._ensure_subprocess = AsyncMock()  # type: ignore[method-assign]
     terminated = AsyncMock()
     controller._terminate_subprocess = terminated  # type: ignore[method-assign]
 
-    with pytest.raises(RuntimeError, match="closed stdout"):
+    with pytest.raises(ValidatorUnavailableError, match="closed stdout"):
         await controller.validate_yaml(configuration="kitchen.yaml", content="")
 
     terminated.assert_awaited_once()
+
+
+async def test_validate_yaml_propagates_generic_runtime_error_and_tears_down(
+    tmp_path: Path,
+) -> None:
+    """A generic ``RuntimeError`` propagates by type, but the subprocess is still torn down.
+
+    The round-trip may have left the stateful protocol mid-message, so a bug
+    must not strand a desynced subprocess for the next validate to misread.
+    """
+    controller = _make_controller(tmp_path)
+
+    async def _raise_runtime(*_args: Any, **_kwargs: Any) -> dict:
+        raise RuntimeError("unexpected bug")
+
+    controller._validate_locked = _raise_runtime  # type: ignore[method-assign]
+    controller._ensure_subprocess = AsyncMock()  # type: ignore[method-assign]
+    terminated = AsyncMock()
+    controller._terminate_subprocess = terminated  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="unexpected bug"):
+        await controller.validate_yaml(configuration="kitchen.yaml", content="")
+
+    terminated.assert_awaited_once()
+
+
+async def test_validate_yaml_warms_subprocess_outside_round_trip_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Subprocess startup runs before the timeout budget, which wraps only the round-trip."""
+    controller = _make_controller(tmp_path)
+    events: list[str] = []
+
+    async def _ensure(_session: _EditorSession) -> None:
+        events.append("ensure")
+
+    async def _locked(*_args: Any, **_kwargs: Any) -> dict:
+        events.append("validate")
+        return {"yaml_errors": [], "validation_errors": []}
+
+    controller._ensure_subprocess = _ensure  # type: ignore[method-assign]
+    controller._validate_locked = _locked  # type: ignore[method-assign]
+
+    captured: dict[str, float] = {}
+    real_wait_for = asyncio.wait_for
+
+    async def _wait_for(awaitable: Any, *, timeout: float) -> Any:
+        events.append("wait_for")
+        captured["timeout"] = timeout
+        return await real_wait_for(awaitable, timeout=timeout)
+
+    monkeypatch.setattr("esphome_device_builder.controllers.editor.asyncio.wait_for", _wait_for)
+
+    await controller.validate_yaml(configuration="kitchen.yaml", content="", timeout=0.5)
+
+    # Startup happened before the budgeted wait_for, which wrapped only the round-trip.
+    assert events == ["ensure", "wait_for", "validate"]
+    assert captured["timeout"] == 0.5
+
+
+async def test_validate_yaml_ignores_client_supplied_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``timeout`` is internal-only: a WS client can't tune its validate budget."""
+    controller = _make_controller(tmp_path)
+    controller._ensure_subprocess = AsyncMock()  # type: ignore[method-assign]
+
+    async def _locked(*_args: Any, **_kwargs: Any) -> dict:
+        return {"yaml_errors": [], "validation_errors": []}
+
+    controller._validate_locked = _locked  # type: ignore[method-assign]
+
+    captured: dict[str, float] = {}
+    real_wait_for = asyncio.wait_for
+
+    async def _wait_for(awaitable: Any, *, timeout: float) -> Any:
+        captured["timeout"] = timeout
+        return await real_wait_for(awaitable, timeout=timeout)
+
+    monkeypatch.setattr("esphome_device_builder.controllers.editor.asyncio.wait_for", _wait_for)
+
+    # A WS-dispatched call carries ``client``; the supplied short timeout is dropped.
+    await controller.validate_yaml(
+        configuration="kitchen.yaml", content="", timeout=0.001, client=object()
+    )
+
+    assert captured["timeout"] == _VALIDATE_TIMEOUT
 
 
 # ---------------------------------------------------------------------------
@@ -808,6 +900,7 @@ async def test_validate_yaml_caches_result_for_repeated_content(tmp_path: Path) 
         return {"yaml_errors": [], "validation_errors": []}
 
     controller._validate_locked = _record  # type: ignore[method-assign]
+    controller._ensure_subprocess = AsyncMock()  # type: ignore[method-assign]
 
     first = await controller.validate_yaml(
         configuration="kitchen.yaml", content="esphome:\n  name: kitchen\n"
@@ -830,6 +923,7 @@ async def test_validate_yaml_cache_misses_on_different_content(tmp_path: Path) -
         return {"yaml_errors": [], "validation_errors": []}
 
     controller._validate_locked = _record  # type: ignore[method-assign]
+    controller._ensure_subprocess = AsyncMock()  # type: ignore[method-assign]
 
     await controller.validate_yaml(
         configuration="kitchen.yaml", content="esphome:\n  name: kitchen\n"

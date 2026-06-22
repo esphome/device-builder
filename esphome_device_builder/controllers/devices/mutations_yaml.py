@@ -13,6 +13,7 @@ from ...helpers.device_yaml import (
     generate_minimal_stub_yaml,
 )
 from ...models import ErrorCode
+from ..editor import ValidatorUnavailableError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -101,6 +102,8 @@ async def validate_rewritten_yaml_or_raise(
     action: str,
     on_failure: ErrorCode = ErrorCode.INVALID_ARGS,
     on_error_cleanup: Callable[[], None] | None = None,
+    tolerate_unavailable: bool = False,
+    timeout: float | None = None,
 ) -> None:
     """
     Schema-validate *content* via the editor; raise if invalid.
@@ -111,12 +114,43 @@ async def validate_rewritten_yaml_or_raise(
     generators. *on_error_cleanup* runs in a finally on any
     non-success path so callers that wrote the YAML before
     validating can roll back.
+
+    *tolerate_unavailable* treats validator unavailability (timeout /
+    subprocess failure) as success: file kept, no cleanup; genuine
+    YAML/schema errors still raise. *timeout* overrides the validator's
+    round-trip budget.
     """
     if editor is None:
         return
     succeeded = False
     try:
-        result = await editor.validate_yaml(configuration=configuration, content=content)
+        try:
+            result = await editor.validate_yaml(
+                configuration=configuration, content=content, timeout=timeout
+            )
+        except TimeoutError:
+            if not tolerate_unavailable:
+                raise
+            # Expected on adopt: the cold ``github://`` fetch outran the budget.
+            _LOGGER.info(
+                "Validation of %s for %s timed out; keeping file, deferring to compile/install",
+                configuration,
+                action,
+            )
+            succeeded = True
+            return
+        except (ValidatorUnavailableError, BrokenPipeError):
+            if not tolerate_unavailable:
+                raise
+            # Subprocess down (a generic RuntimeError still propagates); WARNING
+            # since an always-down validator is operationally significant.
+            _LOGGER.warning(
+                "Validator subprocess unavailable during %s of %s; keeping file unvalidated",
+                action,
+                configuration,
+            )
+            succeeded = True
+            return
         errors = [
             *(err.get("message", "") for err in result.get("yaml_errors", [])),
             *(err.get("message", "") for err in result.get("validation_errors", [])),

@@ -74,6 +74,16 @@ def test_serve_until_stop_returns_on_clean_run(monkeypatch: pytest.MonkeyPatch) 
     main_module._serve_until_stop(builder)  # type: ignore[arg-type]
 
 
+def test_serve_until_stop_skips_run_when_stop_already_requested(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stop swallowed during startup is honoured before serving (``run`` is skipped)."""
+    monkeypatch.setattr(main_module, "_stop_requested", True)
+    ran: list[bool] = []
+    main_module._serve_until_stop(SimpleNamespace(run=lambda: ran.append(True)))  # type: ignore[arg-type]
+    assert ran == []
+
+
 def test_serve_until_stop_swallows_error_when_stop_requested(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -19,7 +19,12 @@ import yaml
 from esphome.core import EsphomeError
 
 from ..constants import SECRETS_FILENAME
-from ..helpers.device_yaml import load_device_yaml
+from ..helpers.device_yaml import (
+    _UNRESOLVED_SUBSTITUTION_RE,
+    _extract_resolved_substitutions,
+    _resolve_substitutions,
+    load_device_yaml,
+)
 from ..helpers.yaml import FastestSafeLoader, load_yaml_fast_then_esphome
 from ..models import Device
 from ._device_mqtt_monitor import (
@@ -32,6 +37,10 @@ from ._device_mqtt_monitor import (
 _LOGGER = logging.getLogger(__name__)
 
 _DEFAULT_PORT = 1883
+
+# ``mqtt:`` fields read into an MqttBrokerConfig, each resolved through
+# the same !secret + substitution pipeline.
+_BROKER_FIELDS = ("broker", "port", "username", "password")
 
 
 class DeviceMqttCoordinator:
@@ -232,9 +241,10 @@ def parse_mqtt_block(
 
     Returns ``None`` when the YAML has no ``mqtt:`` block, when the
     block has no resolvable ``broker:`` field, or when the YAML fails
-    to parse. ``!secret xyz`` references are resolved via *secrets_map*.
-    Reads literal contents only — ``packages:`` / ``!include`` go
-    through :func:`load_device_yaml` + ``_extract_broker_from_config``.
+    to parse. ``!secret xyz`` references and ``${var}`` / ``$var``
+    substitutions from the file's own ``substitutions:`` block are
+    resolved; a broker still carrying an unresolved token returns
+    ``None`` so the caller falls through to the package-aware slow path.
     """
     secrets_map = secrets_map or {}
     try:
@@ -251,30 +261,43 @@ def parse_mqtt_block(
     mqtt = data.get("mqtt")
     if not isinstance(mqtt, dict):
         return None
-    return _broker_from_block(
-        {
-            "broker": _resolve(mqtt.get("broker"), secrets_map),
-            "port": _resolve(mqtt.get("port"), secrets_map),
-            "username": _resolve(mqtt.get("username"), secrets_map),
-            "password": _resolve(mqtt.get("password"), secrets_map),
-        }
-    )
+    subs = _extract_resolved_substitutions(data)
+    return _broker_from_block(_resolve_broker_fields(mqtt, secrets_map, subs))
 
 
 def _extract_broker_from_config(config: dict | None) -> MqttBrokerConfig | None:
-    """Extract broker parameters from a fully-resolved ESPHome config."""
+    """Extract broker parameters from a fully-resolved ESPHome config.
+
+    ``load_device_yaml`` merges ``packages:`` / ``!include`` but skips the
+    substitution pass, so resolve ``${var}`` against the merged
+    ``substitutions:`` block here too.
+    """
     if not isinstance(config, dict):
         return None
     mqtt = config.get("mqtt")
     if not isinstance(mqtt, dict):
         return None
-    return _broker_from_block(mqtt)
+    subs = _extract_resolved_substitutions(config)
+    return _broker_from_block(_resolve_broker_fields(mqtt, {}, subs))
+
+
+def _resolve_broker_fields(
+    mqtt: dict, secrets_map: dict[str, Any], subs: dict[str, str]
+) -> dict[str, str | None]:
+    """Resolve each broker field through ``!secret`` then ``${var}`` substitution."""
+    return {
+        k: _resolve_substitutions(_resolve(mqtt.get(k), secrets_map), subs) for k in _BROKER_FIELDS
+    }
 
 
 def _broker_from_block(mqtt: dict) -> MqttBrokerConfig | None:
     """Build an :class:`MqttBrokerConfig` from a resolved ``mqtt:`` block."""
     host = mqtt.get("broker")
     if not host:
+        return None
+    # An unresolved ``${var}`` / ``$var`` token would otherwise become a
+    # bogus host and loop the monitor on DNS failure.
+    if isinstance(host, str) and _UNRESOLVED_SUBSTITUTION_RE.search(host):
         return None
     port_raw = mqtt.get("port")
     try:

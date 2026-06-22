@@ -392,6 +392,10 @@ def _serve_until_stop(device_builder: DeviceBuilder) -> None:
     non-``CancelledError`` that escapes ``run_app``. With a stop pending
     that's a clean exit; a crash with no stop pending propagates.
     """
+    # Honour a startup stop whose SystemExit was swallowed (e.g. in a weakref callback).
+    if _stop_requested:
+        logging.getLogger(_LOGGER_NAME).info("Stop signal received during startup; exiting")
+        return
     try:
         device_builder.run()
     except Exception:

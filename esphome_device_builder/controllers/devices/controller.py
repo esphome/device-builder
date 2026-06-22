@@ -594,6 +594,8 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         action: str,
         on_failure: ErrorCode = ErrorCode.INVALID_ARGS,
         on_error_cleanup: Callable[[], None] | None = None,
+        tolerate_unavailable: bool = False,
+        timeout: float | None = None,
     ) -> None:
         await mutations_yaml.validate_rewritten_yaml_or_raise(
             self._db.editor,
@@ -602,6 +604,8 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             action=action,
             on_failure=on_failure,
             on_error_cleanup=on_error_cleanup,
+            tolerate_unavailable=tolerate_unavailable,
+            timeout=timeout,
         )
 
     @api_command("devices/delete")
