@@ -828,16 +828,13 @@ def main() -> int:
     parser.add_argument(
         "board",
         nargs="?",
-        help="Board id (the folder name under definitions/boards/) to regenerate on its own. "
-        "Omit to regenerate the whole catalog.",
+        help="Board id (the folder name under esphome_device_builder/definitions/boards/) "
+        "to regenerate on its own. Omit to regenerate the whole catalog.",
     )
     args = parser.parse_args()
 
-    # Single-board mode rewrites one body but rebuilds the index from *all*
-    # boards, so the installed esphome must match what the other committed
-    # bodies were generated against or their index entries silently drift. A
-    # full sync regenerates everything from the installed esphome and is
-    # internally consistent regardless, so it (and CI/automation) skips this.
+    # Only single-board mode needs the match: it rebuilds the shared index from
+    # every board, so a mismatched esphome drifts the others' index entries.
     if args.board:
         _require_matching_esphome()
 
@@ -959,13 +956,7 @@ def _write_index(full_payloads: list[dict[str, Any]]) -> None:
 
 
 def _require_matching_esphome() -> None:
-    """
-    Abort unless the installed ESPHome matches the catalog's generation version.
-
-    The pin to match is ``esphome_schema_version`` in ``components.index.json``;
-    a different ESPHome (or none, e.g. a bare ``python`` outside the venv)
-    rewrites every ESPHome-derived board, so refuse rather than drift.
-    """
+    """Abort unless installed ESPHome matches the catalog's ``esphome_schema_version`` pin."""
     try:
         expected = orjson.loads(_COMPONENTS_INDEX_FILE.read_bytes())["esphome_schema_version"]
     except (OSError, orjson.JSONDecodeError, KeyError):

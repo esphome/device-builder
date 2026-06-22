@@ -1,9 +1,9 @@
-"""Pin the single-board sync path and the ESPHome-version guard in sync_boards.
+"""
+Pin the single-board sync path and the ESPHome-version guard.
 
-The single-board path (``sync_boards.py <id>``) reuses the full path's index
-and featured-map writers but its own body writer, so these pin that it stays
-byte-identical to a full sync and touches only the named body, and that the
-version guard refuses a mismatched ESPHome.
+The single-board path reuses the full sync's index/featured writers but its
+own body writer, so these pin that it stays byte-identical to a full sync,
+touches only the named body, and refuses a mismatched ESPHome.
 """
 
 from __future__ import annotations
