@@ -488,8 +488,8 @@ receiver is paired.
   shapes, event types.
 - **[esphome_device_builder/definitions/README.md](esphome_device_builder/definitions/README.md)** —
   board (and component) contributor guide: manifest schema plus the
-  edit, regenerate (`script/sync_boards.py`), and validate workflow for
-  adding or updating a board.
+  workflow for adding or updating a board (edit the manifest, then run
+  `python script/update_board.py` to regenerate and validate).
 
 ## Contributing
 

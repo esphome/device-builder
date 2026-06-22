@@ -350,10 +350,12 @@ against legacy behaviour before assuming the simpler version suffices.
 - **Board catalog** (`definitions/boards/<id>/manifest.yaml`) is
   hand-curated YAML. ~80 popular boards plus generic fallbacks per
   platform. `script/validate_definitions.py` lints the manifests. The
-  manifest is the only hand-edited file; after editing one, regenerate
-  the shipped JSON with `script/sync_boards.py <board-id>` (single
-  board) or `script/sync_boards.py` (all). The sync refuses to run
-  unless the installed `esphome` matches `esphome_schema_version` in
+  manifest is the only hand-edited file; after editing one, run
+  `script/update_board.py [board-id]` (auto-detects the edited board) to
+  regenerate its JSON and validate in one step. It wraps
+  `script/sync_boards.py <board-id>` (single board) / `sync_boards.py`
+  (all) + `validate_definitions.py`. The sync refuses to run unless the
+  installed `esphome` matches `esphome_schema_version` in
   `components.index.json`. Full contributor workflow:
   `definitions/README.md`.
 - **Frontend handoff** for the catalog is documented inline in models
@@ -617,6 +619,7 @@ When changing the sync script or catalog handling, watch for these:
 | `esphome_device_builder/definitions/boards/<id>/manifest.yaml` | Curated; hand-edited. The body directory is `board_bodies/` (separate from this manifests dir) so the body-swap rmtree can't trample the hand-curated source. |
 | `esphome_device_builder/definitions/platform_capabilities.index.json` | Generated; do not hand-edit. esphome platform metadata the long-lived process reads instead of importing `esphome.components.*` (download routing, wifi-inference no-wifi sets, static download-types). Loaded via `load_platform_capabilities_index`. |
 | `esphome_device_builder/helper_cli.py` (`device-builder-helper`) | Subprocess for `get_download_types` on build-dir-dependent platforms (libretiny/nrf52), so the child imports `esphome.components.<X>`, not the dashboard process. |
+| `script/update_board.py` | One-step contributor wrapper: regenerate one board's JSON (`sync_boards.py`) + validate (`validate_definitions.py`). Auto-detects the edited board, or takes an id. |
 | `script/sync_boards.py` | Regenerates the split board catalog from the manifests. Takes an optional board id to regenerate just one; guards that installed `esphome` matches `esphome_schema_version`. |
 | `script/sync_components.py` | Regenerates the component catalog + `platform_capabilities.index.json` |
 | `script/check_catalog.py` | Smoke test for popular components |

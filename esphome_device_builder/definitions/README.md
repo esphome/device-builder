@@ -17,24 +17,30 @@ artefacts, all written by `script/sync_boards.py`:
 | `board_bodies/<id>.json` | Full body (hardware, pins, featured components); lazy-loaded when a board is opened. |
 | `featured_components.index.json` | Aggregated featured-components map read once at startup. |
 
-So every manifest edit is a three-step loop:
+After editing a manifest, run the one-step helper from the project venv:
 
 ```bash
-# 1. regenerate the JSON (run in the project venv). Pass a board id to
-#    regenerate just that board; omit it to rebuild the whole catalog.
-python script/sync_boards.py my-awesome-board
+python script/update_board.py            # auto-detects the board you edited
+python script/update_board.py my-board   # or name it explicitly
+```
 
-# 2. validate the manifests against the schema and cross-references
+It regenerates that board's JSON, validates the definitions, and prints the
+files to commit. That is all most contributors need.
+
+Under the hood it runs the two scripts you can also call directly:
+
+```bash
+# regenerate the JSON. Pass a board id to rewrite just that board; omit it
+# to rebuild the whole catalog (~990 body files).
+python script/sync_boards.py my-board
+
+# validate the manifests against the schema and cross-references
 python script/validate_definitions.py
-
-# 3. confirm the JSON matches the manifests
-python -m pytest tests/test_boards_json.py
 ```
 
 Passing the board id (the folder name under `boards/`) rewrites only that
 board's `board_bodies/<id>.json` and refreshes the two index files, so the diff
-stays scoped to what you edited; a bare `python script/sync_boards.py` rebuilds
-all ~990 body files.
+stays scoped to what you edited.
 
 Commit the manifest **and** the regenerated JSON together. **Never hand-edit the
 JSON** (`boards.index.json`, `board_bodies/*.json`); it is overwritten on the
