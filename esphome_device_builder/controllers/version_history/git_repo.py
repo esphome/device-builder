@@ -191,8 +191,19 @@ class GitRepo:
                     self.config_dir,
                     toplevel,
                 )
+            elif (self.config_dir / ".git").exists():
+                # rev-parse found no work tree yet ``.git`` is present: an
+                # unusable git dir (a submodule / worktree pointer whose
+                # target isn't mounted, or a corrupt repo). Re-initialising
+                # over it fails, so disable rather than crash on init.
+                _LOGGER.info(
+                    "Config dir %s has a .git git can't use here (likely a submodule or "
+                    "worktree whose git dir isn't mounted); version history disabled",
+                    self.config_dir,
+                )
+                return
             self._init_repo()
-        except OSError as exc:
+        except (OSError, subprocess.CalledProcessError) as exc:
             _LOGGER.warning("Could not set up version-history git repo: %s", exc)
 
     def _discover_toplevel(self) -> Path | None:

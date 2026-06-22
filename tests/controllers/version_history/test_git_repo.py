@@ -74,6 +74,39 @@ def test_init_creates_repo_and_gitignore(tmp_path: Path) -> None:
     assert "Initialize version history" in _git(tmp_path, "log", "--format=%s")
 
 
+def test_unusable_git_pointer_disables_without_raising(tmp_path: Path) -> None:
+    """A ``.git`` pointing at a missing git dir (broken submodule) disables, not crash."""
+    # Mirrors a submodule whose parent ``.git/modules`` tree isn't mounted:
+    # ``git init`` over this pointer aborts with ``fatal: not a git repository``.
+    (tmp_path / ".git").write_text("gitdir: ./nonexistent/git/dir\n", encoding="utf-8")
+    repo = GitRepo(config_dir=tmp_path)
+
+    repo.discover_or_init()
+
+    assert not repo.enabled
+
+
+def test_init_failure_disables_without_raising(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ``git init`` that exits non-zero disables the feature instead of crashing."""
+    real_run = subprocess.run
+
+    def _fake(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if "init" in cmd:
+            return subprocess.CompletedProcess(cmd, 128, "", "fatal: boom")
+        return real_run(cmd, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.version_history.git_repo.subprocess.run", _fake
+    )
+    repo = GitRepo(config_dir=tmp_path)
+
+    repo.discover_or_init()
+
+    assert not repo.enabled
+
+
 def test_adopts_existing_repo_without_touching_gitignore(tmp_path: Path) -> None:
     """A pre-existing work tree is adopted; the user's .gitignore is untouched."""
     _make_repo(tmp_path)
