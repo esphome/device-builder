@@ -93,11 +93,12 @@ def test_parse_mqtt_block_custom_port() -> None:
 
 
 def test_parse_mqtt_block_resolves_secrets() -> None:
-    yaml = "mqtt:\n  broker: !secret broker_host\n  password: !secret pw\n"
-    secrets = {"broker_host": "192.168.1.5", "pw": "topsecret"}
+    yaml = "mqtt:\n  broker: !secret broker_host\n  port: !secret port\n  password: !secret pw\n"
+    secrets = {"broker_host": "192.168.1.5", "port": "8883", "pw": "topsecret"}
     config = parse_mqtt_block(yaml, secrets)
     assert config is not None
     assert config.host == "192.168.1.5"
+    assert config.port == 8883
     assert config.password == "topsecret"
 
 
@@ -128,6 +129,41 @@ def test_parse_mqtt_block_ignores_unknown_tags() -> None:
 
 def test_parse_mqtt_block_invalid_yaml_returns_none() -> None:
     assert parse_mqtt_block("not: valid: yaml: at all") is None
+
+
+def test_parse_mqtt_block_resolves_substitutions() -> None:
+    yaml = (
+        "substitutions:\n  mqtt_host: 192.0.2.10\n  mqtt_user: bob\n  mqtt_port: '8883'\n"
+        "mqtt:\n  broker: ${mqtt_host}\n  port: ${mqtt_port}\n  username: $mqtt_user\n"
+    )
+    config = parse_mqtt_block(yaml)
+    assert config is not None
+    assert config.host == "192.0.2.10"
+    assert config.port == 8883
+    assert config.username == "bob"
+
+
+def test_parse_mqtt_block_unresolved_substitution_returns_none() -> None:
+    # No local substitutions block defines mqtt_host; the token must not
+    # become a host, so the caller falls through to the slow path.
+    yaml = "mqtt:\n  broker: ${mqtt_host}\n"
+    assert parse_mqtt_block(yaml) is None
+
+
+def test_parse_mqtt_block_resolves_port_substitution() -> None:
+    yaml = "substitutions:\n  mqtt_port: '8883'\nmqtt:\n  broker: 10.0.0.5\n  port: ${mqtt_port}\n"
+    config = parse_mqtt_block(yaml)
+    assert config is not None
+    assert config.port == 8883
+
+
+def test_parse_mqtt_block_unresolved_port_substitution_falls_back_to_default() -> None:
+    # An unresolved port token can't gate the monitor (only the host does),
+    # so it degrades to the default rather than raising.
+    yaml = "mqtt:\n  broker: 10.0.0.5\n  port: ${mqtt_port}\n"
+    config = parse_mqtt_block(yaml)
+    assert config is not None
+    assert config.port == 1883
 
 
 def test_mqtt_broker_config_key_groups_by_host_port() -> None:
@@ -402,6 +438,85 @@ async def test_coordinator_resolves_broker_pulled_in_via_packages(
     assert stub_monitor.instances[0].broker.host == "192.168.1.203"
 
 
+async def test_coordinator_resolves_broker_from_local_substitution(
+    tmp_path: Path,
+    stub_monitor: type[_RecordingMonitor],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Issue #1643: ${var} broker resolves from the file's own
+    # substitutions block in the fast path, without load_device_yaml.
+    def fail_loader(_path: Path) -> dict | None:
+        raise AssertionError("slow path must not run for a local substitution")
+
+    monkeypatch.setattr(coordinator_module, "load_device_yaml", fail_loader)
+    devices = [
+        _write_device(
+            tmp_path,
+            "alpha",
+            "substitutions:\n  mqtt_host: 192.0.2.10\nmqtt:\n  broker: ${mqtt_host}\n",
+        )
+    ]
+    coord = _make_coordinator(tmp_path, devices)
+    await coord.reconcile()
+    assert coord.active_brokers == 1
+    assert stub_monitor.instances[0].broker.host == "192.0.2.10"
+
+
+async def test_coordinator_resolves_port_from_substitution(
+    tmp_path: Path,
+    stub_monitor: type[_RecordingMonitor],
+) -> None:
+    mqtt_yaml = (
+        "substitutions:\n  mqtt_port: '8883'\nmqtt:\n  broker: 10.0.0.5\n  port: ${mqtt_port}\n"
+    )
+    devices = [_write_device(tmp_path, "alpha", mqtt_yaml)]
+    coord = _make_coordinator(tmp_path, devices)
+    await coord.reconcile()
+    assert coord.active_brokers == 1
+    assert stub_monitor.instances[0].broker.port == 8883
+
+
+async def test_coordinator_resolves_broker_substitution_via_package(
+    tmp_path: Path,
+    stub_monitor: type[_RecordingMonitor],
+) -> None:
+    (tmp_path / "common.yaml").write_text(
+        "substitutions:\n  mqtt_host: 192.168.1.77\nmqtt:\n  broker: ${mqtt_host}\n"
+    )
+    (tmp_path / "alpha.yaml").write_text(
+        "esphome:\n  name: alpha\npackages:\n  shared: !include common.yaml\n"
+    )
+    device = Device(
+        name="alpha",
+        friendly_name="alpha",
+        configuration="alpha.yaml",
+        uses_mqtt=True,
+    )
+    coord = _make_coordinator(tmp_path, [device])
+    await coord.reconcile()
+    assert coord.active_brokers == 1
+    assert stub_monitor.instances[0].broker.host == "192.168.1.77"
+
+
+async def test_coordinator_skips_unresolved_substitution(
+    tmp_path: Path,
+    stub_monitor: type[_RecordingMonitor],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # An undefined substitution must not start a monitor on the literal
+    # token; warn once instead of looping on DNS failure.
+    device = _write_device(tmp_path, "alpha", "mqtt:\n  broker: ${mqtt_host}\n")
+    coord = _make_coordinator(tmp_path, [device])
+
+    target = "esphome_device_builder.controllers._device_mqtt_coordinator"
+    with caplog.at_level("WARNING", logger=target):
+        await coord.reconcile()
+
+    assert coord.active_brokers == 0
+    warnings = [r for r in caplog.records if r.name == target and r.levelname == "WARNING"]
+    assert len(warnings) == 1
+
+
 async def test_coordinator_warns_once_per_unresolved_device(
     tmp_path: Path,
     stub_monitor: type[_RecordingMonitor],
@@ -605,6 +720,32 @@ def test_extract_broker_from_config_handles_invalid_port() -> None:
 
 def test_extract_broker_from_config_returns_none_when_broker_missing() -> None:
     assert _extract_broker_from_config({"mqtt": {"username": "u"}}) is None
+
+
+def test_extract_broker_from_config_resolves_substitutions() -> None:
+    # load_device_yaml merges packages but skips the substitution pass.
+    config = {
+        "substitutions": {"mqtt_host": "192.168.1.203", "mqtt_port": "8883"},
+        "mqtt": {"broker": "${mqtt_host}", "port": "${mqtt_port}"},
+    }
+    broker = _extract_broker_from_config(config)
+    assert broker is not None
+    assert broker.host == "192.168.1.203"
+    assert broker.port == 8883
+
+
+def test_extract_broker_from_config_unresolved_substitution_returns_none() -> None:
+    assert _extract_broker_from_config({"mqtt": {"broker": "${mqtt_host}"}}) is None
+
+
+def test_extract_broker_from_config_resolves_port_substitution() -> None:
+    config = {
+        "substitutions": {"mqtt_port": "8883"},
+        "mqtt": {"broker": "10.0.0.5", "port": "${mqtt_port}"},
+    }
+    broker = _extract_broker_from_config(config)
+    assert broker is not None
+    assert broker.port == 8883
 
 
 def test_extract_broker_from_config_reads_resolved_block() -> None:
