@@ -75,6 +75,10 @@ def _detect_edited_board() -> str | None:
         close_fds=False,
         check=False,
     )
+    if result.returncode != 0:
+        sys.stderr.write(result.stderr)
+        print("update_board: git status failed; pass a board id explicitly.", file=sys.stderr)
+        return None
     ids = sorted(
         {
             board_id

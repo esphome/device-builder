@@ -41,6 +41,7 @@ import argparse
 import importlib
 import logging
 import re
+import shutil
 import sys
 from dataclasses import replace
 from operator import attrgetter
@@ -863,9 +864,11 @@ def _emit_single_board(
     Rewrite one board's body file, then refresh the index and featured map.
 
     Only the target's ``board_bodies/<id>.json`` is rewritten; the index and
-    featured-components files are single cheap rebuilds whose other entries are
+    featured-components files are full rebuilds whose other entries are
     byte-identical (the version guard rules out drift), so the diff stays
-    scoped to the edited board.
+    scoped to the edited board. This assumes only *board_id* was edited:
+    naming one board while another's manifest is also dirty rewrites the
+    other's index entry but not its body, which the consistency test flags.
     """
     idx = next((i for i, board in enumerate(boards) if board.id == board_id), None)
     if idx is None:
@@ -873,18 +876,24 @@ def _emit_single_board(
             f"sync_boards: no board with id {board_id!r}; "
             f"expected a folder name under {_DEFINITIONS_DIR / 'boards'}"
         )
-    emit_body_with_roundtrip(
-        full_payloads[idx],
-        board_id,
-        _BODIES_DIR,
-        BoardCatalogEntry,
-        log_label="Board",
-        sort_keys=True,
-    )
+    _emit_body_atomically(full_payloads[idx], board_id)
     _write_index(full_payloads)
     _emit_featured_components_index(boards)
     _LOGGER.info("Regenerated board_bodies/%s.json + refreshed index and featured map", board_id)
     return 0
+
+
+def _emit_body_atomically(payload: dict[str, Any], board_id: str) -> None:
+    """Write one body file via stage-then-replace so an interrupted write can't truncate it."""
+    staging = _BODIES_DIR.parent / "board_bodies.single"
+    prepare_next_bodies_dir(staging)
+    try:
+        emit_body_with_roundtrip(
+            payload, board_id, staging, BoardCatalogEntry, log_label="Board", sort_keys=True
+        )
+        (staging / f"{board_id}.json").replace(_BODIES_DIR / f"{board_id}.json")
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
 
 
 def _emit_split_catalog(
