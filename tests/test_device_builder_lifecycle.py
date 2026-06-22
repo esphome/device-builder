@@ -360,6 +360,28 @@ async def test_stop_flushes_local_even_when_network_teardown_keeps_failing(
     assert db._executor is None  # local flush ran despite the failure
 
 
+async def test_stop_network_is_idempotent_under_retry(
+    make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
+) -> None:
+    """A full second _stop_network pass (the swallowed-error retry) is second-call-safe.
+
+    Pins that the real remote-build / devices / advertiser teardowns tolerate the
+    double call the latch-after-full-pass retry can make.
+    """
+    db = DeviceBuilder(make_settings(with_core_path=True))
+    await db.start()
+    assert db.remote_build_offloader is not None
+    assert db.remote_build_receiver is not None
+    try:
+        await db._stop_network()
+        # Simulate a swallowed on_shutdown error that left the latch unset.
+        db._network_stopped = False
+        await db._stop_network()  # the full second pass must not raise
+        assert db._network_stopped is True
+    finally:
+        await db._stop_local()
+
+
 async def test_create_app_registers_on_shutdown_after_ws_closer(
     make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
 ) -> None:
