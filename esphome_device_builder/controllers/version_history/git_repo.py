@@ -44,7 +44,7 @@ _LOGGER = logging.getLogger(__name__)
 # Resolved from the package itself so it survives this module being moved.
 _OWN_SOURCE_ROOT = Path(esphome_device_builder.__file__).resolve().parent
 
-# Errors a commit attempt raises for genuine git / environment reasons
+# Errors a git invocation raises for genuine git / environment reasons
 # (a failed ``git`` invocation, the binary vanishing) as opposed to a
 # programming bug. Callers swallow these as best-effort and let anything
 # else propagate so real bugs surface instead of being mislabelled.
@@ -203,7 +203,12 @@ class GitRepo:
                 )
                 return
             self._init_repo()
-        except (OSError, subprocess.CalledProcessError) as exc:
+        except GIT_COMMIT_ERRORS as exc:
+            # Leave the feature fully disabled, never half-enabled, so a
+            # failure after the adopt branch set ``enabled`` can't strand it.
+            self.enabled = False
+            self.toplevel = None
+            self.managed = False
             _LOGGER.warning("Could not set up version-history git repo: %s", exc)
 
     def _discover_toplevel(self) -> Path | None:
