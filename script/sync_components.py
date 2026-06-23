@@ -1219,7 +1219,21 @@ def build_catalog(
     # Multi-instance status needs the whole-catalog multi_conf + provides view.
     _apply_auto_loaded_reference_advanced_all(out)
 
+    # Must run after the reference-advanced pass: that pass reads ``multi_conf``
+    # through ``_multi_instance_targets``, so stamping platform stems earlier
+    # would suppress advanced-promotion of auto-loaded singleton refs. Platform
+    # domains are unbounded YAML lists, so every platform entry is repeatable.
+    _mark_platform_domains_multi_conf(out)
+
     return out
+
+
+def _mark_platform_domains_multi_conf(entries: list[dict]) -> None:
+    """Stamp ``multi_conf`` on every platform-domain entry; they're list members."""
+    for entry in entries:
+        domain, _, stem = entry["id"].partition(".")
+        if stem and domain in _PLATFORM_DOMAINS:
+            entry["multi_conf"] = True
 
 
 def _fix_borrowed_page_titles(entries: list[dict], own_page_ids: frozenset[str]) -> None:
