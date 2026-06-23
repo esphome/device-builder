@@ -240,6 +240,11 @@ Schema + narrow live `esphome` introspection cover most fields; `multi_conf`,
 recovery), `unit_of_measurement` autocomplete options, and `cv.typed_schema`
 `default_type` recovery (read from the validator's closure so a discriminator
 select is optional with the right default) come from the live package.
+Platform-domain entries (`sensor.*`, `output.*`, ...) are additionally stamped
+`multi_conf=True` regardless of upstream `MULTI_CONF`, which is absent on
+platform stems; a platform domain is an unbounded YAML list, so every variant is
+repeatable (the `_PLATFORM_DOMAINS` set in `sync_components.py` must match the
+YAML serializer's `_ENTITY_CATEGORIES`, pinned by a test).
 Component-level descriptions and titles fall back to the docs MDX
 (`esphome.io` shallow clone) when the schema's index is sparse.
 

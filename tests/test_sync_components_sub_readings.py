@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from script.sync_components import (  # type: ignore[import-not-found]
+    _PLATFORM_DOMAINS,
     _apply_auto_loaded_reference_advanced,
     _convert_field,
     _is_own_id_field,
@@ -218,6 +219,17 @@ def test_shipped_platform_entries_are_multi_conf() -> None:
     """The shipped catalog marks platform variants repeatable (issue #1663)."""
     assert _load_body("output.libretiny_pwm")["multi_conf"] is True
     assert _load_body("sensor.dht")["multi_conf"] is True
+
+
+def test_platform_domains_match_yaml_entity_categories() -> None:
+    """``_PLATFORM_DOMAINS`` must equal the YAML serializer's ``_ENTITY_CATEGORIES``."""
+    # If they drift, a platform domain stamped multi_conf=True here would fall into
+    # the serializer's multi_conf branch and render invalid list-form ``<id>:`` YAML.
+    from esphome_device_builder.helpers.yaml.component import (  # noqa: PLC0415
+        _ENTITY_CATEGORIES,
+    )
+
+    assert set(_PLATFORM_DOMAINS) == set(_ENTITY_CATEGORIES)
 
 
 def test_resolve_auto_load_handles_callable() -> None:
