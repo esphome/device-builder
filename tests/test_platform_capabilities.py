@@ -57,7 +57,12 @@ def test_loader_returns_known_platforms() -> None:
     caps = load_platform_capabilities_index()
     assert "ESP32" in caps.esp32_variants
     assert "ESP32S3" in caps.esp32_variants
-    assert set(caps.esp32_no_wifi_variants) == {"ESP32H2", "ESP32P4"}
+    assert set(caps.esp32_no_wifi_variants) == {
+        "ESP32H2",
+        "ESP32H21",
+        "ESP32H4",
+        "ESP32P4",
+    }
     assert "bk72xx" in caps.libretiny_families
     # Plain Pico has no native wifi; the Pico W is absent from the no-wifi set.
     assert "rpipico" in caps.rp2040_no_wifi_boards
