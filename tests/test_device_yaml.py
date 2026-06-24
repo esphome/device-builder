@@ -1758,22 +1758,29 @@ def test_infer_native_wifi_routes_through_module_alias(
     ]
 
 
-def test_has_native_wifi_agrees_with_upstream_on_indexed_inputs() -> None:
-    """Our index-fed wifi inference matches esphome for the inputs the index covers.
+def test_has_native_wifi_logic_matches_upstream(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Our wifi inference LOGIC matches esphome, independent of catalog freshness.
 
-    Scoped to the variants / platforms in our committed index so it's robust on
-    the CI matrix (newer esphome adds inputs we don't yet know). For the inputs we
-    DO claim, we must agree with upstream's ``has_native_wifi`` — guards logic
-    drift the value-pinned ``test_has_native_wifi`` can't see.
+    Feeds ``_has_native_wifi`` the same no-wifi set esphome uses and iterates
+    esphome's own variant list, so this catches dispatch/logic drift without
+    coupling to the committed catalog's data. A data skew of up to one esphome
+    release is expected during rollout and is covered tolerantly by
+    ``test_index_within_installed_esphome``; comparing the inference against the
+    catalog's (possibly stale) data here would otherwise force a release lockstep
+    with esphome on every capability change.
     """
-    from esphome.components.wifi import has_native_wifi  # noqa: PLC0415
-
-    from esphome_device_builder.definitions import (  # noqa: PLC0415
-        load_platform_capabilities_index,
+    from esphome.components.esp32.const import VARIANTS  # noqa: PLC0415
+    from esphome.components.wifi import (  # noqa: PLC0415
+        NO_WIFI_VARIANTS,
+        has_native_wifi,
     )
 
-    caps = load_platform_capabilities_index()
-    for variant in caps.esp32_variants:
+    monkeypatch.setattr(
+        device_yaml._generation,
+        "_ESP32_NO_WIFI_VARIANTS",
+        frozenset(v.lower() for v in NO_WIFI_VARIANTS),
+    )
+    for variant in VARIANTS:
         assert device_yaml._has_native_wifi(platform="esp32", variant=variant) == has_native_wifi(
             platform="esp32", variant=variant
         )
