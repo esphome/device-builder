@@ -1759,16 +1759,7 @@ def test_infer_native_wifi_routes_through_module_alias(
 
 
 def test_has_native_wifi_logic_matches_upstream(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Our wifi inference LOGIC matches esphome, independent of catalog freshness.
-
-    Feeds ``_has_native_wifi`` the same no-wifi set esphome uses and iterates
-    esphome's own variant list, so this catches dispatch/logic drift without
-    coupling to the committed catalog's data. A data skew of up to one esphome
-    release is expected during rollout and is covered tolerantly by
-    ``test_index_within_installed_esphome``; comparing the inference against the
-    catalog's (possibly stale) data here would otherwise force a release lockstep
-    with esphome on every capability change.
-    """
+    """Pin ``_has_native_wifi`` to esphome's inference over esphome's no-wifi set and variants."""
     from esphome.components.esp32.const import VARIANTS  # noqa: PLC0415
     from esphome.components.wifi import (  # noqa: PLC0415
         NO_WIFI_VARIANTS,
