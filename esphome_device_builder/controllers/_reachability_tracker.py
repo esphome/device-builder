@@ -52,12 +52,10 @@ class MdnsCacheInfo:
     refresh counts.
     ``ttl_remaining_seconds`` = the same record's
     :meth:`DNSRecord.get_remaining_ttl`.
-    ``ptr_ttl_remaining_seconds`` = the PTR record's own
-    remaining TTL, i.e. seconds until ``AsyncServiceBrowser``
-    fires ``Removed`` and the device flips OFFLINE; ``None``
-    when no PTR is cached. Distinct from the union TTL above,
-    which tracks whichever record is freshest (usually the
-    ~120s A record the refresh loop renews).
+    ``ptr_ttl_seconds`` = the PTR record's full announced TTL
+    (the device's own record lifetime, mDNS default ~4500s);
+    ``None`` when no PTR is cached. The drawer's "offline in N"
+    countdown is this minus ``age_seconds``.
     ``txt_records`` = parsed ``key -> value`` pairs from the
     device's TXT record, sorted alphabetically for
     deterministic wire output.
@@ -72,7 +70,7 @@ class MdnsCacheInfo:
 
     age_seconds: float
     ttl_remaining_seconds: float
-    ptr_ttl_remaining_seconds: float | None = None
+    ptr_ttl_seconds: float | None = None
     txt_records: dict[str, str] = field(default_factory=dict)
 
 
@@ -178,7 +176,7 @@ class ReachabilityTracker:
 
         mdns_age: float | None = None
         mdns_ttl_remaining: float | None = None
-        mdns_ptr_ttl_remaining: float | None = None
+        mdns_ptr_ttl: float | None = None
         # ``None`` means "hide the TXT section" — collapses
         # both "no TXT cached" and "TXT cached but no useful
         # keys decoded" so the renderer is a single
@@ -189,7 +187,7 @@ class ReachabilityTracker:
             if info is not None:
                 mdns_age = info.age_seconds
                 mdns_ttl_remaining = info.ttl_remaining_seconds
-                mdns_ptr_ttl_remaining = info.ptr_ttl_remaining_seconds
+                mdns_ptr_ttl = info.ptr_ttl_seconds
                 # Fresh dict on the wire so downstream mutation
                 # can't reach into zeroconf's internals.
                 mdns_txt_records = dict(info.txt_records) if info.txt_records else None
@@ -201,7 +199,7 @@ class ReachabilityTracker:
             "ip": ip,
             "mdns_last_seen_seconds_ago": mdns_age,
             "mdns_ttl_remaining_seconds": mdns_ttl_remaining,
-            "mdns_ptr_ttl_remaining_seconds": mdns_ptr_ttl_remaining,
+            "mdns_ptr_ttl_seconds": mdns_ptr_ttl,
             "mdns_txt_records": mdns_txt_records,
             "ping_last_seen_seconds_ago": _ago(self._ping_last_seen.get(name)),
             "mqtt_last_seen_seconds_ago": _ago(self._mqtt_last_seen.get(name)),

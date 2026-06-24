@@ -346,7 +346,7 @@ class DeviceReachabilityData(TypedDict):
     ip: str
     mdns_last_seen_seconds_ago: float | None
     mdns_ttl_remaining_seconds: float | None
-    mdns_ptr_ttl_remaining_seconds: float | None
+    mdns_ptr_ttl_seconds: float | None
     mdns_txt_records: dict[str, str] | None
     ping_last_seen_seconds_ago: float | None
     mqtt_last_seen_seconds_ago: float | None
