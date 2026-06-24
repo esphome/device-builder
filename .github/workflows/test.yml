@@ -68,7 +68,7 @@ jobs:
         # because that action's transitive ``actions/cache@v4``
         # reference isn't SHA-pinned, which the org policy blocks
         # ("all actions must be pinned to a full-length commit SHA").
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8  # v6.0.0
         with:
           path: ~/.cache/pre-commit
           key: pre-commit|${{ env.pythonLocation }}|${{ hashFiles('.pre-commit-config.yaml') }}
@@ -355,7 +355,7 @@ jobs:
       - name: Cache PlatformIO core + per-platform toolchains
         # The LibreTiny compile clones the LibreTiny SDK from source on a
         # cold runner. Cache ``~/.platformio`` so the SDK download is reused.
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8  # v6.0.0
         with:
           path: ~/.platformio
           key: pio-e2e-libretiny-${{ runner.os }}-${{ hashFiles('tests/e2e/slow/libretiny/test_libretiny_compile_download.py') }}
@@ -407,7 +407,7 @@ jobs:
         # each run), not by the test file -- so use a rolling ``run_id`` key
         # that saves a fresh cache every run (picking up dev IDF bumps) and
         # ``restore-keys`` to warm from the most recent prior cache.
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8  # v6.0.0
         with:
           path: ~/.cache/esphome-idf
           key: e2e-espidf-${{ runner.os }}-${{ github.run_id }}
