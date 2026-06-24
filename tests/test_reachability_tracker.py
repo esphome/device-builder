@@ -54,6 +54,7 @@ def test_snapshot_empty_returns_all_nulls() -> None:
         "ip": "",
         "mdns_last_seen_seconds_ago": None,
         "mdns_ttl_remaining_seconds": None,
+        "mdns_ptr_ttl_remaining_seconds": None,
         "mdns_txt_records": None,
         "ping_last_seen_seconds_ago": None,
         "mqtt_last_seen_seconds_ago": None,
@@ -69,7 +70,11 @@ def test_snapshot_uses_mdns_cache_reader() -> None:
     TTL refreshes — stamping at the call site would lie). The
     snapshot reads truth from the cache reader.
     """
-    info = MdnsCacheInfo(age_seconds=12.4, ttl_remaining_seconds=107.6)
+    info = MdnsCacheInfo(
+        age_seconds=12.4,
+        ttl_remaining_seconds=107.6,
+        ptr_ttl_remaining_seconds=4321.0,
+    )
     tracker = ReachabilityTracker(
         mdns_cache_reader={"kitchen": info}.get,
     )
@@ -77,6 +82,9 @@ def test_snapshot_uses_mdns_cache_reader() -> None:
     snap = _snapshot(tracker)
     assert snap["mdns_last_seen_seconds_ago"] == 12.4
     assert snap["mdns_ttl_remaining_seconds"] == 107.6
+    # The PTR's own TTL — the drawer's "offline in N" countdown —
+    # is carried separately from the freshest-record union TTL.
+    assert snap["mdns_ptr_ttl_remaining_seconds"] == 4321.0
 
 
 def test_snapshot_mdns_null_when_cache_reader_returns_none() -> None:
@@ -86,6 +94,7 @@ def test_snapshot_mdns_null_when_cache_reader_returns_none() -> None:
     snap = _snapshot(tracker)
     assert snap["mdns_last_seen_seconds_ago"] is None
     assert snap["mdns_ttl_remaining_seconds"] is None
+    assert snap["mdns_ptr_ttl_remaining_seconds"] is None
     assert snap["mdns_txt_records"] is None
 
 

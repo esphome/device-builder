@@ -213,9 +213,18 @@ class MdnsSource:
         # into 0.108 and render as "TTL: 0s".
         age_s = max(0.0, millis_to_seconds(now_ms - latest.created))
         ttl_remaining_s = max(0.0, float(latest.get_remaining_ttl(now_ms)))
+        # The PTR's own TTL — what ``AsyncServiceBrowser`` counts
+        # down to fire ``Removed`` (OFFLINE). Surfaced separately so
+        # the drawer can show a "goes offline in N" countdown; the
+        # union TTL above tracks the freshest record (usually the
+        # ~120s A the refresh loop renews), not the offline horizon.
+        ptr_ttl_remaining_s = (
+            max(0.0, float(ptr.get_remaining_ttl(now_ms))) if ptr is not None else None
+        )
         return MdnsCacheInfo(
             age_seconds=age_s,
             ttl_remaining_seconds=ttl_remaining_s,
+            ptr_ttl_remaining_seconds=ptr_ttl_remaining_s,
             txt_records=_decode_mdns_txt_records(txt_dns_records),
         )
 

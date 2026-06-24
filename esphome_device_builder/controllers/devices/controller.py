@@ -938,6 +938,26 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             self, device_name=device_name, client=client, message_id=message_id
         )
 
+    @api_command("devices/get_reachability")
+    async def get_reachability(
+        self,
+        *,
+        device_name: str,
+        **kwargs: Any,
+    ) -> DeviceReachabilityData:
+        """
+        One-shot read of the reachability snapshot.
+
+        ``INVALID_MESSAGE`` when *device_name* is empty, ``NOT_FOUND``
+        when no configured device matches.
+        """
+        if not device_name:
+            raise CommandError(ErrorCode.INVALID_MESSAGE, "device_name is required")
+        snapshot = self.get_reachability_snapshot(device_name)
+        if snapshot is None:
+            raise CommandError(ErrorCode.NOT_FOUND, f"No configured device named {device_name!r}")
+        return snapshot
+
     async def _reachability_refresh_loop(self, device_name: str) -> None:
         await reachability.refresh_loop(self, device_name)
 

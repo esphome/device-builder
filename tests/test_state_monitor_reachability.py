@@ -712,6 +712,10 @@ def test_get_mdns_cache_info_picks_latest_across_record_types() -> None:
         assert info is not None
         # PTR (5s ago) is fresher than A (110s ago) → PTR wins.
         assert info.age_seconds == pytest.approx(5.0, abs=0.5)
+        # PTR TTL is carried separately as the offline-countdown
+        # horizon: 4500s TTL aged 5s → ~4495s remaining, distinct
+        # from the freshest-record union TTL above.
+        assert info.ptr_ttl_remaining_seconds == pytest.approx(4495.0, abs=1.0)
     finally:
         zc.close()
 
@@ -1057,6 +1061,8 @@ def test_get_mdns_cache_info_picks_latest_record() -> None:
     # and the one inside ``get_mdns_cache_info``.
     assert info.age_seconds == pytest.approx(5.0, abs=0.5)
     assert info.ttl_remaining_seconds == pytest.approx(115.0, abs=0.5)
+    # No PTR cached (lookup stubbed to None) → no offline-countdown horizon.
+    assert info.ptr_ttl_remaining_seconds is None
 
 
 async def test_refresh_mdns_no_zeroconf_is_a_noop() -> None:
