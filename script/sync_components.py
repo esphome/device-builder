@@ -843,11 +843,12 @@ _IMPORTANT_KEYS: frozenset[str] = frozenset(_IMPORTANT_KEY_ORDER)
 # sort priority but always lives under the advanced section).
 _ADVANCED_IMPORTANT_KEYS: frozenset[str] = frozenset({"id"})
 
-# A ``*.template`` entity's control fields (``optimistic`` + the
-# ``*_action`` handlers) are forced onto the main form by
+# A ``*.template`` entity's primary fields (``lambda`` + ``optimistic`` +
+# the ``*_action`` handlers) are forced onto the main form by
 # ``_promote_template_controls`` (#1324).
 _TEMPLATE_ID_SUFFIX = ".template"
 _OPTIMISTIC_KEY = "optimistic"
+_LAMBDA_KEY = "lambda"
 _ACTION_KEY_SUFFIX = "_action"
 
 # ---------------------------------------------------------------------------
@@ -2265,23 +2266,24 @@ def _apply_visibility_cascade(
 
 def _promote_template_controls(component_id: str, entries: list[dict]) -> None:
     """
-    Surface a ``*.template`` entity's control fields on the main form.
+    Surface a ``*.template`` entity's primary fields on the main form.
 
     A template entity (``switch.template`` / ``cover.template`` / …) only
-    works once its control fields are set: ``optimistic`` and the
-    ``*_action`` handlers. ESPHome marks them optional because they are
-    *conditionally* required (you need ``optimistic`` and/or the actions,
-    else validation fails), which the schema can't express, so
-    ``_classify_advanced`` defaults them to advanced. Force them core so the
-    user isn't sent hunting under "Show advanced" for effectively-required
-    fields (#1324). Scoped to ``.template`` ids so it can't promote, e.g.,
-    ``climate.thermostat``'s many optional ``fan_mode_*_action`` handlers.
+    works once its primary fields are set: ``lambda`` (its value source) and
+    the control fields ``optimistic`` / the ``*_action`` handlers. ESPHome
+    marks them optional because they are *conditionally* required (you need a
+    lambda and/or optimistic and/or the actions, else the entity does nothing),
+    which the schema can't express, so ``_classify_advanced`` defaults them to
+    advanced. Force them core so the user isn't sent hunting under "Show
+    advanced" for effectively-required fields (#1324). Scoped to ``.template``
+    ids so it can't promote, e.g., ``climate.thermostat``'s many optional
+    ``fan_mode_*_action`` handlers.
     """
     if not component_id.endswith(_TEMPLATE_ID_SUFFIX):
         return
     for entry in entries:
         key = entry.get("key", "")
-        if key == _OPTIMISTIC_KEY or key.endswith(_ACTION_KEY_SUFFIX):
+        if key in (_OPTIMISTIC_KEY, _LAMBDA_KEY) or key.endswith(_ACTION_KEY_SUFFIX):
             entry["advanced"] = False
 
 
