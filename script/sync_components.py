@@ -6658,6 +6658,27 @@ def _apply_exclusive_group(entries: list[dict], members: dict[str, bool], group_
     _walk_catalog_entries(entries, visit)
 
 
+@cache
+def _libretiny_families() -> tuple[str, ...]:
+    """Concrete chip families behind the ``libretiny`` umbrella, from esphome."""
+    try:
+        from esphome.components.libretiny.const import FAMILY_COMPONENT
+    except ImportError:
+        return ()
+    return tuple(sorted(set(FAMILY_COMPONENT.values())))
+
+
+def _expand_libretiny(platforms: Iterable[str]) -> list[str]:
+    """Replace the ``libretiny`` umbrella token with its concrete families."""
+    out: list[str] = []
+    for platform in platforms:
+        names = _libretiny_families() if platform == "libretiny" else (platform,)
+        for name in names:
+            if name not in out:
+                out.append(name)
+    return out
+
+
 def _derive_supported_platforms(
     component_id: str,
     dependencies: list[str],
@@ -6669,11 +6690,12 @@ def _derive_supported_platforms(
     themselves. Otherwise, dependencies that match ``_TARGET_PLATFORMS``
     are surfaced — ``esp32_ble_tracker`` depends on ``esp32`` so we
     return ``["esp32"]``; most components have no platform-specific
-    deps and return ``[]`` (treated as "all platforms").
+    deps and return ``[]`` (treated as "all platforms"). A ``libretiny``
+    dependency (or the umbrella component itself) expands to its families.
     """
     if introspection.get("is_target_platform"):
-        return [component_id]
-    return [d for d in dependencies if d in _TARGET_PLATFORMS]
+        return _expand_libretiny([component_id])
+    return _expand_libretiny(d for d in dependencies if d in _TARGET_PLATFORMS or d == "libretiny")
 
 
 def _auto_load_closure(component_id: str) -> set[str]:
