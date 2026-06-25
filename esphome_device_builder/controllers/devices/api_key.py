@@ -8,7 +8,11 @@ from typing import TYPE_CHECKING
 
 import yaml
 
-from ...helpers.device_yaml import get_api_encryption_key, get_api_port, load_device_yaml
+from ...helpers.device_yaml import (
+    get_api_port,
+    get_resolved_api_encryption_key,
+    load_device_yaml,
+)
 from ...helpers.subprocess import create_subprocess_exec
 
 if TYPE_CHECKING:
@@ -30,7 +34,7 @@ async def get_api_key(controller: DevicesController, configuration: str) -> dict
     path = controller._db.settings.rel_path(configuration)
     loop = asyncio.get_running_loop()
     config = await loop.run_in_executor(None, load_device_yaml, path)
-    key = get_api_encryption_key(config)
+    key = get_resolved_api_encryption_key(config)
     if key:
         return {"key": key}
     key = await resolve_via_esphome_config(controller, configuration)
@@ -54,7 +58,7 @@ async def get_api_connection(controller: DevicesController, configuration: str) 
     config = await loop.run_in_executor(None, load_device_yaml, path)
     if config is None:
         raise ValueError(f"could not load YAML for {configuration}")
-    return get_api_encryption_key(config), get_api_port(config)
+    return get_resolved_api_encryption_key(config), get_api_port(config)
 
 
 async def resolve_via_esphome_config(controller: DevicesController, configuration: str) -> str:
@@ -101,4 +105,4 @@ async def resolve_via_esphome_config(controller: DevicesController, configuratio
             type(exc).__name__,
         )
         return ""
-    return get_api_encryption_key(resolved)
+    return get_resolved_api_encryption_key(resolved)

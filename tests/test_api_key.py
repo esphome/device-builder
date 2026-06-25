@@ -24,6 +24,7 @@ from esphome_device_builder.helpers.device_yaml import (
     get_api_encryption_block,
     get_api_encryption_key,
     get_api_port,
+    get_resolved_api_encryption_key,
     load_device_yaml,
 )
 from esphome_device_builder.models import Device
@@ -63,6 +64,32 @@ def test_get_api_encryption_key_returns_resolved_string() -> None:
 def test_get_api_encryption_key_empty_when_missing() -> None:
     assert get_api_encryption_key({"api": {"encryption": {}}}) == ""
     assert get_api_encryption_key(None) == ""
+
+
+def test_get_resolved_api_encryption_key_expands_substitution() -> None:
+    """``key: ${api_key}`` resolves against the merged ``substitutions:`` block (#1691)."""
+    config = {
+        "substitutions": {"api_key": "ZGFzaA=="},
+        "api": {"encryption": {"key": "${api_key}"}},
+    }
+    assert get_resolved_api_encryption_key(config) == "ZGFzaA=="
+
+
+def test_get_resolved_api_encryption_key_passes_through_plain_key() -> None:
+    """A literal key (no substitution) is returned unchanged."""
+    config = {"api": {"encryption": {"key": "ZGFzaA=="}}}
+    assert get_resolved_api_encryption_key(config) == "ZGFzaA=="
+
+
+def test_get_resolved_api_encryption_key_empty_when_missing() -> None:
+    assert get_resolved_api_encryption_key({"api": {"encryption": {}}}) == ""
+    assert get_resolved_api_encryption_key(None) == ""
+
+
+def test_get_resolved_api_encryption_key_empty_when_unresolved() -> None:
+    """An ``${...}`` token with no matching substitution returns ``""``."""
+    config = {"api": {"encryption": {"key": "${api_key}"}}}
+    assert get_resolved_api_encryption_key(config) == ""
 
 
 def test_get_api_port_defaults_to_6053() -> None:
@@ -149,6 +176,22 @@ def test_load_device_yaml_resolves_secrets(tmp_path: Path) -> None:
     )
     config = load_device_yaml(yaml_file)
     assert get_api_encryption_key(config) == "AAAA=="
+
+
+def test_load_device_yaml_resolves_key_through_substitution_of_secret(tmp_path: Path) -> None:
+    """``key: ${api_key}`` over ``substitutions: !secret`` resolves to the secret value (#1691)."""
+    (tmp_path / "secrets.yaml").write_text("api_key: 'AAAA=='\n")
+    yaml_file = tmp_path / "kitchen.yaml"
+    yaml_file.write_text(
+        "esphome:\n  name: kitchen\n"
+        "substitutions:\n  api_key: !secret api_key\n"
+        "api:\n  encryption:\n    key: ${api_key}\n"
+    )
+    config = load_device_yaml(yaml_file)
+    # The raw read still returns the literal token...
+    assert get_api_encryption_key(config) == "${api_key}"
+    # ...the resolved read expands it to the secret value.
+    assert get_resolved_api_encryption_key(config) == "AAAA=="
 
 
 def test_load_device_yaml_merges_packages(tmp_path: Path) -> None:

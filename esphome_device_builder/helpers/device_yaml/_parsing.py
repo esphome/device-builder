@@ -556,12 +556,23 @@ def get_api_encryption_block(config: dict | None) -> dict | None:
 
 
 def get_api_encryption_key(config: dict | None) -> str:
-    """Return the resolved Native API encryption key, or empty string."""
+    """Native API encryption key, ``!secret`` resolved but ``${var}`` not, or ``""``."""
     encryption = get_api_encryption_block(config)
     if encryption is None:
         return ""
     key = encryption.get("key")
     return key if isinstance(key, str) else ""
+
+
+def get_resolved_api_encryption_key(config: dict | None) -> str:
+    """Native API encryption key with ``${var}`` resolved; ``""`` if absent or unresolved."""
+    key = get_api_encryption_key(config)
+    if not key:
+        return ""
+    key = _resolve_substitutions(key, _extract_resolved_substitutions(config)) or ""
+    if _UNRESOLVED_SUBSTITUTION_RE.search(key):
+        return ""
+    return key
 
 
 def get_api_port(config: dict | None) -> int:

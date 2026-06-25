@@ -241,6 +241,24 @@ async def test_get_api_key_resolves_through_yaml_loader(
     assert result == {"key": "a/c+inline-key=="}
 
 
+async def test_get_api_key_resolves_substitution_from_secret(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """``devices/get_api_key`` expands ``${api_key}`` over a ``!secret`` substitution (#1691)."""
+    controller = make_controller(tmp_path)
+    (tmp_path / "secrets.yaml").write_text("api_key: a/c+secret-key==\n", encoding="utf-8")
+    (tmp_path / "kitchen.yaml").write_text(
+        "esphome:\n  name: kitchen\n"
+        "substitutions:\n  api_key: !secret api_key\n"
+        "api:\n  encryption:\n    key: ${api_key}\n",
+        encoding="utf-8",
+    )
+
+    result = await controller.get_api_key(configuration="kitchen.yaml")
+
+    assert result == {"key": "a/c+secret-key=="}
+
+
 async def test_resolve_device_api_connection_returns_key_and_port(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -255,6 +273,25 @@ async def test_resolve_device_api_connection_returns_key_and_port(
 
     assert key == "a/c+inline-key=="
     assert port == 6055
+
+
+async def test_resolve_device_api_connection_resolves_substitution(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """The mac/version Native-API fallback resolves a ``${api_key}`` substitution (#1691)."""
+    controller = make_controller(tmp_path)
+    (tmp_path / "secrets.yaml").write_text("api_key: a/c+secret-key==\n", encoding="utf-8")
+    (tmp_path / "kitchen.yaml").write_text(
+        "esphome:\n  name: kitchen\n"
+        "substitutions:\n  api_key: !secret api_key\n"
+        "api:\n  encryption:\n    key: ${api_key}\n",
+        encoding="utf-8",
+    )
+
+    key, port = await controller._resolve_device_api_connection("kitchen.yaml")
+
+    assert key == "a/c+secret-key=="
+    assert port == 6053
 
 
 async def test_resolve_device_api_connection_raises_on_unloadable_config(
