@@ -44,10 +44,12 @@ secrets.yaml
 htmlcov/
 
 # Stray notes / screenshots dropped at the repo root during development.
-# The only root-level docs we track are README.md and CLAUDE.md.
+# The only root-level docs we track are README.md and CLAUDE.md
+# (AGENTS.md is a symlink to CLAUDE.md).
 /*.md
 !/README.md
 !/CLAUDE.md
+!/AGENTS.md
 /*.png
 
 # Stray top-level YAML must never be committed: a misplaced device config

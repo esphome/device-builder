@@ -404,6 +404,50 @@ against legacy behaviour before assuming the simpler version suffices.
   in `helpers/windows_build_paths` to relocate `CORE.data_dir` to
   `C:\esphb\<id8>` (clears `MAX_PATH` + spaces), so don't assume
   default-mode `<config>/.esphome` paths on Windows.
+- **Deployment modes also change the network & auth boundary; never
+  widen a bind or drop a credential source.** The on-disk table above is
+  only half the story; each mode also has a distinct trust posture, and
+  two advisories (GHSA-vv4j-m4vr-f3g6, GHSA-rrxg-g2pf-6hh4) came from
+  missing it. `docs/THREAT_MODEL.md` is the source of truth for the one
+  trust boundary; `docs/ARCHITECTURE.md` (ingress / host-network /
+  peer-guard) is the full narrative. The shapes:
+
+  | Mode | Bind | Auth |
+  |---|---|---|
+  | Standalone public (default / Docker) | `--host:--port` (`0.0.0.0:6052`) | password gate (`using_password`), WS in-band `auth` handshake, `--trusted-domains` Origin/Host allowlist |
+  | HA add-on ingress (default add-on) | `ingress_bind_hosts:ingress_port`, loopback + `172.30.32.1` only, NEVER `0.0.0.0` | none in-process by design; the supervisor authenticates upstream, and `ingress_peer_guard` restricts source peers to loopback / `172.30.32.2` |
+  | HA add-on public opt-in | public `6052`, `trusted=False, peer_guard=False` | none; requires both `DISABLE_HA_AUTHENTICATION` (`leave_front_door_open`) and a mapped port 6052 (`serve_public_unauthenticated`), Origin gate still active |
+
+  * **The ingress site is unauthenticated on purpose; its only boundary
+    is where it binds plus the peer guard.** The add-on runs host-network
+    for mDNS, so `0.0.0.0` would put the no-auth site on the LAN
+    (GHSA-vv4j-m4vr-f3g6, #1565). Two defenses, keep both:
+    `HA_INGRESS_DEFAULT_BIND_HOSTS` (`constants.py`) limits *where* it
+    listens; `ingress_peer_guard` (`helpers/auth.py`) limits *who* can
+    connect. `--ingress-host` may override the bind, but the peer guard
+    still restricts sources regardless. Never widen the ingress bind to
+    all interfaces.
+  * **Credential precedence** (`helpers/credentials.py:resolve_credentials`,
+    via `DashboardSettings.parse_args`): CLI `--username`/`--password`,
+    then `$ESPHOME_USERNAME` / `$ESPHOME_PASSWORD`, then the deprecated
+    bare `$USERNAME` / `$PASSWORD` (pair-only, gated on `$PASSWORD` so the
+    OS login `$USERNAME` is never read alone). Renaming or dropping a
+    credential source silently disabled auth for operators relying on it
+    (GHSA-rrxg-g2pf-6hh4); never remove a credential input without a
+    gated fallback and a loud deprecation. Auth resolution changes must
+    fail loud / closed, never silently open.
+  * **Mode plumbing:** `--ha-addon` sets `settings.on_ha_addon`;
+    esphome's `is_ha_addon()` is a *separate* signal (data-dir
+    resolution), not the flag. Mode branching is in `device_builder.py`
+    `run()`; the `front_door_open` / `serve_public_unauthenticated` /
+    `create_ingress_site` properties are in `controllers/config/
+    settings.py`. The add-on's own config (`host_network: true`,
+    `ingress: true`, `ingress_port: 0`, unmapped `6052`) lives in the
+    separate `esphome/home-assistant-addon` repo (metadata-only,
+    template-generated); the run script that passes `--ha-addon` is baked
+    into the `ghcr.io/esphome/esphome-hassio` image, not that repo. The
+    ingress-only-by-design decline is at `device_builder.py:419` (issue
+    #85).
 - **`config_hash` source of truth is `build_info.json`.** ESPHome writes
   `<storage.build_path>/build_info.json` after every successful compile
   *and* every `--only-generate` (the `write_cpp(config)` call runs before
@@ -607,6 +651,20 @@ When changing the sync script or catalog handling, watch for these:
   `tests/benchmarks/test_peer_link_noise_xx.py`:
   `pytest.param(_NEWLINE_PAYLOAD, 1000, id="newline_1k")`,
   `pytest.param(1024, id="1KiB")`. Bare ints / short slugs are fine.
+- **Binding the ingress site to `0.0.0.0` exposed it on the LAN.** The
+  HA-addon ingress site is unauthenticated by design; its only boundary
+  is its bind target plus `ingress_peer_guard`. The add-on runs
+  host-network for mDNS, so `0.0.0.0` reached every LAN device with no
+  credentials. Bind only `HA_INGRESS_DEFAULT_BIND_HOSTS` (loopback +
+  supervisor gateway) and keep the peer guard. (GHSA-vv4j-m4vr-f3g6,
+  #1565; see the network & auth boundary table above.)
+- **Renaming an auth env var silently disabled auth on upgrade.**
+  Dropping the bare `$USERNAME` / `$PASSWORD` fallback for `$ESPHOME_*`
+  left operators who set the old names with no credentials and no error;
+  `docker run -d` never surfaces the `WITHOUT AUTHENTICATION` banner.
+  Keep a gated deprecated fallback when moving a credential source, and
+  make auth resolution fail loud, not open. (GHSA-rrxg-g2pf-6hh4, fix
+  1.0.12.)
 
 ## Useful entry points
 
