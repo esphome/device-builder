@@ -1319,8 +1319,8 @@ def _apply_libretiny_family_provides(entries: list[dict]) -> None:
     """
     families = set(_libretiny_families())
     for entry in entries:
-        if entry["id"] in families and "libretiny" not in entry.get("provides", []):
-            entry["provides"] = sorted({*entry.get("provides", []), "libretiny"})
+        if entry["id"] in families:
+            entry["provides"] = sorted({*entry.get("provides", ()), "libretiny"})
 
 
 # Matches a description that is actually the first bullet of an MDX
@@ -3138,7 +3138,6 @@ def _emit_platform_capabilities_index() -> None:
     from types import SimpleNamespace
 
     from esphome.components.esp32.const import VARIANTS
-    from esphome.components.libretiny.const import FAMILY_COMPONENT
     from esphome.components.rp2040.boards import BOARDS as RP2040_BOARDS
     from esphome.components.wifi import NO_WIFI_VARIANTS
 
@@ -3164,7 +3163,7 @@ def _emit_platform_capabilities_index() -> None:
     payload = {
         "esp32_variants": sorted(VARIANTS),
         "esp32_no_wifi_variants": sorted(NO_WIFI_VARIANTS),
-        "libretiny_families": sorted(set(FAMILY_COMPONENT.values())),
+        "libretiny_families": list(_libretiny_families()),
         "rp2040_no_wifi_boards": sorted(
             board for board, info in RP2040_BOARDS.items() if not info.get("wifi", False)
         ),
@@ -6690,13 +6689,12 @@ def _libretiny_families() -> tuple[str, ...]:
 
 def _expand_libretiny(platforms: Iterable[str]) -> list[str]:
     """Replace the ``libretiny`` umbrella token with its concrete families."""
-    out: list[str] = []
-    for platform in platforms:
-        names = _libretiny_families() if platform == "libretiny" else (platform,)
-        for name in names:
-            if name not in out:
-                out.append(name)
-    return out
+    expanded = (
+        name
+        for platform in platforms
+        for name in (_libretiny_families() if platform == "libretiny" else (platform,))
+    )
+    return list(dict.fromkeys(expanded))
 
 
 def _derive_supported_platforms(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from functools import cache
 from pathlib import Path
 
 from script.sync_components import (  # type: ignore[import-not-found]
@@ -20,6 +21,7 @@ _COMPONENTS_INDEX = (
 )
 
 
+@cache
 def _index_by_id() -> dict[str, dict]:
     return {c["id"]: c for c in json.loads(_COMPONENTS_INDEX.read_text())["components"]}
 
