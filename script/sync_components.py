@@ -6683,7 +6683,8 @@ def _libretiny_families() -> tuple[str, ...]:
     from esphome.components.libretiny.const import FAMILY_COMPONENT
 
     families = tuple(sorted(set(FAMILY_COMPONENT.values())))
-    assert families, "esphome FAMILY_COMPONENT yielded no libretiny families"
+    if not families:
+        raise RuntimeError("esphome FAMILY_COMPONENT yielded no libretiny families")
     return families
 
 
