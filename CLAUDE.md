@@ -216,8 +216,9 @@ upstream-canonical reference for shared concerns (mDNS source dispatch,
 build-info hashes, StorageJSON layout, `CORE` lifecycle, `address_cache`
 semantics). Functional parity is essentially achieved as of 2026-05; the
 one intentional decline is the HA Supervisor `/auth` POST flow (our HA
-add-on path is ingress-only by design — issue #85, inline comment at
-`device_builder.py:419`). Before declaring a new feature complete, check
+add-on path is ingress-only by design; issue #85, in
+`device_builder.py`'s `_warn_front_door_open` / `front_door_open`
+block). Before declaring a new feature complete, check
 the open issue list filtered to "legacy parity".
 
 **Lessons about the comparison itself:** the legacy code is
@@ -446,8 +447,8 @@ against legacy behaviour before assuming the simpler version suffices.
     separate `esphome/home-assistant-addon` repo (metadata-only,
     template-generated); the run script that passes `--ha-addon` is baked
     into the `ghcr.io/esphome/esphome-hassio` image, not that repo. The
-    ingress-only-by-design decline is at `device_builder.py:419` (issue
-    #85).
+    ingress-only-by-design decline lives in `device_builder.py`'s
+    `_warn_front_door_open` / `front_door_open` block (issue #85).
 - **`config_hash` source of truth is `build_info.json`.** ESPHome writes
   `<storage.build_path>/build_info.json` after every successful compile
   *and* every `--only-generate` (the `write_cpp(config)` call runs before
