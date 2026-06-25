@@ -1892,7 +1892,7 @@ _FRONTMATTER_DESCRIPTION = re.compile(
 )
 
 
-def _extract_mdx_description(text: str) -> str:  # noqa: C901
+def _extract_mdx_description(text: str) -> str:
     """Return the curated description for a component MDX file.
 
     Tries the frontmatter ``description:`` field first; falls back to
@@ -1910,30 +1910,45 @@ def _extract_mdx_description(text: str) -> str:  # noqa: C901
         if cleaned:
             return cleaned
 
-    # Fall back to the first prose paragraph.
-    paragraphs: list[str] = []
-    current: list[str] = []
-    for raw_line in body.splitlines():
-        line = raw_line.strip()
-        if not line:
-            if current:
-                paragraphs.append(" ".join(current))
-                current = []
+    for paragraph in _prose_paragraphs(body):
+        # Never surface residual JSX/HTML attribute markup.
+        if "/>" in paragraph or "={" in paragraph:
             continue
-        if line.startswith(("import ", "<", ":::", "#", "```", "{")):
-            if current:
-                paragraphs.append(" ".join(current))
-                current = []
-            continue
-        current.append(line)
-    if current:
-        paragraphs.append(" ".join(current))
-
-    for p in paragraphs:
-        cleaned = _clean_description_text(p)
+        cleaned = _clean_description_text(paragraph)
         if cleaned:
             return cleaned
     return ""
+
+
+def _prose_paragraphs(body: str) -> list[str]:
+    """Split an MDX body into prose paragraphs, dropping import / JSX blocks.
+
+    Skips whole multi-line elements (a wrapped ``<Figure … />`` and its
+    attribute lines), not just the opening tag line.
+    """
+    paragraphs: list[str] = []
+    current: list[str] = []
+    in_jsx_block = False  # inside a wrapped element, e.g. a multi-line <Figure ... />
+    for raw_line in body.splitlines():
+        line = raw_line.strip()
+        if in_jsx_block:
+            # ``/>`` and a bare ``>`` both end in ``>``; either closes the tag.
+            if line.endswith(">"):
+                in_jsx_block = False
+            continue
+        if line and not line.startswith(("import ", "<", ":::", "#", "```", "{")):
+            current.append(line)
+            continue
+        if current:
+            paragraphs.append(" ".join(current))
+            current = []
+        # A tag that opens here but doesn't close on this line starts a
+        # multi-line element whose attribute lines must also be skipped.
+        if line.startswith("<") and not line.endswith(">"):
+            in_jsx_block = True
+    if current:
+        paragraphs.append(" ".join(current))
+    return paragraphs
 
 
 # Markdown link / inline-code stripping for description text.
