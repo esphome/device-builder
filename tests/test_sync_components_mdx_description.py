@@ -107,3 +107,15 @@ import Figure from '@components/Figure.astro';
 />
 """
     assert _extract_mdx_description(text) == ""
+
+
+def test_inline_jsx_in_prose_line_is_skipped() -> None:
+    """The residual-markup guard drops a prose line carrying inline JSX."""
+    # An inline <Figure …/> mid-line doesn't start the line, so the prefix
+    # skip can't catch it; the "/>"/"={" guard rejects the paragraph instead.
+    text = (
+        '---\ntitle: "X"\n---\n\n'
+        'This sensor uses <Figure src={img} alt="" /> for wiring.\n\n'
+        "The clean follow-up paragraph wins.\n"
+    )
+    assert _extract_mdx_description(text) == "The clean follow-up paragraph wins."
