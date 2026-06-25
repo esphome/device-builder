@@ -217,8 +217,9 @@ build-info hashes, StorageJSON layout, `CORE` lifecycle, `address_cache`
 semantics). Functional parity is essentially achieved as of 2026-05; the
 one intentional decline is the HA Supervisor `/auth` POST flow (our HA
 add-on path is ingress-only by design; issue #85, in
-`device_builder.py`'s `_warn_front_door_open` / `front_door_open`
-block). Before declaring a new feature complete, check
+`device_builder.py`'s `_warn_front_door_open`, gated on the
+`DashboardSettings.front_door_open` property in
+`controllers/config/settings.py`). Before declaring a new feature complete, check
 the open issue list filtered to "legacy parity".
 
 **Lessons about the comparison itself:** the legacy code is
@@ -415,7 +416,7 @@ against legacy behaviour before assuming the simpler version suffices.
 
   | Mode | Bind | Auth |
   |---|---|---|
-  | Standalone public (default / Docker) | `--host:--port` (`0.0.0.0:6052`) | password gate (`using_password`), WS in-band `auth` handshake, `--trusted-domains` Origin/Host allowlist |
+  | Standalone public (default / Docker) | `--host:--port` (`0.0.0.0:6052`) | password gate + WS in-band `auth` handshake *only when* `using_password`; with no credentials it runs open and logs a `WITHOUT AUTHENTICATION` banner. `--trusted-domains` Origin/Host allowlist always applies |
   | HA add-on ingress (default add-on) | `ingress_bind_hosts:ingress_port`, loopback + `172.30.32.1` only, NEVER `0.0.0.0` | none in-process by design; the supervisor authenticates upstream, and `ingress_peer_guard` restricts source peers to loopback / `172.30.32.2` |
   | HA add-on public opt-in | public `6052`, `trusted=False, peer_guard=False` | none; requires both `DISABLE_HA_AUTHENTICATION` (`leave_front_door_open`) and a mapped port 6052 (`serve_public_unauthenticated`), Origin gate still active |
 
@@ -448,7 +449,8 @@ against legacy behaviour before assuming the simpler version suffices.
     template-generated); the run script that passes `--ha-addon` is baked
     into the `ghcr.io/esphome/esphome-hassio` image, not that repo. The
     ingress-only-by-design decline lives in `device_builder.py`'s
-    `_warn_front_door_open` / `front_door_open` block (issue #85).
+    `_warn_front_door_open`, gated on the `DashboardSettings.front_door_open`
+    property in `controllers/config/settings.py` (issue #85).
 - **`config_hash` source of truth is `build_info.json`.** ESPHome writes
   `<storage.build_path>/build_info.json` after every successful compile
   *and* every `--only-generate` (the `write_cpp(config)` call runs before
