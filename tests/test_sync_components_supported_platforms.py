@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from script.sync_components import (  # type: ignore[import-not-found]
+    _apply_libretiny_family_provides,
     _derive_supported_platforms,
     _expand_libretiny,
     _libretiny_families,
@@ -17,6 +18,10 @@ _COMPONENTS_INDEX = (
     / "definitions"
     / "components.index.json"
 )
+
+
+def _index_by_id() -> dict[str, dict]:
+    return {c["id"]: c for c in json.loads(_COMPONENTS_INDEX.read_text())["components"]}
 
 
 def test_libretiny_families_non_empty() -> None:
@@ -56,13 +61,40 @@ def test_no_platform_dependency_is_unconstrained() -> None:
     assert _derive_supported_platforms("dht", ["uart"], {}) == []
 
 
+def test_family_platform_provides_libretiny() -> None:
+    entries = [
+        {"id": "bk72xx", "provides": ["libretiny"]},
+        {"id": "rtl87xx", "provides": []},
+        {"id": "ln882x"},
+        {"id": "esp32", "provides": []},
+    ]
+    _apply_libretiny_family_provides(entries)
+    by_id = {e["id"]: e for e in entries}
+    assert by_id["bk72xx"]["provides"] == ["libretiny"]
+    assert by_id["rtl87xx"]["provides"] == ["libretiny"]
+    assert by_id["ln882x"]["provides"] == ["libretiny"]
+    assert by_id["esp32"]["provides"] == []
+
+
 def test_committed_catalog_has_no_libretiny_umbrella_leak() -> None:
-    components = json.loads(_COMPONENTS_INDEX.read_text())["components"]
-    for c in components:
+    for c in _index_by_id().values():
         deps = c.get("dependencies") or []
         platforms = c.get("supported_platforms") or []
         if "libretiny" in deps:
             assert platforms, f"{c['id']} depends on libretiny but is unconstrained"
         assert "libretiny" not in platforms, (
             f"{c['id']} uses the bare 'libretiny' umbrella token; expand to families"
+        )
+
+
+def test_committed_libretiny_umbrella_is_constrained_to_families() -> None:
+    families = list(_libretiny_families())
+    assert _index_by_id()["libretiny"].get("supported_platforms") == families
+
+
+def test_committed_family_platforms_provide_libretiny() -> None:
+    index = _index_by_id()
+    for fam in _libretiny_families():
+        assert "libretiny" in (index[fam].get("provides") or []), (
+            f"{fam} should provide libretiny so its block satisfies the dependency"
         )

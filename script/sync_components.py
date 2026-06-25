@@ -1216,6 +1216,7 @@ def build_catalog(
         _inject_umbrella_entries(out)
 
     _resolve_provides(out, schema_dir)
+    _apply_libretiny_family_provides(out)
 
     # Multi-instance status needs the whole-catalog multi_conf + provides view.
     _apply_auto_loaded_reference_advanced_all(out)
@@ -1307,6 +1308,19 @@ def _resolve_provides(entries: list[dict], schema_dir: Path) -> None:
         entry["provides_id_paths"] = {
             ns: [list(p) for p in sorted(paths)] for ns, paths in sorted(id_paths.items())
         }
+
+
+def _apply_libretiny_family_provides(entries: list[dict]) -> None:
+    """Make every libretiny family platform ``provides`` libretiny.
+
+    The families ``AUTO_LOAD`` libretiny, so an ``rtl87xx:`` block already
+    satisfies a ``libretiny`` dependency; advertising it lets the frontend
+    skip the (invalid) "add a second platform block" prompt.
+    """
+    families = set(_libretiny_families())
+    for entry in entries:
+        if entry["id"] in families and "libretiny" not in entry.get("provides", []):
+            entry["provides"] = sorted({*entry.get("provides", []), "libretiny"})
 
 
 # Matches a description that is actually the first bullet of an MDX
@@ -6096,7 +6110,7 @@ def _apply_platform_constraints(
     def visit(entry: dict, path: tuple[str, ...]) -> None:
         constraint = constraints.get(path)
         if constraint:
-            entry["supported_platforms"] = list(constraint)
+            entry["supported_platforms"] = _expand_libretiny(constraint)
 
     _walk_catalog_entries(entries, visit)
 
@@ -6660,12 +6674,18 @@ def _apply_exclusive_group(entries: list[dict], members: dict[str, bool], group_
 
 @cache
 def _libretiny_families() -> tuple[str, ...]:
-    """Concrete chip families behind the ``libretiny`` umbrella, from esphome."""
-    try:
-        from esphome.components.libretiny.const import FAMILY_COMPONENT
-    except ImportError:
-        return ()
-    return tuple(sorted(set(FAMILY_COMPONENT.values())))
+    """
+    Concrete chip families behind the ``libretiny`` umbrella, from esphome.
+
+    Imported eagerly (not guarded) so a renamed/relocated ``FAMILY_COMPONENT``
+    aborts the sync rather than silently emitting an empty list — an empty
+    expansion would re-leak libretiny components onto every platform.
+    """
+    from esphome.components.libretiny.const import FAMILY_COMPONENT
+
+    families = tuple(sorted(set(FAMILY_COMPONENT.values())))
+    assert families, "esphome FAMILY_COMPONENT yielded no libretiny families"
+    return families
 
 
 def _expand_libretiny(platforms: Iterable[str]) -> list[str]:
