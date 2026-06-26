@@ -151,6 +151,13 @@ def test_load_component_multi_conf_logs_and_empties_on_bad_index(
     assert "components.index.json" in caplog.text
 
 
+def test_load_component_multi_conf_strict_reraises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Strict (sync/CI) builds surface a corrupt index instead of degrading."""
+    monkeypatch.setattr(definitions, "_COMPONENTS_INDEX_JSON", Path("/no/such/index.json"))
+    with pytest.raises(FileNotFoundError):
+        _load_component_multi_conf(strict=True)
+
+
 def test_committed_featured_multi_conf_matches_catalog() -> None:
     """Each committed featured entry's multi_conf mirrors its underlying component."""
     defs = Path(definitions.__file__).parent

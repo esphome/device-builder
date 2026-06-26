@@ -219,14 +219,17 @@ def _resolve_featured_image(raw: object, board_dir: Path) -> str:
     return ""
 
 
-def _load_component_multi_conf() -> dict[str, bool]:
+def _load_component_multi_conf(*, strict: bool = False) -> dict[str, bool]:
     """Map each component id to its ``multi_conf`` from the component index."""
     try:
         components = orjson.loads(_COMPONENTS_INDEX_JSON.read_bytes())["components"]
         return {c["id"]: c.get("multi_conf", False) for c in components}
     except (OSError, ValueError, KeyError, TypeError):
-        # Featured components fall back to multi-conf (won't false-collapse).
+        # Featured components fall back to multi-conf (won't false-collapse);
+        # strict (sync/CI) surfaces a corrupt index instead.
         _LOGGER.exception("Failed to load components.index.json for featured multi_conf")
+        if strict:
+            raise
         return {}
 
 
@@ -303,7 +306,7 @@ def build_board_catalog_from_manifests(*, strict: bool = False) -> BoardCatalogR
     failure is logged.
     """
     boards: list[BoardCatalogEntry] = []
-    multi_conf_by_id = _load_component_multi_conf()
+    multi_conf_by_id = _load_component_multi_conf(strict=strict)
 
     for manifest in sorted(_BOARDS_DIR.glob("*/manifest.yaml")):
         try:
