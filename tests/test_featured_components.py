@@ -125,11 +125,27 @@ def test_load_component_multi_conf_reads_index() -> None:
     assert m["switch.gpio"] is True
 
 
+@pytest.mark.parametrize(
+    "content",
+    [
+        None,  # missing file
+        b"not json",
+        b'{"no_components_key": 1}',
+        b'{"components": "not-a-list"}',  # iterates to chars -> TypeError
+        b'{"components": [{"multi_conf": true}]}',  # entry missing id -> KeyError
+    ],
+)
 def test_load_component_multi_conf_logs_and_empties_on_bad_index(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    content: bytes | None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A missing/corrupt index yields an empty map with a logged warning."""
-    monkeypatch.setattr(definitions, "_COMPONENTS_INDEX_JSON", Path("/no/such/index.json"))
+    """A missing or malformed index yields an empty map with a logged error."""
+    path = tmp_path / "missing.json"
+    if content is not None:
+        path.write_bytes(content)
+    monkeypatch.setattr(definitions, "_COMPONENTS_INDEX_JSON", path)
     with caplog.at_level("ERROR"):
         assert _load_component_multi_conf() == {}
     assert "components.index.json" in caplog.text

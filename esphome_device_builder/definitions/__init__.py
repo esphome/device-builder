@@ -223,11 +223,11 @@ def _load_component_multi_conf() -> dict[str, bool]:
     """Map each component id to its ``multi_conf`` from the component index."""
     try:
         components = orjson.loads(_COMPONENTS_INDEX_JSON.read_bytes())["components"]
-    except (OSError, ValueError, KeyError):
+        return {c["id"]: c.get("multi_conf", False) for c in components}
+    except (OSError, ValueError, KeyError, TypeError):
         # Featured components fall back to multi-conf (won't false-collapse).
         _LOGGER.exception("Failed to load components.index.json for featured multi_conf")
         return {}
-    return {c["id"]: c.get("multi_conf", False) for c in components}
 
 
 def _load_featured_component(
