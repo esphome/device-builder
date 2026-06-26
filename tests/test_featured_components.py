@@ -34,6 +34,7 @@ from esphome_device_builder.controllers.devices.helpers import (
 )
 from esphome_device_builder.definitions import (
     _coerce_field_preset,
+    _load_component_multi_conf,
     _load_featured_bundle,
     _load_featured_component,
 )
@@ -115,6 +116,23 @@ def test_load_featured_component_multi_conf_from_map() -> None:
     assert load("sensor.dht").multi_conf is True
     assert load("ethernet").multi_conf is False
     assert load("nonexistent").multi_conf is True
+
+
+def test_load_component_multi_conf_reads_index() -> None:
+    """The real component index resolves to a non-empty id->multi_conf map."""
+    m = _load_component_multi_conf()
+    assert m["ethernet"] is False
+    assert m["switch.gpio"] is True
+
+
+def test_load_component_multi_conf_logs_and_empties_on_bad_index(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A missing/corrupt index yields an empty map with a logged warning."""
+    monkeypatch.setattr(definitions, "_COMPONENTS_INDEX_JSON", Path("/no/such/index.json"))
+    with caplog.at_level("ERROR"):
+        assert _load_component_multi_conf() == {}
+    assert "components.index.json" in caplog.text
 
 
 def test_committed_featured_multi_conf_matches_catalog() -> None:
