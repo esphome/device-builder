@@ -2113,6 +2113,15 @@ def build_component_entry(
     if domain and stem not in dependencies and _references_own_hub(config_entries, stem):
         dependencies.append(stem)
 
+    # A device that cross-references a bus hub (``spi_id`` / ``i2c_id`` /
+    # ``uart_id``) needs that bus block to exist; ESPHome enforces it at config
+    # time but doesn't always list it in ``DEPENDENCIES`` (atm90e32, max6675,
+    # i2c touchscreens), so the schema index ships them bus-less and the
+    # frontend never prompts to add the bus. Union the referenced bus back in.
+    for bus in sorted(_referenced_buses(config_entries)):
+        if bus not in dependencies:
+            dependencies.append(bus)
+
     # Drop deps the chosen networking transport will auto-load. See
     # ``_implicit_dependencies``.
     implicit = _implicit_dependencies()
@@ -5173,6 +5182,19 @@ def _references_own_hub(config_entries: list[dict], stem: str) -> bool:
 
     _walk_catalog_entries(config_entries, visit)
     return found
+
+
+def _referenced_buses(config_entries: list[dict]) -> set[str]:
+    """Bus components (``i2c`` / ``spi`` / ``uart`` / ...) a config var cross-references via use_id."""
+    buses: set[str] = set()
+
+    def visit(entry: dict, _path: tuple[str, ...]) -> None:
+        ref = entry.get("references_component")
+        if ref is not None and _CATEGORY_OVERRIDES.get(ref) == "bus":
+            buses.add(ref)
+
+    _walk_catalog_entries(config_entries, visit)
+    return buses
 
 
 # Capability validators ESPHome wraps a pin field in when the pin must
