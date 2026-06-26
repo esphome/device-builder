@@ -26,6 +26,7 @@ import pytest
 
 from esphome_device_builder import definitions
 from esphome_device_builder.controllers.components import ComponentCatalog
+from esphome_device_builder.controllers.components._resolve import _apply_preset_value
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.devices._state import DevicesState
 from esphome_device_builder.controllers.devices.helpers import (
@@ -40,7 +41,7 @@ from esphome_device_builder.definitions import (
 )
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.yaml import generate_component_yaml
-from esphome_device_builder.models import ComponentCategory, ErrorCode
+from esphome_device_builder.models import ComponentCategory, ConfigEntry, ConfigEntryType, ErrorCode
 from esphome_device_builder.models.boards import FeaturedComponent
 from esphome_device_builder.models.common import FieldPreset
 
@@ -54,6 +55,48 @@ pytestmark = pytest.mark.xdist_group("catalog")
 # ---------------------------------------------------------------------------
 # Loader-level (pure unit tests, no catalog)
 # ---------------------------------------------------------------------------
+
+
+def test_apply_preset_value_recurses_nested_dict() -> None:
+    """A dict on a NESTED group lands on leaves; a pin entry keeps its dict verbatim."""
+    nested = ConfigEntry(
+        key="clk",
+        label="Clk",
+        type=ConfigEntryType.NESTED,
+        config_entries=[
+            ConfigEntry(key="pin", label="Pin", type=ConfigEntryType.PIN),
+            ConfigEntry(key="mode", label="Mode", type=ConfigEntryType.STRING),
+        ],
+    )
+    _apply_preset_value(nested, {"pin": "GPIO17", "mode": "CLK_OUT"}, locked=True)
+    assert nested.default_value is None
+    assert nested.from_preset is True
+    assert [(c.default_value, c.locked, c.from_preset) for c in nested.config_entries] == [
+        ("GPIO17", True, True),
+        ("CLK_OUT", True, True),
+    ]
+
+    pin = ConfigEntry(key="power_pin", label="Power Pin", type=ConfigEntryType.PIN)
+    _apply_preset_value(pin, {"number": "GPIO12"}, locked=True)
+    assert pin.default_value == {"number": "GPIO12"}
+    assert pin.from_preset is True
+
+
+def test_apply_preset_value_logs_unmatched_nested_key(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A preset dict key with no matching child is dropped but logged for diagnosis."""
+    nested = ConfigEntry(
+        key="clk",
+        label="Clk",
+        type=ConfigEntryType.NESTED,
+        config_entries=[ConfigEntry(key="pin", label="Pin", type=ConfigEntryType.PIN)],
+    )
+    with caplog.at_level("DEBUG"):
+        _apply_preset_value(nested, {"pin": "GPIO17", "pn": "typo"}, locked=True)
+    assert nested.config_entries[0].default_value == "GPIO17"
+    assert "no matching child" in caplog.text
+    assert "pn" in caplog.text
 
 
 def test_coerce_primitive_shorthand() -> None:
@@ -282,6 +325,23 @@ async def test_get_component_id_from_manifest_field(catalog: ComponentCatalog) -
     id_field = next(ce for ce in entry.config_entries if ce.key == "id")
     assert id_field.default_value == "button"
     assert id_field.locked is False
+
+
+async def test_get_component_nested_preset_reaches_leaves(catalog: ComponentCatalog) -> None:
+    """A dict preset on a NESTED group (esp32-poe-iso ``clk``) lands on its leaf children."""
+    entry = await catalog.get_component(component_id="featured.esp32-poe-iso.onboard_ethernet")
+    assert entry is not None
+    clk = next(ce for ce in entry.config_entries if ce.key == "clk")
+    pin = next(ce for ce in clk.config_entries if ce.key == "pin")
+    mode = next(ce for ce in clk.config_entries if ce.key == "mode")
+    assert (pin.default_value, pin.locked, pin.from_preset) == ("GPIO17", True, True)
+    assert (mode.default_value, mode.locked, mode.from_preset) == ("CLK_OUT", True, True)
+    # A ``pin``-typed group keeps its dict value verbatim (the pin renderer reads it).
+    power_pin = next(ce for ce in entry.config_entries if ce.key == "power_pin")
+    assert power_pin.default_value == {"number": "GPIO12", "ignore_strapping_warning": True}
+    # Plain catalog defaults stay unmarked so the add form doesn't seed them.
+    clock_speed = next(ce for ce in entry.config_entries if ce.key == "clock_speed")
+    assert clock_speed.from_preset is False
 
 
 async def test_get_component_name_from_manifest_field(

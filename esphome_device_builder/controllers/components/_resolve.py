@@ -14,6 +14,7 @@ from ...models import (
     ComponentCatalogIndexEntry,
     ComponentCategory,
     ConfigEntry,
+    ConfigEntryType,
     FeaturedComponent,
     FieldPreset,
 )
@@ -164,12 +165,38 @@ def _materialise_entry_with_preset(
     base = _materialise_entry(entry, target_platform, target_variant)
     if preset is None:
         return base
-    if preset.value is not None:
-        base.default_value = preset.value  # type: ignore[assignment]
-    base.locked = preset.locked
+    _apply_preset_value(base, preset.value, locked=preset.locked)
     if preset.suggestions is not None:
         base.suggestions = list(preset.suggestions)
     return base
+
+
+def _apply_preset_value(entry: ConfigEntry, value: object, *, locked: bool) -> None:
+    """Stamp *value* / *locked* onto *entry*, recursing a dict into a NESTED group's leaves."""
+    entry.from_preset = True
+    if (
+        entry.type == ConfigEntryType.NESTED
+        and not entry.multi_value
+        and isinstance(value, dict)
+        and entry.config_entries
+    ):
+        unmatched = value.keys() - {child.key for child in entry.config_entries}
+        if unmatched:
+            # A curated-manifest typo or a leaf renamed by an upstream re-sync;
+            # the value would otherwise vanish with no signal.
+            _LOGGER.debug(
+                "Featured preset for %r has keys with no matching child: %s",
+                entry.key,
+                sorted(unmatched),
+            )
+        for child in entry.config_entries:
+            if child.key in value:
+                _apply_preset_value(child, value[child.key], locked=locked)
+        entry.locked = locked
+        return
+    if value is not None:
+        entry.default_value = value  # type: ignore[assignment]
+    entry.locked = locked
 
 
 # ---------------------------------------------------------------------------
